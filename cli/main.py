@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import typer
 
-from cli.commands import deploy, validate, list_cmd, describe
+from cli.commands import deploy, validate, list_cmd, describe, search
 
 app = typer.Typer(
     name="garden",
@@ -24,6 +24,7 @@ app.command(name="deploy")(deploy.deploy)
 app.command(name="validate")(validate.validate)
 app.command(name="list")(list_cmd.list_entities)
 app.command(name="describe")(describe.describe)
+app.command(name="search")(search.search)
 
 
 if __name__ == "__main__":
