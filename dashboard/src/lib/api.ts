@@ -1,0 +1,111 @@
+/** API client for Agent Garden backend. */
+
+const BASE = "/api/v1";
+
+export interface ApiMeta {
+  page: number;
+  per_page: number;
+  total: number;
+}
+
+export interface ApiResponse<T> {
+  data: T;
+  meta: ApiMeta;
+  errors: string[];
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse<T>> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `API error ${res.status}`);
+  }
+  return res.json();
+}
+
+// --- Agent types ---
+
+export type AgentStatus = "deploying" | "running" | "stopped" | "failed";
+
+export interface Agent {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  team: string;
+  owner: string;
+  framework: string;
+  model_primary: string;
+  model_fallback: string | null;
+  endpoint_url: string | null;
+  status: AgentStatus;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+// --- Tool types ---
+
+export interface Tool {
+  id: string;
+  name: string;
+  description: string;
+  tool_type: string;
+  endpoint: string | null;
+  status: string;
+  source: string;
+  created_at: string;
+}
+
+// --- Search types ---
+
+export interface SearchResult {
+  entity_type: string;
+  id: string;
+  name: string;
+  description: string;
+  team: string | null;
+  score: number;
+}
+
+// --- API functions ---
+
+export const api = {
+  agents: {
+    list: (params?: {
+      team?: string;
+      framework?: string;
+      status?: AgentStatus;
+      page?: number;
+      per_page?: number;
+    }) => {
+      const sp = new URLSearchParams();
+      if (params?.team) sp.set("team", params.team);
+      if (params?.framework) sp.set("framework", params.framework);
+      if (params?.status) sp.set("status", params.status);
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.per_page) sp.set("per_page", String(params.per_page));
+      const qs = sp.toString();
+      return request<Agent[]>(`/agents${qs ? `?${qs}` : ""}`);
+    },
+    get: (id: string) => request<Agent>(`/agents/${id}`),
+    search: (q: string, page = 1) =>
+      request<Agent[]>(`/agents/search?q=${encodeURIComponent(q)}&page=${page}`),
+  },
+  tools: {
+    list: (params?: { tool_type?: string; source?: string; page?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.tool_type) sp.set("tool_type", params.tool_type);
+      if (params?.source) sp.set("source", params.source);
+      if (params?.page) sp.set("page", String(params.page));
+      const qs = sp.toString();
+      return request<Tool[]>(`/registry/tools${qs ? `?${qs}` : ""}`);
+    },
+  },
+  search: (q: string) =>
+    request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),
+  health: () => fetch("/health").then((r) => r.json()),
+};
