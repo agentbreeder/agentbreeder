@@ -121,7 +121,7 @@ class TestListCommand:
         assert output[0]["name"] == "agent-a"
 
     def test_list_unsupported_entity(self) -> None:
-        result = runner.invoke(app, ["list", "tools"])
+        result = runner.invoke(app, ["list", "prompts"])
         assert result.exit_code == 0
         assert "not yet implemented" in result.output
 
