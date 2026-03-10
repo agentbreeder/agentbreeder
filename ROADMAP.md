@@ -136,36 +136,36 @@ The CLI is the product for v0.1. It must be excellent.
 
 A read-only dashboard to browse the registry. Not feature-complete — just good enough to show value.
 
-#### 4.1 — Dashboard Foundation
-- [x] React + TypeScript + Tailwind v4 setup (Vite)
-- [x] shadcn/ui component library initialized (button, badge, input, table, dialog, separator, dropdown-menu, avatar, tooltip, tabs, card)
-- [x] Geist font (Vercel aesthetic)
-- [x] Dark mode CSS variables configured
-- [x] Path aliases (@/\*) configured
-- [x] Vite proxy to API (localhost:8000)
-- [x] React Router, TanStack Query, Lucide icons installed
-- [x] shadcn/ui MCP server configured for dev tooling
-- [x] Magic UI MCP server configured for animated components
-- [ ] Authentication (login page, JWT handling)
-- [x] Navigation: Agents, Tools, Models, Prompts (sidebar + breadcrumbs + command search ⌘K)
-- [x] Agent list page: searchable, filterable by team/status/framework
-- [x] Agent detail page: config, endpoint, last deploy, framework, model used
-- [x] Tool registry page: MCP servers with schema viewer
+#### ✅ 4.1 — Dashboard Foundation — COMPLETE
+- [x] React 19 + TypeScript 5.9 + Tailwind v4 setup (Vite 7)
+- [x] shadcn/ui component library (button, badge, input, table, dialog, separator, dropdown-menu, avatar, tooltip, tabs, card)
+- [x] Geist font (Vercel aesthetic), oklch color space, dark mode CSS variables
+- [x] Path aliases (@/\*), Vite proxy to API (localhost:8000)
+- [x] React Router, TanStack Query, Lucide icons
+- [x] shadcn/ui + Magic UI MCP servers configured for dev tooling
+- [x] App shell: sidebar navigation, breadcrumbs, command search (⌘K)
+- [x] Home overview page: stats cards (agents, tools, running), recent agents list
+- [x] Agent list page: searchable, filterable by team/status/framework, status indicators
+- [x] Agent detail page: overview tab (config, metadata, endpoint copy), deploy history + logs tabs (placeholder)
+- [x] Tool registry page: grid cards with type/source filters, expandable endpoint details
+- [x] Global search page with cross-entity results (agents + tools)
+- [x] Dark mode toggle (3-way: dark/light/system with localStorage persistence)
 - [x] Responsive design (desktop-first, mobile-functional)
-- [x] Dark mode toggle (3-way: dark/light/system)
-- [x] Home overview page: stats cards, recent agents
-- [x] Global search page with cross-entity results
+- [x] Typed API client (`src/lib/api.ts`) with React Query integration
+- [x] Placeholder pages for Models, Prompts, Deploys (ready for 4.2)
 - [x] Playwright E2E tests: 16 tests covering shell, agents, tools pages
 
 **Design reference:** Linear.app / Vercel dashboard aesthetic. Professional, not consumer.
-**Design tooling:** shadcn/ui + Magic UI MCP servers for component generation.
 
-#### 4.2 — Dashboard: Deploy Status View
+#### 4.2 — Dashboard: Deploy Status & Auth
+- [ ] Authentication (login page, JWT handling)
 - [ ] Real-time deploy status (polling or WebSocket)
 - [ ] Deploy progress visualization (8-step pipeline with icons)
 - [ ] Deploy history for each agent
 - [ ] Error display with actionable messages
 - [ ] Link to cloud console for deployed resource
+- [ ] Models registry page
+- [ ] Prompts registry page
 
 **Done when:** A non-engineer can open the dashboard and understand what agents are deployed and their status.
 
@@ -455,6 +455,6 @@ The following are explicitly NOT in scope until v1.0 or later, to keep focus:
 
 ---
 
-*Last updated: March 9, 2026 — M1-M3 complete, M4 (Dashboard) in progress*
+*Last updated: March 9, 2026 — M1-M3 complete, M4.1 (Dashboard Foundation) complete, M4.2 in progress*
 *Roadmap is directional. Dates are targets, not commitments.*
 *Follow releases on GitHub: github.com/agenthub-oss/agenthub/releases*

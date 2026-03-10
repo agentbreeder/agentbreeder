@@ -157,6 +157,7 @@ class DeployRequest(BaseModel):
 class DeployJobResponse(BaseModel):
     id: uuid.UUID
     agent_id: uuid.UUID
+    agent_name: str | None = None
     status: DeployJobStatus
     target: str
     error_message: str | None

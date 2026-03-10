@@ -60,6 +60,54 @@ export interface Tool {
   created_at: string;
 }
 
+// --- Model types ---
+
+export interface Model {
+  id: string;
+  name: string;
+  provider: string;
+  description: string;
+  status: string;
+  source: string;
+  created_at: string;
+}
+
+// --- Prompt types ---
+
+export interface Prompt {
+  id: string;
+  name: string;
+  version: string;
+  content: string;
+  description: string;
+  team: string;
+  created_at: string;
+}
+
+// --- Deploy types ---
+
+export type DeployJobStatus =
+  | "pending"
+  | "parsing"
+  | "building"
+  | "provisioning"
+  | "deploying"
+  | "health_checking"
+  | "registering"
+  | "completed"
+  | "failed";
+
+export interface DeployJob {
+  id: string;
+  agent_id: string;
+  agent_name: string | null;
+  status: DeployJobStatus;
+  target: string;
+  error_message: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
 // --- Search types ---
 
 export interface SearchResult {
@@ -104,6 +152,42 @@ export const api = {
       const qs = sp.toString();
       return request<Tool[]>(`/registry/tools${qs ? `?${qs}` : ""}`);
     },
+  },
+  models: {
+    list: (params?: { provider?: string; source?: string; page?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.provider) sp.set("provider", params.provider);
+      if (params?.source) sp.set("source", params.source);
+      if (params?.page) sp.set("page", String(params.page));
+      const qs = sp.toString();
+      return request<Model[]>(`/registry/models${qs ? `?${qs}` : ""}`);
+    },
+  },
+  prompts: {
+    list: (params?: { team?: string; page?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.team) sp.set("team", params.team);
+      if (params?.page) sp.set("page", String(params.page));
+      const qs = sp.toString();
+      return request<Prompt[]>(`/registry/prompts${qs ? `?${qs}` : ""}`);
+    },
+  },
+  deploys: {
+    list: (params?: {
+      agent_id?: string;
+      status?: DeployJobStatus;
+      page?: number;
+      per_page?: number;
+    }) => {
+      const sp = new URLSearchParams();
+      if (params?.agent_id) sp.set("agent_id", params.agent_id);
+      if (params?.status) sp.set("status", params.status);
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.per_page) sp.set("per_page", String(params.per_page));
+      const qs = sp.toString();
+      return request<DeployJob[]>(`/deploys${qs ? `?${qs}` : ""}`);
+    },
+    get: (id: string) => request<DeployJob>(`/deploys/${id}`),
   },
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),

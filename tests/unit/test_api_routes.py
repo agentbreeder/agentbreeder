@@ -287,11 +287,21 @@ class TestRegisterTool:
 
 
 class TestSearchRegistry:
+    @patch("api.routes.registry.PromptRegistry.search", new_callable=AsyncMock)
+    @patch("api.routes.registry.ModelRegistry.search", new_callable=AsyncMock)
     @patch("api.routes.registry.ToolRegistry.search", new_callable=AsyncMock)
     @patch("api.routes.registry.AgentRegistry.search", new_callable=AsyncMock)
-    def test_search_across_entities(self, mock_agent_search: AsyncMock, mock_tool_search: AsyncMock) -> None:
+    def test_search_across_entities(
+        self,
+        mock_agent_search: AsyncMock,
+        mock_tool_search: AsyncMock,
+        mock_model_search: AsyncMock,
+        mock_prompt_search: AsyncMock,
+    ) -> None:
         mock_agent_search.return_value = ([_make_agent("customer-bot")], 1)
         mock_tool_search.return_value = ([_make_tool("zendesk-mcp")], 1)
+        mock_model_search.return_value = ([], 0)
+        mock_prompt_search.return_value = ([], 0)
         resp = client.get("/api/v1/registry/search", params={"q": "customer"})
         assert resp.status_code == 200
         data = resp.json()["data"]
@@ -304,11 +314,21 @@ class TestSearchRegistry:
         resp = client.get("/api/v1/registry/search")
         assert resp.status_code == 422
 
+    @patch("api.routes.registry.PromptRegistry.search", new_callable=AsyncMock)
+    @patch("api.routes.registry.ModelRegistry.search", new_callable=AsyncMock)
     @patch("api.routes.registry.ToolRegistry.search", new_callable=AsyncMock)
     @patch("api.routes.registry.AgentRegistry.search", new_callable=AsyncMock)
-    def test_search_no_results(self, mock_agent: AsyncMock, mock_tool: AsyncMock) -> None:
+    def test_search_no_results(
+        self,
+        mock_agent: AsyncMock,
+        mock_tool: AsyncMock,
+        mock_model: AsyncMock,
+        mock_prompt: AsyncMock,
+    ) -> None:
         mock_agent.return_value = ([], 0)
         mock_tool.return_value = ([], 0)
+        mock_model.return_value = ([], 0)
+        mock_prompt.return_value = ([], 0)
         resp = client.get("/api/v1/registry/search", params={"q": "nonexistent"})
         assert resp.status_code == 200
         assert resp.json()["data"] == []

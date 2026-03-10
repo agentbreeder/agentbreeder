@@ -5,8 +5,10 @@ import HomePage from "@/pages/home";
 import AgentsPage from "@/pages/agents";
 import AgentDetailPage from "@/pages/agent-detail";
 import ToolsPage from "@/pages/tools";
+import ModelsPage from "@/pages/models";
+import PromptsPage from "@/pages/prompts";
+import DeploysPage from "@/pages/deploys";
 import SearchPage from "@/pages/search";
-import PlaceholderPage from "@/pages/placeholder";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,9 +29,9 @@ export default function App() {
             <Route path="agents" element={<AgentsPage />} />
             <Route path="agents/:id" element={<AgentDetailPage />} />
             <Route path="tools" element={<ToolsPage />} />
-            <Route path="models" element={<PlaceholderPage />} />
-            <Route path="prompts" element={<PlaceholderPage />} />
-            <Route path="deploys" element={<PlaceholderPage />} />
+            <Route path="models" element={<ModelsPage />} />
+            <Route path="prompts" element={<PromptsPage />} />
+            <Route path="deploys" element={<DeploysPage />} />
             <Route path="search" element={<SearchPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
