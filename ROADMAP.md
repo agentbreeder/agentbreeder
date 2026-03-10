@@ -175,34 +175,34 @@ A read-only dashboard to browse the registry. Not feature-complete — just good
 
 ---
 
-### ✅ Milestone 5: v0.1 Release Readiness (Week 9–10)
+### 🚧 Milestone 5: v0.1 Release Readiness (Week 9–10) — IN PROGRESS
 
 Everything needed to ship publicly.
 
 #### 5.1 — Documentation
-- [ ] `README.md` — complete with badges, quick start, architecture diagram
-- [ ] `docs/quickstart.md` — 10-minute tutorial from zero to deployed agent
-- [ ] `docs/agenthub-yaml.md` — complete field reference
-- [ ] `docs/cli-reference.md` — every command documented
-- [ ] `docs/local-development.md` — contributor setup guide
-- [ ] `CONTRIBUTING.md` — how to contribute (deployers, runtimes, connectors, templates)
+- [x] `README.md` — complete with badges, quick start, architecture diagram
+- [x] `docs/quickstart.md` — 10-minute tutorial from zero to deployed agent
+- [x] `docs/agenthub-yaml.md` — complete field reference
+- [x] `docs/cli-reference.md` — every command documented
+- [x] `docs/local-development.md` — contributor setup guide
+- [x] `CONTRIBUTING.md` — how to contribute (deployers, runtimes, connectors, templates)
 - [ ] `docs/examples/` — 3 complete end-to-end tutorials
 
 #### 5.2 — CI/CD & Quality Gates
-- [ ] GitHub Actions: lint (ruff, mypy) on every PR
-- [ ] GitHub Actions: unit tests on every PR (must pass)
-- [ ] GitHub Actions: integration tests on merge to main
-- [ ] GitHub Actions: Docker build verification
-- [ ] PR template with checklist
+- [x] GitHub Actions: lint (ruff, mypy) on every PR
+- [x] GitHub Actions: unit tests on every PR (must pass)
+- [x] GitHub Actions: E2E tests (Playwright)
+- [x] GitHub Actions: Docker build verification
+- [x] PR template with checklist
 - [ ] Branch protection: require review + CI pass
-- [ ] Code coverage badge (target: 80%+)
+- [x] Code coverage badge (target: 80%+) + Codecov integration
 
 #### 5.3 — Community Infrastructure
 - [ ] GitHub Discussions enabled
-- [ ] Issue templates: Bug Report, Feature Request, New Deployer, New Framework
+- [x] Issue templates: Bug Report, Feature Request, New Deployer, New Framework
 - [ ] Discord server with channels: #general, #help, #contribute, #releases, #show-and-tell
 - [ ] Weekly office hours (async, Discord)
-- [ ] `SECURITY.md` — responsible disclosure policy
+- [x] `SECURITY.md` — responsible disclosure policy
 
 #### 5.4 — v0.1 Launch Assets
 - [ ] Hacker News launch post (draft)

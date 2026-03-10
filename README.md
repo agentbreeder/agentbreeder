@@ -2,6 +2,8 @@
 
 **Define Once. Deploy Anywhere. Govern Automatically.**
 
+[![CI](https://github.com/open-agent-garden/agent-garden/actions/workflows/ci.yml/badge.svg)](https://github.com/open-agent-garden/agent-garden/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/open-agent-garden/agent-garden/graph/badge.svg)](https://codecov.io/gh/open-agent-garden/agent-garden)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -181,12 +183,14 @@ See [CLAUDE.md](CLAUDE.md) for the fully annotated project structure and coding 
 
 | Doc | Description |
 |-----|-------------|
-| [CLAUDE.md](CLAUDE.md) | AI development guide — project structure, coding standards, API conventions |
-| [AGENT.md](AGENT.md) | AI skill library — 20+ reusable skills for building, testing, deploying |
-| [ROADMAP.md](ROADMAP.md) | Release plan — v0.1 through v1.0 with milestones and success metrics |
+| [Quick Start](docs/quickstart.md) | 10-minute guide from zero to deployed agent |
+| [CLI Reference](docs/cli-reference.md) | Every command documented with examples |
+| [agent.yaml Reference](docs/agenthub-yaml.md) | Complete field reference for the config file |
+| [Local Development](docs/local-development.md) | Contributor setup guide |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture — deploy pipeline, abstractions, data model |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor guide — setup, standards, how to add deployers/runtimes |
-| [SECURITY.md](SECURITY.md) | Security policy — reporting vulnerabilities, security considerations |
+| [ROADMAP.md](ROADMAP.md) | Release plan — v0.1 through v1.0 with milestones and success metrics |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor guide — standards, how to add deployers/runtimes |
+| [SECURITY.md](SECURITY.md) | Security policy — reporting vulnerabilities |
 
 ---
 

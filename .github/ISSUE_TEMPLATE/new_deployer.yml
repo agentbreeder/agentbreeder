@@ -1,0 +1,52 @@
+name: New Deployer
+description: Propose or contribute a new cloud deployer
+labels: ["type:feature", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Want to add a new deploy target? Great! Please describe the deployer below and check the [CONTRIBUTING.md](../../CONTRIBUTING.md) guide for the deployer interface.
+
+  - type: input
+    id: cloud
+    attributes:
+      label: Cloud provider / platform
+      placeholder: "e.g., Azure Container Apps, Fly.io, Railway"
+    validations:
+      required: true
+
+  - type: input
+    id: runtime
+    attributes:
+      label: Target runtime
+      placeholder: "e.g., Azure Container Instances, Fly Machines"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: How would this deployer work? What infrastructure does it provision?
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Example agenthub.yaml config
+      description: What would the deploy section look like?
+      render: yaml
+      placeholder: |
+        deploy:
+          cloud: azure
+          runtime: container-apps
+          region: eastus
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Are you willing to contribute this?
+      options:
+        - label: I'd like to implement this myself
+        - label: I need help implementing this

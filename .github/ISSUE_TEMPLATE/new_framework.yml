@@ -1,0 +1,51 @@
+name: New Framework Runtime
+description: Propose or contribute support for a new agent framework
+labels: ["type:feature", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Want to add support for a new agent framework? Describe it below and check the [CONTRIBUTING.md](../../CONTRIBUTING.md) guide for the RuntimeBuilder interface.
+
+  - type: input
+    id: framework
+    attributes:
+      label: Framework name
+      placeholder: "e.g., AutoGen, Semantic Kernel, Haystack"
+    validations:
+      required: true
+
+  - type: input
+    id: url
+    attributes:
+      label: Framework URL
+      placeholder: "https://github.com/..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: How does this framework define agents? What makes it unique?
+    validations:
+      required: true
+
+  - type: textarea
+    id: entrypoint
+    attributes:
+      label: Typical entrypoint
+      description: How is an agent in this framework typically started?
+      render: python
+      placeholder: |
+        from framework import Agent
+        agent = Agent(...)
+        agent.run()
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Are you willing to contribute this?
+      options:
+        - label: I'd like to implement this myself
+        - label: I need help implementing this

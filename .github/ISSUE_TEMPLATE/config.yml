@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Ideas
+    url: https://github.com/open-agent-garden/agent-garden/discussions
+    about: Ask questions or share ideas in Discussions (not Issues)
