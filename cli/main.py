@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import typer
 
-from cli.commands import deploy, validate, list_cmd, describe, search, scan, init_cmd, logs, status, teardown
+from cli.commands import deploy, validate, list_cmd, describe, search, scan, init_cmd, logs, status, teardown, provider
 
 app = typer.Typer(
     name="garden",
@@ -30,6 +30,7 @@ app.command(name="scan")(scan.scan)
 app.command(name="logs")(logs.logs)
 app.command(name="status")(status.status)
 app.command(name="teardown")(teardown.teardown)
+app.add_typer(provider.provider_app, name="provider")
 
 
 if __name__ == "__main__":
