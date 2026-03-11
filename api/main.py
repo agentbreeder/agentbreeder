@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import agents, auth, deploys, registry
+from api.routes import agents, auth, deploys, providers, registry
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,6 +68,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(agents.router)
 app.include_router(deploys.router)
+app.include_router(providers.router)
 app.include_router(registry.router)
 
 

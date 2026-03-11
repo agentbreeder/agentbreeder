@@ -37,3 +37,18 @@ class RegistryEntityType(str, enum.Enum):
     model = "model"
     prompt = "prompt"
     knowledge_base = "knowledge_base"
+
+
+class ProviderType(str, enum.Enum):
+    openai = "openai"
+    anthropic = "anthropic"
+    google = "google"
+    ollama = "ollama"
+    litellm = "litellm"
+    openrouter = "openrouter"
+
+
+class ProviderStatus(str, enum.Enum):
+    active = "active"
+    disabled = "disabled"
+    error = "error"

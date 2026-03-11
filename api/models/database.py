@@ -5,11 +5,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String, Text, func
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from api.models.enums import AgentStatus, DeployJobStatus, UserRole
+from api.models.enums import AgentStatus, DeployJobStatus, ProviderStatus, ProviderType, UserRole
 
 
 class Base(DeclarativeBase):
@@ -190,4 +190,38 @@ class KnowledgeBase(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Provider(Base):
+    """An LLM provider configuration (e.g. OpenAI, Anthropic, Ollama)."""
+
+    __tablename__ = "providers"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    provider_type: Mapped[ProviderType] = mapped_column(
+        Enum(ProviderType), nullable=False
+    )
+    base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[ProviderStatus] = mapped_column(
+        Enum(ProviderStatus), default=ProviderStatus.active, nullable=False
+    )
+    last_verified: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_providers_provider_type", "provider_type"),
     )

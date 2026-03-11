@@ -8,7 +8,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
-from api.models.enums import AgentStatus, DeployJobStatus, UserRole
+from api.models.enums import AgentStatus, DeployJobStatus, ProviderStatus, ProviderType, UserRole
 
 T = TypeVar("T")
 
@@ -197,6 +197,51 @@ class DeployJobResponse(BaseModel):
     completed_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+
+# --- Provider Schemas ---
+
+
+class ProviderCreate(BaseModel):
+    name: str
+    provider_type: ProviderType
+    base_url: str | None = None
+    config: dict[str, Any] | None = None
+
+
+class ProviderUpdate(BaseModel):
+    name: str | None = None
+    base_url: str | None = None
+    status: ProviderStatus | None = None
+    config: dict[str, Any] | None = None
+
+
+class ProviderResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    provider_type: ProviderType
+    base_url: str | None
+    status: ProviderStatus
+    last_verified: datetime | None
+    latency_ms: int | None
+    model_count: int
+    config: dict[str, Any] | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ProviderTestResult(BaseModel):
+    success: bool
+    latency_ms: int | None = None
+    model_count: int | None = None
+    error: str | None = None
+
+
+class ProviderDiscoverResult(BaseModel):
+    models: list[str]
+    total: int
 
 
 # --- Search ---
