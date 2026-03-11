@@ -12,7 +12,7 @@
 |---------|------|-------|------------|--------|
 | **v0.1** | Foundation | CLI + Registry + Basic Dashboard | M1–M5 | Done |
 | **v0.2** | Registry UI | Rich registry pages, YAML editor, prompt manager | M6–M7 | Next |
-| **v0.3** | Builders | All builders + Git workflow + approval + environments + playground + SDK examples | M8–M13 | Planned |
+| **v0.3** | Builders | All builders + Git workflow + approval + environments + playground + 2 SDK examples (LangGraph, OpenAI Agents) | M8–M13 | Planned |
 | **v0.4** | Observability | Tracing (Langfuse/MLflow), cost monitoring, RBAC, audit trail, lineage | M14–M17 | Planned |
 | **v0.5** | Evaluation | Eval framework, golden datasets, regression detection, CI gates, feedback loop | M18 | Planned |
 | **v0.6** | Connectivity | A2A protocol, MCP server hub, multi-agent orchestration | M19–M20 | Planned |
@@ -562,10 +562,7 @@ $ garden init my-agent
 
   ? Framework: (use arrows)
     ❯ LangGraph / DeepAgent
-      Google ADK
       OpenAI Agents SDK
-      CrewAI
-      Claude SDK
       YAML-only (no code)
 
   ? Default model provider:
@@ -604,7 +601,7 @@ $ garden init my-workspace --workspace
   ? How many agents to start with: 2
 
   ? Agent 1 name: research-agent
-  ? Agent 1 framework: Google ADK
+  ? Agent 1 framework: LangGraph / DeepAgent
 
   ? Agent 2 name: summarizer-agent
   ? Agent 2 framework: YAML-only
@@ -1600,15 +1597,20 @@ The agent builder is the capstone — it pulls from every other registry to asse
 
 Each example is a complete, working agent with `agent.yaml`, source code, `requirements.txt`, and a README.
 
-#### Supported SDKs (v1.0)
+#### Supported SDKs (v0.3 — First Release)
 
-| SDK | Example | Runtime Builder | Priority |
-|-----|---------|----------------|----------|
-| **Google ADK** | `examples/google-adk-agent/` | `engine/runtimes/google_adk.py` | P0 |
-| **LangGraph / DeepAgent** | `examples/langgraph-agent/` (exists) | `engine/runtimes/langgraph.py` (exists) | P0 |
-| **OpenAI Agents SDK** | `examples/openai-agents-agent/` | `engine/runtimes/openai_agents.py` | P0 |
-| **CrewAI** | `examples/crewai-agent/` | `engine/runtimes/crewai.py` | P0 |
-| **Claude SDK** | `examples/claude-sdk-agent/` | `engine/runtimes/claude_sdk.py` | P0 |
+| SDK | Example | Runtime Builder | Priority | Rationale |
+|-----|---------|----------------|----------|-----------|
+| **LangGraph / DeepAgent** | `examples/langgraph-agent/` (exists) | `engine/runtimes/langgraph.py` (exists) | P0 (v0.3) | Largest community, complex graph model proves runtime abstraction |
+| **OpenAI Agents SDK** | `examples/openai-agents-agent/` | `engine/runtimes/openai_agents.py` | P0 (v0.3) | Largest enterprise footprint, simple model contrasts LangGraph |
+
+#### Next SDKs (v1.0)
+
+| SDK | Example | Runtime Builder | Priority | Notes |
+|-----|---------|----------------|----------|-------|
+| **Google ADK** | `examples/google-adk-agent/` | `engine/runtimes/google_adk.py` | P1 | Strong contender, growing fast with Gemini adoption |
+| **CrewAI** | `examples/crewai-agent/` | `engine/runtimes/crewai.py` | P2 | Popular for multi-agent, but narrower use case |
+| **Claude SDK** | `examples/claude-sdk-agent/` | `engine/runtimes/claude_sdk.py` | P2 | Excellent SDK, smaller market share currently |
 
 #### Later SDKs (post v1.0)
 
@@ -1620,20 +1622,22 @@ Each example is a complete, working agent with `agent.yaml`, source code, `requi
 | AutoGen | Microsoft multi-agent |
 | Custom | Any Python agent with HTTP interface |
 
-#### 13.1 — Examples (1 per SDK)
+#### 13.1 — Examples (v0.3 — ship with 2 SDKs)
 - [ ] `examples/langgraph-agent/` — LangGraph / DeepAgent (polish existing)
-- [ ] `examples/google-adk-agent/` — Google Agent Development Kit
 - [ ] `examples/openai-agents-agent/` — OpenAI Agents SDK
-- [ ] `examples/crewai-agent/` — CrewAI multi-agent crew
-- [ ] `examples/claude-sdk-agent/` — Anthropic Claude SDK (tool use)
 
-#### 13.2 — Runtime Builders
-- [ ] `engine/runtimes/google_adk.py` — Google ADK runtime builder
+#### 13.2 — Runtime Builders (v0.3)
 - [ ] `engine/runtimes/openai_agents.py` — OpenAI Agents runtime builder
-- [ ] `engine/runtimes/crewai.py` — CrewAI runtime builder
-- [ ] `engine/runtimes/claude_sdk.py` — Claude SDK runtime builder
 - [ ] Each runtime: Dockerfile generation, dependency resolution, entrypoint config
 - [ ] Integration test per runtime: build container, start, verify `/health` responds
+
+#### 13.3 — Additional SDKs (v1.0)
+- [ ] `examples/google-adk-agent/` — Google Agent Development Kit
+- [ ] `examples/crewai-agent/` — CrewAI multi-agent crew
+- [ ] `examples/claude-sdk-agent/` — Anthropic Claude SDK (tool use)
+- [ ] `engine/runtimes/google_adk.py` — Google ADK runtime builder
+- [ ] `engine/runtimes/crewai.py` — CrewAI runtime builder
+- [ ] `engine/runtimes/claude_sdk.py` — Claude SDK runtime builder
 
 ---
 
@@ -1649,7 +1653,7 @@ Integrate with Langfuse (primary) and support MLflow as an alternative backend. 
 - [ ] Langfuse Python SDK integration (`langfuse` package) as the default tracing backend
 - [ ] MLflow Tracing support as an alternative (`mlflow.tracing`) — configurable via env var
 - [ ] OpenTelemetry export: emit OTel-compatible spans for each agent invocation
-- [ ] Auto-instrumentation: patch LangGraph, CrewAI, OpenAI, Anthropic SDK calls automatically
+- [ ] Auto-instrumentation: patch LangGraph, OpenAI Agents SDK calls automatically (CrewAI, Anthropic, Google ADK in v1.0)
 - [ ] Trace context propagation: pass trace IDs through tool calls and MCP requests
 - [ ] Config: `TRACING_BACKEND=langfuse|mlflow|otlp|none`, connection URL, API keys
 - [ ] Backend: `traces` table for local trace metadata (trace_id, agent, duration, token_count, cost, status)
