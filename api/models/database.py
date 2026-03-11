@@ -5,7 +5,18 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String, Text, func
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -141,6 +152,11 @@ class Model(Base):
     status: Mapped[str] = mapped_column(String(20), default="active")
     source: Mapped[str] = mapped_column(String(50), default="manual")
     config: Mapped[dict] = mapped_column(JSON, default=dict)
+    context_window: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_price_per_million: Mapped[float | None] = mapped_column(Float, nullable=True)
+    output_price_per_million: Mapped[float | None] = mapped_column(Float, nullable=True)
+    capabilities: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

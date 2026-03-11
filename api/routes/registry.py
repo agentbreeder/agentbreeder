@@ -11,10 +11,13 @@ from api.models.schemas import (
     ApiResponse,
     ModelCreate,
     ModelResponse,
+    ModelUsageResponse,
     PromptCreate,
     PromptResponse,
     ToolCreate,
+    ToolDetailResponse,
     ToolResponse,
+    ToolUsageResponse,
     SearchResult,
 )
 from registry.agents import AgentRegistry
@@ -61,6 +64,66 @@ async def register_tool(
     return ApiResponse(data=ToolResponse.model_validate(tool))
 
 
+@router.get("/tools/{tool_id}", response_model=ApiResponse[ToolDetailResponse])
+async def get_tool(
+    tool_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[ToolDetailResponse]:
+    """Get a single tool with full schema."""
+    tool = await ToolRegistry.get_by_id(db, tool_id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    return ApiResponse(data=ToolDetailResponse.model_validate(tool))
+
+
+@router.get(
+    "/tools/{tool_id}/usage",
+    response_model=ApiResponse[list[ToolUsageResponse]],
+)
+async def get_tool_usage(
+    tool_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[list[ToolUsageResponse]]:
+    """Get agents that reference this tool."""
+    tool = await ToolRegistry.get_by_id(db, tool_id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    agents = await ToolRegistry.get_usage(db, tool_id)
+    data = [
+        ToolUsageResponse(
+            agent_id=a.id,
+            agent_name=a.name,
+            agent_status=a.status.value if hasattr(a.status, "value") else str(a.status),
+        )
+        for a in agents
+    ]
+    return ApiResponse(
+        data=data,
+        meta=ApiMeta(page=1, per_page=len(data), total=len(data)),
+    )
+
+
+@router.get("/models/compare", response_model=ApiResponse[list[ModelResponse]])
+async def compare_models(
+    ids: str = Query(..., description="Comma-separated model IDs (max 3)"),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[list[ModelResponse]]:
+    """Compare up to 3 models side by side."""
+    id_list = [i.strip() for i in ids.split(",") if i.strip()]
+    if len(id_list) < 2 or len(id_list) > 3:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide 2 or 3 model IDs separated by commas",
+        )
+    models = await ModelRegistry.get_by_ids(db, id_list)
+    if len(models) != len(id_list):
+        raise HTTPException(status_code=404, detail="One or more models not found")
+    return ApiResponse(
+        data=[ModelResponse.model_validate(m) for m in models],
+        meta=ApiMeta(page=1, per_page=len(models), total=len(models)),
+    )
+
+
 @router.get("/models", response_model=ApiResponse[list[ModelResponse]])
 async def list_models(
     provider: str | None = Query(None),
@@ -92,8 +155,55 @@ async def register_model(
         description=body.description,
         config=body.config,
         source=body.source,
+        context_window=body.context_window,
+        max_output_tokens=body.max_output_tokens,
+        input_price_per_million=body.input_price_per_million,
+        output_price_per_million=body.output_price_per_million,
+        capabilities=body.capabilities,
     )
     return ApiResponse(data=ModelResponse.model_validate(model))
+
+
+@router.get("/models/{model_id}", response_model=ApiResponse[ModelResponse])
+async def get_model(
+    model_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[ModelResponse]:
+    """Get a single model with pricing and capabilities."""
+    model = await ModelRegistry.get_by_id(db, model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return ApiResponse(data=ModelResponse.model_validate(model))
+
+
+@router.get(
+    "/models/{model_id}/usage",
+    response_model=ApiResponse[list[ModelUsageResponse]],
+)
+async def get_model_usage(
+    model_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[list[ModelUsageResponse]]:
+    """Get agents that use this model as primary or fallback."""
+    model = await ModelRegistry.get_by_id(db, model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    usage_list = await ModelRegistry.get_usage(db, model_id)
+    data = [
+        ModelUsageResponse(
+            agent_id=agent.id,
+            agent_name=agent.name,
+            agent_status=agent.status.value
+            if hasattr(agent.status, "value")
+            else str(agent.status),
+            usage_type=usage_type,
+        )
+        for agent, usage_type in usage_list
+    ]
+    return ApiResponse(
+        data=data,
+        meta=ApiMeta(page=1, per_page=len(data), total=len(data)),
+    )
 
 
 @router.get("/prompts", response_model=ApiResponse[list[PromptResponse]])

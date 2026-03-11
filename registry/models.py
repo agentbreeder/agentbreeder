@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models.database import Model
+from api.models.database import Agent, Model
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,11 @@ class ModelRegistry:
         description: str = "",
         config: dict | None = None,
         source: str = "manual",
+        context_window: int | None = None,
+        max_output_tokens: int | None = None,
+        input_price_per_million: float | None = None,
+        output_price_per_million: float | None = None,
+        capabilities: list[str] | None = None,
     ) -> Model:
         """Register or update a model in the registry."""
         stmt = select(Model).where(Model.name == name)
@@ -35,6 +41,11 @@ class ModelRegistry:
             model.config = config or {}
             model.source = source
             model.status = "active"
+            model.context_window = context_window
+            model.max_output_tokens = max_output_tokens
+            model.input_price_per_million = input_price_per_million
+            model.output_price_per_million = output_price_per_million
+            model.capabilities = capabilities
             logger.info("Updated model '%s' in registry", name)
         else:
             model = Model(
@@ -43,6 +54,11 @@ class ModelRegistry:
                 description=description,
                 config=config or {},
                 source=source,
+                context_window=context_window,
+                max_output_tokens=max_output_tokens,
+                input_price_per_million=input_price_per_million,
+                output_price_per_million=output_price_per_million,
+                capabilities=capabilities,
             )
             session.add(model)
             logger.info("Registered new model '%s' in registry", name)
@@ -83,6 +99,59 @@ class ModelRegistry:
         stmt = select(Model).where(Model.name == name)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_by_id(session: AsyncSession, model_id: str) -> Model | None:
+        """Get a model by UUID."""
+        try:
+            uid = uuid.UUID(model_id)
+        except ValueError:
+            return None
+        stmt = select(Model).where(Model.id == uid)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_by_ids(session: AsyncSession, model_ids: list[str]) -> list[Model]:
+        """Get multiple models by UUID list."""
+        uids: list[uuid.UUID] = []
+        for mid in model_ids:
+            try:
+                uids.append(uuid.UUID(mid))
+            except ValueError:
+                continue
+        if not uids:
+            return []
+        stmt = select(Model).where(Model.id.in_(uids))
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_usage(
+        session: AsyncSession, model_id: str
+    ) -> list[tuple[Agent, str]]:
+        """Find agents that use this model as primary or fallback.
+
+        Returns list of (agent, usage_type) tuples.
+        """
+        model = await ModelRegistry.get_by_id(session, model_id)
+        if not model:
+            return []
+        stmt = select(Agent).where(
+            or_(
+                Agent.model_primary == model.name,
+                Agent.model_fallback == model.name,
+            )
+        )
+        result = await session.execute(stmt)
+        agents = list(result.scalars().all())
+        out: list[tuple[Agent, str]] = []
+        for agent in agents:
+            if agent.model_primary == model.name:
+                out.append((agent, "primary"))
+            elif agent.model_fallback == model.name:
+                out.append((agent, "fallback"))
+        return out
 
     @staticmethod
     async def search(
