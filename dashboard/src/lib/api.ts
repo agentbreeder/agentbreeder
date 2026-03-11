@@ -186,6 +186,26 @@ export const api = {
       const qs = sp.toString();
       return request<Prompt[]>(`/registry/prompts${qs ? `?${qs}` : ""}`);
     },
+    get: (id: string) => request<Prompt>(`/registry/prompts/${id}`),
+    create: (data: { name: string; version: string; content: string; description?: string; team: string }) =>
+      request<Prompt>("/registry/prompts", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: { content?: string; description?: string }) =>
+      request<Prompt>(`/registry/prompts/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/registry/prompts/${id}`, {
+        method: "DELETE",
+      }),
+    versions: (id: string) => request<Prompt[]>(`/registry/prompts/${id}/versions`),
+    duplicate: (id: string) =>
+      request<Prompt>(`/registry/prompts/${id}/duplicate`, {
+        method: "POST",
+      }),
   },
   deploys: {
     list: (params?: {

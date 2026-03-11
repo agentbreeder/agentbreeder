@@ -1,8 +1,36 @@
-import { useQuery } from "@tanstack/react-query";
-import { FileText, Search, ChevronDown, ChevronRight, Users, Clock } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  FileText,
+  Search,
+  ChevronDown,
+  ChevronRight,
+  Users,
+  Clock,
+  Plus,
+  MoreHorizontal,
+  Trash2,
+} from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api, type Prompt } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
 
@@ -14,31 +42,42 @@ interface PromptGroup {
   description: string;
 }
 
-function PromptCard({ group }: { group: PromptGroup }) {
+function PromptCard({
+  group,
+  onNavigate,
+  onDelete,
+}: {
+  group: PromptGroup;
+  onNavigate: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const latest = group.versions[0];
 
   return (
     <div className="overflow-hidden rounded-lg border border-border transition-all hover:border-border">
-      {/* Header — always visible */}
-      <div
-        onClick={() => setExpanded(!expanded)}
-        className="flex cursor-pointer items-start gap-3 p-4 transition-colors hover:bg-muted/20"
-      >
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+      {/* Header -- always visible */}
+      <div className="flex items-start gap-3 p-4 transition-colors hover:bg-muted/20">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted"
+        >
           <FileText className="size-4 text-muted-foreground" />
-        </div>
+        </button>
 
-        <div className="min-w-0 flex-1">
+        <div
+          className="min-w-0 flex-1 cursor-pointer"
+          onClick={() => onNavigate(latest.id)}
+        >
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-medium">{group.name}</h3>
             <Badge variant="outline" className="text-[10px] font-mono">
               v{group.latestVersion}
             </Badge>
             {group.versions.length > 1 && (
-              <span className="text-[10px] text-muted-foreground">
-                +{group.versions.length - 1} version{group.versions.length > 2 ? "s" : ""}
-              </span>
+              <Badge variant="outline" className="text-[10px]">
+                {group.versions.length} versions
+              </Badge>
             )}
           </div>
           {group.description && (
@@ -61,23 +100,56 @@ function PromptCard({ group }: { group: PromptGroup }) {
           </div>
         </div>
 
-        {expanded ? (
-          <ChevronDown className="mt-1 size-4 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <MoreHorizontal className="size-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onNavigate(latest.id)}>
+                <FileText className="size-3.5" />
+                Open
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => {
+                  if (window.confirm(`Delete "${group.name}" (v${latest.version})?`)) {
+                    onDelete(latest.id);
+                  }
+                }}
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            {expanded ? (
+              <ChevronDown className="size-4" />
+            ) : (
+              <ChevronRight className="size-4" />
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Expanded — shows prompt content */}
+      {/* Expanded -- shows prompt content */}
       {expanded && (
         <div className="border-t border-border">
           {group.versions.map((prompt, i) => (
             <div
               key={prompt.id}
               className={cn(
-                "px-4 py-3",
+                "cursor-pointer px-4 py-3 transition-colors hover:bg-muted/30",
                 i > 0 && "border-t border-border/50"
               )}
+              onClick={() => onNavigate(prompt.id)}
             >
               <div className="mb-2 flex items-center gap-2">
                 <Badge
@@ -115,6 +187,128 @@ function PromptCard({ group }: { group: PromptGroup }) {
   );
 }
 
+function CreatePromptDialog({ onCreated }: { onCreated: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [version, setVersion] = useState("1.0.0");
+  const [description, setDescription] = useState("");
+  const [team, setTeam] = useState("");
+  const [content, setContent] = useState("");
+  const [error, setError] = useState("");
+
+  const queryClient = useQueryClient();
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      api.prompts.create({ name, version, content, description, team }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["prompts"] });
+      setOpen(false);
+      resetForm();
+      onCreated(data.data.id);
+    },
+    onError: (err: Error) => {
+      setError(err.message);
+    },
+  });
+
+  const resetForm = () => {
+    setName("");
+    setVersion("1.0.0");
+    setDescription("");
+    setTeam("");
+    setContent("");
+    setError("");
+  };
+
+  const canSubmit = name.trim() && version.trim() && team.trim() && content.trim();
+
+  return (
+    <Dialog open={open} onOpenChange={(val) => { setOpen(val); if (!val) resetForm(); }}>
+      <DialogTrigger
+        render={<Button size="sm" />}
+      >
+        <Plus className="size-3" data-icon="inline-start" />
+        New Prompt
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Create Prompt</DialogTitle>
+          <DialogDescription>
+            Register a new prompt template in the registry.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Name</label>
+              <Input
+                placeholder="e.g. support-system"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Version</label>
+              <Input
+                placeholder="1.0.0"
+                value={version}
+                onChange={(e) => setVersion(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Team</label>
+            <Input
+              placeholder="e.g. engineering"
+              value={team}
+              onChange={(e) => setTeam(e.target.value)}
+              className="h-8 text-xs"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Description</label>
+            <Input
+              placeholder="Optional description..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="h-8 text-xs"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Content</label>
+            <textarea
+              placeholder="Write your prompt content..."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          {error && (
+            <p className="text-xs text-destructive">{error}</p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" size="sm" />}>
+            Cancel
+          </DialogClose>
+          <Button
+            size="sm"
+            onClick={() => createMutation.mutate()}
+            disabled={!canSubmit || createMutation.isPending}
+          >
+            {createMutation.isPending ? "Creating..." : "Create"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function EmptyState({ hasFilter }: { hasFilter: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -127,7 +321,7 @@ function EmptyState({ hasFilter }: { hasFilter: boolean }) {
       <p className="mt-1 max-w-xs text-xs text-muted-foreground">
         {hasFilter
           ? "Try adjusting your search or filters."
-          : "Register prompt templates via the API to manage and version them here."}
+          : "Register prompt templates via the API or click \"New Prompt\" to get started."}
       </p>
     </div>
   );
@@ -136,12 +330,21 @@ function EmptyState({ hasFilter }: { hasFilter: boolean }) {
 export default function PromptsPage() {
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState("");
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["prompts", { teamFilter }],
     queryFn: () =>
       api.prompts.list({ team: teamFilter || undefined }),
     staleTime: 10_000,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.prompts.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prompts"] });
+    },
   });
 
   const prompts = data?.data ?? [];
@@ -183,12 +386,15 @@ export default function PromptsPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-6">
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold tracking-tight">Prompts</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {total} prompt{total !== 1 ? "s" : ""} across {groups.length} template
-          {groups.length !== 1 ? "s" : ""} in registry
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Prompts</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {total} prompt{total !== 1 ? "s" : ""} across {groups.length} template
+            {groups.length !== 1 ? "s" : ""} in registry
+          </p>
+        </div>
+        <CreatePromptDialog onCreated={(id) => navigate(`/prompts/${id}`)} />
       </div>
 
       {/* Filters */}
@@ -241,7 +447,12 @@ export default function PromptsPage() {
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {filtered.map((group) => (
-            <PromptCard key={group.name} group={group} />
+            <PromptCard
+              key={group.name}
+              group={group}
+              onNavigate={(id) => navigate(`/prompts/${id}`)}
+              onDelete={(id) => deleteMutation.mutate(id)}
+            />
           ))}
         </div>
       )}

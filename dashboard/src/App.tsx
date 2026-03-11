@@ -9,6 +9,7 @@ import AgentDetailPage from "@/pages/agent-detail";
 import ToolsPage from "@/pages/tools";
 import ModelsPage from "@/pages/models";
 import PromptsPage from "@/pages/prompts";
+import PromptDetailPage from "@/pages/prompt-detail";
 import DeploysPage from "@/pages/deploys";
 import SearchPage from "@/pages/search";
 import { Loader2 } from "lucide-react";
@@ -58,6 +59,7 @@ export default function App() {
               <Route path="tools" element={<ToolsPage />} />
               <Route path="models" element={<ModelsPage />} />
               <Route path="prompts" element={<PromptsPage />} />
+              <Route path="prompts/:id" element={<PromptDetailPage />} />
               <Route path="deploys" element={<DeploysPage />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
