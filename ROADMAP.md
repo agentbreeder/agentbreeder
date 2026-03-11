@@ -760,15 +760,15 @@ Step 1: Pick a provider
 │                                                                     │
 │  LLM Providers          Gateways              Local                 │
 │  ┌──────────┐           ┌──────────┐          ┌──────────┐         │
-│  │ OpenAI   │           │ LiteLLM  │          │ Ollama   │         │
+│  │ OpenAI   │ (v0.3)    │ LiteLLM  │ (v0.4)   │ Ollama   │ (v0.3) │
 │  │          │           │          │          │          │         │
 │  └──────────┘           └──────────┘          └──────────┘         │
 │  ┌──────────┐           ┌──────────┐                               │
-│  │Anthropic │           │OpenRouter│                               │
+│  │Anthropic │ (v0.4)    │OpenRouter│ (v1.0)                        │
 │  │          │           │          │                               │
 │  └──────────┘           └──────────┘                               │
 │  ┌──────────┐           ┌──────────┐                               │
-│  │ Google   │           │ Portkey  │                               │
+│  │ Google   │ (v0.6)    │ Portkey  │ (v1.0+)                       │
 │  │          │           │          │                               │
 │  └──────────┘           └──────────┘                               │
 └─────────────────────────────────────────────────────────────────────┘
@@ -1653,7 +1653,7 @@ Integrate with Langfuse (primary) and support MLflow as an alternative backend. 
 - [ ] Langfuse Python SDK integration (`langfuse` package) as the default tracing backend
 - [ ] MLflow Tracing support as an alternative (`mlflow.tracing`) — configurable via env var
 - [ ] OpenTelemetry export: emit OTel-compatible spans for each agent invocation
-- [ ] Auto-instrumentation: patch LangGraph, OpenAI Agents SDK calls automatically (CrewAI, Anthropic, Google ADK in v1.0)
+- [ ] Auto-instrumentation: patch LangGraph, OpenAI Agents SDK + OpenAI API calls automatically (Anthropic in v0.4, Google in v0.6, CrewAI/ADK in v1.0)
 - [ ] Trace context propagation: pass trace IDs through tool calls and MCP requests
 - [ ] Config: `TRACING_BACKEND=langfuse|mlflow|otlp|none`, connection URL, API keys
 - [ ] Backend: `traces` table for local trace metadata (trace_id, agent, duration, token_count, cost, status)
@@ -1897,7 +1897,7 @@ model:
 | **3** | Portkey | OSS + SaaS | Advanced — semantic caching, virtual keys, load balancing, guardrails | Post v1.0 |
 
 **Tier 0: Direct Provider SDKs + Ollama (v0.3 — ships with builders)**
-- [ ] Direct calls to OpenAI, Anthropic, Google SDKs — no proxy, no extra service
+- [ ] Direct calls to OpenAI SDK — no proxy, no extra service (Anthropic in v0.4, Google in v0.6)
 - [ ] **Ollama integration**: connect to local Ollama instance for zero-cost local dev/test
 - [ ] Ollama auto-detection: if Ollama is running on localhost:11434, auto-register available models in Model Registry
 - [ ] Ollama model pull from UI: "Download Model" button → triggers `ollama pull <model>` behind the scenes
@@ -1958,35 +1958,66 @@ model:
 - [ ] Cost comparison: show cost difference between direct vs. gateway routing
 - [ ] Gateway logs: recent requests with model, latency, cost, status
 
-#### Supported Models (v1.0)
+#### Supported Models — Phased Rollout
 
-| Provider | Models | Category | Available From |
-|----------|--------|----------|----------------|
-| **Ollama (local)** | Llama 3.2, Mistral, Phi-3, Gemma 2, CodeLlama, etc. | Text generation (local) | v0.3 |
-| **Ollama (local)** | nomic-embed-text, mxbai-embed-large | Embeddings (local) | v0.3 |
-| **OpenAI** | GPT-5, GPT-5 mini, GPT-5 nano | Text generation | v1.0 |
-| **Anthropic** | Claude Opus 4.6, Claude Sonnet 4.6, Claude Haiku 4.5 | Text generation | v1.0 |
-| **Google** | Gemini 3 Pro, Gemini 3 Flash, Gemini 3 Nano | Text generation | v1.0 |
-| **OpenAI** | text-embedding-3-small, text-embedding-3-large | Embeddings | v1.0 |
-| **Google** | Gemini Nano Embedding | Embeddings | v1.0 |
-| **OpenAI** | Sora | Video generation | v1.0 |
-| **Google** | Veo | Video generation | v1.0 |
+**v0.3 — Ship with Builders (OpenAI + Ollama)**
 
-- [ ] Model catalog: all v1.0 models registered with pricing, context window, capabilities
-- [ ] Model provider abstraction: unified interface across OpenAI, Anthropic, Google, Ollama
+| Provider | Models | Category |
+|----------|--------|----------|
+| **OpenAI** | GPT-4.1, GPT-4o, o3-mini, o4-mini | Text generation |
+| **OpenAI** | text-embedding-3-small, text-embedding-3-large | Embeddings |
+| **Ollama (local)** | Llama 3.3, Qwen 3, Mistral, Phi-3, Gemma 3, CodeLlama | Text generation (local) |
+| **Ollama (local)** | nomic-embed-text, mxbai-embed-large | Embeddings (local) |
+
+- [ ] Provider abstraction layer: `engine/providers/` with unified `generate()` interface
+- [ ] OpenAI SDK integration: direct API calls, streaming, function calling
+- [ ] Ollama integration: OpenAI-compatible API, auto-detection, model pull from UI
 - [ ] Ollama models tagged as "Local / Free" in model picker — appear first during dev
 - [ ] Model selection in Agent Builder: filter by provider, capability, price, local/cloud
-- [ ] Embedding model selection in RAG Builder: pick embedding model for vector indexing (Ollama embeddings for local dev)
+- [ ] Embedding model selection in RAG Builder: pick embedding model for vector indexing
+
+**v0.4 — Add Anthropic**
+
+| Provider | Models | Category |
+|----------|--------|----------|
+| **Anthropic** | Claude Opus 4.6, Claude Sonnet 4.6, Claude Haiku 4.5 | Text generation |
+
+- [ ] Anthropic SDK integration: messages API, streaming, tool use
+- [ ] Model catalog entry: pricing, context window (200K), capabilities
+
+**v0.6 — Add Google**
+
+| Provider | Models | Category |
+|----------|--------|----------|
+| **Google** | Gemini 2.5 Pro, Gemini 2.5 Flash | Text generation |
+| **Google** | Gemini Embedding | Embeddings |
+
+- [ ] Google AI SDK integration: generate_content, streaming, function calling
+- [ ] Model catalog entry: pricing, context window (1M+), capabilities
+
+**v1.0 — Full Model Catalog**
+
+| Provider | Models | Category |
+|----------|--------|----------|
+| All above providers fully supported | All models with pricing, context windows, capabilities | Complete catalog |
+| **OpenAI** | Sora | Video generation |
+| **Google** | Veo | Video generation |
+
+- [ ] Model catalog: all models registered with pricing, context window, capabilities
+- [ ] Model provider abstraction: unified interface across OpenAI, Anthropic, Google, Ollama
 - [ ] Video model support: input/output handling for Sora and Veo in agent tools
 
 #### Later Models (post v1.0)
 
 | Provider | Models | Priority |
 |----------|--------|----------|
+| Mistral | Mistral Large, Codestral | P1 |
 | Perplexity | Sonar Pro, Sonar | P1 |
-| xAI | Grok 3, Grok 3 mini | P1 |
-| Open Source | Llama 4, Mistral Large, DeepSeek V3 (via LiteLLM/OpenRouter) | P2 |
-| Cohere | Command R+, Embed v4 | P3 |
+| xAI | Grok 3, Grok 3 mini | P2 |
+| Cohere | Command R+, Embed v4 | P2 |
+| AWS Bedrock | Claude, Llama, etc. (via AWS) | P2 |
+| Azure OpenAI | GPT-4.1, GPT-4o (via Azure) | P2 |
+| Groq / Cerebras | Speed-optimized inference | P3 |
 
 ### M25: Enterprise Auth & Secrets Management
 
@@ -2089,7 +2120,7 @@ These are intentionally deferred indefinitely:
 | Version control | Git (local repo, bridgeable to GitHub/GitLab) | Branch-per-draft, PR-based review, semver tagging on merge |
 | Git library | gitpython (Python) | Programmatic Git ops without shelling out; supports bare repos |
 | Local LLM | Ollama | Zero-cost local dev/test; auto-detected; OpenAI-compatible API |
-| Model gateway | Layered: Direct SDKs + Ollama → LiteLLM → OpenRouter → Portkey | No forced gateway; LiteLLM for production (OSS, self-hosted, 100+ providers) |
+| Model gateway | Layered: OpenAI + Ollama (v0.3) → +Anthropic (v0.4) → +Google (v0.6) → LiteLLM → OpenRouter | Phased provider rollout; LiteLLM for production (OSS, self-hosted, 100+ providers) |
 | Tracing | Langfuse (primary), MLflow (alt), OTel export | Open-source, self-hostable, purpose-built for LLM observability |
 | Evaluation | Built-in eval framework + LLM-as-judge | No vendor lock-in; pluggable scoring |
 | Agent improvement | Prompt optimization (primary) → few-shot curation → fine-tuning (advanced) | Most gains come from prompts, not model training |
