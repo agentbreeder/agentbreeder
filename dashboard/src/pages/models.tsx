@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Cpu, Search, Circle, Zap, Cloud } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Cpu, Search, Circle, Zap, Cloud, GitCompareArrows } from "lucide-react";
 import { api, type Model } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,7 @@ const PROVIDER_COLORS: Record<string, string> = {
   meta: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20",
   mistral: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
   cohere: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
+  ollama: "bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20",
 };
 
 const SOURCE_ICONS: Record<string, typeof Zap> = {
@@ -20,45 +22,70 @@ const SOURCE_ICONS: Record<string, typeof Zap> = {
   manual: Zap,
 };
 
-function ModelRow({ model }: { model: Model }) {
+function ModelRow({
+  model,
+  isSelected,
+  onToggleSelect,
+  onClick,
+}: {
+  model: Model;
+  isSelected: boolean;
+  onToggleSelect: () => void;
+  onClick: () => void;
+}) {
   const isActive = model.status === "active";
   return (
     <div className="flex items-center gap-4 border-b border-border/50 px-5 py-3 transition-colors last:border-0 hover:bg-muted/20">
-      <Circle
-        className={cn(
-          "size-1.5 shrink-0 fill-current",
-          isActive ? "text-emerald-500" : "text-muted-foreground"
-        )}
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={(e) => {
+          e.stopPropagation();
+          onToggleSelect();
+        }}
+        className="size-3.5 shrink-0 rounded border-border accent-foreground"
       />
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-sm">{model.name}</span>
-        </div>
-        {model.description && (
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {model.description}
-          </p>
-        )}
-      </div>
-
-      <Badge
-        variant="outline"
-        className={cn(
-          "text-[10px] font-medium",
-          PROVIDER_COLORS[model.provider.toLowerCase()] ??
-            "bg-muted text-muted-foreground border-border"
-        )}
+      <div
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-4"
+        onClick={onClick}
       >
-        {model.provider}
-      </Badge>
+        <Circle
+          className={cn(
+            "size-1.5 shrink-0 fill-current",
+            isActive ? "text-emerald-500" : "text-muted-foreground"
+          )}
+        />
 
-      <div className="flex w-20 items-center justify-end gap-1.5 text-xs text-muted-foreground">
-        {(() => {
-          const Icon = SOURCE_ICONS[model.source] ?? Zap;
-          return <Icon className="size-3" />;
-        })()}
-        <span>{model.source}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm">{model.name}</span>
+          </div>
+          {model.description && (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {model.description}
+            </p>
+          )}
+        </div>
+
+        <Badge
+          variant="outline"
+          className={cn(
+            "text-[10px] font-medium",
+            PROVIDER_COLORS[model.provider.toLowerCase()] ??
+              "bg-muted text-muted-foreground border-border"
+          )}
+        >
+          {model.provider}
+        </Badge>
+
+        <div className="flex w-20 items-center justify-end gap-1.5 text-xs text-muted-foreground">
+          {(() => {
+            const Icon = SOURCE_ICONS[model.source] ?? Zap;
+            return <Icon className="size-3" />;
+          })()}
+          <span>{model.source}</span>
+        </div>
       </div>
     </div>
   );
@@ -83,8 +110,10 @@ function EmptyState({ hasFilter }: { hasFilter: boolean }) {
 }
 
 export default function ModelsPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["models", { providerFilter }],
@@ -107,13 +136,50 @@ export default function ModelsPage() {
   // Extract unique providers for the filter dropdown
   const providers = [...new Set(models.map((m) => m.provider))].sort();
 
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        if (next.size >= 3) return prev;
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function handleCompare() {
+    const ids = Array.from(selectedIds).join(",");
+    navigate(`/models/compare?ids=${ids}`);
+  }
+
+  const canCompare = selectedIds.size >= 2 && selectedIds.size <= 3;
+
   return (
     <div className="mx-auto max-w-5xl p-6">
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold tracking-tight">Models</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {total} model{total !== 1 ? "s" : ""} in registry
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Models</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {total} model{total !== 1 ? "s" : ""} in registry
+          </p>
+        </div>
+        {selectedIds.size > 0 && (
+          <button
+            onClick={handleCompare}
+            disabled={!canCompare}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              canCompare
+                ? "bg-foreground text-background hover:bg-foreground/90"
+                : "bg-muted text-muted-foreground cursor-not-allowed"
+            )}
+          >
+            <GitCompareArrows className="size-3" />
+            Compare Selected ({selectedIds.size})
+          </button>
+        )}
       </div>
 
       {/* Filters */}
@@ -144,6 +210,7 @@ export default function ModelsPage() {
       {/* Table */}
       <div className="overflow-hidden rounded-lg border border-border">
         <div className="flex items-center gap-4 border-b border-border bg-muted/30 px-5 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <span className="w-3.5" />
           <span className="w-1.5" />
           <span className="flex-1">Model</span>
           <span className="w-24 text-center">Provider</span>
@@ -157,6 +224,7 @@ export default function ModelsPage() {
                 key={i}
                 className="flex items-center gap-4 border-b border-border/50 px-5 py-3 last:border-0"
               >
+                <div className="size-3.5 animate-pulse rounded bg-muted" />
                 <div className="size-1.5 animate-pulse rounded-full bg-muted" />
                 <div className="flex-1 space-y-1.5">
                   <div className="h-3.5 w-40 animate-pulse rounded bg-muted" />
@@ -174,7 +242,15 @@ export default function ModelsPage() {
         ) : filtered.length === 0 ? (
           <EmptyState hasFilter={!!(search || providerFilter)} />
         ) : (
-          filtered.map((model) => <ModelRow key={model.id} model={model} />)
+          filtered.map((model) => (
+            <ModelRow
+              key={model.id}
+              model={model}
+              isSelected={selectedIds.has(model.id)}
+              onToggleSelect={() => toggleSelect(model.id)}
+              onClick={() => navigate(`/models/${model.id}`)}
+            />
+          ))
         )}
       </div>
     </div>

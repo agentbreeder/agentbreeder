@@ -7,7 +7,10 @@ import HomePage from "@/pages/home";
 import AgentsPage from "@/pages/agents";
 import AgentDetailPage from "@/pages/agent-detail";
 import ToolsPage from "@/pages/tools";
+import ToolDetailPage from "@/pages/tool-detail";
 import ModelsPage from "@/pages/models";
+import ModelDetailPage from "@/pages/model-detail";
+import ModelComparePage from "@/pages/model-compare";
 import PromptsPage from "@/pages/prompts";
 import DeploysPage from "@/pages/deploys";
 import SearchPage from "@/pages/search";
@@ -56,7 +59,10 @@ export default function App() {
               <Route path="agents" element={<AgentsPage />} />
               <Route path="agents/:id" element={<AgentDetailPage />} />
               <Route path="tools" element={<ToolsPage />} />
+              <Route path="tools/:id" element={<ToolDetailPage />} />
               <Route path="models" element={<ModelsPage />} />
+              <Route path="models/compare" element={<ModelComparePage />} />
+              <Route path="models/:id" element={<ModelDetailPage />} />
               <Route path="prompts" element={<PromptsPage />} />
               <Route path="deploys" element={<DeploysPage />} />
               <Route path="search" element={<SearchPage />} />
