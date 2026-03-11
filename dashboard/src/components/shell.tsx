@@ -12,11 +12,14 @@ import {
   ChevronRight,
   LogOut,
 } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { cn } from "@/lib/utils";
+import { ToastProvider } from "@/components/ui/toast";
+import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog";
 
 const NAV = [
   { to: "/agents", icon: Bot, label: "Agents" },
@@ -188,9 +191,18 @@ function UserMenu() {
   );
 }
 
-export default function Shell() {
+function ShellInner() {
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  const showHelp = useCallback(() => setShortcutsOpen(true), []);
+  useKeyboardShortcuts({ onShowHelp: showHelp });
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <KeyboardShortcutsDialog
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+      />
       {/* Sidebar */}
       <aside className="flex w-56 flex-col border-r border-border bg-sidebar">
         {/* Logo */}
@@ -232,7 +244,11 @@ export default function Shell() {
           <UserMenu />
           <ThemeSwitcher />
           <div className="px-2 text-[10px] text-muted-foreground/60">
-            Agent Garden v0.1
+            Agent Garden v0.1 &middot; Press{" "}
+            <kbd className="rounded border border-border/50 px-1 font-mono">
+              ?
+            </kbd>{" "}
+            for shortcuts
           </div>
         </div>
       </aside>
@@ -247,5 +263,13 @@ export default function Shell() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function Shell() {
+  return (
+    <ToastProvider>
+      <ShellInner />
+    </ToastProvider>
   );
 }
