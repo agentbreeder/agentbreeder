@@ -9,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
 from api.database import get_db
-from api.models.database import User
+from api.models.database import Agent, User
 from api.models.enums import AgentStatus
 from api.models.schemas import (
+    AgentCloneRequest,
     AgentCreate,
     AgentResponse,
     AgentUpdate,
@@ -121,6 +122,44 @@ async def update_agent(
 
     await db.flush()
     return ApiResponse(data=AgentResponse.model_validate(agent))
+
+
+@router.post("/{agent_id}/clone", response_model=ApiResponse[AgentResponse], status_code=201)
+async def clone_agent(
+    agent_id: uuid.UUID,
+    body: AgentCloneRequest,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[AgentResponse]:
+    """Clone an agent, creating a copy with a new name and version."""
+    source = await AgentRegistry.get_by_id(db, agent_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Check if an agent with the new name already exists
+    existing = await AgentRegistry.get(db, body.name)
+    if existing:
+        raise HTTPException(
+            status_code=409, detail=f"Agent with name '{body.name}' already exists"
+        )
+
+    cloned = Agent(
+        name=body.name,
+        version=body.version,
+        description=source.description,
+        team=source.team,
+        owner=source.owner,
+        framework=source.framework,
+        model_primary=source.model_primary,
+        model_fallback=source.model_fallback,
+        endpoint_url=None,
+        status=AgentStatus.stopped,
+        tags=list(source.tags),
+        config_snapshot=dict(source.config_snapshot),
+    )
+    db.add(cloned)
+    await db.flush()
+    return ApiResponse(data=AgentResponse.model_validate(cloned))
 
 
 @router.delete("/{agent_id}", response_model=ApiResponse[dict])

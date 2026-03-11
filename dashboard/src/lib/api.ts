@@ -58,6 +58,7 @@ export interface Agent {
   endpoint_url: string | null;
   status: AgentStatus;
   tags: string[];
+  config_snapshot: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -157,6 +158,11 @@ export const api = {
     get: (id: string) => request<Agent>(`/agents/${id}`),
     search: (q: string, page = 1) =>
       request<Agent[]>(`/agents/search?q=${encodeURIComponent(q)}&page=${page}`),
+    clone: (id: string, body: { name: string; version: string }) =>
+      request<Agent>(`/agents/${id}/clone`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
   tools: {
     list: (params?: { tool_type?: string; source?: string; page?: number }) => {
