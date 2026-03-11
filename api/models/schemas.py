@@ -79,6 +79,16 @@ class AgentCreate(BaseModel):
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentBriefResponse(BaseModel):
+    """Minimal agent info for usage references."""
+
+    id: uuid.UUID
+    name: str
+    status: AgentStatus
+
+    model_config = {"from_attributes": True}
+
+
 class AgentUpdate(BaseModel):
     version: str | None = None
     description: str | None = None
@@ -137,6 +147,27 @@ class ToolResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ToolDetailResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str
+    tool_type: str
+    schema_definition: dict[str, Any]
+    endpoint: str | None
+    status: str
+    source: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ToolUsageResponse(BaseModel):
+    agent_id: uuid.UUID
+    agent_name: str
+    agent_status: str
+
+
 # --- Model Schemas ---
 
 
@@ -146,6 +177,11 @@ class ModelCreate(BaseModel):
     description: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
     source: str = "manual"
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    input_price_per_million: float | None = None
+    output_price_per_million: float | None = None
+    capabilities: list[str] | None = None
 
 
 class ModelResponse(BaseModel):
@@ -155,9 +191,22 @@ class ModelResponse(BaseModel):
     description: str
     status: str
     source: str
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    input_price_per_million: float | None = None
+    output_price_per_million: float | None = None
+    capabilities: list[str] | None = None
     created_at: datetime
+    updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class ModelUsageResponse(BaseModel):
+    agent_id: uuid.UUID
+    agent_name: str
+    agent_status: str
+    usage_type: str  # "primary" or "fallback"
 
 
 # --- Prompt Schemas ---

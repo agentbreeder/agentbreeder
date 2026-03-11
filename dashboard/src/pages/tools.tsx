@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { Wrench, Search, Circle, Server, Plug, Code } from "lucide-react";
 import { api, type Tool } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -18,14 +19,13 @@ const SOURCE_COLORS: Record<string, string> = {
   litellm: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
 };
 
-function ToolCard({ tool }: { tool: Tool }) {
+function ToolCard({ tool, onClick }: { tool: Tool; onClick: () => void }) {
   const Icon = TYPE_ICONS[tool.tool_type] ?? Wrench;
   const isActive = tool.status === "active";
-  const [expanded, setExpanded] = useState(false);
 
   return (
     <div
-      onClick={() => setExpanded(!expanded)}
+      onClick={onClick}
       className="cursor-pointer rounded-lg border border-border p-4 transition-all hover:border-border hover:bg-muted/20"
     >
       <div className="flex items-start gap-3">
@@ -63,15 +63,6 @@ function ToolCard({ tool }: { tool: Tool }) {
           </div>
         </div>
       </div>
-
-      {expanded && tool.endpoint && (
-        <div className="mt-3 rounded-md bg-muted/50 px-3 py-2">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Endpoint
-          </span>
-          <code className="mt-1 block truncate font-mono text-xs">{tool.endpoint}</code>
-        </div>
-      )}
     </div>
   );
 }
@@ -92,6 +83,7 @@ function EmptyState() {
 }
 
 export default function ToolsPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
 
@@ -168,7 +160,11 @@ export default function ToolsPage() {
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {filtered.map((tool) => (
-            <ToolCard key={tool.id} tool={tool} />
+            <ToolCard
+              key={tool.id}
+              tool={tool}
+              onClick={() => navigate(`/tools/${tool.id}`)}
+            />
           ))}
         </div>
       )}

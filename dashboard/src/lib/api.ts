@@ -76,6 +76,17 @@ export interface Tool {
   created_at: string;
 }
 
+export interface ToolDetail extends Tool {
+  schema_definition: Record<string, unknown>;
+  updated_at: string;
+}
+
+export interface ToolUsage {
+  agent_id: string;
+  agent_name: string;
+  agent_status: string;
+}
+
 // --- Model types ---
 
 export interface Model {
@@ -85,7 +96,20 @@ export interface Model {
   description: string;
   status: string;
   source: string;
+  context_window: number | null;
+  max_output_tokens: number | null;
+  input_price_per_million: number | null;
+  output_price_per_million: number | null;
+  capabilities: string[] | null;
   created_at: string;
+  updated_at: string | null;
+}
+
+export interface ModelUsage {
+  agent_id: string;
+  agent_name: string;
+  agent_status: string;
+  usage_type: string;
 }
 
 // --- Prompt types ---
@@ -211,6 +235,8 @@ export const api = {
       const qs = sp.toString();
       return request<Tool[]>(`/registry/tools${qs ? `?${qs}` : ""}`);
     },
+    get: (id: string) => request<ToolDetail>(`/registry/tools/${id}`),
+    usage: (id: string) => request<ToolUsage[]>(`/registry/tools/${id}/usage`),
   },
   models: {
     list: (params?: { provider?: string; source?: string; page?: number }) => {
@@ -221,6 +247,10 @@ export const api = {
       const qs = sp.toString();
       return request<Model[]>(`/registry/models${qs ? `?${qs}` : ""}`);
     },
+    get: (id: string) => request<Model>(`/registry/models/${id}`),
+    usage: (id: string) => request<ModelUsage[]>(`/registry/models/${id}/usage`),
+    compare: (ids: string[]) =>
+      request<Model[]>(`/registry/models/compare?ids=${ids.join(",")}`),
   },
   prompts: {
     list: (params?: { team?: string; page?: number }) => {
