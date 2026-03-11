@@ -11,6 +11,7 @@ import {
   Activity,
   ChevronRight,
   LogOut,
+  Settings,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -225,6 +226,24 @@ export default function Shell() {
               {label}
             </NavLink>
           ))}
+
+          {/* Separator */}
+          <div className="!my-2 h-px bg-border" />
+
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
+                isActive
+                  ? "bg-accent font-medium text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+              )
+            }
+          >
+            <Settings className="size-4" />
+            Settings
+          </NavLink>
         </nav>
 
         {/* Footer */}

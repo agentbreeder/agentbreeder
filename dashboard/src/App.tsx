@@ -11,6 +11,7 @@ import ModelsPage from "@/pages/models";
 import PromptsPage from "@/pages/prompts";
 import DeploysPage from "@/pages/deploys";
 import SearchPage from "@/pages/search";
+import SettingsPage from "@/pages/settings";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient({
@@ -60,6 +61,7 @@ export default function App() {
               <Route path="prompts" element={<PromptsPage />} />
               <Route path="deploys" element={<DeploysPage />} />
               <Route path="search" element={<SearchPage />} />
+              <Route path="settings" element={<SettingsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

@@ -123,6 +123,44 @@ export interface DeployJob {
   completed_at: string | null;
 }
 
+// --- Provider types ---
+
+export type ProviderType =
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "ollama"
+  | "litellm"
+  | "openrouter";
+
+export type ProviderStatus = "active" | "disabled" | "error";
+
+export interface Provider {
+  id: string;
+  name: string;
+  provider_type: ProviderType;
+  base_url: string | null;
+  status: ProviderStatus;
+  last_verified: string | null;
+  latency_ms: number | null;
+  model_count: number;
+  config: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProviderTestResult {
+  success: boolean;
+  latency_ms: number | null;
+  model_count: number | null;
+  error: string | null;
+}
+
+export interface ProviderDiscoverResult {
+  models: string[];
+  total: number;
+}
+
 // --- Search types ---
 
 export interface SearchResult {
@@ -203,6 +241,52 @@ export const api = {
       return request<DeployJob[]>(`/deploys${qs ? `?${qs}` : ""}`);
     },
     get: (id: string) => request<DeployJob>(`/deploys/${id}`),
+  },
+  providers: {
+    list: (params?: {
+      provider_type?: ProviderType;
+      status?: ProviderStatus;
+      page?: number;
+    }) => {
+      const sp = new URLSearchParams();
+      if (params?.provider_type) sp.set("provider_type", params.provider_type);
+      if (params?.status) sp.set("status", params.status);
+      if (params?.page) sp.set("page", String(params.page));
+      const qs = sp.toString();
+      return request<Provider[]>(`/providers${qs ? `?${qs}` : ""}`);
+    },
+    get: (id: string) => request<Provider>(`/providers/${id}`),
+    create: (body: {
+      name: string;
+      provider_type: ProviderType;
+      base_url?: string;
+      config?: Record<string, unknown>;
+    }) =>
+      request<Provider>("/providers", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (
+      id: string,
+      body: {
+        name?: string;
+        base_url?: string;
+        status?: ProviderStatus;
+        config?: Record<string, unknown>;
+      }
+    ) =>
+      request<Provider>(`/providers/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    delete: (id: string) =>
+      request<{ message: string }>(`/providers/${id}`, { method: "DELETE" }),
+    test: (id: string) =>
+      request<ProviderTestResult>(`/providers/${id}/test`, { method: "POST" }),
+    discover: (id: string) =>
+      request<ProviderDiscoverResult>(`/providers/${id}/discover`, {
+        method: "POST",
+      }),
   },
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),
