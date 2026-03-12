@@ -23,6 +23,8 @@ import {
   DollarSign,
   ScrollText,
   GitBranch,
+  FlaskConical,
+  PlayCircle,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -56,6 +58,11 @@ const REGISTRY_NAV = [
 const OBSERVABILITY_NAV = [
   { to: "/traces", icon: Activity, label: "Traces" },
   { to: "/costs", icon: DollarSign, label: "Costs" },
+] as const;
+
+const EVALUATION_NAV = [
+  { to: "/evals/datasets", icon: FlaskConical, label: "Datasets" },
+  { to: "/evals/runs", icon: PlayCircle, label: "Eval Runs" },
 ] as const;
 
 const GOVERNANCE_NAV = [
@@ -248,6 +255,7 @@ const BREADCRUMB_ICONS: Record<string, React.ComponentType<{ className?: string 
   budgets: DollarSign,
   audit: ScrollText,
   lineage: GitBranch,
+  evals: FlaskConical,
 };
 
 function Breadcrumbs() {
@@ -598,6 +606,12 @@ function ShellInner() {
             <div className="!my-2 h-px bg-border" />
             {!collapsed && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Observability</div>}
             {OBSERVABILITY_NAV.map(({ to, icon, label }) => (
+              <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
+            ))}
+
+            <div className="!my-2 h-px bg-border" />
+            {!collapsed && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Evaluation</div>}
+            {EVALUATION_NAV.map(({ to, icon, label }) => (
               <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
             ))}
 

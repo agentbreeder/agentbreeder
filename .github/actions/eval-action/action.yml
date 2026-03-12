@@ -1,0 +1,159 @@
+name: 'Agent Garden Eval'
+description: 'Run agent evaluations and post results to PR'
+inputs:
+  agent_name:
+    description: 'Agent to evaluate'
+    required: true
+  dataset_id:
+    description: 'Evaluation dataset ID'
+    required: true
+  api_url:
+    description: 'Agent Garden API URL'
+    default: 'http://localhost:8000'
+  threshold:
+    description: 'Minimum acceptable score (0.0-1.0)'
+    default: '0.7'
+  metrics:
+    description: 'Comma-separated metrics to check'
+    default: 'correctness,relevance'
+  github_token:
+    description: 'GitHub token for PR comments'
+    default: '${{ github.token }}'
+outputs:
+  passed:
+    description: 'Whether all metrics passed the threshold'
+    value: ${{ steps.eval-gate.outputs.passed }}
+  scores:
+    description: 'JSON string of all scores'
+    value: ${{ steps.eval-run.outputs.scores }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Agent Garden CLI
+      shell: bash
+      run: |
+        pip install -e "${{ github.workspace }}" --quiet
+
+    - name: Run evaluation
+      id: eval-run
+      shell: bash
+      env:
+        GARDEN_API_URL: ${{ inputs.api_url }}
+      run: |
+        echo "Running evaluation: ${{ inputs.agent_name }} against dataset ${{ inputs.dataset_id }}"
+        EVAL_OUTPUT=$(garden eval run "${{ inputs.agent_name }}" --dataset "${{ inputs.dataset_id }}" --json 2>&1) || true
+        echo "eval_output<<EVAL_EOF" >> "$GITHUB_OUTPUT"
+        echo "$EVAL_OUTPUT" >> "$GITHUB_OUTPUT"
+        echo "EVAL_EOF" >> "$GITHUB_OUTPUT"
+
+        # Extract scores JSON for the output
+        SCORES=$(echo "$EVAL_OUTPUT" | python3 -c "
+        import sys, json
+        data = json.load(sys.stdin)
+        metrics = data.get('summary', {}).get('metrics', {})
+        scores = {k: v.get('mean', 0) for k, v in metrics.items()}
+        print(json.dumps(scores))
+        " 2>/dev/null || echo '{}')
+        echo "scores=$SCORES" >> "$GITHUB_OUTPUT"
+
+    - name: Check eval gate
+      id: eval-gate
+      shell: bash
+      run: |
+        THRESHOLD="${{ inputs.threshold }}"
+        METRICS="${{ inputs.metrics }}"
+        SCORES='${{ steps.eval-run.outputs.scores }}'
+
+        RESULT=$(python3 -c "
+        import json, sys
+
+        scores = json.loads('$SCORES') if '$SCORES' != '{}' else {}
+        threshold = float('$THRESHOLD')
+        metrics = [m.strip() for m in '$METRICS'.split(',') if m.strip()]
+
+        passed = True
+        results = []
+        for metric in metrics:
+            score = scores.get(metric, 0.0)
+            metric_passed = score >= threshold
+            if not metric_passed:
+                passed = False
+            status = 'PASS' if metric_passed else 'FAIL'
+            results.append({'metric': metric, 'score': score, 'status': status})
+
+        output = {'passed': passed, 'results': results}
+        print(json.dumps(output))
+        ")
+
+        PASSED=$(echo "$RESULT" | python3 -c "import sys,json; print(str(json.load(sys.stdin)['passed']).lower())")
+        echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+        echo "gate_result=$RESULT" >> "$GITHUB_OUTPUT"
+
+    - name: Post PR comment
+      if: github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        GATE_RESULT='${{ steps.eval-gate.outputs.gate_result }}'
+        PASSED='${{ steps.eval-gate.outputs.passed }}'
+        THRESHOLD="${{ inputs.threshold }}"
+        AGENT="${{ inputs.agent_name }}"
+        DATASET="${{ inputs.dataset_id }}"
+
+        # Build the comment body
+        COMMENT=$(python3 -c "
+        import json
+
+        gate = json.loads('$GATE_RESULT')
+        passed = gate['passed']
+        results = gate['results']
+        threshold = float('$THRESHOLD')
+
+        icon = ':white_check_mark:' if passed else ':x:'
+        status = 'PASSED' if passed else 'FAILED'
+
+        lines = []
+        lines.append(f'## {icon} Agent Eval: {status}')
+        lines.append('')
+        lines.append(f'**Agent:** \`$AGENT\` | **Dataset:** \`$DATASET\` | **Threshold:** {threshold}')
+        lines.append('')
+        lines.append('| Metric | Score | Threshold | Status |')
+        lines.append('|--------|-------|-----------|--------|')
+        for r in results:
+            s_icon = ':white_check_mark:' if r['status'] == 'PASS' else ':x:'
+            lines.append(f\"| {r['metric']} | {r['score']:.4f} | {threshold:.2f} | {s_icon} {r['status']} |\")
+        lines.append('')
+        lines.append('---')
+        lines.append('*Posted by [Agent Garden Eval](.github/actions/eval-action)*')
+
+        print('\n'.join(lines))
+        ")
+
+        # Post or update comment on the PR
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        EXISTING_COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+          --jq '.[] | select(.body | contains("Agent Eval:")) | .id' | head -1)
+
+        if [ -n "$EXISTING_COMMENT_ID" ]; then
+          gh api "repos/${{ github.repository }}/issues/comments/${EXISTING_COMMENT_ID}" \
+            -X PATCH -f body="$COMMENT"
+        else
+          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            -X POST -f body="$COMMENT"
+        fi
+
+    - name: Fail if below threshold
+      if: steps.eval-gate.outputs.passed == 'false'
+      shell: bash
+      run: |
+        echo "::error::Evaluation failed — one or more metrics are below threshold ${{ inputs.threshold }}"
+        echo ""
+        echo "Gate results:"
+        echo '${{ steps.eval-gate.outputs.gate_result }}' | python3 -m json.tool
+        exit 1

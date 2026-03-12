@@ -35,6 +35,11 @@ import CostsPage from "@/pages/costs";
 import BudgetsPage from "@/pages/budgets";
 import AuditPage from "@/pages/audit";
 import LineagePage from "@/pages/lineage";
+import EvalDatasetsPage from "@/pages/eval-datasets";
+import EvalDatasetDetailPage from "@/pages/eval-dataset-detail";
+import EvalRunsPage from "@/pages/eval-runs";
+import EvalRunDetailPage from "@/pages/eval-run-detail";
+import EvalComparisonPage from "@/pages/eval-comparison";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient({
@@ -111,6 +116,11 @@ export default function App() {
               <Route path="budgets" element={<BudgetsPage />} />
               <Route path="audit" element={<AuditPage />} />
               <Route path="lineage" element={<LineagePage />} />
+              <Route path="evals/datasets" element={<EvalDatasetsPage />} />
+              <Route path="evals/datasets/:id" element={<EvalDatasetDetailPage />} />
+              <Route path="evals/runs" element={<EvalRunsPage />} />
+              <Route path="evals/runs/:id" element={<EvalRunDetailPage />} />
+              <Route path="evals/compare" element={<EvalComparisonPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

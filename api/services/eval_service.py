@@ -278,6 +278,7 @@ class EvalStore:
         self._rows: dict[str, EvalDatasetRowRecord] = {}  # keyed by row_id
         self._runs: dict[str, EvalRunRecord] = {}
         self._results: dict[str, EvalResultRecord] = {}  # keyed by result_id
+        self._schedules: dict[str, dict[str, Any]] = {}  # keyed by schedule_id
 
     # --- Dataset CRUD ---
 
@@ -671,6 +672,106 @@ class EvalStore:
             "run_a": run_a.to_dict(),
             "run_b": run_b.to_dict(),
             "comparison": comparison,
+        }
+
+    # --- Schedules ---
+
+    def create_schedule(
+        self,
+        agent_name: str,
+        dataset_id: str,
+        cron_expr: str,
+        threshold: float = 0.7,
+    ) -> dict[str, Any]:
+        """Create a scheduled evaluation."""
+        schedule_id = str(uuid.uuid4())
+        now = datetime.now(UTC).isoformat()
+
+        schedule = {
+            "id": schedule_id,
+            "agent_name": agent_name,
+            "dataset_id": dataset_id,
+            "cron": cron_expr,
+            "threshold": threshold,
+            "enabled": True,
+            "created_at": now,
+            "updated_at": now,
+        }
+        self._schedules[schedule_id] = schedule
+        logger.info(
+            "Eval schedule created",
+            extra={"schedule_id": schedule_id, "agent": agent_name, "cron": cron_expr},
+        )
+        return schedule
+
+    def list_schedules(self) -> list[dict[str, Any]]:
+        """List all scheduled evaluations."""
+        schedules = list(self._schedules.values())
+        schedules.sort(key=lambda s: s["created_at"], reverse=True)
+        return schedules
+
+    def delete_schedule(self, schedule_id: str) -> bool:
+        """Delete a scheduled evaluation."""
+        if schedule_id not in self._schedules:
+            return False
+        del self._schedules[schedule_id]
+        logger.info("Eval schedule deleted", extra={"schedule_id": schedule_id})
+        return True
+
+    # --- Promotion Gate ---
+
+    def promote_check(
+        self,
+        agent_name: str,
+        min_score: float = 0.7,
+        required_metrics: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Check if an agent passes the eval gate for promotion.
+
+        Looks at the most recent completed run for the agent and checks
+        whether all required metrics meet the minimum score.
+        """
+        if required_metrics is None:
+            required_metrics = ["correctness", "relevance"]
+
+        # Find the most recent completed run
+        runs = [
+            r for r in self._runs.values()
+            if r.agent_name == agent_name and r.status == "completed"
+        ]
+        runs.sort(key=lambda r: r.created_at, reverse=True)
+
+        if not runs:
+            return {
+                "passed": False,
+                "agent_name": agent_name,
+                "scores": {},
+                "blocking_metrics": required_metrics,
+                "reason": "No completed eval runs found",
+            }
+
+        latest_run = runs[0]
+        run_metrics = latest_run.summary.get("metrics", {})
+
+        scores: dict[str, float] = {}
+        blocking: list[str] = []
+
+        for metric in required_metrics:
+            metric_data = run_metrics.get(metric, {})
+            mean_score = metric_data.get("mean", 0.0)
+            scores[metric] = round(mean_score, 4)
+            if mean_score < min_score:
+                blocking.append(metric)
+
+        passed = len(blocking) == 0
+
+        return {
+            "passed": passed,
+            "agent_name": agent_name,
+            "run_id": latest_run.id,
+            "scores": scores,
+            "blocking_metrics": blocking,
+            "min_score": min_score,
         }
 
     # --- Eval Runner (simulated) ---

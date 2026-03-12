@@ -241,6 +241,108 @@ def eval_results(
     console.print()
 
 
+@eval_app.command(name="gate")
+def eval_gate(
+    run_id: str = typer.Argument(..., help="Eval run ID to check"),
+    threshold: float = typer.Option(
+        0.7, "--threshold", "-t", help="Minimum acceptable score (0.0-1.0)"
+    ),
+    metrics: str = typer.Option(
+        "correctness,relevance",
+        "--metrics",
+        "-m",
+        help="Comma-separated list of metrics to check",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """Check if an eval run passes a quality gate.
+
+    Returns exit code 0 if all specified metrics meet the threshold,
+    exit code 1 if any metric fails. Used by CI pipelines to block merges.
+    """
+    store = _get_store()
+    run = store.get_run(run_id)
+    if not run:
+        if json_output:
+            sys.stdout.write(json_lib.dumps({"error": f"Run '{run_id}' not found"}) + "\n")
+        else:
+            console.print(f"[red]Run '{run_id}' not found.[/red]")
+        raise typer.Exit(code=1)
+
+    if run["status"] != "completed":
+        if json_output:
+            sys.stdout.write(
+                json_lib.dumps({"error": f"Run is not completed (status: {run['status']})"}) + "\n"
+            )
+        else:
+            console.print(f"[red]Run is not completed (status: {run['status']}).[/red]")
+        raise typer.Exit(code=1)
+
+    summary = run.get("summary", {})
+    run_metrics = summary.get("metrics", {})
+    metric_list = [m.strip() for m in metrics.split(",") if m.strip()]
+
+    gate_results: list[dict] = []
+    all_passed = True
+
+    for metric in metric_list:
+        metric_data = run_metrics.get(metric, {})
+        score = metric_data.get("mean", 0.0)
+        passed = score >= threshold
+        if not passed:
+            all_passed = False
+        gate_results.append({
+            "metric": metric,
+            "score": round(score, 4),
+            "threshold": threshold,
+            "passed": passed,
+        })
+
+    result = {
+        "run_id": run_id,
+        "passed": all_passed,
+        "threshold": threshold,
+        "results": gate_results,
+    }
+
+    if json_output:
+        sys.stdout.write(json_lib.dumps(result, indent=2) + "\n")
+    else:
+        console.print()
+        status_str = "[green]PASSED[/green]" if all_passed else "[red]FAILED[/red]"
+        console.print(
+            Panel(
+                f"  Run:       [bold]{run_id[:8]}...[/bold]\n"
+                f"  Status:    {status_str}\n"
+                f"  Threshold: {threshold}",
+                title="Eval Gate",
+                border_style="green" if all_passed else "red",
+            )
+        )
+        console.print()
+
+        table = Table(title="Gate Results", show_header=True, header_style="bold cyan")
+        table.add_column("Metric", style="bold")
+        table.add_column("Score", justify="right")
+        table.add_column("Threshold", justify="right")
+        table.add_column("Status", justify="center")
+
+        for gr in gate_results:
+            status_icon = "[green]PASS[/green]" if gr["passed"] else "[red]FAIL[/red]"
+            table.add_row(
+                gr["metric"],
+                f"{gr['score']:.4f}",
+                f"{gr['threshold']:.2f}",
+                status_icon,
+            )
+
+        console.print(table)
+        console.print()
+
+    if not all_passed:
+        raise typer.Exit(code=1)
+
+
 @eval_app.command(name="compare")
 def eval_compare(
     run_a: str = typer.Argument(..., help="First run ID"),

@@ -1,0 +1,26 @@
+name: Agent Evaluation
+on:
+  pull_request:
+    paths:
+      - 'agents/**'
+      - '*.yaml'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Agent Garden API
+        run: |
+          pip install -e ".[dev]" --quiet
+          uvicorn api.main:app --host 0.0.0.0 --port 8000 &
+          sleep 5
+
+      - name: Run Agent Evaluation
+        uses: ./.github/actions/eval-action
+        with:
+          agent_name: customer-support-agent
+          dataset_id: demo-dataset
+          threshold: '0.7'
+          metrics: 'correctness,relevance'

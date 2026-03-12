@@ -480,6 +480,280 @@ class TestBuiltInScorers:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Schedules
+# ---------------------------------------------------------------------------
+
+
+class TestSchedules:
+    def test_create_schedule(self, store: EvalStore) -> None:
+        schedule = store.create_schedule(
+            agent_name="test-agent",
+            dataset_id="ds-123",
+            cron_expr="0 0 * * *",
+            threshold=0.8,
+        )
+        assert schedule["agent_name"] == "test-agent"
+        assert schedule["dataset_id"] == "ds-123"
+        assert schedule["cron"] == "0 0 * * *"
+        assert schedule["threshold"] == 0.8
+        assert schedule["enabled"] is True
+        assert schedule["id"] is not None
+        assert schedule["created_at"] is not None
+
+    def test_list_schedules(self, store: EvalStore) -> None:
+        store.create_schedule("agent-a", "ds-1", "0 0 * * *")
+        store.create_schedule("agent-b", "ds-2", "0 6 * * 1")
+        store.create_schedule("agent-c", "ds-3", "0 12 * * *")
+
+        schedules = store.list_schedules()
+        assert len(schedules) == 3
+
+    def test_list_schedules_empty(self, store: EvalStore) -> None:
+        schedules = store.list_schedules()
+        assert schedules == []
+
+    def test_delete_schedule(self, store: EvalStore) -> None:
+        schedule = store.create_schedule("agent", "ds-1", "0 0 * * *")
+        assert store.delete_schedule(schedule["id"]) is True
+        assert store.list_schedules() == []
+
+    def test_delete_schedule_not_found(self, store: EvalStore) -> None:
+        assert store.delete_schedule("nonexistent") is False
+
+
+# ---------------------------------------------------------------------------
+# Promotion Gate
+# ---------------------------------------------------------------------------
+
+
+class TestPromotionGate:
+    def test_promote_check_passes(self, store: EvalStore) -> None:
+        ds = store.create_dataset(name="promo-pass-test")
+        store.add_rows(ds["id"], [
+            {"input": {"q": "test"}, "expected_output": "answer"},
+        ])
+
+        run = store.create_run(agent_name="promo-agent", dataset_id=ds["id"])
+        store.update_run_status(
+            run["id"],
+            "completed",
+            summary={
+                "metrics": {
+                    "correctness": {"mean": 0.9, "median": 0.9},
+                    "relevance": {"mean": 0.85, "median": 0.85},
+                }
+            },
+        )
+
+        result = store.promote_check(
+            agent_name="promo-agent",
+            min_score=0.7,
+            required_metrics=["correctness", "relevance"],
+        )
+        assert result["passed"] is True
+        assert result["blocking_metrics"] == []
+        assert result["scores"]["correctness"] == 0.9
+        assert result["scores"]["relevance"] == 0.85
+
+    def test_promote_check_fails(self, store: EvalStore) -> None:
+        ds = store.create_dataset(name="promo-fail-test")
+        store.add_rows(ds["id"], [
+            {"input": {"q": "test"}, "expected_output": "answer"},
+        ])
+
+        run = store.create_run(agent_name="fail-agent", dataset_id=ds["id"])
+        store.update_run_status(
+            run["id"],
+            "completed",
+            summary={
+                "metrics": {
+                    "correctness": {"mean": 0.5, "median": 0.5},
+                    "relevance": {"mean": 0.9, "median": 0.9},
+                }
+            },
+        )
+
+        result = store.promote_check(
+            agent_name="fail-agent",
+            min_score=0.7,
+            required_metrics=["correctness", "relevance"],
+        )
+        assert result["passed"] is False
+        assert "correctness" in result["blocking_metrics"]
+        assert "relevance" not in result["blocking_metrics"]
+
+    def test_promote_check_no_runs(self, store: EvalStore) -> None:
+        result = store.promote_check(agent_name="nonexistent-agent")
+        assert result["passed"] is False
+        assert "No completed eval runs found" in result.get("reason", "")
+
+    def test_promote_check_uses_latest_run(self, store: EvalStore) -> None:
+        ds = store.create_dataset(name="promo-latest-test")
+        store.add_rows(ds["id"], [
+            {"input": {"q": "test"}, "expected_output": "answer"},
+        ])
+
+        # Older run with low scores
+        run1 = store.create_run(agent_name="latest-agent", dataset_id=ds["id"])
+        store.update_run_status(
+            run1["id"],
+            "completed",
+            summary={"metrics": {"correctness": {"mean": 0.3}}},
+        )
+
+        # Newer run with high scores
+        run2 = store.create_run(agent_name="latest-agent", dataset_id=ds["id"])
+        store.update_run_status(
+            run2["id"],
+            "completed",
+            summary={"metrics": {"correctness": {"mean": 0.95}}},
+        )
+
+        result = store.promote_check(
+            agent_name="latest-agent",
+            min_score=0.7,
+            required_metrics=["correctness"],
+        )
+        assert result["passed"] is True
+        assert result["run_id"] == run2["id"]
+
+
+# ---------------------------------------------------------------------------
+# Eval Gate CLI
+# ---------------------------------------------------------------------------
+
+
+class TestEvalGateCLI:
+    """Test the gate subcommand logic via the store (mocking CLI invocation)."""
+
+    def _run_gate_check(
+        self,
+        store: EvalStore,
+        run_id: str,
+        threshold: float = 0.7,
+        metrics: list[str] | None = None,
+    ) -> dict:
+        """Simulate the gate check logic from the CLI."""
+        if metrics is None:
+            metrics = ["correctness", "relevance"]
+
+        run = store.get_run(run_id)
+        assert run is not None, f"Run '{run_id}' not found"
+        assert run["status"] == "completed", "Run is not completed"
+
+        summary = run.get("summary", {})
+        run_metrics = summary.get("metrics", {})
+
+        gate_results = []
+        all_passed = True
+
+        for metric in metrics:
+            metric_data = run_metrics.get(metric, {})
+            score = metric_data.get("mean", 0.0)
+            passed = score >= threshold
+            if not passed:
+                all_passed = False
+            gate_results.append({
+                "metric": metric,
+                "score": round(score, 4),
+                "threshold": threshold,
+                "passed": passed,
+            })
+
+        return {
+            "run_id": run_id,
+            "passed": all_passed,
+            "threshold": threshold,
+            "results": gate_results,
+        }
+
+    def test_eval_gate_cli(self, store: EvalStore) -> None:
+        """Gate passes when all metrics meet threshold."""
+        ds = store.create_dataset(name="gate-pass-test")
+        store.add_rows(ds["id"], [
+            {"input": {"q": "test"}, "expected_output": "answer"},
+        ])
+
+        run = store.create_run(agent_name="gate-agent", dataset_id=ds["id"])
+        store.update_run_status(
+            run["id"],
+            "completed",
+            summary={
+                "metrics": {
+                    "correctness": {"mean": 0.85},
+                    "relevance": {"mean": 0.9},
+                }
+            },
+        )
+
+        result = self._run_gate_check(store, run["id"], threshold=0.7)
+        assert result["passed"] is True
+        assert all(r["passed"] for r in result["results"])
+
+    def test_eval_gate_cli_fails(self, store: EvalStore) -> None:
+        """Gate fails when any metric is below threshold."""
+        ds = store.create_dataset(name="gate-fail-test")
+        store.add_rows(ds["id"], [
+            {"input": {"q": "test"}, "expected_output": "answer"},
+        ])
+
+        run = store.create_run(agent_name="gate-fail-agent", dataset_id=ds["id"])
+        store.update_run_status(
+            run["id"],
+            "completed",
+            summary={
+                "metrics": {
+                    "correctness": {"mean": 0.5},
+                    "relevance": {"mean": 0.9},
+                }
+            },
+        )
+
+        result = self._run_gate_check(store, run["id"], threshold=0.7)
+        assert result["passed"] is False
+
+        # correctness should fail, relevance should pass
+        correctness_result = next(r for r in result["results"] if r["metric"] == "correctness")
+        relevance_result = next(r for r in result["results"] if r["metric"] == "relevance")
+        assert correctness_result["passed"] is False
+        assert relevance_result["passed"] is True
+
+    def test_eval_gate_cli_missing_metric(self, store: EvalStore) -> None:
+        """Gate fails when a required metric is not in the run summary."""
+        ds = store.create_dataset(name="gate-missing-test")
+        store.add_rows(ds["id"], [
+            {"input": {"q": "test"}, "expected_output": "answer"},
+        ])
+
+        run = store.create_run(agent_name="gate-missing-agent", dataset_id=ds["id"])
+        store.update_run_status(
+            run["id"],
+            "completed",
+            summary={
+                "metrics": {
+                    "correctness": {"mean": 0.9},
+                    # relevance is missing
+                }
+            },
+        )
+
+        result = self._run_gate_check(
+            store, run["id"], threshold=0.7, metrics=["correctness", "relevance"]
+        )
+        assert result["passed"] is False
+
+        # Missing metric defaults to 0.0, which is below threshold
+        relevance_result = next(r for r in result["results"] if r["metric"] == "relevance")
+        assert relevance_result["score"] == 0.0
+        assert relevance_result["passed"] is False
+
+
+# ---------------------------------------------------------------------------
+# Cascade Deletion
+# ---------------------------------------------------------------------------
+
+
 class TestCascadeDeletion:
     def test_delete_dataset_cascades(self, store: EvalStore) -> None:
         """Deleting a dataset should remove rows, runs, and results."""

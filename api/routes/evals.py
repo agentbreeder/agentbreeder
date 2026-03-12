@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 
 from api.models.schemas import ApiMeta, ApiResponse
 from api.services.eval_service import get_eval_store
@@ -246,3 +246,168 @@ async def compare_runs(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
     return ApiResponse(data=comparison)
+
+
+# ---------------------------------------------------------------------------
+# Eval Badge
+# ---------------------------------------------------------------------------
+
+
+def _generate_badge_svg(label: str, value: str, color: str) -> str:
+    """Generate a shields.io-style SVG badge."""
+    label_width = len(label) * 7 + 10
+    value_width = len(value) * 7 + 10
+    total_width = label_width + value_width
+
+    lx = label_width / 2
+    vx = label_width + value_width / 2
+    font = "DejaVu Sans,Verdana,Geneva,sans-serif"
+
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg"'
+        f' width="{total_width}" height="20">\n'
+        f'  <linearGradient id="b" x2="0" y2="100%">\n'
+        f'    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>\n'
+        f'    <stop offset="1" stop-opacity=".1"/>\n'
+        f"  </linearGradient>\n"
+        f'  <clipPath id="a">\n'
+        f'    <rect width="{total_width}" height="20" rx="3"'
+        f' fill="#fff"/>\n'
+        f"  </clipPath>\n"
+        f'  <g clip-path="url(#a)">\n'
+        f'    <rect width="{label_width}" height="20" fill="#555"/>\n'
+        f'    <rect x="{label_width}" width="{value_width}"'
+        f' height="20" fill="{color}"/>\n'
+        f'    <rect width="{total_width}" height="20"'
+        f' fill="url(#b)"/>\n'
+        f"  </g>\n"
+        f'  <g fill="#fff" text-anchor="middle"'
+        f' font-family="{font}" font-size="11">\n'
+        f'    <text x="{lx}" y="15"'
+        f' fill="#010101" fill-opacity=".3">{label}</text>\n'
+        f'    <text x="{lx}" y="14">{label}</text>\n'
+        f'    <text x="{vx}" y="15"'
+        f' fill="#010101" fill-opacity=".3">{value}</text>\n'
+        f'    <text x="{vx}" y="14">{value}</text>\n'
+        f"  </g>\n"
+        f"</svg>"
+    )
+
+
+@router.get("/badge/{agent_name}")
+async def get_eval_badge(agent_name: str) -> Response:
+    """Return an SVG badge with the latest eval score for an agent."""
+    store = get_eval_store()
+
+    # Find the most recent completed run for this agent
+    runs = store.list_runs(agent_name=agent_name)
+    completed_runs = [r for r in runs if r["status"] == "completed"]
+
+    if not completed_runs:
+        svg = _generate_badge_svg("eval", "no data", "#9f9f9f")
+        return Response(content=svg, media_type="image/svg+xml")
+
+    latest_run = completed_runs[0]  # list_runs returns newest first
+    metrics = latest_run.get("summary", {}).get("metrics", {})
+
+    # Use correctness as the primary badge metric, fall back to first available
+    if "correctness" in metrics:
+        score = metrics["correctness"].get("mean", 0.0)
+    elif metrics:
+        first_metric = next(iter(metrics.values()))
+        score = first_metric.get("mean", 0.0)
+    else:
+        svg = _generate_badge_svg("eval", "no data", "#9f9f9f")
+        return Response(content=svg, media_type="image/svg+xml")
+
+    pct = f"{int(score * 100)}%"
+
+    if score >= 0.8:
+        color = "#4c1"
+    elif score >= 0.6:
+        color = "#dfb317"
+    else:
+        color = "#e05d44"
+
+    svg = _generate_badge_svg("eval", pct, color)
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scheduled Evaluations
+# ---------------------------------------------------------------------------
+
+
+@router.post("/schedules", status_code=201)
+async def create_schedule(body: dict) -> ApiResponse[dict]:
+    """Create a scheduled evaluation."""
+    store = get_eval_store()
+
+    agent_name = body.get("agent_name")
+    dataset_id = body.get("dataset_id")
+    cron_expr = body.get("cron")
+
+    if not agent_name or not dataset_id or not cron_expr:
+        raise HTTPException(
+            status_code=400,
+            detail="agent_name, dataset_id, and cron are required",
+        )
+
+    schedule = store.create_schedule(
+        agent_name=agent_name,
+        dataset_id=dataset_id,
+        cron_expr=cron_expr,
+        threshold=body.get("threshold", 0.7),
+    )
+    return ApiResponse(data=schedule)
+
+
+@router.get("/schedules")
+async def list_schedules() -> ApiResponse[list]:
+    """List all scheduled evaluations."""
+    store = get_eval_store()
+    schedules = store.list_schedules()
+    return ApiResponse(data=schedules, meta=ApiMeta(total=len(schedules)))
+
+
+@router.delete("/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str) -> ApiResponse[dict]:
+    """Delete a scheduled evaluation."""
+    store = get_eval_store()
+    deleted = store.delete_schedule(schedule_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return ApiResponse(data={"deleted": True, "schedule_id": schedule_id})
+
+
+# ---------------------------------------------------------------------------
+# Promotion Gate
+# ---------------------------------------------------------------------------
+
+
+@router.post("/promote-check")
+async def promote_check(body: dict) -> ApiResponse[dict]:
+    """Check if an agent passes the eval gate for promotion.
+
+    Input: { agent_name, min_score, required_metrics }
+    Output: { passed, scores, blocking_metrics }
+    """
+    store = get_eval_store()
+
+    agent_name = body.get("agent_name")
+    if not agent_name:
+        raise HTTPException(status_code=400, detail="agent_name is required")
+
+    min_score = body.get("min_score", 0.7)
+    required_metrics = body.get("required_metrics", ["correctness", "relevance"])
+
+    result = store.promote_check(
+        agent_name=agent_name,
+        min_score=min_score,
+        required_metrics=required_metrics,
+    )
+    return ApiResponse(data=result)

@@ -760,6 +760,86 @@ export interface ResourceDependency {
   created_at: string;
 }
 
+// --- Eval types ---
+
+export type EvalRunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+export interface EvalDataset {
+  id: string;
+  name: string;
+  description: string;
+  agent_name: string;
+  team: string;
+  tags: string[];
+  row_count: number;
+  version: number;
+  format: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EvalDatasetRow {
+  id: string;
+  dataset_id: string;
+  input: Record<string, unknown>;
+  expected_output: string;
+  tags: string[];
+  created_at: string;
+}
+
+export interface EvalRun {
+  id: string;
+  agent_name: string;
+  dataset_id: string;
+  status: EvalRunStatus;
+  config: Record<string, unknown>;
+  summary: EvalRunSummary | null;
+  started_at: string;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface EvalRunSummary {
+  overall_score: number;
+  metrics: Record<string, EvalMetricSummary>;
+  total_rows: number;
+  passed_rows: number;
+  failed_rows: number;
+}
+
+export interface EvalMetricSummary {
+  mean: number;
+  p95: number;
+  min: number;
+  max: number;
+}
+
+export interface EvalRunResult {
+  id: string;
+  run_id: string;
+  row_id: string;
+  input: Record<string, unknown>;
+  expected_output: string;
+  actual_output: string;
+  scores: Record<string, number>;
+  latency_ms: number;
+  status: string;
+  error: string | null;
+}
+
+export interface EvalScoreTrend {
+  run_id: string;
+  overall_score: number;
+  metrics: Record<string, number>;
+  completed_at: string;
+}
+
+export interface EvalComparison {
+  run_a: EvalRun;
+  run_b: EvalRun;
+  deltas: Record<string, number>;
+}
+
 // --- Search types ---
 
 export interface SearchResult {
@@ -1513,6 +1593,91 @@ export const api = {
         method: "POST",
         body: JSON.stringify(configSnapshot),
       }),
+  },
+  evals: {
+    datasets: {
+      list: (params?: { team?: string; page?: number; per_page?: number }) => {
+        const sp = new URLSearchParams();
+        if (params?.team) sp.set("team", params.team);
+        if (params?.page) sp.set("page", String(params.page));
+        if (params?.per_page) sp.set("per_page", String(params.per_page));
+        const qs = sp.toString();
+        return request<EvalDataset[]>(`/eval/datasets${qs ? `?${qs}` : ""}`);
+      },
+      get: (id: string) => request<EvalDataset>(`/eval/datasets/${id}`),
+      create: (body: {
+        name: string;
+        description?: string;
+        agent_name?: string;
+        team?: string;
+        tags?: string[];
+      }) =>
+        request<EvalDataset>("/eval/datasets", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      delete: (id: string) =>
+        request<{ deleted: boolean }>(`/eval/datasets/${id}`, { method: "DELETE" }),
+      addRows: (id: string, rows: { input: Record<string, unknown>; expected_output: string; tags?: string[] }[]) =>
+        request<EvalDatasetRow[]>(`/eval/datasets/${id}/rows`, {
+          method: "POST",
+          body: JSON.stringify({ rows }),
+        }),
+      listRows: (id: string, params?: { page?: number; per_page?: number }) => {
+        const sp = new URLSearchParams();
+        if (params?.page) sp.set("page", String(params.page));
+        if (params?.per_page) sp.set("per_page", String(params.per_page));
+        const qs = sp.toString();
+        return request<EvalDatasetRow[]>(`/eval/datasets/${id}/rows${qs ? `?${qs}` : ""}`);
+      },
+      importJsonl: (id: string, content: string) =>
+        request<{ imported: number }>(`/eval/datasets/${id}/import`, {
+          method: "POST",
+          body: JSON.stringify({ content }),
+        }),
+      exportJsonl: (id: string) =>
+        request<{ content: string }>(`/eval/datasets/${id}/export`),
+    },
+    runs: {
+      create: (body: {
+        agent_name: string;
+        dataset_id: string;
+        config?: Record<string, unknown>;
+      }) =>
+        request<EvalRun>("/eval/runs", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      list: (params?: {
+        agent_name?: string;
+        dataset_id?: string;
+        status?: EvalRunStatus;
+        page?: number;
+        per_page?: number;
+      }) => {
+        const sp = new URLSearchParams();
+        if (params?.agent_name) sp.set("agent_name", params.agent_name);
+        if (params?.dataset_id) sp.set("dataset_id", params.dataset_id);
+        if (params?.status) sp.set("status", params.status);
+        if (params?.page) sp.set("page", String(params.page));
+        if (params?.per_page) sp.set("per_page", String(params.per_page));
+        const qs = sp.toString();
+        return request<EvalRun[]>(`/eval/runs${qs ? `?${qs}` : ""}`);
+      },
+      get: (id: string) => request<EvalRun & { results: EvalRunResult[] }>(`/eval/runs/${id}`),
+      cancel: (id: string) =>
+        request<{ cancelled: boolean }>(`/eval/runs/${id}`, { method: "DELETE" }),
+    },
+    scores: {
+      trend: (agent: string, params?: { metric?: string; limit?: number }) => {
+        const sp = new URLSearchParams({ agent });
+        if (params?.metric) sp.set("metric", params.metric);
+        if (params?.limit) sp.set("limit", String(params.limit));
+        return request<EvalScoreTrend[]>(`/eval/scores/trend?${sp.toString()}`);
+      },
+      compare: (runA: string, runB: string) =>
+        request<EvalComparison>(`/eval/scores/compare?run_a=${runA}&run_b=${runB}`),
+    },
   },
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),
