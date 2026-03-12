@@ -11,7 +11,7 @@
 | Release | Name | Theme | Milestones | Status |
 |---------|------|-------|------------|--------|
 | **v0.1** | Foundation | CLI + Registry + Basic Dashboard | M1–M5 | Done |
-| **v0.2** | Registry UI | Rich registry pages, YAML editor, prompt manager | M6–M7 | Next |
+| **v0.2** | Registry UI | Rich registry pages, YAML editor, prompt manager | M6–M7 | In Progress (~80%) |
 | **v0.3** | Builders | All builders + Git workflow + approval + environments + playground + 2 SDKs (LangGraph, OpenAI Agents) + Cloud Run deploy | M8–M13, M23 | Planned |
 | **v0.4** | Observability | Tracing (Langfuse/MLflow), cost monitoring, RBAC, audit trail, lineage | M14–M17 | Planned |
 | **v1.0** | GA | Eval framework, golden datasets, regression detection, CI gates, feedback loop | M18 | Planned |
@@ -679,73 +679,73 @@ $ garden init my-workspace --workspace
 
 ---
 
-## v0.2 — "Registry UI" (Next)
+## v0.2 — "Registry UI" (In Progress)
 
 > **Goal:** The dashboard becomes the primary way to explore, edit, and manage everything in the registry. Not just read-only browse — full CRUD with a polished UI.
 
 ### M6: Rich Registry Pages
 
 #### 6.1 — Agent Registry Enhancements
-- [ ] Agent detail page: full YAML viewer with syntax highlighting (Monaco or CodeMirror)
-- [ ] Agent detail: environment variables display (masked secrets)
-- [ ] Agent detail: dependency graph tab (which tools, models, prompts this agent uses)
-- [ ] Agent config diff viewer (compare two versions side-by-side)
-- [ ] Agent clone action (duplicate config as starting point for a new agent)
-- [ ] Agent YAML inline editor with validation (edit + save from dashboard)
-- [ ] Agent status badge: real-time health indicator (green/yellow/red/gray)
+- [x] Agent detail page: full YAML viewer with syntax highlighting
+- [x] Agent detail: environment variables display (masked secrets)
+- [x] Agent detail: dependency graph tab (which tools, models, prompts this agent uses)
+- [x] Agent config diff viewer (compare two versions side-by-side) — LCS-based diff algorithm, collapsible unchanged sections
+- [x] Agent clone action (duplicate config as starting point for a new agent)
+- [x] Agent YAML inline editor with validation (edit + save from dashboard) — validateYamlBasic(), unsaved changes warning
+- [x] Agent status badge: health indicator (green/yellow/red/gray) — added degraded + error statuses
 - [ ] Agent logs tab: live log streaming from deployed container (SSE)
 
 #### 6.2 — Prompt Registry (Full)
-- [ ] Prompt CRUD from dashboard (create, edit, delete)
-- [ ] Prompt editor: Markdown editor with live preview panel
-- [ ] Prompt versioning: create new version, view version history
-- [ ] Prompt diff viewer (compare two versions, highlight changes)
-- [ ] Prompt metadata: tags, description, linked agents
-- [ ] Prompt test panel: send a test message using the prompt, see LLM response inline
-- [ ] Backend: prompt versions table, version CRUD API routes
+- [x] Prompt CRUD from dashboard (create, edit, delete)
+- [x] Prompt editor: Markdown editor with live preview panel
+- [x] Prompt versioning: create new version, view version history
+- [x] Prompt diff viewer (compare two versions, highlight changes)
+- [x] Prompt metadata: tags, description, linked agents
+- [x] Prompt test panel: send a test message using the prompt, see LLM response inline — model selector, variable detection, mock responses
+- [x] Backend: prompt versions table, version CRUD API routes — migration 005, list/create/get/diff endpoints
 
 #### 6.3 — Tool & Model Registry Enhancements
-- [ ] Tool detail page: schema viewer (JSON Schema rendered as a form)
+- [x] Tool detail page: schema viewer (JSON Schema rendered as a form)
 - [ ] Tool detail: usage stats (which agents reference this tool)
 - [ ] Tool health indicator (for MCP servers: last ping status, latency)
-- [ ] Model detail page: pricing info, context window, capabilities matrix
-- [ ] Model comparison view (select 2-3 models, compare side-by-side)
+- [x] Model detail page: pricing info, context window, capabilities matrix
+- [x] Model comparison view (select 2-3 models, compare side-by-side)
 - [ ] Model usage stats (which agents use this model, token counts)
 
 #### 6.4 — Global Registry Features
-- [ ] Unified resource creation dialog ("New..." → Agent / Tool / Prompt / Model)
-- [ ] Tag management: add/remove tags on any resource, filter by tags everywhere
-- [ ] Favorites/bookmarks: star resources, "My Favorites" filter
-- [ ] Activity feed: recent changes across all resources (who changed what, when)
-- [ ] Bulk actions: select multiple resources, bulk tag / bulk delete
-- [ ] Export: download any resource as YAML/JSON
+- [x] Unified resource creation dialog ("New..." → Agent / Tool / Prompt / Model)
+- [x] Tag management: add/remove tags on any resource, filter by tags everywhere
+- [x] Favorites/bookmarks: star resources, "My Favorites" filter
+- [x] Activity feed: recent changes across all resources (who changed what, when)
+- [x] Bulk actions: select multiple resources, bulk tag / bulk delete — BulkActionBar component + useBulkSelect hook
+- [x] Export: download any resource as YAML/JSON
 
 ---
 
 ### M7: Dashboard Polish & Navigation
 
 #### 7.1 — Navigation & Layout
-- [ ] Resizable sidebar (drag to resize, collapse to icons)
+- [x] Resizable sidebar (drag to resize, collapse to icons) — localStorage persistence, tooltip labels when collapsed
 - [ ] Breadcrumb navigation with entity type icons
 - [ ] Tab persistence (remember which tab was active on agent detail)
-- [ ] URL-driven state: all filters, search queries, and tabs reflected in URL
-- [ ] Keyboard shortcuts: `n` for new, `/` for search, `g a` for agents, `g t` for tools
-- [ ] Empty states: helpful illustrations + CTAs when no data exists
+- [x] URL-driven state: all filters, search queries, and tabs reflected in URL — useUrlState hook
+- [x] Keyboard shortcuts: `n` for new, `/` for search, `g a` for agents, `g t` for tools
+- [x] Empty states: helpful illustrations + CTAs when no data exists — EmptyState component on all list pages
 
 #### 7.2 — Tables & Data Display
-- [ ] Sortable columns on all tables (click header to sort)
+- [x] Sortable columns on all tables (click header to sort) — useSortable hook + SortableColumnHeader on all 5 list pages
 - [ ] Column visibility toggle (show/hide columns)
-- [ ] Pagination with configurable page size (10, 25, 50, 100)
+- [x] Pagination with configurable page size (10, 25, 50, 100) — usePagination hook + Pagination component
 - [ ] Table row expansion (inline detail without navigating away)
 - [ ] Data export from any table (CSV, JSON)
-- [ ] Relative timestamps with absolute tooltip ("2 hours ago" → hover: "Mar 11, 2026 14:30")
+- [x] Relative timestamps with absolute tooltip ("2 hours ago" → hover: "Mar 11, 2026 14:30") — RelativeTime component
 
 #### 7.3 — Forms & Validation
 - [ ] Form validation: inline error messages, field-level validation
-- [ ] Unsaved changes warning (prompt before navigating away)
-- [ ] Toast notifications for all actions (success, error, info)
-- [ ] Confirmation dialogs for destructive actions (delete, teardown)
-- [ ] Loading skeletons on all pages (not spinners)
+- [x] Unsaved changes warning (prompt before navigating away) — useUnsavedChanges hook + UnsavedChangesDialog + React Router blocker
+- [x] Toast notifications for all actions (success, error, info) — 5 variants, progress bar, max 3 visible, configurable duration
+- [x] Confirmation dialogs for destructive actions (delete, teardown) — ConfirmDialog with loading state + destructive variant
+- [x] Loading skeletons on all pages (not spinners) — SkeletonTable + SkeletonDetail components
 
 #### 7.4 — Settings: Provider Onboarding & API Key Management
 
@@ -974,10 +974,14 @@ garden provider remove openai                     # remove key from .env
 
 **Implementation items:**
 
-- [ ] Settings page in sidebar navigation (gear icon, bottom of sidebar)
-- [ ] Provider registry: `providers` table (name, type, base_url, status, last_verified, model_count) — keys NOT in DB
-- [ ] Provider connection test: `POST /api/v1/providers/{name}/test` — verify key works, measure latency
-- [ ] Model discovery: `POST /api/v1/providers/{name}/discover` — list available models from provider API
+- [x] Settings page in sidebar navigation (gear icon, bottom of sidebar)
+- [x] Provider registry: `providers` table (name, type, base_url, status, is_enabled, last_verified, model_count, avg_latency_ms) — keys NOT in DB, migration 006
+- [x] Provider connection test: `POST /api/v1/providers/{id}/test` — verify key works, measure latency
+- [x] Model discovery: `POST /api/v1/providers/{id}/discover` — list available models with pricing, context window, capabilities per provider type (OpenAI 6, Anthropic 3, Google 2, Ollama 4, LiteLLM 3, OpenRouter 4)
+- [x] Provider toggle: `POST /api/v1/providers/{id}/toggle` — enable/disable provider
+- [x] Provider CRUD: full REST API (list, get, create, update, delete) — 8 endpoints total
+- [x] DiscoveredModel schema with rich metadata (context_window, pricing, capabilities)
+- [x] Provider onboarding 4-step wizard UI (pick provider → configure → test → discover models)
 - [ ] Auto-register discovered models into Model Registry with pricing, context window, capabilities
 - [ ] Provider health check: background task pings each provider every 5 min, updates status
 - [ ] Provider status indicator on settings page: green (healthy), yellow (slow), red (down), gray (disabled)
@@ -986,7 +990,7 @@ garden provider remove openai                     # remove key from .env
 - [ ] Provider cost display: month-to-date spend per provider (from cost tracking data)
 - [ ] "Get API Key" links: direct links to each provider's API key page (platform.openai.com, console.anthropic.com, etc.)
 - [ ] First-run onboarding wizard: if no providers configured, show "Connect your first provider" splash screen
-- [ ] CLI: `garden provider` subcommand with add/list/test/models/disable/remove
+- [x] CLI: `garden provider` subcommand with add/list/test/models/disable/remove
 
 ---
 
@@ -2204,5 +2208,5 @@ These are intentionally deferred indefinitely:
 
 ---
 
-*Last updated: March 11, 2026*
-*Status: v0.1 complete (M1–M5). Starting v0.2 (Registry UI).*
+*Last updated: March 12, 2026*
+*Status: v0.1 complete (M1–M5). v0.2 ~80% complete (M6 nearly done, M7 mostly done). Remaining: agent logs tab, tool/model usage stats, column visibility, table row expansion, table data export, form field validation, breadcrumb icons, tab persistence, provider health checks, Ollama auto-detection.*
