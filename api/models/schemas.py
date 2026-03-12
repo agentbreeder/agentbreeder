@@ -122,6 +122,26 @@ class AgentCloneRequest(BaseModel):
     version: str = "1.0.0"
 
 
+class AgentYamlRequest(BaseModel):
+    """Request body for YAML-based agent operations."""
+
+    yaml_content: str
+
+
+class AgentValidationErrorItem(BaseModel):
+    path: str
+    message: str
+    suggestion: str = ""
+
+
+class AgentValidationResponse(BaseModel):
+    """Response from the /validate endpoint."""
+
+    valid: bool
+    errors: list[AgentValidationErrorItem] = Field(default_factory=list)
+    warnings: list[AgentValidationErrorItem] = Field(default_factory=list)
+
+
 # --- Tool Schemas ---
 
 
@@ -358,6 +378,81 @@ class ProviderDiscoverResult(BaseModel):
     """Legacy alias — prefer ModelDiscoveryResult."""
 
     models: list[DiscoveredModel]
+    total: int
+
+
+class ProviderStatusSummary(BaseModel):
+    """First-run detection: tells the dashboard if any providers exist."""
+
+    has_providers: bool
+    provider_count: int
+    total_models: int
+
+
+class ProviderHealthCheckResult(BaseModel):
+    """Result of a single provider's health check."""
+
+    provider_id: str
+    name: str
+    status: str
+    checked: bool
+    latency_ms: int | None = None
+    success: bool | None = None
+    reason: str | None = None
+
+
+class OllamaDetectResult(BaseModel):
+    """Result of Ollama auto-detection."""
+
+    provider: ProviderResponse
+    models: list[DiscoveredModel]
+    created: bool
+
+
+# --- MCP Server Schemas ---
+
+
+class McpServerCreate(BaseModel):
+    name: str
+    endpoint: str
+    transport: str = "stdio"
+
+
+class McpServerUpdate(BaseModel):
+    name: str | None = None
+    endpoint: str | None = None
+    transport: str | None = None
+    status: str | None = None
+
+
+class McpServerResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    endpoint: str
+    transport: str
+    status: str
+    tool_count: int
+    last_ping_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class McpServerTestResult(BaseModel):
+    success: bool
+    latency_ms: int | None = None
+    error: str | None = None
+
+
+class McpServerDiscoveredTool(BaseModel):
+    name: str
+    description: str
+    schema_definition: dict[str, Any] = Field(default_factory=dict)
+
+
+class McpServerDiscoverResult(BaseModel):
+    tools: list[McpServerDiscoveredTool]
     total: int
 
 

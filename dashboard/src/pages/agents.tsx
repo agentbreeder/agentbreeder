@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
-import { Bot, Search, Filter, Circle, Star } from "lucide-react";
+import { Bot, Search, Filter, Circle, Star, Plus } from "lucide-react";
 import { api, type Agent, type AgentStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ExportDropdown } from "@/components/export-dropdown";
+import { ColumnToggle, type ColumnDefinition } from "@/components/ui/column-toggle";
 import { TagFilter } from "@/components/tag-input";
 import { useFavorites } from "@/hooks/use-favorites";
 import { useSortable } from "@/hooks/use-sortable";
@@ -35,7 +37,16 @@ function StatusDot({ status }: { status: AgentStatus }) {
   return <Circle className={cn("size-2 fill-current", STATUS_COLORS[status])} />;
 }
 
-function AgentRow({ agent }: { agent: Agent }) {
+const AGENT_COLUMNS: ColumnDefinition[] = [
+  { key: "name", label: "Agent", locked: true },
+  { key: "framework", label: "Framework" },
+  { key: "team", label: "Team" },
+  { key: "updated_at", label: "Updated" },
+];
+
+const DEFAULT_AGENT_COLUMNS = new Set(AGENT_COLUMNS.map((c) => c.key));
+
+function AgentRow({ agent, visibleColumns }: { agent: Agent; visibleColumns: Set<string> }) {
   const age = timeSince(agent.updated_at);
   return (
     <Link
@@ -73,18 +84,24 @@ function AgentRow({ agent }: { agent: Agent }) {
         )}
       </div>
 
-      <Badge
-        variant="outline"
-        className={cn("text-[10px] font-medium", FRAMEWORK_COLORS[agent.framework] ?? FRAMEWORK_COLORS.custom)}
-      >
-        {agent.framework}
-      </Badge>
+      {visibleColumns.has("framework") && (
+        <Badge
+          variant="outline"
+          className={cn("text-[10px] font-medium", FRAMEWORK_COLORS[agent.framework] ?? FRAMEWORK_COLORS.custom)}
+        >
+          {agent.framework}
+        </Badge>
+      )}
 
-      <span className="w-20 text-right text-xs text-muted-foreground">{agent.team}</span>
+      {visibleColumns.has("team") && (
+        <span className="w-20 text-right text-xs text-muted-foreground">{agent.team}</span>
+      )}
 
-      <span className="w-16 text-right font-mono text-[10px] text-muted-foreground">
-        {age}
-      </span>
+      {visibleColumns.has("updated_at") && (
+        <span className="w-16 text-right font-mono text-[10px] text-muted-foreground">
+          {age}
+        </span>
+      )}
     </Link>
   );
 }
@@ -96,6 +113,7 @@ export default function AgentsPage() {
   const [status, setStatus] = useState(searchParams.get("status") ?? "");
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(DEFAULT_AGENT_COLUMNS);
   const { showOnlyFavorites } = useFavorites();
 
   const { data, isLoading, error } = useQuery({
@@ -166,10 +184,23 @@ export default function AgentsPage() {
             {total} agent{total !== 1 ? "s" : ""} in registry
           </p>
         </div>
-        <ExportDropdown
-          data={filteredAgents as unknown as Record<string, unknown>[]}
-          filename="agents"
-        />
+        <div className="flex items-center gap-2">
+          <ColumnToggle
+            columns={AGENT_COLUMNS}
+            visibleKeys={visibleColumns}
+            onChange={setVisibleColumns}
+          />
+          <Link to="/agents/builder">
+            <Button size="sm" className="h-8 gap-1.5 text-xs">
+              <Plus className="size-3.5" />
+              Create Agent
+            </Button>
+          </Link>
+          <ExportDropdown
+            data={filteredAgents as unknown as Record<string, unknown>[]}
+            filename="agents"
+          />
+        </div>
       </div>
 
       {/* Filters */}
@@ -252,36 +283,42 @@ export default function AgentsPage() {
               Agent
             </SortableColumnHeader>
           </span>
-          <span className="w-24 text-center">
-            <SortableColumnHeader
-              sortKey="framework"
-              currentSortKey={sortKey}
-              currentDirection={sortDirection}
-              onSort={toggleSort}
-            >
-              Framework
-            </SortableColumnHeader>
-          </span>
-          <span className="w-20 text-right">
-            <SortableColumnHeader
-              sortKey="team"
-              currentSortKey={sortKey}
-              currentDirection={sortDirection}
-              onSort={toggleSort}
-            >
-              Team
-            </SortableColumnHeader>
-          </span>
-          <span className="w-16 text-right">
-            <SortableColumnHeader
-              sortKey="updated_at"
-              currentSortKey={sortKey}
-              currentDirection={sortDirection}
-              onSort={toggleSort}
-            >
-              Updated
-            </SortableColumnHeader>
-          </span>
+          {visibleColumns.has("framework") && (
+            <span className="w-24 text-center">
+              <SortableColumnHeader
+                sortKey="framework"
+                currentSortKey={sortKey}
+                currentDirection={sortDirection}
+                onSort={toggleSort}
+              >
+                Framework
+              </SortableColumnHeader>
+            </span>
+          )}
+          {visibleColumns.has("team") && (
+            <span className="w-20 text-right">
+              <SortableColumnHeader
+                sortKey="team"
+                currentSortKey={sortKey}
+                currentDirection={sortDirection}
+                onSort={toggleSort}
+              >
+                Team
+              </SortableColumnHeader>
+            </span>
+          )}
+          {visibleColumns.has("updated_at") && (
+            <span className="w-16 text-right">
+              <SortableColumnHeader
+                sortKey="updated_at"
+                currentSortKey={sortKey}
+                currentDirection={sortDirection}
+                onSort={toggleSort}
+              >
+                Updated
+              </SortableColumnHeader>
+            </span>
+          )}
         </div>
 
         {isLoading ? (
@@ -301,7 +338,7 @@ export default function AgentsPage() {
             }
           />
         ) : (
-          sortedAgents.map((agent) => <AgentRow key={agent.id} agent={agent} />)
+          sortedAgents.map((agent) => <AgentRow key={agent.id} agent={agent} visibleColumns={visibleColumns} />)
         )}
       </div>
     </div>

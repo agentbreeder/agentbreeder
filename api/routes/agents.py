@@ -16,10 +16,13 @@ from api.models.schemas import (
     AgentCreate,
     AgentResponse,
     AgentUpdate,
+    AgentValidationErrorItem,
+    AgentValidationResponse,
+    AgentYamlRequest,
     ApiMeta,
     ApiResponse,
 )
-from registry.agents import AgentRegistry
+from registry.agents import AgentRegistry, create_from_yaml, validate_config_yaml
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
@@ -41,6 +44,45 @@ async def list_agents(
         data=[AgentResponse.model_validate(a) for a in agents],
         meta=ApiMeta(page=page, per_page=per_page, total=total),
     )
+
+
+@router.post("/validate", response_model=ApiResponse[AgentValidationResponse])
+async def validate_agent_yaml(
+    body: AgentYamlRequest,
+) -> ApiResponse[AgentValidationResponse]:
+    """Validate raw YAML against the agent schema, returning errors and warnings."""
+    result = validate_config_yaml(body.yaml_content)
+    return ApiResponse(
+        data=AgentValidationResponse(
+            valid=result.valid,
+            errors=[
+                AgentValidationErrorItem(
+                    path=e.path, message=e.message, suggestion=e.suggestion
+                )
+                for e in result.errors
+            ],
+            warnings=[
+                AgentValidationErrorItem(
+                    path=w.path, message=w.message, suggestion=w.suggestion
+                )
+                for w in result.warnings
+            ],
+        )
+    )
+
+
+@router.post("/from-yaml", response_model=ApiResponse[AgentResponse], status_code=201)
+async def create_agent_from_yaml(
+    body: AgentYamlRequest,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[AgentResponse]:
+    """Parse YAML and create/update an agent in the registry."""
+    try:
+        agent = await create_from_yaml(db, body.yaml_content)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ApiResponse(data=AgentResponse.model_validate(agent))
 
 
 @router.get("/search", response_model=ApiResponse[list[AgentResponse]])

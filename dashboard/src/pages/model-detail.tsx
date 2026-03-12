@@ -6,11 +6,14 @@ import {
   Clock,
   Cpu,
   DollarSign,
+  Hash,
   Users,
   Zap,
 } from "lucide-react";
 import { api, type Model, type ModelUsage } from "@/lib/api";
+import { useUrlState } from "@/hooks/use-url-state";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { cn } from "@/lib/utils";
 
@@ -109,20 +112,40 @@ function UsageSection({ modelId }: { modelId: string }) {
         <Link
           key={a.agent_id}
           to={`/agents/${a.agent_id}`}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted/30"
+          className="flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted/30"
         >
           <Circle
             className={cn(
               "size-1.5 shrink-0 fill-current",
               a.agent_status === "running"
                 ? "text-emerald-500"
-                : "text-muted-foreground"
+                : a.agent_status === "failed"
+                  ? "text-red-500"
+                  : "text-muted-foreground"
             )}
           />
-          <span>{a.agent_name}</span>
-          <Badge variant="outline" className="ml-auto text-[10px]">
-            {a.usage_type}
-          </Badge>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="truncate font-medium">{a.agent_name}</span>
+              <Badge variant="outline" className="shrink-0 text-[10px]">
+                {a.usage_type}
+              </Badge>
+            </div>
+            <div className="mt-0.5 flex items-center gap-3 text-[10px] text-muted-foreground">
+              {a.token_count != null && (
+                <span className="flex items-center gap-1">
+                  <Hash className="size-2.5" />
+                  {a.token_count.toLocaleString()} tokens
+                </span>
+              )}
+              {a.last_used && (
+                <span className="flex items-center gap-1">
+                  <Clock className="size-2.5" />
+                  Last used <RelativeTime date={a.last_used} />
+                </span>
+              )}
+            </div>
+          </div>
         </Link>
       ))}
     </div>
@@ -145,6 +168,7 @@ export default function ModelDetailPage() {
     staleTime: 10_000,
   });
 
+  const [activeTab, setActiveTab] = useUrlState("tab", "overview");
   const model: Model | undefined = data?.data;
   const usageCount = usageData?.data?.length ?? 0;
 
@@ -221,117 +245,133 @@ export default function ModelDetailPage() {
         </div>
       </div>
 
-      {/* Content grid */}
-      <div className="mt-8 grid gap-6 md:grid-cols-2">
-        {/* Left column */}
-        <div className="space-y-6">
-          {/* Specs */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              <Zap className="size-3" />
-              Specifications
-            </h3>
-            <dl className="space-y-4">
-              {model.context_window != null && (
-                <Field label="Context Window">
-                  <ContextWindowBar tokens={model.context_window} />
-                </Field>
-              )}
-              {model.max_output_tokens != null && (
-                <Field label="Max Output Tokens">
-                  <span className="font-mono text-sm">
-                    {formatContextWindow(model.max_output_tokens)} tokens
-                  </span>
-                </Field>
-              )}
-              {model.capabilities && model.capabilities.length > 0 && (
-                <Field label="Capabilities">
-                  <div className="flex flex-wrap gap-1.5">
-                    {model.capabilities.map((cap) => (
-                      <Badge
-                        key={cap}
-                        variant="outline"
-                        className={cn(
-                          "text-[10px]",
-                          CAPABILITY_COLORS[cap] ?? "bg-muted text-muted-foreground border-border"
-                        )}
-                      >
-                        {cap.replace(/_/g, " ")}
-                      </Badge>
-                    ))}
-                  </div>
-                </Field>
-              )}
-            </dl>
-          </div>
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as string)} className="mt-6">
+        <TabsList variant="line">
+          <TabsTrigger value="overview" className="text-xs">
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="usage" className="text-xs">
+            Usage ({usageCount})
+          </TabsTrigger>
+        </TabsList>
 
-          {/* Pricing */}
-          {(model.input_price_per_million != null || model.output_price_per_million != null) && (
-            <div className="rounded-lg border border-border p-4">
-              <h3 className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                <DollarSign className="size-3" />
-                Pricing
-              </h3>
-              <div className="grid grid-cols-2 gap-4">
-                {model.input_price_per_million != null && (
-                  <div className="rounded-md border border-border bg-muted/20 p-3 text-center">
-                    <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-1">
-                      Input
-                    </p>
-                    <p className="font-mono text-lg font-semibold">
-                      {formatPrice(model.input_price_per_million)}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">per 1M tokens</p>
+        <TabsContent value="overview">
+          <div className="mt-4 grid gap-6 md:grid-cols-2">
+            {/* Left column */}
+            <div className="space-y-6">
+              {/* Specs */}
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <Zap className="size-3" />
+                  Specifications
+                </h3>
+                <dl className="space-y-4">
+                  {model.context_window != null && (
+                    <Field label="Context Window">
+                      <ContextWindowBar tokens={model.context_window} />
+                    </Field>
+                  )}
+                  {model.max_output_tokens != null && (
+                    <Field label="Max Output Tokens">
+                      <span className="font-mono text-sm">
+                        {formatContextWindow(model.max_output_tokens)} tokens
+                      </span>
+                    </Field>
+                  )}
+                  {model.capabilities && model.capabilities.length > 0 && (
+                    <Field label="Capabilities">
+                      <div className="flex flex-wrap gap-1.5">
+                        {model.capabilities.map((cap) => (
+                          <Badge
+                            key={cap}
+                            variant="outline"
+                            className={cn(
+                              "text-[10px]",
+                              CAPABILITY_COLORS[cap] ?? "bg-muted text-muted-foreground border-border"
+                            )}
+                          >
+                            {cap.replace(/_/g, " ")}
+                          </Badge>
+                        ))}
+                      </div>
+                    </Field>
+                  )}
+                </dl>
+              </div>
+
+              {/* Pricing */}
+              {(model.input_price_per_million != null || model.output_price_per_million != null) && (
+                <div className="rounded-lg border border-border p-4">
+                  <h3 className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    <DollarSign className="size-3" />
+                    Pricing
+                  </h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {model.input_price_per_million != null && (
+                      <div className="rounded-md border border-border bg-muted/20 p-3 text-center">
+                        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-1">
+                          Input
+                        </p>
+                        <p className="font-mono text-lg font-semibold">
+                          {formatPrice(model.input_price_per_million)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">per 1M tokens</p>
+                      </div>
+                    )}
+                    {model.output_price_per_million != null && (
+                      <div className="rounded-md border border-border bg-muted/20 p-3 text-center">
+                        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-1">
+                          Output
+                        </p>
+                        <p className="font-mono text-lg font-semibold">
+                          {formatPrice(model.output_price_per_million)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">per 1M tokens</p>
+                      </div>
+                    )}
                   </div>
-                )}
-                {model.output_price_per_million != null && (
-                  <div className="rounded-md border border-border bg-muted/20 p-3 text-center">
-                    <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-1">
-                      Output
-                    </p>
-                    <p className="font-mono text-lg font-semibold">
-                      {formatPrice(model.output_price_per_million)}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">per 1M tokens</p>
-                  </div>
-                )}
+                </div>
+              )}
+            </div>
+
+            {/* Right column */}
+            <div className="space-y-6">
+              {/* Metadata */}
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Metadata
+                </h3>
+                <dl className="space-y-4">
+                  <Field label="Source">
+                    <Badge variant="outline" className="text-[10px]">
+                      {model.source}
+                    </Badge>
+                  </Field>
+                  <Field label="Created">
+                    <span className="flex items-center gap-1.5 text-sm">
+                      <Clock className="size-3 text-muted-foreground" />
+                      <RelativeTime date={model.created_at} />
+                    </span>
+                  </Field>
+                </dl>
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Right column */}
-        <div className="space-y-6">
-          {/* Usage */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              <Users className="size-3" />
-              Used by {usageCount} agent{usageCount !== 1 ? "s" : ""}
-            </h3>
-            <UsageSection modelId={id!} />
           </div>
+        </TabsContent>
 
-          {/* Metadata */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Metadata
-            </h3>
-            <dl className="space-y-4">
-              <Field label="Source">
-                <Badge variant="outline" className="text-[10px]">
-                  {model.source}
-                </Badge>
-              </Field>
-              <Field label="Created">
-                <span className="flex items-center gap-1.5 text-sm">
-                  <Clock className="size-3 text-muted-foreground" />
-                  <RelativeTime date={model.created_at} />
-                </span>
-              </Field>
-            </dl>
+        <TabsContent value="usage">
+          <div className="mt-4 max-w-2xl">
+            <div className="rounded-lg border border-border p-4">
+              <h3 className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <Users className="size-3" />
+                Agents using this model
+              </h3>
+              <UsageSection modelId={id!} />
+            </div>
           </div>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

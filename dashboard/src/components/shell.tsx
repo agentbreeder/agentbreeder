@@ -14,6 +14,7 @@ import {
   LogOut,
   Settings,
   GripVertical,
+  Server,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -34,6 +35,7 @@ import {
 const NAV = [
   { to: "/agents", icon: Bot, label: "Agents" },
   { to: "/tools", icon: Wrench, label: "Tools" },
+  { to: "/mcp-servers", icon: Server, label: "MCP Servers" },
   { to: "/models", icon: Cpu, label: "Models" },
   { to: "/prompts", icon: FileText, label: "Prompts" },
   { to: "/deploys", icon: Activity, label: "Deploys" },
@@ -205,6 +207,15 @@ function CommandSearch({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+const BREADCRUMB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  agents: Bot,
+  tools: Wrench,
+  models: Cpu,
+  prompts: FileText,
+  deploys: Activity,
+  activity: Clock,
+};
+
 function Breadcrumbs() {
   const location = useLocation();
   const segments = location.pathname.split("/").filter(Boolean);
@@ -215,20 +226,24 @@ function Breadcrumbs() {
       <Link to="/" className="transition-colors hover:text-foreground">
         Home
       </Link>
-      {segments.map((seg, i) => (
-        <span key={i} className="flex items-center gap-1">
-          <ChevronRight className="size-3" />
-          <Link
-            to={`/${segments.slice(0, i + 1).join("/")}`}
-            className={cn(
-              "capitalize transition-colors hover:text-foreground",
-              i === segments.length - 1 && "text-foreground"
-            )}
-          >
-            {decodeURIComponent(seg)}
-          </Link>
-        </span>
-      ))}
+      {segments.map((seg, i) => {
+        const Icon = i === 0 ? BREADCRUMB_ICONS[seg] : undefined;
+        return (
+          <span key={i} className="flex items-center gap-1">
+            <ChevronRight className="size-3" />
+            {Icon && <Icon className="size-3" />}
+            <Link
+              to={`/${segments.slice(0, i + 1).join("/")}`}
+              className={cn(
+                "capitalize transition-colors hover:text-foreground",
+                i === segments.length - 1 && "text-foreground"
+              )}
+            >
+              {decodeURIComponent(seg)}
+            </Link>
+          </span>
+        );
+      })}
     </nav>
   );
 }

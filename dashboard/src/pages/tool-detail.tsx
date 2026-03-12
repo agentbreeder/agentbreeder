@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Circle,
@@ -10,11 +10,14 @@ import {
   Wrench,
   Users,
   Activity,
+  Pencil,
 } from "lucide-react";
 import { api, type ToolDetail, type ToolUsage, type ToolHealth, type ToolHealthStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { SchemaViewer } from "@/components/schema-viewer";
+import { useUrlState } from "@/hooks/use-url-state";
 import { cn } from "@/lib/utils";
 
 const TYPE_CONFIG: Record<string, { label: string; icon: typeof Server; color: string }> = {
@@ -234,6 +237,7 @@ function UsageSection({ toolId }: { toolId: string }) {
 
 export default function ToolDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["tool", id],
@@ -248,6 +252,7 @@ export default function ToolDetailPage() {
     staleTime: 10_000,
   });
 
+  const [activeTab, setActiveTab] = useUrlState("tab", "overview");
   const tool: ToolDetail | undefined = data?.data;
   const usageCount = usageData?.data?.length ?? 0;
 
@@ -323,6 +328,13 @@ export default function ToolDetailPage() {
             {tool.tool_type === "mcp_server" && (
               <HeaderHealthBadge toolId={id!} />
             )}
+            <button
+              onClick={() => navigate(`/tools/builder/${id}`)}
+              className="ml-2 flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Pencil className="size-3" />
+              Edit in Builder
+            </button>
           </div>
           {tool.description && (
             <p className="max-w-2xl text-sm text-muted-foreground">{tool.description}</p>
@@ -330,84 +342,100 @@ export default function ToolDetailPage() {
         </div>
       </div>
 
-      {/* Content grid */}
-      <div className="mt-8 grid gap-6 md:grid-cols-2">
-        {/* Left column */}
-        <div className="space-y-6">
-          {/* Schema */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Schema Definition
-            </h3>
-            <SchemaViewer schema={tool.schema_definition} />
-          </div>
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as string)} className="mt-6">
+        <TabsList variant="line">
+          <TabsTrigger value="overview" className="text-xs">
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="usage" className="text-xs">
+            Usage ({usageCount})
+          </TabsTrigger>
+        </TabsList>
 
-          {/* MCP Server info with health */}
-          {tool.tool_type === "mcp_server" && (
+        <TabsContent value="overview">
+          <div className="mt-4 grid gap-6 md:grid-cols-2">
+            {/* Left column */}
+            <div className="space-y-6">
+              {/* Schema */}
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Schema Definition
+                </h3>
+                <SchemaViewer schema={tool.schema_definition} />
+              </div>
+
+              {/* MCP Server info with health */}
+              {tool.tool_type === "mcp_server" && (
+                <div className="rounded-lg border border-border p-4">
+                  <h3 className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    <Activity className="size-3" />
+                    MCP Server
+                  </h3>
+                  <dl className="space-y-4">
+                    {tool.endpoint && (
+                      <Field label="Endpoint URL">
+                        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs break-all">
+                          {tool.endpoint}
+                        </code>
+                      </Field>
+                    )}
+                    <div>
+                      <dt className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">
+                        Health Status
+                      </dt>
+                      <dd>
+                        <HealthIndicator toolId={id!} />
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              )}
+            </div>
+
+            {/* Right column */}
+            <div className="space-y-6">
+              {/* Metadata */}
+              <div className="rounded-lg border border-border p-4">
+                <h3 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Metadata
+                </h3>
+                <dl className="space-y-4">
+                  <Field label="Source">
+                    <Badge variant="outline" className="text-[10px]">
+                      {tool.source}
+                    </Badge>
+                  </Field>
+                  <Field label="Created">
+                    <span className="flex items-center gap-1.5 text-sm">
+                      <Clock className="size-3 text-muted-foreground" />
+                      <RelativeTime date={tool.created_at} />
+                    </span>
+                  </Field>
+                  <Field label="Last Updated">
+                    <span className="flex items-center gap-1.5 text-sm">
+                      <Clock className="size-3 text-muted-foreground" />
+                      <RelativeTime date={tool.updated_at} />
+                    </span>
+                  </Field>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="usage">
+          <div className="mt-4 max-w-2xl">
             <div className="rounded-lg border border-border p-4">
               <h3 className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                <Activity className="size-3" />
-                MCP Server
+                <Users className="size-3" />
+                Agents using this tool
               </h3>
-              <dl className="space-y-4">
-                {tool.endpoint && (
-                  <Field label="Endpoint URL">
-                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs break-all">
-                      {tool.endpoint}
-                    </code>
-                  </Field>
-                )}
-                <div>
-                  <dt className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">
-                    Health Status
-                  </dt>
-                  <dd>
-                    <HealthIndicator toolId={id!} />
-                  </dd>
-                </div>
-              </dl>
+              <UsageSection toolId={id!} />
             </div>
-          )}
-        </div>
-
-        {/* Right column */}
-        <div className="space-y-6">
-          {/* Usage */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              <Users className="size-3" />
-              Used by {usageCount} agent{usageCount !== 1 ? "s" : ""}
-            </h3>
-            <UsageSection toolId={id!} />
           </div>
-
-          {/* Metadata */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Metadata
-            </h3>
-            <dl className="space-y-4">
-              <Field label="Source">
-                <Badge variant="outline" className="text-[10px]">
-                  {tool.source}
-                </Badge>
-              </Field>
-              <Field label="Created">
-                <span className="flex items-center gap-1.5 text-sm">
-                  <Clock className="size-3 text-muted-foreground" />
-                  <RelativeTime date={tool.created_at} />
-                </span>
-              </Field>
-              <Field label="Last Updated">
-                <span className="flex items-center gap-1.5 text-sm">
-                  <Clock className="size-3 text-muted-foreground" />
-                  <RelativeTime date={tool.updated_at} />
-                </span>
-              </Field>
-            </dl>
-          </div>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

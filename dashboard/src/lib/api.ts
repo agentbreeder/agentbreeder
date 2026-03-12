@@ -63,6 +63,20 @@ export interface Agent {
   updated_at: string;
 }
 
+// --- Agent validation types ---
+
+export interface AgentValidationError {
+  path: string;
+  message: string;
+  suggestion: string;
+}
+
+export interface AgentValidationResult {
+  valid: boolean;
+  errors: AgentValidationError[];
+  warnings: AgentValidationError[];
+}
+
 // --- Tool types ---
 
 export interface Tool {
@@ -85,6 +99,8 @@ export interface ToolUsage {
   agent_id: string;
   agent_name: string;
   agent_status: string;
+  agent_version: string;
+  last_deployed: string | null;
 }
 
 export type ToolHealthStatus = "healthy" | "slow" | "down" | "unknown";
@@ -118,6 +134,8 @@ export interface ModelUsage {
   agent_name: string;
   agent_status: string;
   usage_type: string;
+  token_count: number | null;
+  last_used: string | null;
 }
 
 // --- Prompt types ---
@@ -212,6 +230,39 @@ export interface ProviderDiscoverResult {
   total: number;
 }
 
+// --- MCP Server types ---
+
+export type McpTransport = "stdio" | "sse" | "streamable_http";
+
+export interface McpServer {
+  id: string;
+  name: string;
+  endpoint: string;
+  transport: McpTransport;
+  status: string;
+  tool_count: number;
+  last_ping_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface McpServerTestResult {
+  success: boolean;
+  latency_ms: number | null;
+  error: string | null;
+}
+
+export interface McpServerDiscoveredTool {
+  name: string;
+  description: string;
+  schema_definition: Record<string, unknown>;
+}
+
+export interface McpServerDiscoverResult {
+  tools: McpServerDiscoveredTool[];
+  total: number;
+}
+
 // --- Search types ---
 
 export interface SearchResult {
@@ -251,6 +302,16 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    validate: (yamlContent: string) =>
+      request<AgentValidationResult>("/agents/validate", {
+        method: "POST",
+        body: JSON.stringify({ yaml_content: yamlContent }),
+      }),
+    fromYaml: (yamlContent: string) =>
+      request<Agent>("/agents/from-yaml", {
+        method: "POST",
+        body: JSON.stringify({ yaml_content: yamlContent }),
+      }),
   },
   tools: {
     list: (params?: { tool_type?: string; source?: string; page?: number }) => {
@@ -264,6 +325,31 @@ export const api = {
     get: (id: string) => request<ToolDetail>(`/registry/tools/${id}`),
     usage: (id: string) => request<ToolUsage[]>(`/registry/tools/${id}/usage`),
     health: (id: string) => request<ToolHealth>(`/registry/tools/${id}/health`),
+    create: (body: {
+      name: string;
+      description?: string;
+      tool_type?: string;
+      schema_definition?: Record<string, unknown>;
+      endpoint?: string;
+      source?: string;
+    }) =>
+      request<Tool>("/registry/tools", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (
+      id: string,
+      body: {
+        name?: string;
+        description?: string;
+        schema_definition?: Record<string, unknown>;
+        endpoint?: string;
+      }
+    ) =>
+      request<ToolDetail>(`/registry/tools/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
   },
   models: {
     list: (params?: { provider?: string; source?: string; page?: number }) => {
@@ -394,6 +480,37 @@ export const api = {
       request<ProviderTestResult>(`/providers/${id}/test`, { method: "POST" }),
     discover: (id: string) =>
       request<ProviderDiscoverResult>(`/providers/${id}/discover`, {
+        method: "POST",
+      }),
+  },
+  mcpServers: {
+    list: (params?: { page?: number; per_page?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.per_page) sp.set("per_page", String(params.per_page));
+      const qs = sp.toString();
+      return request<McpServer[]>(`/mcp-servers${qs ? `?${qs}` : ""}`);
+    },
+    get: (id: string) => request<McpServer>(`/mcp-servers/${id}`),
+    create: (body: { name: string; endpoint: string; transport: string }) =>
+      request<McpServer>("/mcp-servers", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (
+      id: string,
+      body: { name?: string; endpoint?: string; transport?: string; status?: string }
+    ) =>
+      request<McpServer>(`/mcp-servers/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/mcp-servers/${id}`, { method: "DELETE" }),
+    test: (id: string) =>
+      request<McpServerTestResult>(`/mcp-servers/${id}/test`, { method: "POST" }),
+    discover: (id: string) =>
+      request<McpServerDiscoverResult>(`/mcp-servers/${id}/discover`, {
         method: "POST",
       }),
   },

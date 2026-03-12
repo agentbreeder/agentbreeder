@@ -202,7 +202,15 @@ function AgentHeader({ agent }: { agent: Agent }) {
           <p className="max-w-2xl text-sm text-muted-foreground">{agent.description}</p>
         )}
       </div>
-      <CloneAgentDialog agent={agent} />
+      <div className="flex items-center gap-2">
+        <Link to={`/agents/builder/${agent.id}`}>
+          <Button variant="outline" size="sm">
+            <Pencil className="size-3" />
+            Edit in Builder
+          </Button>
+        </Link>
+        <CloneAgentDialog agent={agent} />
+      </div>
     </div>
   );
 }

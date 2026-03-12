@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useState, useCallback, useMemo, useRef } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useToast } from "@/hooks/use-toast";
 
 /** Lightweight Markdown-to-HTML renderer for the preview panel. */
@@ -774,6 +775,7 @@ export default function PromptDetailPage() {
   const { toast } = useToast();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const [activeTab, setActiveTab] = useUrlState("tab", "editor");
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [editedDescription, setEditedDescription] = useState<string | null>(null);
   const [activeEditorTab, setActiveEditorTab] = useState<"edit" | "preview">("edit");
@@ -1052,7 +1054,7 @@ export default function PromptDetailPage() {
       </div>
 
       {/* Main tabs */}
-      <Tabs defaultValue="editor">
+      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as string)}>
         <TabsList className="h-9 bg-transparent p-0">
           <TabsTrigger value="editor" className={TAB_TRIGGER_CLASS}>
             <Pencil className="size-3" />

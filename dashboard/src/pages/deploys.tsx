@@ -17,6 +17,7 @@ import { useSortable } from "@/hooks/use-sortable";
 import { SortableColumnHeader } from "@/components/ui/sortable-header";
 import { SkeletonTableRows } from "@/components/ui/skeleton-table";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ExportDropdown } from "@/components/export-dropdown";
 
 const STATUS_COLORS: Record<string, string> = {
   completed: "text-emerald-500",
@@ -179,6 +180,10 @@ export default function DeploysPage() {
             {total} deployment{total !== 1 ? "s" : ""}
           </p>
         </div>
+        <ExportDropdown
+          data={jobs as unknown as Record<string, unknown>[]}
+          filename="deploys"
+        />
       </div>
 
       {/* Filter */}

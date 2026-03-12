@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.database import Provider
 from api.models.enums import ProviderStatus, ProviderType
+from registry.models import ModelRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -399,3 +400,62 @@ class ProviderRegistry:
         await session.flush()
 
         return models
+
+    @staticmethod
+    async def auto_register_models(
+        session: AsyncSession,
+        provider: Provider,
+        discovered_models: list[dict],
+    ) -> int:
+        """Register discovered models into the Model Registry.
+
+        For each discovered model, check if it already exists (by name).
+        If not, create it with metadata from the discovery result.
+
+        Returns the number of newly registered models.
+        """
+        registered_count = 0
+        provider_name = provider.provider_type.value
+
+        for model_data in discovered_models:
+            model_name = model_data["id"]
+            existing = await ModelRegistry.get(session, model_name)
+            if existing is not None:
+                logger.debug(
+                    "Model '%s' already exists in registry, skipping", model_name
+                )
+                continue
+
+            await ModelRegistry.register(
+                session,
+                name=model_name,
+                provider=provider_name,
+                description=model_data.get("name", ""),
+                source="discovery",
+                context_window=model_data.get("context_window"),
+                max_output_tokens=model_data.get("max_output_tokens"),
+                input_price_per_million=model_data.get("input_price_per_million"),
+                output_price_per_million=model_data.get("output_price_per_million"),
+                capabilities=model_data.get("capabilities"),
+            )
+            registered_count += 1
+            logger.info(
+                "Auto-registered model '%s' from provider '%s'",
+                model_name,
+                provider.name,
+            )
+
+        # Update provider model_count to reflect total discovered
+        provider.model_count = len(discovered_models)
+        await session.flush()
+
+        return registered_count
+
+    @staticmethod
+    async def get_by_type(
+        session: AsyncSession, provider_type: ProviderType
+    ) -> Provider | None:
+        """Get first provider matching the given type."""
+        stmt = select(Provider).where(Provider.provider_type == provider_type).limit(1)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()

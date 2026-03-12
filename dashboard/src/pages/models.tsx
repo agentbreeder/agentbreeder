@@ -33,6 +33,7 @@ import { useSortable } from "@/hooks/use-sortable";
 import { SortableColumnHeader } from "@/components/ui/sortable-header";
 import { SkeletonTableRows } from "@/components/ui/skeleton-table";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ColumnToggle, type ColumnDefinition } from "@/components/ui/column-toggle";
 
 const PROVIDER_COLORS: Record<string, string> = {
   anthropic: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
@@ -50,6 +51,16 @@ const SOURCE_ICONS: Record<string, typeof Zap> = {
 };
 
 const PROVIDER_TABS = ["All", "OpenAI", "Anthropic", "Google", "Ollama"] as const;
+
+const MODEL_COLUMNS: ColumnDefinition[] = [
+  { key: "name", label: "Model", locked: true },
+  { key: "provider", label: "Provider" },
+  { key: "context_window", label: "Context" },
+  { key: "price", label: "Price" },
+  { key: "source", label: "Source" },
+];
+
+const DEFAULT_MODEL_COLUMNS = new Set(MODEL_COLUMNS.map((c) => c.key));
 
 /** Format a token count compactly: 128000 -> "128K", 1000000 -> "1M" */
 function formatContextWindow(tokens: number | null): string {
@@ -72,11 +83,13 @@ function ModelRow({
   isSelected,
   onToggleSelect,
   onClick,
+  visibleColumns,
 }: {
   model: Model;
   isSelected: boolean;
   onToggleSelect: () => void;
   onClick: () => void;
+  visibleColumns: Set<string>;
 }) {
   const isActive = model.status === "active";
   return (
@@ -115,36 +128,44 @@ function ModelRow({
           )}
         </div>
 
-        <Badge
-          variant="outline"
-          className={cn(
-            "text-[10px] font-medium",
-            PROVIDER_COLORS[model.provider.toLowerCase()] ??
-              "bg-muted text-muted-foreground border-border"
-          )}
-        >
-          {model.provider}
-        </Badge>
+        {visibleColumns.has("provider") && (
+          <Badge
+            variant="outline"
+            className={cn(
+              "text-[10px] font-medium",
+              PROVIDER_COLORS[model.provider.toLowerCase()] ??
+                "bg-muted text-muted-foreground border-border"
+            )}
+          >
+            {model.provider}
+          </Badge>
+        )}
 
-        <div className="w-16 text-right font-mono text-xs text-muted-foreground">
-          {formatContextWindow(model.context_window)}
-        </div>
+        {visibleColumns.has("context_window") && (
+          <div className="w-16 text-right font-mono text-xs text-muted-foreground">
+            {formatContextWindow(model.context_window)}
+          </div>
+        )}
 
-        <div className="w-28 text-right">
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {formatPrice(model.input_price_per_million)}
-            {" / "}
-            {formatPrice(model.output_price_per_million)}
-          </span>
-        </div>
+        {visibleColumns.has("price") && (
+          <div className="w-28 text-right">
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {formatPrice(model.input_price_per_million)}
+              {" / "}
+              {formatPrice(model.output_price_per_million)}
+            </span>
+          </div>
+        )}
 
-        <div className="flex w-20 items-center justify-end gap-1.5 text-xs text-muted-foreground">
-          {(() => {
-            const Icon = SOURCE_ICONS[model.source] ?? Zap;
-            return <Icon className="size-3" />;
-          })()}
-          <span>{model.source}</span>
-        </div>
+        {visibleColumns.has("source") && (
+          <div className="flex w-20 items-center justify-end gap-1.5 text-xs text-muted-foreground">
+            {(() => {
+              const Icon = SOURCE_ICONS[model.source] ?? Zap;
+              return <Icon className="size-3" />;
+            })()}
+            <span>{model.source}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -288,6 +309,7 @@ export default function ModelsPage() {
   const [providerFilter, setProviderFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(DEFAULT_MODEL_COLUMNS);
   const { showOnlyFavorites, favorites } = useFavorites();
 
   const { data, isLoading, error } = useQuery({
@@ -367,6 +389,11 @@ export default function ModelsPage() {
               Compare ({selectedIds.size})
             </button>
           )}
+          <ColumnToggle
+            columns={MODEL_COLUMNS}
+            visibleKeys={visibleColumns}
+            onChange={setVisibleColumns}
+          />
           <ExportDropdown
             data={filtered as unknown as Record<string, unknown>[]}
             filename="models"
@@ -441,46 +468,54 @@ export default function ModelsPage() {
               Model
             </SortableColumnHeader>
           </span>
-          <span className="w-24 text-center">
-            <SortableColumnHeader
-              sortKey="provider"
-              currentSortKey={sortKey}
-              currentDirection={sortDirection}
-              onSort={toggleSort}
-            >
-              Provider
-            </SortableColumnHeader>
-          </span>
-          <span className="w-16 text-right">
-            <SortableColumnHeader
-              sortKey="context_window"
-              currentSortKey={sortKey}
-              currentDirection={sortDirection}
-              onSort={toggleSort}
-            >
-              Context
-            </SortableColumnHeader>
-          </span>
-          <span className="w-28 text-right">
-            <SortableColumnHeader
-              sortKey="input_price_per_million"
-              currentSortKey={sortKey}
-              currentDirection={sortDirection}
-              onSort={toggleSort}
-            >
-              Price (in/out)
-            </SortableColumnHeader>
-          </span>
-          <span className="w-20 text-right">
-            <SortableColumnHeader
-              sortKey="source"
-              currentSortKey={sortKey}
-              currentDirection={sortDirection}
-              onSort={toggleSort}
-            >
-              Source
-            </SortableColumnHeader>
-          </span>
+          {visibleColumns.has("provider") && (
+            <span className="w-24 text-center">
+              <SortableColumnHeader
+                sortKey="provider"
+                currentSortKey={sortKey}
+                currentDirection={sortDirection}
+                onSort={toggleSort}
+              >
+                Provider
+              </SortableColumnHeader>
+            </span>
+          )}
+          {visibleColumns.has("context_window") && (
+            <span className="w-16 text-right">
+              <SortableColumnHeader
+                sortKey="context_window"
+                currentSortKey={sortKey}
+                currentDirection={sortDirection}
+                onSort={toggleSort}
+              >
+                Context
+              </SortableColumnHeader>
+            </span>
+          )}
+          {visibleColumns.has("price") && (
+            <span className="w-28 text-right">
+              <SortableColumnHeader
+                sortKey="input_price_per_million"
+                currentSortKey={sortKey}
+                currentDirection={sortDirection}
+                onSort={toggleSort}
+              >
+                Price (in/out)
+              </SortableColumnHeader>
+            </span>
+          )}
+          {visibleColumns.has("source") && (
+            <span className="w-20 text-right">
+              <SortableColumnHeader
+                sortKey="source"
+                currentSortKey={sortKey}
+                currentDirection={sortDirection}
+                onSort={toggleSort}
+              >
+                Source
+              </SortableColumnHeader>
+            </span>
+          )}
         </div>
 
         {isLoading ? (
@@ -507,6 +542,7 @@ export default function ModelsPage() {
               isSelected={selectedIds.has(model.id)}
               onToggleSelect={() => toggleSelect(model.id)}
               onClick={() => navigate(`/models/${model.id}`)}
+              visibleColumns={visibleColumns}
             />
           ))
         )}

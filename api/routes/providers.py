@@ -9,21 +9,92 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
 from api.database import get_db
-from api.models.database import User
+from api.models.database import Model, User
 from api.models.enums import ProviderStatus, ProviderType
 from api.models.schemas import (
     ApiMeta,
     ApiResponse,
     DiscoveredModel,
     ModelDiscoveryResult,
+    OllamaDetectResult,
     ProviderCreate,
+    ProviderHealthCheckResult,
     ProviderResponse,
+    ProviderStatusSummary,
     ProviderTestResult,
     ProviderUpdate,
 )
+from api.tasks.provider_health import check_all_providers
 from registry.providers import ProviderRegistry
 
 router = APIRouter(prefix="/api/v1/providers", tags=["providers"])
+
+
+@router.get("/status", response_model=ApiResponse[ProviderStatusSummary])
+async def provider_status(
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[ProviderStatusSummary]:
+    """First-run detection: returns provider/model counts for the dashboard."""
+    from sqlalchemy import func, select
+
+    providers, total_providers = await ProviderRegistry.list(db, per_page=1)
+    model_count_result = await db.execute(
+        select(func.count()).select_from(Model).where(Model.status == "active")
+    )
+    total_models = model_count_result.scalar() or 0
+
+    return ApiResponse(
+        data=ProviderStatusSummary(
+            has_providers=total_providers > 0,
+            provider_count=total_providers,
+            total_models=total_models,
+        )
+    )
+
+
+@router.post("/health-check", response_model=ApiResponse[list[ProviderHealthCheckResult]])
+async def health_check(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[list[ProviderHealthCheckResult]]:
+    """Trigger health check for all providers and return updated statuses."""
+    results = await check_all_providers(db)
+    return ApiResponse(
+        data=[ProviderHealthCheckResult(**r) for r in results],
+    )
+
+
+@router.post("/detect-ollama", response_model=ApiResponse[OllamaDetectResult])
+async def detect_ollama(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[OllamaDetectResult]:
+    """Auto-detect local Ollama instance and register it as a provider."""
+    existing = await ProviderRegistry.get_by_type(db, ProviderType.ollama)
+    created = False
+
+    if existing:
+        provider = existing
+    else:
+        provider = await ProviderRegistry.create(
+            db,
+            name="Ollama (local)",
+            provider_type=ProviderType.ollama,
+            base_url="http://localhost:11434",
+        )
+        created = True
+
+    raw_models = await ProviderRegistry.discover_models(db, provider)
+    await ProviderRegistry.auto_register_models(db, provider, raw_models)
+    discovered = [DiscoveredModel(**m) for m in raw_models]
+
+    return ApiResponse(
+        data=OllamaDetectResult(
+            provider=ProviderResponse.model_validate(provider),
+            models=discovered,
+            created=created,
+        )
+    )
 
 
 @router.get("", response_model=ApiResponse[list[ProviderResponse]])
@@ -139,6 +210,7 @@ async def discover_models(
         raise HTTPException(status_code=404, detail="Provider not found")
 
     raw_models = await ProviderRegistry.discover_models(db, provider)
+    await ProviderRegistry.auto_register_models(db, provider, raw_models)
     discovered = [DiscoveredModel(**m) for m in raw_models]
     return ApiResponse(
         data=ModelDiscoveryResult(

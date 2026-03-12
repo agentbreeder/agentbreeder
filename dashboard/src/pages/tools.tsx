@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Wrench, Search, Circle, Server, Plug, Code, Star } from "lucide-react";
+import { Wrench, Search, Circle, Server, Plug, Code, Star, Plus } from "lucide-react";
 import { api, type Tool } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -122,10 +122,19 @@ export default function ToolsPage() {
             {total} tool{total !== 1 ? "s" : ""} in registry
           </p>
         </div>
-        <ExportDropdown
-          data={filtered as unknown as Record<string, unknown>[]}
-          filename="tools"
-        />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate("/tools/builder")}
+            className="flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-colors hover:bg-foreground/90"
+          >
+            <Plus className="size-3" />
+            Create Tool
+          </button>
+          <ExportDropdown
+            data={filtered as unknown as Record<string, unknown>[]}
+            filename="tools"
+          />
+        </div>
       </div>
 
       {/* Filters */}
