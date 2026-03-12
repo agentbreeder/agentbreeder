@@ -113,6 +113,47 @@ class PromptRegistry:
         return prompt
 
     @staticmethod
+    async def update_content(
+        session: AsyncSession,
+        prompt_id: str,
+        content: str,
+        change_summary: str = "",
+        author: str = "",
+    ) -> Prompt | None:
+        """Update a prompt's content and auto-create a version snapshot in one transaction."""
+        stmt = select(Prompt).where(Prompt.id == prompt_id)
+        result = await session.execute(stmt)
+        prompt = result.scalar_one_or_none()
+        if not prompt:
+            return None
+
+        prompt.content = content
+        await session.flush()
+
+        count_stmt = select(func.count()).select_from(
+            select(PromptVersion).where(PromptVersion.prompt_id == prompt_id).subquery()
+        )
+        count = (await session.execute(count_stmt)).scalar() or 0
+        next_version = str(count + 1)
+
+        ver = PromptVersion(
+            prompt_id=prompt_id,
+            version=next_version,
+            content=content,
+            change_summary=change_summary,
+            author=author,
+        )
+        session.add(ver)
+        await session.flush()
+
+        logger.info(
+            "Updated prompt '%s' content and created version snapshot v%s",
+            prompt.name,
+            next_version,
+        )
+        return prompt
+
+    @staticmethod
     async def delete(session: AsyncSession, prompt_id: str) -> bool:
         """Delete a prompt by id. Returns True if deleted."""
         stmt = select(Prompt).where(Prompt.id == prompt_id)

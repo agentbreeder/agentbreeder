@@ -225,6 +225,14 @@ class PromptUpdate(BaseModel):
     description: str | None = None
 
 
+class PromptContentUpdate(BaseModel):
+    """Update just the prompt content; auto-creates a version snapshot."""
+
+    content: str
+    change_summary: str | None = None
+    author: str = "builder"
+
+
 class PromptResponse(BaseModel):
     id: uuid.UUID
     name: str

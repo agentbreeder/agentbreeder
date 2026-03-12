@@ -13,6 +13,7 @@ import ModelDetailPage from "@/pages/model-detail";
 import ModelComparePage from "@/pages/model-compare";
 import PromptsPage from "@/pages/prompts";
 import PromptDetailPage from "@/pages/prompt-detail";
+import PromptBuilderPage from "@/pages/prompt-builder";
 import DeploysPage from "@/pages/deploys";
 import ActivityPage from "@/pages/activity";
 import SearchPage from "@/pages/search";
@@ -67,6 +68,8 @@ export default function App() {
               <Route path="models/compare" element={<ModelComparePage />} />
               <Route path="models/:id" element={<ModelDetailPage />} />
               <Route path="prompts" element={<PromptsPage />} />
+              <Route path="prompts/builder" element={<PromptBuilderPage />} />
+              <Route path="prompts/builder/:id" element={<PromptBuilderPage />} />
               <Route path="prompts/:id" element={<PromptDetailPage />} />
               <Route path="deploys" element={<DeploysPage />} />
               <Route path="activity" element={<ActivityPage />} />

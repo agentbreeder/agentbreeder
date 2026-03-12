@@ -12,6 +12,7 @@ from api.models.schemas import (
     ModelCreate,
     ModelResponse,
     ModelUsageResponse,
+    PromptContentUpdate,
     PromptCreate,
     PromptResponse,
     PromptUpdate,
@@ -263,6 +264,28 @@ async def update_prompt(
     """Update a prompt's content or description."""
     prompt = await PromptRegistry.update(
         db, prompt_id, content=body.content, description=body.description
+    )
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return ApiResponse(data=PromptResponse.model_validate(prompt))
+
+
+@router.put(
+    "/prompts/{prompt_id}/content",
+    response_model=ApiResponse[PromptResponse],
+)
+async def update_prompt_content(
+    prompt_id: str,
+    body: PromptContentUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[PromptResponse]:
+    """Update just the prompt content and auto-create a version snapshot."""
+    prompt = await PromptRegistry.update_content(
+        db,
+        prompt_id=prompt_id,
+        content=body.content,
+        change_summary=body.change_summary or "",
+        author=body.author,
     )
     if not prompt:
         raise HTTPException(status_code=404, detail="Prompt not found")

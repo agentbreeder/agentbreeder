@@ -16,6 +16,7 @@ import {
   Code,
   Loader2,
   Star,
+  Pencil,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api, type Prompt } from "@/lib/api";
@@ -557,6 +558,14 @@ export default function PromptsPage() {
             data={prompts as unknown as Record<string, unknown>[]}
             filename="prompts"
           />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate("/prompts/builder")}
+          >
+            <Pencil className="size-3" />
+            Prompt Builder
+          </Button>
           <CreatePromptDialog onCreated={(id) => navigate(`/prompts/${id}`)} />
         </div>
       </div>

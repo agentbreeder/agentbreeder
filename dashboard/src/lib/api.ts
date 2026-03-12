@@ -325,6 +325,14 @@ export const api = {
       request<PromptDiff>(
         `/registry/prompts/${promptId}/versions/history/${v1}/diff/${v2}`
       ),
+    updateContent: (
+      id: string,
+      data: { content: string; change_summary?: string; author?: string }
+    ) =>
+      request<Prompt>(`/registry/prompts/${id}/content`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
   },
   deploys: {
     list: (params?: {
