@@ -1,0 +1,109 @@
+name: Docs Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Check CHANGELOG is updated when code changes ────────────────────────────
+  changelog-check:
+    name: Changelog Updated
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if source code changed
+        id: code-changed
+        run: |
+          git fetch origin main
+          CHANGED=$(git diff --name-only origin/main...HEAD | grep -E '^(api|engine|cli|registry|connectors|sdk|dashboard)/' || true)
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Source code changed:"
+            echo "$CHANGED"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check CHANGELOG was updated
+        if: steps.code-changed.outputs.changed == 'true'
+        run: |
+          CHANGELOG_CHANGED=$(git diff --name-only origin/main...HEAD | grep -E '^CHANGELOG' || true)
+          if [ -z "$CHANGELOG_CHANGED" ]; then
+            echo "::error::Source code was modified but CHANGELOG.md was not updated."
+            echo ""
+            echo "Please add an entry to CHANGELOG.md describing your changes."
+            echo "Follow the Keep a Changelog format: https://keepachangelog.com"
+            exit 1
+          fi
+          echo "✓ CHANGELOG.md updated"
+
+  # ── Check agent.yaml schema docs stay in sync ───────────────────────────────
+  schema-docs-sync:
+    name: Schema / Docs Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if schema changed without docs update
+        run: |
+          git fetch origin main
+          SCHEMA_CHANGED=$(git diff --name-only origin/main...HEAD | grep -E '^engine/schema/' || true)
+          if [ -n "$SCHEMA_CHANGED" ]; then
+            echo "Schema files changed: $SCHEMA_CHANGED"
+            README_CHANGED=$(git diff --name-only origin/main...HEAD | grep -E '^(README|CLAUDE|docs/)' || true)
+            if [ -z "$README_CHANGED" ]; then
+              echo "::warning::Schema files changed but no documentation was updated."
+              echo "Consider updating README.md or docs/ to reflect schema changes."
+              # Warning only — don't fail, as small schema changes may not need doc updates
+            fi
+          fi
+
+  # ── Validate all YAML examples are schema-valid ─────────────────────────────
+  validate-examples:
+    name: Validate YAML Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Validate example agent.yaml files
+        run: |
+          set -e
+          FAILED=0
+          for yaml_file in examples/**/*.yaml examples/**/*.yml; do
+            if [ -f "$yaml_file" ]; then
+              echo "Validating: $yaml_file"
+              python -m cli.main validate "$yaml_file" 2>&1 || {
+                echo "::error file=$yaml_file::YAML validation failed"
+                FAILED=1
+              }
+            fi
+          done
+          exit $FAILED
+
+  # ── Spell check documentation ───────────────────────────────────────────────
+  spellcheck:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Spell check markdown files
+        uses: streetsidesoftware/cspell-action@v6
+        with:
+          files: "**/*.md"
+          config: .cspell.json
+          incremental_files_only: true
+          strict: false    # warn only, don't block PRs for typos

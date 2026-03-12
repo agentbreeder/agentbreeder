@@ -1,0 +1,44 @@
+# CODEOWNERS — Auto-assigned reviewers for pull requests.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global fallback — repo owner must approve everything
+*                           @rajitsaha
+
+# Deploy pipeline (sacred — always requires owner)
+/engine/                    @rajitsaha
+/engine/deployers/          @rajitsaha
+/engine/runtimes/           @rajitsaha
+
+# API / backend
+/api/                       @rajitsaha
+/api/routes/                @rajitsaha
+/api/models/                @rajitsaha
+/alembic/                   @rajitsaha
+
+# Registry — consistency is non-negotiable
+/registry/                  @rajitsaha
+
+# Frontend dashboard
+/dashboard/                 @rajitsaha
+
+# CLI
+/cli/                       @rajitsaha
+
+# SDK
+/sdk/                       @rajitsaha
+
+# Security-sensitive files — always requires owner
+/.github/workflows/         @rajitsaha
+/.github/CODEOWNERS         @rajitsaha
+/engine/governance.py       @rajitsaha
+/api/auth.py                @rajitsaha
+
+# Config / schemas
+/engine/schema/             @rajitsaha
+/pyproject.toml             @rajitsaha
+/dashboard/package.json     @rajitsaha
+
+# Documentation
+/docs/                      @rajitsaha
+/README.md                  @rajitsaha
+/CLAUDE.md                  @rajitsaha

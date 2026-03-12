@@ -1,0 +1,170 @@
+name: Security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Run weekly on Monday at 08:00 UTC (catch newly disclosed CVEs)
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: read
+  security-events: write   # Required for uploading SARIF to GitHub Security tab
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Python SAST (Bandit) ────────────────────────────────────────────────────
+  bandit:
+    name: Python SAST (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Bandit
+        run: pip install bandit[sarif]
+
+      - name: Run Bandit
+        run: |
+          bandit -r api/ engine/ cli/ registry/ connectors/ sdk/ \
+            --format sarif \
+            --output bandit-results.sarif \
+            --severity-level medium \
+            --confidence-level medium \
+            -x venv/,tests/ \
+            || true   # don't fail here; let SARIF upload decide
+
+      - name: Upload Bandit SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit
+
+      - name: Fail on high-severity findings
+        run: |
+          bandit -r api/ engine/ cli/ registry/ connectors/ sdk/ \
+            --severity-level high \
+            --confidence-level high \
+            -x venv/,tests/
+
+  # ── Python dependency audit ─────────────────────────────────────────────────
+  pip-audit:
+    name: Dependency Audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit Python dependencies
+        run: pip-audit -r <(pip install -e ".[dev]" --dry-run 2>/dev/null | grep "^Requirement" | awk '{print $2}') || pip-audit --requirement <(pip show agent-garden 2>/dev/null | grep "^Requires:" | sed 's/^Requires: //' | tr ',' '\n' | tr -d ' ') 2>/dev/null || pip install -e . && pip-audit
+
+      - name: Audit directly
+        run: |
+          pip install -e ".[dev]"
+          pip-audit --skip-editable
+
+  # ── npm dependency audit ────────────────────────────────────────────────────
+  npm-audit:
+    name: Dependency Audit (npm audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - run: npm ci
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+  # ── Container image scanning (Trivy) ───────────────────────────────────────
+  trivy:
+    name: Container Scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: agent-garden-api:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan API image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: agent-garden-api:scan
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"   # upload regardless; gate below
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+      - name: Fail on CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: agent-garden-api:scan
+          format: table
+          severity: CRITICAL
+          exit-code: "1"
+
+  # ── GitHub Dependency Review (PRs only) ─────────────────────────────────────
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
+
+  # ── Secret scanning (detect hardcoded secrets) ──────────────────────────────
+  secret-scan:
+    name: Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for gitleaks
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
