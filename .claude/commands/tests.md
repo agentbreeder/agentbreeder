@@ -1,64 +1,38 @@
-# /tests — Comprehensive Test Suite Generator
+# /tests — Test Runner
 
-You are a test engineer. Your job is to create and run tests until they ALL pass and coverage reaches at least 95%.
+You are a test engineer. Run tests, fix failures, and iterate until all pass with 95%+ coverage.
+
+## Do NOT ask for permission — just run tests, fix failures, repeat.
 
 ## Rules
 
-1. **Avoid mocks wherever possible.** Use real implementations, test databases, test servers, fixtures, and factory functions. Only mock external APIs or services that cannot be run locally.
-2. **Fix failing tests** — do not skip, disable, or mark tests as xfail. Keep iterating until every test passes.
-3. **Target 95%+ coverage** on changed/new files. Run coverage after each round and add tests for uncovered lines.
-4. **Do NOT ask for permission** — just write tests, run them, fix failures, repeat.
+1. Avoid mocks wherever possible. Use real implementations, test databases, fixtures, factory functions. Only mock external APIs that cannot run locally.
+2. Fix failing tests — do not skip, disable, or xfail. Iterate until every test passes.
+3. Target 95%+ coverage on changed/new files.
+4. Do NOT run lint or format — that is /lint's job.
 
-## Test Types to Create
+## Test Types (in priority order)
 
-### 1. Unit Tests (`tests/unit/`)
-- Test individual functions, classes, and methods in isolation
-- Test edge cases: empty inputs, None values, invalid types, boundary conditions
-- Test error paths: ensure proper exceptions are raised
-- Use `pytest` fixtures and `tmp_path` for file operations
-- Use `typer.testing.CliRunner` for CLI command tests
+### Unit Tests (`tests/unit/`)
+- Individual functions, classes, methods
+- Edge cases: empty inputs, None, invalid types, boundaries
+- Error paths: proper exceptions raised
+- Use `pytest` fixtures, `tmp_path` for file ops
+- Use `typer.testing.CliRunner` for CLI commands
 
-### 2. Integration Tests (`tests/integration/`)
-- Test API routes end-to-end using `httpx.AsyncClient` with the real FastAPI app
-- Test database operations with a real test database (SQLite in-memory or test PostgreSQL)
-- Test CLI → API → DB round trips where applicable
-- Test registry service classes with real database sessions
+### Integration Tests (`tests/integration/`)
+- API routes via `httpx.AsyncClient` with real FastAPI app
+- Database ops with real test DB (SQLite in-memory or test PostgreSQL)
+- CLI -> API -> DB round trips
+- Registry services with real DB sessions
 
-### 3. System / E2E Tests
-- **Backend E2E** (`tests/e2e/`): Full workflow tests (create agent → deploy → verify registry)
-- **Frontend E2E** (`dashboard/tests/e2e/`): Playwright tests for dashboard pages
-
-## Execution Steps
-
-1. **Analyze current coverage:**
-   ```
-   ./venv/bin/python -m pytest tests/unit/ --cov=. --cov-report=term-missing -q
-   ```
-
-2. **Identify gaps:** Find files/functions with < 95% coverage
-
-3. **Write tests** for uncovered code — prioritize:
-   - New/changed files first
-   - Core engine code (config_parser, deployers, runtimes, resolver)
-   - API routes and services
-   - CLI commands
-   - Registry services
-
-4. **Run tests and fix failures:**
-   ```
-   ./venv/bin/python -m pytest tests/unit/ -v --tb=short
-   ```
-
-5. **Lint test files:**
-   ```
-   ./venv/bin/ruff check tests/
-   ```
-
-6. **Repeat** until all tests pass AND coverage >= 95%
+### E2E Tests (`tests/e2e/`)
+- Full workflow tests (create agent -> deploy -> verify registry)
+- Frontend E2E in `dashboard/tests/e2e/` via Playwright (if applicable)
 
 ## Test Patterns
 
-### API Route Tests (use real FastAPI test client)
+### API Route Tests
 ```python
 from httpx import ASGITransport, AsyncClient
 from api.main import app
@@ -70,7 +44,7 @@ async def test_list_agents():
         assert resp.status_code == 200
 ```
 
-### CLI Tests (use CliRunner)
+### CLI Tests
 ```python
 from typer.testing import CliRunner
 from cli.main import app
@@ -81,17 +55,35 @@ def test_command():
     assert result.exit_code == 0
 ```
 
-### Database Tests (use real SQLite in-memory)
+### Database Tests
 ```python
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine
 engine = create_async_engine("sqlite+aiosqlite:///:memory:")
 ```
 
+## Execution
+
+1. Run current tests with coverage:
+   ```bash
+   ./venv/bin/python -m pytest tests/unit/ --cov=. --cov-report=term-missing -q
+   ```
+
+2. Identify files/functions below 95% coverage.
+
+3. Write tests — prioritize: new/changed files, core engine, API routes, CLI commands, registry services.
+
+4. Run and fix:
+   ```bash
+   ./venv/bin/python -m pytest tests/unit/ -v --tb=short
+   ```
+
+5. Repeat until all pass AND coverage >= 95%.
+
 ## Output
 
-After completion, print a summary:
 ```
-Tests: X passed, Y failed
+=== Tests Summary ===
+Tests:    X passed, 0 failed
 Coverage: XX%
-Files tested: [list]
+Status:   PASSED | FAILED
 ```

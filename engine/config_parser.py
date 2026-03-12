@@ -255,8 +255,7 @@ def validate_config(path: Path) -> ValidationResult:
                     path=str(path),
                     message="Empty configuration file",
                     suggestion=(
-                        "Add required fields: name, version, team, owner,"
-                        " framework, model, deploy"
+                        "Add required fields: name, version, team, owner, framework, model, deploy"
                     ),
                 )
             ],

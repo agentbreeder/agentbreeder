@@ -1,93 +1,158 @@
-# /launch — Pre-flight Check, Test, Secure, Commit & Push
+# /launch — Pre-flight Pipeline: Test, Lint, Secure, Document, Commit & Push
 
-You are a release engineer. Run all checks, fix issues, and push clean code to main.
+You are a release engineer. Execute all quality steps in order, fix issues at each gate, then commit and push clean code to main.
 
-## Do NOT ask for permission — just execute each step. Stop only if something is unfixable.
+## Do NOT ask for permission — execute each step. Stop only if something is truly unfixable.
 
-## Pipeline (execute in order)
+---
 
-### Step 1: Run /tests skill
-Run the full test suite as defined in the `/tests` skill:
-- Run all unit, integration, and E2E tests
-- Fix any failing tests
-- Ensure coverage >= 95% on changed files
-- All tests must pass before proceeding
+## STEP 1: TESTS
 
-### Step 2: Lint & Format
+Run tests and iterate until all pass with 95%+ coverage.
+
+```bash
+./venv/bin/python -m pytest tests/unit/ --cov=. --cov-report=term-missing -q
+```
+
+- All tests must pass (0 failures).
+- Coverage must be >= 95% on changed/new files.
+- If tests fail: fix the code or tests, re-run, iterate until green.
+- If coverage < 95%: write tests for uncovered lines, re-run.
+- Avoid mocks wherever possible — use real implementations, fixtures, factory functions.
+- Use `typer.testing.CliRunner` for CLI tests, `httpx.AsyncClient` for API tests.
+- Do NOT skip, disable, or xfail tests.
+
+**GATE: All tests pass AND coverage >= 95%. Do not proceed until met.**
+
+Record: test count, coverage %.
+
+---
+
+## STEP 2: LINT & FORMAT
+
 ```bash
 ./venv/bin/ruff check . --fix
 ./venv/bin/ruff format .
 ```
-- Fix any remaining lint errors that `--fix` can't handle
-- Ensure zero lint errors before proceeding
 
-### Step 3: Vulnerability Check
+Check remaining:
 ```bash
-# Python dependency vulnerabilities
-./venv/bin/pip-audit 2>/dev/null || ./venv/bin/pip install pip-audit && ./venv/bin/pip-audit
-
-# Check for secrets accidentally committed
-grep -rn "sk-proj-\|sk-ant-\|AKIA\|ghp_\|gho_" --include="*.py" --include="*.ts" --include="*.tsx" --include="*.yaml" --include="*.yml" --include="*.json" . | grep -v node_modules | grep -v .env | grep -v venv | grep -v __pycache__ | grep -v ".claude/" || true
+./venv/bin/ruff check .
+./venv/bin/ruff format --check .
 ```
 
-**For vulnerabilities found:**
-- **Critical / High:** MUST fix before proceeding (upgrade dependency, patch, or mitigate)
-- **Medium:** Fix if straightforward (< 5 min), otherwise note in commit message
-- **Low:** Note but don't block
+- Fix any remaining errors that `--fix` could not handle by reading and editing the files.
+- Re-run until both check and format report zero errors.
 
-**For secrets found:**
-- Remove immediately and add to `.gitignore` if needed
-- NEVER commit real API keys, tokens, or credentials
+**GATE: Zero lint errors, format clean. Do not proceed until met.**
 
-### Step 4: Type Check (if applicable)
+Record: errors found, errors fixed.
+
+---
+
+## STEP 3: SECURITY
+
+### 3a. Dependency vulnerabilities
 ```bash
-# Python
-./venv/bin/mypy . --ignore-missing-imports 2>/dev/null || true
-
-# TypeScript (dashboard)
-cd dashboard && npm run typecheck 2>/dev/null || true
+./venv/bin/pip-audit 2>/dev/null || (./venv/bin/pip install pip-audit && ./venv/bin/pip-audit)
 ```
-- Fix critical type errors. Warnings are OK.
+- Critical/High: MUST fix (upgrade in `pyproject.toml`, reinstall, re-audit).
+- Medium: fix if < 5 min, otherwise note.
+- Low: note only.
 
-### Step 5: Commit & Push
+### 3b. Secret scan
 ```bash
-# Stage all changes
+grep -rn "sk-proj-\|sk-ant-\|AKIA\|ghp_\|gho_" --include="*.py" --include="*.ts" --include="*.tsx" --include="*.yaml" --include="*.yml" --include="*.json" . | grep -v node_modules | grep -v venv | grep -v __pycache__ | grep -v ".claude/" || echo "No secrets found"
+```
+- Ignore test fixtures (fake keys in test files are fine).
+- Remove any real secrets immediately. NEVER commit real keys/tokens.
+
+### 3c. Type check (non-blocking)
+```bash
+./venv/bin/mypy . --ignore-missing-imports 2>&1 || true
+```
+- Report errors. Fix critical ones if straightforward. Does not block pipeline.
+
+**GATE: No critical/high vulns remaining AND no real secrets found. Do not proceed until met.**
+
+Record: vulns found/fixed/noted, secrets status, type error count.
+
+---
+
+## STEP 4: DOCS
+
+Detect code changes and update corresponding documentation.
+
+```bash
+git diff --name-only HEAD 2>/dev/null || true
+git diff --name-only --cached 2>/dev/null || true
+git ls-files --others --exclude-standard 2>/dev/null || true
+```
+
+Map changes to docs:
+- `cli/commands/*.py`, `cli/main.py` -> `docs/cli-reference.md`
+- `api/routes/*.py` -> `docs/api-reference.md`
+- `engine/config_parser.py` -> `docs/agenthub-yaml.md`
+- `engine/**` -> `ARCHITECTURE.md`
+- `pyproject.toml`, `docker-compose.yml` -> `docs/quickstart.md`, `docs/local-development.md`
+- Major changes -> `README.md`
+- Removed features -> remove stale references
+
+For each affected doc: read current doc, read changed source, update doc.
+
+Standards: GFM, language-tagged code blocks, usage examples for CLI/API, tables for structured data.
+
+Validate: check internal links exist, no unclosed code blocks, docs match current code.
+
+If no code changes affect docs, skip this step.
+
+Record: docs updated/created/removed.
+
+---
+
+## STEP 5: COMMIT & PUSH
+
+```bash
 git add -A
-
-# Check what's being committed (safety check)
 git status
 git diff --cached --stat
+```
 
-# Commit with descriptive message
-git commit -m "<descriptive message>
+Review staged files — ensure no secrets, no `.env` files, no large binaries.
+
+Commit with conventional message:
+```bash
+git commit -m "<type>: <summary under 72 chars>
+
+<body with details if multiple change types>
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
-
-# Push to main
-git push origin main
 ```
 
 **Commit message rules:**
-- Summarize ALL changes (not just the last file)
-- Use conventional format: `feat:`, `fix:`, `test:`, `chore:`
-- Keep first line under 72 chars
-- Add details in body if multiple changes
+- Conventional format: `feat:`, `fix:`, `test:`, `chore:`, `docs:`, `refactor:`
+- First line under 72 chars — summarize ALL changes
+- Body with details if multiple change types
 
-### Step 6: Post-push verification
+Push and verify:
 ```bash
+git push origin main
 git log --oneline -3
 git status
 ```
 
-## Output Summary
+---
 
-Print at the end:
+## Output
+
 ```
 === Launch Summary ===
-Tests:       X passed, 0 failed
-Coverage:    XX%
-Lint:        Clean
-Vulnerabilities: X fixed, Y noted
-Commit:      <hash> <message>
-Pushed:      main → origin/main
+Tests:         X passed, 0 failed | Coverage: XX%
+Lint:          X found, X fixed | Clean
+Security:      Vulns: X fixed, Y noted | Secrets: none
+Type check:    Python: X errors | TS: X errors (non-blocking)
+Docs:          X updated, Y created, Z removed
+Commit:        <short-hash> <message>
+Pushed:        main -> origin/main
+Status:        LAUNCHED
 ```

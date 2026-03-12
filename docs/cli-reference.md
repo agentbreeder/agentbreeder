@@ -275,6 +275,46 @@ garden teardown my-agent --json       # JSON output
 
 ---
 
+### `garden provider`
+
+Manage LLM provider connections and API keys.
+
+```
+garden provider [SUBCOMMAND] [OPTIONS]
+```
+
+#### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List all configured providers with status |
+| `add TYPE` | Add a new provider (interactive or with `--api-key`) |
+| `test NAME` | Test a provider connection |
+| `models NAME` | List available models from a provider |
+| `remove NAME` | Remove a provider and its API key |
+| `disable NAME` | Disable a provider without removing |
+| `enable NAME` | Re-enable a disabled provider |
+
+**Supported provider types:** `openai`, `anthropic`, `google`, `ollama`, `litellm`, `openrouter`
+
+API keys are stored in the project `.env` file (or `~/.garden/.env` if no project).
+
+**Examples:**
+```bash
+garden provider list                              # List all providers
+garden provider add openai                        # Interactive setup
+garden provider add openai --api-key sk-proj-...  # Non-interactive
+garden provider add ollama                        # Auto-detect local Ollama
+garden provider test openai                       # Verify connection + latency
+garden provider models openai                     # List available models
+garden provider disable openai                    # Disable without removing
+garden provider enable openai                     # Re-enable
+garden provider remove openai                     # Remove provider + key
+garden provider list --json                       # JSON output
+```
+
+---
+
 ## Global Options
 
 All commands support:
