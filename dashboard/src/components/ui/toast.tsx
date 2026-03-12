@@ -5,9 +5,9 @@ import { cn } from "@/lib/utils";
 import { ToastContext, useToastState } from "@/hooks/use-toast";
 import type { Toast as ToastType, ToastVariant } from "@/hooks/use-toast";
 
-const TOAST_DURATION = 5000;
-
 const variantStyles: Record<ToastVariant, string> = {
+  default:
+    "border-border bg-card text-card-foreground dark:border-border dark:bg-card dark:text-card-foreground",
   success:
     "border-green-500/30 bg-green-50 text-green-900 dark:border-green-500/30 dark:bg-green-950 dark:text-green-100",
   error:
@@ -19,6 +19,7 @@ const variantStyles: Record<ToastVariant, string> = {
 };
 
 const variantProgressStyles: Record<ToastVariant, string> = {
+  default: "bg-foreground/40",
   success: "bg-green-500",
   error: "bg-red-500",
   info: "bg-blue-500",
@@ -26,6 +27,7 @@ const variantProgressStyles: Record<ToastVariant, string> = {
 };
 
 const variantIcons: Record<ToastVariant, React.ComponentType<{ className?: string }>> = {
+  default: Info,
   success: CheckCircle2,
   error: AlertCircle,
   info: Info,
@@ -51,18 +53,19 @@ function ToastItem({
   }, []);
 
   useEffect(() => {
-    // Progress bar countdown
+    // Progress bar countdown using the toast's configured duration
+    const duration = toast.duration;
     const startTime = Date.now();
     const interval = setInterval(() => {
       const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, 100 - (elapsed / TOAST_DURATION) * 100);
+      const remaining = Math.max(0, 100 - (elapsed / duration) * 100);
       setProgress(remaining);
       if (remaining <= 0) {
         clearInterval(interval);
       }
     }, 50);
     return () => clearInterval(interval);
-  }, []);
+  }, [toast.duration]);
 
   const handleDismiss = () => {
     setExiting(true);

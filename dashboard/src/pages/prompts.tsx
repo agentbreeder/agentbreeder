@@ -38,66 +38,48 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { RelativeTime } from "@/components/ui/relative-time";
 import { cn } from "@/lib/utils";
 import { useState, useMemo, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ExportDropdown } from "@/components/export-dropdown";
-import { BulkActionBar } from "@/components/bulk-action-bar";
 import { useFavorites } from "@/hooks/use-favorites";
-import { useBulkSelect } from "@/hooks/use-bulk-select";
-import { useUrlState } from "@/hooks/use-url-state";
+import { useSortable } from "@/hooks/use-sortable";
+import { SortableColumnHeader } from "@/components/ui/sortable-header";
+import { SkeletonCardGrid } from "@/components/ui/skeleton-table";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface PromptGroup {
-  id: string;
   name: string;
   versions: Prompt[];
   latestVersion: string;
   team: string;
   description: string;
+  created_at: string;
 }
 
 function PromptCard({
   group,
   onNavigate,
   onDelete,
-  isSelected,
-  onToggleSelect,
 }: {
   group: PromptGroup;
   onNavigate: (id: string) => void;
   onDelete: (id: string) => void;
-  isSelected: boolean;
-  onToggleSelect: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const latest = group.versions[0];
 
   return (
-    <div className={cn(
-      "overflow-hidden rounded-lg border border-border transition-all hover:border-border",
-      isSelected && "border-primary/30 bg-primary/5"
-    )}>
+    <div className="overflow-hidden rounded-lg border border-border transition-all hover:border-border">
       {/* Header -- always visible */}
       <div className="flex items-start gap-3 p-4 transition-colors hover:bg-muted/20">
-        <div className="flex flex-col items-center gap-2">
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={(e) => {
-              e.stopPropagation();
-              onToggleSelect();
-            }}
-            className="size-3.5 shrink-0 rounded border-border accent-foreground"
-          />
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted"
-          >
-            <FileText className="size-4 text-muted-foreground" />
-          </button>
-        </div>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted"
+        >
+          <FileText className="size-4 text-muted-foreground" />
+        </button>
 
         <div
           className="min-w-0 flex-1 cursor-pointer"
@@ -126,7 +108,10 @@ function PromptCard({
             </span>
             <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <Clock className="size-2.5" />
-              <RelativeTime date={latest.created_at} />
+              {new Date(latest.created_at).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}
             </span>
           </div>
         </div>
@@ -201,7 +186,11 @@ function PromptCard({
                   </span>
                 )}
                 <span className="ml-auto text-[10px] text-muted-foreground">
-                  <RelativeTime date={prompt.created_at} />
+                  {new Date(prompt.created_at).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
                 </span>
               </div>
               <pre className="max-h-40 overflow-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-xs leading-relaxed text-foreground/80">
@@ -472,27 +461,9 @@ function CreatePromptDialog({ onCreated }: { onCreated: (id: string) => void }) 
   );
 }
 
-function EmptyState({ hasFilter }: { hasFilter: boolean }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-dashed border-border">
-        <FileText className="size-5 text-muted-foreground" />
-      </div>
-      <h3 className="text-sm font-medium">
-        {hasFilter ? "No prompts match your filters" : "No prompts registered"}
-      </h3>
-      <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-        {hasFilter
-          ? "Try adjusting your search or filters."
-          : "Register prompt templates via the API or click \"New Prompt\" to get started."}
-      </p>
-    </div>
-  );
-}
-
 export default function PromptsPage() {
-  const [search, setSearch] = useUrlState("search", "");
-  const [teamFilter, setTeamFilter] = useUrlState("team", "");
+  const [search, setSearch] = useState("");
+  const [teamFilter, setTeamFilter] = useState("");
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -534,12 +505,12 @@ export default function PromptsPage() {
       // Sort versions descending (newest first)
       versions.sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }));
       result.push({
-        id: versions[0].id,
         name,
         versions,
         latestVersion: versions[0].version,
         team: versions[0].team,
         description: versions[0].description,
+        created_at: versions[0].created_at,
       });
     }
     return result;
@@ -560,9 +531,16 @@ export default function PromptsPage() {
     );
   }
 
-  const bulk = useBulkSelect(filtered);
+  // Sortable
+  const { sortedData, sortKey, sortDirection, toggleSort } = useSortable(
+    filtered as unknown as Record<string, unknown>[],
+    "name",
+    "asc"
+  );
+  const sortedGroups = sortedData as unknown as PromptGroup[];
 
   const teams = [...new Set(prompts.map((p) => p.team))].filter(Boolean).sort();
+  const hasFilter = !!(search || teamFilter || showFavoritesOnly);
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -620,50 +598,64 @@ export default function PromptsPage() {
         </button>
       </div>
 
+      {/* Sort controls */}
+      <div className="mb-3 flex items-center gap-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span>Sort by:</span>
+        <SortableColumnHeader
+          sortKey="name"
+          currentSortKey={sortKey}
+          currentDirection={sortDirection}
+          onSort={toggleSort}
+        >
+          Name
+        </SortableColumnHeader>
+        <SortableColumnHeader
+          sortKey="team"
+          currentSortKey={sortKey}
+          currentDirection={sortDirection}
+          onSort={toggleSort}
+        >
+          Team
+        </SortableColumnHeader>
+        <SortableColumnHeader
+          sortKey="created_at"
+          currentSortKey={sortKey}
+          currentDirection={sortDirection}
+          onSort={toggleSort}
+        >
+          Created
+        </SortableColumnHeader>
+      </div>
+
       {/* Grid */}
       {isLoading ? (
-        <div className="grid gap-3 md:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rounded-lg border border-border p-4">
-              <div className="flex items-start gap-3">
-                <div className="size-9 animate-pulse rounded-lg bg-muted" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 w-36 animate-pulse rounded bg-muted" />
-                  <div className="h-3 w-52 animate-pulse rounded bg-muted/60" />
-                  <div className="h-3 w-24 animate-pulse rounded bg-muted/40" />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <SkeletonCardGrid cards={4} />
       ) : error ? (
         <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-center text-sm text-destructive">
           Failed to load prompts: {(error as Error).message}
         </div>
-      ) : filtered.length === 0 ? (
-        <EmptyState hasFilter={!!(search || teamFilter || showFavoritesOnly)} />
+      ) : sortedGroups.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          title={hasFilter ? "No prompts match your filters" : "No prompts registered"}
+          description={
+            hasFilter
+              ? "Try adjusting your search or filters."
+              : 'Register prompt templates via the API or click "New Prompt" to get started.'
+          }
+        />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {filtered.map((group) => (
+          {sortedGroups.map((group) => (
             <PromptCard
               key={group.name}
               group={group}
               onNavigate={(id) => navigate(`/prompts/${id}`)}
               onDelete={(id) => deleteMutation.mutate(id)}
-              isSelected={bulk.isSelected(group.id)}
-              onToggleSelect={() => bulk.toggle(group.id)}
             />
           ))}
         </div>
       )}
-
-      <BulkActionBar
-        selectedCount={bulk.selectedCount}
-        entityName="prompt"
-        selectedItems={bulk.selectedItems as unknown as Record<string, unknown>[]}
-        onClearSelection={bulk.clearSelection}
-        onDelete={() => bulk.clearSelection()}
-      />
     </div>
   );
 }

@@ -1,18 +1,21 @@
 import { useState, useCallback, createContext, useContext } from "react";
 
-export type ToastVariant = "success" | "error" | "info" | "warning";
+export type ToastVariant = "default" | "success" | "error" | "info" | "warning";
 
 export interface Toast {
   id: string;
   title: string;
   description?: string;
   variant: ToastVariant;
+  duration: number;
 }
 
 export interface ToastInput {
   title: string;
   description?: string;
   variant?: ToastVariant;
+  /** Auto-dismiss duration in milliseconds. Defaults to 5000. */
+  duration?: number;
 }
 
 export interface ToastContextValue {
@@ -20,6 +23,9 @@ export interface ToastContextValue {
   toast: (input: ToastInput) => void;
   dismiss: (id: string) => void;
 }
+
+const MAX_VISIBLE_TOASTS = 3;
+const DEFAULT_DURATION = 5000;
 
 let toastCounter = 0;
 
@@ -35,18 +41,28 @@ export function useToastState(): ToastContextValue {
   const toast = useCallback(
     (input: ToastInput) => {
       const id = `toast-${++toastCounter}`;
+      const duration = input.duration ?? DEFAULT_DURATION;
       const newToast: Toast = {
         id,
         title: input.title,
         description: input.description,
-        variant: input.variant ?? "info",
+        variant: input.variant ?? "default",
+        duration,
       };
-      setToasts((prev) => [...prev, newToast]);
 
-      // Auto-dismiss after 5 seconds
+      setToasts((prev) => {
+        const next = [...prev, newToast];
+        // Keep only the most recent MAX_VISIBLE_TOASTS
+        if (next.length > MAX_VISIBLE_TOASTS) {
+          return next.slice(next.length - MAX_VISIBLE_TOASTS);
+        }
+        return next;
+      });
+
+      // Auto-dismiss after the configured duration
       setTimeout(() => {
         dismiss(id);
-      }, 5000);
+      }, duration);
     },
     [dismiss]
   );

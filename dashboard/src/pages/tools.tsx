@@ -8,10 +8,11 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ExportDropdown } from "@/components/export-dropdown";
-import { BulkActionBar } from "@/components/bulk-action-bar";
 import { useFavorites } from "@/hooks/use-favorites";
-import { useBulkSelect } from "@/hooks/use-bulk-select";
-import { useUrlState } from "@/hooks/use-url-state";
+import { useSortable } from "@/hooks/use-sortable";
+import { SortableColumnHeader } from "@/components/ui/sortable-header";
+import { SkeletonCardGrid } from "@/components/ui/skeleton-table";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const TYPE_ICONS: Record<string, typeof Wrench> = {
   mcp_server: Server,
@@ -25,43 +26,18 @@ const SOURCE_COLORS: Record<string, string> = {
   litellm: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
 };
 
-function ToolCard({
-  tool,
-  onClick,
-  isSelected,
-  onToggleSelect,
-}: {
-  tool: Tool;
-  onClick: () => void;
-  isSelected: boolean;
-  onToggleSelect: () => void;
-}) {
+function ToolCard({ tool, onClick }: { tool: Tool; onClick: () => void }) {
   const Icon = TYPE_ICONS[tool.tool_type] ?? Wrench;
   const isActive = tool.status === "active";
 
   return (
     <div
       onClick={onClick}
-      className={cn(
-        "cursor-pointer rounded-lg border border-border p-4 transition-all hover:border-border hover:bg-muted/20",
-        isSelected && "border-primary/30 bg-primary/5"
-      )}
+      className="cursor-pointer rounded-lg border border-border p-4 transition-all hover:border-border hover:bg-muted/20"
     >
       <div className="flex items-start gap-3">
-        <div className="flex flex-col items-center gap-2">
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={(e) => {
-              e.stopPropagation();
-              onToggleSelect();
-            }}
-            onClick={(e) => e.stopPropagation()}
-            className="size-3.5 shrink-0 rounded border-border accent-foreground"
-          />
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-            <Icon className="size-4 text-muted-foreground" />
-          </div>
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <Icon className="size-4 text-muted-foreground" />
         </div>
 
         <div className="min-w-0 flex-1">
@@ -101,25 +77,10 @@ function ToolCard({
   );
 }
 
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-dashed border-border">
-        <Wrench className="size-5 text-muted-foreground" />
-      </div>
-      <h3 className="text-sm font-medium">No tools registered</h3>
-      <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-        Run <code className="rounded bg-muted px-1">garden scan</code> to discover MCP
-        servers and register them.
-      </p>
-    </div>
-  );
-}
-
 export default function ToolsPage() {
   const navigate = useNavigate();
-  const [search, setSearch] = useUrlState("search", "");
-  const [typeFilter, setTypeFilter] = useUrlState("type", "");
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const { showOnlyFavorites } = useFavorites();
 
@@ -144,7 +105,13 @@ export default function ToolsPage() {
     filtered = showOnlyFavorites(filtered);
   }
 
-  const bulk = useBulkSelect(filtered);
+  // Sortable
+  const { sortedData, sortKey, sortDirection, toggleSort } = useSortable(
+    filtered as unknown as Record<string, unknown>[],
+    "name",
+    "asc"
+  );
+  const sortedTools = sortedData as unknown as Tool[];
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -196,48 +163,67 @@ export default function ToolsPage() {
         </button>
       </div>
 
+      {/* Sort controls */}
+      <div className="mb-3 flex items-center gap-4 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span>Sort by:</span>
+        <SortableColumnHeader
+          sortKey="name"
+          currentSortKey={sortKey}
+          currentDirection={sortDirection}
+          onSort={toggleSort}
+        >
+          Name
+        </SortableColumnHeader>
+        <SortableColumnHeader
+          sortKey="tool_type"
+          currentSortKey={sortKey}
+          currentDirection={sortDirection}
+          onSort={toggleSort}
+        >
+          Type
+        </SortableColumnHeader>
+        <SortableColumnHeader
+          sortKey="source"
+          currentSortKey={sortKey}
+          currentDirection={sortDirection}
+          onSort={toggleSort}
+        >
+          Source
+        </SortableColumnHeader>
+        <SortableColumnHeader
+          sortKey="created_at"
+          currentSortKey={sortKey}
+          currentDirection={sortDirection}
+          onSort={toggleSort}
+        >
+          Created
+        </SortableColumnHeader>
+      </div>
+
       {/* Grid */}
       {isLoading ? (
-        <div className="grid gap-3 md:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rounded-lg border border-border p-4">
-              <div className="flex items-start gap-3">
-                <div className="size-9 animate-pulse rounded-lg bg-muted" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 w-32 animate-pulse rounded bg-muted" />
-                  <div className="h-3 w-48 animate-pulse rounded bg-muted/60" />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <SkeletonCardGrid cards={4} />
       ) : error ? (
         <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-center text-sm text-destructive">
           Failed to load tools: {(error as Error).message}
         </div>
-      ) : filtered.length === 0 ? (
-        <EmptyState />
+      ) : sortedTools.length === 0 ? (
+        <EmptyState
+          icon={Wrench}
+          title="No tools registered"
+          description="Run `garden scan` to discover MCP servers and register them."
+        />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {filtered.map((tool) => (
+          {sortedTools.map((tool) => (
             <ToolCard
               key={tool.id}
               tool={tool}
               onClick={() => navigate(`/tools/${tool.id}`)}
-              isSelected={bulk.isSelected(tool.id)}
-              onToggleSelect={() => bulk.toggle(tool.id)}
             />
           ))}
         </div>
       )}
-
-      <BulkActionBar
-        selectedCount={bulk.selectedCount}
-        entityName="tool"
-        selectedItems={bulk.selectedItems as unknown as Record<string, unknown>[]}
-        onClearSelection={bulk.clearSelection}
-        onDelete={() => bulk.clearSelection()}
-      />
     </div>
   );
 }

@@ -28,10 +28,11 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ExportDropdown } from "@/components/export-dropdown";
-import { BulkActionBar } from "@/components/bulk-action-bar";
 import { useFavorites } from "@/hooks/use-favorites";
-import { useBulkSelect } from "@/hooks/use-bulk-select";
-import { useUrlState } from "@/hooks/use-url-state";
+import { useSortable } from "@/hooks/use-sortable";
+import { SortableColumnHeader } from "@/components/ui/sortable-header";
+import { SkeletonTableRows } from "@/components/ui/skeleton-table";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const PROVIDER_COLORS: Record<string, string> = {
   anthropic: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
@@ -79,10 +80,7 @@ function ModelRow({
 }) {
   const isActive = model.status === "active";
   return (
-    <div className={cn(
-      "flex items-center gap-4 border-b border-border/50 px-5 py-3 transition-colors last:border-0 hover:bg-muted/20",
-      isSelected && "bg-primary/5"
-    )}>
+    <div className="flex items-center gap-4 border-b border-border/50 px-5 py-3 transition-colors last:border-0 hover:bg-muted/20">
       <input
         type="checkbox"
         checked={isSelected}
@@ -172,10 +170,7 @@ function CreateModelDialog() {
 
   const canSubmit = name.trim() && provider.trim();
 
-  // For now, this is a placeholder — the API doesn't have a create endpoint yet.
-  // When available, wire up a mutation here.
   const handleCreate = () => {
-    // Future: api.models.create(...)
     setOpen(false);
     resetForm();
   };
@@ -287,29 +282,11 @@ function CreateModelDialog() {
   );
 }
 
-function EmptyState({ hasFilter }: { hasFilter: boolean }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-dashed border-border">
-        <Cpu className="size-5 text-muted-foreground" />
-      </div>
-      <h3 className="text-sm font-medium">
-        {hasFilter ? "No models match your filters" : "No models registered"}
-      </h3>
-      <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-        {hasFilter
-          ? "Try adjusting your search or filters."
-          : "Connect a LiteLLM gateway or register models manually to see them here."}
-      </p>
-    </div>
-  );
-}
-
 export default function ModelsPage() {
   const navigate = useNavigate();
-  const [search, setSearch] = useUrlState("search", "");
-  const [providerFilter, setProviderFilter] = useUrlState("provider", "");
-  const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [providerFilter, setProviderFilter] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const { showOnlyFavorites, favorites } = useFavorites();
 
@@ -336,10 +313,16 @@ export default function ModelsPage() {
     filtered = showOnlyFavorites(filtered);
   }
 
-  const bulk = useBulkSelect(filtered);
+  // Sortable
+  const { sortedData, sortKey, sortDirection, toggleSort } = useSortable(
+    filtered as unknown as Record<string, unknown>[],
+    "name",
+    "asc"
+  );
+  const sortedModels = sortedData as unknown as Model[];
 
-  function toggleCompare(id: string) {
-    setCompareIds((prev) => {
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -352,11 +335,12 @@ export default function ModelsPage() {
   }
 
   function handleCompare() {
-    const ids = Array.from(compareIds).join(",");
+    const ids = Array.from(selectedIds).join(",");
     navigate(`/models/compare?ids=${ids}`);
   }
 
-  const canCompare = compareIds.size >= 2 && compareIds.size <= 3;
+  const canCompare = selectedIds.size >= 2 && selectedIds.size <= 3;
+  const hasFilter = !!(search || providerFilter || showFavoritesOnly);
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -368,7 +352,7 @@ export default function ModelsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {compareIds.size > 0 && (
+          {selectedIds.size > 0 && (
             <button
               onClick={handleCompare}
               disabled={!canCompare}
@@ -380,7 +364,7 @@ export default function ModelsPage() {
               )}
             >
               <GitCompareArrows className="size-3" />
-              Compare ({compareIds.size})
+              Compare ({selectedIds.size})
             </button>
           )}
           <ExportDropdown
@@ -444,68 +428,89 @@ export default function ModelsPage() {
       {/* Table */}
       <div className="overflow-hidden rounded-lg border border-border">
         <div className="flex items-center gap-4 border-b border-border bg-muted/30 px-5 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={bulk.isAllSelected}
-            onChange={bulk.toggleAll}
-            className="size-3.5 shrink-0 rounded border-border accent-foreground"
-          />
+          <span className="w-3.5" />
           <span className="w-3.5" />
           <span className="w-1.5" />
-          <span className="flex-1">Model</span>
-          <span className="w-24 text-center">Provider</span>
-          <span className="w-16 text-right">Context</span>
-          <span className="w-28 text-right">Price (in/out)</span>
-          <span className="w-20 text-right">Source</span>
+          <span className="flex-1">
+            <SortableColumnHeader
+              sortKey="name"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Model
+            </SortableColumnHeader>
+          </span>
+          <span className="w-24 text-center">
+            <SortableColumnHeader
+              sortKey="provider"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Provider
+            </SortableColumnHeader>
+          </span>
+          <span className="w-16 text-right">
+            <SortableColumnHeader
+              sortKey="context_window"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Context
+            </SortableColumnHeader>
+          </span>
+          <span className="w-28 text-right">
+            <SortableColumnHeader
+              sortKey="input_price_per_million"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Price (in/out)
+            </SortableColumnHeader>
+          </span>
+          <span className="w-20 text-right">
+            <SortableColumnHeader
+              sortKey="source"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Source
+            </SortableColumnHeader>
+          </span>
         </div>
 
         {isLoading ? (
-          <div className="space-y-0">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-4 border-b border-border/50 px-5 py-3 last:border-0"
-              >
-                <div className="size-3.5 animate-pulse rounded bg-muted" />
-                <div className="size-3.5 animate-pulse rounded bg-muted" />
-                <div className="size-1.5 animate-pulse rounded-full bg-muted" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-3.5 w-40 animate-pulse rounded bg-muted" />
-                  <div className="h-2.5 w-56 animate-pulse rounded bg-muted/60" />
-                </div>
-                <div className="h-5 w-16 animate-pulse rounded-full bg-muted" />
-                <div className="h-3 w-12 animate-pulse rounded bg-muted" />
-                <div className="h-3 w-20 animate-pulse rounded bg-muted" />
-                <div className="h-3 w-14 animate-pulse rounded bg-muted" />
-              </div>
-            ))}
-          </div>
+          <SkeletonTableRows rows={5} columns={4} />
         ) : error ? (
           <div className="px-6 py-12 text-center text-sm text-destructive">
             Failed to load models: {(error as Error).message}
           </div>
-        ) : filtered.length === 0 ? (
-          <EmptyState hasFilter={!!(search || providerFilter || showFavoritesOnly)} />
+        ) : sortedModels.length === 0 ? (
+          <EmptyState
+            icon={Cpu}
+            title={hasFilter ? "No models match your filters" : "No models registered"}
+            description={
+              hasFilter
+                ? "Try adjusting your search or filters."
+                : "Connect a LiteLLM gateway or register models manually to see them here."
+            }
+          />
         ) : (
-          filtered.map((model) => (
+          sortedModels.map((model) => (
             <ModelRow
               key={model.id}
               model={model}
-              isSelected={bulk.isSelected(model.id)}
-              onToggleSelect={() => bulk.toggle(model.id)}
+              isSelected={selectedIds.has(model.id)}
+              onToggleSelect={() => toggleSelect(model.id)}
               onClick={() => navigate(`/models/${model.id}`)}
             />
           ))
         )}
       </div>
-
-      <BulkActionBar
-        selectedCount={bulk.selectedCount}
-        entityName="model"
-        selectedItems={bulk.selectedItems as unknown as Record<string, unknown>[]}
-        onClearSelection={bulk.clearSelection}
-        onDelete={() => bulk.clearSelection()}
-      />
     </div>
   );
 }

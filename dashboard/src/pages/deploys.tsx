@@ -11,10 +11,12 @@ import {
 import { api, type DeployJob, type DeployJobStatus } from "@/lib/api";
 import { DeployPipeline } from "@/components/deploy-pipeline";
 import { Badge } from "@/components/ui/badge";
-import { RelativeTime } from "@/components/ui/relative-time";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
-import { useUrlState } from "@/hooks/use-url-state";
+import { useSortable } from "@/hooks/use-sortable";
+import { SortableColumnHeader } from "@/components/ui/sortable-header";
+import { SkeletonTableRows } from "@/components/ui/skeleton-table";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const STATUS_COLORS: Record<string, string> = {
   completed: "text-emerald-500",
@@ -49,7 +51,7 @@ function DeployRow({ job }: { job: DeployJob }) {
     ? formatDuration(new Date(job.started_at), new Date(job.completed_at))
     : isActive
       ? "in progress..."
-      : "—";
+      : "--";
 
   return (
     <div className="border-b border-border/50 last:border-0">
@@ -93,10 +95,9 @@ function DeployRow({ job }: { job: DeployJob }) {
           {duration}
         </span>
 
-        <RelativeTime
-          date={job.started_at}
-          className="w-16 text-right text-[10px] text-muted-foreground"
-        />
+        <span className="w-16 text-right text-[10px] text-muted-foreground">
+          {timeSince(job.started_at)}
+        </span>
 
         {expanded ? (
           <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
@@ -116,12 +117,26 @@ function DeployRow({ job }: { job: DeployJob }) {
               <Target className="size-2.5" />
               Target: {job.target}
             </span>
-            <span className="flex items-center gap-1">
-              Started: <RelativeTime date={job.started_at} />
+            <span>
+              Started:{" "}
+              {new Date(job.started_at).toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
             </span>
             {job.completed_at && (
-              <span className="flex items-center gap-1">
-                Finished: <RelativeTime date={job.completed_at} />
+              <span>
+                Finished:{" "}
+                {new Date(job.completed_at).toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
               </span>
             )}
           </div>
@@ -131,26 +146,8 @@ function DeployRow({ job }: { job: DeployJob }) {
   );
 }
 
-function EmptyState({ hasFilter }: { hasFilter: boolean }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-dashed border-border">
-        <Activity className="size-5 text-muted-foreground" />
-      </div>
-      <h3 className="text-sm font-medium">
-        {hasFilter ? "No deploys match your filter" : "No deploy history"}
-      </h3>
-      <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-        {hasFilter
-          ? "Try changing the status filter."
-          : "Deploy an agent with `garden deploy` to see deployment jobs here."}
-      </p>
-    </div>
-  );
-}
-
 export default function DeploysPage() {
-  const [statusFilter, setStatusFilter] = useUrlState("status", "");
+  const [statusFilter, setStatusFilter] = useState("");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["deploys", { statusFilter }],
@@ -164,6 +161,14 @@ export default function DeploysPage() {
 
   const jobs = data?.data ?? [];
   const total = data?.meta.total ?? 0;
+
+  // Sortable
+  const { sortedData, sortKey, sortDirection, toggleSort } = useSortable(
+    jobs as unknown as Record<string, unknown>[],
+    "started_at",
+    "desc"
+  );
+  const sortedJobs = sortedData as unknown as DeployJob[];
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -200,38 +205,58 @@ export default function DeploysPage() {
       <div className="overflow-hidden rounded-lg border border-border">
         <div className="flex items-center gap-4 border-b border-border bg-muted/30 px-5 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           <span className="w-2" />
-          <span className="flex-1">Agent</span>
-          <span className="w-24 text-center">Status</span>
+          <span className="flex-1">
+            <SortableColumnHeader
+              sortKey="agent_name"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Agent
+            </SortableColumnHeader>
+          </span>
+          <span className="w-24 text-center">
+            <SortableColumnHeader
+              sortKey="status"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Status
+            </SortableColumnHeader>
+          </span>
           <span className="w-20 text-right">Duration</span>
-          <span className="w-16 text-right">Started</span>
+          <span className="w-16 text-right">
+            <SortableColumnHeader
+              sortKey="started_at"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Started
+            </SortableColumnHeader>
+          </span>
           <span className="w-3.5" />
         </div>
 
         {isLoading ? (
-          <div className="space-y-0">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-4 border-b border-border/50 px-5 py-3 last:border-0"
-              >
-                <div className="size-2 animate-pulse rounded-full bg-muted" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-3.5 w-32 animate-pulse rounded bg-muted" />
-                </div>
-                <div className="h-3 w-16 animate-pulse rounded bg-muted" />
-                <div className="h-3 w-12 animate-pulse rounded bg-muted" />
-                <div className="h-3 w-10 animate-pulse rounded bg-muted" />
-              </div>
-            ))}
-          </div>
+          <SkeletonTableRows rows={5} columns={3} />
         ) : error ? (
           <div className="px-6 py-12 text-center text-sm text-destructive">
             Failed to load deploys: {(error as Error).message}
           </div>
-        ) : jobs.length === 0 ? (
-          <EmptyState hasFilter={!!statusFilter} />
+        ) : sortedJobs.length === 0 ? (
+          <EmptyState
+            icon={Activity}
+            title={statusFilter ? "No deploys match your filter" : "No deploy history"}
+            description={
+              statusFilter
+                ? "Try changing the status filter."
+                : "Deploy an agent with `garden deploy` to see deployment jobs here."
+            }
+          />
         ) : (
-          jobs.map((job) => <DeployRow key={job.id} job={job} />)
+          sortedJobs.map((job) => <DeployRow key={job.id} job={job} />)
         )}
       </div>
     </div>
@@ -249,3 +274,14 @@ function formatDuration(start: Date, end: Date): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
+function timeSince(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 60) return "now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}

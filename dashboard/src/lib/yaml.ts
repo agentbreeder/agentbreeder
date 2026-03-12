@@ -162,6 +162,41 @@ export function highlightYaml(yaml: string): string {
     .join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// Basic YAML validation (structural checks, no full parser)
+// ---------------------------------------------------------------------------
+
+export function validateYamlBasic(yaml: string): { valid: boolean; error: string | null } {
+  if (!yaml.trim()) {
+    return { valid: false, error: "Empty content" };
+  }
+
+  const lines = yaml.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Skip empty lines and comments
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+
+    // Check for tabs (YAML uses spaces only)
+    if (/^\t/.test(line)) {
+      return { valid: false, error: `Line ${i + 1}: tabs are not allowed in YAML` };
+    }
+
+    // Check for unclosed quotes
+    const stripped = line.replace(/\\"/g, "").replace(/\\'/g, "");
+    const doubleQuotes = (stripped.match(/"/g) || []).length;
+    const singleQuotes = (stripped.match(/'/g) || []).length;
+    if (doubleQuotes % 2 !== 0) {
+      return { valid: false, error: `Line ${i + 1}: unclosed double quote` };
+    }
+    if (singleQuotes % 2 !== 0) {
+      return { valid: false, error: `Line ${i + 1}: unclosed single quote` };
+    }
+  }
+
+  return { valid: true, error: null };
+}
+
 function highlightValue(raw: string): string {
   const trimmed = raw.trim();
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
-type ConfirmDialogVariant = "danger" | "warning";
+type ConfirmDialogVariant = "danger" | "warning" | "destructive" | "default";
 
 interface ConfirmDialogProps {
   title: string;
@@ -26,13 +27,18 @@ interface ConfirmDialogProps {
   trigger?: React.ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Show a loading spinner on the confirm button and disable both buttons. */
+  loading?: boolean;
 }
 
-const confirmButtonStyles: Record<ConfirmDialogVariant, string> = {
+const confirmButtonStyles: Record<string, string> = {
   danger:
+    "bg-red-600 text-white hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700",
+  destructive:
     "bg-red-600 text-white hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700",
   warning:
     "bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-500 dark:hover:bg-amber-600",
+  default: "",
 };
 
 function ConfirmDialog({
@@ -46,6 +52,7 @@ function ConfirmDialog({
   trigger,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
+  loading = false,
 }: ConfirmDialogProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
 
@@ -57,7 +64,9 @@ function ConfirmDialog({
 
   const handleConfirm = () => {
     onConfirm();
-    setOpen(false);
+    if (!loading) {
+      setOpen(false);
+    }
   };
 
   const handleCancel = () => {
@@ -66,7 +75,7 @@ function ConfirmDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={loading ? undefined : setOpen}>
       {trigger && <DialogTrigger render={<span />}>{trigger}</DialogTrigger>}
       <DialogContent showCloseButton={false}>
         <DialogHeader>
@@ -74,13 +83,15 @@ function ConfirmDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={handleCancel}>
+          <Button variant="outline" onClick={handleCancel} disabled={loading}>
             {cancelLabel}
           </Button>
           <Button
             className={cn(confirmButtonStyles[variant])}
             onClick={handleConfirm}
+            disabled={loading}
           >
+            {loading && <Loader2 className="size-3.5 animate-spin" />}
             {confirmLabel}
           </Button>
         </DialogFooter>

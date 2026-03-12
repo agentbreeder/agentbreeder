@@ -51,10 +51,12 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { ConfigDiffViewer } from "@/components/config-diff-viewer";
 import { VersionSelector, type VersionEntry } from "@/components/version-selector";
 import { cn } from "@/lib/utils";
-import { jsonToYaml, highlightYaml } from "@/lib/yaml";
+import { jsonToYaml, highlightYaml, validateYamlBasic } from "@/lib/yaml";
 import { useState, useMemo, useCallback, useRef } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useToast } from "@/hooks/use-toast";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -415,58 +417,6 @@ function OverviewTab({ agent }: { agent: Agent }) {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// YAML validation (basic, no external dependencies)
-// ---------------------------------------------------------------------------
-
-interface YamlValidation {
-  valid: boolean;
-  error: string | null;
-}
-
-function validateYamlBasic(text: string): YamlValidation {
-  if (!text.trim()) {
-    return { valid: false, error: "YAML content is empty" };
-  }
-
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    // Tab characters are invalid in YAML
-    if (line.includes("\t")) {
-      return { valid: false, error: `Line ${i + 1}: Tab characters are not allowed in YAML — use spaces` };
-    }
-  }
-
-  // Check for unclosed quotes
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const stripped = line.replace(/\\"/g, "").replace(/\\'/g, "");
-    const doubleQuotes = (stripped.match(/"/g) || []).length;
-    const singleQuotes = (stripped.match(/'/g) || []).length;
-    if (doubleQuotes % 2 !== 0) {
-      return { valid: false, error: `Line ${i + 1}: Unclosed double quote` };
-    }
-    if (singleQuotes % 2 !== 0) {
-      return { valid: false, error: `Line ${i + 1}: Unclosed single quote` };
-    }
-  }
-
-  // Check for inconsistent indentation (mixing different indent levels)
-  let prevIndent = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.trim() === "" || line.trim().startsWith("#")) continue;
-    const match = line.match(/^( *)/);
-    const indent = match ? match[1].length : 0;
-    if (indent > prevIndent + 10) {
-      return { valid: false, error: `Line ${i + 1}: Suspicious indentation jump` };
-    }
-    prevIndent = indent;
-  }
-
-  return { valid: true, error: null };
-}
-
 // ---------------------------------------------------------------------------
 // Configuration (YAML Viewer + Inline Editor) Tab
 // ---------------------------------------------------------------------------
@@ -494,6 +444,7 @@ function ConfigurationTab({ agent }: { agent: Agent }) {
   const [diffVersionB, setDiffVersionB] = useState("v1.1.0");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
+  const unsaved = useUnsavedChanges();
 
   const yamlStr = useMemo(() => {
     const snapshot = agent.config_snapshot;
@@ -519,15 +470,22 @@ function ConfigurationTab({ agent }: { agent: Agent }) {
   const handleCancel = useCallback(() => {
     setEditing(false);
     setEditContent("");
-  }, []);
+    unsaved.markClean();
+  }, [unsaved]);
+
+  const handleContentChange = useCallback((value: string) => {
+    setEditContent(value);
+    unsaved.markDirty();
+  }, [unsaved]);
 
   const handleSave = useCallback(() => {
     if (!validation.valid) return;
     setEditing(false);
     setShowSaveSuccess(true);
+    unsaved.markClean();
     toast({ title: "Configuration saved", variant: "success" });
     setTimeout(() => setShowSaveSuccess(false), 2000);
-  }, [validation.valid, toast]);
+  }, [validation.valid, toast, unsaved]);
 
   if (!yamlStr || !highlighted) {
     return (
@@ -663,7 +621,7 @@ function ConfigurationTab({ agent }: { agent: Agent }) {
             <textarea
               ref={textareaRef}
               value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
+              onChange={(e) => handleContentChange(e.target.value)}
               spellCheck={false}
               className={cn(
                 "min-h-[300px] flex-1 resize-y bg-transparent p-3 font-mono text-[13px] leading-6 text-foreground outline-none",
@@ -719,6 +677,12 @@ function ConfigurationTab({ agent }: { agent: Agent }) {
           />
         </div>
       )}
+
+      <UnsavedChangesDialog
+        isBlocked={unsaved.isBlocked}
+        onConfirm={unsaved.confirmNavigation}
+        onCancel={unsaved.cancelNavigation}
+      />
     </div>
   );
 }

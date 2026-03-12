@@ -1,27 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { Bot, Search, Filter, Circle, Star } from "lucide-react";
 import { api, type Agent, type AgentStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { RelativeTime } from "@/components/ui/relative-time";
 import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ExportDropdown } from "@/components/export-dropdown";
-import { BulkActionBar } from "@/components/bulk-action-bar";
 import { TagFilter } from "@/components/tag-input";
 import { useFavorites } from "@/hooks/use-favorites";
-import { useBulkSelect } from "@/hooks/use-bulk-select";
-import { useUrlState } from "@/hooks/use-url-state";
+import { useSortable } from "@/hooks/use-sortable";
+import { SortableColumnHeader } from "@/components/ui/sortable-header";
+import { SkeletonTableRows } from "@/components/ui/skeleton-table";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const STATUS_COLORS: Record<AgentStatus, string> = {
   running: "text-emerald-500",
-  deploying: "text-blue-500 animate-pulse",
+  deploying: "text-amber-500 animate-pulse",
   stopped: "text-muted-foreground",
   failed: "text-destructive",
-  degraded: "text-yellow-500",
-  error: "text-red-500",
 };
 
 const FRAMEWORK_COLORS: Record<string, string> = {
@@ -37,37 +35,13 @@ function StatusDot({ status }: { status: AgentStatus }) {
   return <Circle className={cn("size-2 fill-current", STATUS_COLORS[status])} />;
 }
 
-function AgentRow({
-  agent,
-  isSelected,
-  onToggleSelect,
-}: {
-  agent: Agent;
-  isSelected: boolean;
-  onToggleSelect: () => void;
-}) {
+function AgentRow({ agent }: { agent: Agent }) {
+  const age = timeSince(agent.updated_at);
   return (
     <Link
       to={`/agents/${agent.id}`}
-      className={cn(
-        "group flex items-center gap-4 border-b border-border/50 px-6 py-3.5 transition-colors last:border-0 hover:bg-muted/30",
-        isSelected && "bg-primary/5"
-      )}
+      className="group flex items-center gap-4 border-b border-border/50 px-6 py-3.5 transition-colors last:border-0 hover:bg-muted/30"
     >
-      <input
-        type="checkbox"
-        checked={isSelected}
-        onChange={(e) => {
-          e.preventDefault();
-          onToggleSelect();
-        }}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onToggleSelect();
-        }}
-        className="size-3.5 shrink-0 rounded border-border accent-foreground"
-      />
       <FavoriteButton id={agent.id} />
       <StatusDot status={agent.status} />
 
@@ -108,36 +82,18 @@ function AgentRow({
 
       <span className="w-20 text-right text-xs text-muted-foreground">{agent.team}</span>
 
-      <RelativeTime
-        date={agent.updated_at}
-        className="w-16 text-right font-mono text-[10px] text-muted-foreground"
-      />
+      <span className="w-16 text-right font-mono text-[10px] text-muted-foreground">
+        {age}
+      </span>
     </Link>
   );
 }
 
-function EmptyState({ hasFilter }: { hasFilter: boolean }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-dashed border-border">
-        <Bot className="size-5 text-muted-foreground" />
-      </div>
-      <h3 className="text-sm font-medium">
-        {hasFilter ? "No agents match your filters" : "No agents registered"}
-      </h3>
-      <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-        {hasFilter
-          ? "Try adjusting your search or filters."
-          : "Deploy an agent with `garden deploy` and it will appear here automatically."}
-      </p>
-    </div>
-  );
-}
-
 export default function AgentsPage() {
-  const [search, setSearch] = useUrlState("search", "");
-  const [framework, setFramework] = useUrlState("framework", "");
-  const [status, setStatus] = useUrlState("status", "");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get("q") ?? "");
+  const [framework, setFramework] = useState(searchParams.get("framework") ?? "");
+  const [status, setStatus] = useState(searchParams.get("status") ?? "");
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const { showOnlyFavorites } = useFavorites();
@@ -178,7 +134,21 @@ export default function AgentsPage() {
     filteredAgents = showOnlyFavorites(filteredAgents);
   }
 
-  const bulk = useBulkSelect(filteredAgents);
+  // Sortable
+  const { sortedData, sortKey, sortDirection, toggleSort } = useSortable(
+    filteredAgents as unknown as Record<string, unknown>[],
+    "name",
+    "asc"
+  );
+  const sortedAgents = sortedData as unknown as Agent[];
+
+  const handleSearch = (value: string) => {
+    setSearch(value);
+    const sp = new URLSearchParams(searchParams);
+    if (value) sp.set("q", value);
+    else sp.delete("q");
+    setSearchParams(sp, { replace: true });
+  };
 
   const toggleTag = (tag: string) => {
     setActiveTags((prev) =>
@@ -209,7 +179,7 @@ export default function AgentsPage() {
           <Input
             placeholder="Search agents..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
             className="h-8 pl-9 text-xs"
           />
         </div>
@@ -270,62 +240,82 @@ export default function AgentsPage() {
       <div className="overflow-hidden rounded-lg border border-border">
         {/* Column headers */}
         <div className="flex items-center gap-4 border-b border-border bg-muted/30 px-6 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={bulk.isAllSelected}
-            onChange={bulk.toggleAll}
-            className="size-3.5 shrink-0 rounded border-border accent-foreground"
-          />
           <span className="w-3.5" />
           <span className="w-2" />
-          <span className="flex-1">Agent</span>
-          <span className="w-24 text-center">Framework</span>
-          <span className="w-20 text-right">Team</span>
-          <span className="w-16 text-right">Updated</span>
+          <span className="flex-1">
+            <SortableColumnHeader
+              sortKey="name"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Agent
+            </SortableColumnHeader>
+          </span>
+          <span className="w-24 text-center">
+            <SortableColumnHeader
+              sortKey="framework"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Framework
+            </SortableColumnHeader>
+          </span>
+          <span className="w-20 text-right">
+            <SortableColumnHeader
+              sortKey="team"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Team
+            </SortableColumnHeader>
+          </span>
+          <span className="w-16 text-right">
+            <SortableColumnHeader
+              sortKey="updated_at"
+              currentSortKey={sortKey}
+              currentDirection={sortDirection}
+              onSort={toggleSort}
+            >
+              Updated
+            </SortableColumnHeader>
+          </span>
         </div>
 
         {isLoading ? (
-          <div className="space-y-0">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-4 border-b border-border/50 px-6 py-3.5 last:border-0">
-                <div className="size-3.5 animate-pulse rounded bg-muted" />
-                <div className="size-2 animate-pulse rounded-full bg-muted" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-3.5 w-36 animate-pulse rounded bg-muted" />
-                  <div className="h-2.5 w-64 animate-pulse rounded bg-muted/60" />
-                </div>
-                <div className="h-5 w-16 animate-pulse rounded-full bg-muted" />
-                <div className="h-3 w-14 animate-pulse rounded bg-muted" />
-                <div className="h-3 w-10 animate-pulse rounded bg-muted" />
-              </div>
-            ))}
-          </div>
+          <SkeletonTableRows rows={5} columns={3} />
         ) : error ? (
           <div className="px-6 py-12 text-center text-sm text-destructive">
             Failed to load agents: {(error as Error).message}
           </div>
-        ) : filteredAgents.length === 0 ? (
-          <EmptyState hasFilter={hasFilter} />
+        ) : sortedAgents.length === 0 ? (
+          <EmptyState
+            icon={Bot}
+            title={hasFilter ? "No agents match your filters" : "No agents registered"}
+            description={
+              hasFilter
+                ? "Try adjusting your search or filters."
+                : "Deploy an agent with `garden deploy` and it will appear here automatically."
+            }
+          />
         ) : (
-          filteredAgents.map((agent) => (
-            <AgentRow
-              key={agent.id}
-              agent={agent}
-              isSelected={bulk.isSelected(agent.id)}
-              onToggleSelect={() => bulk.toggle(agent.id)}
-            />
-          ))
+          sortedAgents.map((agent) => <AgentRow key={agent.id} agent={agent} />)
         )}
       </div>
-
-      <BulkActionBar
-        selectedCount={bulk.selectedCount}
-        entityName="agent"
-        selectedItems={bulk.selectedItems as unknown as Record<string, unknown>[]}
-        onClearSelection={bulk.clearSelection}
-        onDelete={() => bulk.clearSelection()}
-      />
     </div>
   );
 }
 
+function timeSince(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 60) return "now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d`;
+  return `${Math.floor(days / 30)}mo`;
+}
