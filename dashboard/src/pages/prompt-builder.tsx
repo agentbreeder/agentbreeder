@@ -14,8 +14,13 @@ import {
   GitCompare,
   FileCode,
   Braces,
+  Play,
+  Zap,
+  Clock,
+  ChevronDown,
+  CornerDownLeft,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, type Model, type PromptTestRequest } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +33,7 @@ import {
   useEffect,
 } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { SubmitForReview } from "@/components/submit-for-review";
 import {
   extractVariables,
   promptToYaml,
@@ -405,6 +411,308 @@ function VariablesPanel({
 }
 
 // ---------------------------------------------------------------------------
+// Test Prompt Panel
+// ---------------------------------------------------------------------------
+
+function TestPromptPanel({
+  content,
+  variables,
+}: {
+  content: string;
+  variables: Map<string, PromptVariable>;
+}) {
+  const { toast } = useToast();
+  const detectedVarNames = useMemo(() => extractVariables(content), [content]);
+
+  // State for variable values (separate from metadata — these are test values)
+  const [varValues, setVarValues] = useState<Record<string, string>>({});
+  const [selectedModelId, setSelectedModelId] = useState<string>("");
+  const [temperature, setTemperature] = useState(0.7);
+  const [maxTokens, setMaxTokens] = useState(1024);
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [showRendered, setShowRendered] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch models from registry
+  const { data: modelsData, isLoading: modelsLoading } = useQuery({
+    queryKey: ["models-for-test"],
+    queryFn: () => api.models.list({ page: 1 }),
+  });
+
+  const models: Model[] = modelsData?.data ?? [];
+  const selectedModel = models.find((m) => m.id === selectedModelId);
+
+  // Auto-select first model
+  useEffect(() => {
+    if (models.length > 0 && !selectedModelId) {
+      setSelectedModelId(models[0].id);
+    }
+  }, [models, selectedModelId]);
+
+  // Initialize variable values from defaults
+  useEffect(() => {
+    const newValues: Record<string, string> = {};
+    for (const name of detectedVarNames) {
+      const v = variables.get(name);
+      newValues[name] = varValues[name] ?? v?.default ?? "";
+    }
+    setVarValues(newValues);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detectedVarNames.join(",")]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Render prompt with test variable values
+  const renderedPrompt = useMemo(() => {
+    return content.replace(/\{\{(\w+)\}\}/g, (_match, name: string) => {
+      return varValues[name] || `{{${name}}}`;
+    });
+  }, [content, varValues]);
+
+  // Test mutation
+  const testMutation = useMutation({
+    mutationFn: (req: PromptTestRequest) => api.prompts.test(req),
+    onError: (err: Error) => {
+      toast({
+        title: "Test failed",
+        description: err.message,
+        variant: "error",
+      });
+    },
+  });
+
+  const handleTest = useCallback(() => {
+    if (!content.trim()) {
+      toast({
+        title: "No prompt content",
+        description: "Write a prompt before testing.",
+        variant: "warning",
+      });
+      return;
+    }
+
+    testMutation.mutate({
+      prompt_text: content,
+      model_id: selectedModelId || undefined,
+      model_name: selectedModel?.name ?? undefined,
+      variables: varValues,
+      temperature,
+      max_tokens: maxTokens,
+    });
+  }, [content, selectedModelId, selectedModel, varValues, temperature, maxTokens, testMutation, toast]);
+
+  const result = testMutation.data?.data;
+
+  return (
+    <div className="flex flex-col gap-3 p-3">
+      {/* Model selector */}
+      <div>
+        <label className="text-[10px] font-medium text-muted-foreground mb-1 block">
+          Model
+        </label>
+        <div className="relative" ref={dropdownRef}>
+          <button
+            type="button"
+            onClick={() => setShowModelDropdown(!showModelDropdown)}
+            className={cn(
+              "flex w-full items-center justify-between rounded-md border border-input bg-background px-2.5 py-1.5 text-xs",
+              "hover:bg-muted/50 transition-colors"
+            )}
+          >
+            {modelsLoading ? (
+              <span className="text-muted-foreground">Loading models...</span>
+            ) : selectedModel ? (
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="truncate font-medium">{selectedModel.name}</span>
+                <Badge variant="outline" className="text-[9px] shrink-0">
+                  {selectedModel.provider}
+                </Badge>
+              </div>
+            ) : models.length === 0 ? (
+              <span className="text-muted-foreground">No models available</span>
+            ) : (
+              <span className="text-muted-foreground">Select a model...</span>
+            )}
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          </button>
+
+          {showModelDropdown && models.length > 0 && (
+            <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-lg max-h-48 overflow-auto">
+              {models.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center gap-2 px-2.5 py-1.5 text-xs transition-colors hover:bg-muted/50",
+                    m.id === selectedModelId && "bg-muted"
+                  )}
+                  onClick={() => {
+                    setSelectedModelId(m.id);
+                    setShowModelDropdown(false);
+                  }}
+                >
+                  <span className="truncate font-medium">{m.name}</span>
+                  <Badge variant="outline" className="text-[9px] shrink-0 ml-auto">
+                    {m.provider}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Temperature and Max Tokens */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] font-medium text-muted-foreground mb-1 block">
+            Temperature
+          </label>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.1"
+              value={temperature}
+              onChange={(e) => setTemperature(parseFloat(e.target.value))}
+              className="flex-1 h-1.5 accent-foreground"
+            />
+            <span className="text-[10px] font-mono text-muted-foreground w-6 text-right">
+              {temperature.toFixed(1)}
+            </span>
+          </div>
+        </div>
+        <div>
+          <label className="text-[10px] font-medium text-muted-foreground mb-1 block">
+            Max tokens
+          </label>
+          <Input
+            type="number"
+            value={maxTokens}
+            onChange={(e) => setMaxTokens(parseInt(e.target.value) || 1024)}
+            min={1}
+            max={128000}
+            className="h-7 text-xs font-mono"
+          />
+        </div>
+      </div>
+
+      {/* Variable test values */}
+      {detectedVarNames.length > 0 && (
+        <div>
+          <label className="text-[10px] font-medium text-muted-foreground mb-1.5 block">
+            Test Variables
+          </label>
+          <div className="space-y-1.5">
+            {detectedVarNames.map((name) => (
+              <div key={name} className="flex items-center gap-1.5">
+                <span className="text-[10px] font-mono text-muted-foreground w-24 truncate shrink-0" title={name}>
+                  {`{{${name}}}`}
+                </span>
+                <Input
+                  value={varValues[name] ?? ""}
+                  onChange={(e) =>
+                    setVarValues((prev) => ({ ...prev, [name]: e.target.value }))
+                  }
+                  placeholder={variables.get(name)?.description || `Value for ${name}...`}
+                  className="h-7 text-xs flex-1"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Rendered prompt toggle */}
+      <button
+        type="button"
+        onClick={() => setShowRendered(!showRendered)}
+        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Eye className="size-3" />
+        {showRendered ? "Hide" : "Show"} rendered prompt
+      </button>
+
+      {showRendered && (
+        <div className="rounded-md border border-border bg-muted/20 p-2 max-h-32 overflow-auto">
+          <pre className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap text-foreground/80">
+            {renderedPrompt}
+          </pre>
+        </div>
+      )}
+
+      {/* Send Test button */}
+      <Button
+        size="sm"
+        className="h-8 text-xs w-full"
+        onClick={handleTest}
+        disabled={testMutation.isPending || !content.trim()}
+      >
+        {testMutation.isPending ? (
+          <Loader2 className="mr-1.5 size-3 animate-spin" />
+        ) : (
+          <Play className="mr-1.5 size-3" />
+        )}
+        {testMutation.isPending ? "Testing..." : "Send Test"}
+        {!testMutation.isPending && (
+          <span className="ml-auto flex items-center gap-0.5 text-[10px] opacity-60">
+            <CornerDownLeft className="size-2.5" />
+          </span>
+        )}
+      </Button>
+
+      {/* Result area */}
+      {result && (
+        <div className="space-y-2">
+          {/* Stats bar */}
+          <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-1">
+              <Zap className="size-3" />
+              <span>{result.total_tokens.toLocaleString()} tokens</span>
+              <span className="text-border">({result.input_tokens} in / {result.output_tokens} out)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Clock className="size-3" />
+              <span>{result.latency_ms}ms</span>
+            </div>
+            <Badge variant="outline" className="text-[9px]">
+              {result.model_name}
+            </Badge>
+          </div>
+
+          {/* Response text */}
+          <div className="rounded-md border border-border bg-background p-3 max-h-64 overflow-auto">
+            <div className="text-[10px] font-medium text-muted-foreground mb-1.5">
+              Response
+            </div>
+            <div className="text-xs leading-relaxed whitespace-pre-wrap">
+              {result.response_text}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error state */}
+      {testMutation.isError && !result && (
+        <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2.5 text-xs text-red-600 dark:text-red-400">
+          Test failed: {testMutation.error?.message ?? "Unknown error"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Prompt Builder Page
 // ---------------------------------------------------------------------------
 
@@ -427,7 +735,7 @@ export default function PromptBuilderPage() {
   const [isDirty, setIsDirty] = useState(false);
   const [showYaml, setShowYaml] = useState(false);
   const [rightPanel, setRightPanel] = useState<
-    "preview" | "variables" | "history"
+    "preview" | "variables" | "history" | "test"
   >("preview");
   const [changeSummary, setChangeSummary] = useState("");
 
@@ -784,16 +1092,14 @@ export default function PromptBuilderPage() {
             Save
           </Button>
 
-          {/* Submit for Review (disabled, future) */}
-          <Button
+          {/* Submit for Review */}
+          <SubmitForReview
+            resourceType="prompt"
+            resourceName={name || "untitled-prompt"}
+            content={content}
             variant="outline"
-            size="sm"
-            className="h-7 text-xs"
-            disabled
-            title="Coming soon"
-          >
-            Submit for Review
-          </Button>
+            className="h-7 gap-1.5 px-2 text-xs"
+          />
         </div>
       </div>
 
@@ -963,6 +1269,18 @@ export default function PromptBuilderPage() {
                   History
                 </button>
               )}
+              <button
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors",
+                  rightPanel === "test"
+                    ? "border-b-2 border-foreground text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => setRightPanel("test")}
+              >
+                <Play className="size-3" />
+                Test
+              </button>
             </div>
 
             {/* Panel content */}
@@ -999,6 +1317,13 @@ export default function PromptBuilderPage() {
                     onRestore={handleRestoreVersion}
                   />
                 </div>
+              )}
+
+              {rightPanel === "test" && (
+                <TestPromptPanel
+                  content={content}
+                  variables={variables}
+                />
               )}
             </div>
           </div>

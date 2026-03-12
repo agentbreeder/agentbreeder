@@ -107,7 +107,7 @@ def _env_example(framework: str) -> str:
         "# Environment variables for your agent",
         "# Copy this to .env and fill in your values",
         "",
-        "AGENTHUB_ENV=development",
+        "GARDEN_ENV=development",
     ]
 
     if framework in ("langgraph", "openai_agents"):
@@ -125,7 +125,7 @@ def _env_example(framework: str) -> str:
 
 
 def _requirements(framework: str) -> str:
-    base = ["agenthub-sdk>=0.1.0"]
+    base = ["agent-garden-sdk>=0.1.0"]
 
     deps = {
         "langgraph": ["langgraph>=0.2.0", "langchain-openai>=0.1.0"],

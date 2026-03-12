@@ -60,9 +60,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: agenthub
-          POSTGRES_PASSWORD: agenthub
-          POSTGRES_DB: agenthub_test
+          POSTGRES_USER: agent_garden
+          POSTGRES_PASSWORD: agent_garden
+          POSTGRES_DB: agent_garden_test
         ports:
           - 5432:5432
         options: >-
@@ -92,10 +92,10 @@ jobs:
 
       - name: Run unit tests with coverage
         env:
-          DATABASE_URL: postgresql://agenthub:agenthub@localhost:5432/agenthub_test
+          DATABASE_URL: postgresql://agent_garden:agent_garden@localhost:5432/agent_garden_test
           REDIS_URL: redis://localhost:6379
           SECRET_KEY: test-secret-key-for-ci
-          AGENTHUB_ENV: test
+          GARDEN_ENV: test
           JWT_SECRET_KEY: test-jwt-secret-for-ci
         run: |
           pytest tests/unit/ \
@@ -154,7 +154,7 @@ jobs:
       - name: Run E2E tests
         working-directory: dashboard
         env:
-          AGENTHUB_ENV: test
+          GARDEN_ENV: test
         run: npx playwright test
 
       - name: Upload test artifacts

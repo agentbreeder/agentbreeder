@@ -29,6 +29,7 @@ import {
   FileText,
   Cpu,
   Shield,
+  Workflow,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -41,11 +42,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { DeployPipeline } from "@/components/deploy-pipeline";
+import { DeployDialog } from "@/components/deploy/DeployDialog";
+import { SubmitForReview } from "@/components/submit-for-review";
 import { RegistryPicker, getMockModels, getMockTools } from "@/components/registry-picker";
+import { VisualBuilder } from "@/components/visual-builder/VisualBuilder";
+import type { CanvasNodeData } from "@/components/visual-builder/types";
+import { graphToYaml, yamlToGraph } from "@/lib/graph-to-yaml";
 import { cn } from "@/lib/utils";
 import { highlightYaml, validateYamlBasic } from "@/lib/yaml";
-import { api, type DeployJobStatus } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 
@@ -592,7 +597,7 @@ function YamlEditor({
 // Visual Builder
 // ---------------------------------------------------------------------------
 
-function VisualBuilder({
+function VisualBuilderForm({
   formData,
   onChange,
 }: {
@@ -1007,134 +1012,6 @@ function VisualBuilder({
 }
 
 // ---------------------------------------------------------------------------
-// Deploy Dialog
-// ---------------------------------------------------------------------------
-
-function DeployDialog({
-  open,
-  onOpenChange,
-  yaml,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  yaml: string;
-}) {
-  const [deployStatus, setDeployStatus] = useState<DeployJobStatus | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const formData = useMemo(() => yamlToFormData(yaml), [yaml]);
-  const validationItems = useMemo(() => validateAgentYaml(yaml), [yaml]);
-
-  const hasErrors = validationItems.some((i) => i.status === "fail");
-
-  const deploySteps: DeployJobStatus[] = [
-    "pending",
-    "parsing",
-    "building",
-    "provisioning",
-    "deploying",
-    "health_checking",
-    "registering",
-    "completed",
-  ];
-
-  const startDeploy = useCallback(() => {
-    setDeployStatus("pending");
-    setErrorMessage(null);
-
-    let stepIndex = 0;
-    const interval = setInterval(() => {
-      stepIndex++;
-      if (stepIndex < deploySteps.length) {
-        setDeployStatus(deploySteps[stepIndex]);
-      } else {
-        clearInterval(interval);
-      }
-    }, 800);
-  }, []);
-
-  // Reset on close
-  useEffect(() => {
-    if (!open) {
-      setDeployStatus(null);
-      setErrorMessage(null);
-    }
-  }, [open]);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Rocket className="size-4" />
-            Deploy Agent
-          </DialogTitle>
-          <DialogDescription>
-            Deploy <span className="font-medium">{formData.name || "untitled"}</span> v{formData.version}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          {/* Target */}
-          <div className="rounded-lg border border-border bg-muted/20 p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium">Target</span>
-              <Badge variant="outline" className="text-[10px]">
-                {formData.deploy.cloud === "local" ? "Local Docker" : formData.deploy.cloud}
-              </Badge>
-            </div>
-            {formData.deploy.cloud !== "local" && (
-              <p className="mt-1 text-[10px] text-amber-500">
-                Cloud deployment coming in v0.3
-              </p>
-            )}
-          </div>
-
-          {/* Pre-deploy checklist */}
-          <div>
-            <h4 className="mb-2 text-[11px] font-medium">Pre-deploy checklist</h4>
-            <div className="space-y-1.5">
-              {validationItems
-                .filter((i) => ["name", "version", "model", "framework", "deploy"].includes(i.key))
-                .map((item) => (
-                  <div key={item.key} className="flex items-center gap-2 text-[11px]">
-                    <ValidationStatusIcon status={item.status} />
-                    <span className={cn(item.status === "fail" && "text-destructive")}>
-                      {item.label}: {item.message}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          </div>
-
-          {/* Deploy pipeline progress */}
-          {deployStatus && (
-            <div className="pt-2">
-              <DeployPipeline status={deployStatus} errorMessage={errorMessage} />
-            </div>
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {deployStatus === "completed" ? "Close" : "Cancel"}
-          </Button>
-          {!deployStatus && (
-            <Button
-              onClick={startDeploy}
-              disabled={hasErrors}
-              className="gap-1.5"
-            >
-              <Rocket className="size-3.5" />
-              Deploy
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -1143,13 +1020,23 @@ export default function AgentBuilderPage() {
   const { toast } = useToast();
   const { isDirty: _isDirty, markDirty, markClean, isBlocked, confirmNavigation, cancelNavigation } = useUnsavedChanges();
 
-  const [mode, setMode] = useState<"yaml" | "visual">("yaml");
+  const [mode, setMode] = useState<"yaml" | "visual" | "canvas">("yaml");
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [yaml, setYaml] = useState(DEFAULT_YAML);
   const [formData, setFormData] = useState<AgentFormData>(() => yamlToFormData(DEFAULT_YAML));
   const [deployOpen, setDeployOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Canvas state for the visual builder (ReactFlow)
+  const [canvasNodes, setCanvasNodes] = useState<import("@xyflow/react").Node<CanvasNodeData>[]>(() => {
+    const { nodes } = yamlToGraph(DEFAULT_YAML);
+    return nodes;
+  });
+  const [canvasEdges, setCanvasEdges] = useState<import("@xyflow/react").Edge[]>(() => {
+    const { edges } = yamlToGraph(DEFAULT_YAML);
+    return edges;
+  });
 
   // Load existing agent config when editing
   const { data: agentData } = useQuery({
@@ -1217,15 +1104,48 @@ export default function AgentBuilderPage() {
 
   // Switch between modes with data sync
   const switchMode = useCallback(
-    (newMode: "yaml" | "visual") => {
-      if (newMode === "visual" && mode === "yaml") {
-        setFormData(yamlToFormData(yaml));
-      } else if (newMode === "yaml" && mode === "visual") {
-        setYaml(formDataToYaml(formData));
+    (newMode: "yaml" | "visual" | "canvas") => {
+      if (newMode === mode) return;
+
+      // Sync data out of the current mode
+      let currentYamlValue = yaml;
+      if (mode === "visual") {
+        currentYamlValue = formDataToYaml(formData);
+        setYaml(currentYamlValue);
+      } else if (mode === "canvas") {
+        currentYamlValue = graphToYaml(canvasNodes, canvasEdges);
+        setYaml(currentYamlValue);
       }
+
+      // Sync data into the new mode
+      if (newMode === "visual") {
+        setFormData(yamlToFormData(currentYamlValue));
+      } else if (newMode === "canvas") {
+        const { nodes, edges } = yamlToGraph(currentYamlValue);
+        setCanvasNodes(nodes);
+        setCanvasEdges(edges);
+      }
+
       setMode(newMode);
     },
-    [mode, yaml, formData]
+    [mode, yaml, formData, canvasNodes, canvasEdges]
+  );
+
+  // Canvas change handlers
+  const handleCanvasNodesChange = useCallback(
+    (nodes: import("@xyflow/react").Node<CanvasNodeData>[]) => {
+      setCanvasNodes(nodes);
+      markDirty();
+    },
+    [markDirty]
+  );
+
+  const handleCanvasEdgesChange = useCallback(
+    (edges: import("@xyflow/react").Edge[]) => {
+      setCanvasEdges(edges);
+      markDirty();
+    },
+    [markDirty]
   );
 
   // Registry picker insert handlers
@@ -1289,8 +1209,12 @@ export default function AgentBuilderPage() {
     toast({ title: "Agent configuration saved", variant: "success" });
   }, [mode, yaml, formData, markClean, toast]);
 
-  // Current YAML for validation panel (sync from visual mode if needed)
-  const currentYaml = mode === "yaml" ? yaml : formDataToYaml(formData);
+  // Current YAML for validation panel (sync from visual/canvas mode if needed)
+  const currentYaml = mode === "yaml"
+    ? yaml
+    : mode === "visual"
+      ? formDataToYaml(formData)
+      : graphToYaml(canvasNodes, canvasEdges);
 
   return (
     <>
@@ -1361,6 +1285,18 @@ export default function AgentBuilderPage() {
                 <LayoutGrid className="size-3.5" />
                 Visual
               </button>
+              <button
+                onClick={() => switchMode("canvas")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all",
+                  mode === "canvas"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Workflow className="size-3.5" />
+                Canvas
+              </button>
             </div>
 
             <div className="h-4 w-px bg-border" />
@@ -1396,6 +1332,13 @@ export default function AgentBuilderPage() {
               <Save className="size-3.5" />
               Save
             </Button>
+            <SubmitForReview
+              resourceType="agent"
+              resourceName={formData.name || "my-agent"}
+              content={currentYaml}
+              variant="outline"
+              className="h-7 gap-1.5 px-2 text-xs"
+            />
             <Button
               size="sm"
               className="h-7 gap-1.5 px-3 text-xs"
@@ -1409,33 +1352,48 @@ export default function AgentBuilderPage() {
 
         {/* Main content area */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Left sidebar — Registry picker */}
-          {leftSidebarOpen && (
-            <aside className="w-72 shrink-0 border-r border-border bg-background">
-              <RegistryPicker
-                onInsertModel={(name) => insertIntoYaml("model", name)}
-                onInsertTool={(ref) => insertIntoYaml("tool", ref)}
-                onInsertPrompt={(ref) => insertIntoYaml("prompt", ref)}
+          {/* Canvas mode takes full width — it has its own palette + property panel */}
+          {mode === "canvas" ? (
+            <div className="flex-1 overflow-hidden">
+              <VisualBuilder
+                key="canvas"
+                initialNodes={canvasNodes}
+                initialEdges={canvasEdges}
+                onNodesChange={handleCanvasNodesChange}
+                onEdgesChange={handleCanvasEdgesChange}
               />
-            </aside>
-          )}
+            </div>
+          ) : (
+            <>
+              {/* Left sidebar — Registry picker */}
+              {leftSidebarOpen && (
+                <aside className="w-72 shrink-0 border-r border-border bg-background">
+                  <RegistryPicker
+                    onInsertModel={(name) => insertIntoYaml("model", name)}
+                    onInsertTool={(ref) => insertIntoYaml("tool", ref)}
+                    onInsertPrompt={(ref) => insertIntoYaml("prompt", ref)}
+                  />
+                </aside>
+              )}
 
-          {/* Center — Editor */}
-          <div className="flex-1 overflow-hidden">
-            {mode === "yaml" ? (
-              <div className="h-full p-4">
-                <YamlEditor yaml={yaml} onChange={handleYamlChange} />
+              {/* Center — Editor */}
+              <div className="flex-1 overflow-hidden">
+                {mode === "yaml" ? (
+                  <div className="h-full p-4">
+                    <YamlEditor yaml={yaml} onChange={handleYamlChange} />
+                  </div>
+                ) : (
+                  <VisualBuilderForm formData={formData} onChange={handleFormDataChange} />
+                )}
               </div>
-            ) : (
-              <VisualBuilder formData={formData} onChange={handleFormDataChange} />
-            )}
-          </div>
 
-          {/* Right sidebar — Validation */}
-          {rightSidebarOpen && (
-            <aside className="w-72 shrink-0 border-l border-border bg-background">
-              <ValidationPanel yaml={currentYaml} />
-            </aside>
+              {/* Right sidebar — Validation */}
+              {rightSidebarOpen && (
+                <aside className="w-72 shrink-0 border-l border-border bg-background">
+                  <ValidationPanel yaml={currentYaml} />
+                </aside>
+              )}
+            </>
           )}
         </div>
       </div>

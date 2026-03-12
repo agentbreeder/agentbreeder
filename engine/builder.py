@@ -112,7 +112,18 @@ class DeployEngine:
 
         # Override target if provided
         if target:
-            config.deploy.cloud = CloudType(target)
+            # Handle runtime-specific targets that map to a cloud provider
+            runtime_to_cloud: dict[str, tuple[str, str]] = {
+                "cloud-run": ("gcp", "cloud-run"),
+                "cloudrun": ("gcp", "cloud-run"),
+                "ecs-fargate": ("aws", "ecs-fargate"),
+            }
+            if target in runtime_to_cloud:
+                cloud, runtime = runtime_to_cloud[target]
+                config.deploy.cloud = CloudType(cloud)
+                config.deploy.runtime = runtime
+            else:
+                config.deploy.cloud = CloudType(target)
 
         # Step 2: RBAC Check
         step2 = PipelineStep("RBAC check", 2)
@@ -162,7 +173,7 @@ class DeployEngine:
         step5.start()
         self._notify(step5)
         try:
-            deployer = get_deployer(config.deploy.cloud)
+            deployer = get_deployer(config.deploy.cloud, config.deploy.runtime)
             await deployer.provision(config)
             step5.complete()
             self._notify(step5)

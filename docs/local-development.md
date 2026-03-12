@@ -180,7 +180,18 @@ agent-garden/
 ├── api/                    # FastAPI backend
 │   ├── main.py             # App entry, middleware, routers
 │   ├── routes/             # REST endpoints
+│   │   ├── agents.py       # Agent CRUD
+│   │   ├── deploys.py      # Deploy from dashboard (POST /api/v1/deploys)
+│   │   ├── prompts.py      # Prompts + test panel (POST /api/v1/prompts/test)
+│   │   ├── sandbox.py      # Tool sandbox execution (POST /api/v1/tools/sandbox/execute)
+│   │   ├── rag.py          # RAG indexes, file ingestion, hybrid search
+│   │   ├── memory.py       # Memory configs, conversation storage
+│   │   ├── git.py          # Git workflow + PR review backend
+│   │   ├── providers.py    # Provider config endpoints
+│   │   └── ...
 │   ├── services/           # Business logic
+│   │   ├── git_service.py  # Git operations
+│   │   └── pr_service.py   # Pull request workflow
 │   ├── models/             # SQLAlchemy models + Pydantic schemas
 │   └── auth.py             # Auth dependencies
 ├── cli/                    # CLI (Typer + Rich)
@@ -189,13 +200,14 @@ agent-garden/
 ├── engine/                 # Deploy pipeline
 │   ├── config_parser.py    # YAML parsing + validation
 │   ├── builder.py          # Container image builder
-│   ├── runtimes/           # Framework-specific builders
-│   ├── deployers/          # Cloud-specific deployers
+│   ├── providers/          # Provider abstraction (OpenAI, Ollama, fallback chains)
+│   ├── runtimes/           # Framework-specific builders (LangGraph, OpenAI Agents)
+│   ├── deployers/          # Cloud-specific deployers (Docker Compose, GCP Cloud Run)
 │   └── schema/             # JSON Schema for agent.yaml
 ├── registry/               # Catalog services (CRUD + search)
 ├── connectors/             # Integration plugins
 ├── dashboard/              # React frontend
-│   ├── src/pages/          # Page components
+│   ├── src/pages/          # Page components (see list below)
 │   ├── src/components/     # Shared UI components
 │   ├── src/hooks/          # React Query hooks
 │   ├── src/lib/            # API client, utilities
@@ -204,6 +216,40 @@ agent-garden/
 ├── tests/unit/             # Python unit tests
 └── alembic/                # Database migrations
 ```
+
+### Dashboard Pages
+
+| Page | Path | Description |
+|------|------|-------------|
+| Agents | `/agents` | Agent registry browser |
+| Agent Detail | `/agents/:id` | Agent detail + deploy history |
+| Agent Builder | `/agents/builder` | Visual drag-and-drop agent builder (ReactFlow canvas, 8 node types) |
+| Deploys | `/deploys` | Deploy from dashboard with 8-step pipeline dialog |
+| Prompts | `/prompts` | Prompt registry + test panel |
+| Prompt Builder | `/prompts/builder` | Template variables, live preview, versioning |
+| Tools | `/tools` | Tool registry |
+| Tool Builder | `/tools/builder` | Tool builder + sandbox execution |
+| MCP Servers | `/mcp-servers` | MCP server registry |
+| Models | `/models` | Model registry + model compare |
+| RAG Builder | `/rag` | RAG index management, file ingestion, hybrid search |
+| Memory Builder | `/memory` | Memory config management, conversation storage |
+| Approvals | `/approvals` | Approval workflow, PR review UI, environment promotion |
+| Activity | `/activity` | Activity feed / audit log |
+| Settings | `/settings` | Org + user settings |
+
+### API Routes (v0.3)
+
+Routes added in v0.3:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/deploys` | Trigger deploy from dashboard |
+| `POST` | `/api/v1/prompts/test` | Test a prompt with model + variables |
+| `POST` | `/api/v1/tools/sandbox/execute` | Execute a tool in sandbox |
+| `GET/POST` | `/api/v1/rag/*` | RAG indexes, file ingestion, search |
+| `GET/POST` | `/api/v1/memory/*` | Memory configs, conversation storage |
+| `GET/POST` | `/api/v1/git/*` | Git operations, PR review workflow |
+| `GET/POST` | `/api/v1/providers/*` | Provider configuration |
 
 ## Environment Variables
 
@@ -214,7 +260,7 @@ Key variables in `.env`:
 DATABASE_URL=postgresql+asyncpg://garden:garden@localhost:5432/agentgarden
 REDIS_URL=redis://localhost:6379
 SECRET_KEY=dev-secret-key
-AGENTHUB_ENV=development
+GARDEN_ENV=development
 
 # Auth
 JWT_SECRET_KEY=dev-jwt-secret

@@ -293,10 +293,35 @@ class PromptVersionDiffResponse(BaseModel):
     diff: list[str]
 
 
+class PromptTestRequest(BaseModel):
+    """Request body for testing a prompt against an LLM."""
+
+    prompt_text: str
+    model_id: str | None = None
+    model_name: str | None = None
+    variables: dict[str, str] = Field(default_factory=dict)
+    temperature: float = 0.7
+    max_tokens: int = 1024
+
+
+class PromptTestResponse(BaseModel):
+    """Response from a prompt test execution."""
+
+    response_text: str
+    rendered_prompt: str
+    model_name: str
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    latency_ms: int
+    temperature: float
+
+
 # --- Deploy Schemas ---
 
 
 class DeployRequest(BaseModel):
+    agent_id: uuid.UUID | None = None
     config_path: str | None = None
     config_yaml: str | None = None
     target: str = "local"
@@ -313,6 +338,27 @@ class DeployJobResponse(BaseModel):
     completed_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+
+class DeployLogEntry(BaseModel):
+    timestamp: str
+    level: str
+    message: str
+    step: str | None = None
+
+
+class DeployJobDetailResponse(BaseModel):
+    """Deploy job with logs -- returned by the detail endpoint."""
+
+    id: str
+    agent_id: str
+    agent_name: str | None = None
+    status: str
+    target: str
+    error_message: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    logs: list[DeployLogEntry] = Field(default_factory=list)
 
 
 # --- Provider Schemas ---
@@ -466,3 +512,280 @@ class SearchResult(BaseModel):
     description: str
     team: str | None = None
     score: float = 1.0
+
+
+# --- Sandbox Schemas ---
+
+
+class SandboxExecuteRequest(BaseModel):
+    """Request to execute tool code in an isolated sandbox."""
+
+    code: str
+    input_json: dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: int = Field(default=30, ge=1, le=300)
+    network_enabled: bool = False
+    tool_id: str | None = None
+
+
+class SandboxExecuteResponse(BaseModel):
+    """Result of a sandbox tool execution."""
+
+    execution_id: str
+    output: str
+    stdout: str
+    stderr: str
+    exit_code: int
+    duration_ms: int
+    timed_out: bool = False
+    error: str | None = None
+
+
+# --- Git / Pull Request Schemas ---
+
+
+class GitBranchCreateRequest(BaseModel):
+    """Request to create a draft branch."""
+
+    user: str
+    resource_type: str
+    resource_name: str
+
+
+class GitBranchResponse(BaseModel):
+    branch: str
+
+
+class GitBranchListResponse(BaseModel):
+    branches: list[str]
+
+
+class GitCommitRequest(BaseModel):
+    """Request to commit a file change on a branch."""
+
+    branch: str
+    file_path: str
+    content: str
+    message: str
+    author: str
+
+
+class GitCommitResponse(BaseModel):
+    sha: str
+    author: str
+    date: str
+    message: str
+
+
+class GitDiffEntry(BaseModel):
+    file_path: str
+    status: str
+    diff_text: str = ""
+
+
+class GitDiffResponse(BaseModel):
+    base: str
+    head: str
+    files: list[GitDiffEntry] = Field(default_factory=list)
+    stats: str = ""
+
+
+class GitPRCreateRequest(BaseModel):
+    """Request to create a pull request."""
+
+    branch: str
+    title: str
+    description: str = ""
+    submitter: str
+
+
+class GitPRCommentRequest(BaseModel):
+    author: str
+    text: str
+
+
+class GitPRCommentResponse(BaseModel):
+    id: uuid.UUID
+    pr_id: uuid.UUID
+    author: str
+    text: str
+    created_at: datetime
+
+
+class GitPRRejectRequest(BaseModel):
+    reviewer: str
+    reason: str
+
+
+class GitPRApproveRequest(BaseModel):
+    reviewer: str
+
+
+class GitPRMergeRequest(BaseModel):
+    tag_version: str | None = None
+
+
+class GitPRResponse(BaseModel):
+    id: uuid.UUID
+    branch: str
+    title: str
+    description: str
+    submitter: str
+    resource_type: str
+    resource_name: str
+    status: str
+    reviewer: str | None = None
+    reject_reason: str | None = None
+    tag: str | None = None
+    comments: list[GitPRCommentResponse] = Field(default_factory=list)
+    commits: list[GitCommitResponse] = Field(default_factory=list)
+    diff: GitDiffResponse | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class GitPRListResponse(BaseModel):
+    prs: list[GitPRResponse]
+
+
+# --- Memory Schemas ---
+
+
+class CreateMemoryConfigRequest(BaseModel):
+    name: str
+    backend_type: str = "in_memory"  # "in_memory" | "postgresql"
+    memory_type: str = "buffer_window"  # "buffer_window" | "buffer"
+    max_messages: int = Field(default=100, ge=1, le=100_000)
+    namespace_pattern: str = "{agent_id}:{session_id}"
+    scope: str = "agent"  # "agent" | "team" | "global"
+    linked_agents: list[str] = Field(default_factory=list)
+    description: str = ""
+
+
+class MemoryConfigResponse(BaseModel):
+    id: str
+    name: str
+    backend_type: str
+    memory_type: str
+    max_messages: int
+    namespace_pattern: str
+    scope: str
+    linked_agents: list[str]
+    description: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryMessageCreate(BaseModel):
+    session_id: str
+    role: str  # "user" | "assistant" | "system" | "tool"
+    content: str
+    agent_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryMessageResponse(BaseModel):
+    id: str
+    config_id: str
+    session_id: str
+    agent_id: str | None
+    role: str
+    content: str
+    metadata: dict[str, Any]
+    timestamp: datetime
+
+
+class MemoryStatsResponse(BaseModel):
+    config_id: str
+    backend_type: str
+    memory_type: str
+    message_count: int
+    session_count: int
+    storage_size_bytes: int
+    linked_agent_count: int
+
+
+class ConversationSummaryResponse(BaseModel):
+    session_id: str
+    agent_id: str | None
+    message_count: int
+    first_message_at: datetime | None
+    last_message_at: datetime | None
+
+
+class DeleteConversationsRequest(BaseModel):
+    session_id: str | None = None
+    agent_id: str | None = None
+    before: str | None = None  # ISO datetime string
+
+
+class MemorySearchResultResponse(BaseModel):
+    message: MemoryMessageResponse
+    score: float
+    highlight: str
+
+
+# --- RAG / Vector Index Schemas ---
+
+
+class CreateIndexRequest(BaseModel):
+    name: str
+    description: str = ""
+    embedding_model: str = "openai/text-embedding-3-small"
+    chunk_strategy: str = "fixed_size"
+    chunk_size: int = 512
+    chunk_overlap: int = 64
+    source: str = "manual"
+
+
+class VectorIndexResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    embedding_model: str
+    chunk_strategy: str
+    chunk_size: int
+    chunk_overlap: int
+    dimensions: int
+    source: str
+    doc_count: int
+    chunk_count: int
+    created_at: str
+    updated_at: str
+
+
+class IngestJobResponse(BaseModel):
+    id: str
+    index_id: str
+    status: str
+    total_files: int
+    processed_files: int
+    total_chunks: int
+    embedded_chunks: int
+    progress_pct: float
+    error: str | None = None
+    started_at: str
+    completed_at: str | None = None
+
+
+class RAGSearchRequest(BaseModel):
+    index_id: str
+    query: str
+    top_k: int = 10
+    vector_weight: float = 0.7
+    text_weight: float = 0.3
+
+
+class RAGSearchHit(BaseModel):
+    chunk_id: str
+    text: str
+    source: str
+    score: float
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RAGSearchResponse(BaseModel):
+    index_id: str
+    query: str
+    top_k: int
+    results: list[RAGSearchHit]
+    total: int

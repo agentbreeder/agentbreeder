@@ -1,0 +1,22 @@
+name: research-assistant
+version: 0.1.0
+description: "A research assistant agent built with the OpenAI Agents SDK"
+team: examples
+owner: dev@agent-garden.com
+tags: [example, openai-agents, research, tools]
+
+framework: openai_agents
+
+model:
+  primary: gpt-4o-mini
+
+tools:
+  - name: web_search
+    type: function
+    description: "Search the web for information"
+  - name: calculator
+    type: function
+    description: "Evaluate mathematical expressions"
+
+deploy:
+  cloud: local

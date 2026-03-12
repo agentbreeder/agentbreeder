@@ -34,7 +34,7 @@ body:
   - type: textarea
     id: config
     attributes:
-      label: Example agenthub.yaml config
+      label: Example agent.yaml config
       description: What would the deploy section look like?
       render: yaml
       placeholder: |

@@ -1,14 +1,14 @@
-# AGENT.md — AgentHub AI Skills & Agent Roster
+# AGENT.md — Agent Garden AI Skills & Agent Roster
 
 > This file defines the AI agent skills, MCP server configurations, and automated workflows
-> used to build, test, design, and ship AgentHub. Every skill is a reusable capability
+> used to build, test, design, and ship Agent Garden. Every skill is a reusable capability
 > that contributors and Claude can invoke during development.
 
 ---
 
 ## 🧠 Philosophy
 
-AgentHub is built with AI-assisted development from Day 1. This means:
+Agent Garden is built with AI-assisted development from Day 1. This means:
 - Every major task has a defined **skill** (a prompt + context + tools that reliably accomplishes it)
 - Skills are composable — complex tasks chain simpler skills
 - Skills are version-controlled here so they improve over time
@@ -40,9 +40,9 @@ AgentHub is built with AI-assisted development from Day 1. This means:
 
 **Skill Prompt:**
 ```
-You are a senior UI/UX engineer working on AgentHub's React + Tailwind dashboard.
+You are a senior UI/UX engineer working on Agent Garden's React + Tailwind dashboard.
 
-Context: AgentHub is a dark-mode-friendly developer tool dashboard. Style reference: Linear, Vercel, GitHub's design language. 
+Context: Agent Garden is a dark-mode-friendly developer tool dashboard. Style reference: Linear, Vercel, GitHub's design language. 
 Font: Inter. Colors: slate-900 bg, blue-600 primary, green-500 success, red-500 error.
 
 Design a complete React component for: [COMPONENT_DESCRIPTION]
@@ -69,7 +69,7 @@ Do NOT write implementation code yet. Focus on the design spec.
 
 **Skill Prompt:**
 ```
-You are designing a page for the AgentHub dashboard.
+You are designing a page for the Agent Garden dashboard.
 
 Design system context:
 - Sidebar navigation (collapsible, 240px wide)
@@ -94,11 +94,11 @@ Output a complete page layout spec with:
 ---
 
 ### `design:yaml-schema`
-**Purpose:** Design or extend the `agenthub.yaml` schema.
+**Purpose:** Design or extend the `agent.yaml` schema.
 
 **Skill Prompt:**
 ```
-You are a platform engineer designing the agenthub.yaml configuration format.
+You are a platform engineer designing the agent.yaml configuration format.
 
 Principles:
 - Human-readable and minimal — no boilerplate
@@ -107,7 +107,7 @@ Principles:
 - Compatible with GitOps (version-controllable)
 - Forward-compatible (new fields never break old configs)
 
-Current schema is in: engine/config_parser.py and schema/agenthub.schema.json
+Current schema is in: engine/config_parser.py and schema/agent.schema.json
 
 I need to add/modify: [DESCRIPTION]
 
@@ -131,7 +131,7 @@ Output:
 
 **Skill Prompt:**
 ```
-You are implementing a new deployer for AgentHub. Study the existing deployers first.
+You are implementing a new deployer for Agent Garden. Study the existing deployers first.
 
 Read these files before starting:
 - engine/deployers/base.py (abstract interface)
@@ -166,7 +166,7 @@ Requirements:
 
 **Skill Prompt:**
 ```
-You are adding support for a new agent framework to AgentHub.
+You are adding support for a new agent framework to Agent Garden.
 
 Read these files first:
 - engine/runtimes/base.py (RuntimeBuilder interface)
@@ -186,7 +186,7 @@ Implement:
 Also:
 - Add a complete working example in examples/[framework-name]-agent/
 - Add to the supported_frameworks list in engine/__init__.py
-- Add framework to the agenthub.yaml JSON Schema enum
+- Add framework to the agent.yaml JSON Schema enum
 - Write unit tests in tests/unit/runtimes/test_[framework_name].py
 - Update README.md supported stack table
 
@@ -202,7 +202,7 @@ The example agent must: receive a message, call at least one tool, return a resp
 
 **Skill Prompt:**
 ```
-You are implementing a new API endpoint for AgentHub's FastAPI backend.
+You are implementing a new API endpoint for Agent Garden's FastAPI backend.
 
 Conventions (read api/routes/agents.py for the pattern):
 - Router: APIRouter with prefix and tags
@@ -237,7 +237,7 @@ Implement:
 
 **Skill Prompt:**
 ```
-You are implementing a CLI command for the AgentHub CLI (built with Typer + Rich).
+You are implementing a CLI command for the Agent Garden CLI (built with Typer + Rich).
 
 Style guide (read cli/commands/deploy.py for the pattern):
 - Use Rich for ALL terminal output (no plain print())
@@ -249,7 +249,7 @@ Style guide (read cli/commands/deploy.py for the pattern):
 - Commands must work with --json flag for scripting/CI use
 - Exit codes: 0=success, 1=user error, 2=system error
 
-Command to implement: agenthub [COMMAND_NAME]
+Command to implement: garden [COMMAND_NAME]
 Purpose: [WHAT IT DOES]
 Arguments: [LIST OF ARGS]
 Options/flags: [LIST OF OPTIONS]
@@ -273,7 +273,7 @@ Implement:
 
 **Skill Prompt:**
 ```
-You are building a new connector for AgentHub's connector system.
+You are building a new connector for Agent Garden's connector system.
 
 Read these files first:
 - connectors/base.py (BaseConnector interface)
@@ -302,7 +302,7 @@ Implement:
 
 **Skill Prompt:**
 ```
-You are writing an Alembic database migration for AgentHub.
+You are writing an Alembic database migration for Agent Garden.
 
 Rules:
 - Migrations must be reversible (always implement downgrade())
@@ -333,7 +333,7 @@ Provide:
 
 **Skill Prompt:**
 ```
-You are writing unit tests for AgentHub using pytest.
+You are writing unit tests for Agent Garden using pytest.
 
 Testing philosophy:
 - Test behavior, not implementation
@@ -367,7 +367,7 @@ Target: 100% branch coverage for the tested code.
 
 **Skill Prompt:**
 ```
-You are writing integration tests for AgentHub's FastAPI endpoints.
+You are writing integration tests for Agent Garden's FastAPI endpoints.
 
 Setup: Tests use a real PostgreSQL test database and Redis. Cloud APIs are mocked.
 Test client: FastAPI TestClient (synchronous) or httpx AsyncClient (async).
@@ -400,7 +400,7 @@ Also verify:
 
 **Skill Prompt:**
 ```
-You are writing Playwright E2E tests for the AgentHub dashboard.
+You are writing Playwright E2E tests for the Agent Garden dashboard.
 
 Setup:
 - Tests in tests/e2e/
@@ -435,7 +435,7 @@ Target flows for v0.1:
 
 **Skill Prompt:**
 ```
-You are performing a security review of new AgentHub code.
+You are performing a security review of new Agent Garden code.
 
 Check for:
 1. SQL injection (raw queries, string interpolation in queries)
@@ -467,7 +467,7 @@ Output:
 
 **Skill Prompt:**
 ```
-You are preparing the AgentHub [VERSION] release.
+You are preparing the Agent Garden [VERSION] release.
 
 Read:
 - ROADMAP.md (what was planned for this milestone?)
@@ -498,7 +498,7 @@ Tag format: v[MAJOR].[MINOR].[PATCH]
 
 **Skill Prompt:**
 ```
-You are building Docker images for AgentHub.
+You are building Docker images for Agent Garden.
 
 Build targets:
 - api: FastAPI backend (multi-arch: linux/amd64, linux/arm64)
@@ -516,7 +516,7 @@ For each image:
 
 Target: api image < 200MB, sidecar < 50MB.
 
-Build command: docker buildx build --platform linux/amd64,linux/arm64 -t agenthub/[IMAGE]:[VERSION] .
+Build command: docker buildx build --platform linux/amd64,linux/arm64 -t agent-garden/[IMAGE]:[VERSION] .
 ```
 
 **MCP Tools:** `docker`, `filesystem`
@@ -528,11 +528,11 @@ Build command: docker buildx build --platform linux/amd64,linux/arm64 -t agenthu
 
 **Skill Prompt:**
 ```
-You are maintaining the AgentHub Helm chart in deploy/helm/.
+You are maintaining the Agent Garden Helm chart in deploy/helm/.
 
 The chart deploys: API server, worker (Celery), Redis, PostgreSQL (or external), dashboard.
 
-Current chart structure: deploy/helm/agenthub/
+Current chart structure: deploy/helm/agent-garden/
 
 Task: [WHAT NEEDS TO CHANGE]
 
@@ -546,8 +546,8 @@ For any Helm work:
 7. Horizontal Pod Autoscaler template
 8. PodDisruptionBudget for HA deployments
 9. NetworkPolicy template (optional, disabled by default)
-10. Verify with: helm lint deploy/helm/agenthub/
-            helm template agenthub deploy/helm/agenthub/ --debug
+10. Verify with: helm lint deploy/helm/agent-garden/
+            helm template agent-garden deploy/helm/agent-garden/ --debug
 ```
 
 **MCP Tools:** `filesystem`, `docker`
@@ -561,7 +561,7 @@ For any Helm work:
 
 **Skill Prompt:**
 ```
-You are writing API documentation for AgentHub.
+You are writing API documentation for Agent Garden.
 
 Style: Developer-first, with curl examples for every endpoint.
 Format: OpenAPI 3.0 annotations in FastAPI route handlers.
@@ -592,7 +592,7 @@ Returns a job ID that can be polled for status.
 
 **Skill Prompt:**
 ```
-You are writing contributor documentation for AgentHub.
+You are writing contributor documentation for Agent Garden.
 
 Area: [e.g., "Adding a new cloud deployer" or "Creating an agent template"]
 
@@ -618,13 +618,13 @@ competent engineer who has never contributed to this project before.
 
 **Skill Prompt:**
 ```
-You are debugging a failed AgentHub deployment.
+You are debugging a failed Agent Garden deployment.
 
 Information available:
 - Deploy job ID: [ID]
 - Error output: [ERROR]
 - Last successful deploy: [DETAILS]
-- Agent config (agenthub.yaml): [CONTENT]
+- Agent config (agent.yaml): [CONTENT]
 - Cloud provider: [AWS/GCP/K8s]
 
 Diagnose:
@@ -650,7 +650,7 @@ Also check:
 
 **Skill Prompt:**
 ```
-You are investigating a performance issue in AgentHub.
+You are investigating a performance issue in Agent Garden.
 
 Symptom: [DESCRIPTION — e.g., "Registry search takes 3+ seconds for large orgs"]
 
@@ -982,7 +982,7 @@ Output:
 
 ## 🛡️ Agent Safety Rules
 
-When any AI agent is working on AgentHub code:
+When any AI agent is working on Agent Garden code:
 
 1. **Never deploy to production** without explicit human confirmation
 2. **Never modify the database schema** without reviewing the migration in `postgres` MCP first
@@ -1000,4 +1000,4 @@ When any AI agent is working on AgentHub code:
 
 ---
 
-*Last updated: March 2026 — AgentHub v0.1*
+*Last updated: March 2026 — Agent Garden v0.1*

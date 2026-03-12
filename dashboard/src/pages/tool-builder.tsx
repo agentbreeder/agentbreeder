@@ -12,11 +12,14 @@ import {
   List,
   Save,
   Loader2,
+  Terminal,
 } from "lucide-react";
 import { api, type ToolDetail } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { SandboxRunner } from "@/components/sandbox-runner";
+import { SubmitForReview } from "@/components/submit-for-review";
 
 // --- Types ---
 
@@ -455,6 +458,12 @@ export default function ToolBuilderPage() {
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"form" | "json">("form");
 
+  // Tool code for sandbox execution
+  const [toolCode, setToolCode] = useState(
+    '# Tool code — `tool_input` is a dict with your input JSON\n# Set `result` to return structured output\n\nresult = {"echo": tool_input}\n'
+  );
+  const [rightPanel, setRightPanel] = useState<"test" | "sandbox">("sandbox");
+
   // Load existing tool if editing
   const { isLoading: loadingTool } = useQuery({
     queryKey: ["tool", id],
@@ -588,6 +597,13 @@ export default function ToolBuilderPage() {
           )}
           {isEditing ? "Update Tool" : "Create Tool"}
         </button>
+        <SubmitForReview
+          resourceType="tool"
+          resourceName={name || "untitled-tool"}
+          content={JSON.stringify(parametersToSchema(parameters), null, 2)}
+          variant="outline"
+          className="h-7 gap-1.5 px-2 text-xs"
+        />
       </div>
 
       {saveMutation.error && (
@@ -736,13 +752,59 @@ export default function ToolBuilderPage() {
           )}
         </div>
 
-        {/* Right: Test runner */}
+        {/* Right: Test runner / Sandbox */}
         <div className="overflow-y-auto border-l border-border p-4">
-          <h2 className="mb-4 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            <Play className="size-3" />
-            Test Runner
-          </h2>
-          <TestRunner schema={currentSchema} parameters={parameters} />
+          {/* Panel toggle */}
+          <div className="mb-4 flex items-center gap-1 rounded-md bg-muted/40 p-0.5">
+            <button
+              onClick={() => setRightPanel("sandbox")}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                rightPanel === "sandbox"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Terminal className="size-3" />
+              Sandbox
+            </button>
+            <button
+              onClick={() => setRightPanel("test")}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                rightPanel === "test"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Play className="size-3" />
+              Quick Test
+            </button>
+          </div>
+
+          {rightPanel === "sandbox" ? (
+            <div className="space-y-4">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Tool Code
+              </h3>
+              <textarea
+                value={toolCode}
+                onChange={(e) => setToolCode(e.target.value)}
+                spellCheck={false}
+                className="h-40 w-full resize-none rounded-md border border-input bg-muted/30 p-2.5 font-mono text-xs leading-relaxed outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                placeholder="# Python code to execute..."
+              />
+              <SandboxRunner code={toolCode} />
+            </div>
+          ) : (
+            <>
+              <h2 className="mb-4 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <Play className="size-3" />
+                Quick Test
+              </h2>
+              <TestRunner schema={currentSchema} parameters={parameters} />
+            </>
+          )}
         </div>
       </div>
     </div>

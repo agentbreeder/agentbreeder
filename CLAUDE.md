@@ -1,17 +1,17 @@
-# CLAUDE.md — AgentHub AI Development Guide
+# CLAUDE.md — Agent Garden AI Development Guide
 
-> This file instructs Claude (and any AI coding assistant) how to work on the AgentHub codebase.
+> This file instructs Claude (and any AI coding assistant) how to work on the Agent Garden codebase.
 > Keep this file updated as the project evolves. It is the single source of truth for AI-assisted development.
 
 ---
 
-## 🧠 What is AgentHub?
+## 🧠 What is Agent Garden?
 
-AgentHub is an **open-source platform** for building, deploying, and governing enterprise AI agents.
+Agent Garden is an **open-source platform** for building, deploying, and governing enterprise AI agents.
 
 **Core tagline:** Define Once. Deploy Anywhere. Govern Automatically.
 
-**The one-sentence pitch:** A developer writes one `agenthub.yaml` file, runs `agenthub deploy`, and their agent is live on AWS or GCP — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and zero extra work.
+**The one-sentence pitch:** A developer writes one `agent.yaml` file, runs `garden deploy`, and their agent is live on AWS or GCP — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and zero extra work.
 
 **What makes it unique:**
 - Framework-agnostic (LangGraph, CrewAI, Claude SDK, OpenAI Agents, Google ADK, Custom)
@@ -25,7 +25,7 @@ AgentHub is an **open-source platform** for building, deploying, and governing e
 ## 📁 Project Structure
 
 ```
-agenthub/
+agent-garden/
 ├── api/                        # FastAPI backend server
 │   ├── routes/                 # REST endpoints (agents, prompts, tools, models, etc.)
 │   ├── services/               # Business logic layer
@@ -33,15 +33,15 @@ agenthub/
 │   └── governance/             # RBAC engine, policy evaluation
 ├── cli/                        # CLI tool (built with Typer)
 │   ├── commands/
-│   │   ├── init.py             # agenthub init
-│   │   ├── deploy.py           # agenthub deploy (the core command)
-│   │   ├── search.py           # agenthub search
-│   │   ├── list.py             # agenthub list
-│   │   └── describe.py         # agenthub describe
+│   │   ├── init.py             # garden init
+│   │   ├── deploy.py           # garden deploy (the core command)
+│   │   ├── search.py           # garden search
+│   │   ├── list.py             # garden list
+│   │   └── describe.py         # garden describe
 │   └── config.py
 ├── sdk/
-│   ├── python/                 # pip install agenthub-sdk
-│   └── typescript/             # npm install @agenthub/sdk
+│   ├── python/                 # pip install agent-garden-sdk
+│   └── typescript/             # npm install @agent-garden/sdk
 ├── engine/                     # Core deployment pipeline
 │   ├── config_parser.py        # YAML parsing + JSON Schema validation
 │   ├── resolver.py             # Dependency resolution from registry
@@ -113,8 +113,8 @@ agenthub/
 | Database | PostgreSQL + SQLAlchemy | Alembic for migrations |
 | Cache / Queue | Redis | Task queue + rate limiting |
 | CLI | Python, Typer | Rich for terminal output |
-| Python SDK | Python 3.11+ | pip install agenthub-sdk |
-| TypeScript SDK | TypeScript 5.0+ | npm install @agenthub/sdk |
+| Python SDK | Python 3.11+ | pip install agent-garden-sdk |
+| TypeScript SDK | TypeScript 5.0+ | npm install @agent-garden/sdk |
 | Frontend | React 18, TypeScript, Tailwind CSS | Vite build tool |
 | Container Build | Docker | BuildKit for multi-platform |
 | IaC | Pulumi (Python) | Cloud resource provisioning |
@@ -141,7 +141,7 @@ Parse & Validate YAML
 Every step is atomic. If any step fails, the entire deploy rolls back. Never skip registration.
 
 ### 2. Governance is Non-Negotiable
-Every `agenthub deploy` MUST:
+Every `garden deploy` MUST:
 - Validate RBAC before doing anything
 - Register the agent in the registry after success
 - Attribute cost to the deploying team
@@ -171,9 +171,9 @@ Never put framework-specific logic outside of `engine/runtimes/`. Never hard-cod
 
 ### 5. The Registry is Always Consistent
 Registry entries are created/updated only by:
-1. `agenthub deploy` (primary path)
+1. `garden deploy` (primary path)
 2. Connectors (secondary, passive ingestion)
-3. Manual `agenthub register` (operator override)
+3. Manual `garden register` (operator override)
 
 Never write directly to registry tables from application code. Always go through `registry/` services.
 
@@ -195,7 +195,7 @@ uvicorn api.main:app --reload --port 8000
 
 # Run CLI locally
 python -m cli.main --help
-agenthub --help   # after pip install -e .
+garden --help   # after pip install -e .
 
 # Run tests
 pytest tests/unit/                    # Unit tests
@@ -222,7 +222,7 @@ pip install build && python -m build
 
 ---
 
-## 📝 The `agenthub.yaml` Specification
+## 📝 The `agent.yaml` Specification
 
 This is the canonical YAML config. AI assistants must understand every field.
 
@@ -312,7 +312,7 @@ access:
 
 ## 🔌 MCP Servers in Use
 
-AgentHub uses MCP servers for development tooling. These are configured in `.mcp.json` at the repo root.
+Agent Garden uses MCP servers for development tooling. These are configured in `.mcp.json` at the repo root.
 
 ### Active MCP Servers
 
@@ -321,7 +321,7 @@ AgentHub uses MCP servers for development tooling. These are configured in `.mcp
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/agenthub"],
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/agent-garden"],
       "description": "Read/write project files directly"
     },
     "github": {
@@ -332,7 +332,7 @@ AgentHub uses MCP servers for development tooling. These are configured in `.mcp
     },
     "postgres": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/agenthub"],
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/agent_garden"],
       "description": "Query registry database directly during development"
     },
     "docker": {
@@ -468,7 +468,7 @@ async def test_deploy_validates_rbac_before_building():
 4. **Never put framework-specific logic in `engine/builder.py`** — it belongs in `engine/runtimes/`
 5. **Never commit secrets or credentials** — use `.env` and Secrets Manager references
 6. **Never use synchronous I/O in async FastAPI handlers** — always `await` or use `run_in_executor`
-7. **Never break the `agenthub deploy` happy path** — it is the product; protect it like an API contract
+7. **Never break the `garden deploy` happy path** — it is the product; protect it like an API contract
 8. **Never merge without tests** — CI blocks PRs with < 80% coverage on changed files
 
 ---
@@ -479,7 +479,7 @@ async def test_deploy_validates_rbac_before_building():
 2. **Check AGENT.md** — which AI skills/agents can help build it?
 3. **Use `sequential-thinking` MCP** — plan before coding for anything > 100 lines
 4. **Write the test first** — TDD is strongly preferred for engine and API code
-5. **Update the JSON Schema** — if you changed `agenthub.yaml` fields
+5. **Update the JSON Schema** — if you changed `agent.yaml` fields
 6. **Update the docs** — if you changed a public API or CLI command
 7. **Add an example** — if you added a new framework or deployer, add it to `examples/`
 
@@ -523,10 +523,10 @@ All responses follow:
 
 ```bash
 # Required
-DATABASE_URL=postgresql://user:pass@localhost/agenthub
+DATABASE_URL=postgresql://user:pass@localhost/agent_garden
 REDIS_URL=redis://localhost:6379
 SECRET_KEY=<random-256-bit-key>
-AGENTHUB_ENV=development
+GARDEN_ENV=development
 
 # Optional — Cloud credentials (set per environment)
 AWS_ACCESS_KEY_ID=
@@ -552,11 +552,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
 When reviewing AI-generated code, always verify:
 - [ ] Does this change touch the deploy pipeline? If yes, run full integration tests.
-- [ ] Does this change the `agenthub.yaml` schema? If yes, update JSON Schema + docs.
+- [ ] Does this change the `agent.yaml` schema? If yes, update JSON Schema + docs.
 - [ ] Does this change the registry schema? If yes, write a migration.
 - [ ] Does this add a new deployer or runtime? If yes, add it to the supported stack matrix in README.
-- [ ] Does this change a CLI command? If yes, update `agenthub --help` output in docs.
+- [ ] Does this change a CLI command? If yes, update `garden --help` output in docs.
 
 ---
 
-*Last updated: March 2026 — AgentHub v0.1*
+*Last updated: March 2026 — Agent Garden v0.1*

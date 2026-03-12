@@ -8,9 +8,11 @@ from __future__ import annotations
 from engine.config_parser import FrameworkType
 from engine.runtimes.base import RuntimeBuilder
 from engine.runtimes.langgraph import LangGraphRuntime
+from engine.runtimes.openai_agents import OpenAIAgentsRuntime
 
 RUNTIMES: dict[FrameworkType, type[RuntimeBuilder]] = {
     FrameworkType.langgraph: LangGraphRuntime,
+    FrameworkType.openai_agents: OpenAIAgentsRuntime,
 }
 
 

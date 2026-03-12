@@ -131,6 +131,16 @@ Model configuration for the agent's LLM.
 | `temperature` | number | No | Sampling temperature, 0–2. |
 | `max_tokens` | integer | No | Maximum tokens per response. |
 
+**Gateway values:**
+
+| Gateway | Description |
+|---------|-------------|
+| `litellm` | Route through LiteLLM proxy |
+| `ollama` | Route to local Ollama instance |
+| _(unset)_ | Direct provider call via the provider abstraction layer |
+
+The provider abstraction layer (`engine/providers/`) supports OpenAI and Ollama natively, with automatic fallback chains when `fallback` is specified.
+
 **Examples:**
 ```yaml
 model:
@@ -142,6 +152,11 @@ model:
   gateway: litellm
   temperature: 0.7
   max_tokens: 4096
+
+# Local development with Ollama
+model:
+  primary: ollama/llama3
+  gateway: ollama
 ```
 
 ---
@@ -289,6 +304,19 @@ Access control configuration. Optional — defaults to team's policy.
 | `visibility` | string | `team` | One of: `public`, `team`, `private`. |
 | `allowed_callers` | string[] | — | Restrict who can call this agent (e.g., `team:engineering`). |
 | `require_approval` | boolean | `false` | If true, deploys require admin approval. |
+
+---
+
+---
+
+### CLI Deploy Targets
+
+The `--target` flag on `garden deploy` maps to cloud + runtime combinations:
+
+```bash
+garden deploy --target local         # docker-compose
+garden deploy --target cloud-run     # GCP Cloud Run
+```
 
 ---
 

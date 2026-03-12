@@ -22,7 +22,7 @@ If no code changes detected, skip to Step 4.
 |---|---|
 | `cli/commands/*.py`, `cli/main.py` | `docs/cli-reference.md` |
 | `api/routes/*.py` | `docs/api-reference.md` (create if missing) |
-| `engine/config_parser.py` | `docs/agenthub-yaml.md` |
+| `engine/config_parser.py` | `docs/agent-yaml.md` |
 | `engine/**` (deployers, runtimes, sidecar) | `ARCHITECTURE.md` |
 | `pyproject.toml`, `docker-compose.yml`, `.env.example` | `docs/quickstart.md`, `docs/local-development.md` |
 | New features / major changes | `README.md` |
@@ -54,7 +54,7 @@ For each affected doc: read the current doc, read the changed source, update the
 - Follow API conventions from CLAUDE.md (standard response envelope)
 - Remove deleted endpoints, add new ones
 
-### YAML Schema (`docs/agenthub-yaml.md`)
+### YAML Schema (`docs/agent-yaml.md`)
 - Read `engine/config_parser.py` for Pydantic models and enums
 - Document every field: name, type, required/optional, default, description
 - Include a complete example `agent.yaml`

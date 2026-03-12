@@ -1,4 +1,12 @@
-"""Deploy job API routes."""
+"""Deploy job API routes.
+
+Provides endpoints for:
+- POST /api/v1/deploys        — trigger a new deployment
+- GET  /api/v1/deploys        — list deploy jobs
+- GET  /api/v1/deploys/{id}   — get deploy job details (with logs)
+- DELETE /api/v1/deploys/{id} — cancel a deployment
+- POST /api/v1/deploys/{id}/rollback — rollback a failed deployment
+"""
 
 from __future__ import annotations
 
@@ -12,8 +20,11 @@ from api.models.enums import DeployJobStatus
 from api.models.schemas import (
     ApiMeta,
     ApiResponse,
+    DeployJobDetailResponse,
     DeployJobResponse,
+    DeployRequest,
 )
+from api.services.deploy_service import DeployService
 from registry.deploys import DeployRegistry
 
 router = APIRouter(prefix="/api/v1/deploys", tags=["deploys"])
@@ -25,6 +36,41 @@ def _enrich(job) -> DeployJobResponse:
     if job.agent:
         resp.agent_name = job.agent.name
     return resp
+
+
+@router.post("", response_model=ApiResponse[DeployJobResponse])
+async def create_deploy(
+    body: DeployRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[DeployJobResponse]:
+    """Trigger a new deployment.
+
+    Accepts either an existing agent_id or raw config_yaml (from the builder).
+    Starts the 8-step deploy pipeline asynchronously.
+    """
+    try:
+        if body.agent_id:
+            job = await DeployService.create_deploy(
+                db,
+                agent_id=body.agent_id,
+                target=body.target,
+                config_yaml=body.config_yaml,
+            )
+            return ApiResponse(data=_enrich(job))
+        elif body.config_yaml:
+            _agent, job = await DeployService.create_agent_and_deploy(
+                db,
+                yaml_content=body.config_yaml,
+                target=body.target,
+            )
+            return ApiResponse(data=_enrich(job))
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either agent_id or config_yaml is required",
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.get("", response_model=ApiResponse[list[DeployJobResponse]])
@@ -45,13 +91,40 @@ async def list_deploys(
     )
 
 
-@router.get("/{job_id}", response_model=ApiResponse[DeployJobResponse])
+@router.get("/{job_id}", response_model=ApiResponse[DeployJobDetailResponse])
 async def get_deploy(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-) -> ApiResponse[DeployJobResponse]:
-    """Get deploy job details by ID."""
-    job = await DeployRegistry.get(db, job_id)
-    if not job:
+) -> ApiResponse[DeployJobDetailResponse]:
+    """Get deploy job details by ID, including streaming logs."""
+    result = await DeployService.get_deploy_status(db, job_id)
+    if not result:
         raise HTTPException(status_code=404, detail="Deploy job not found")
-    return ApiResponse(data=_enrich(job))
+    return ApiResponse(data=DeployJobDetailResponse(**result))
+
+
+@router.delete("/{job_id}", response_model=ApiResponse[dict])
+async def cancel_deploy(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[dict]:
+    """Cancel an in-progress deployment."""
+    success = await DeployService.cancel_deploy(db, job_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Deploy job not found or not active")
+    return ApiResponse(data={"cancelled": True, "job_id": str(job_id)})
+
+
+@router.post("/{job_id}/rollback", response_model=ApiResponse[dict])
+async def rollback_deploy(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[dict]:
+    """Rollback a failed deployment."""
+    success = await DeployService.rollback_deploy(db, job_id)
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail="Deploy job not found or not in failed state",
+        )
+    return ApiResponse(data={"rolled_back": True, "job_id": str(job_id)})

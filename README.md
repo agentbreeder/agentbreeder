@@ -56,39 +56,63 @@ Run `garden deploy` and your agent is live on AWS or GCP — with RBAC, cost tra
 
 ## Features
 
-| Feature | v0.1 (Current) | v0.2 | v0.3+ |
+| Feature | v0.1 | v0.2 | v0.3 (Current) |
 |---------|:-:|:-:|:-:|
-| Frameworks | LangGraph | +CrewAI, Claude SDK, OpenAI, ADK | Custom |
-| Cloud targets | Local / Docker Compose | +AWS ECS/Lambda, GCP Cloud Run | +Azure |
-| Registry | Agents, Tools, Models | +Prompts, KBs, Semantic search | Full lineage |
-| Dashboard | Read-only browser | +Low-code visual builder | +No-code templates |
-| Governance | Auto-registration | +Basic RBAC | Full RBAC, Audit, Cost |
+| Frameworks | LangGraph | +CrewAI, Claude SDK, ADK, Custom | +OpenAI Agents runtime |
+| Cloud targets | Local / Docker Compose | +Kubernetes | +GCP Cloud Run |
+| Registry | Agents, Tools, Models | +Prompts, KBs, Semantic search | +RAG indexes, Memory configs |
+| Dashboard | Read-only browser | +Low-code builders (Prompt, Tool, MCP) | +Visual Agent Builder, Deploy dialog, RAG/Memory builders, Approvals |
+| Providers | - | LiteLLM gateway | +Provider abstraction (OpenAI, Ollama, fallback chains) |
+| Governance | Auto-registration | +Basic RBAC | +Approval workflows, PR review, environment promotion |
+| Git workflow | - | - | Git backend, PR creation + review |
 | Cost tracking | - | Basic | Per-team/agent/model |
-| A2A Communication | - | - | Agent-to-Agent protocol |
+
+### What's New in v0.3
+
+- **Provider abstraction layer** -- OpenAI + Ollama providers with automatic fallback chains (`engine/providers/`)
+- **GCP Cloud Run deployer** -- `garden deploy --target cloud-run` for serverless container deployment
+- **OpenAI Agents runtime** -- first-class support for the OpenAI Agents SDK (`engine/runtimes/openai_agents.py`)
+- **Deploy from Dashboard** -- 8-step deploy pipeline dialog, no CLI required
+- **Visual Agent Builder** -- ReactFlow canvas with 8 node types, drag-and-drop agent composition
+- **RAG Builder** -- create RAG indexes, ingest files, hybrid search via the dashboard
+- **Memory Builder** -- configure conversation memory, storage backends
+- **Approval Workflow** -- PR review UI, environment promotion, approval gates
+- **Test Prompt panel** -- test prompts against models with variables directly in the dashboard
+- **Tool sandbox execution** -- safely execute tools in an isolated sandbox environment
+- **Git workflow backend** -- git operations and PR lifecycle management from the API
 
 ## Supported Stack
 
 ### Agent Frameworks
 
-| Framework | Status |
-|-----------|--------|
-| LangGraph | v0.1 |
-| CrewAI | v0.2 |
-| Claude SDK (Anthropic) | v0.2 |
-| OpenAI Agents SDK | v0.2 |
-| Google ADK | v0.2 |
-| Custom (any Python/TS) | v0.2 |
+| Framework | Status | Runtime |
+|-----------|--------|---------|
+| LangGraph | v0.1 | `engine/runtimes/langgraph.py` |
+| CrewAI | v0.2 | Planned |
+| Claude SDK (Anthropic) | v0.2 | Planned |
+| OpenAI Agents SDK | v0.3 | `engine/runtimes/openai_agents.py` |
+| Google ADK | v0.2 | Planned |
+| Custom (any Python/TS) | v0.2 | Planned |
 
 ### Cloud Targets
 
-| Target | Status |
-|--------|--------|
-| Local Docker Compose | v0.1 |
-| Kubernetes | v0.1 |
-| AWS ECS Fargate | v0.2 |
-| AWS Lambda | v0.2 |
-| GCP Cloud Run | v0.2 |
-| GCP GKE | v0.2 |
+| Target | Status | Deployer |
+|--------|--------|----------|
+| Local Docker Compose | v0.1 | `engine/deployers/docker_compose.py` |
+| Kubernetes | v0.1 | Planned |
+| GCP Cloud Run | v0.3 | `engine/deployers/gcp_cloudrun.py` |
+| AWS ECS Fargate | Planned | — |
+| AWS Lambda | Planned | — |
+| GCP GKE | Planned | — |
+
+### Model Providers
+
+| Provider | Status |
+|----------|--------|
+| OpenAI | v0.3 (`engine/providers/openai_provider.py`) |
+| Ollama (local) | v0.3 (`engine/providers/ollama_provider.py`) |
+| LiteLLM gateway | v0.2 |
+| Fallback chains | v0.3 |
 
 ---
 
@@ -160,12 +184,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full technical deep-dive.
 
 ```
 agent-garden/
-├── api/                    # FastAPI backend
+├── api/                    # FastAPI backend (routes for agents, deploys, prompts, RAG, memory, git, sandbox)
 ├── cli/                    # CLI (Typer + Rich)
 ├── sdk/                    # Python & TypeScript SDKs
-├── engine/                 # Deploy pipeline, runtimes, deployers
-│   ├── runtimes/           # Framework-specific builders
-│   └── deployers/          # Cloud-specific deployers
+├── engine/                 # Deploy pipeline
+│   ├── providers/          # Provider abstraction (OpenAI, Ollama, fallback chains)
+│   ├── runtimes/           # Framework-specific builders (LangGraph, OpenAI Agents)
+│   └── deployers/          # Cloud-specific deployers (Docker Compose, GCP Cloud Run)
 ├── connectors/             # Integration plugins (LiteLLM, LangSmith, etc.)
 ├── registry/               # Catalog service (agents, tools, models, prompts)
 ├── dashboard/              # React + TypeScript + Tailwind UI
@@ -185,7 +210,7 @@ See [CLAUDE.md](CLAUDE.md) for the fully annotated project structure and coding 
 |-----|-------------|
 | [Quick Start](docs/quickstart.md) | 10-minute guide from zero to deployed agent |
 | [CLI Reference](docs/cli-reference.md) | Every command documented with examples |
-| [agent.yaml Reference](docs/agenthub-yaml.md) | Complete field reference for the config file |
+| [agent.yaml Reference](docs/agent-yaml.md) | Complete field reference for the config file |
 | [Local Development](docs/local-development.md) | Contributor setup guide |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture — deploy pipeline, abstractions, data model |
 | [ROADMAP.md](ROADMAP.md) | Release plan — v0.1 through v1.0 with milestones and success metrics |

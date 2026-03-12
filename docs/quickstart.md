@@ -76,6 +76,26 @@ garden validate
 
 # Deploy locally
 garden deploy --target local
+
+# Deploy to GCP Cloud Run
+garden deploy --target cloud-run --region us-central1
+```
+
+### Local models with Ollama
+
+For local development without cloud API keys, Agent Garden supports [Ollama](https://ollama.com) via the provider abstraction layer. Set your model to an Ollama-hosted model and the engine routes requests locally:
+
+```yaml
+model:
+  primary: ollama/llama3
+  gateway: ollama
+```
+
+Start Ollama before deploying:
+```bash
+ollama serve &
+ollama pull llama3
+garden deploy --target local
 ```
 
 ## 6. Verify
@@ -113,5 +133,5 @@ open http://localhost:3001
 ## Next Steps
 
 - Browse the [CLI Reference](cli-reference.md)
-- Read the [agenthub.yaml spec](agenthub-yaml.md)
+- Read the [agent.yaml spec](agent-yaml.md)
 - Check the [ROADMAP](../ROADMAP.md) for what's coming

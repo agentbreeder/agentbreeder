@@ -18,9 +18,13 @@ import PromptBuilderPage from "@/pages/prompt-builder";
 import ToolBuilderPage from "@/pages/tool-builder";
 import McpServersPage from "@/pages/mcp-servers";
 import McpServerDetailPage from "@/pages/mcp-server-detail";
+import MemoryBuilderPage from "@/pages/memory-builder";
+import RAGBuilderPage from "@/pages/rag-builder";
 import DeploysPage from "@/pages/deploys";
 import ActivityPage from "@/pages/activity";
 import SearchPage from "@/pages/search";
+import ApprovalsPage from "@/pages/approvals";
+import PRDetailPage from "@/pages/pr-detail";
 import SettingsPage from "@/pages/settings";
 import { Loader2 } from "lucide-react";
 
@@ -81,6 +85,10 @@ export default function App() {
               <Route path="prompts/:id" element={<PromptDetailPage />} />
               <Route path="mcp-servers" element={<McpServersPage />} />
               <Route path="mcp-servers/:id" element={<McpServerDetailPage />} />
+              <Route path="memory" element={<MemoryBuilderPage />} />
+              <Route path="rag" element={<RAGBuilderPage />} />
+              <Route path="approvals" element={<ApprovalsPage />} />
+              <Route path="approvals/:id" element={<PRDetailPage />} />
               <Route path="deploys" element={<DeploysPage />} />
               <Route path="activity" element={<ActivityPage />} />
               <Route path="search" element={<SearchPage />} />

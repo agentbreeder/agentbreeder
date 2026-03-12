@@ -23,7 +23,7 @@
 - [ ] My changes do not introduce security vulnerabilities
 
 ### If applicable:
-- [ ] I have updated the `agenthub.yaml` JSON Schema (`engine/schema/agent.schema.json`)
+- [ ] I have updated the `agent.yaml` JSON Schema (`engine/schema/agent.schema.json`)
 - [ ] I have written a database migration (`alembic revision --autogenerate`)
 - [ ] I have added/updated Playwright E2E tests for UI changes
 - [ ] I have tested with `docker compose up` locally

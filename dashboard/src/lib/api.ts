@@ -192,6 +192,17 @@ export interface DeployJob {
   completed_at: string | null;
 }
 
+export interface DeployLogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  step: string | null;
+}
+
+export interface DeployJobDetail extends DeployJob {
+  logs: DeployLogEntry[];
+}
+
 // --- Provider types ---
 
 export type ProviderType =
@@ -261,6 +272,206 @@ export interface McpServerDiscoveredTool {
 export interface McpServerDiscoverResult {
   tools: McpServerDiscoveredTool[];
   total: number;
+}
+
+// --- Prompt Test types ---
+
+export interface PromptTestRequest {
+  prompt_text: string;
+  model_id?: string;
+  model_name?: string;
+  variables: Record<string, string>;
+  temperature: number;
+  max_tokens: number;
+}
+
+export interface PromptTestResponse {
+  response_text: string;
+  rendered_prompt: string;
+  model_name: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  latency_ms: number;
+  temperature: number;
+}
+
+// --- Sandbox types ---
+
+export interface SandboxExecuteRequest {
+  code: string;
+  input_json: Record<string, unknown>;
+  timeout_seconds: number;
+  network_enabled: boolean;
+  tool_id?: string;
+}
+
+export interface SandboxExecuteResponse {
+  execution_id: string;
+  output: string;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  duration_ms: number;
+  timed_out: boolean;
+  error: string | null;
+}
+
+// --- RAG types ---
+
+export interface VectorIndex {
+  id: string;
+  name: string;
+  description: string;
+  embedding_model: string;
+  chunk_strategy: string;
+  chunk_size: number;
+  chunk_overlap: number;
+  dimensions: number;
+  source: string;
+  doc_count: number;
+  chunk_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IngestJob {
+  id: string;
+  index_id: string;
+  status: string;
+  total_files: number;
+  processed_files: number;
+  total_chunks: number;
+  embedded_chunks: number;
+  progress_pct: number;
+  error: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface RAGSearchHit {
+  chunk_id: string;
+  text: string;
+  source: string;
+  score: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface RAGSearchResponse {
+  index_id: string;
+  query: string;
+  top_k: number;
+  results: RAGSearchHit[];
+  total: number;
+}
+
+// --- Memory types ---
+
+export interface MemoryConfig {
+  id: string;
+  name: string;
+  backend_type: string;
+  memory_type: string;
+  max_messages: number;
+  namespace_pattern: string;
+  scope: string;
+  linked_agents: string[];
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryMessage {
+  id: string;
+  config_id: string;
+  session_id: string;
+  agent_id: string | null;
+  role: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface MemoryStats {
+  config_id: string;
+  backend_type: string;
+  memory_type: string;
+  message_count: number;
+  session_count: number;
+  storage_size_bytes: number;
+  linked_agent_count: number;
+}
+
+export interface ConversationSummary {
+  session_id: string;
+  agent_id: string | null;
+  message_count: number;
+  first_message_at: string | null;
+  last_message_at: string | null;
+}
+
+export interface MemorySearchHit {
+  message: MemoryMessage;
+  score: number;
+  highlight: string;
+}
+
+// --- Git / PR types ---
+
+export type PRStatus =
+  | "draft"
+  | "submitted"
+  | "in_review"
+  | "approved"
+  | "changes_requested"
+  | "rejected"
+  | "published";
+
+export interface GitDiffEntry {
+  file_path: string;
+  status: string;
+  diff_text: string;
+}
+
+export interface GitDiffResponse {
+  base: string;
+  head: string;
+  files: GitDiffEntry[];
+  stats: string;
+}
+
+export interface GitCommitInfo {
+  sha: string;
+  author: string;
+  date: string;
+  message: string;
+}
+
+export interface GitPRComment {
+  id: string;
+  pr_id: string;
+  author: string;
+  text: string;
+  created_at: string;
+}
+
+export interface GitPR {
+  id: string;
+  branch: string;
+  title: string;
+  description: string;
+  submitter: string;
+  resource_type: string;
+  resource_name: string;
+  status: PRStatus;
+  reviewer: string | null;
+  reject_reason: string | null;
+  tag: string | null;
+  comments: GitPRComment[];
+  commits: GitCommitInfo[];
+  diff: GitDiffResponse | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // --- Search types ---
@@ -419,6 +630,11 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(data),
       }),
+    test: (data: PromptTestRequest) =>
+      request<PromptTestResponse>("/prompts/test", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
   },
   deploys: {
     list: (params?: {
@@ -436,6 +652,22 @@ export const api = {
       return request<DeployJob[]>(`/deploys${qs ? `?${qs}` : ""}`);
     },
     get: (id: string) => request<DeployJob>(`/deploys/${id}`),
+    getDetail: (id: string) => request<DeployJobDetail>(`/deploys/${id}`),
+    create: (body: {
+      agent_id?: string;
+      config_yaml?: string;
+      target?: string;
+    }) =>
+      request<DeployJob>("/deploys", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    cancel: (id: string) =>
+      request<{ cancelled: boolean }>(`/deploys/${id}`, { method: "DELETE" }),
+    rollback: (id: string) =>
+      request<{ rolled_back: boolean }>(`/deploys/${id}/rollback`, {
+        method: "POST",
+      }),
   },
   providers: {
     list: (params?: {
@@ -513,6 +745,207 @@ export const api = {
       request<McpServerDiscoverResult>(`/mcp-servers/${id}/discover`, {
         method: "POST",
       }),
+  },
+  sandbox: {
+    execute: (body: SandboxExecuteRequest) =>
+      request<SandboxExecuteResponse>("/tools/sandbox/execute", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  },
+  rag: {
+    listIndexes: (params?: { page?: number; per_page?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.per_page) sp.set("per_page", String(params.per_page));
+      const qs = sp.toString();
+      return request<VectorIndex[]>(`/rag/indexes${qs ? `?${qs}` : ""}`);
+    },
+    getIndex: (id: string) => request<VectorIndex>(`/rag/indexes/${id}`),
+    createIndex: (body: {
+      name: string;
+      description?: string;
+      embedding_model?: string;
+      chunk_strategy?: string;
+      chunk_size?: number;
+      chunk_overlap?: number;
+    }) =>
+      request<VectorIndex>("/rag/indexes", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    deleteIndex: (id: string) =>
+      request<{ deleted: boolean }>(`/rag/indexes/${id}`, { method: "DELETE" }),
+    ingest: async (indexId: string, files: File[]) => {
+      const formData = new FormData();
+      for (const file of files) {
+        formData.append("files", file);
+      }
+      const headers: Record<string, string> = {};
+      const token = localStorage.getItem("ag-token");
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`${BASE}/rag/indexes/${indexId}/ingest`, {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail ?? `API error ${res.status}`);
+      }
+      return res.json() as Promise<ApiResponse<IngestJob>>;
+    },
+    getIngestJob: (indexId: string, jobId: string) =>
+      request<IngestJob>(`/rag/indexes/${indexId}/ingest/${jobId}`),
+    search: (body: {
+      index_id: string;
+      query: string;
+      top_k?: number;
+      vector_weight?: number;
+      text_weight?: number;
+    }) =>
+      request<RAGSearchResponse>("/rag/search", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  },
+  memory: {
+    listConfigs: (params?: { page?: number; per_page?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.per_page) sp.set("per_page", String(params.per_page));
+      const qs = sp.toString();
+      return request<MemoryConfig[]>(`/memory/configs${qs ? `?${qs}` : ""}`);
+    },
+    getConfig: (id: string) => request<MemoryConfig>(`/memory/configs/${id}`),
+    createConfig: (body: {
+      name: string;
+      backend_type?: string;
+      memory_type?: string;
+      max_messages?: number;
+      namespace_pattern?: string;
+      scope?: string;
+      linked_agents?: string[];
+      description?: string;
+    }) =>
+      request<MemoryConfig>("/memory/configs", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    deleteConfig: (id: string) =>
+      request<{ deleted: boolean }>(`/memory/configs/${id}`, { method: "DELETE" }),
+    getStats: (id: string) => request<MemoryStats>(`/memory/configs/${id}/stats`),
+    storeMessage: (
+      configId: string,
+      body: {
+        session_id: string;
+        role: string;
+        content: string;
+        agent_id?: string;
+        metadata?: Record<string, unknown>;
+      }
+    ) =>
+      request<MemoryMessage>(`/memory/configs/${configId}/messages`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    listConversations: (configId: string, params?: { agent_id?: string; page?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.agent_id) sp.set("agent_id", params.agent_id);
+      if (params?.page) sp.set("page", String(params.page));
+      const qs = sp.toString();
+      return request<ConversationSummary[]>(
+        `/memory/configs/${configId}/conversations${qs ? `?${qs}` : ""}`
+      );
+    },
+    getConversation: (configId: string, sessionId: string) =>
+      request<MemoryMessage[]>(
+        `/memory/configs/${configId}/conversations/${sessionId}`
+      ),
+    deleteConversations: (
+      configId: string,
+      body: { session_id?: string; agent_id?: string; before?: string }
+    ) =>
+      request<{ deleted_count: number }>(
+        `/memory/configs/${configId}/conversations`,
+        {
+          method: "DELETE",
+          body: JSON.stringify(body),
+        }
+      ),
+    search: (configId: string, q: string, limit?: number) => {
+      const sp = new URLSearchParams({ q });
+      if (limit) sp.set("limit", String(limit));
+      return request<MemorySearchHit[]>(
+        `/memory/configs/${configId}/search?${sp.toString()}`
+      );
+    },
+  },
+  git: {
+    listBranches: (user?: string) => {
+      const sp = new URLSearchParams();
+      if (user) sp.set("user", user);
+      const qs = sp.toString();
+      return request<{ branches: string[] }>(`/git/branches${qs ? `?${qs}` : ""}`);
+    },
+    createBranch: (body: { user: string; resource_type: string; resource_name: string }) =>
+      request<{ branch: string }>("/git/branches", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    getDiff: (branch: string, base = "main") =>
+      request<GitDiffResponse>(`/git/diff/${encodeURIComponent(branch)}?base=${encodeURIComponent(base)}`),
+    commit: (body: {
+      branch: string;
+      file_path: string;
+      content: string;
+      message: string;
+      author: string;
+    }) =>
+      request<GitCommitInfo>("/git/commits", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    prs: {
+      list: (params?: { status?: PRStatus; resource_type?: string }) => {
+        const sp = new URLSearchParams();
+        if (params?.status) sp.set("status", params.status);
+        if (params?.resource_type) sp.set("resource_type", params.resource_type);
+        const qs = sp.toString();
+        return request<{ prs: GitPR[] }>(`/git/prs${qs ? `?${qs}` : ""}`);
+      },
+      get: (id: string) => request<GitPR>(`/git/prs/${id}`),
+      create: (body: {
+        branch: string;
+        title: string;
+        description?: string;
+        submitter: string;
+      }) =>
+        request<GitPR>("/git/prs", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      approve: (id: string, reviewer: string) =>
+        request<GitPR>(`/git/prs/${id}/approve`, {
+          method: "POST",
+          body: JSON.stringify({ reviewer }),
+        }),
+      reject: (id: string, reviewer: string, reason: string) =>
+        request<GitPR>(`/git/prs/${id}/reject`, {
+          method: "POST",
+          body: JSON.stringify({ reviewer, reason }),
+        }),
+      merge: (id: string, tagVersion?: string) =>
+        request<GitPR>(`/git/prs/${id}/merge`, {
+          method: "POST",
+          body: JSON.stringify({ tag_version: tagVersion ?? null }),
+        }),
+      addComment: (id: string, author: string, text: string) =>
+        request<GitPRComment>(`/git/prs/${id}/comments`, {
+          method: "POST",
+          body: JSON.stringify({ author, text }),
+        }),
+    },
   },
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),

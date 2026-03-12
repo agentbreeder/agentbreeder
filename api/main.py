@@ -8,7 +8,19 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import agents, auth, deploys, mcp_servers, providers, registry
+from api.routes import (
+    agents,
+    auth,
+    deploys,
+    git,
+    mcp_servers,
+    memory,
+    prompts,
+    providers,
+    rag,
+    registry,
+    sandbox,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,9 +80,14 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(agents.router)
 app.include_router(deploys.router)
+app.include_router(prompts.router)
 app.include_router(providers.router)
 app.include_router(mcp_servers.router)
 app.include_router(registry.router)
+app.include_router(sandbox.router)
+app.include_router(git.router)
+app.include_router(memory.router)
+app.include_router(rag.router)
 
 
 @app.get("/health")

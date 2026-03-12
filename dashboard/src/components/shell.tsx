@@ -15,8 +15,13 @@ import {
   Settings,
   GripVertical,
   Server,
+  Brain,
+  Database,
+  GitPullRequest,
 } from "lucide-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
@@ -38,6 +43,9 @@ const NAV = [
   { to: "/mcp-servers", icon: Server, label: "MCP Servers" },
   { to: "/models", icon: Cpu, label: "Models" },
   { to: "/prompts", icon: FileText, label: "Prompts" },
+  { to: "/memory", icon: Brain, label: "Memory" },
+  { to: "/rag", icon: Database, label: "RAG" },
+  { to: "/approvals", icon: GitPullRequest, label: "Approvals" },
   { to: "/deploys", icon: Activity, label: "Deploys" },
   { to: "/activity", icon: Clock, label: "Activity" },
 ] as const;
@@ -212,6 +220,8 @@ const BREADCRUMB_ICONS: Record<string, React.ComponentType<{ className?: string 
   tools: Wrench,
   models: Cpu,
   prompts: FileText,
+  memory: Brain,
+  approvals: GitPullRequest,
   deploys: Activity,
   activity: Clock,
 };
@@ -327,11 +337,13 @@ function SidebarNavItem({
   icon: Icon,
   label,
   collapsed,
+  badge,
 }: {
   to: string;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   collapsed: boolean;
+  badge?: number;
 }) {
   const link = (
     <NavLink
@@ -339,7 +351,7 @@ function SidebarNavItem({
       className={({ isActive }) =>
         cn(
           collapsed
-            ? "flex size-8 items-center justify-center rounded-md transition-colors mx-auto"
+            ? "flex size-8 items-center justify-center rounded-md transition-colors mx-auto relative"
             : "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
           isActive
             ? "bg-accent font-medium text-accent-foreground"
@@ -349,6 +361,17 @@ function SidebarNavItem({
     >
       <Icon className="size-4 shrink-0" />
       {!collapsed && <span className="truncate">{label}</span>}
+      {badge != null && badge > 0 && (
+        collapsed ? (
+          <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-amber-500 text-[8px] font-bold text-white">
+            {badge > 9 ? "9+" : badge}
+          </span>
+        ) : (
+          <span className="ml-auto flex size-4.5 items-center justify-center rounded-full bg-amber-500/15 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )
+      )}
     </NavLink>
   );
 
@@ -356,7 +379,10 @@ function SidebarNavItem({
     return (
       <Tooltip>
         <TooltipTrigger render={link} />
-        <TooltipContent side="right">{label}</TooltipContent>
+        <TooltipContent side="right">
+          {label}
+          {badge != null && badge > 0 ? ` (${badge})` : ""}
+        </TooltipContent>
       </Tooltip>
     );
   }
@@ -375,6 +401,18 @@ function ShellInner() {
   const dragStartWidthRef = useRef(0);
 
   const collapsed = sidebarWidth <= SIDEBAR_COLLAPSED_THRESHOLD;
+
+  // Fetch pending approvals count for sidebar badge
+  const { data: prData } = useQuery({
+    queryKey: ["prs-pending-count"],
+    queryFn: () => api.git.prs.list({ status: "submitted" }),
+    refetchInterval: 30_000, // refresh every 30s
+    staleTime: 10_000,
+  });
+  const pendingApprovalCount = useMemo(() => {
+    const prs = prData?.data?.prs ?? [];
+    return prs.length;
+  }, [prData]);
 
   // Persist sidebar width
   useEffect(() => {
@@ -535,6 +573,7 @@ function ShellInner() {
                 icon={icon}
                 label={label}
                 collapsed={collapsed}
+                badge={to === "/approvals" ? pendingApprovalCount : undefined}
               />
             ))}
 

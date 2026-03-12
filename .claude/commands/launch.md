@@ -154,7 +154,7 @@ git ls-files --others --exclude-standard 2>/dev/null || true
 Map changes to docs:
 - `cli/commands/*.py`, `cli/main.py` -> `docs/cli-reference.md`
 - `api/routes/*.py` -> `docs/api-reference.md`
-- `engine/config_parser.py` -> `docs/agenthub-yaml.md`
+- `engine/config_parser.py` -> `docs/agent-yaml.md`
 - `engine/**` -> `ARCHITECTURE.md`
 - `pyproject.toml`, `docker-compose.yml` -> `docs/quickstart.md`, `docs/local-development.md`
 - Major changes -> `README.md`
