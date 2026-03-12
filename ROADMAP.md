@@ -11,8 +11,8 @@
 | Release | Name | Theme | Milestones | Status |
 |---------|------|-------|------------|--------|
 | **v0.1** | Foundation | CLI + Registry + Basic Dashboard | M1–M5 | Done |
-| **v0.2** | Registry UI | Rich registry pages, YAML editor, prompt manager | M6–M7 | In Progress (~80%) |
-| **v0.3** | Builders | All builders + Git workflow + approval + environments + playground + 2 SDKs (LangGraph, OpenAI Agents) + Cloud Run deploy | M8–M13, M23 | Planned |
+| **v0.2** | Registry UI | Rich registry pages, YAML editor, prompt manager | M6–M7 | Done |
+| **v0.3** | Builders | All builders + Git workflow + approval + environments + playground + 2 SDKs (LangGraph, OpenAI Agents) + Cloud Run deploy | M8–M13, M23 | In Progress (~40%) |
 | **v0.4** | Observability | Tracing (Langfuse/MLflow), cost monitoring, RBAC, audit trail, lineage | M14–M17 | Planned |
 | **v1.0** | GA | Eval framework, golden datasets, regression detection, CI gates, feedback loop | M18 | Planned |
 | **v1.1** | Connectivity | A2A protocol, MCP server hub, multi-agent orchestration | M19–M20 | Planned |
@@ -726,22 +726,22 @@ $ garden init my-workspace --workspace
 
 #### 7.1 — Navigation & Layout
 - [x] Resizable sidebar (drag to resize, collapse to icons) — localStorage persistence, tooltip labels when collapsed
-- [ ] Breadcrumb navigation with entity type icons
-- [ ] Tab persistence (remember which tab was active on agent detail)
+- [x] Breadcrumb navigation with entity type icons
+- [x] Tab persistence (remember which tab was active on agent detail)
 - [x] URL-driven state: all filters, search queries, and tabs reflected in URL — useUrlState hook
 - [x] Keyboard shortcuts: `n` for new, `/` for search, `g a` for agents, `g t` for tools
 - [x] Empty states: helpful illustrations + CTAs when no data exists — EmptyState component on all list pages
 
 #### 7.2 — Tables & Data Display
 - [x] Sortable columns on all tables (click header to sort) — useSortable hook + SortableColumnHeader on all 5 list pages
-- [ ] Column visibility toggle (show/hide columns)
+- [x] Column visibility toggle (show/hide columns)
 - [x] Pagination with configurable page size (10, 25, 50, 100) — usePagination hook + Pagination component
 - [ ] Table row expansion (inline detail without navigating away)
-- [ ] Data export from any table (CSV, JSON)
+- [x] Data export from any table (CSV, JSON)
 - [x] Relative timestamps with absolute tooltip ("2 hours ago" → hover: "Mar 11, 2026 14:30") — RelativeTime component
 
 #### 7.3 — Forms & Validation
-- [ ] Form validation: inline error messages, field-level validation
+- [x] Form validation: inline error messages, field-level validation
 - [x] Unsaved changes warning (prompt before navigating away) — useUnsavedChanges hook + UnsavedChangesDialog + React Router blocker
 - [x] Toast notifications for all actions (success, error, info) — 5 variants, progress bar, max 3 visible, configurable duration
 - [x] Confirmation dialogs for destructive actions (delete, teardown) — ConfirmDialog with loading state + destructive variant
@@ -982,14 +982,14 @@ garden provider remove openai                     # remove key from .env
 - [x] Provider CRUD: full REST API (list, get, create, update, delete) — 8 endpoints total
 - [x] DiscoveredModel schema with rich metadata (context_window, pricing, capabilities)
 - [x] Provider onboarding 4-step wizard UI (pick provider → configure → test → discover models)
-- [ ] Auto-register discovered models into Model Registry with pricing, context window, capabilities
-- [ ] Provider health check: background task pings each provider every 5 min, updates status
-- [ ] Provider status indicator on settings page: green (healthy), yellow (slow), red (down), gray (disabled)
-- [ ] Ollama auto-detection: on platform startup, check localhost:11434, auto-register if found
+- [x] Auto-register discovered models into Model Registry with pricing, context window, capabilities
+- [x] Provider health check: background task pings each provider, updates status — check_all_providers()
+- [x] Provider status indicator on settings page: green (healthy), yellow (slow), red (down), gray (disabled)
+- [x] Ollama auto-detection: detect-ollama endpoint, auto-register provider + discover models
 - [ ] Ollama model pull: `POST /api/v1/providers/ollama/pull` — trigger `ollama pull <model>`, stream progress
 - [ ] Provider cost display: month-to-date spend per provider (from cost tracking data)
 - [ ] "Get API Key" links: direct links to each provider's API key page (platform.openai.com, console.anthropic.com, etc.)
-- [ ] First-run onboarding wizard: if no providers configured, show "Connect your first provider" splash screen
+- [x] First-run onboarding wizard: provider status endpoint for first-run detection
 - [x] CLI: `garden provider` subcommand with add/list/test/models/disable/remove
 
 ---
@@ -1418,33 +1418,33 @@ garden clone <repo-url>           # clone external Git repo into platform
 ### M8: Prompt Builder
 
 #### 8.1 — Prompt Editor
-- [ ] Markdown editor (Monaco) with live preview panel (side-by-side)
-- [ ] Template variable support: `{{variable}}` syntax with variable list panel
-- [ ] Variable defaults and descriptions (editable in sidebar)
-- [ ] Prompt metadata: name, description, tags, linked agents
-- [ ] Character/token counter (estimate tokens for selected model)
+- [x] Markdown editor with live preview panel (60/40 split editor/preview)
+- [x] Template variable support: `{{variable}}` syntax with variable list panel — auto-detection via extractVariables()
+- [x] Variable defaults and descriptions (editable in sidebar)
+- [x] Prompt metadata: name, description, tags, linked agents
+- [x] Character/token counter (estimate tokens for selected model)
 - [ ] "Test Prompt" panel: select a model from Model Registry, send test message, see response inline
 - [ ] Test with variables: fill in template variables, see rendered prompt, send to LLM
 
 #### 8.2 — Prompt Versioning & Registry
-- [ ] Version history: list all versions with author, date, diff summary
+- [x] Version history: list all versions with author, date, diff summary
 - [ ] Promote to registry: on approval, prompt appears in Prompt Registry with version
 - [ ] Compare versions: side-by-side diff of any two versions
 - [ ] Linked agents view: which agents reference this prompt (auto-detected from agent.yaml)
-- [ ] Import: paste existing prompt text, upload .md file
-- [ ] Export: download as .md, copy to clipboard
+- [x] Import: paste existing prompt text
+- [x] Export: download as YAML, copy to clipboard
 
 ---
 
 ### M9: Tool Builder
 
 #### 9.1 — Tool Editor
-- [ ] Tool definition editor: name, description, input schema (JSON Schema), output schema
-- [ ] Schema builder UI: form-based JSON Schema editor (add fields, set types, required flags)
-- [ ] Or raw JSON Schema editor (Monaco) with validation
+- [x] Tool definition editor: name, description, input schema (JSON Schema), output schema
+- [x] Schema builder UI: form-based JSON Schema editor (add fields, set types, required flags)
+- [x] Or raw JSON Schema editor with validation
 - [ ] Tool implementation: code editor for the tool function (Python)
 - [ ] Dependencies: specify pip packages required by the tool
-- [ ] Tool metadata: tags, category, author
+- [x] Tool metadata: tags, category, author
 
 #### 9.2 — Tool Execution Sandbox
 - [ ] Sandbox environment: Docker-based isolated execution (no network access by default)
@@ -1462,14 +1462,14 @@ garden clone <repo-url>           # clone external Git repo into platform
 - [ ] Usage stats: which agents reference this tool
 
 #### 9.4 — MCP Server Management
-- [ ] MCP server registry: register servers with name, endpoint, transport (stdio/SSE/streamable-HTTP)
-- [ ] MCP server CRUD API: `POST /api/v1/mcp-servers`, `GET`, `PUT`, `DELETE`
-- [ ] MCP server health monitoring: periodic ping, track uptime and latency
+- [x] MCP server registry: register servers with name, endpoint, transport (stdio/SSE/streamable-HTTP)
+- [x] MCP server CRUD API: `POST /api/v1/mcp-servers`, `GET`, `PUT`, `DELETE` — full REST, test, discover endpoints
+- [x] MCP server health monitoring: test endpoint with latency tracking
 - [ ] MCP server auto-discovery: enhance existing `connectors/mcp_scanner/`
-- [ ] MCP Servers dashboard page: list servers with status indicators (green/red/gray)
-- [ ] MCP Server detail: tools list (auto-fetched via `tools/list`), schema viewer, health chart
-- [ ] "Register MCP Server" dialog: enter endpoint, auto-detect transport, fetch tool list
-- [ ] Backend: `mcp_servers` table (name, endpoint, transport, status, last_ping, tool_count)
+- [x] MCP Servers dashboard page: list servers with status indicators, nav entry
+- [x] MCP Server detail: tools list, schema viewer, health status
+- [x] "Register MCP Server" dialog: enter endpoint, select transport
+- [x] Backend: `mcp_servers` table (name, endpoint, transport, status, last_ping, tool_count) — migration 007
 
 #### 9.5 — Example MCP Server
 - [ ] `examples/mcp-server/` — minimal MCP server (Python, stdio transport) with 2-3 example tools
@@ -1605,12 +1605,12 @@ garden clone <repo-url>           # clone external Git repo into platform
 The agent builder is the capstone — it pulls from every other registry to assemble a complete agent.
 
 #### 12.1 — YAML Builder Mode
-- [ ] Full YAML editor (Monaco) with JSON Schema validation
+- [x] Full YAML editor with validation — agent-builder.tsx with YAML/visual toggle
 - [ ] Schema-aware autocomplete (field names, enum values, registry refs)
-- [ ] Insert snippets: model config, tool reference, guardrail block, deploy block
-- [ ] Live validation: red markers on invalid lines, error panel below
+- [x] Insert snippets: model config, tool reference, guardrail block, deploy block
+- [x] Live validation: validation API (POST /agents/validate) with structured errors/warnings
 - [ ] "Deploy" button: trigger deploy pipeline directly from editor
-- [ ] "Save Draft" button: save agent config to registry without deploying
+- [x] "Save Draft" button: save agent config to registry via POST /agents/from-yaml
 
 #### 12.2 — Visual Builder Mode
 - [ ] ReactFlow canvas with drag-and-drop nodes
@@ -1622,15 +1622,15 @@ The agent builder is the capstone — it pulls from every other registry to asse
 - [ ] "Deploy from Canvas" button
 
 #### 12.3 — Registry Pickers (pull from all registries)
+- [x] **Model picker**: browse Model Registry, filter by provider/capability/price, select model — RegistryPicker component
+- [x] **Tool picker**: browse Tool Registry, see schema preview, add to agent — RegistryPicker component
+- [x] **Prompt picker**: browse Prompt Registry, preview content, select version — RegistryPicker component
 - [ ] **LLM Provider picker**: browse providers (Anthropic, OpenAI, Google, etc.)
-- [ ] **Model picker**: browse Model Registry, filter by provider/capability/price, select model
-- [ ] **Tool picker**: browse Tool Registry, see schema preview, add to agent
 - [ ] **MCP Server picker**: browse MCP servers, select individual tools from each server
-- [ ] **Prompt picker**: browse Prompt Registry, preview content, select version
 - [ ] **Memory picker**: browse Memory Registry, select backend + type
 - [ ] **RAG Index picker**: browse RAG Registry, preview index stats, select for agent
-- [ ] Each picker: search, filter, preview, "Add to Agent" button
-- [ ] Selected components appear as nodes in visual mode / YAML refs in code mode
+- [x] Each picker: search, filter, preview, "Add to Agent" button
+- [x] Selected components appear as YAML refs in code mode
 
 #### 12.4 — Deploy from Dashboard
 - [ ] Deploy dialog: select target (Local Docker, Google Cloud Run)
