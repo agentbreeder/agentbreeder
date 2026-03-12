@@ -1,0 +1,58 @@
+# Customer Support Router — routes queries to the right specialist agent
+#
+# Strategy: router
+#   - Matches keywords in the user message to route to the right agent
+#   - Falls back to general-support if no keyword match
+#
+# Usage:
+#   garden orchestration validate ./orchestration.yaml
+#   garden orchestration deploy ./orchestration.yaml
+#   garden orchestration chat customer-support-router
+
+name: customer-support-router
+version: 1.0.0
+description: "Routes customer queries to billing, technical, or general support agents"
+team: customer-success
+owner: alice@company.com
+
+strategy: router
+
+agents:
+  billing-agent:
+    ref: agents/billing-support
+    routes:
+      - condition: "billing"
+        target: billing-agent
+      - condition: "invoice"
+        target: billing-agent
+      - condition: "payment"
+        target: billing-agent
+      - condition: "charge"
+        target: billing-agent
+    fallback: general-agent
+
+  technical-agent:
+    ref: agents/technical-support
+    routes:
+      - condition: "error"
+        target: technical-agent
+      - condition: "bug"
+        target: technical-agent
+      - condition: "crash"
+        target: technical-agent
+      - condition: "install"
+        target: technical-agent
+    fallback: general-agent
+
+  general-agent:
+    ref: agents/general-support
+
+shared_state:
+  type: dict
+  backend: in_memory
+
+deploy:
+  target: local
+  resources:
+    cpu: "1"
+    memory: "2Gi"

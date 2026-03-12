@@ -20,7 +20,15 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from api.models.enums import AgentStatus, DeployJobStatus, ProviderStatus, ProviderType, UserRole
+from api.models.enums import (
+    AgentStatus,
+    DeployJobStatus,
+    EvalRunStatus,
+    OrchestrationStatus,
+    ProviderStatus,
+    ProviderType,
+    UserRole,
+)
 
 
 class Base(DeclarativeBase):
@@ -265,3 +273,163 @@ class Provider(Base):
     )
 
     __table_args__ = (Index("ix_providers_provider_type", "provider_type"),)
+
+
+# ---------------------------------------------------------------------------
+# Evaluation Framework (M18)
+# ---------------------------------------------------------------------------
+
+
+class EvalDataset(Base):
+    """An evaluation dataset containing test cases for agent evaluation."""
+
+    __tablename__ = "eval_datasets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True
+    )
+    version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0.0")
+    format: Mapped[str] = mapped_column(String(20), nullable=False, default="jsonl")
+    row_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    team: Mapped[str] = mapped_column(String(100), nullable=False, default="default")
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    rows: Mapped[list[EvalDatasetRow]] = relationship(
+        back_populates="dataset", cascade="all, delete-orphan"
+    )
+
+
+class EvalDatasetRow(Base):
+    """A single row / test case in an evaluation dataset."""
+
+    __tablename__ = "eval_dataset_rows"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("eval_datasets.id", ondelete="CASCADE"), nullable=False
+    )
+    input: Mapped[dict] = mapped_column(JSON, nullable=False)
+    expected_output: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_tool_calls: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    dataset: Mapped[EvalDataset] = relationship(back_populates="rows")
+
+    __table_args__ = (Index("ix_eval_dataset_rows_dataset_id", "dataset_id"),)
+
+
+class EvalRun(Base):
+    """A single evaluation run against a dataset."""
+
+    __tablename__ = "eval_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True
+    )
+    agent_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("eval_datasets.id"), nullable=False
+    )
+    status: Mapped[EvalRunStatus] = mapped_column(
+        Enum(EvalRunStatus), default=EvalRunStatus.pending, nullable=False
+    )
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    results: Mapped[list[EvalResult]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_eval_runs_agent_name", "agent_name"),
+        Index("ix_eval_runs_dataset_id", "dataset_id"),
+        Index("ix_eval_runs_status", "status"),
+    )
+
+
+class EvalResult(Base):
+    """Result of evaluating a single dataset row."""
+
+    __tablename__ = "eval_results"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("eval_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    row_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("eval_dataset_rows.id"), nullable=False
+    )
+    actual_output: Mapped[str] = mapped_column(Text, nullable=False)
+    scores: Mapped[dict] = mapped_column(JSON, default=dict)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    token_count: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    run: Mapped[EvalRun] = relationship(back_populates="results")
+
+    __table_args__ = (
+        Index("ix_eval_results_run_id", "run_id"),
+        Index("ix_eval_results_row_id", "row_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Orchestration (M29)
+# ---------------------------------------------------------------------------
+
+
+class Orchestration(Base):
+    """A multi-agent orchestration definition."""
+
+    __tablename__ = "orchestrations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(63), unique=True, nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(20), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    team: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    strategy: Mapped[str] = mapped_column(String(30), nullable=False)
+    agents_config: Mapped[dict] = mapped_column(JSON, nullable=False)
+    shared_state_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    deploy_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[OrchestrationStatus] = mapped_column(
+        Enum(OrchestrationStatus), default=OrchestrationStatus.draft, nullable=False
+    )
+    endpoint_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    config_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_orchestrations_team_status", "team", "status"),
+        Index("ix_orchestrations_strategy", "strategy"),
+    )

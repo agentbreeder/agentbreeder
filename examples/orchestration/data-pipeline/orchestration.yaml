@@ -1,0 +1,42 @@
+# Data Pipeline — sequential agent chain for data processing
+#
+# Strategy: sequential
+#   - ingest-agent: Fetches and normalizes raw data
+#   - process-agent: Cleans, transforms, and enriches data
+#   - summarize-agent: Produces a human-readable summary
+#
+# The output of each agent becomes the input of the next.
+#
+# Usage:
+#   garden orchestration validate ./orchestration.yaml
+#   garden orchestration deploy ./orchestration.yaml
+#   garden orchestration chat data-processing-pipeline
+
+name: data-processing-pipeline
+version: 1.0.0
+description: "Sequential pipeline: ingest raw data, process it, then summarize"
+team: data-engineering
+owner: bob@company.com
+
+strategy: sequential
+
+agents:
+  ingest-agent:
+    ref: agents/data-ingestor
+    fallback: summarize-agent
+
+  process-agent:
+    ref: agents/data-processor
+
+  summarize-agent:
+    ref: agents/data-summarizer
+
+shared_state:
+  type: dict
+  backend: in_memory
+
+deploy:
+  target: local
+  resources:
+    cpu: "2"
+    memory: "4Gi"

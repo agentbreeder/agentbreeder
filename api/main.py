@@ -15,9 +15,11 @@ from api.routes import (
     builders,
     costs,
     deploys,
+    evals,
     git,
     mcp_servers,
     memory,
+    orchestrations,
     playground,
     prompts,
     providers,
@@ -100,6 +102,8 @@ app.include_router(tracing.router)
 app.include_router(teams.router)
 app.include_router(costs.router)
 app.include_router(audit.router)
+app.include_router(evals.router)
+app.include_router(orchestrations.router)
 
 
 @app.get("/health")

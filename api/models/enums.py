@@ -52,3 +52,18 @@ class ProviderStatus(enum.StrEnum):
     active = "active"
     disabled = "disabled"
     error = "error"
+
+
+class EvalRunStatus(enum.StrEnum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class OrchestrationStatus(enum.StrEnum):
+    draft = "draft"
+    deployed = "deployed"
+    stopped = "stopped"
+    failed = "failed"

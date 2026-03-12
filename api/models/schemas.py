@@ -8,7 +8,15 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
-from api.models.enums import AgentStatus, DeployJobStatus, ProviderStatus, ProviderType, UserRole
+from api.models.enums import (
+    AgentStatus,
+    DeployJobStatus,
+    EvalRunStatus,
+    OrchestrationStatus,
+    ProviderStatus,
+    ProviderType,
+    UserRole,
+)
 
 T = TypeVar("T")
 
@@ -789,3 +797,187 @@ class RAGSearchResponse(BaseModel):
     top_k: int
     results: list[RAGSearchHit]
     total: int
+
+
+# --- Evaluation Framework (M18) ---
+
+
+class EvalDatasetCreate(BaseModel):
+    name: str
+    description: str = ""
+    agent_id: uuid.UUID | None = None
+    version: str = "1.0.0"
+    format: str = "jsonl"
+    team: str = "default"
+    tags: list[str] = Field(default_factory=list)
+
+
+class EvalDatasetResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str
+    agent_id: uuid.UUID | None
+    version: str
+    format: str
+    row_count: int
+    team: str
+    tags: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class EvalDatasetRowCreate(BaseModel):
+    input: dict[str, Any]
+    expected_output: str
+    expected_tool_calls: list[dict[str, Any]] | None = None
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvalDatasetRowResponse(BaseModel):
+    id: uuid.UUID
+    dataset_id: uuid.UUID
+    input: dict[str, Any]
+    expected_output: str
+    expected_tool_calls: list[dict[str, Any]] | None
+    tags: list[str]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class EvalRunCreate(BaseModel):
+    agent_name: str
+    dataset_id: uuid.UUID
+    agent_id: uuid.UUID | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvalRunResponse(BaseModel):
+    id: uuid.UUID
+    agent_id: uuid.UUID | None
+    agent_name: str
+    dataset_id: uuid.UUID
+    status: EvalRunStatus
+    config: dict[str, Any]
+    summary: dict[str, Any]
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class EvalResultResponse(BaseModel):
+    id: uuid.UUID
+    run_id: uuid.UUID
+    row_id: uuid.UUID
+    actual_output: str
+    scores: dict[str, Any]
+    latency_ms: int
+    token_count: int
+    cost_usd: float
+    error: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class EvalRunDetailResponse(BaseModel):
+    """Eval run with all results included."""
+
+    id: uuid.UUID
+    agent_id: uuid.UUID | None
+    agent_name: str
+    dataset_id: uuid.UUID
+    status: EvalRunStatus
+    config: dict[str, Any]
+    summary: dict[str, Any]
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+    results: list[EvalResultResponse] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class EvalScoreSummary(BaseModel):
+    """Per-metric aggregation for a run."""
+
+    metric: str
+    mean: float
+    median: float
+    p95: float
+    min: float
+    max: float
+    count: int
+
+
+# --- Orchestration Schemas ---
+
+
+class OrchestrationCreate(BaseModel):
+    name: str
+    version: str
+    description: str = ""
+    team: str | None = None
+    owner: str | None = None
+    strategy: str
+    agents: dict[str, Any]
+    shared_state: dict[str, Any] = Field(default_factory=dict)
+    deploy: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+
+
+class OrchestrationUpdate(BaseModel):
+    version: str | None = None
+    description: str | None = None
+    strategy: str | None = None
+    agents_config: dict[str, Any] | None = None
+    status: OrchestrationStatus | None = None
+    tags: list[str] | None = None
+
+
+class OrchestrationResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    version: str
+    description: str
+    team: str | None
+    owner: str | None
+    strategy: str
+    agents_config: dict[str, Any]
+    shared_state_config: dict[str, Any] | None
+    deploy_config: dict[str, Any] | None
+    status: str
+    endpoint_url: str | None
+    config_snapshot: dict[str, Any] | None
+    tags: list[str] | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class OrchestrationExecuteRequest(BaseModel):
+    input_message: str
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class OrchestrationExecuteResponse(BaseModel):
+    orchestration_name: str
+    strategy: str
+    input_message: str
+    output: str
+    agent_trace: list[dict[str, Any]] = Field(default_factory=list)
+    total_latency_ms: int = 0
+    total_tokens: int = 0
+    total_cost: float = 0.0
+
+
+class OrchestrationValidateResponse(BaseModel):
+    valid: bool
+    errors: list[dict[str, Any]] = Field(default_factory=list)

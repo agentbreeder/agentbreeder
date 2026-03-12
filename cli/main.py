@@ -18,6 +18,7 @@ from cli.commands import (
     init_cmd,
     list_cmd,
     logs,
+    orchestration,
     provider,
     publish,
     review,
@@ -27,6 +28,9 @@ from cli.commands import (
     submit,
     teardown,
     validate,
+)
+from cli.commands import (
+    eval as eval_cmd,
 )
 
 app = typer.Typer(
@@ -51,6 +55,8 @@ app.command(name="publish")(publish.publish)
 app.command(name="chat")(chat.chat)
 app.add_typer(provider.provider_app, name="provider")
 app.add_typer(review.review_app, name="review")
+app.add_typer(eval_cmd.eval_app, name="eval")
+app.add_typer(orchestration.orchestration_app, name="orchestration")
 
 
 if __name__ == "__main__":
