@@ -126,8 +126,7 @@ version: 1.0.0
         result = validate_orchestration(path)
         assert not result.valid
         has_error = any(
-            "strategy" in e.message.lower() or "agents" in e.message.lower()
-            for e in result.errors
+            "strategy" in e.message.lower() or "agents" in e.message.lower() for e in result.errors
         )
         assert has_error
 

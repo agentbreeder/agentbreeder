@@ -208,9 +208,7 @@ async def cancel_run(run_id: str) -> ApiResponse[dict]:
 
     if run["status"] in ("completed", "failed", "cancelled"):
         status = run["status"]
-        raise HTTPException(
-            status_code=400, detail=f"Cannot cancel run in '{status}' state"
-        )
+        raise HTTPException(status_code=400, detail=f"Cannot cancel run in '{status}' state")
 
     updated = store.update_run_status(run_id, "cancelled")
     return ApiResponse(data=updated)

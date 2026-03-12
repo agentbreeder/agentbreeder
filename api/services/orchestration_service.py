@@ -159,7 +159,8 @@ class OrchestrationStore:
             strategy=strategy,
             agents_config=agents,
             shared_state_config=shared_state or {"type": "dict", "backend": "in_memory"},
-            deploy_config=deploy or {
+            deploy_config=deploy
+            or {
                 "target": "local",
                 "resources": {"cpu": "1", "memory": "2Gi"},
             },
@@ -238,9 +239,7 @@ class OrchestrationStore:
 
         now = datetime.now(UTC).isoformat()
         record.status = "deployed"
-        record.endpoint_url = (
-            f"http://localhost:8000/api/v1/orchestrations/{orch_id}/execute"
-        )
+        record.endpoint_url = f"http://localhost:8000/api/v1/orchestrations/{orch_id}/execute"
         record.updated_at = now
         logger.info("Orchestration deployed", extra={"name": record.name, "id": orch_id})
         return record.to_dict()

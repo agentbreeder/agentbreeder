@@ -94,9 +94,7 @@ async def get_orchestration(orch_id: str) -> ApiResponse[dict[str, Any]]:
 
 
 @router.put("/{orch_id}")
-async def update_orchestration(
-    orch_id: str, body: dict[str, Any]
-) -> ApiResponse[dict[str, Any]]:
+async def update_orchestration(orch_id: str, body: dict[str, Any]) -> ApiResponse[dict[str, Any]]:
     """Update an orchestration."""
     store = get_orchestration_store()
     result = store.update(orch_id, **body)
@@ -183,9 +181,7 @@ async def deploy_orchestration(orch_id: str) -> ApiResponse[dict[str, Any]]:
 
 
 @router.post("/{orch_id}/execute")
-async def execute_orchestration(
-    orch_id: str, body: dict[str, Any]
-) -> ApiResponse[dict[str, Any]]:
+async def execute_orchestration(orch_id: str, body: dict[str, Any]) -> ApiResponse[dict[str, Any]]:
     """Execute an orchestration — send a message through the agent graph."""
     store = get_orchestration_store()
 

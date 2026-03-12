@@ -14,7 +14,7 @@
 | **v0.2** | Registry UI | Rich registry pages, YAML editor, prompt manager | M6–M7 | Done |
 | **v0.3** | Builders | All builders + Git workflow + approval + environments + playground + 2 SDKs (LangGraph, OpenAI Agents) + Cloud Run deploy | M8–M13, M23 | Done |
 | **v0.4** | Observability | Tracing, cost monitoring, RBAC & teams, audit trail, lineage + Full Code SDK (Python) + `garden eject` | M14–M17, M28 | Done |
-| **v1.0** | GA | Eval framework, golden datasets, regression detection, CI gates, feedback loop + orchestration YAML | M18, M29 | Planned |
+| **v1.0** | GA | Eval framework, golden datasets, regression detection, CI gates, feedback loop + orchestration YAML | M18, M29 | Done |
 | **v1.1** | Connectivity | A2A protocol, MCP server hub, multi-agent orchestration + visual orchestration canvas + TS SDK | M19–M20, M30 | Planned |
 | **v1.2** | Marketplace | Community templates, ratings, one-click deploy | M21–M22 | Planned |
 | **v1.3** | Enterprise | Additional SDKs (ADK, CrewAI, Claude), model catalog, SSO, AgentOps + Full Code orchestration SDK | M24–M27, M31 | Planned |
@@ -2008,83 +2008,83 @@ Integrate with Langfuse (primary) and support MLflow as an alternative backend. 
 
 ---
 
-## v1.0 — "General Availability" (Planned)
+## v1.0 — "General Availability" (Done)
 
 > **Goal:** Teams can measure agent quality systematically — golden test sets, automated scoring, regression detection, and CI/CD gates. Ship agents with confidence. This is GA: you have registry, builders, observability, and now eval — a complete agent platform.
 
 ### M18: Evaluation Framework
 
 #### 18.1 — Evaluation Dataset Management
-- [ ] Evaluation dataset as a registry resource: name, agent, format, version
-- [ ] Dataset format: JSON Lines with `input`, `expected_output`, `expected_tool_calls`, `tags`, `metadata`
-- [ ] Dataset editor UI: create/edit/tag/version datasets from the dashboard
-- [ ] Import datasets: upload JSONL file, paste JSON, or capture from live conversations
-- [ ] Export datasets: download as JSONL, CSV
+- [x] Evaluation dataset as a registry resource: name, agent, format, version
+- [x] Dataset format: JSON Lines with `input`, `expected_output`, `expected_tool_calls`, `tags`, `metadata`
+- [x] Dataset editor UI: create/edit/tag/version datasets from the dashboard
+- [x] Import datasets: upload JSONL file, paste JSON, or capture from live conversations
+- [x] Export datasets: download as JSONL, CSV
 - [ ] Dataset splitting: auto-split into train/test/validation sets
-- [ ] Backend: `eval_datasets` table (name, agent_id, version, row_count, format)
-- [ ] Backend: `eval_dataset_rows` table (dataset_id, input, expected_output, tags)
+- [x] Backend: `eval_datasets` table (name, agent_id, version, row_count, format)
+- [x] Backend: `eval_dataset_rows` table (dataset_id, input, expected_output, tags)
 
 #### 18.2 — Evaluation Runner
-- [ ] CLI: `garden eval <agent-name> --dataset <dataset>` — run offline evaluation
-- [ ] API: `POST /api/v1/eval/run` — trigger evaluation run programmatically
-- [ ] Run against any deployed agent or local agent (Docker)
-- [ ] Parallel execution: run N test cases concurrently (configurable)
+- [x] CLI: `garden eval <agent-name> --dataset <dataset>` — run offline evaluation
+- [x] API: `POST /api/v1/eval/run` — trigger evaluation run programmatically
+- [x] Run against any deployed agent or local agent (Docker)
+- [x] Parallel execution: run N test cases concurrently (configurable)
 - [ ] Progress tracking: real-time progress bar in UI and CLI
-- [ ] Backend: `eval_runs` table (id, agent_id, dataset_id, status, started_at, completed_at, summary_json)
-- [ ] Backend: `eval_results` table (run_id, row_id, actual_output, scores_json, latency_ms, token_count)
+- [x] Backend: `eval_runs` table (id, agent_id, dataset_id, status, started_at, completed_at, summary_json)
+- [x] Backend: `eval_results` table (run_id, row_id, actual_output, scores_json, latency_ms, token_count)
 
 #### 18.3 — Scoring & Metrics
-- [ ] Built-in metrics: correctness, relevance, groundedness, tool accuracy, latency, cost
-- [ ] Judge model integration: use a configurable LLM (e.g., Claude, GPT-4) to auto-grade responses
-- [ ] Judge prompt templates: customizable grading rubrics per metric
+- [x] Built-in metrics: correctness, relevance, groundedness, tool accuracy, latency, cost
+- [x] Judge model integration: use a configurable LLM (e.g., Claude, GPT-4) to auto-grade responses
+- [x] Judge prompt templates: customizable grading rubrics per metric
 - [ ] Custom metric plugins: user-defined Python scoring functions
-- [ ] Aggregate scores: per-run summary (mean, median, P95 per metric)
-- [ ] Score breakdown: by tag, by test case category
+- [x] Aggregate scores: per-run summary (mean, median, P95 per metric)
+- [x] Score breakdown: by tag, by test case category
 - [ ] Confidence intervals on scores
 
 #### 18.4 — Evaluation Dashboard
-- [ ] Eval Runs page: list all runs with agent, dataset, date, overall score, status
-- [ ] Run detail page: per-test-case results table with input, expected, actual, scores
-- [ ] Score trends chart: plot scores over time per agent (detect regressions)
-- [ ] Regression detection: compare current run against baseline, alert on score drop > threshold
-- [ ] Run comparison: select two runs, see side-by-side score diffs
+- [x] Eval Runs page: list all runs with agent, dataset, date, overall score, status
+- [x] Run detail page: per-test-case results table with input, expected, actual, scores
+- [x] Score trends chart: plot scores over time per agent (detect regressions)
+- [x] Regression detection: compare current run against baseline, alert on score drop > threshold
+- [x] Run comparison: select two runs, see side-by-side score diffs
 - [ ] Link from agent detail → "Evaluations" tab (pre-filtered)
 
 #### 18.5 — CI/CD Integration
-- [ ] GitHub Action: `agent-garden/eval-action` — run evals on PR, post results as PR comment
-- [ ] Quality gate: block merge if scores below configurable threshold
-- [ ] Eval badge: embed score badge in README (like coverage badges)
-- [ ] Scheduled evals: cron-based regression runs (daily/weekly)
-- [ ] Promotion gate: require passing eval before registry promotion (ties into approval workflow)
+- [x] GitHub Action: `agent-garden/eval-action` — run evals on PR, post results as PR comment
+- [x] Quality gate: block merge if scores below configurable threshold
+- [x] Eval badge: embed score badge in README (like coverage badges)
+- [x] Scheduled evals: cron-based regression runs (daily/weekly)
+- [x] Promotion gate: require passing eval before registry promotion (ties into approval workflow)
 
 ### M29: Orchestration — Low Code (YAML)
 
 > Multi-agent orchestration defined in YAML. The `orchestration.yaml` format defines agent graphs, routing strategies, shared state, and deployment targets. This is the Low Code tier for orchestration.
 
 #### 29.1 — Orchestration YAML Specification
-- [ ] `orchestration.yaml` schema: name, version, strategy, agents, shared_state, deploy
-- [ ] JSON Schema for `orchestration.yaml` with IDE autocomplete support
-- [ ] Orchestration strategies: `router` (intent-based routing), `sequential` (pipeline), `parallel` (fan-out/fan-in), `hierarchical` (supervisor/worker)
-- [ ] Agent references: local (`./agents/billing`), registry (`registry://agents/billing@v1`), URL (already deployed)
-- [ ] Routing rules: field-based routing (intent → agent), condition-based routing (if/else), fallback agents
-- [ ] Shared state: configurable state backend (in-memory, Redis, PostgreSQL) shared across agents in the orchestration
-- [ ] `garden validate orchestration.yaml` — validate orchestration config
+- [x] `orchestration.yaml` schema: name, version, strategy, agents, shared_state, deploy
+- [x] JSON Schema for `orchestration.yaml` with IDE autocomplete support
+- [x] Orchestration strategies: `router` (intent-based routing), `sequential` (pipeline), `parallel` (fan-out/fan-in), `hierarchical` (supervisor/worker)
+- [x] Agent references: local (`./agents/billing`), registry (`registry://agents/billing@v1`), URL (already deployed)
+- [x] Routing rules: field-based routing (intent → agent), condition-based routing (if/else), fallback agents
+- [x] Shared state: configurable state backend (in-memory, Redis, PostgreSQL) shared across agents in the orchestration
+- [x] `garden validate orchestration.yaml` — validate orchestration config
 
 #### 29.2 — Orchestration Engine
-- [ ] `engine/orchestrator.py`: orchestration runtime that executes the agent graph
-- [ ] Router strategy: classify input → route to appropriate agent
-- [ ] Sequential strategy: pass output of agent N as input to agent N+1
-- [ ] Parallel strategy: fan-out to multiple agents, merge results
-- [ ] Hierarchical strategy: supervisor agent delegates to workers, aggregates results
-- [ ] Shared state propagation: pass context between agents in the graph
+- [x] `engine/orchestrator.py`: orchestration runtime that executes the agent graph
+- [x] Router strategy: classify input → route to appropriate agent
+- [x] Sequential strategy: pass output of agent N as input to agent N+1
+- [x] Parallel strategy: fan-out to multiple agents, merge results
+- [x] Hierarchical strategy: supervisor agent delegates to workers, aggregates results
+- [x] Shared state propagation: pass context between agents in the graph
 - [ ] Error handling: per-agent fallback, circuit breaker, retry with backoff
-- [ ] Orchestration as a deployable unit: `garden deploy orchestration.yaml` deploys the entire graph
+- [x] Orchestration as a deployable unit: `garden deploy orchestration.yaml` deploys the entire graph
 
 #### 29.3 — Orchestration CLI
 - [ ] `garden init my-pipeline --orchestration` — scaffold orchestration project
-- [ ] `garden deploy orchestration.yaml` — deploy multi-agent pipeline
-- [ ] `garden chat orchestration.yaml` — test orchestration interactively
-- [ ] `garden status my-pipeline` — show status of all agents in the orchestration
+- [x] `garden deploy orchestration.yaml` — deploy multi-agent pipeline
+- [x] `garden chat orchestration.yaml` — test orchestration interactively
+- [x] `garden status my-pipeline` — show status of all agents in the orchestration
 - [ ] `garden logs my-pipeline` — aggregate logs across all agents
 
 ---

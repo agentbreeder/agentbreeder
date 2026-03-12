@@ -5,8 +5,6 @@ import {
   Target,
   CheckCircle2,
   XCircle,
-  Clock,
-  DollarSign,
   ChevronDown,
   ChevronUp,
   GitCompareArrows,
@@ -21,8 +19,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useState, useMemo } from "react";
-import { SkeletonTableRows } from "@/components/ui/skeleton-table";
+import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
 
 const STATUS_VARIANTS: Record<EvalRunStatus, { label: string; className: string }> = {

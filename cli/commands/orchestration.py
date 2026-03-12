@@ -127,9 +127,15 @@ def deploy(
     result = validate_orchestration(config_path)
     if not result.valid:
         if json_output:
-            console.print(json.dumps({"error": "Validation failed", "errors": [
-                {"path": e.path, "message": e.message} for e in result.errors
-            ]}, indent=2))
+            console.print(
+                json.dumps(
+                    {
+                        "error": "Validation failed",
+                        "errors": [{"path": e.path, "message": e.message} for e in result.errors],
+                    },
+                    indent=2,
+                )
+            )
         else:
             console.print(
                 Panel(

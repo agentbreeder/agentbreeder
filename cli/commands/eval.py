@@ -291,12 +291,14 @@ def eval_gate(
         passed = score >= threshold
         if not passed:
             all_passed = False
-        gate_results.append({
-            "metric": metric,
-            "score": round(score, 4),
-            "threshold": threshold,
-            "passed": passed,
-        })
+        gate_results.append(
+            {
+                "metric": metric,
+                "score": round(score, 4),
+                "threshold": threshold,
+                "passed": passed,
+            }
+        )
 
     result = {
         "run_id": run_id,

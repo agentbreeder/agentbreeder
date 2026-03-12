@@ -12,9 +12,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { useSortable } from "@/hooks/use-sortable";
 import { SortableColumnHeader } from "@/components/ui/sortable-header";

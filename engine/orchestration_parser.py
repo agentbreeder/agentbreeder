@@ -185,9 +185,7 @@ def validate_orchestration(path: Path) -> ValidationResult:
                 ConfigValidationError(
                     path=str(path),
                     message="Empty configuration file",
-                    suggestion=(
-                        "Add required fields: name, version, strategy, agents"
-                    ),
+                    suggestion=("Add required fields: name, version, strategy, agents"),
                 )
             ],
         )

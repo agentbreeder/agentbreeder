@@ -31,23 +31,26 @@ def dataset_with_rows(store: EvalStore) -> dict:
         team="engineering",
         tags=["test"],
     )
-    rows = store.add_rows(ds["id"], [
-        {
-            "input": {"message": "Hello"},
-            "expected_output": "Hello! How can I help you?",
-            "tags": ["greeting"],
-        },
-        {
-            "input": {"message": "What is 2+2?"},
-            "expected_output": "The answer is 4.",
-            "tags": ["math"],
-        },
-        {
-            "input": {"message": "Goodbye"},
-            "expected_output": "Goodbye! Have a great day!",
-            "tags": ["farewell"],
-        },
-    ])
+    rows = store.add_rows(
+        ds["id"],
+        [
+            {
+                "input": {"message": "Hello"},
+                "expected_output": "Hello! How can I help you?",
+                "tags": ["greeting"],
+            },
+            {
+                "input": {"message": "What is 2+2?"},
+                "expected_output": "The answer is 4.",
+                "tags": ["math"],
+            },
+            {
+                "input": {"message": "Goodbye"},
+                "expected_output": "Goodbye! Have a great day!",
+                "tags": ["farewell"],
+            },
+        ],
+    )
     return {"dataset": ds, "rows": rows}
 
 
@@ -115,10 +118,13 @@ class TestDatasetCRUD:
 class TestDatasetRows:
     def test_add_rows_and_list(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="row-test")
-        rows = store.add_rows(ds["id"], [
-            {"input": {"q": "a"}, "expected_output": "answer a"},
-            {"input": {"q": "b"}, "expected_output": "answer b"},
-        ])
+        rows = store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "a"}, "expected_output": "answer a"},
+                {"input": {"q": "b"}, "expected_output": "answer b"},
+            ],
+        )
         assert len(rows) == 2
 
         listed = store.list_rows(ds["id"])
@@ -137,11 +143,14 @@ class TestDatasetRows:
 
     def test_list_rows_with_tag_filter_direct(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="tag-filter-test")
-        store.add_rows(ds["id"], [
-            {"input": {"q": "a"}, "expected_output": "a", "tags": ["math"]},
-            {"input": {"q": "b"}, "expected_output": "b", "tags": ["science"]},
-            {"input": {"q": "c"}, "expected_output": "c", "tags": ["math"]},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "a"}, "expected_output": "a", "tags": ["math"]},
+                {"input": {"q": "b"}, "expected_output": "b", "tags": ["science"]},
+                {"input": {"q": "c"}, "expected_output": "c", "tags": ["math"]},
+            ],
+        )
 
         math_rows = store.list_rows(ds["id"], tag="math")
         assert len(math_rows) == 2
@@ -151,9 +160,9 @@ class TestDatasetRows:
 
     def test_list_rows_pagination(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="page-test")
-        store.add_rows(ds["id"], [
-            {"input": {"q": str(i)}, "expected_output": str(i)} for i in range(10)
-        ])
+        store.add_rows(
+            ds["id"], [{"input": {"q": str(i)}, "expected_output": str(i)} for i in range(10)]
+        )
 
         page1 = store.list_rows(ds["id"], limit=3, offset=0)
         assert len(page1) == 3
@@ -175,10 +184,12 @@ class TestDatasetRows:
 class TestJsonlImportExport:
     def test_import_jsonl(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="import-test")
-        content = "\n".join([
-            json.dumps({"input": {"message": "Hi"}, "expected_output": "Hello"}),
-            json.dumps({"input": {"message": "Bye"}, "expected_output": "Goodbye"}),
-        ])
+        content = "\n".join(
+            [
+                json.dumps({"input": {"message": "Hi"}, "expected_output": "Hello"}),
+                json.dumps({"input": {"message": "Bye"}, "expected_output": "Goodbye"}),
+            ]
+        )
 
         count = store.import_jsonl(ds["id"], content)
         assert count == 2
@@ -192,10 +203,13 @@ class TestJsonlImportExport:
 
     def test_export_jsonl(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="export-test")
-        store.add_rows(ds["id"], [
-            {"input": {"message": "Hi"}, "expected_output": "Hello", "tags": ["greeting"]},
-            {"input": {"message": "Bye"}, "expected_output": "Goodbye"},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"message": "Hi"}, "expected_output": "Hello", "tags": ["greeting"]},
+                {"input": {"message": "Bye"}, "expected_output": "Goodbye"},
+            ],
+        )
 
         exported = store.export_jsonl(ds["id"])
         lines = exported.strip().split("\n")
@@ -230,9 +244,12 @@ class TestJsonlImportExport:
 class TestEvalRuns:
     def test_create_run_and_add_results(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="run-test")
-        rows = store.add_rows(ds["id"], [
-            {"input": {"q": "test"}, "expected_output": "answer"},
-        ])
+        rows = store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "test"}, "expected_output": "answer"},
+            ],
+        )
 
         run = store.create_run(
             agent_name="test-agent",
@@ -295,10 +312,13 @@ class TestEvalRuns:
 
     def test_execute_run(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="exec-test")
-        store.add_rows(ds["id"], [
-            {"input": {"message": "Hi"}, "expected_output": "Hello there!"},
-            {"input": {"message": "Bye"}, "expected_output": "Goodbye!"},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"message": "Hi"}, "expected_output": "Hello there!"},
+                {"input": {"message": "Bye"}, "expected_output": "Goodbye!"},
+            ],
+        )
 
         run = store.create_run(agent_name="test-agent", dataset_id=ds["id"])
         result = store.execute_run(run["id"])
@@ -324,9 +344,10 @@ class TestEvalRuns:
 class TestScoring:
     def test_compute_run_summary(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="summary-test")
-        rows = store.add_rows(ds["id"], [
-            {"input": {"q": str(i)}, "expected_output": f"answer {i}"} for i in range(5)
-        ])
+        rows = store.add_rows(
+            ds["id"],
+            [{"input": {"q": str(i)}, "expected_output": f"answer {i}"} for i in range(5)],
+        )
 
         run = store.create_run(agent_name="test-agent", dataset_id=ds["id"])
         for i, row in enumerate(rows):
@@ -356,9 +377,12 @@ class TestScoring:
 
     def test_score_trend(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="trend-test")
-        store.add_rows(ds["id"], [
-            {"input": {"q": "test"}, "expected_output": "answer"},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "test"}, "expected_output": "answer"},
+            ],
+        )
 
         # Create multiple runs with summaries
         for i in range(5):
@@ -381,9 +405,12 @@ class TestScoring:
 
     def test_compare_runs(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="compare-test")
-        store.add_rows(ds["id"], [
-            {"input": {"q": "test"}, "expected_output": "answer"},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "test"}, "expected_output": "answer"},
+            ],
+        )
 
         run_a = store.create_run(agent_name="agent-a", dataset_id=ds["id"])
         store.update_run_status(
@@ -530,9 +557,12 @@ class TestSchedules:
 class TestPromotionGate:
     def test_promote_check_passes(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="promo-pass-test")
-        store.add_rows(ds["id"], [
-            {"input": {"q": "test"}, "expected_output": "answer"},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "test"}, "expected_output": "answer"},
+            ],
+        )
 
         run = store.create_run(agent_name="promo-agent", dataset_id=ds["id"])
         store.update_run_status(
@@ -558,9 +588,12 @@ class TestPromotionGate:
 
     def test_promote_check_fails(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="promo-fail-test")
-        store.add_rows(ds["id"], [
-            {"input": {"q": "test"}, "expected_output": "answer"},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "test"}, "expected_output": "answer"},
+            ],
+        )
 
         run = store.create_run(agent_name="fail-agent", dataset_id=ds["id"])
         store.update_run_status(
@@ -590,9 +623,12 @@ class TestPromotionGate:
 
     def test_promote_check_uses_latest_run(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="promo-latest-test")
-        store.add_rows(ds["id"], [
-            {"input": {"q": "test"}, "expected_output": "answer"},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "test"}, "expected_output": "answer"},
+            ],
+        )
 
         # Older run with low scores
         run1 = store.create_run(agent_name="latest-agent", dataset_id=ds["id"])
@@ -654,12 +690,14 @@ class TestEvalGateCLI:
             passed = score >= threshold
             if not passed:
                 all_passed = False
-            gate_results.append({
-                "metric": metric,
-                "score": round(score, 4),
-                "threshold": threshold,
-                "passed": passed,
-            })
+            gate_results.append(
+                {
+                    "metric": metric,
+                    "score": round(score, 4),
+                    "threshold": threshold,
+                    "passed": passed,
+                }
+            )
 
         return {
             "run_id": run_id,
@@ -671,9 +709,12 @@ class TestEvalGateCLI:
     def test_eval_gate_cli(self, store: EvalStore) -> None:
         """Gate passes when all metrics meet threshold."""
         ds = store.create_dataset(name="gate-pass-test")
-        store.add_rows(ds["id"], [
-            {"input": {"q": "test"}, "expected_output": "answer"},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "test"}, "expected_output": "answer"},
+            ],
+        )
 
         run = store.create_run(agent_name="gate-agent", dataset_id=ds["id"])
         store.update_run_status(
@@ -694,9 +735,12 @@ class TestEvalGateCLI:
     def test_eval_gate_cli_fails(self, store: EvalStore) -> None:
         """Gate fails when any metric is below threshold."""
         ds = store.create_dataset(name="gate-fail-test")
-        store.add_rows(ds["id"], [
-            {"input": {"q": "test"}, "expected_output": "answer"},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "test"}, "expected_output": "answer"},
+            ],
+        )
 
         run = store.create_run(agent_name="gate-fail-agent", dataset_id=ds["id"])
         store.update_run_status(
@@ -722,9 +766,12 @@ class TestEvalGateCLI:
     def test_eval_gate_cli_missing_metric(self, store: EvalStore) -> None:
         """Gate fails when a required metric is not in the run summary."""
         ds = store.create_dataset(name="gate-missing-test")
-        store.add_rows(ds["id"], [
-            {"input": {"q": "test"}, "expected_output": "answer"},
-        ])
+        store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "test"}, "expected_output": "answer"},
+            ],
+        )
 
         run = store.create_run(agent_name="gate-missing-agent", dataset_id=ds["id"])
         store.update_run_status(
@@ -758,9 +805,12 @@ class TestCascadeDeletion:
     def test_delete_dataset_cascades(self, store: EvalStore) -> None:
         """Deleting a dataset should remove rows, runs, and results."""
         ds = store.create_dataset(name="cascade-test")
-        rows = store.add_rows(ds["id"], [
-            {"input": {"q": "test"}, "expected_output": "answer"},
-        ])
+        rows = store.add_rows(
+            ds["id"],
+            [
+                {"input": {"q": "test"}, "expected_output": "answer"},
+            ],
+        )
 
         run = store.create_run(agent_name="agent", dataset_id=ds["id"])
         store.add_result(

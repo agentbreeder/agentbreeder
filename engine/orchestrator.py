@@ -113,9 +113,7 @@ class Orchestrator:
         if entry.status == "error":
             agent_ref = self.config.agents.get(matched_agent)
             if agent_ref and agent_ref.fallback:
-                fallback_entry = await self._call_agent(
-                    agent_ref.fallback, input_message
-                )
+                fallback_entry = await self._call_agent(agent_ref.fallback, input_message)
                 fallback_entry.status = "fallback"
                 trace.append(fallback_entry)
                 entry = fallback_entry
@@ -147,9 +145,7 @@ class Orchestrator:
             if entry.status == "error":
                 agent_ref = self.config.agents.get(agent_name)
                 if agent_ref and agent_ref.fallback:
-                    fallback_entry = await self._call_agent(
-                        agent_ref.fallback, current_input
-                    )
+                    fallback_entry = await self._call_agent(agent_ref.fallback, current_input)
                     fallback_entry.status = "fallback"
                     trace.append(fallback_entry)
                     current_input = fallback_entry.output
@@ -176,10 +172,7 @@ class Orchestrator:
         """Fan-out to all agents concurrently, merge results."""
         start = time.monotonic()
 
-        tasks = [
-            self._call_agent(agent_name, input_message)
-            for agent_name in self.config.agents
-        ]
+        tasks = [self._call_agent(agent_name, input_message) for agent_name in self.config.agents]
         trace = list(await asyncio.gather(*tasks))
 
         # Merge outputs — concatenate with agent labels
@@ -225,20 +218,13 @@ class Orchestrator:
         trace.append(supervisor_entry)
 
         # Supervisor delegates to workers
-        worker_tasks = [
-            self._call_agent(worker, input_message)
-            for worker in worker_names
-        ]
+        worker_tasks = [self._call_agent(worker, input_message) for worker in worker_names]
         worker_entries = list(await asyncio.gather(*worker_tasks))
         trace.extend(worker_entries)
 
         # Supervisor aggregates worker outputs
-        worker_outputs = "\n".join(
-            f"[{e.agent_name}]: {e.output}" for e in worker_entries
-        )
-        aggregation_input = (
-            f"Original: {input_message}\n\nWorker results:\n{worker_outputs}"
-        )
+        worker_outputs = "\n".join(f"[{e.agent_name}]: {e.output}" for e in worker_entries)
+        aggregation_input = f"Original: {input_message}\n\nWorker results:\n{worker_outputs}"
         aggregation_entry = await self._call_agent(supervisor_name, aggregation_input)
         aggregation_entry.agent_name = f"{supervisor_name} (aggregation)"
         trace.append(aggregation_entry)

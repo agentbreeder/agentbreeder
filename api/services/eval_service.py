@@ -348,9 +348,7 @@ class EvalStore:
         row_ids_to_delete = [r.id for r in self._rows.values() if r.dataset_id == dataset_id]
         for rid in row_ids_to_delete:
             # Also delete results referencing these rows
-            result_ids = [
-                res.id for res in self._results.values() if res.row_id == rid
-            ]
+            result_ids = [res.id for res in self._results.values() if res.row_id == rid]
             for result_id in result_ids:
                 del self._results[result_id]
             del self._rows[rid]
@@ -425,13 +423,15 @@ class EvalStore:
         rows_to_add = []
         for line in lines:
             data = json.loads(line)
-            rows_to_add.append({
-                "input": data.get("input", {}),
-                "expected_output": data.get("expected_output", ""),
-                "expected_tool_calls": data.get("expected_tool_calls"),
-                "tags": data.get("tags", []),
-                "metadata": data.get("metadata", {}),
-            })
+            rows_to_add.append(
+                {
+                    "input": data.get("input", {}),
+                    "expected_output": data.get("expected_output", ""),
+                    "expected_tool_calls": data.get("expected_tool_calls"),
+                    "tags": data.get("tags", []),
+                    "metadata": data.get("metadata", {}),
+                }
+            )
 
         self.add_rows(dataset_id, rows_to_add)
         return len(rows_to_add)
@@ -631,14 +631,16 @@ class EvalStore:
         for run in runs[-limit:]:
             metric_data = run.summary.get("metrics", {}).get(metric, {})
             if metric_data:
-                trend.append({
-                    "run_id": run.id,
-                    "agent_name": run.agent_name,
-                    "metric": metric,
-                    "mean": metric_data.get("mean", 0),
-                    "median": metric_data.get("median", 0),
-                    "created_at": run.created_at,
-                })
+                trend.append(
+                    {
+                        "run_id": run.id,
+                        "agent_name": run.agent_name,
+                        "metric": metric,
+                        "mean": metric_data.get("mean", 0),
+                        "median": metric_data.get("median", 0),
+                        "created_at": run.created_at,
+                    }
+                )
         return trend
 
     def compare_runs(self, run_id_a: str, run_id_b: str) -> dict[str, Any]:
@@ -736,7 +738,8 @@ class EvalStore:
 
         # Find the most recent completed run
         runs = [
-            r for r in self._runs.values()
+            r
+            for r in self._runs.values()
             if r.agent_name == agent_name and r.status == "completed"
         ]
         runs.sort(key=lambda r: r.created_at, reverse=True)
@@ -878,54 +881,57 @@ def _seed_demo_data(store: EvalStore) -> None:
     dataset_id = dataset["id"]
 
     # Add sample rows
-    store.add_rows(dataset_id, [
-        {
-            "input": {"message": "How do I reset my password?"},
-            "expected_output": (
-                "To reset your password, go to Settings > "
-                "Security > Reset Password. You'll receive "
-                "an email with a reset link."
-            ),
-            "tags": ["password", "account"],
-        },
-        {
-            "input": {"message": "What is your refund policy?"},
-            "expected_output": (
-                "We offer a 30-day money-back guarantee "
-                "on all plans. Contact support to initiate "
-                "a refund."
-            ),
-            "tags": ["billing", "refund"],
-        },
-        {
-            "input": {"message": "How do I upgrade my plan?"},
-            "expected_output": (
-                "To upgrade, go to Settings > Billing > "
-                "Change Plan. Select your desired plan "
-                "and confirm."
-            ),
-            "tags": ["billing", "upgrade"],
-        },
-        {
-            "input": {"message": "My agent is stuck deploying"},
-            "expected_output": (
-                "Check the deployment logs with "
-                "'garden logs <agent-name>'. Common causes "
-                "include misconfigured secrets or "
-                "insufficient resources."
-            ),
-            "tags": ["technical", "deploy"],
-        },
-        {
-            "input": {"message": "How do I add a team member?"},
-            "expected_output": (
-                "Go to Settings > Team > Invite Member. "
-                "Enter their email and assign a role "
-                "(viewer, contributor, deployer, or admin)."
-            ),
-            "tags": ["team", "account"],
-        },
-    ])
+    store.add_rows(
+        dataset_id,
+        [
+            {
+                "input": {"message": "How do I reset my password?"},
+                "expected_output": (
+                    "To reset your password, go to Settings > "
+                    "Security > Reset Password. You'll receive "
+                    "an email with a reset link."
+                ),
+                "tags": ["password", "account"],
+            },
+            {
+                "input": {"message": "What is your refund policy?"},
+                "expected_output": (
+                    "We offer a 30-day money-back guarantee "
+                    "on all plans. Contact support to initiate "
+                    "a refund."
+                ),
+                "tags": ["billing", "refund"],
+            },
+            {
+                "input": {"message": "How do I upgrade my plan?"},
+                "expected_output": (
+                    "To upgrade, go to Settings > Billing > "
+                    "Change Plan. Select your desired plan "
+                    "and confirm."
+                ),
+                "tags": ["billing", "upgrade"],
+            },
+            {
+                "input": {"message": "My agent is stuck deploying"},
+                "expected_output": (
+                    "Check the deployment logs with "
+                    "'garden logs <agent-name>'. Common causes "
+                    "include misconfigured secrets or "
+                    "insufficient resources."
+                ),
+                "tags": ["technical", "deploy"],
+            },
+            {
+                "input": {"message": "How do I add a team member?"},
+                "expected_output": (
+                    "Go to Settings > Team > Invite Member. "
+                    "Enter their email and assign a role "
+                    "(viewer, contributor, deployer, or admin)."
+                ),
+                "tags": ["team", "account"],
+            },
+        ],
+    )
 
     # Create and execute a demo run
     run = store.create_run(
