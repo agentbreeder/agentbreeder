@@ -107,7 +107,7 @@ Principles:
 - Compatible with GitOps (version-controllable)
 - Forward-compatible (new fields never break old configs)
 
-Current schema is in: engine/config_parser.py and schema/agent.schema.json
+Current schema is in: engine/config_parser.py and engine/schema/agent.schema.json
 
 I need to add/modify: [DESCRIPTION]
 
@@ -135,8 +135,8 @@ You are implementing a new deployer for Agent Garden. Study the existing deploye
 
 Read these files before starting:
 - engine/deployers/base.py (abstract interface)
-- engine/deployers/aws_ecs.py (reference implementation)
-- engine/deployers/gcp_cloudrun.py (second reference)
+- engine/deployers/docker_compose.py (reference implementation — local)
+- engine/deployers/gcp_cloudrun.py (reference implementation — cloud)
 
 New deployer: [CLOUD_PROVIDER] / [SERVICE_NAME]
 
@@ -171,7 +171,7 @@ You are adding support for a new agent framework to Agent Garden.
 Read these files first:
 - engine/runtimes/base.py (RuntimeBuilder interface)
 - engine/runtimes/langgraph.py (reference implementation)
-- engine/runtimes/crewai.py (second reference)
+- engine/runtimes/openai_agents.py (second reference)
 
 New framework: [FRAMEWORK_NAME] (version [VERSION])
 
@@ -185,8 +185,7 @@ Implement:
 
 Also:
 - Add a complete working example in examples/[framework-name]-agent/
-- Add to the supported_frameworks list in engine/__init__.py
-- Add framework to the agent.yaml JSON Schema enum
+- Add framework to the enum in engine/schema/agent.schema.json
 - Write unit tests in tests/unit/runtimes/test_[framework_name].py
 - Update README.md supported stack table
 
@@ -278,7 +277,7 @@ You are building a new connector for Agent Garden's connector system.
 Read these files first:
 - connectors/base.py (BaseConnector interface)
 - connectors/litellm/ (reference implementation — gateway connector)
-- connectors/langsmith/ (reference implementation — observability connector)
+- connectors/mcp_scanner/ (reference implementation — MCP server discovery)
 
 New connector: [TOOL_NAME]
 Connector type: [gateway | observability | git_scanner | mcp_scanner | custom]
@@ -500,10 +499,14 @@ Tag format: v[MAJOR].[MINOR].[PATCH]
 ```
 You are building Docker images for Agent Garden.
 
+Current state: There is a single `Dockerfile` at the project root for the API. The dashboard builds via `npm run build`. Local dev uses `deploy/docker-compose.yml`.
+
 Build targets:
-- api: FastAPI backend (multi-arch: linux/amd64, linux/arm64)
-- cli: CLI tool (packaged as a standalone binary)
+- api: FastAPI backend (the existing Dockerfile)
 - dashboard: React frontend (nginx-served static files)
+
+Future targets (not yet implemented):
+- cli: CLI tool (packaged as a standalone binary)
 - sidecar: Observability sidecar (must be < 50MB, minimal dependencies)
 
 For each image:
@@ -513,8 +516,6 @@ For each image:
 4. Build args for version tagging
 5. Layer caching optimization (deps before code)
 6. .dockerignore to exclude dev files
-
-Target: api image < 200MB, sidecar < 50MB.
 
 Build command: docker buildx build --platform linux/amd64,linux/arm64 -t agent-garden/[IMAGE]:[VERSION] .
 ```
@@ -528,11 +529,13 @@ Build command: docker buildx build --platform linux/amd64,linux/arm64 -t agent-g
 
 **Skill Prompt:**
 ```
-You are maintaining the Agent Garden Helm chart in deploy/helm/.
+You are creating or maintaining the Agent Garden Helm chart in deploy/helm/.
 
-The chart deploys: API server, worker (Celery), Redis, PostgreSQL (or external), dashboard.
+> **Status:** Helm chart does not exist yet. Currently, local deployment uses `deploy/docker-compose.yml`. This skill is for creating the initial chart or maintaining it once created.
 
-Current chart structure: deploy/helm/agent-garden/
+The chart should deploy: API server, Redis, PostgreSQL (or external), dashboard.
+
+Target chart structure: deploy/helm/agent-garden/
 
 Task: [WHAT NEEDS TO CHANGE]
 
@@ -571,7 +574,7 @@ For the endpoint [METHOD] [PATH]:
 2. Add response_model with full schema
 3. Add OpenAPI examples (request + response)
 4. Document all error responses (403, 404, 422, 500)
-5. Add to the relevant section in docs/api-reference.md
+5. Add to the relevant section in docs/ (create docs/api-reference.md if it doesn't exist)
 6. Write a "Quick Example" showing a complete use case
 
 Example format:

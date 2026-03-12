@@ -32,56 +32,97 @@ Agent Garden is an **open-source platform** for building, deploying, and governi
 ```
 agent-garden/
 ├── api/                        # FastAPI backend server
-│   ├── routes/                 # REST endpoints (agents, prompts, tools, models, etc.)
+│   ├── main.py                 # App entry, middleware, routers
+│   ├── auth.py                 # Auth dependencies
+│   ├── config.py               # Settings (pydantic-settings)
+│   ├── database.py             # Async SQLAlchemy setup
+│   ├── middleware/              # RBAC middleware
+│   ├── routes/                 # REST endpoints
+│   │   ├── agents.py           # Agent CRUD
+│   │   ├── deploys.py          # Deploy from dashboard
+│   │   ├── prompts.py          # Prompts + test panel
+│   │   ├── providers.py        # Provider config
+│   │   ├── rag.py              # RAG indexes, search
+│   │   ├── memory.py           # Memory configs
+│   │   ├── git.py              # Git workflow + PR review
+│   │   ├── sandbox.py          # Tool sandbox execution
+│   │   ├── teams.py            # Team management
+│   │   ├── costs.py            # Cost tracking
+│   │   ├── audit.py            # Audit log
+│   │   ├── tracing.py          # Distributed tracing
+│   │   ├── builders.py         # Visual builder endpoints
+│   │   ├── orchestrations.py   # Orchestration management
+│   │   ├── evals.py            # Agent evaluation
+│   │   ├── playground.py       # Chat playground
+│   │   └── registry.py         # Cross-entity registry search
 │   ├── services/               # Business logic layer
 │   ├── models/                 # SQLAlchemy DB models + Pydantic schemas
-│   └── governance/             # RBAC engine, policy evaluation
+│   └── tasks/                  # Background tasks (provider health)
 ├── cli/                        # CLI tool (built with Typer)
-│   ├── commands/
-│   │   ├── init.py             # garden init
-│   │   ├── deploy.py           # garden deploy (the core command)
-│   │   ├── search.py           # garden search
-│   │   ├── list.py             # garden list
-│   │   └── describe.py         # garden describe
-│   └── config.py
+│   ├── main.py                 # Command registration
+│   └── commands/
+│       ├── init_cmd.py         # garden init
+│       ├── deploy.py           # garden deploy (the core command)
+│       ├── validate.py         # garden validate
+│       ├── search.py           # garden search
+│       ├── list_cmd.py         # garden list
+│       ├── describe.py         # garden describe
+│       ├── scan.py             # garden scan (MCP/LiteLLM discovery)
+│       ├── logs.py             # garden logs
+│       ├── status.py           # garden status
+│       ├── teardown.py         # garden teardown
+│       ├── submit.py           # garden submit (create PR)
+│       ├── review.py           # garden review (PR review)
+│       ├── publish.py          # garden publish (merge PR)
+│       ├── chat.py             # garden chat
+│       ├── eval.py             # garden eval
+│       ├── eject.py            # garden eject (tier mobility)
+│       ├── orchestration.py    # garden orchestration
+│       └── provider.py         # garden provider (subcommand)
 ├── sdk/
-│   ├── python/                 # pip install agent-garden-sdk
-│   └── typescript/             # npm install @agent-garden/sdk
+│   └── python/                 # pip install agent-garden-sdk
+│       └── agenthub/           # SDK package (agent, deploy, model, tool, memory, mcp)
 ├── engine/                     # Core deployment pipeline
 │   ├── config_parser.py        # YAML parsing + JSON Schema validation
 │   ├── resolver.py             # Dependency resolution from registry
 │   ├── builder.py              # Container image builder (per framework)
+│   ├── governance.py           # RBAC validation at deploy time
+│   ├── orchestrator.py         # Multi-agent orchestration engine
+│   ├── orchestration_parser.py # Orchestration YAML parser
+│   ├── providers/              # LLM provider abstraction
+│   │   ├── base.py             # Provider interface
+│   │   ├── openai_provider.py  # OpenAI provider
+│   │   ├── ollama_provider.py  # Ollama (local) provider
+│   │   ├── registry.py         # Provider registry + fallback chains
+│   │   └── models.py           # Provider data models
 │   ├── deployers/
 │   │   ├── base.py             # Abstract deployer interface
-│   │   ├── kubernetes.py       # Generic K8s / Docker Compose
-│   │   ├── aws_ecs.py          # AWS ECS Fargate
-│   │   ├── aws_lambda.py       # AWS Lambda
-│   │   ├── aws_eks.py          # AWS EKS
-│   │   ├── gcp_cloudrun.py     # GCP Cloud Run
-│   │   ├── gcp_gke.py          # GCP GKE
-│   │   └── gcp_functions.py    # GCP Cloud Functions
+│   │   ├── docker_compose.py   # Local Docker Compose deployer
+│   │   └── gcp_cloudrun.py     # GCP Cloud Run deployer
 │   ├── runtimes/               # Framework-specific container builders
 │   │   ├── base.py             # Runtime builder interface
-│   │   ├── langgraph.py
-│   │   ├── crewai.py
-│   │   ├── claude_sdk.py
-│   │   ├── openai_agents.py
-│   │   └── google_adk.py
-│   ├── sidecar/                # Observability sidecar (runs alongside every agent)
-│   └── governance.py           # RBAC validation at deploy time
+│   │   ├── langgraph.py        # LangGraph runtime
+│   │   ├── openai_agents.py    # OpenAI Agents runtime
+│   │   └── templates/          # Server templates per runtime
+│   └── schema/                 # JSON Schemas
+│       ├── agent.schema.json
+│       ├── orchestration.schema.json
+│       ├── prompt.schema.json
+│       ├── tool.schema.json
+│       ├── rag.schema.json
+│       └── memory.schema.json
 ├── connectors/                 # Integration plugins (pluggable)
 │   ├── base.py
-│   ├── litellm/
-│   ├── portkey/
-│   ├── langsmith/
-│   ├── opentelemetry/
-│   └── mcp_scanner/
+│   ├── litellm/                # LiteLLM gateway connector
+│   └── mcp_scanner/            # MCP server scanner
 ├── registry/                   # Catalog service
 │   ├── agents.py
 │   ├── prompts.py
 │   ├── tools.py
 │   ├── models.py
-│   └── knowledge_bases.py
+│   ├── providers.py
+│   ├── deploys.py
+│   └── mcp_servers.py
 ├── dashboard/                  # React + TypeScript web UI
 │   ├── src/
 │   │   ├── components/
@@ -89,23 +130,20 @@ agent-garden/
 │   │   ├── hooks/
 │   │   └── lib/
 │   └── package.json
-├── templates/                  # No-code agent templates
-│   ├── customer-support/
-│   ├── document-analyzer/
-│   └── data-monitor/
 ├── deploy/
-│   ├── docker-compose.yml      # Local development
-│   └── helm/                   # Kubernetes Helm chart
+│   └── docker-compose.yml      # Local development
+├── alembic/                    # Database migrations
 ├── tests/
 │   ├── unit/
 │   ├── integration/
 │   └── e2e/
 └── examples/
     ├── langgraph-agent/
-    ├── crewai-agent/
-    ├── claude-sdk-agent/
     ├── openai-agents-agent/
-    └── google-adk-agent/
+    ├── mcp-server/
+    ├── orchestration/          # Multi-agent orchestration examples
+    ├── sdk-basic/
+    └── sdk-advanced/
 ```
 
 ---
@@ -154,14 +192,14 @@ Every `garden deploy` MUST:
 
 There is no "quick deploy" mode that skips governance. This is intentional.
 
-### 3. The Sidecar Pattern
-Every deployed agent gets a sidecar container injected automatically. The sidecar provides:
+### 3. The Sidecar Pattern (Planned)
+Every deployed agent will get a sidecar container injected automatically. The sidecar will provide:
 - OpenTelemetry traces for every LLM call, tool use, and agent step
 - Token counting and cost attribution
 - Guardrail enforcement (PII detection, content filtering)
 - Health check endpoint
 
-The sidecar must never require changes to agent code. It is injected at the container build step.
+> **Status:** Not yet implemented. Currently, observability is handled via the tracing API (`api/routes/tracing.py`).
 
 ### 4. Framework Agnosticism
 The `engine/runtimes/` layer abstracts all framework differences. Every runtime implements:
@@ -217,7 +255,9 @@ uvicorn api.main:app --reload --port 8000
 
 # Run CLI locally
 python -m cli.main --help
-garden --help   # after pip install -e .
+garden --help              # after pip install -e .
+garden validate            # validate agent.yaml
+garden deploy --target local  # deploy locally
 
 # Run tests
 pytest tests/unit/                    # Unit tests
@@ -354,7 +394,7 @@ Agent Garden uses MCP servers for development tooling. These are configured in `
     },
     "postgres": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/agent_garden"],
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://garden:garden@localhost:5432/agentgarden"],
       "description": "Query registry database directly during development"
     },
     "docker": {
@@ -510,24 +550,43 @@ async def test_deploy_validates_rbac_before_building():
 ## 🌐 API Conventions
 
 ```
+# Registry
 GET    /api/v1/agents                 # List agents (paginated, filterable)
 GET    /api/v1/agents/{id}            # Get agent detail
 POST   /api/v1/agents                 # Create/register agent
 PUT    /api/v1/agents/{id}            # Update agent
 DELETE /api/v1/agents/{id}            # Soft-delete (archive)
+GET    /api/v1/registry/search        # Cross-entity registry search
 
-POST   /api/v1/deploy                 # Trigger a deployment
-GET    /api/v1/deploy/{job_id}        # Poll deploy status
-DELETE /api/v1/deploy/{job_id}        # Cancel in-progress deploy
+# Deploy
+POST   /api/v1/deploys               # Trigger a deployment
+GET    /api/v1/deploys/{job_id}       # Poll deploy status
 
-GET    /api/v1/registry/tools         # List tools/MCP servers
-GET    /api/v1/registry/prompts       # List prompt templates
-GET    /api/v1/registry/models        # List approved models
-GET    /api/v1/registry/knowledge-bases
+# Builders (visual agent/tool/prompt builders)
+POST   /api/v1/builders/...          # Visual builder endpoints
 
-GET    /api/v1/governance/costs       # Cost data (filterable by team/agent/model/date)
-GET    /api/v1/governance/audit       # Audit trail
-GET    /api/v1/governance/lineage/{agent_id}
+# Providers
+GET    /api/v1/providers              # List configured providers
+POST   /api/v1/providers              # Add provider
+
+# RAG & Memory
+GET/POST /api/v1/rag/*                # RAG indexes, file ingestion, search
+GET/POST /api/v1/memory/*             # Memory configs, conversation storage
+
+# Git Workflow
+GET/POST /api/v1/git/*                # Git operations, PR review workflow
+
+# Governance
+GET    /api/v1/teams                  # Team management
+GET    /api/v1/costs                  # Cost data (filterable by team/agent/model)
+GET    /api/v1/audit                  # Audit trail
+GET    /api/v1/tracing                # Distributed tracing
+
+# Tools
+POST   /api/v1/tools/sandbox/execute  # Tool sandbox execution
+GET    /api/v1/prompts/test           # Test prompt with model
+GET    /api/v1/playground             # Chat playground
+GET    /api/v1/evals                  # Agent evaluation
 ```
 
 All responses follow:
@@ -545,7 +604,7 @@ All responses follow:
 
 ```bash
 # Required
-DATABASE_URL=postgresql://user:pass@localhost/agent_garden
+DATABASE_URL=postgresql+asyncpg://garden:garden@localhost:5432/agentgarden
 REDIS_URL=redis://localhost:6379
 SECRET_KEY=<random-256-bit-key>
 GARDEN_ENV=development

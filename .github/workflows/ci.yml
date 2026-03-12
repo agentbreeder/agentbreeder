@@ -113,10 +113,9 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-      - name: Check coverage threshold
+      - name: Enforce coverage threshold
         run: |
-          pip install coverage
-          coverage report --fail-under=80 || echo "::warning::Coverage below 80% threshold"
+          coverage report --fail-under=80
 
   test-e2e:
     name: E2E Tests
