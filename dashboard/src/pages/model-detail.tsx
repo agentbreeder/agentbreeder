@@ -26,7 +26,14 @@ const CAPABILITY_COLORS: Record<string, string> = {
   vision: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
   function_calling: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
   embeddings: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+  code: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20",
+  reasoning: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
+  audio: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
+  image_generation: "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20",
 };
+
+/** Maximum known context window for the visual bar (2M tokens). */
+const MAX_KNOWN_CONTEXT = 2_000_000;
 
 function formatContextWindow(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M`;
@@ -45,6 +52,27 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         {label}
       </dt>
       <dd className="text-sm">{children}</dd>
+    </div>
+  );
+}
+
+function ContextWindowBar({ tokens }: { tokens: number }) {
+  const pct = Math.min((tokens / MAX_KNOWN_CONTEXT) * 100, 100);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-sm">{formatContextWindow(tokens)} tokens</span>
+        <span className="text-[10px] text-muted-foreground">
+          {formatContextWindow(MAX_KNOWN_CONTEXT)} max
+        </span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-blue-500 transition-all duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }
@@ -205,9 +233,7 @@ export default function ModelDetailPage() {
             <dl className="space-y-4">
               {model.context_window != null && (
                 <Field label="Context Window">
-                  <span className="font-mono text-sm">
-                    {formatContextWindow(model.context_window)} tokens
-                  </span>
+                  <ContextWindowBar tokens={model.context_window} />
                 </Field>
               )}
               {model.max_output_tokens != null && (
@@ -219,7 +245,7 @@ export default function ModelDetailPage() {
               )}
               {model.capabilities && model.capabilities.length > 0 && (
                 <Field label="Capabilities">
-                  <div className="flex flex-wrap gap-1">
+                  <div className="flex flex-wrap gap-1.5">
                     {model.capabilities.map((cap) => (
                       <Badge
                         key={cap}
@@ -245,22 +271,30 @@ export default function ModelDetailPage() {
                 <DollarSign className="size-3" />
                 Pricing
               </h3>
-              <dl className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
                 {model.input_price_per_million != null && (
-                  <Field label="Input Price">
-                    <span className="font-mono text-sm">
-                      {formatPrice(model.input_price_per_million)} / 1M tokens
-                    </span>
-                  </Field>
+                  <div className="rounded-md border border-border bg-muted/20 p-3 text-center">
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-1">
+                      Input
+                    </p>
+                    <p className="font-mono text-lg font-semibold">
+                      {formatPrice(model.input_price_per_million)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">per 1M tokens</p>
+                  </div>
                 )}
                 {model.output_price_per_million != null && (
-                  <Field label="Output Price">
-                    <span className="font-mono text-sm">
-                      {formatPrice(model.output_price_per_million)} / 1M tokens
-                    </span>
-                  </Field>
+                  <div className="rounded-md border border-border bg-muted/20 p-3 text-center">
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-1">
+                      Output
+                    </p>
+                    <p className="font-mono text-lg font-semibold">
+                      {formatPrice(model.output_price_per_million)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">per 1M tokens</p>
+                  </div>
                 )}
-              </dl>
+              </div>
             </div>
           )}
         </div>

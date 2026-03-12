@@ -9,8 +9,9 @@ import {
   Plug,
   Wrench,
   Users,
+  Activity,
 } from "lucide-react";
-import { api, type ToolDetail, type ToolUsage } from "@/lib/api";
+import { api, type ToolDetail, type ToolUsage, type ToolHealth, type ToolHealthStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { SchemaViewer } from "@/components/schema-viewer";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,29 @@ const TYPE_CONFIG: Record<string, { label: string; icon: typeof Server; color: s
   },
 };
 
+const HEALTH_CONFIG: Record<ToolHealthStatus, { label: string; dotColor: string; bgColor: string }> = {
+  healthy: {
+    label: "Healthy",
+    dotColor: "text-emerald-500",
+    bgColor: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  },
+  slow: {
+    label: "Slow",
+    dotColor: "text-amber-500",
+    bgColor: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  },
+  down: {
+    label: "Down",
+    dotColor: "text-red-500",
+    bgColor: "bg-red-500/10 text-red-600 dark:text-red-400",
+  },
+  unknown: {
+    label: "Unknown",
+    dotColor: "text-gray-400",
+    bgColor: "bg-gray-500/10 text-gray-500 dark:text-gray-400",
+  },
+};
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
@@ -40,6 +64,62 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         {label}
       </dt>
       <dd className="text-sm">{children}</dd>
+    </div>
+  );
+}
+
+function HealthIndicator({ toolId }: { toolId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["tool-health", toolId],
+    queryFn: () => api.tools.health(toolId),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const health: ToolHealth | undefined = data?.data;
+
+  if (isLoading) {
+    return <div className="h-6 w-24 animate-pulse rounded bg-muted" />;
+  }
+
+  if (!health) return null;
+
+  const config = HEALTH_CONFIG[health.status];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div
+          className={cn(
+            "flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
+            config.bgColor
+          )}
+        >
+          <Circle className={cn("size-1.5 fill-current", config.dotColor)} />
+          {config.label}
+        </div>
+      </div>
+
+      {health.latency_ms != null && (
+        <Field label="Latency">
+          <span className="font-mono text-sm">{health.latency_ms}ms</span>
+        </Field>
+      )}
+
+      {health.last_ping && (
+        <Field label="Last Ping">
+          <span className="flex items-center gap-1.5 text-sm">
+            <Clock className="size-3 text-muted-foreground" />
+            {new Date(health.last_ping).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        </Field>
+      )}
     </div>
   );
 }
@@ -86,6 +166,9 @@ function UsageSection({ toolId }: { toolId: string }) {
             )}
           />
           <span>{a.agent_name}</span>
+          <Badge variant="outline" className="ml-auto text-[10px]">
+            {a.agent_status}
+          </Badge>
         </Link>
       ))}
     </div>
@@ -199,18 +282,29 @@ export default function ToolDetailPage() {
             <SchemaViewer schema={tool.schema_definition} />
           </div>
 
-          {/* MCP endpoint info */}
-          {tool.tool_type === "mcp_server" && tool.endpoint && (
+          {/* MCP Server info with health */}
+          {tool.tool_type === "mcp_server" && (
             <div className="rounded-lg border border-border p-4">
-              <h3 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <h3 className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <Activity className="size-3" />
                 MCP Server
               </h3>
               <dl className="space-y-4">
-                <Field label="Endpoint URL">
-                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs break-all">
-                    {tool.endpoint}
-                  </code>
-                </Field>
+                {tool.endpoint && (
+                  <Field label="Endpoint URL">
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs break-all">
+                      {tool.endpoint}
+                    </code>
+                  </Field>
+                )}
+                <div>
+                  <dt className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">
+                    Health Status
+                  </dt>
+                  <dd>
+                    <HealthIndicator toolId={id!} />
+                  </dd>
+                </div>
               </dl>
             </div>
           )}

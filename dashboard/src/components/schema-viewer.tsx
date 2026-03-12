@@ -22,12 +22,12 @@ interface JsonSchema {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  string: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
-  number: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
-  integer: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
-  boolean: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
-  object: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-  array: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
+  string: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  number: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+  integer: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+  boolean: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
+  object: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
+  array: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20",
 };
 
 function getTypeLabel(prop: JsonSchemaProperty): string {

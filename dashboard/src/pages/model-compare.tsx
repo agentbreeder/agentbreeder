@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams, Link } from "react-router-dom";
-import { ArrowLeft, Cpu } from "lucide-react";
+import { useSearchParams, Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, Cpu, Plus, X } from "lucide-react";
 import { api, type Model } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,8 @@ const CAPABILITY_COLORS: Record<string, string> = {
   vision: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
   function_calling: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
   embeddings: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+  code: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20",
+  reasoning: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
 };
 
 function formatContextWindow(tokens: number | null): string {
@@ -62,6 +65,16 @@ function bestIndex(
   return bestIdx;
 }
 
+/** Get max value across models for a numeric field (used for bar scaling). */
+function maxValue(models: Model[], extract: (m: Model) => number | null): number {
+  let mx = 0;
+  for (const m of models) {
+    const v = extract(m);
+    if (v != null && v > mx) mx = v;
+  }
+  return mx;
+}
+
 interface RowProps {
   label: string;
   models: Model[];
@@ -99,8 +112,121 @@ function CompareRow({ label, models, render, extract, highlightBest, isOdd }: Ro
   );
 }
 
+function ComparisonBar({
+  value,
+  maxVal,
+  label,
+  isBest,
+  colorClass,
+}: {
+  value: number | null;
+  maxVal: number;
+  label: string;
+  isBest: boolean;
+  colorClass: string;
+}) {
+  if (value == null || maxVal === 0) {
+    return <span className="text-xs text-muted-foreground">--</span>;
+  }
+  const pct = Math.max((value / maxVal) * 100, 4);
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <span className={cn("font-mono text-sm", isBest && "font-semibold")}>{label}</span>
+        {isBest && (
+          <span className="text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
+            BEST
+          </span>
+        )}
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn("h-full rounded-full transition-all duration-500", colorClass)}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ModelSelector({
+  currentIds,
+  onAdd,
+}: {
+  currentIds: string[];
+  onAdd: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const { data } = useQuery({
+    queryKey: ["models-list-for-compare"],
+    queryFn: () => api.models.list({ per_page: 100 } as Parameters<typeof api.models.list>[0]),
+    enabled: open,
+    staleTime: 30_000,
+  });
+
+  const allModels: Model[] = data?.data ?? [];
+  const available = allModels.filter((m) => !currentIds.includes(m.id));
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
+      >
+        <Plus className="size-3" />
+        Add model
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-background p-2 shadow-sm">
+      <div className="mb-2 flex items-center justify-between px-1">
+        <span className="text-xs font-medium text-muted-foreground">Select a model</span>
+        <button
+          onClick={() => setOpen(false)}
+          className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+        >
+          <X className="size-3" />
+        </button>
+      </div>
+      {available.length === 0 ? (
+        <p className="px-1 py-2 text-xs text-muted-foreground">No more models available</p>
+      ) : (
+        <div className="max-h-48 space-y-0.5 overflow-y-auto">
+          {available.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => {
+                onAdd(m.id);
+                setOpen(false);
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/50"
+            >
+              <Cpu className="size-3 shrink-0 text-muted-foreground" />
+              <span className="font-mono text-xs">{m.name}</span>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "ml-auto text-[9px]",
+                  PROVIDER_COLORS[m.provider.toLowerCase()] ?? "bg-muted text-muted-foreground border-border"
+                )}
+              >
+                {m.provider}
+              </Badge>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ModelComparePage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const idsParam = searchParams.get("ids") ?? "";
   const ids = idsParam
     .split(",")
@@ -114,6 +240,16 @@ export default function ModelComparePage() {
   });
 
   const models: Model[] = data?.data ?? [];
+
+  function addModel(id: string) {
+    const newIds = [...ids, id];
+    navigate(`/models/compare?ids=${newIds.join(",")}`, { replace: true });
+  }
+
+  function removeModel(id: string) {
+    const newIds = ids.filter((i) => i !== id);
+    navigate(`/models/compare?ids=${newIds.join(",")}`, { replace: true });
+  }
 
   if (ids.length < 2) {
     return (
@@ -130,6 +266,9 @@ export default function ModelComparePage() {
           <p className="mt-1 text-xs text-muted-foreground">
             Go back to the models page and select models for comparison.
           </p>
+          <div className="mt-6 w-72">
+            <ModelSelector currentIds={ids} onAdd={addModel} />
+          </div>
         </div>
       </div>
     );
@@ -167,6 +306,11 @@ export default function ModelComparePage() {
   const bestInputPriceIdx = bestIndex(models, (m) => m.input_price_per_million, "min");
   const bestOutputPriceIdx = bestIndex(models, (m) => m.output_price_per_million, "min");
 
+  const maxContext = maxValue(models, (m) => m.context_window);
+  const maxOutput = maxValue(models, (m) => m.max_output_tokens);
+  const maxInputPrice = maxValue(models, (m) => m.input_price_per_million);
+  const maxOutputPrice = maxValue(models, (m) => m.output_price_per_million);
+
   return (
     <div className="mx-auto max-w-5xl p-6">
       <Link
@@ -176,11 +320,16 @@ export default function ModelComparePage() {
         <ArrowLeft className="size-3" /> Models
       </Link>
 
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold tracking-tight">Model Comparison</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Comparing {models.length} models
-        </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Model Comparison</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Comparing {models.length} models
+          </p>
+        </div>
+        {models.length < 3 && (
+          <ModelSelector currentIds={ids} onAdd={addModel} />
+        )}
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border">
@@ -193,13 +342,22 @@ export default function ModelComparePage() {
         >
           <div className="px-4 py-3" />
           {models.map((m) => (
-            <div key={m.id} className="px-4 py-3">
+            <div key={m.id} className="flex items-center gap-2 px-4 py-3">
               <Link
                 to={`/models/${m.id}`}
                 className="font-mono text-sm font-medium hover:underline"
               >
                 {m.name}
               </Link>
+              {models.length > 2 && (
+                <button
+                  onClick={() => removeModel(m.id)}
+                  className="ml-auto rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  title="Remove from comparison"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -246,8 +404,14 @@ export default function ModelComparePage() {
           models={models}
           extract={(m) => m.context_window}
           highlightBest={bestContextIdx}
-          render={(m) => (
-            <span className="font-mono text-sm">{formatContextWindow(m.context_window)}</span>
+          render={(m, i) => (
+            <ComparisonBar
+              value={m.context_window}
+              maxVal={maxContext}
+              label={formatContextWindow(m.context_window)}
+              isBest={i === bestContextIdx}
+              colorClass="bg-blue-500"
+            />
           )}
           isOdd={false}
         />
@@ -257,8 +421,14 @@ export default function ModelComparePage() {
           models={models}
           extract={(m) => m.max_output_tokens}
           highlightBest={bestOutputIdx}
-          render={(m) => (
-            <span className="font-mono text-sm">{formatContextWindow(m.max_output_tokens)}</span>
+          render={(m, i) => (
+            <ComparisonBar
+              value={m.max_output_tokens}
+              maxVal={maxOutput}
+              label={formatContextWindow(m.max_output_tokens)}
+              isBest={i === bestOutputIdx}
+              colorClass="bg-violet-500"
+            />
           )}
           isOdd
         />
@@ -268,12 +438,14 @@ export default function ModelComparePage() {
           models={models}
           extract={(m) => m.input_price_per_million}
           highlightBest={bestInputPriceIdx}
-          render={(m) => (
-            <span className="font-mono text-sm">
-              {m.input_price_per_million != null
-                ? `${formatPrice(m.input_price_per_million)} / 1M`
-                : "--"}
-            </span>
+          render={(m, i) => (
+            <ComparisonBar
+              value={m.input_price_per_million}
+              maxVal={maxInputPrice}
+              label={m.input_price_per_million != null ? `${formatPrice(m.input_price_per_million)} / 1M` : "--"}
+              isBest={i === bestInputPriceIdx}
+              colorClass="bg-emerald-500"
+            />
           )}
           isOdd={false}
         />
@@ -283,12 +455,14 @@ export default function ModelComparePage() {
           models={models}
           extract={(m) => m.output_price_per_million}
           highlightBest={bestOutputPriceIdx}
-          render={(m) => (
-            <span className="font-mono text-sm">
-              {m.output_price_per_million != null
-                ? `${formatPrice(m.output_price_per_million)} / 1M`
-                : "--"}
-            </span>
+          render={(m, i) => (
+            <ComparisonBar
+              value={m.output_price_per_million}
+              maxVal={maxOutputPrice}
+              label={m.output_price_per_million != null ? `${formatPrice(m.output_price_per_million)} / 1M` : "--"}
+              isBest={i === bestOutputPriceIdx}
+              colorClass="bg-amber-500"
+            />
           )}
           isOdd
         />

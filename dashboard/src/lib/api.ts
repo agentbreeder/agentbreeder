@@ -87,6 +87,14 @@ export interface ToolUsage {
   agent_status: string;
 }
 
+export type ToolHealthStatus = "healthy" | "slow" | "down" | "unknown";
+
+export interface ToolHealth {
+  status: ToolHealthStatus;
+  last_ping: string | null;
+  latency_ms: number | null;
+}
+
 // --- Model types ---
 
 export interface Model {
@@ -237,6 +245,7 @@ export const api = {
     },
     get: (id: string) => request<ToolDetail>(`/registry/tools/${id}`),
     usage: (id: string) => request<ToolUsage[]>(`/registry/tools/${id}/usage`),
+    health: (id: string) => request<ToolHealth>(`/registry/tools/${id}/health`),
   },
   models: {
     list: (params?: { provider?: string; source?: string; page?: number }) => {
