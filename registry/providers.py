@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import random
+import time
 import uuid
 from datetime import UTC, datetime
 
@@ -13,6 +15,223 @@ from api.models.database import Provider
 from api.models.enums import ProviderStatus, ProviderType
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Rich model discovery data per provider type
+# ---------------------------------------------------------------------------
+
+PROVIDER_MODELS: dict[str, list[dict]] = {
+    "openai": [
+        {
+            "id": "gpt-4o",
+            "name": "GPT-4o",
+            "context_window": 128_000,
+            "max_output_tokens": 16_384,
+            "input_price_per_million": 2.50,
+            "output_price_per_million": 10.00,
+            "capabilities": ["chat", "vision", "function_calling", "json_mode"],
+        },
+        {
+            "id": "gpt-4o-mini",
+            "name": "GPT-4o Mini",
+            "context_window": 128_000,
+            "max_output_tokens": 16_384,
+            "input_price_per_million": 0.15,
+            "output_price_per_million": 0.60,
+            "capabilities": ["chat", "vision", "function_calling", "json_mode"],
+        },
+        {
+            "id": "gpt-4-turbo",
+            "name": "GPT-4 Turbo",
+            "context_window": 128_000,
+            "max_output_tokens": 4_096,
+            "input_price_per_million": 10.00,
+            "output_price_per_million": 30.00,
+            "capabilities": ["chat", "vision", "function_calling", "json_mode"],
+        },
+        {
+            "id": "o3-mini",
+            "name": "o3-mini",
+            "context_window": 200_000,
+            "max_output_tokens": 100_000,
+            "input_price_per_million": 1.10,
+            "output_price_per_million": 4.40,
+            "capabilities": ["chat", "reasoning", "function_calling"],
+        },
+        {
+            "id": "text-embedding-3-small",
+            "name": "Text Embedding 3 Small",
+            "context_window": 8_191,
+            "max_output_tokens": None,
+            "input_price_per_million": 0.02,
+            "output_price_per_million": None,
+            "capabilities": ["embedding"],
+        },
+        {
+            "id": "text-embedding-3-large",
+            "name": "Text Embedding 3 Large",
+            "context_window": 8_191,
+            "max_output_tokens": None,
+            "input_price_per_million": 0.13,
+            "output_price_per_million": None,
+            "capabilities": ["embedding"],
+        },
+    ],
+    "anthropic": [
+        {
+            "id": "claude-opus-4-6",
+            "name": "Claude Opus 4.6",
+            "context_window": 200_000,
+            "max_output_tokens": 32_000,
+            "input_price_per_million": 15.00,
+            "output_price_per_million": 75.00,
+            "capabilities": ["chat", "vision", "function_calling", "extended_thinking"],
+        },
+        {
+            "id": "claude-sonnet-4-6",
+            "name": "Claude Sonnet 4.6",
+            "context_window": 200_000,
+            "max_output_tokens": 16_000,
+            "input_price_per_million": 3.00,
+            "output_price_per_million": 15.00,
+            "capabilities": ["chat", "vision", "function_calling", "extended_thinking"],
+        },
+        {
+            "id": "claude-haiku-4-5",
+            "name": "Claude Haiku 4.5",
+            "context_window": 200_000,
+            "max_output_tokens": 8_192,
+            "input_price_per_million": 0.80,
+            "output_price_per_million": 4.00,
+            "capabilities": ["chat", "vision", "function_calling"],
+        },
+    ],
+    "google": [
+        {
+            "id": "gemini-2.5-pro",
+            "name": "Gemini 2.5 Pro",
+            "context_window": 1_000_000,
+            "max_output_tokens": 65_536,
+            "input_price_per_million": 1.25,
+            "output_price_per_million": 10.00,
+            "capabilities": ["chat", "vision", "function_calling", "grounding"],
+        },
+        {
+            "id": "gemini-2.5-flash",
+            "name": "Gemini 2.5 Flash",
+            "context_window": 1_000_000,
+            "max_output_tokens": 65_536,
+            "input_price_per_million": 0.15,
+            "output_price_per_million": 0.60,
+            "capabilities": ["chat", "vision", "function_calling", "grounding"],
+        },
+    ],
+    "ollama": [
+        {
+            "id": "llama3.2",
+            "name": "Llama 3.2",
+            "context_window": 128_000,
+            "max_output_tokens": 4_096,
+            "input_price_per_million": None,
+            "output_price_per_million": None,
+            "capabilities": ["chat", "function_calling"],
+        },
+        {
+            "id": "mistral",
+            "name": "Mistral 7B",
+            "context_window": 32_000,
+            "max_output_tokens": 4_096,
+            "input_price_per_million": None,
+            "output_price_per_million": None,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "codellama",
+            "name": "Code Llama",
+            "context_window": 16_000,
+            "max_output_tokens": 4_096,
+            "input_price_per_million": None,
+            "output_price_per_million": None,
+            "capabilities": ["chat", "code"],
+        },
+        {
+            "id": "nomic-embed-text",
+            "name": "Nomic Embed Text",
+            "context_window": 8_192,
+            "max_output_tokens": None,
+            "input_price_per_million": None,
+            "output_price_per_million": None,
+            "capabilities": ["embedding"],
+        },
+    ],
+    "litellm": [
+        {
+            "id": "gpt-4o",
+            "name": "GPT-4o (via LiteLLM)",
+            "context_window": 128_000,
+            "max_output_tokens": 16_384,
+            "input_price_per_million": 2.50,
+            "output_price_per_million": 10.00,
+            "capabilities": ["chat", "vision", "function_calling"],
+        },
+        {
+            "id": "claude-sonnet-4-6",
+            "name": "Claude Sonnet 4.6 (via LiteLLM)",
+            "context_window": 200_000,
+            "max_output_tokens": 16_000,
+            "input_price_per_million": 3.00,
+            "output_price_per_million": 15.00,
+            "capabilities": ["chat", "vision", "function_calling"],
+        },
+        {
+            "id": "gemini-2.5-flash",
+            "name": "Gemini 2.5 Flash (via LiteLLM)",
+            "context_window": 1_000_000,
+            "max_output_tokens": 65_536,
+            "input_price_per_million": 0.15,
+            "output_price_per_million": 0.60,
+            "capabilities": ["chat", "vision", "function_calling"],
+        },
+    ],
+    "openrouter": [
+        {
+            "id": "openai/gpt-4o",
+            "name": "GPT-4o (OpenRouter)",
+            "context_window": 128_000,
+            "max_output_tokens": 16_384,
+            "input_price_per_million": 2.50,
+            "output_price_per_million": 10.00,
+            "capabilities": ["chat", "vision", "function_calling"],
+        },
+        {
+            "id": "anthropic/claude-sonnet-4-6",
+            "name": "Claude Sonnet 4.6 (OpenRouter)",
+            "context_window": 200_000,
+            "max_output_tokens": 16_000,
+            "input_price_per_million": 3.00,
+            "output_price_per_million": 15.00,
+            "capabilities": ["chat", "vision", "function_calling"],
+        },
+        {
+            "id": "google/gemini-2.5-pro",
+            "name": "Gemini 2.5 Pro (OpenRouter)",
+            "context_window": 1_000_000,
+            "max_output_tokens": 65_536,
+            "input_price_per_million": 1.25,
+            "output_price_per_million": 10.00,
+            "capabilities": ["chat", "vision", "function_calling"],
+        },
+        {
+            "id": "meta-llama/llama-3.1-70b",
+            "name": "Llama 3.1 70B (OpenRouter)",
+            "context_window": 128_000,
+            "max_output_tokens": 4_096,
+            "input_price_per_million": 0.52,
+            "output_price_per_million": 0.75,
+            "capabilities": ["chat", "function_calling"],
+        },
+    ],
+}
 
 
 class ProviderRegistry:
@@ -104,6 +323,35 @@ class ProviderRegistry:
         logger.info("Deleted provider '%s'", name)
 
     @staticmethod
+    async def toggle(session: AsyncSession, provider: Provider) -> Provider:
+        """Toggle a provider's is_enabled flag."""
+        provider.is_enabled = not provider.is_enabled
+        if provider.is_enabled:
+            provider.status = ProviderStatus.active
+        else:
+            provider.status = ProviderStatus.disabled
+        await session.flush()
+        logger.info(
+            "Toggled provider '%s' -> %s",
+            provider.name,
+            "enabled" if provider.is_enabled else "disabled",
+        )
+        return provider
+
+    @staticmethod
+    async def update_provider_status(
+        session: AsyncSession, provider_id: uuid.UUID, status: ProviderStatus
+    ) -> Provider | None:
+        """Update only the health status of a provider."""
+        provider = await ProviderRegistry.get(session, provider_id)
+        if not provider:
+            return None
+        provider.status = status
+        await session.flush()
+        logger.info("Updated provider '%s' status -> %s", provider.name, status.value)
+        return provider
+
+    @staticmethod
     async def test_connection(
         session: AsyncSession,
         provider: Provider,
@@ -113,58 +361,15 @@ class ProviderRegistry:
         NOTE: This is a simulated test. In production, this would actually
         call the provider API to verify connectivity.
         """
-        import random
-        import time
-
         start = time.monotonic()
 
-        # Simulate provider-specific connection test
-        simulated_models: dict[str, list[str]] = {
-            "openai": [
-                "gpt-4o",
-                "gpt-4o-mini",
-                "gpt-4-turbo",
-                "gpt-3.5-turbo",
-                "o1",
-                "o1-mini",
-                "o3-mini",
-            ],
-            "anthropic": [
-                "claude-sonnet-4-20250514",
-                "claude-haiku-4-20250414",
-                "claude-3.5-sonnet-20241022",
-                "claude-3-haiku-20240307",
-            ],
-            "google": [
-                "gemini-2.0-flash",
-                "gemini-1.5-pro",
-                "gemini-1.5-flash",
-            ],
-            "ollama": [
-                "llama3.2",
-                "mistral",
-                "codellama",
-                "phi3",
-            ],
-            "litellm": [
-                "gpt-4o",
-                "claude-sonnet-4-20250514",
-                "gemini-2.0-flash",
-            ],
-            "openrouter": [
-                "openai/gpt-4o",
-                "anthropic/claude-sonnet-4-20250514",
-                "google/gemini-2.0-flash",
-                "meta-llama/llama-3.1-70b",
-            ],
-        }
-
-        models = simulated_models.get(provider.provider_type.value, [])
-        elapsed_ms = int((time.monotonic() - start) * 1000) + random.randint(20, 150)
+        models = PROVIDER_MODELS.get(provider.provider_type.value, [])
+        elapsed_ms = int((time.monotonic() - start) * 1000) + random.randint(150, 300)
 
         # Update provider record
         provider.last_verified = datetime.now(UTC)
         provider.latency_ms = elapsed_ms
+        provider.avg_latency_ms = elapsed_ms  # first test sets avg equal to reading
         provider.model_count = len(models)
         provider.status = ProviderStatus.active
         await session.flush()
@@ -172,7 +377,7 @@ class ProviderRegistry:
         return {
             "success": True,
             "latency_ms": elapsed_ms,
-            "model_count": len(models),
+            "models_found": len(models),
             "error": None,
         }
 
@@ -180,53 +385,16 @@ class ProviderRegistry:
     async def discover_models(
         session: AsyncSession,
         provider: Provider,
-    ) -> list[str]:
+    ) -> list[dict]:
         """Discover available models from a provider.
+
+        Returns a list of dicts with id, name, context_window,
+        max_output_tokens, pricing, and capabilities.
 
         NOTE: This is a simulated discovery. In production, this would call
         the provider's models API endpoint.
         """
-        simulated_models: dict[str, list[str]] = {
-            "openai": [
-                "gpt-4o",
-                "gpt-4o-mini",
-                "gpt-4-turbo",
-                "gpt-3.5-turbo",
-                "o1",
-                "o1-mini",
-                "o3-mini",
-            ],
-            "anthropic": [
-                "claude-sonnet-4-20250514",
-                "claude-haiku-4-20250414",
-                "claude-3.5-sonnet-20241022",
-                "claude-3-haiku-20240307",
-            ],
-            "google": [
-                "gemini-2.0-flash",
-                "gemini-1.5-pro",
-                "gemini-1.5-flash",
-            ],
-            "ollama": [
-                "llama3.2",
-                "mistral",
-                "codellama",
-                "phi3",
-            ],
-            "litellm": [
-                "gpt-4o",
-                "claude-sonnet-4-20250514",
-                "gemini-2.0-flash",
-            ],
-            "openrouter": [
-                "openai/gpt-4o",
-                "anthropic/claude-sonnet-4-20250514",
-                "google/gemini-2.0-flash",
-                "meta-llama/llama-3.1-70b",
-            ],
-        }
-
-        models = simulated_models.get(provider.provider_type.value, [])
+        models = PROVIDER_MODELS.get(provider.provider_type.value, [])
         provider.model_count = len(models)
         await session.flush()
 

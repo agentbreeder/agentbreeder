@@ -231,8 +231,10 @@ class Provider(Base):
     status: Mapped[ProviderStatus] = mapped_column(
         Enum(ProviderStatus), default=ProviderStatus.active, nullable=False
     )
+    is_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
     last_verified: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     model_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

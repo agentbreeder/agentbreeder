@@ -14,8 +14,9 @@ from api.models.enums import ProviderStatus, ProviderType
 from api.models.schemas import (
     ApiMeta,
     ApiResponse,
+    DiscoveredModel,
+    ModelDiscoveryResult,
     ProviderCreate,
-    ProviderDiscoverResult,
     ProviderResponse,
     ProviderTestResult,
     ProviderUpdate,
@@ -126,16 +127,39 @@ async def test_provider(
     return ApiResponse(data=ProviderTestResult(**result))
 
 
-@router.post("/{provider_id}/discover", response_model=ApiResponse[ProviderDiscoverResult])
+@router.post("/{provider_id}/discover", response_model=ApiResponse[ModelDiscoveryResult])
 async def discover_models(
     provider_id: uuid.UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> ApiResponse[ProviderDiscoverResult]:
+) -> ApiResponse[ModelDiscoveryResult]:
     """Discover available models from a provider."""
     provider = await ProviderRegistry.get(db, provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
 
-    models = await ProviderRegistry.discover_models(db, provider)
-    return ApiResponse(data=ProviderDiscoverResult(models=models, total=len(models)))
+    raw_models = await ProviderRegistry.discover_models(db, provider)
+    discovered = [DiscoveredModel(**m) for m in raw_models]
+    return ApiResponse(
+        data=ModelDiscoveryResult(
+            provider_id=provider.id,
+            provider_type=provider.provider_type,
+            models=discovered,
+            total=len(discovered),
+        )
+    )
+
+
+@router.post("/{provider_id}/toggle", response_model=ApiResponse[ProviderResponse])
+async def toggle_provider(
+    provider_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[ProviderResponse]:
+    """Enable or disable a provider (toggle is_enabled)."""
+    provider = await ProviderRegistry.get(db, provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    provider = await ProviderRegistry.toggle(db, provider)
+    return ApiResponse(data=ProviderResponse.model_validate(provider))

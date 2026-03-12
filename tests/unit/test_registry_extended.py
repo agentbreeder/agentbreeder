@@ -506,7 +506,7 @@ class TestProviderRegistryTestConnection:
         result = await ProviderRegistry.test_connection(session, p)
         assert result["success"] is True
         assert result["latency_ms"] > 0
-        assert result["model_count"] == 7  # openai has 7 simulated models
+        assert result["models_found"] == 6  # openai has 6 simulated models
         assert p.status == ProviderStatus.active
         assert p.last_verified is not None
 
@@ -516,15 +516,15 @@ class TestProviderRegistryDiscoverModels:
     async def test_discover_openai(self, session: AsyncSession) -> None:
         p = await ProviderRegistry.create(session, name="p1", provider_type=ProviderType.openai)
         models = await ProviderRegistry.discover_models(session, p)
-        assert len(models) == 7
-        assert "gpt-4o" in models
+        assert len(models) == 6
+        assert any(m["id"] == "gpt-4o" for m in models)
 
     @pytest.mark.asyncio
     async def test_discover_anthropic(self, session: AsyncSession) -> None:
         p = await ProviderRegistry.create(session, name="p1", provider_type=ProviderType.anthropic)
         models = await ProviderRegistry.discover_models(session, p)
-        assert len(models) == 4
-        assert any("claude" in m for m in models)
+        assert len(models) == 3
+        assert any("claude" in m["id"] for m in models)
 
     @pytest.mark.asyncio
     async def test_discover_unknown_type(self, session: AsyncSession) -> None:

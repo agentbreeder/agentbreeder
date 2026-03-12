@@ -43,7 +43,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
 
 // --- Agent types ---
 
-export type AgentStatus = "deploying" | "running" | "stopped" | "failed" | "degraded" | "error";
+export type AgentStatus = "deploying" | "running" | "stopped" | "failed";
 
 export interface Agent {
   id: string;
@@ -84,9 +84,7 @@ export interface ToolDetail extends Tool {
 export interface ToolUsage {
   agent_id: string;
   agent_name: string;
-  agent_version: string;
   agent_status: string;
-  last_deployed: string | null;
 }
 
 export type ToolHealthStatus = "healthy" | "slow" | "down" | "unknown";
@@ -132,6 +130,24 @@ export interface Prompt {
   description: string;
   team: string;
   created_at: string;
+}
+
+// --- Prompt Version types ---
+
+export interface PromptVersion {
+  id: string;
+  prompt_id: string;
+  version_number: number;
+  content: string;
+  change_summary: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface PromptDiff {
+  left_version: number;
+  right_version: number;
+  diff: string;
 }
 
 // --- Deploy types ---
@@ -291,6 +307,24 @@ export const api = {
       request<Prompt>(`/registry/prompts/${id}/duplicate`, {
         method: "POST",
       }),
+    versionHistory: (id: string) =>
+      request<PromptVersion[]>(`/registry/prompts/${id}/versions/history`),
+    createVersion: (
+      id: string,
+      data: { content: string; change_summary?: string; created_by?: string }
+    ) =>
+      request<PromptVersion>(`/registry/prompts/${id}/versions/history`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    getVersion: (promptId: string, versionId: string) =>
+      request<PromptVersion>(
+        `/registry/prompts/${promptId}/versions/history/${versionId}`
+      ),
+    diffVersions: (promptId: string, v1: string, v2: string) =>
+      request<PromptDiff>(
+        `/registry/prompts/${promptId}/versions/history/${v1}/diff/${v2}`
+      ),
   },
   deploys: {
     list: (params?: {

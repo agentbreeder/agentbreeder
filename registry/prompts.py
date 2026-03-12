@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
 
 from sqlalchemy import func, or_, select
@@ -197,3 +198,81 @@ class PromptRegistry:
         prompts = list(result.scalars().all())
 
         return prompts, total
+
+    # --- Prompt Version Snapshot methods ---
+
+    @staticmethod
+    async def list_version_snapshots(
+        session: AsyncSession, prompt_id: str
+    ) -> list[PromptVersion]:
+        """List all version snapshots of a prompt, ordered by created_at descending."""
+        stmt = (
+            select(PromptVersion)
+            .where(PromptVersion.prompt_id == prompt_id)
+            .order_by(PromptVersion.created_at.desc())
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def create_version_snapshot(
+        session: AsyncSession,
+        prompt_id: str,
+        version: str,
+        content: str,
+        change_summary: str = "",
+        author: str = "",
+    ) -> PromptVersion:
+        """Create a new version snapshot for a prompt."""
+        ver = PromptVersion(
+            prompt_id=prompt_id,
+            version=version,
+            content=content,
+            change_summary=change_summary or "",
+            author=author,
+        )
+        session.add(ver)
+        await session.flush()
+        logger.info("Created version snapshot %s for prompt %s", version, prompt_id)
+        return ver
+
+    @staticmethod
+    async def get_version_snapshot(
+        session: AsyncSession, prompt_id: str, version_id: str
+    ) -> PromptVersion | None:
+        """Get a specific version snapshot by ID, scoped to a prompt."""
+        stmt = select(PromptVersion).where(
+            PromptVersion.id == version_id,
+            PromptVersion.prompt_id == prompt_id,
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def diff_version_snapshots(
+        session: AsyncSession, prompt_id: str, version_id_1: str, version_id_2: str
+    ) -> tuple[PromptVersion | None, PromptVersion | None, str]:
+        """Compute a unified diff between two prompt version snapshots."""
+        stmt1 = select(PromptVersion).where(
+            PromptVersion.id == version_id_1,
+            PromptVersion.prompt_id == prompt_id,
+        )
+        stmt2 = select(PromptVersion).where(
+            PromptVersion.id == version_id_2,
+            PromptVersion.prompt_id == prompt_id,
+        )
+        r1 = await session.execute(stmt1)
+        r2 = await session.execute(stmt2)
+        v1 = r1.scalar_one_or_none()
+        v2 = r2.scalar_one_or_none()
+
+        if not v1 or not v2:
+            return v1, v2, ""
+
+        diff_lines = difflib.unified_diff(
+            v1.content.splitlines(keepends=True),
+            v2.content.splitlines(keepends=True),
+            fromfile=f"v{v1.version}",
+            tofile=f"v{v2.version}",
+        )
+        return v1, v2, "".join(diff_lines)

@@ -310,8 +310,10 @@ class ProviderResponse(BaseModel):
     provider_type: ProviderType
     base_url: str | None
     status: ProviderStatus
+    is_enabled: bool
     last_verified: datetime | None
     latency_ms: int | None
+    avg_latency_ms: int | None
     model_count: int
     config: dict[str, Any] | None
     created_at: datetime
@@ -323,12 +325,31 @@ class ProviderResponse(BaseModel):
 class ProviderTestResult(BaseModel):
     success: bool
     latency_ms: int | None = None
-    model_count: int | None = None
+    models_found: int | None = None
     error: str | None = None
 
 
+class DiscoveredModel(BaseModel):
+    id: str
+    name: str
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    input_price_per_million: float | None = None
+    output_price_per_million: float | None = None
+    capabilities: list[str] = Field(default_factory=list)
+
+
+class ModelDiscoveryResult(BaseModel):
+    provider_id: uuid.UUID
+    provider_type: ProviderType
+    models: list[DiscoveredModel]
+    total: int
+
+
 class ProviderDiscoverResult(BaseModel):
-    models: list[str]
+    """Legacy alias — prefer ModelDiscoveryResult."""
+
+    models: list[DiscoveredModel]
     total: int
 
 

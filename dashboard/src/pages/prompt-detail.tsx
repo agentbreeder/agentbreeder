@@ -21,22 +21,17 @@ import {
   GitCompare,
   RotateCcw,
   Layers,
+  Play,
   FlaskConical,
-  Send,
   ChevronDown,
-  ChevronRight,
-  Sparkles,
-  DollarSign,
-  Timer,
-  Bot,
+  Hash,
 } from "lucide-react";
-import { api, type Prompt } from "@/lib/api";
+import { api, type Prompt, type PromptVersion } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RelativeTime } from "@/components/ui/relative-time";
 import { cn } from "@/lib/utils";
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 /** Lightweight Markdown-to-HTML renderer for the preview panel. */
@@ -273,7 +268,11 @@ function VersionTimeline({
                   </span>
                 )}
                 <span className="text-[10px] text-muted-foreground">
-                  <RelativeTime date={v.created_at} />
+                  {new Date(v.created_at).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
                 </span>
               </div>
               <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
@@ -339,13 +338,13 @@ function DiffViewer({
         <div className="flex-1 border-r border-border px-3 py-2">
           <span className="text-xs font-medium">v{leftVersion.version}</span>
           <span className="ml-2 text-[10px] text-muted-foreground">
-            <RelativeTime date={leftVersion.created_at} />
+            {new Date(leftVersion.created_at).toLocaleDateString()}
           </span>
         </div>
         <div className="flex-1 px-3 py-2">
           <span className="text-xs font-medium">v{rightVersion.version}</span>
           <span className="ml-2 text-[10px] text-muted-foreground">
-            <RelativeTime date={rightVersion.created_at} />
+            {new Date(rightVersion.created_at).toLocaleDateString()}
           </span>
         </div>
       </div>
@@ -414,7 +413,11 @@ function VersionContentViewer({
             v{version.version}
           </Badge>
           <span className="text-xs text-muted-foreground">
-            <RelativeTime date={version.created_at} />
+            {new Date(version.created_at).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
           </span>
         </div>
         <Button variant="outline" size="sm" className="h-6 px-2 text-[10px]" onClick={onClose}>
@@ -431,342 +434,332 @@ function VersionContentViewer({
   );
 }
 
-/** Extracts {{variable}} placeholders from a prompt string. */
-function extractTemplateVariables(text: string): string[] {
-  const matches = text.match(/\{\{(\w+)\}\}/g);
+/** Extract {{variable}} placeholders from prompt content. */
+function extractVariables(content: string): string[] {
+  const matches = content.match(/\{\{(\w+)\}\}/g);
   if (!matches) return [];
-  const unique = [...new Set(matches.map((m) => m.replace(/\{\{|\}\}/g, "")))];
-  return unique;
+  return [...new Set(matches.map((m) => m.replace(/\{\{|\}\}/g, "")))];
 }
 
-/** Fills {{variable}} placeholders in text with provided values. */
-function fillTemplateVariables(
-  text: string,
-  variables: Record<string, string>
-): string {
-  return text.replace(/\{\{(\w+)\}\}/g, (match, name) => {
-    return variables[name] ?? match;
-  });
+/** Substitute {{variable}} placeholders with provided values. */
+function renderTemplate(content: string, variables: Record<string, string>): string {
+  let rendered = content;
+  for (const [key, value] of Object.entries(variables)) {
+    rendered = rendered.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value || `{{${key}}}`);
+  }
+  return rendered;
 }
 
-const MOCK_MODELS = [
-  { id: "claude-sonnet-4", name: "Claude Sonnet 4", costPer1kInput: 0.003, costPer1kOutput: 0.015 },
-  { id: "gpt-4o", name: "GPT-4o", costPer1kInput: 0.005, costPer1kOutput: 0.015 },
-  { id: "llama3.2", name: "Llama 3.2", costPer1kInput: 0.0002, costPer1kOutput: 0.0002 },
-  { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", costPer1kInput: 0.00035, costPer1kOutput: 0.0015 },
-  { id: "claude-haiku-3.5", name: "Claude Haiku 3.5", costPer1kInput: 0.0008, costPer1kOutput: 0.004 },
-];
+/** Estimate token count (~4 chars per token). */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
 
-const MOCK_RESPONSES = [
-  "I've analyzed the information provided and here's my assessment. Based on the context, the key considerations are:\n\n1. **Clarity** - The instructions are well-structured and provide clear guidance\n2. **Completeness** - All necessary context is included for generating a helpful response\n3. **Tone** - The prompt establishes an appropriate professional tone\n\nI'm ready to assist users following these guidelines. Is there anything specific you'd like me to focus on?",
-  "Thank you for the context. Based on the system prompt configuration, I'll operate within these parameters:\n\n- Maintain a helpful and professional demeanor\n- Provide accurate, well-sourced information\n- Flag any uncertainties rather than guessing\n\nThe prompt template is well-designed for this use case. I'd recommend testing with a few edge cases to ensure coverage.",
-  "Understood. I've processed the system prompt and I'm ready to assist. Here's a summary of how I'll approach interactions:\n\n**Approach:** I'll be direct yet thorough, prioritizing accuracy over speed.\n\n**Limitations:** I'll clearly communicate when a question falls outside my configured scope.\n\n**Style:** Responses will be structured with headers and bullet points for readability when appropriate.",
-];
+const MOCK_RESPONSES: Record<string, string> = {
+  "gpt-4o":
+    "Based on the prompt provided, I would approach this task by first analyzing the key requirements and then structuring a comprehensive response. The system prompt establishes clear guidelines for interaction, and I will adhere to those parameters while providing helpful, accurate information tailored to the user's needs.",
+  "claude-sonnet-4":
+    "I understand the context established by this prompt. Let me work through the request systematically. The prompt provides a well-structured framework for interaction, and I will respond within those boundaries while offering thorough, nuanced analysis of the topic at hand.",
+  "llama3.2":
+    "Following the instructions in the prompt, I will provide a focused and relevant response. The guidelines are clear, and I aim to deliver practical, actionable information that aligns with the stated objectives and constraints.",
+};
 
-/** Test Prompt panel for trying out prompts with mock LLM responses. */
-function TestPromptPanel({ promptContent }: { promptContent: string }) {
-  const [selectedModel, setSelectedModel] = useState(MOCK_MODELS[0].id);
-  const [temperature, setTemperature] = useState(0.7);
-  const [testMessage, setTestMessage] = useState("");
-  const [variableValues, setVariableValues] = useState<Record<string, string>>({});
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [response, setResponse] = useState<{
-    renderedSystemPrompt: string;
-    assistantMessage: string;
-    inputTokens: number;
-    outputTokens: number;
-    cost: number;
-    responseTime: number;
-  } | null>(null);
-  const [showSystemPrompt, setShowSystemPrompt] = useState(false);
+const TEST_MODELS = ["gpt-4o", "claude-sonnet-4", "llama3.2"] as const;
 
-  const templateVars = useMemo(
-    () => extractTemplateVariables(promptContent),
-    [promptContent]
+/** Prompt Test Panel component. */
+function PromptTestPanel({ content }: { content: string }) {
+  const [selectedModel, setSelectedModel] = useState<string>(TEST_MODELS[0]);
+  const [variables, setVariables] = useState<Record<string, string>>({});
+  const [isRunning, setIsRunning] = useState(false);
+  const [testResponse, setTestResponse] = useState<string | null>(null);
+  const [showRendered, setShowRendered] = useState(false);
+
+  const templateVars = useMemo(() => extractVariables(content), [content]);
+  const renderedContent = useMemo(
+    () => renderTemplate(content, variables),
+    [content, variables]
   );
+  const tokenEstimate = useMemo(() => estimateTokens(renderedContent), [renderedContent]);
 
-  // Reset variable values when template vars change
-  useEffect(() => {
-    setVariableValues((prev) => {
-      const next: Record<string, string> = {};
-      for (const v of templateVars) {
-        next[v] = prev[v] ?? "";
-      }
-      return next;
-    });
-  }, [templateVars]);
-
-  const model = MOCK_MODELS.find((m) => m.id === selectedModel) ?? MOCK_MODELS[0];
-
-  const handleSendTest = useCallback(() => {
-    if (!testMessage.trim() && templateVars.length === 0) return;
-
-    setIsGenerating(true);
-    setResponse(null);
-
-    const delay = 500 + Math.random() * 2000;
-
+  const handleRunTest = useCallback(() => {
+    setIsRunning(true);
+    setTestResponse(null);
+    // Simulate a 1.5s delay for mock LLM response
     setTimeout(() => {
-      const renderedSystemPrompt = fillTemplateVariables(
-        promptContent,
-        variableValues
+      setTestResponse(
+        MOCK_RESPONSES[selectedModel] ??
+          "Response generated successfully. This is a placeholder response since LLM integration is not yet configured."
       );
-
-      const mockResponse =
-        MOCK_RESPONSES[Math.floor(Math.random() * MOCK_RESPONSES.length)];
-
-      // Estimate tokens: ~1.3 tokens per word
-      const systemWords = renderedSystemPrompt.split(/\s+/).length;
-      const messageWords = testMessage.split(/\s+/).length;
-      const responseWords = mockResponse.split(/\s+/).length;
-      const inputTokens = Math.round((systemWords + messageWords) * 1.3);
-      const outputTokens = Math.round(responseWords * 1.3);
-
-      const cost =
-        (inputTokens / 1000) * model.costPer1kInput +
-        (outputTokens / 1000) * model.costPer1kOutput;
-
-      setResponse({
-        renderedSystemPrompt,
-        assistantMessage: mockResponse,
-        inputTokens,
-        outputTokens,
-        cost,
-        responseTime: delay / 1000,
-      });
-      setIsGenerating(false);
-    }, delay);
-  }, [testMessage, promptContent, variableValues, model, templateVars]);
+      setIsRunning(false);
+    }, 1500);
+  }, [selectedModel]);
 
   return (
     <div className="mt-4 space-y-4">
-      {/* Controls row */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {/* Left column: model + temperature */}
-        <div className="space-y-3">
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Left: Configuration */}
+        <div className="space-y-4">
           {/* Model selector */}
-          <div>
-            <label className="mb-1 block text-xs font-medium text-foreground">
-              Model
-            </label>
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-            >
-              {MOCK_MODELS.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Temperature slider */}
-          <div>
-            <label className="mb-1 flex items-center justify-between text-xs font-medium text-foreground">
-              <span>Temperature</span>
-              <span className="font-mono text-[10px] text-muted-foreground">
-                {temperature.toFixed(1)}
-              </span>
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={temperature}
-              onChange={(e) => setTemperature(parseFloat(e.target.value))}
-              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-foreground"
-            />
-            <div className="mt-0.5 flex justify-between text-[9px] text-muted-foreground/60">
-              <span>Precise</span>
-              <span>Creative</span>
+          <div className="rounded-lg border border-border p-4">
+            <label className="mb-2 block text-xs font-medium">Model</label>
+            <div className="relative">
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="h-8 w-full appearance-none rounded-md border border-input bg-background px-3 pr-8 text-xs outline-none focus:ring-1 focus:ring-ring"
+              >
+                {TEST_MODELS.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-2 size-3.5 text-muted-foreground" />
             </div>
           </div>
-        </div>
 
-        {/* Right column: template variables (if any) */}
-        <div className="space-y-3">
-          {templateVars.length > 0 ? (
-            <>
-              <label className="mb-1 block text-xs font-medium text-foreground">
+          {/* Template variables */}
+          {templateVars.length > 0 && (
+            <div className="rounded-lg border border-border p-4">
+              <label className="mb-2 block text-xs font-medium">
                 Template Variables
               </label>
               <div className="space-y-2">
                 {templateVars.map((varName) => (
                   <div key={varName}>
-                    <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground">
-                      {"{{"}
-                      {varName}
-                      {"}}"}
+                    <label className="mb-1 block text-[10px] font-mono text-muted-foreground">
+                      {`{{${varName}}}`}
                     </label>
                     <input
                       type="text"
-                      value={variableValues[varName] ?? ""}
+                      value={variables[varName] ?? ""}
                       onChange={(e) =>
-                        setVariableValues((prev) => ({
+                        setVariables((prev) => ({
                           ...prev,
                           [varName]: e.target.value,
                         }))
                       }
                       placeholder={`Enter value for ${varName}...`}
-                      className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
+                      className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
                     />
                   </div>
                 ))}
               </div>
-            </>
-          ) : (
-            <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border p-4">
-              <p className="text-[10px] text-muted-foreground/60">
-                No {"{{variables}}"} detected in prompt. Add {"{{variable_name}}"}{" "}
-                placeholders in your prompt to see input fields here.
-              </p>
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Test message input + send */}
-      <div>
-        <label className="mb-1 block text-xs font-medium text-foreground">
-          Test Message
-        </label>
-        <div className="relative">
-          <textarea
-            value={testMessage}
-            onChange={(e) => setTestMessage(e.target.value)}
-            placeholder="Type a test user message..."
-            rows={3}
-            className="w-full resize-none rounded-md border border-input bg-background p-3 pr-20 text-xs leading-relaxed outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                handleSendTest();
-              }
-            }}
-          />
-          <div className="absolute bottom-2 right-2">
+          {/* Token estimate & run button */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              <Hash className="size-3" />
+              <span>~{tokenEstimate.toLocaleString()} tokens (estimated)</span>
+            </div>
             <Button
               size="sm"
-              onClick={handleSendTest}
-              disabled={isGenerating || (!testMessage.trim() && templateVars.length === 0)}
-              className="h-7 gap-1 px-3 text-[10px]"
+              onClick={handleRunTest}
+              disabled={isRunning}
             >
-              {isGenerating ? (
-                <Loader2 className="size-3 animate-spin" />
+              {isRunning ? (
+                <Loader2 className="size-3 animate-spin" data-icon="inline-start" />
               ) : (
-                <Send className="size-3" />
+                <Play className="size-3" data-icon="inline-start" />
               )}
-              {isGenerating ? "Generating..." : "Send Test"}
+              {isRunning ? "Running..." : "Send Test"}
             </Button>
           </div>
         </div>
-        <p className="mt-1 text-[10px] text-muted-foreground/60">
-          Press Cmd+Enter to send
-        </p>
+
+        {/* Right: Rendered prompt preview */}
+        <div className="rounded-lg border border-border">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <span className="text-xs font-medium">
+              {showRendered ? "Rendered Prompt" : "Raw Prompt"}
+            </span>
+            <button
+              onClick={() => setShowRendered(!showRendered)}
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showRendered ? "Show raw" : "Show rendered"}
+            </button>
+          </div>
+          <div className="max-h-[40vh] overflow-auto p-3">
+            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground">
+              {showRendered ? renderedContent : content}
+            </pre>
+          </div>
+        </div>
       </div>
 
-      {/* Loading state */}
-      {isGenerating && (
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="size-3.5 animate-pulse text-amber-500" />
-            <span className="text-xs font-medium text-muted-foreground">
-              Generating response with {model.name}...
-            </span>
-          </div>
-          <div className="flex gap-1">
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/40 [animation-delay:0ms]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/40 [animation-delay:150ms]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/40 [animation-delay:300ms]" />
-          </div>
-        </div>
-      )}
-
-      {/* Response area */}
-      {response && (
-        <div className="space-y-3">
-          {/* Stats bar */}
-          <div className="flex flex-wrap items-center gap-3 rounded-md bg-muted/30 px-3 py-2">
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Timer className="size-2.5" />
-              {response.responseTime.toFixed(2)}s
-            </span>
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Sparkles className="size-2.5" />
-              {response.inputTokens} in / {response.outputTokens} out tokens
-            </span>
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <DollarSign className="size-2.5" />
-              ${response.cost.toFixed(6)}
-            </span>
+      {/* Test response */}
+      {(testResponse || isRunning) && (
+        <div className="rounded-lg border border-border">
+          <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+            <span className="text-xs font-medium">Response</span>
             <Badge variant="outline" className="text-[9px]">
-              {model.name}
+              {selectedModel}
             </Badge>
-          </div>
-
-          {/* Collapsible system prompt */}
-          <div className="rounded-lg border border-border">
-            <button
-              type="button"
-              onClick={() => setShowSystemPrompt((prev) => !prev)}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {showSystemPrompt ? (
-                <ChevronDown className="size-3" />
-              ) : (
-                <ChevronRight className="size-3" />
-              )}
-              Rendered System Prompt
-            </button>
-            {showSystemPrompt && (
-              <div className="border-t border-border bg-muted/10 p-3">
-                <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">
-                  {response.renderedSystemPrompt}
-                </pre>
-              </div>
+            {testResponse && (
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                ~{estimateTokens(testResponse).toLocaleString()} tokens
+              </span>
             )}
           </div>
-
-          {/* Chat bubble response */}
-          <div className="flex gap-3">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground/10">
-              <Bot className="size-3.5 text-foreground/70" />
-            </div>
-            <div className="flex-1 rounded-lg rounded-tl-none border border-border bg-background p-3">
-              <div className="prose-sm max-w-none text-xs leading-relaxed text-foreground">
-                {response.assistantMessage.split("\n").map((line, i) => {
-                  if (!line.trim()) return <br key={i} />;
-                  // Bold text
-                  const formatted = line.replace(
-                    /\*\*(.+?)\*\*/g,
-                    "<strong>$1</strong>"
-                  );
-                  // List items
-                  if (line.trim().startsWith("- ") || /^\d+\./.test(line.trim())) {
-                    return (
-                      <p
-                        key={i}
-                        className="ml-3 text-xs"
-                        dangerouslySetInnerHTML={{ __html: formatted }}
-                      />
-                    );
-                  }
-                  return (
-                    <p
-                      key={i}
-                      className="text-xs"
-                      dangerouslySetInnerHTML={{ __html: formatted }}
-                    />
-                  );
-                })}
+          <div className="p-4">
+            {isRunning ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" />
+                Generating response...
               </div>
-            </div>
+            ) : (
+              <p className="text-sm leading-relaxed text-foreground">
+                {testResponse}
+              </p>
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Version history panel that fetches real data from the API. */
+function VersionHistoryPanel({
+  promptId,
+  versions,
+  currentId,
+  onRestore,
+}: {
+  promptId: string;
+  versions: PromptVersion[];
+  currentId: string;
+  onRestore: (content: string) => void;
+}) {
+  const [viewingVersion, setViewingVersion] = useState<PromptVersion | null>(null);
+
+  if (viewingVersion) {
+    return (
+      <div className="rounded-lg border border-border">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="font-mono text-[10px]">
+              Version {viewingVersion.version_number}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {new Date(viewingVersion.created_at).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </span>
+            {viewingVersion.change_summary && (
+              <span className="text-[10px] text-muted-foreground italic">
+                {viewingVersion.change_summary}
+              </span>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={() => setViewingVersion(null)}
+          >
+            Close
+          </Button>
+        </div>
+        <div className="max-h-[60vh] overflow-auto p-4">
+          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground">
+            {viewingVersion.content}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  if (versions.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <History className="mb-3 size-8 text-muted-foreground/30" />
+        <p className="text-sm text-muted-foreground">
+          No version snapshots yet. Save a version to start tracking history.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {versions.map((v, i) => (
+        <div
+          key={v.id}
+          className="group relative rounded-lg border border-border p-3 transition-colors hover:bg-muted/20"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="font-mono text-[10px]">
+                  Version {v.version_number}
+                </Badge>
+                {i === 0 && (
+                  <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                    latest
+                  </span>
+                )}
+                <span className="text-[10px] text-muted-foreground">
+                  {new Date(v.created_at).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </span>
+                {v.created_by && (
+                  <span className="text-[10px] text-muted-foreground">
+                    by {v.created_by}
+                  </span>
+                )}
+              </div>
+              {v.change_summary && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {v.change_summary}
+                </p>
+              )}
+              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground/60 font-mono">
+                {v.content.substring(0, 120)}
+                {v.content.length > 120 ? "..." : ""}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-[10px]"
+                onClick={() => setViewingVersion(v)}
+              >
+                <Eye className="size-2.5" />
+                View
+              </Button>
+              {i > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Restore version ${v.version_number}? This will update the current content.`
+                      )
+                    ) {
+                      onRestore(v.content);
+                    }
+                  }}
+                >
+                  <RotateCcw className="size-2.5" />
+                  Restore
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -802,19 +795,37 @@ export default function PromptDetailPage() {
     enabled: !!id,
   });
 
+  const { data: versionHistoryData } = useQuery({
+    queryKey: ["prompt-version-history", id],
+    queryFn: () => api.prompts.versionHistory(id!),
+    enabled: !!id,
+  });
+
   const prompt = promptData?.data;
   const versions = versionsData?.data ?? [];
+  const versionHistory = versionHistoryData?.data ?? [];
 
   const content = editedContent ?? prompt?.content ?? "";
   const description = editedDescription ?? prompt?.description ?? "";
   const hasChanges = editedContent !== null || editedDescription !== null;
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      api.prompts.update(id!, {
+    mutationFn: async () => {
+      const result = await api.prompts.update(id!, {
         ...(editedContent !== null ? { content: editedContent } : {}),
         ...(editedDescription !== null ? { description: editedDescription } : {}),
-      }),
+      });
+      // Also create a version snapshot when content changes
+      if (editedContent !== null) {
+        await api.prompts.createVersion(id!, {
+          content: editedContent,
+          change_summary: "Content updated",
+        }).catch(() => {
+          // Version creation is best-effort; don't fail the save
+        });
+      }
+      return result;
+    },
     onSuccess: () => {
       setEditedContent(null);
       setEditedDescription(null);
@@ -822,6 +833,7 @@ export default function PromptDetailPage() {
       setTimeout(() => setSaveSuccess(false), 2000);
       queryClient.invalidateQueries({ queryKey: ["prompt", id] });
       queryClient.invalidateQueries({ queryKey: ["prompt-versions", id] });
+      queryClient.invalidateQueries({ queryKey: ["prompt-version-history", id] });
       queryClient.invalidateQueries({ queryKey: ["prompts"] });
       toast({ title: "Prompt saved", variant: "success" });
     },
@@ -980,7 +992,11 @@ export default function PromptDetailPage() {
               </span>
               <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <Clock className="size-2.5" />
-                <RelativeTime date={prompt.created_at} />
+                {new Date(prompt.created_at).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
               </span>
               <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <Layers className="size-2.5" />
@@ -1163,7 +1179,14 @@ export default function PromptDetailPage() {
         {/* Versions Tab */}
         <TabsContent value="versions">
           <div className="mt-4">
-            {viewingVersion ? (
+            {versionHistory.length > 0 ? (
+              <VersionHistoryPanel
+                promptId={id!}
+                versions={versionHistory}
+                currentId={id!}
+                onRestore={(versionContent) => restoreMutation.mutate(versionContent)}
+              />
+            ) : viewingVersion ? (
               <div className="space-y-4">
                 <VersionContentViewer
                   version={viewingVersion}
@@ -1194,7 +1217,7 @@ export default function PromptDetailPage() {
 
         {/* Test Tab */}
         <TabsContent value="test">
-          <TestPromptPanel promptContent={content} />
+          <PromptTestPanel content={content} />
         </TabsContent>
 
         {/* Compare Tab */}

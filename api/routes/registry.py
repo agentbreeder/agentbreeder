@@ -15,6 +15,9 @@ from api.models.schemas import (
     PromptCreate,
     PromptResponse,
     PromptUpdate,
+    PromptVersionCreate,
+    PromptVersionDiffResponse,
+    PromptVersionResponse,
     SearchResult,
     ToolCreate,
     ToolDetailResponse,
@@ -310,6 +313,94 @@ async def duplicate_prompt(
     if not prompt:
         raise HTTPException(status_code=404, detail="Prompt not found")
     return ApiResponse(data=PromptResponse.model_validate(prompt))
+
+
+# --- Prompt Version Snapshots ---
+
+
+@router.get(
+    "/prompts/{prompt_id}/versions/history",
+    response_model=ApiResponse[list[PromptVersionResponse]],
+)
+async def list_prompt_version_history(
+    prompt_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[list[PromptVersionResponse]]:
+    """List all content-version snapshots for a prompt."""
+    prompt = await PromptRegistry.get_by_id(db, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    versions = await PromptRegistry.list_version_snapshots(db, prompt_id)
+    return ApiResponse(
+        data=[PromptVersionResponse.model_validate(v) for v in versions],
+        meta=ApiMeta(page=1, per_page=len(versions), total=len(versions)),
+    )
+
+
+@router.post(
+    "/prompts/{prompt_id}/versions/history",
+    response_model=ApiResponse[PromptVersionResponse],
+    status_code=201,
+)
+async def create_prompt_version_snapshot(
+    prompt_id: str,
+    body: PromptVersionCreate,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[PromptVersionResponse]:
+    """Create a new version snapshot for a prompt."""
+    prompt = await PromptRegistry.get_by_id(db, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    ver = await PromptRegistry.create_version_snapshot(
+        db,
+        prompt_id=prompt_id,
+        version=body.version,
+        content=body.content,
+        change_summary=body.change_summary,
+        author=body.author,
+    )
+    return ApiResponse(data=PromptVersionResponse.model_validate(ver))
+
+
+@router.get(
+    "/prompts/{prompt_id}/versions/history/{version_id}",
+    response_model=ApiResponse[PromptVersionResponse],
+)
+async def get_prompt_version_snapshot(
+    prompt_id: str,
+    version_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[PromptVersionResponse]:
+    """Get a specific version snapshot."""
+    version = await PromptRegistry.get_version_snapshot(db, prompt_id, version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return ApiResponse(data=PromptVersionResponse.model_validate(version))
+
+
+@router.get(
+    "/prompts/{prompt_id}/versions/history/{v1}/diff/{v2}",
+    response_model=ApiResponse[PromptVersionDiffResponse],
+)
+async def diff_prompt_version_snapshots(
+    prompt_id: str,
+    v1: str,
+    v2: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[PromptVersionDiffResponse]:
+    """Compute a unified diff between two prompt version snapshots."""
+    ver1, ver2, diff_text = await PromptRegistry.diff_version_snapshots(
+        db, prompt_id, v1, v2
+    )
+    if not ver1 or not ver2:
+        raise HTTPException(status_code=404, detail="One or both versions not found")
+    return ApiResponse(
+        data=PromptVersionDiffResponse(
+            version_a=PromptVersionResponse.model_validate(ver1),
+            version_b=PromptVersionResponse.model_validate(ver2),
+            diff=diff_text.splitlines(),
+        )
+    )
 
 
 @router.get("/search", response_model=ApiResponse[list[SearchResult]])
