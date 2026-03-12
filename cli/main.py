@@ -12,15 +12,19 @@ from __future__ import annotations
 import typer
 
 from cli.commands import (
+    chat,
     deploy,
     describe,
     init_cmd,
     list_cmd,
     logs,
     provider,
+    publish,
+    review,
     scan,
     search,
     status,
+    submit,
     teardown,
     validate,
 )
@@ -42,7 +46,11 @@ app.command(name="scan")(scan.scan)
 app.command(name="logs")(logs.logs)
 app.command(name="status")(status.status)
 app.command(name="teardown")(teardown.teardown)
+app.command(name="submit")(submit.submit)
+app.command(name="publish")(publish.publish)
+app.command(name="chat")(chat.chat)
 app.add_typer(provider.provider_app, name="provider")
+app.add_typer(review.review_app, name="review")
 
 
 if __name__ == "__main__":

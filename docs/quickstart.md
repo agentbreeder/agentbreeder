@@ -127,6 +127,11 @@ open http://localhost:3001
 | `garden status`    | Show deploy status                       |
 | `garden teardown`  | Remove a deployed agent                  |
 | `garden scan`      | Discover MCP servers and LiteLLM models  |
+| `garden chat`      | Interactive chat with a deployed agent    |
+| `garden submit`    | Submit a resource for review (create PR)  |
+| `garden review`    | Review, approve, or reject pull requests  |
+| `garden publish`   | Merge approved PR and publish to registry |
+| `garden provider`  | Manage LLM provider connections           |
 
 ---
 

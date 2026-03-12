@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Garden Memory Configuration",
+  "description": "Schema for memory.yaml — the memory backend definition file for Agent Garden",
+  "type": "object",
+  "required": ["name", "version"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": {
+      "type": "string",
+      "enum": ["v1"],
+      "default": "v1",
+      "description": "Schema version"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "minLength": 2,
+      "maxLength": 63,
+      "description": "Memory config name (slug-friendly)"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version (e.g., 1.0.0)"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Short description of the memory configuration"
+    },
+    "team": {
+      "type": "string",
+      "description": "Team that owns this memory config"
+    },
+    "owner": {
+      "type": "string",
+      "format": "email",
+      "description": "Email of the responsible engineer"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tags for discovery"
+    },
+    "backend": {
+      "type": "string",
+      "enum": ["in_memory", "postgresql", "redis"],
+      "default": "in_memory",
+      "description": "Storage backend for memory"
+    },
+    "memory_type": {
+      "type": "string",
+      "enum": ["buffer_window", "buffer", "summary", "entity", "semantic"],
+      "default": "buffer_window",
+      "description": "Memory strategy type"
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_messages": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20,
+          "description": "Maximum messages to retain (for buffer_window type)"
+        },
+        "ttl_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Time-to-live for stored messages in seconds (0 = no expiry)"
+        },
+        "namespace_pattern": {
+          "type": "string",
+          "default": "{agent_id}:{session_id}",
+          "description": "Pattern for memory namespace keys"
+        }
+      },
+      "description": "Backend-specific configuration"
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["agent", "team", "global"],
+      "default": "agent",
+      "description": "Memory isolation scope"
+    }
+  }
+}

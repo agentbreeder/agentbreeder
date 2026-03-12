@@ -456,7 +456,13 @@ export default function ToolBuilderPage() {
   const [parameters, setParameters] = useState<SchemaParameter[]>([]);
   const [jsonText, setJsonText] = useState("{}");
   const [jsonError, setJsonError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"form" | "json">("form");
+  const [activeTab, setActiveTab] = useState<"form" | "json" | "code">("form");
+
+  // Implementation code state
+  const [implementationCode, setImplementationCode] = useState(
+    `"""Tool implementation — define a \`run\` function that receives validated input."""\n\ndef run(params: dict) -> dict:\n    # params contains the validated input matching your schema\n    return {"result": params}\n`
+  );
+  const [dependencies, setDependencies] = useState("");
 
   // Tool code for sandbox execution
   const [toolCode, setToolCode] = useState(
@@ -538,18 +544,23 @@ export default function ToolBuilderPage() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       const schema = parametersToSchema(parameters);
-      if (isEditing) {
-        return api.tools.update(id!, {
-          name,
-          description,
-          schema_definition: schema,
-        });
-      }
-      return api.tools.create({
+      const parsedDeps = dependencies
+        .split(",")
+        .map((d) => d.trim())
+        .filter(Boolean);
+      const payload = {
         name,
         description,
-        tool_type: "function",
         schema_definition: schema,
+        implementation_code: implementationCode || undefined,
+        dependencies: parsedDeps.length > 0 ? parsedDeps : undefined,
+      };
+      if (isEditing) {
+        return api.tools.update(id!, payload);
+      }
+      return api.tools.create({
+        ...payload,
+        tool_type: "function",
         source: "builder",
       });
     },
@@ -735,6 +746,18 @@ export default function ToolBuilderPage() {
                 <Code className="size-3" />
                 JSON Schema
               </button>
+              <button
+                onClick={() => setActiveTab("code")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                  activeTab === "code"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Terminal className="size-3" />
+                Code
+              </button>
             </div>
           </div>
 
@@ -743,12 +766,48 @@ export default function ToolBuilderPage() {
               parameters={parameters}
               onParametersChange={handleParametersChange}
             />
-          ) : (
+          ) : activeTab === "json" ? (
             <JsonSchemaEditor
               value={jsonText}
               onChange={handleJsonChange}
               error={jsonError}
             />
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium">
+                  Dependencies
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    (comma-separated pip packages)
+                  </span>
+                </label>
+                <Input
+                  placeholder="requests, beautifulsoup4, pandas"
+                  value={dependencies}
+                  onChange={(e) => setDependencies(e.target.value)}
+                  className="h-8 font-mono text-xs"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium">
+                  Implementation
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    (Python)
+                  </span>
+                </label>
+                <textarea
+                  value={implementationCode}
+                  onChange={(e) => setImplementationCode(e.target.value)}
+                  spellCheck={false}
+                  className="h-[500px] w-full resize-none rounded-md border border-input bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-emerald-400 outline-none placeholder:text-zinc-600 focus:border-ring focus:ring-2 focus:ring-ring/50"
+                  placeholder="# Write your Python tool implementation here..."
+                />
+                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                  Define a <code className="rounded bg-muted px-1 py-0.5">run(params: dict) -&gt; dict</code> function.
+                  The <code className="rounded bg-muted px-1 py-0.5">params</code> argument contains validated input matching your schema.
+                </p>
+              </div>
+            </div>
           )}
         </div>
 

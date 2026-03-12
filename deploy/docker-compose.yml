@@ -71,5 +71,13 @@ services:
       api:
         condition: service_healthy
 
+  mcp-example:
+    build:
+      context: ../examples/mcp-server
+      dockerfile: Dockerfile
+    command: ["python", "server.py"]
+    profiles:
+      - examples
+
 volumes:
   pgdata:

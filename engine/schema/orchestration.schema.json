@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Garden Orchestration Configuration",
+  "description": "Schema for orchestration.yaml — the multi-agent orchestration definition file for Agent Garden",
+  "type": "object",
+  "required": ["name", "version", "strategy", "agents"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": {
+      "type": "string",
+      "enum": ["v1"],
+      "default": "v1",
+      "description": "Schema version"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "minLength": 2,
+      "maxLength": 63,
+      "description": "Orchestration name (slug-friendly)"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version (e.g., 1.0.0)"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Short description of the orchestration"
+    },
+    "team": {
+      "type": "string",
+      "description": "Team that owns this orchestration"
+    },
+    "owner": {
+      "type": "string",
+      "format": "email",
+      "description": "Email of the responsible engineer"
+    },
+    "strategy": {
+      "type": "string",
+      "enum": ["router", "sequential", "parallel", "hierarchical"],
+      "description": "Multi-agent orchestration strategy"
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["ref"],
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "type": "string",
+            "description": "Registry reference to an agent (e.g., agents/my-agent)"
+          },
+          "routes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "condition": {
+                  "type": "string",
+                  "description": "Routing condition expression"
+                },
+                "target": {
+                  "type": "string",
+                  "description": "Target agent name in this orchestration"
+                }
+              }
+            },
+            "description": "Routing rules for this agent (used with router strategy)"
+          },
+          "fallback": {
+            "type": "string",
+            "description": "Fallback agent name if this agent fails"
+          }
+        }
+      },
+      "description": "Map of agent name to agent configuration"
+    },
+    "shared_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Shared state type (e.g., dict, memory)"
+        },
+        "backend": {
+          "type": "string",
+          "description": "Storage backend for shared state (e.g., in_memory, redis)"
+        }
+      },
+      "description": "Shared state configuration for inter-agent communication"
+    },
+    "deploy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": ["aws", "gcp", "kubernetes", "local"],
+          "description": "Deployment target"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": { "type": "string", "default": "1", "description": "vCPU units" },
+            "memory": { "type": "string", "default": "2Gi", "description": "Memory allocation" }
+          }
+        }
+      },
+      "description": "Deployment configuration for the orchestration"
+    }
+  }
+}

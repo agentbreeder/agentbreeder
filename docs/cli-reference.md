@@ -315,6 +315,119 @@ garden provider list --json                       # JSON output
 
 ---
 
+### `garden chat`
+
+Interactive chat with a deployed agent in the terminal.
+
+```
+garden chat AGENT_NAME [--model MODEL] [--env ENV] [--verbose] [--json]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `AGENT_NAME` | Yes | — | Name of the agent to chat with |
+| `--model`, `-m` | No | — | Override the agent's configured model |
+| `--env`, `-e` | No | `dev` | Environment (`dev`, `staging`, `production`) |
+| `--verbose`, `-v` | No | `false` | Show tool calls, token counts, latency |
+
+**In-chat commands:** `/help`, `/clear`, `/quit` (or `/exit`, `/q`)
+
+On exit, displays a session summary with turn count, total tokens, and cost.
+
+**JSON mode** (`--json`) reads messages from stdin (one per line) and writes JSON responses to stdout — useful for scripting and CI.
+
+**Examples:**
+```bash
+garden chat my-agent                     # Interactive chat
+garden chat my-agent --verbose           # Show tool calls + costs
+garden chat my-agent --model gpt-4o      # Override model
+echo "hello" | garden chat my-agent --json  # JSON stdin/stdout
+```
+
+---
+
+### `garden submit`
+
+Submit a resource for review by creating a pull request.
+
+```
+garden submit RESOURCE_TYPE NAME [--message MSG] [--json]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `RESOURCE_TYPE` | Yes | One of: `agent`, `prompt`, `tool`, `rag`, `memory` |
+| `NAME` | Yes | Resource name |
+| `--message`, `-m` | No | PR description |
+
+Creates a PR from the draft branch to main. Shows PR ID, status, and diff summary.
+
+**Examples:**
+```bash
+garden submit agent my-agent
+garden submit agent my-agent -m "Added Zendesk tool integration"
+garden submit prompt support-v3 --json
+```
+
+---
+
+### `garden review`
+
+Review pull requests for resources.
+
+```
+garden review [SUBCOMMAND] [OPTIONS]
+```
+
+#### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List pending reviews (filterable by `--status`, `--type`) |
+| `show PR_ID` | Show PR detail: diff, commits, comments |
+| `approve PR_ID` | Approve a PR |
+| `reject PR_ID -m "reason"` | Reject a PR (message required) |
+| `comment PR_ID -m "text"` | Add a comment to a PR |
+
+**Examples:**
+```bash
+garden review list                           # Pending reviews
+garden review list --status approved         # Filter by status
+garden review list --type agent              # Filter by resource type
+garden review show pr-abc123                 # Show PR detail
+garden review approve pr-abc123              # Approve
+garden review reject pr-abc123 -m "Needs error handling"
+garden review comment pr-abc123 -m "LGTM"
+garden review list --json                    # JSON output
+```
+
+---
+
+### `garden publish`
+
+Merge an approved PR and publish the resource to the registry.
+
+```
+garden publish RESOURCE_TYPE NAME [--version VERSION] [--json]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `RESOURCE_TYPE` | Yes | One of: `agent`, `prompt`, `tool`, `rag`, `memory` |
+| `NAME` | Yes | Resource name |
+| `--version`, `-v` | No | Explicit semver tag (e.g., `2.0.0`) |
+
+Finds the approved PR for the resource, merges to main, tags with semver, and publishes to the registry.
+
+**Examples:**
+```bash
+garden publish agent my-agent                    # Auto-version
+garden publish agent my-agent --version 2.0.0    # Explicit version
+garden publish prompt support-v3 --json
+```
+
+---
+
 ## Global Options
 
 All commands support:

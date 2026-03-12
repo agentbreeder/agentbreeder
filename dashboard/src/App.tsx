@@ -25,6 +25,7 @@ import ActivityPage from "@/pages/activity";
 import SearchPage from "@/pages/search";
 import ApprovalsPage from "@/pages/approvals";
 import PRDetailPage from "@/pages/pr-detail";
+import PlaygroundPage from "@/pages/playground";
 import SettingsPage from "@/pages/settings";
 import { Loader2 } from "lucide-react";
 
@@ -87,6 +88,7 @@ export default function App() {
               <Route path="mcp-servers/:id" element={<McpServerDetailPage />} />
               <Route path="memory" element={<MemoryBuilderPage />} />
               <Route path="rag" element={<RAGBuilderPage />} />
+              <Route path="playground" element={<PlaygroundPage />} />
               <Route path="approvals" element={<ApprovalsPage />} />
               <Route path="approvals/:id" element={<PRDetailPage />} />
               <Route path="deploys" element={<DeploysPage />} />

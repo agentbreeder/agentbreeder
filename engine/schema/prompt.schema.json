@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Garden Prompt Configuration",
+  "description": "Schema for prompt.yaml — the prompt definition file for Agent Garden",
+  "type": "object",
+  "required": ["name", "version"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": {
+      "type": "string",
+      "enum": ["v1"],
+      "default": "v1",
+      "description": "Schema version"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "minLength": 2,
+      "maxLength": 63,
+      "description": "Prompt name (slug-friendly)"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version (e.g., 1.0.0)"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Short description of the prompt"
+    },
+    "team": {
+      "type": "string",
+      "description": "Team that owns this prompt"
+    },
+    "owner": {
+      "type": "string",
+      "format": "email",
+      "description": "Email of the responsible engineer"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tags for discovery"
+    },
+    "content_ref": {
+      "type": "string",
+      "description": "Path to a .md file containing the prompt content (mutually exclusive with content)"
+    },
+    "content": {
+      "type": "string",
+      "description": "Inline prompt text (mutually exclusive with content_ref)"
+    },
+    "variables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Variable name used in {{variable}} template syntax"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the variable"
+          },
+          "default": {
+            "type": "string",
+            "description": "Default value if not provided at runtime"
+          },
+          "required": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether this variable must be provided at runtime"
+          }
+        }
+      },
+      "description": "Template variables used in the prompt content"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model_hint": {
+          "type": "string",
+          "description": "Suggested model for this prompt (registry ref or provider/model-id)"
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Suggested max tokens when using this prompt"
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Suggested temperature when using this prompt"
+        }
+      },
+      "description": "Optional metadata hints for prompt usage"
+    }
+  },
+  "oneOf": [
+    { "required": ["content_ref"] },
+    { "required": ["content"] },
+    {
+      "not": {
+        "anyOf": [
+          { "required": ["content_ref"] },
+          { "required": ["content"] }
+        ]
+      }
+    }
+  ]
+}

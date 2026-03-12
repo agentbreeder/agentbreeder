@@ -474,6 +474,51 @@ export interface GitPR {
   updated_at: string;
 }
 
+// --- Playground types ---
+
+export interface ConversationMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export interface PlaygroundToolCall {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_output: Record<string, unknown>;
+  duration_ms: number;
+}
+
+export interface PlaygroundChatRequest {
+  agent_id: string;
+  message: string;
+  model_override?: string;
+  system_prompt_override?: string;
+  conversation_history: ConversationMessage[];
+}
+
+export interface PlaygroundChatResponse {
+  response: string;
+  tool_calls: PlaygroundToolCall[];
+  token_count: number;
+  cost_estimate: number;
+  latency_ms: number;
+  model_used: string;
+  conversation_id: string;
+}
+
+export interface SaveEvalCaseRequest {
+  agent_id: string;
+  conversation_history: ConversationMessage[];
+  assistant_message: string;
+  model_used: string;
+  tags: string[];
+}
+
+export interface SaveEvalCaseResponse {
+  eval_case_id: string;
+  saved: boolean;
+}
+
 // --- Search types ---
 
 export interface SearchResult {
@@ -946,6 +991,18 @@ export const api = {
           body: JSON.stringify({ author, text }),
         }),
     },
+  },
+  playground: {
+    chat: (body: PlaygroundChatRequest) =>
+      request<PlaygroundChatResponse>("/playground/chat", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    saveEvalCase: (body: SaveEvalCaseRequest) =>
+      request<SaveEvalCaseResponse>("/playground/eval-case", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),

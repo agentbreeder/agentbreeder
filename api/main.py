@@ -11,10 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.routes import (
     agents,
     auth,
+    builders,
     deploys,
     git,
     mcp_servers,
     memory,
+    playground,
     prompts,
     providers,
     rag,
@@ -79,6 +81,7 @@ app.add_middleware(
 # Routes
 app.include_router(auth.router)
 app.include_router(agents.router)
+app.include_router(builders.router)
 app.include_router(deploys.router)
 app.include_router(prompts.router)
 app.include_router(providers.router)
@@ -88,6 +91,7 @@ app.include_router(sandbox.router)
 app.include_router(git.router)
 app.include_router(memory.router)
 app.include_router(rag.router)
+app.include_router(playground.router)
 
 
 @app.get("/health")

@@ -1,0 +1,9 @@
+name: example-tools
+version: "1.0.0"
+description: "Example MCP server with calculator, weather, and search tools"
+transport: stdio
+command: python server.py
+tools:
+  - calculate
+  - get_weather
+  - search_docs

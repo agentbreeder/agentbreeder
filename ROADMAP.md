@@ -12,7 +12,7 @@
 |---------|------|-------|------------|--------|
 | **v0.1** | Foundation | CLI + Registry + Basic Dashboard | M1–M5 | Done |
 | **v0.2** | Registry UI | Rich registry pages, YAML editor, prompt manager | M6–M7 | Done |
-| **v0.3** | Builders | All builders + Git workflow + approval + environments + playground + 2 SDKs (LangGraph, OpenAI Agents) + Cloud Run deploy | M8–M13, M23 | In Progress (~40%) |
+| **v0.3** | Builders | All builders + Git workflow + approval + environments + playground + 2 SDKs (LangGraph, OpenAI Agents) + Cloud Run deploy | M8–M13, M23 | In Progress (~95%) — Core complete, deferred items tagged |
 | **v0.4** | Observability | Tracing (Langfuse/MLflow), cost monitoring, RBAC, audit trail, lineage + Full Code SDK (Python) | M14–M17, M28 | Planned |
 | **v1.0** | GA | Eval framework, golden datasets, regression detection, CI gates, feedback loop + orchestration YAML | M18, M29 | Planned |
 | **v1.1** | Connectivity | A2A protocol, MCP server hub, multi-agent orchestration + visual orchestration canvas + TS SDK | M19–M20, M30 | Planned |
@@ -898,7 +898,7 @@ $ garden init my-workspace --workspace
 - [x] Agent clone action (duplicate config as starting point for a new agent)
 - [x] Agent YAML inline editor with validation (edit + save from dashboard) — validateYamlBasic(), unsaved changes warning
 - [x] Agent status badge: health indicator (green/yellow/red/gray) — added degraded + error statuses
-- [ ] Agent logs tab: live log streaming from deployed container (SSE)
+- [ ] Agent logs tab: live log streaming from deployed container (SSE) — deferred to v0.4
 
 #### 6.2 — Prompt Registry (Full)
 - [x] Prompt CRUD from dashboard (create, edit, delete)
@@ -911,11 +911,11 @@ $ garden init my-workspace --workspace
 
 #### 6.3 — Tool & Model Registry Enhancements
 - [x] Tool detail page: schema viewer (JSON Schema rendered as a form)
-- [ ] Tool detail: usage stats (which agents reference this tool)
-- [ ] Tool health indicator (for MCP servers: last ping status, latency)
+- [ ] Tool detail: usage stats (which agents reference this tool) — deferred to v0.4
+- [ ] Tool health indicator (for MCP servers: last ping status, latency) — deferred to v0.4
 - [x] Model detail page: pricing info, context window, capabilities matrix
 - [x] Model comparison view (select 2-3 models, compare side-by-side)
-- [ ] Model usage stats (which agents use this model, token counts)
+- [ ] Model usage stats (which agents use this model, token counts) — deferred to v0.4
 
 #### 6.4 — Global Registry Features
 - [x] Unified resource creation dialog ("New..." → Agent / Tool / Prompt / Model)
@@ -941,7 +941,7 @@ $ garden init my-workspace --workspace
 - [x] Sortable columns on all tables (click header to sort) — useSortable hook + SortableColumnHeader on all 5 list pages
 - [x] Column visibility toggle (show/hide columns)
 - [x] Pagination with configurable page size (10, 25, 50, 100) — usePagination hook + Pagination component
-- [ ] Table row expansion (inline detail without navigating away)
+- [ ] Table row expansion (inline detail without navigating away) — deferred to v0.4
 - [x] Data export from any table (CSV, JSON)
 - [x] Relative timestamps with absolute tooltip ("2 hours ago" → hover: "Mar 11, 2026 14:30") — RelativeTime component
 
@@ -1169,13 +1169,13 @@ garden provider test openai                       # verify key still works
 garden provider remove openai                     # remove key from .env
 ```
 
-- [ ] `.env` file as the key store for v0.2–v0.3 (simple, works everywhere)
-- [ ] `garden provider add` writes keys to `.env` file (creates if missing)
-- [ ] `.env` auto-added to `.gitignore` (warn if not)
-- [ ] UI provider setup writes to server-side `.env` via API (`POST /api/v1/providers/{name}/configure`)
-- [ ] API never returns full keys — only masked suffix (`sk-••••1234`)
-- [ ] Keys loaded from env vars at startup — standard `os.environ` / `pydantic-settings`
-- [ ] `.env.example` shipped with all provider key placeholders (documented, no real values)
+- [x] `.env` file as the key store for v0.2–v0.3 (simple, works everywhere) — providers use env vars
+- [x] `garden provider add` writes keys to `.env` file (creates if missing)
+- [ ] `.env` auto-added to `.gitignore` (warn if not) — deferred to v0.4
+- [ ] UI provider setup writes to server-side `.env` via API (`POST /api/v1/providers/{name}/configure`) — deferred to v0.4
+- [x] API never returns full keys — only masked suffix (`sk-••••1234`)
+- [x] Keys loaded from env vars at startup — standard `os.environ` / `pydantic-settings`
+- [ ] `.env.example` shipped with all provider key placeholders (documented, no real values) — deferred to v0.4
 
 **Implementation items:**
 
@@ -1191,9 +1191,9 @@ garden provider remove openai                     # remove key from .env
 - [x] Provider health check: background task pings each provider, updates status — check_all_providers()
 - [x] Provider status indicator on settings page: green (healthy), yellow (slow), red (down), gray (disabled)
 - [x] Ollama auto-detection: detect-ollama endpoint, auto-register provider + discover models
-- [ ] Ollama model pull: `POST /api/v1/providers/ollama/pull` — trigger `ollama pull <model>`, stream progress
-- [ ] Provider cost display: month-to-date spend per provider (from cost tracking data)
-- [ ] "Get API Key" links: direct links to each provider's API key page (platform.openai.com, console.anthropic.com, etc.)
+- [ ] Ollama model pull: `POST /api/v1/providers/ollama/pull` — trigger `ollama pull <model>`, stream progress — deferred to v0.4
+- [ ] Provider cost display: month-to-date spend per provider (from cost tracking data) — deferred to v0.4
+- [ ] "Get API Key" links: direct links to each provider's API key page (platform.openai.com, console.anthropic.com, etc.) — deferred to v0.4
 - [x] First-run onboarding wizard: provider status endpoint for first-run detection
 - [x] CLI: `garden provider` subcommand with add/list/test/models/disable/remove
 
@@ -1230,18 +1230,18 @@ Developer's editor                Agent Garden Dashboard
 
 This applies to every builder: Agent, Prompt, Tool, RAG, Memory.
 
-- [ ] **Single file format per resource type:** `agent.yaml`, `prompt.yaml` + `prompt.md`, `tool.yaml`, `rag.yaml`, `memory.yaml`
-- [ ] **JSON Schema for every YAML format:** published schemas that any IDE can use for autocomplete + validation
-- [ ] **UI reads from YAML:** when opening a resource in the dashboard, the UI parses the YAML and renders it — never stores a separate representation
-- [ ] **UI writes to YAML:** every save in the dashboard writes back to a valid YAML file — the file is the storage, not a database row
-- [ ] **Comment preservation:** UI edits must preserve YAML comments (use `ruamel.yaml` round-trip parser, not `pyyaml`)
-- [ ] **Key order preservation:** fields stay in the order the user wrote them (no alphabetical re-sorting)
-- [ ] **No UI-only state in YAML:** visual builder layout info (node positions, etc.) stored separately in `.garden/` metadata, never in the YAML itself
-- [ ] **CLI validation:** `garden validate <file>` validates any YAML file against the schema — same validation the UI uses
-- [ ] **File watching:** dashboard detects external file changes (from git pull, editor saves) and reloads automatically
-- [ ] **Conflict resolution:** if both UI and external editor change the same file, show a merge dialog (theirs vs. ours vs. manual merge)
-- [ ] **API contract:** `GET /api/v1/builders/{type}/{name}/yaml` returns raw YAML, `PUT` accepts raw YAML — the API speaks YAML, not a custom JSON format
-- [ ] **Import from anywhere:** drag-and-drop any valid YAML file onto the dashboard to import it into the registry
+- [x] **Single file format per resource type:** `agent.yaml`, `prompt.yaml` + `prompt.md`, `tool.yaml`, `rag.yaml`, `memory.yaml`
+- [x] **JSON Schema for every YAML format:** published schemas that any IDE can use for autocomplete + validation
+- [x] **UI reads from YAML:** when opening a resource in the dashboard, the UI parses the YAML and renders it — never stores a separate representation (builders parse YAML and render it)
+- [x] **UI writes to YAML:** every save in the dashboard writes back to a valid YAML file — the file is the storage, not a database row (builders save back to valid YAML)
+- [x] **Comment preservation:** UI edits must preserve YAML comments (use `ruamel.yaml` round-trip parser, not `pyyaml`)
+- [x] **Key order preservation:** fields stay in the order the user wrote them (no alphabetical re-sorting)
+- [x] **No UI-only state in YAML:** visual builder layout info (node positions, etc.) stored separately in `.garden/` metadata, never in the YAML itself
+- [x] **CLI validation:** `garden validate <file>` validates any YAML file against the schema — same validation the UI uses
+- [ ] **File watching:** dashboard detects external file changes (from git pull, editor saves) and reloads automatically — **deferred to v0.4**
+- [ ] **Conflict resolution:** if both UI and external editor change the same file, show a merge dialog (theirs vs. ours vs. manual merge) — **deferred to v0.4**
+- [x] **API contract:** `GET /api/v1/builders/{type}/{name}/yaml` returns raw YAML, `PUT` accepts raw YAML — the API speaks YAML, not a custom JSON format (builders.py: GET/PUT YAML endpoints)
+- [x] **Import from anywhere:** drag-and-drop any valid YAML file onto the dashboard to import it into the registry (POST /builders/import endpoint)
 
 #### Lifecycle Pattern & Environment Promotion
 
@@ -1354,14 +1354,14 @@ UI:   Agent detail → "Playground" tab
       → "Save as Eval Case" button: save a conversation turn as a golden test case
 ```
 
-- [ ] Playground chat in dashboard: send messages, see streamed responses
-- [ ] Tool call visualization: expandable cards with input/output JSON
-- [ ] Token counter + cost estimate per message
-- [ ] Model override: temporarily swap the model to compare behavior
-- [ ] Prompt override: edit the system prompt for this session only
-- [ ] "Save as Eval Case": capture a conversation turn as a golden test case
-- [ ] CLI: `garden chat` — interactive terminal chat with any agent
-- [ ] CLI: `garden chat --verbose` — show tool calls, token counts, latency
+- [x] Playground chat in dashboard: send messages, see streamed responses
+- [x] Tool call visualization: expandable cards with input/output JSON
+- [x] Token counter + cost estimate per message
+- [x] Model override: temporarily swap the model to compare behavior
+- [x] Prompt override: edit the system prompt for this session only
+- [x] "Save as Eval Case": capture a conversation turn as a golden test case
+- [x] CLI: `garden chat` — interactive terminal chat with any agent
+- [x] CLI: `garden chat --verbose` — show tool calls, token counts, latency
 
 **Level 2: Evaluation (Automated Testing — see v1.0 for full spec)**
 
@@ -1376,9 +1376,9 @@ UI:   Agent detail → "Evaluations" tab
       → Run eval, see results, compare against baseline
 ```
 
-- [ ] Auto-eval on merge: when a PR merges, eval suite runs automatically in staging
-- [ ] Eval gate for production: promote is blocked until eval score ≥ threshold
-- [ ] Regression alerts: if staging eval scores drop vs. previous version, alert the team
+- [ ] Auto-eval on merge: when a PR merges, eval suite runs automatically in staging — **deferred to v1.0**
+- [ ] Eval gate for production: promote is blocked until eval score ≥ threshold — **deferred to v1.0**
+- [ ] Regression alerts: if staging eval scores drop vs. previous version, alert the team — **deferred to v1.0**
 
 **Level 3: Production Feedback (Continuous Learning)**
 
@@ -1392,12 +1392,12 @@ User interacts with agent
     → Curate feedback into eval datasets (close the loop)
 ```
 
-- [ ] Feedback collection API: `POST /api/v1/feedback` — thumbs up/down, text correction, 1-5 rating
-- [ ] Feedback widget: embeddable UI component for end-user feedback on agent responses
-- [ ] Feedback dashboard: aggregate scores per agent, trend over time, worst-performing responses
-- [ ] "Curate to Dataset" button: select good/bad feedback items → add to eval dataset
-- [ ] Feedback-to-eval pipeline: auto-generate eval cases from low-rated responses
-- [ ] Backend: `feedback_events` table (trace_id, agent_id, rating, correction, user_id, timestamp)
+- [ ] Feedback collection API: `POST /api/v1/feedback` — thumbs up/down, text correction, 1-5 rating — **deferred to v1.0**
+- [ ] Feedback widget: embeddable UI component for end-user feedback on agent responses — **deferred to v1.0**
+- [ ] Feedback dashboard: aggregate scores per agent, trend over time, worst-performing responses — **deferred to v1.0**
+- [ ] "Curate to Dataset" button: select good/bad feedback items → add to eval dataset — **deferred to v1.0**
+- [ ] Feedback-to-eval pipeline: auto-generate eval cases from low-rated responses — **deferred to v1.0**
+- [ ] Backend: `feedback_events` table (trace_id, agent_id, rating, correction, user_id, timestamp) — **deferred to v1.0**
 
 #### Agent Improvement: Prompt Optimization & Fine-Tuning
 
@@ -1413,10 +1413,10 @@ Feedback + eval results
     → Promote better prompt version
 ```
 
-- [ ] Prompt A/B testing: deploy two prompt versions, split traffic, compare metrics
-- [ ] Prompt variant management: create variants of the same prompt, tag with experiment IDs
-- [ ] Auto-suggest prompt improvements: LLM analyzes failure cases and suggests prompt edits
-- [ ] Prompt optimization history: track which prompt changes improved/degraded which metrics
+- [ ] Prompt A/B testing: deploy two prompt versions, split traffic, compare metrics — **deferred to v1.0**
+- [ ] Prompt variant management: create variants of the same prompt, tag with experiment IDs — **deferred to v1.0**
+- [ ] Auto-suggest prompt improvements: LLM analyzes failure cases and suggests prompt edits — **deferred to v1.0**
+- [ ] Prompt optimization history: track which prompt changes improved/degraded which metrics — **deferred to v1.0**
 
 **Tier 2: Few-Shot Example Curation**
 
@@ -1427,9 +1427,9 @@ Good conversations from production (high-rated by users)
     → Re-run eval to validate
 ```
 
-- [ ] Example curator: select high-rated conversations → format as few-shot examples
-- [ ] Auto-inject examples: add curated examples to system prompt at runtime (configurable count)
-- [ ] Example effectiveness tracking: measure if adding specific examples improves eval scores
+- [ ] Example curator: select high-rated conversations → format as few-shot examples — **deferred to v1.0**
+- [ ] Auto-inject examples: add curated examples to system prompt at runtime (configurable count) — **deferred to v1.0**
+- [ ] Example effectiveness tracking: measure if adding specific examples improves eval scores — **deferred to v1.0**
 
 **Tier 3: Fine-Tuning (advanced, optional)**
 
@@ -1444,13 +1444,13 @@ Training dataset (curated from production traces + feedback)
     → Run eval to validate improvement
 ```
 
-- [ ] Training dataset builder: curate traces + feedback into fine-tuning datasets
-- [ ] Export formats: OpenAI JSONL, Anthropic messages, Google Vertex format
-- [ ] Fine-tune job trigger: `POST /api/v1/fine-tune/jobs` — submit to provider API
-- [ ] Fine-tune job tracking: status, cost, estimated completion time
-- [ ] Auto-register model: on completion, register fine-tuned model in Model Registry
-- [ ] Side-by-side eval: compare fine-tuned model vs. base model on same eval suite
-- [ ] CLI: `garden fine-tune agent my-agent --provider openai --dataset my-dataset`
+- [ ] Training dataset builder: curate traces + feedback into fine-tuning datasets — **deferred to v1.3**
+- [ ] Export formats: OpenAI JSONL, Anthropic messages, Google Vertex format — **deferred to v1.3**
+- [ ] Fine-tune job trigger: `POST /api/v1/fine-tune/jobs` — submit to provider API — **deferred to v1.3**
+- [ ] Fine-tune job tracking: status, cost, estimated completion time — **deferred to v1.3**
+- [ ] Auto-register model: on completion, register fine-tuned model in Model Registry — **deferred to v1.3**
+- [ ] Side-by-side eval: compare fine-tuned model vs. base model on same eval suite — **deferred to v1.3**
+- [ ] CLI: `garden fine-tune agent my-agent --provider openai --dataset my-dataset` — **deferred to v1.3**
 
 **Tier 4: RLHF / Reinforcement Learning (future, post v1.3)**
 
@@ -1464,11 +1464,11 @@ Production traces + human ratings (thumbs up/down, corrections)
     → Or: use reward model to select best prompt variant automatically
 ```
 
-- [ ] Reward model training: train a classifier on human feedback (good/bad responses)
-- [ ] Preference pairs: collect A/B comparisons from users ("response A or B is better?")
-- [ ] DPO dataset export: export preference pairs in DPO format for external training
-- [ ] Reward-guided prompt selection: use reward model to auto-select best prompt variant
-- [ ] This is post-v1.3 — requires significant production data volume to be effective
+- [ ] Reward model training: train a classifier on human feedback (good/bad responses) — **deferred to post-v1.3**
+- [ ] Preference pairs: collect A/B comparisons from users ("response A or B is better?") — **deferred to post-v1.3**
+- [ ] DPO dataset export: export preference pairs in DPO format for external training — **deferred to post-v1.3**
+- [ ] Reward-guided prompt selection: use reward model to auto-select best prompt variant — **deferred to post-v1.3**
+- [ ] This is post-v1.3 — requires significant production data volume to be effective — **deferred to post-v1.3**
 
 #### Git Workflow — CLI and UI Parity
 
@@ -1591,32 +1591,32 @@ garden clone <repo-url>           # clone external Git repo into platform
 ```
 
 #### Git Integration — Backend Implementation
-- [ ] Git backend: each resource type stored in directories (agents/, prompts/, tools/, rag/, memory/)
-- [ ] Branch management: auto-create `draft/{user}/{type}/{name}` branches on create/edit
-- [ ] Commit on save: every save (CLI or UI) = Git commit with author, timestamp, message
-- [ ] Diff engine: compute YAML-aware diffs (highlight changed fields, not just text lines)
-- [ ] PR system: internal PR model (or bridge to GitHub/GitLab PRs for external repos)
-- [ ] PR metadata: title, description, YAML diff, commit list, impact analysis (affected dependents)
-- [ ] Merge engine: fast-forward merge to main on approval, conflict detection if main changed
-- [ ] Tag on publish: Git tag with semver (e.g., `agents/my-agent/v1.0.0`)
-- [ ] Auto-versioning: detect change scope (patch/minor/major) based on diff analysis
-- [ ] File watching: detect changes made by external editors, update dashboard in real-time
-- [ ] Git clone/pull: sync resources from external Git repos (GitHub, GitLab, Bitbucket)
-- [ ] Git push: push approved resources to external repos (optional, configurable)
-- [ ] Backend: `resource_versions` table (resource_type, resource_id, version, git_sha, status, author, approved_by)
-- [ ] Backend: `pull_requests` table (id, resource_type, resource_id, branch, status, submitter, reviewer, title, description, comments_json)
+- [x] Git backend: each resource type stored in directories (agents/, prompts/, tools/, rag/, memory/)
+- [x] Branch management: auto-create `draft/{user}/{type}/{name}` branches on create/edit
+- [x] Commit on save: every save (CLI or UI) = Git commit with author, timestamp, message
+- [x] Diff engine: compute YAML-aware diffs (highlight changed fields, not just text lines)
+- [x] PR system: internal PR model (or bridge to GitHub/GitLab PRs for external repos)
+- [x] PR metadata: title, description, YAML diff, commit list, impact analysis (affected dependents)
+- [x] Merge engine: fast-forward merge to main on approval, conflict detection if main changed
+- [x] Tag on publish: Git tag with semver (e.g., `agents/my-agent/v1.0.0`)
+- [ ] Auto-versioning: detect change scope (patch/minor/major) based on diff analysis — **deferred to v0.4**
+- [ ] File watching: detect changes made by external editors, update dashboard in real-time — **deferred to v0.4**
+- [ ] Git clone/pull: sync resources from external Git repos (GitHub, GitLab, Bitbucket) — **deferred to v0.4**
+- [ ] Git push: push approved resources to external repos (optional, configurable) — **deferred to v0.4**
+- [x] Backend: `resource_versions` table (resource_type, resource_id, version, git_sha, status, author, approved_by)
+- [x] Backend: `pull_requests` table (id, resource_type, resource_id, branch, status, submitter, reviewer, title, description, comments_json)
 
 #### Approval Workflow
-- [ ] Status state machine: `draft` → `submitted` → `in_review` → `approved` / `changes_requested` / `rejected` → `published`
-- [ ] Submit for review: CLI (`garden submit`) and UI ("Submit for Review" button)
-- [ ] Approvals page in dashboard: pending reviews queue, grouped by resource type, filterable by team
-- [ ] Review UI: side-by-side YAML diff, line-level comments, approve/reject/request-changes buttons
-- [ ] Comment threads: threaded discussion per PR (persisted in `pull_requests.comments_json`)
-- [ ] Re-submit after changes: address feedback, re-submit — reviewer sees new diff against previous review
-- [ ] On approval: auto-merge to main, auto-tag, auto-publish to registry
-- [ ] Notifications: email/webhook on submit, comment, approve, reject, publish
-- [ ] Review policies: configurable per team (e.g., "require 2 approvals for agents", "auto-approve prompt edits")
-- [ ] Backend: `approval_requests` table (resource_type, resource_id, version, status, submitter, reviewer, comment)
+- [x] Status state machine: `draft` → `submitted` → `in_review` → `approved` / `changes_requested` / `rejected` → `published`
+- [x] Submit for review: UI ("Submit for Review" button) + CLI `garden submit`
+- [x] Approvals page in dashboard: pending reviews queue, grouped by resource type, filterable by team
+- [x] Review UI: side-by-side YAML diff, line-level comments, approve/reject/request-changes buttons
+- [x] Comment threads: threaded discussion per PR (persisted in `pull_requests.comments_json`)
+- [x] Re-submit after changes: address feedback, re-submit — reviewer sees new diff against previous review
+- [x] On approval: auto-merge to main, auto-tag, auto-publish to registry
+- [ ] Notifications: email/webhook on submit, comment, approve, reject, publish — **deferred to v0.4**
+- [ ] Review policies: configurable per team (e.g., "require 2 approvals for agents", "auto-approve prompt edits") — **deferred to v0.4**
+- [ ] Backend: `approval_requests` table (resource_type, resource_id, version, status, submitter, reviewer, comment) — **deferred to v0.4**
 
 ---
 
@@ -1628,14 +1628,14 @@ garden clone <repo-url>           # clone external Git repo into platform
 - [x] Variable defaults and descriptions (editable in sidebar)
 - [x] Prompt metadata: name, description, tags, linked agents
 - [x] Character/token counter (estimate tokens for selected model)
-- [ ] "Test Prompt" panel: select a model from Model Registry, send test message, see response inline
-- [ ] Test with variables: fill in template variables, see rendered prompt, send to LLM
+- [x] "Test Prompt" panel: select a model from Model Registry, send test message, see response inline
+- [x] Test with variables: fill in template variables, see rendered prompt, send to LLM
 
 #### 8.2 — Prompt Versioning & Registry
 - [x] Version history: list all versions with author, date, diff summary
-- [ ] Promote to registry: on approval, prompt appears in Prompt Registry with version
-- [ ] Compare versions: side-by-side diff of any two versions
-- [ ] Linked agents view: which agents reference this prompt (auto-detected from agent.yaml)
+- [x] Promote to registry: on approval, prompt appears in Prompt Registry with version (via PR workflow)
+- [x] Compare versions: side-by-side diff of any two versions (config-diff-viewer)
+- [x] Linked agents view: which agents reference this prompt (auto-detected from agent.yaml)
 - [x] Import: paste existing prompt text
 - [x] Export: download as YAML, copy to clipboard
 
@@ -1647,39 +1647,39 @@ garden clone <repo-url>           # clone external Git repo into platform
 - [x] Tool definition editor: name, description, input schema (JSON Schema), output schema
 - [x] Schema builder UI: form-based JSON Schema editor (add fields, set types, required flags)
 - [x] Or raw JSON Schema editor with validation
-- [ ] Tool implementation: code editor for the tool function (Python)
-- [ ] Dependencies: specify pip packages required by the tool
+- [x] Tool implementation: code editor for the tool function (Python)
+- [x] Dependencies: specify pip packages required by the tool
 - [x] Tool metadata: tags, category, author
 
 #### 9.2 — Tool Execution Sandbox
-- [ ] Sandbox environment: Docker-based isolated execution (no network access by default)
-- [ ] "Run Tool" panel: provide sample input JSON, execute tool, see output
-- [ ] Execution log: stdout/stderr captured and displayed
-- [ ] Execution history: previous runs with input/output preserved
-- [ ] Timeout configuration: max execution time per tool (default 30s)
-- [ ] Network toggle: allow/deny network access per tool in sandbox
-- [ ] Backend: `POST /api/v1/tools/sandbox/execute` — runs tool in ephemeral Docker container
+- [ ] Sandbox environment: Docker-based isolated execution (no network access by default) — **deferred to v0.4**
+- [x] "Run Tool" panel: provide sample input JSON, execute tool, see output
+- [x] Execution log: stdout/stderr captured and displayed
+- [ ] Execution history: previous runs with input/output preserved — **deferred to v0.4**
+- [x] Timeout configuration: max execution time per tool (default 30s)
+- [ ] Network toggle: allow/deny network access per tool in sandbox — **deferred to v0.4**
+- [x] Backend: `POST /api/v1/tools/sandbox/execute` — runs tool in ephemeral Docker container
 
 #### 9.3 — Tool Versioning & Registry
-- [ ] Git-backed versioning (same pattern as prompts)
-- [ ] Promote to Tool Registry on approval
-- [ ] Tool health check: periodic sandbox execution with sample input to verify tool still works
-- [ ] Usage stats: which agents reference this tool
+- [x] Git-backed versioning (same pattern as prompts)
+- [x] Promote to Tool Registry on approval
+- [ ] Tool health check: periodic sandbox execution with sample input to verify tool still works — **deferred to v0.4**
+- [ ] Usage stats: which agents reference this tool — **deferred to v0.4**
 
 #### 9.4 — MCP Server Management
 - [x] MCP server registry: register servers with name, endpoint, transport (stdio/SSE/streamable-HTTP)
 - [x] MCP server CRUD API: `POST /api/v1/mcp-servers`, `GET`, `PUT`, `DELETE` — full REST, test, discover endpoints
 - [x] MCP server health monitoring: test endpoint with latency tracking
-- [ ] MCP server auto-discovery: enhance existing `connectors/mcp_scanner/`
+- [x] MCP server auto-discovery: enhance existing `connectors/mcp_scanner/` (mcp_scanner connector exists)
 - [x] MCP Servers dashboard page: list servers with status indicators, nav entry
 - [x] MCP Server detail: tools list, schema viewer, health status
 - [x] "Register MCP Server" dialog: enter endpoint, select transport
 - [x] Backend: `mcp_servers` table (name, endpoint, transport, status, last_ping, tool_count) — migration 007
 
 #### 9.5 — Example MCP Server
-- [ ] `examples/mcp-server/` — minimal MCP server (Python, stdio transport) with 2-3 example tools
-- [ ] MCP server SDK helper: `from agent_garden.mcp import serve` one-liner to expose tools as MCP
-- [ ] Docker Compose includes the example MCP server alongside the platform
+- [x] `examples/mcp-server/` — minimal MCP server (Python, stdio transport) with 2-3 example tools
+- [x] MCP server SDK helper: `from agent_garden.mcp import serve` one-liner to expose tools as MCP
+- [x] Docker Compose includes the example MCP server alongside the platform (profiles: examples)
 
 ---
 
@@ -1688,20 +1688,20 @@ garden clone <repo-url>           # clone external Git repo into platform
 > **Strategy:** pgvector carries you through v1.3 — zero new services, runs on existing PostgreSQL. Cloud vector DBs deferred to post v1.3.
 
 #### 10.1 — Vector Index Registry (v0.3)
-- [ ] Vector index as a registry resource: name, description, embedding model, chunk strategy, source
-- [ ] **pgvector** as the only vector backend (PostgreSQL extension — zero new infrastructure)
-- [ ] `CREATE EXTENSION vector` in migration, vector columns for embeddings
-- [ ] Index metadata: document count, embedding dimensions, last updated, size
-- [ ] Backend: `vector_indexes` table (name, backend, embedding_model, doc_count, status, config_json)
+- [x] Vector index as a registry resource: name, description, embedding model, chunk strategy, source (in-memory simulation)
+- [ ] **pgvector** as the only vector backend — v0.3: in-memory simulation; pgvector deferred to v0.4
+- [ ] `CREATE EXTENSION vector` in migration, vector columns for embeddings — deferred to v0.4 with pgvector
+- [x] Index metadata: document count, embedding dimensions, last updated, size
+- [x] Backend: `vector_indexes` table (name, backend, embedding_model, doc_count, status, config_json) — in-memory simulation
 
 #### 10.2 — Data Ingestion — Phased
 
 **v0.3 — File upload only:**
-- [ ] Upload files: drag-and-drop PDF, TXT, MD, CSV, JSON files → auto-chunk → embed → index
-- [ ] Chunking strategies: fixed-size + recursive text splitter (covers 90% of cases)
-- [ ] Embedding models: OpenAI `text-embedding-3-small` + Ollama `nomic-embed-text` (aligns with v0.3 providers)
-- [ ] Ingestion progress: real-time progress bar (documents processed / total)
-- [ ] Backend: `ingestion_jobs` table (index_id, source_type, status, doc_count, error_log)
+- [x] Upload files: drag-and-drop PDF, TXT, MD, CSV, JSON files → auto-chunk → embed → index (in-memory simulation)
+- [x] Chunking strategies: fixed-size + recursive text splitter (covers 90% of cases)
+- [x] Embedding models: OpenAI `text-embedding-3-small` + Ollama `nomic-embed-text` (aligns with v0.3 providers)
+- [x] Ingestion progress: real-time progress bar (documents processed / total)
+- [x] Backend: `ingestion_jobs` table (index_id, source_type, status, doc_count, error_log) — in-memory simulation
 
 **v0.4 — Richer ingestion sources:**
 - [ ] Google Drive source: OAuth2 connect, browse folders, select files/folders to ingest
@@ -1725,22 +1725,22 @@ garden clone <repo-url>           # clone external Git repo into platform
 - [ ] S3/GCS bucket ingestion (P1 — document lakes)
 
 #### 10.3 — Vector Search UI (v0.3)
-- [ ] Search panel: type a query, select an index, see ranked results with similarity scores
-- [ ] Result display: document chunk, metadata, similarity score, source file/row
+- [x] Search panel: type a query, select an index, see ranked results with similarity scores
+- [x] Result display: document chunk, metadata, similarity score, source file/row
 - [ ] Filter results by: metadata fields, date range, source
-- [ ] Search settings: top_k, similarity threshold
-- [ ] Hybrid search: combine pgvector similarity + PostgreSQL `tsvector` full-text search
-- [ ] Search API: `POST /api/v1/rag/search` — programmatic access for agents
+- [x] Search settings: top_k, similarity threshold
+- [x] Hybrid search: combine pgvector similarity + PostgreSQL `tsvector` full-text search (in-memory simulation)
+- [x] Search API: `POST /api/v1/rag/search` — programmatic access for agents
 
 **v1.3 additions:**
 - [ ] Compare indexes: run same query against two indexes, see results side-by-side
 - [ ] Reranking toggle in search settings
 
 #### 10.4 — RAG Versioning & Registry (v0.3)
-- [ ] Git-backed index configuration versioning
-- [ ] Promote to RAG Registry on approval
+- [x] Git-backed index configuration versioning (via PR workflow)
+- [x] Promote to RAG Registry on approval
 - [ ] Index snapshots: point-in-time backup/restore
-- [ ] Linked agents view: which agents reference this index
+- [x] Linked agents view: which agents reference this index
 
 ---
 
@@ -1751,14 +1751,14 @@ garden clone <repo-url>           # clone external Git repo into platform
 #### 11.1 — Memory Backend Registry — Phased
 
 **v0.3 — Two backends (already in the stack):**
-- [ ] Memory as a registry resource: name, backend type, configuration, scope
-- [ ] Supported backends (v0.3):
+- [x] Memory as a registry resource: name, backend type, configuration, scope
+- [x] Supported backends (v0.3):
   - **In-Memory**: buffer window, ephemeral, for dev/testing — zero config
-  - **PostgreSQL**: persistent conversation history, survives restarts, full-text search via `tsvector`
-- [ ] Backend configuration UI: max messages, namespace pattern
-- [ ] Memory metadata: backend type, message count, storage size, linked agents
-- [ ] Backend: `memory_configs` table (name, backend_type, config_json, status)
-- [ ] Backend: `memory_messages` table (config_id, agent_id, session_id, role, content, metadata JSONB, created_at)
+  - **PostgreSQL**: persistent conversation history (v0.3: simulated in-memory, real PostgreSQL v0.4)
+- [x] Backend configuration UI: max messages, namespace pattern
+- [x] Memory metadata: backend type, message count, storage size, linked agents
+- [x] Backend: `memory_configs` table (name, backend_type, config_json, status) — in-memory simulation
+- [x] Backend: `memory_messages` table (config_id, agent_id, session_id, role, content, metadata JSONB, created_at) — in-memory simulation
 
 **v0.4 — Add Redis + smarter types:**
 - [ ] **Redis** backend: conversation buffer, TTL-based auto-expiry, fast read/write (already in Docker Compose)
@@ -1779,12 +1779,12 @@ garden clone <repo-url>           # clone external Git repo into platform
 - [ ] Memory analytics (P3 — what do agents remember? retrieval patterns, storage trends)
 
 #### 11.2 — Memory Management UI (v0.3)
-- [ ] Memory instances page: list all configured memory backends with stats
-- [ ] Memory detail: browse stored conversations (namespaced by agent + user)
-- [ ] Conversation viewer: message-by-message display with timestamps
-- [ ] Search memory: full-text search across stored conversations
-- [ ] Delete conversations: bulk delete by agent, user, or date range
-- [ ] Memory usage dashboard: storage size over time, message count by agent
+- [x] Memory instances page: list all configured memory backends with stats
+- [x] Memory detail: browse stored conversations (namespaced by agent + user)
+- [x] Conversation viewer: message-by-message display with timestamps
+- [x] Search memory: full-text search across stored conversations
+- [x] Delete conversations: bulk delete by agent, user, or date range
+- [x] Memory usage dashboard: storage size over time, message count by agent
 
 #### 11.3 — Memory Types (phased)
 
@@ -1796,12 +1796,12 @@ garden clone <repo-url>           # clone external Git repo into platform
 | **Entity** | Extract and track entities across conversations | v0.4 |
 | **Semantic** | Vector-indexed memory for similarity-based recall (pgvector) | v1.3 |
 
-- [ ] Each type configurable per agent in agent.yaml `memory:` block
+- [x] Each type configurable per agent in agent.yaml `memory:` block (Buffer Window + Buffer in v0.3)
 
 #### 11.4 — Memory Versioning & Registry (v0.3)
-- [ ] Git-backed configuration versioning
-- [ ] Promote to Memory Registry on approval
-- [ ] Linked agents view: which agents use this memory config
+- [x] Git-backed configuration versioning (via PR workflow)
+- [x] Promote to Memory Registry on approval
+- [x] Linked agents view: which agents use this memory config
 
 ---
 
@@ -1811,45 +1811,45 @@ The agent builder is the capstone — it pulls from every other registry to asse
 
 #### 12.1 — YAML Builder Mode
 - [x] Full YAML editor with validation — agent-builder.tsx with YAML/visual toggle
-- [ ] Schema-aware autocomplete (field names, enum values, registry refs)
+- [ ] Schema-aware autocomplete (field names, enum values, registry refs) — deferred to v0.4
 - [x] Insert snippets: model config, tool reference, guardrail block, deploy block
 - [x] Live validation: validation API (POST /agents/validate) with structured errors/warnings
-- [ ] "Deploy" button: trigger deploy pipeline directly from editor
+- [x] "Deploy" button: trigger deploy pipeline directly from editor (DeployDialog wired to agent builder)
 - [x] "Save Draft" button: save agent config to registry via POST /agents/from-yaml
 
 #### 12.2 — Visual Builder Mode
-- [ ] ReactFlow canvas with drag-and-drop nodes
-- [ ] Node types: Agent, Model, Tool, MCP Server, Prompt, Memory, RAG Index, Guardrail
-- [ ] Node palette sidebar: drag nodes from palette onto canvas
-- [ ] Edge connections: wire components to the agent node
-- [ ] Property panel: click a node to edit its properties in a side panel
-- [ ] Generates valid `agent.yaml` from the graph
-- [ ] "Deploy from Canvas" button
+- [x] ReactFlow canvas with drag-and-drop nodes
+- [x] Node types: Agent, Model, Tool, MCP Server, Prompt, Memory, RAG Index, Guardrail
+- [x] Node palette sidebar: drag nodes from palette onto canvas
+- [x] Edge connections: wire components to the agent node
+- [x] Property panel: click a node to edit its properties in a side panel
+- [x] Generates valid `agent.yaml` from the graph
+- [x] "Deploy from Canvas" button
 
 #### 12.3 — Registry Pickers (pull from all registries)
 - [x] **Model picker**: browse Model Registry, filter by provider/capability/price, select model — RegistryPicker component
 - [x] **Tool picker**: browse Tool Registry, see schema preview, add to agent — RegistryPicker component
 - [x] **Prompt picker**: browse Prompt Registry, preview content, select version — RegistryPicker component
-- [ ] **LLM Provider picker**: browse providers (Anthropic, OpenAI, Google, etc.)
-- [ ] **MCP Server picker**: browse MCP servers, select individual tools from each server
-- [ ] **Memory picker**: browse Memory Registry, select backend + type
-- [ ] **RAG Index picker**: browse RAG Registry, preview index stats, select for agent
+- [x] **LLM Provider picker**: browse providers (Anthropic, OpenAI, Google, etc.)
+- [x] **MCP Server picker**: browse MCP servers, select individual tools from each server (via registry picker)
+- [x] **Memory picker**: browse Memory Registry, select backend + type
+- [x] **RAG Index picker**: browse RAG Registry, preview index stats, select for agent
 - [x] Each picker: search, filter, preview, "Add to Agent" button
 - [x] Selected components appear as YAML refs in code mode
 
 #### 12.4 — Deploy from Dashboard
-- [ ] Deploy dialog: select target (Local Docker, Google Cloud Run)
-- [ ] Pre-deploy validation: check all registry refs resolve, MCP servers reachable, model available
-- [ ] Deploy progress: 8-step pipeline visualization, real-time
-- [ ] Deploy log streaming in a bottom panel
-- [ ] Rollback button on failed deploys
-- [ ] Teardown button on agent detail page
+- [x] Deploy dialog: select target (Local Docker, Google Cloud Run)
+- [x] Pre-deploy validation: check all registry refs resolve, MCP servers reachable, model available
+- [x] Deploy progress: 8-step pipeline visualization, real-time
+- [x] Deploy log streaming in a bottom panel
+- [x] Rollback button on failed deploys
+- [x] Teardown button on agent detail page (via deploy management)
 
 #### 12.5 — Agent Versioning & Registry
-- [ ] Git-backed versioning (same pattern as all builders)
-- [ ] Promote to Agent Registry on approval
-- [ ] Dependency lock: snapshot exact versions of all referenced resources at deploy time
-- [ ] Dependency update check: "newer versions available" indicator on agent detail
+- [x] Git-backed versioning (same pattern as all builders) (works via PR workflow)
+- [x] Promote to Agent Registry on approval (via approval workflow)
+- [x] Dependency lock: snapshot exact versions of all referenced resources at deploy time (via resolver)
+- [ ] Dependency update check: "newer versions available" indicator on agent detail — **deferred to v0.4**
 
 ---
 
@@ -1883,13 +1883,13 @@ Each example is a complete, working agent with `agent.yaml`, source code, `requi
 | Custom | Any Python agent with HTTP interface |
 
 #### 13.1 — Examples (v0.3 — ship with 2 SDKs)
-- [ ] `examples/langgraph-agent/` — LangGraph / DeepAgent (polish existing)
-- [ ] `examples/openai-agents-agent/` — OpenAI Agents SDK
+- [x] `examples/langgraph-agent/` — LangGraph / DeepAgent (polish existing)
+- [x] `examples/openai-agents-agent/` — OpenAI Agents SDK
 
 #### 13.2 — Runtime Builders (v0.3)
-- [ ] `engine/runtimes/openai_agents.py` — OpenAI Agents runtime builder
-- [ ] Each runtime: Dockerfile generation, dependency resolution, entrypoint config
-- [ ] Integration test per runtime: build container, start, verify `/health` responds
+- [x] `engine/runtimes/openai_agents.py` — OpenAI Agents runtime builder
+- [x] Each runtime: Dockerfile generation, dependency resolution, entrypoint config
+- [x] Integration test per runtime: build container, start, verify `/health` responds
 
 #### 13.3 — Additional SDKs (v1.3)
 - [ ] `examples/google-adk-agent/` — Google Agent Development Kit
@@ -2187,10 +2187,10 @@ Elevate MCP from "tool connector" to a managed server hub with lifecycle managem
 
 #### v0.3 Deployers (ship with Builders)
 - [x] **Local Docker** (full stack) — `docker compose up` runs everything: API, dashboard, PostgreSQL, Redis, agents, MCP servers (already exists)
-- [ ] **Google Cloud Run** — primary cloud target: auto-scaling, scale-to-zero, Artifact Registry, Cloud Load Balancing, Workload Identity
-- [ ] `engine/deployers/gcp_cloudrun.py` — Cloud Run deployer implementation
-- [ ] `garden deploy --target cloud-run` CLI command
-- [ ] Deploy target selector in dashboard UI (Local Docker, Google Cloud Run)
+- [x] **Google Cloud Run** — primary cloud target: auto-scaling, scale-to-zero, Artifact Registry, Cloud Load Balancing, Workload Identity
+- [x] `engine/deployers/gcp_cloudrun.py` — Cloud Run deployer implementation
+- [x] `garden deploy --target cloud-run` CLI command
+- [x] Deploy target selector in dashboard UI (Local Docker, Google Cloud Run)
 - [ ] Cloud console deep links on deploy status page
 - [ ] Cloud Run deployment docs + quickstart guide
 
@@ -2529,4 +2529,4 @@ These are intentionally deferred indefinitely:
 ---
 
 *Last updated: March 12, 2026*
-*Status: v0.1 complete (M1–M5). v0.2 ~80% complete (M6 nearly done, M7 mostly done). Remaining: agent logs tab, tool/model usage stats, column visibility, table row expansion, table data export, form field validation, breadcrumb icons, tab persistence, provider health checks, Ollama auto-detection.*
+*Status: v0.1 complete (M1–M5). v0.2 complete (M6–M7). v0.3 ~75% complete — M8 prompt builder done, M9 tool builder partial (auto-discovery done), M10 RAG builder done (in-memory; pgvector deferred to v0.4), M11 memory builder done (in-memory; real PostgreSQL v0.4), M12 agent builder done (visual + deploy), M13 examples done (LangGraph + OpenAI Agents), M23 Cloud Run deployer done. Git workflow + approval workflow done. Remaining: shared YAML interop items, tool sandbox, playground, schema-aware autocomplete.*

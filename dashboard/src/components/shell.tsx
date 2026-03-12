@@ -18,6 +18,7 @@ import {
   Brain,
   Database,
   GitPullRequest,
+  MessageSquare,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -45,6 +46,7 @@ const NAV = [
   { to: "/prompts", icon: FileText, label: "Prompts" },
   { to: "/memory", icon: Brain, label: "Memory" },
   { to: "/rag", icon: Database, label: "RAG" },
+  { to: "/playground", icon: MessageSquare, label: "Playground" },
   { to: "/approvals", icon: GitPullRequest, label: "Approvals" },
   { to: "/deploys", icon: Activity, label: "Deploys" },
   { to: "/activity", icon: Clock, label: "Activity" },
@@ -221,6 +223,7 @@ const BREADCRUMB_ICONS: Record<string, React.ComponentType<{ className?: string 
   models: Cpu,
   prompts: FileText,
   memory: Brain,
+  playground: MessageSquare,
   approvals: GitPullRequest,
   deploys: Activity,
   activity: Clock,

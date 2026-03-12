@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Garden RAG Configuration",
+  "description": "Schema for rag.yaml — the RAG (vector index) definition file for Agent Garden",
+  "type": "object",
+  "required": ["name", "version"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": {
+      "type": "string",
+      "enum": ["v1"],
+      "default": "v1",
+      "description": "Schema version"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "minLength": 2,
+      "maxLength": 63,
+      "description": "RAG index name (slug-friendly)"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version (e.g., 1.0.0)"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Short description of the RAG index"
+    },
+    "team": {
+      "type": "string",
+      "description": "Team that owns this RAG index"
+    },
+    "owner": {
+      "type": "string",
+      "format": "email",
+      "description": "Email of the responsible engineer"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tags for discovery"
+    },
+    "backend": {
+      "type": "string",
+      "enum": ["pgvector", "in_memory"],
+      "default": "in_memory",
+      "description": "Vector storage backend"
+    },
+    "embedding_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Embedding model provider (e.g., openai, ollama)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Model name (e.g., text-embedding-3-small, nomic-embed-text)"
+        },
+        "dimensions": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Embedding vector dimensions"
+        }
+      },
+      "description": "Embedding model configuration"
+    },
+    "chunking": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["fixed_size", "recursive"],
+          "default": "recursive",
+          "description": "Text chunking strategy"
+        },
+        "chunk_size": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 512,
+          "description": "Target chunk size in tokens"
+        },
+        "chunk_overlap": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 50,
+          "description": "Overlap between consecutive chunks in tokens"
+        }
+      },
+      "description": "Document chunking configuration"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["file", "url", "database"],
+            "description": "Source type"
+          },
+          "path": {
+            "type": "string",
+            "description": "File path or glob pattern (for type: file)"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to fetch (for type: url)"
+          },
+          "query": {
+            "type": "string",
+            "description": "SQL query to execute (for type: database)"
+          }
+        }
+      },
+      "description": "Data sources to ingest into the index"
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hybrid": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable hybrid search (vector + full-text)"
+        },
+        "vector_weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7,
+          "description": "Weight for vector similarity in hybrid search"
+        },
+        "text_weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.3,
+          "description": "Weight for text search in hybrid search"
+        },
+        "default_top_k": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5,
+          "description": "Default number of results to return"
+        }
+      },
+      "description": "Search configuration"
+    }
+  }
+}

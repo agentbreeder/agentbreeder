@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Garden Tool Configuration",
+  "description": "Schema for tool.yaml — the tool definition file for Agent Garden",
+  "type": "object",
+  "required": ["name", "version", "description", "type"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": {
+      "type": "string",
+      "enum": ["v1"],
+      "default": "v1",
+      "description": "Schema version"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "minLength": 2,
+      "maxLength": 63,
+      "description": "Tool name (slug-friendly)"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version (e.g., 1.0.0)"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Short description of the tool"
+    },
+    "team": {
+      "type": "string",
+      "description": "Team that owns this tool"
+    },
+    "owner": {
+      "type": "string",
+      "format": "email",
+      "description": "Email of the responsible engineer"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tags for discovery"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["function", "mcp", "api"],
+      "description": "Tool type (function = inline code, mcp = MCP server, api = external API)"
+    },
+    "input_schema": {
+      "type": "object",
+      "description": "JSON Schema for the tool's input parameters"
+    },
+    "output_schema": {
+      "type": "object",
+      "description": "JSON Schema for the tool's output"
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "language": {
+          "type": "string",
+          "enum": ["python", "typescript"],
+          "description": "Implementation language"
+        },
+        "entrypoint": {
+          "type": "string",
+          "description": "Entry point file or function (e.g., handler.py:run)"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Package dependencies (pip packages or npm packages)"
+        }
+      },
+      "description": "Tool implementation details"
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 300,
+      "default": 30,
+      "description": "Maximum execution time in seconds"
+    },
+    "network_access": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the tool requires network access in the sandbox"
+    }
+  }
+}
