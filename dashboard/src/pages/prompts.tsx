@@ -15,6 +15,7 @@ import {
   Italic,
   Code,
   Loader2,
+  Star,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api, type Prompt } from "@/lib/api";
@@ -40,6 +41,9 @@ import {
 import { cn } from "@/lib/utils";
 import { useState, useMemo, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { FavoriteButton } from "@/components/favorite-button";
+import { ExportDropdown } from "@/components/export-dropdown";
+import { useFavorites } from "@/hooks/use-favorites";
 
 interface PromptGroup {
   name: string;
@@ -108,6 +112,7 @@ function PromptCard({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          <FavoriteButton id={latest.id} />
           <DropdownMenu>
             <DropdownMenuTrigger
               className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -472,8 +477,10 @@ function EmptyState({ hasFilter }: { hasFilter: boolean }) {
 export default function PromptsPage() {
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState("");
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { favorites } = useFavorites();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["prompts", { teamFilter }],
@@ -521,7 +528,7 @@ export default function PromptsPage() {
     return result;
   }, [prompts]);
 
-  const filtered = search
+  let filtered = search
     ? groups.filter(
         (g) =>
           g.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -529,6 +536,12 @@ export default function PromptsPage() {
           g.team.toLowerCase().includes(search.toLowerCase())
       )
     : groups;
+
+  if (showFavoritesOnly) {
+    filtered = filtered.filter((g) =>
+      g.versions.some((v) => favorites.has(v.id))
+    );
+  }
 
   const teams = [...new Set(prompts.map((p) => p.team))].filter(Boolean).sort();
 
@@ -542,7 +555,13 @@ export default function PromptsPage() {
             {groups.length !== 1 ? "s" : ""} in registry
           </p>
         </div>
-        <CreatePromptDialog onCreated={(id) => navigate(`/prompts/${id}`)} />
+        <div className="flex items-center gap-2">
+          <ExportDropdown
+            data={prompts as unknown as Record<string, unknown>[]}
+            filename="prompts"
+          />
+          <CreatePromptDialog onCreated={(id) => navigate(`/prompts/${id}`)} />
+        </div>
       </div>
 
       {/* Filters */}
@@ -568,6 +587,18 @@ export default function PromptsPage() {
             </option>
           ))}
         </select>
+        <button
+          onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium transition-colors",
+            showFavoritesOnly
+              ? "border-amber-400/50 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+              : "text-muted-foreground hover:bg-muted"
+          )}
+        >
+          <Star className={cn("size-3", showFavoritesOnly && "fill-amber-400")} />
+          Favorites
+        </button>
       </div>
 
       {/* Grid */}
@@ -591,7 +622,7 @@ export default function PromptsPage() {
           Failed to load prompts: {(error as Error).message}
         </div>
       ) : filtered.length === 0 ? (
-        <EmptyState hasFilter={!!(search || teamFilter)} />
+        <EmptyState hasFilter={!!(search || teamFilter || showFavoritesOnly)} />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {filtered.map((group) => (

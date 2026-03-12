@@ -1,11 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Wrench, Search, Circle, Server, Plug, Code } from "lucide-react";
+import { Wrench, Search, Circle, Server, Plug, Code, Star } from "lucide-react";
 import { api, type Tool } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { FavoriteButton } from "@/components/favorite-button";
+import { ExportDropdown } from "@/components/export-dropdown";
+import { useFavorites } from "@/hooks/use-favorites";
 
 const TYPE_ICONS: Record<string, typeof Wrench> = {
   mcp_server: Server,
@@ -42,6 +45,9 @@ function ToolCard({ tool, onClick }: { tool: Tool; onClick: () => void }) {
                 isActive ? "text-emerald-500" : "text-muted-foreground"
               )}
             />
+            <div className="ml-auto">
+              <FavoriteButton id={tool.id} />
+            </div>
           </div>
           {tool.description && (
             <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
@@ -86,6 +92,8 @@ export default function ToolsPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const { showOnlyFavorites, favorites } = useFavorites();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["tools", { typeFilter }],
@@ -96,7 +104,7 @@ export default function ToolsPage() {
 
   const tools = data?.data ?? [];
   const total = data?.meta.total ?? 0;
-  const filtered = search
+  let filtered = search
     ? tools.filter(
         (t) =>
           t.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -104,13 +112,23 @@ export default function ToolsPage() {
       )
     : tools;
 
+  if (showFavoritesOnly) {
+    filtered = showOnlyFavorites(filtered);
+  }
+
   return (
     <div className="mx-auto max-w-5xl p-6">
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold tracking-tight">Tools & MCP Servers</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {total} tool{total !== 1 ? "s" : ""} in registry
-        </p>
+      <div className="mb-6 flex items-end justify-between">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Tools & MCP Servers</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {total} tool{total !== 1 ? "s" : ""} in registry
+          </p>
+        </div>
+        <ExportDropdown
+          data={filtered as unknown as Record<string, unknown>[]}
+          filename="tools"
+        />
       </div>
 
       {/* Filters */}
@@ -134,6 +152,18 @@ export default function ToolsPage() {
           <option value="function">Function</option>
           <option value="api">API</option>
         </select>
+        <button
+          onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium transition-colors",
+            showFavoritesOnly
+              ? "border-amber-400/50 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+              : "text-muted-foreground hover:bg-muted"
+          )}
+        >
+          <Star className={cn("size-3", showFavoritesOnly && "fill-amber-400")} />
+          Favorites
+        </button>
       </div>
 
       {/* Grid */}

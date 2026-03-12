@@ -1,11 +1,34 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Cpu, Search, Circle, Zap, Cloud, GitCompareArrows } from "lucide-react";
+import {
+  Cpu,
+  Search,
+  Circle,
+  Zap,
+  Cloud,
+  GitCompareArrows,
+  Plus,
+  Star,
+} from "lucide-react";
 import { api, type Model } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { FavoriteButton } from "@/components/favorite-button";
+import { ExportDropdown } from "@/components/export-dropdown";
+import { useFavorites } from "@/hooks/use-favorites";
 
 const PROVIDER_COLORS: Record<string, string> = {
   anthropic: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
@@ -21,6 +44,24 @@ const SOURCE_ICONS: Record<string, typeof Zap> = {
   litellm: Cloud,
   manual: Zap,
 };
+
+const PROVIDER_TABS = ["All", "OpenAI", "Anthropic", "Google", "Ollama"] as const;
+
+/** Format a token count compactly: 128000 -> "128K", 1000000 -> "1M" */
+function formatContextWindow(tokens: number | null): string {
+  if (tokens === null || tokens === undefined) return "--";
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens % 1_000 === 0 ? 0 : 1)}K`;
+  return String(tokens);
+}
+
+/** Format price per million tokens as currency. */
+function formatPrice(price: number | null): string {
+  if (price === null || price === undefined) return "--";
+  if (price === 0) return "Free";
+  if (price < 0.01) return `$${price.toFixed(4)}`;
+  return `$${price.toFixed(2)}`;
+}
 
 function ModelRow({
   model,
@@ -45,6 +86,8 @@ function ModelRow({
         }}
         className="size-3.5 shrink-0 rounded border-border accent-foreground"
       />
+
+      <FavoriteButton id={model.id} />
 
       <div
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-4"
@@ -79,6 +122,18 @@ function ModelRow({
           {model.provider}
         </Badge>
 
+        <div className="w-16 text-right font-mono text-xs text-muted-foreground">
+          {formatContextWindow(model.context_window)}
+        </div>
+
+        <div className="w-28 text-right">
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {formatPrice(model.input_price_per_million)}
+            {" / "}
+            {formatPrice(model.output_price_per_million)}
+          </span>
+        </div>
+
         <div className="flex w-20 items-center justify-end gap-1.5 text-xs text-muted-foreground">
           {(() => {
             const Icon = SOURCE_ICONS[model.source] ?? Zap;
@@ -88,6 +143,143 @@ function ModelRow({
         </div>
       </div>
     </div>
+  );
+}
+
+function CreateModelDialog() {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [provider, setProvider] = useState("");
+  const [description, setDescription] = useState("");
+  const [contextWindow, setContextWindow] = useState("");
+  const [inputPrice, setInputPrice] = useState("");
+  const [outputPrice, setOutputPrice] = useState("");
+
+  const queryClient = useQueryClient();
+
+  const resetForm = () => {
+    setName("");
+    setProvider("");
+    setDescription("");
+    setContextWindow("");
+    setInputPrice("");
+    setOutputPrice("");
+  };
+
+  const canSubmit = name.trim() && provider.trim();
+
+  // For now, this is a placeholder — the API doesn't have a create endpoint yet.
+  // When available, wire up a mutation here.
+  const handleCreate = () => {
+    // Future: api.models.create(...)
+    setOpen(false);
+    resetForm();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(val) => { setOpen(val); if (!val) resetForm(); }}>
+      <DialogTrigger
+        render={<Button size="sm" />}
+      >
+        <Plus className="size-3" data-icon="inline-start" />
+        Add Model
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add Model</DialogTitle>
+          <DialogDescription>
+            Register a new model in the organization registry.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Model Name</label>
+              <Input
+                placeholder="e.g. claude-sonnet-4"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Provider</label>
+              <select
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none"
+              >
+                <option value="">Select provider</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="openai">OpenAI</option>
+                <option value="google">Google</option>
+                <option value="meta">Meta</option>
+                <option value="mistral">Mistral</option>
+                <option value="cohere">Cohere</option>
+                <option value="ollama">Ollama</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Description</label>
+            <Input
+              placeholder="Optional description..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Context Window</label>
+              <Input
+                placeholder="e.g. 128000"
+                value={contextWindow}
+                onChange={(e) => setContextWindow(e.target.value)}
+                className="h-8 text-xs"
+                type="number"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Input $/M tokens</label>
+              <Input
+                placeholder="e.g. 3.00"
+                value={inputPrice}
+                onChange={(e) => setInputPrice(e.target.value)}
+                className="h-8 text-xs"
+                type="number"
+                step="0.01"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Output $/M tokens</label>
+              <Input
+                placeholder="e.g. 15.00"
+                value={outputPrice}
+                onChange={(e) => setOutputPrice(e.target.value)}
+                className="h-8 text-xs"
+                type="number"
+                step="0.01"
+              />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" size="sm" />}>
+            Cancel
+          </DialogClose>
+          <Button
+            size="sm"
+            onClick={handleCreate}
+            disabled={!canSubmit}
+          >
+            Add Model
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -114,6 +306,8 @@ export default function ModelsPage() {
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const { showOnlyFavorites, favorites } = useFavorites();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["models", { providerFilter }],
@@ -124,7 +318,8 @@ export default function ModelsPage() {
 
   const models = data?.data ?? [];
   const total = data?.meta.total ?? 0;
-  const filtered = search
+
+  let filtered = search
     ? models.filter(
         (m) =>
           m.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -133,8 +328,9 @@ export default function ModelsPage() {
       )
     : models;
 
-  // Extract unique providers for the filter dropdown
-  const providers = [...new Set(models.map((m) => m.provider))].sort();
+  if (showFavoritesOnly) {
+    filtered = showOnlyFavorites(filtered);
+  }
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -165,24 +361,53 @@ export default function ModelsPage() {
             {total} model{total !== 1 ? "s" : ""} in registry
           </p>
         </div>
-        {selectedIds.size > 0 && (
-          <button
-            onClick={handleCompare}
-            disabled={!canCompare}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-              canCompare
-                ? "bg-foreground text-background hover:bg-foreground/90"
-                : "bg-muted text-muted-foreground cursor-not-allowed"
-            )}
-          >
-            <GitCompareArrows className="size-3" />
-            Compare Selected ({selectedIds.size})
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleCompare}
+              disabled={!canCompare}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                canCompare
+                  ? "bg-foreground text-background hover:bg-foreground/90"
+                  : "bg-muted text-muted-foreground cursor-not-allowed"
+              )}
+            >
+              <GitCompareArrows className="size-3" />
+              Compare ({selectedIds.size})
+            </button>
+          )}
+          <ExportDropdown
+            data={filtered as unknown as Record<string, unknown>[]}
+            filename="models"
+          />
+          <CreateModelDialog />
+        </div>
       </div>
 
-      {/* Filters */}
+      {/* Provider filter tabs */}
+      <div className="mb-3 flex items-center gap-1.5">
+        {PROVIDER_TABS.map((tab) => {
+          const value = tab === "All" ? "" : tab.toLowerCase();
+          const isActive = providerFilter === value;
+          return (
+            <button
+              key={tab}
+              onClick={() => setProviderFilter(value)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                isActive
+                  ? "bg-foreground text-background"
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              {tab}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Search + favorites filter */}
       <div className="mb-4 flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -193,27 +418,33 @@ export default function ModelsPage() {
             className="h-8 pl-9 text-xs"
           />
         </div>
-        <select
-          value={providerFilter}
-          onChange={(e) => setProviderFilter(e.target.value)}
-          className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none"
+        <button
+          onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium transition-colors",
+            showFavoritesOnly
+              ? "border-amber-400/50 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+              : "text-muted-foreground hover:bg-muted"
+          )}
         >
-          <option value="">All providers</option>
-          {providers.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
+          <Star className={cn("size-3", showFavoritesOnly && "fill-amber-400")} />
+          Favorites
+          {favorites.size > 0 && (
+            <span className="text-[10px]">({favorites.size})</span>
+          )}
+        </button>
       </div>
 
       {/* Table */}
       <div className="overflow-hidden rounded-lg border border-border">
         <div className="flex items-center gap-4 border-b border-border bg-muted/30 px-5 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           <span className="w-3.5" />
+          <span className="w-3.5" />
           <span className="w-1.5" />
           <span className="flex-1">Model</span>
           <span className="w-24 text-center">Provider</span>
+          <span className="w-16 text-right">Context</span>
+          <span className="w-28 text-right">Price (in/out)</span>
           <span className="w-20 text-right">Source</span>
         </div>
 
@@ -225,12 +456,15 @@ export default function ModelsPage() {
                 className="flex items-center gap-4 border-b border-border/50 px-5 py-3 last:border-0"
               >
                 <div className="size-3.5 animate-pulse rounded bg-muted" />
+                <div className="size-3.5 animate-pulse rounded bg-muted" />
                 <div className="size-1.5 animate-pulse rounded-full bg-muted" />
                 <div className="flex-1 space-y-1.5">
                   <div className="h-3.5 w-40 animate-pulse rounded bg-muted" />
                   <div className="h-2.5 w-56 animate-pulse rounded bg-muted/60" />
                 </div>
                 <div className="h-5 w-16 animate-pulse rounded-full bg-muted" />
+                <div className="h-3 w-12 animate-pulse rounded bg-muted" />
+                <div className="h-3 w-20 animate-pulse rounded bg-muted" />
                 <div className="h-3 w-14 animate-pulse rounded bg-muted" />
               </div>
             ))}
@@ -240,7 +474,7 @@ export default function ModelsPage() {
             Failed to load models: {(error as Error).message}
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState hasFilter={!!(search || providerFilter)} />
+          <EmptyState hasFilter={!!(search || providerFilter || showFavoritesOnly)} />
         ) : (
           filtered.map((model) => (
             <ModelRow

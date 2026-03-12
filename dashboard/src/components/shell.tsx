@@ -21,6 +21,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { cn } from "@/lib/utils";
 import { ToastProvider } from "@/components/ui/toast";
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog";
+import { NewResourceDialog } from "@/components/new-resource-dialog";
 
 const NAV = [
   { to: "/agents", icon: Bot, label: "Agents" },
@@ -214,9 +215,12 @@ function ShellInner() {
           <span className="text-sm font-semibold tracking-tight">Agent Garden</span>
         </div>
 
-        {/* Search */}
-        <div className="px-3 pb-2">
-          <CommandSearch />
+        {/* Search + New */}
+        <div className="flex items-center gap-1.5 px-3 pb-2">
+          <div className="flex-1">
+            <CommandSearch />
+          </div>
+          <NewResourceDialog />
         </div>
 
         {/* Nav */}

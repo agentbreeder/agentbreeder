@@ -1,11 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
-import { Bot, Search, Filter, Circle } from "lucide-react";
+import { Bot, Search, Filter, Circle, Star } from "lucide-react";
 import { api, type Agent, type AgentStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { FavoriteButton } from "@/components/favorite-button";
+import { ExportDropdown } from "@/components/export-dropdown";
+import { TagFilter } from "@/components/tag-input";
+import { useFavorites } from "@/hooks/use-favorites";
 
 const STATUS_COLORS: Record<AgentStatus, string> = {
   running: "text-emerald-500",
@@ -34,6 +38,7 @@ function AgentRow({ agent }: { agent: Agent }) {
       to={`/agents/${agent.id}`}
       className="group flex items-center gap-4 border-b border-border/50 px-6 py-3.5 transition-colors last:border-0 hover:bg-muted/30"
     >
+      <FavoriteButton id={agent.id} />
       <StatusDot status={agent.status} />
 
       <div className="min-w-0 flex-1">
@@ -47,6 +52,20 @@ function AgentRow({ agent }: { agent: Agent }) {
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {agent.description}
           </p>
+        )}
+        {agent.tags && agent.tags.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {agent.tags.slice(0, 3).map((tag) => (
+              <Badge key={tag} variant="outline" className="text-[9px] px-1.5 py-0 h-4">
+                {tag}
+              </Badge>
+            ))}
+            {agent.tags.length > 3 && (
+              <span className="text-[9px] text-muted-foreground">
+                +{agent.tags.length - 3}
+              </span>
+            )}
+          </div>
         )}
       </div>
 
@@ -89,6 +108,9 @@ export default function AgentsPage() {
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
   const [framework, setFramework] = useState(searchParams.get("framework") ?? "");
   const [status, setStatus] = useState(searchParams.get("status") ?? "");
+  const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const { showOnlyFavorites, favorites } = useFavorites();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["agents", { search, framework, status }],
@@ -104,7 +126,27 @@ export default function AgentsPage() {
 
   const agents = data?.data ?? [];
   const total = data?.meta.total ?? 0;
-  const hasFilter = !!(search || framework || status);
+  const hasFilter = !!(search || framework || status || activeTags.length > 0 || showFavoritesOnly);
+
+  // Extract all unique tags from agents
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    for (const agent of agents) {
+      if (agent.tags) {
+        for (const tag of agent.tags) tagSet.add(tag);
+      }
+    }
+    return [...tagSet].sort();
+  }, [agents]);
+
+  // Apply tag filter
+  let filteredAgents = activeTags.length > 0
+    ? agents.filter((a) => a.tags && activeTags.some((t) => a.tags.includes(t)))
+    : agents;
+
+  if (showFavoritesOnly) {
+    filteredAgents = showOnlyFavorites(filteredAgents);
+  }
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -112,6 +154,12 @@ export default function AgentsPage() {
     if (value) sp.set("q", value);
     else sp.delete("q");
     setSearchParams(sp, { replace: true });
+  };
+
+  const toggleTag = (tag: string) => {
+    setActiveTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
   };
 
   return (
@@ -124,6 +172,10 @@ export default function AgentsPage() {
             {total} agent{total !== 1 ? "s" : ""} in registry
           </p>
         </div>
+        <ExportDropdown
+          data={filteredAgents as unknown as Record<string, unknown>[]}
+          filename="agents"
+        />
       </div>
 
       {/* Filters */}
@@ -164,13 +216,37 @@ export default function AgentsPage() {
             <option value="stopped">Stopped</option>
             <option value="failed">Failed</option>
           </select>
+          <button
+            onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium transition-colors",
+              showFavoritesOnly
+                ? "border-amber-400/50 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                : "text-muted-foreground hover:bg-muted"
+            )}
+          >
+            <Star className={cn("size-3", showFavoritesOnly && "fill-amber-400")} />
+            Favorites
+          </button>
         </div>
       </div>
+
+      {/* Tag filter */}
+      {allTags.length > 0 && (
+        <div className="mb-4">
+          <TagFilter
+            allTags={allTags}
+            activeTags={activeTags}
+            onToggle={toggleTag}
+          />
+        </div>
+      )}
 
       {/* Table */}
       <div className="overflow-hidden rounded-lg border border-border">
         {/* Column headers */}
         <div className="flex items-center gap-4 border-b border-border bg-muted/30 px-6 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <span className="w-3.5" />
           <span className="w-2" />
           <span className="flex-1">Agent</span>
           <span className="w-24 text-center">Framework</span>
@@ -182,6 +258,7 @@ export default function AgentsPage() {
           <div className="space-y-0">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4 border-b border-border/50 px-6 py-3.5 last:border-0">
+                <div className="size-3.5 animate-pulse rounded bg-muted" />
                 <div className="size-2 animate-pulse rounded-full bg-muted" />
                 <div className="flex-1 space-y-1.5">
                   <div className="h-3.5 w-36 animate-pulse rounded bg-muted" />
@@ -197,10 +274,10 @@ export default function AgentsPage() {
           <div className="px-6 py-12 text-center text-sm text-destructive">
             Failed to load agents: {(error as Error).message}
           </div>
-        ) : agents.length === 0 ? (
+        ) : filteredAgents.length === 0 ? (
           <EmptyState hasFilter={hasFilter} />
         ) : (
-          agents.map((agent) => <AgentRow key={agent.id} agent={agent} />)
+          filteredAgents.map((agent) => <AgentRow key={agent.id} agent={agent} />)
         )}
       </div>
     </div>
