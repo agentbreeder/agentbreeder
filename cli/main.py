@@ -27,6 +27,7 @@ from cli.commands import (
     status,
     submit,
     teardown,
+    template,
     validate,
 )
 from cli.commands import (
@@ -57,6 +58,7 @@ app.add_typer(provider.provider_app, name="provider")
 app.add_typer(review.review_app, name="review")
 app.add_typer(eval_cmd.eval_app, name="eval")
 app.add_typer(orchestration.orchestration_app, name="orchestration")
+app.add_typer(template.template_app, name="template")
 
 
 if __name__ == "__main__":

@@ -26,6 +26,8 @@ import {
   FlaskConical,
   PlayCircle,
   Network,
+  Package,
+  Store,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -55,6 +57,11 @@ const REGISTRY_NAV = [
   { to: "/memory", icon: Brain, label: "Memory" },
   { to: "/rag", icon: Database, label: "RAG" },
   { to: "/playground", icon: MessageSquare, label: "Playground" },
+] as const;
+
+const MARKETPLACE_NAV = [
+  { to: "/templates", icon: Package, label: "Templates" },
+  { to: "/marketplace", icon: Store, label: "Marketplace" },
 ] as const;
 
 const OBSERVABILITY_NAV = [
@@ -259,6 +266,8 @@ const BREADCRUMB_ICONS: Record<string, React.ComponentType<{ className?: string 
   audit: ScrollText,
   lineage: GitBranch,
   evals: FlaskConical,
+  templates: Package,
+  marketplace: Store,
 };
 
 function Breadcrumbs() {
@@ -603,6 +612,12 @@ function ShellInner() {
           <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-1.5 pt-2">
             {!collapsed && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Registry</div>}
             {REGISTRY_NAV.map(({ to, icon, label }) => (
+              <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
+            ))}
+
+            <div className="!my-2 h-px bg-border" />
+            {!collapsed && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Marketplace</div>}
+            {MARKETPLACE_NAV.map(({ to, icon, label }) => (
               <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
             ))}
 

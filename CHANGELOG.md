@@ -38,6 +38,28 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - `toYaml()` / `fromYaml()` serialization
 - Unit tests for agent and orchestration SDK
 
+#### Template System (M21)
+- Parameterized agent configuration templates with `{{placeholder}}` substitution
+- Template schema (`engine/schema/template.schema.json`) with full JSON Schema validation
+- Template CRUD API: create, list, get, update, delete, instantiate (`api/routes/templates.py`)
+- Template registry service (`registry/templates.py`)
+- Template gallery page with category filters (`dashboard/src/pages/templates.tsx`)
+- Template detail page with parameter form and YAML generation (`dashboard/src/pages/template-detail.tsx`)
+- `garden template list|create|use` CLI commands (`cli/commands/template.py`)
+- Built-in templates: Customer Support Bot, Data Analyzer, Code Reviewer, Research Assistant (`examples/templates/`)
+- Template versioning support
+
+#### Marketplace (M22)
+- Marketplace browse API with search, category/framework filters, sorting (`api/routes/marketplace.py`)
+- Marketplace registry service with listing submission, approval, reviews (`registry/templates.py`)
+- Marketplace browse page with search, filters, star ratings (`dashboard/src/pages/marketplace.tsx`)
+- Marketplace detail page with reviews, one-click deploy, install tracking (`dashboard/src/pages/marketplace-detail.tsx`)
+- Ratings & reviews system: star rating + text reviews per listing
+- Listing approval workflow: submit → admin review → approve/reject
+- One-click deploy from marketplace listing (install count tracking)
+- Featured listings support
+- Marketplace navigation section in dashboard sidebar
+
 #### Other
 - `garden eject --sdk typescript` support (`cli/commands/eject.py`)
 - `subagents:` field in `agent.yaml` schema (`engine/schema/agent.schema.json`)

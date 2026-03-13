@@ -1,0 +1,90 @@
+# Code Reviewer Template
+# Category: code_review
+# Framework: claude_sdk
+
+name: code-reviewer
+version: "1.0.0"
+description: "Template for building AI code review agents that analyze PRs and suggest improvements."
+category: code_review
+framework: custom
+tags: [code-review, github, pull-request, quality]
+author: agent-garden
+team: default
+
+parameters:
+  - name: agent_name
+    label: Agent Name
+    description: "Unique name for your code reviewer"
+    type: string
+    default: my-code-reviewer
+    required: true
+  - name: team_name
+    label: Team
+    description: "Team that owns this agent"
+    type: string
+    default: engineering
+    required: true
+  - name: owner_email
+    label: Owner Email
+    description: "Email of the responsible engineer"
+    type: string
+    required: true
+  - name: model
+    label: Primary Model
+    description: "LLM model to use"
+    type: select
+    default: claude-sonnet-4
+    options:
+      - claude-sonnet-4
+      - claude-opus-4
+      - gpt-4o
+  - name: languages
+    label: Primary Languages
+    description: "Comma-separated list of languages to focus on"
+    type: string
+    default: python,typescript
+
+config_template:
+  name: "{{agent_name}}"
+  version: "1.0.0"
+  description: "Code review agent for analyzing pull requests and suggesting improvements"
+  team: "{{team_name}}"
+  owner: "{{owner_email}}"
+  framework: custom
+  model:
+    primary: "{{model}}"
+    temperature: 0.2
+    max_tokens: 4096
+  tools:
+    - ref: tools/github-mcp
+    - name: lint_check
+      type: function
+      description: "Run linting checks on code snippets"
+  prompts:
+    system: |
+      You are an expert code reviewer. Analyze code changes and provide constructive feedback.
+      Focus on: security issues, performance, readability, best practices for {{languages}}.
+      Be specific with line references. Suggest fixes, don't just point out problems.
+      Prioritize: security > correctness > performance > style.
+  guardrails:
+    - content_filter
+  deploy:
+    cloud: local
+    runtime: docker-compose
+
+readme: |
+  # Code Reviewer
+
+  An AI code review agent that analyzes pull requests and provides actionable feedback.
+
+  ## Features
+  - Security vulnerability detection
+  - Performance issue identification
+  - Best practice enforcement
+  - Language-aware analysis
+  - Constructive, specific suggestions with line references
+
+  ## Quick Start
+  1. Configure your agent name and primary languages
+  2. Connect your GitHub MCP server
+  3. Point it at your repository

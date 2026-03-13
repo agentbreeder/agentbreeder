@@ -1,0 +1,86 @@
+# Customer Support Bot Template
+# Category: customer_support
+# Framework: langgraph
+
+name: customer-support-bot
+version: "1.0.0"
+description: "Template for building customer support agents with FAQ lookup and ticket creation."
+category: customer_support
+framework: langgraph
+tags: [support, customer-service, faq, tickets]
+author: agent-garden
+team: default
+
+parameters:
+  - name: agent_name
+    label: Agent Name
+    description: "Unique name for your support agent"
+    type: string
+    default: my-support-bot
+    required: true
+  - name: team_name
+    label: Team
+    description: "Team that owns this agent"
+    type: string
+    default: customer-success
+    required: true
+  - name: owner_email
+    label: Owner Email
+    description: "Email of the responsible engineer"
+    type: string
+    required: true
+  - name: model
+    label: Primary Model
+    description: "LLM model to use"
+    type: select
+    default: claude-sonnet-4
+    options:
+      - claude-sonnet-4
+      - gpt-4o
+      - gemini-2.0-flash
+
+config_template:
+  name: "{{agent_name}}"
+  version: "1.0.0"
+  description: "Customer support agent with FAQ lookup and ticket management"
+  team: "{{team_name}}"
+  owner: "{{owner_email}}"
+  framework: langgraph
+  model:
+    primary: "{{model}}"
+    temperature: 0.3
+    max_tokens: 2048
+  tools:
+    - name: faq_search
+      type: function
+      description: "Search the FAQ knowledge base"
+    - name: create_ticket
+      type: function
+      description: "Create a support ticket"
+  prompts:
+    system: |
+      You are a helpful customer support agent. Be concise, empathetic, and solution-oriented.
+      Always search the FAQ before creating a ticket. If the FAQ doesn't answer the question,
+      create a ticket and let the customer know their request has been escalated.
+  guardrails:
+    - pii_detection
+    - content_filter
+  deploy:
+    cloud: local
+    runtime: docker-compose
+
+readme: |
+  # Customer Support Bot
+
+  A ready-to-deploy customer support agent that handles tier-1 inquiries.
+
+  ## Features
+  - FAQ knowledge base search
+  - Automatic ticket creation for unresolved queries
+  - PII detection guardrails
+  - Empathetic, solution-oriented responses
+
+  ## Quick Start
+  1. Fill in your agent name, team, and owner email
+  2. Click "Use Template" to generate your agent.yaml
+  3. Run `garden deploy` to deploy locally

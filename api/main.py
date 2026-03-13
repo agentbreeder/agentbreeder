@@ -18,6 +18,7 @@ from api.routes import (
     deploys,
     evals,
     git,
+    marketplace,
     mcp_servers,
     memory,
     orchestrations,
@@ -28,6 +29,7 @@ from api.routes import (
     registry,
     sandbox,
     teams,
+    templates,
     tracing,
 )
 
@@ -106,6 +108,8 @@ app.include_router(audit.router)
 app.include_router(evals.router)
 app.include_router(orchestrations.router)
 app.include_router(a2a.router)
+app.include_router(templates.router)
+app.include_router(marketplace.router)
 
 
 @app.get("/health")

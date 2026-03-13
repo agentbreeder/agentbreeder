@@ -74,3 +74,26 @@ class A2AStatus(enum.StrEnum):
     active = "active"
     inactive = "inactive"
     error = "error"
+
+
+class TemplateStatus(enum.StrEnum):
+    draft = "draft"
+    published = "published"
+    deprecated = "deprecated"
+
+
+class ListingStatus(enum.StrEnum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+    unlisted = "unlisted"
+
+
+class TemplateCategory(enum.StrEnum):
+    customer_support = "customer_support"
+    data_analysis = "data_analysis"
+    code_review = "code_review"
+    research = "research"
+    automation = "automation"
+    content = "content"
+    other = "other"

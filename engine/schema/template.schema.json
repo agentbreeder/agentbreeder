@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-garden.com/schemas/template.schema.json",
+  "title": "Agent Garden Template",
+  "description": "Schema for parameterized agent configuration templates.",
+  "type": "object",
+  "required": ["name", "framework", "config_template"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "description": "Unique template identifier (slug-friendly)."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "default": "1.0.0",
+      "description": "SemVer version of the template."
+    },
+    "description": {
+      "type": "string",
+      "default": "",
+      "description": "Human-readable description of what this template creates."
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "customer_support",
+        "data_analysis",
+        "code_review",
+        "research",
+        "automation",
+        "content",
+        "other"
+      ],
+      "default": "other",
+      "description": "Template category for marketplace browsing."
+    },
+    "framework": {
+      "type": "string",
+      "enum": [
+        "langgraph",
+        "crewai",
+        "claude_sdk",
+        "openai_agents",
+        "google_adk",
+        "custom"
+      ],
+      "description": "Target framework for agents created from this template."
+    },
+    "config_template": {
+      "type": "object",
+      "description": "The agent.yaml content with {{parameter}} placeholders.",
+      "additionalProperties": true
+    },
+    "parameters": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/TemplateParameter"
+      },
+      "description": "User-fillable parameters that customize the generated config."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Tags for search and discovery."
+    },
+    "author": {
+      "type": "string",
+      "description": "Author of the template."
+    },
+    "team": {
+      "type": "string",
+      "default": "default",
+      "description": "Owning team."
+    },
+    "readme": {
+      "type": "string",
+      "default": "",
+      "description": "Markdown README content for the template detail page."
+    }
+  },
+  "$defs": {
+    "TemplateParameter": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Parameter name (used as {{name}} in config_template)."
+        },
+        "label": {
+          "type": "string",
+          "default": "",
+          "description": "Human-readable label for the UI."
+        },
+        "description": {
+          "type": "string",
+          "default": "",
+          "description": "Help text explaining the parameter."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "select"],
+          "default": "string"
+        },
+        "default": {
+          "type": "string",
+          "description": "Default value if user doesn't provide one."
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "options": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Available choices when type is 'select'."
+        }
+      }
+    }
+  }
+}

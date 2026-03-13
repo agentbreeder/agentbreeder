@@ -38,6 +38,10 @@ import BudgetsPage from "@/pages/budgets";
 import AuditPage from "@/pages/audit";
 import LineagePage from "@/pages/lineage";
 import OrchestrationBuilderPage from "@/pages/orchestration-builder";
+import TemplatesPage from "@/pages/templates";
+import TemplateDetailPage from "@/pages/template-detail";
+import MarketplacePage from "@/pages/marketplace";
+import MarketplaceDetailPage from "@/pages/marketplace-detail";
 import EvalDatasetsPage from "@/pages/eval-datasets";
 import EvalDatasetDetailPage from "@/pages/eval-dataset-detail";
 import EvalRunsPage from "@/pages/eval-runs";
@@ -122,6 +126,10 @@ export default function App() {
               <Route path="audit" element={<AuditPage />} />
               <Route path="lineage" element={<LineagePage />} />
               <Route path="orchestrations/builder" element={<OrchestrationBuilderPage />} />
+              <Route path="templates" element={<TemplatesPage />} />
+              <Route path="templates/:id" element={<TemplateDetailPage />} />
+              <Route path="marketplace" element={<MarketplacePage />} />
+              <Route path="marketplace/:id" element={<MarketplaceDetailPage />} />
               <Route path="evals/datasets" element={<EvalDatasetsPage />} />
               <Route path="evals/datasets/:id" element={<EvalDatasetDetailPage />} />
               <Route path="evals/runs" element={<EvalRunsPage />} />

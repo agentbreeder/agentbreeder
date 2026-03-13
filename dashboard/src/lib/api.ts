@@ -300,6 +300,91 @@ export interface A2AInvokeResponse {
   error: string | null;
 }
 
+// --- Template & Marketplace types ---
+
+export type TemplateCategory =
+  | "customer_support"
+  | "data_analysis"
+  | "code_review"
+  | "research"
+  | "automation"
+  | "content"
+  | "other";
+
+export type TemplateStatus = "draft" | "published" | "deprecated";
+export type ListingStatus = "pending" | "approved" | "rejected" | "unlisted";
+
+export interface TemplateParameter {
+  name: string;
+  label: string;
+  description: string;
+  type: string;
+  default: string | null;
+  required: boolean;
+  options: string[];
+}
+
+export interface Template {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  category: TemplateCategory;
+  framework: string;
+  config_template: Record<string, unknown>;
+  parameters: TemplateParameter[];
+  tags: string[];
+  author: string;
+  team: string;
+  status: TemplateStatus;
+  use_count: number;
+  readme: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MarketplaceListing {
+  id: string;
+  template_id: string;
+  status: ListingStatus;
+  submitted_by: string;
+  reviewed_by: string | null;
+  reject_reason: string | null;
+  featured: boolean;
+  avg_rating: number;
+  review_count: number;
+  install_count: number;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  template: Template | null;
+}
+
+export interface ListingReview {
+  id: string;
+  listing_id: string;
+  reviewer: string;
+  rating: number;
+  comment: string;
+  created_at: string;
+}
+
+export interface MarketplaceBrowseItem {
+  listing_id: string;
+  template_id: string;
+  name: string;
+  description: string;
+  category: TemplateCategory;
+  framework: string;
+  tags: string[];
+  author: string;
+  avg_rating: number;
+  review_count: number;
+  install_count: number;
+  featured: boolean;
+  published_at: string | null;
+}
+
 // --- Prompt Test types ---
 
 export interface PromptTestRequest {
@@ -1757,6 +1842,77 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  },
+  templates: {
+    list: (params?: { category?: string; framework?: string; status?: string; page?: number; per_page?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.category) sp.set("category", params.category);
+      if (params?.framework) sp.set("framework", params.framework);
+      if (params?.status) sp.set("status", params.status);
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.per_page) sp.set("per_page", String(params.per_page));
+      const qs = sp.toString();
+      return request<Template[]>(`/templates${qs ? `?${qs}` : ""}`);
+    },
+    get: (id: string) => request<Template>(`/templates/${id}`),
+    create: (body: Omit<Template, "id" | "use_count" | "status" | "created_at" | "updated_at">) =>
+      request<Template>("/templates", { method: "POST", body: JSON.stringify(body) }),
+    update: (id: string, body: Partial<Template>) =>
+      request<Template>(`/templates/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/templates/${id}`, { method: "DELETE" }),
+    instantiate: (id: string, values: Record<string, string>) =>
+      request<{ yaml_content: string; agent_name: string }>(`/templates/${id}/instantiate`, {
+        method: "POST",
+        body: JSON.stringify({ values }),
+      }),
+  },
+  marketplace: {
+    browse: (params?: {
+      category?: string;
+      framework?: string;
+      q?: string;
+      featured?: boolean;
+      sort?: string;
+      page?: number;
+      per_page?: number;
+    }) => {
+      const sp = new URLSearchParams();
+      if (params?.category) sp.set("category", params.category);
+      if (params?.framework) sp.set("framework", params.framework);
+      if (params?.q) sp.set("q", params.q);
+      if (params?.featured != null) sp.set("featured", String(params.featured));
+      if (params?.sort) sp.set("sort", params.sort);
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.per_page) sp.set("per_page", String(params.per_page));
+      const qs = sp.toString();
+      return request<MarketplaceBrowseItem[]>(`/marketplace/browse${qs ? `?${qs}` : ""}`);
+    },
+    getListing: (id: string) => request<MarketplaceListing>(`/marketplace/listings/${id}`),
+    submitListing: (templateId: string, submittedBy: string) =>
+      request<MarketplaceListing>("/marketplace/listings", {
+        method: "POST",
+        body: JSON.stringify({ template_id: templateId, submitted_by: submittedBy }),
+      }),
+    updateListing: (id: string, body: { status?: string; reviewed_by?: string; reject_reason?: string; featured?: boolean }) =>
+      request<MarketplaceListing>(`/marketplace/listings/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    addReview: (listingId: string, body: { reviewer: string; rating: number; comment?: string }) =>
+      request<ListingReview>(`/marketplace/listings/${listingId}/reviews`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    getReviews: (listingId: string, params?: { page?: number; per_page?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.per_page) sp.set("per_page", String(params.per_page));
+      const qs = sp.toString();
+      return request<ListingReview[]>(`/marketplace/listings/${listingId}/reviews${qs ? `?${qs}` : ""}`);
+    },
+    install: (listingId: string) =>
+      request<{ installed: boolean }>(`/marketplace/listings/${listingId}/install`, { method: "POST" }),
   },
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),
