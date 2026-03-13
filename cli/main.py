@@ -24,6 +24,7 @@ from cli.commands import (
     review,
     scan,
     search,
+    secret,
     status,
     submit,
     teardown,
@@ -59,6 +60,7 @@ app.add_typer(review.review_app, name="review")
 app.add_typer(eval_cmd.eval_app, name="eval")
 app.add_typer(orchestration.orchestration_app, name="orchestration")
 app.add_typer(template.template_app, name="template")
+app.add_typer(secret.secret_app, name="secret")
 
 
 if __name__ == "__main__":

@@ -2382,16 +2382,14 @@ model:
 - [ ] Directory sync: auto-provision teams from identity provider
 
 #### Secrets Management (replaces .env for production)
-- [ ] External secrets manager integration: AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault, Doppler
-- [ ] Secrets config in `platform.yaml`: `secrets_backend: aws_secrets_manager | gcp_secret_manager | vault | doppler | env`
-- [ ] API keys stored in secrets manager — never in `.env` or database in production
-- [ ] Secret references in `agent.yaml`: `api_key: secret://openai-key` (resolved at deploy time)
+- [x] External secrets manager integration: AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault (`engine/secrets/` — pluggable `SecretsBackend` abstraction)
+- [x] Secret references in `agent.yaml`: `api_key: secret://openai-key` — resolved at deploy time via `resolve_secret_refs()` and `find_secret_refs()` in `engine/secrets/factory.py`
+- [x] Secret rotation: `garden secret rotate KEY` — agents pick up new value without redeploy
+- [x] CLI: `garden secret list/set/get/delete/rotate` — all backends, masked display, `--json` for CI (`cli/commands/secret.py`)
+- [x] Migration path: `garden secret migrate --from env --to aws|gcp|vault [--dry-run]` — bulk migrate `.env` to cloud secrets manager
 - [ ] Secrets UI: Settings → Secrets page — list secrets (name + masked value), create/rotate/delete
-- [ ] Secret rotation: update a secret → all agents using it pick up the new value without redeploy
 - [ ] Team-scoped secrets: each team manages their own API keys and secrets
 - [ ] Audit log: track who accessed/changed which secrets and when
-- [ ] CLI: `garden secret list`, `garden secret set openai-key`, `garden secret rotate openai-key`
-- [ ] Migration path: `garden secrets migrate --from env --to aws` — migrate `.env` keys to secrets manager
 
 ### M26: AgentOps — Unified Operations Dashboard
 
