@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
 import { api, type Template, type TemplateCategory } from "@/lib/api";
-import { Plus, Package, Star, ArrowUpDown } from "lucide-react";
+import { Plus, Package, ArrowUpDown } from "lucide-react";
 
 const CATEGORY_LABELS: Record<TemplateCategory, string> = {
   customer_support: "Customer Support",
