@@ -29,6 +29,8 @@ class OrchestrationStrategy(enum.StrEnum):
     sequential = "sequential"
     parallel = "parallel"
     hierarchical = "hierarchical"
+    supervisor = "supervisor"
+    fan_out_fan_in = "fan_out_fan_in"
 
 
 class RoutingRule(BaseModel):
@@ -52,6 +54,14 @@ class OrchestrationDeployConfig(BaseModel):
     resources: ResourceConfig = Field(default_factory=ResourceConfig)
 
 
+class SupervisorConfig(BaseModel):
+    """Configuration for supervisor and fan_out_fan_in strategies."""
+
+    supervisor_agent: str | None = None
+    merge_agent: str | None = None
+    max_iterations: int = 3
+
+
 class OrchestrationConfig(BaseModel):
     """The complete orchestration configuration parsed from orchestration.yaml."""
 
@@ -65,6 +75,7 @@ class OrchestrationConfig(BaseModel):
     agents: dict[str, AgentRef]
     shared_state: SharedStateConfig = Field(default_factory=SharedStateConfig)
     deploy: OrchestrationDeployConfig = Field(default_factory=OrchestrationDeployConfig)
+    supervisor_config: SupervisorConfig = Field(default_factory=SupervisorConfig)
 
     @field_validator("name")
     @classmethod

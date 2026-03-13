@@ -9,6 +9,7 @@ from typing import Any, Generic, TypeVar
 from pydantic import BaseModel, Field
 
 from api.models.enums import (
+    A2AStatus,
     AgentStatus,
     DeployJobStatus,
     EvalRunStatus,
@@ -981,3 +982,77 @@ class OrchestrationExecuteResponse(BaseModel):
 class OrchestrationValidateResponse(BaseModel):
     valid: bool
     errors: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# --- A2A Agent Schemas ---
+
+
+class AgentCardSkill(BaseModel):
+    """A skill exposed by an A2A agent."""
+
+    id: str
+    name: str
+    description: str = ""
+    input_modes: list[str] = Field(default_factory=lambda: ["text"])
+    output_modes: list[str] = Field(default_factory=lambda: ["text"])
+
+
+class AgentCard(BaseModel):
+    """Google A2A Agent Card — describes an agent's capabilities."""
+
+    name: str
+    description: str = ""
+    url: str
+    version: str = "1.0.0"
+    capabilities: list[str] = Field(default_factory=list)
+    skills: list[AgentCardSkill] = Field(default_factory=list)
+    auth_schemes: list[str] = Field(default_factory=lambda: ["none"])
+    default_input_modes: list[str] = Field(default_factory=lambda: ["text"])
+    default_output_modes: list[str] = Field(default_factory=lambda: ["text"])
+
+
+class A2AAgentCreate(BaseModel):
+    name: str
+    endpoint_url: str
+    agent_id: uuid.UUID | None = None
+    agent_card: AgentCard | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    auth_scheme: str = "none"
+    team: str | None = None
+
+
+class A2AAgentUpdate(BaseModel):
+    endpoint_url: str | None = None
+    agent_card: dict[str, Any] | None = None
+    capabilities: list[str] | None = None
+    auth_scheme: str | None = None
+    status: A2AStatus | None = None
+
+
+class A2AAgentResponse(BaseModel):
+    id: uuid.UUID
+    agent_id: uuid.UUID | None
+    name: str
+    agent_card: dict[str, Any]
+    endpoint_url: str
+    status: A2AStatus
+    capabilities: list[str]
+    auth_scheme: str | None
+    team: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class A2AInvokeRequest(BaseModel):
+    input_message: str
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class A2AInvokeResponse(BaseModel):
+    output: str
+    tokens: int = 0
+    latency_ms: int = 0
+    status: str = "success"
+    error: str | None = None

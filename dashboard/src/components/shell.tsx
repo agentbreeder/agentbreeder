@@ -25,6 +25,7 @@ import {
   GitBranch,
   FlaskConical,
   PlayCircle,
+  Network,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -47,6 +48,7 @@ import {
 const REGISTRY_NAV = [
   { to: "/agents", icon: Bot, label: "Agents" },
   { to: "/tools", icon: Wrench, label: "Tools" },
+  { to: "/a2a", icon: Network, label: "A2A Agents" },
   { to: "/mcp-servers", icon: Server, label: "MCP Servers" },
   { to: "/models", icon: Cpu, label: "Models" },
   { to: "/prompts", icon: FileText, label: "Prompts" },

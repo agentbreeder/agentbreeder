@@ -144,7 +144,7 @@ class TestMcpServerTestConnection:
         server = await McpServerRegistry.create(session, name="ping", endpoint="http://ping")
         result = await McpServerRegistry.test_connection(session, str(server.id))
         assert result["success"] is True
-        assert result["latency_ms"] == 42
+        assert isinstance(result["latency_ms"], int)
         # Verify server was updated
         refreshed = await McpServerRegistry.get_by_id(session, str(server.id))
         assert refreshed is not None

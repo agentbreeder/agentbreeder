@@ -129,3 +129,21 @@ async def discover_mcp_server_tools(
             total=result["total"],
         )
     )
+
+
+@router.post(
+    "/{server_id}/execute",
+    response_model=ApiResponse[dict],
+)
+async def execute_mcp_tool(
+    server_id: str,
+    tool_name: str = Query(..., description="Name of the tool to execute"),
+    arguments: dict = None,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[dict]:
+    """Execute a tool on an MCP server."""
+    server = await McpServerRegistry.get_by_id(db, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="MCP server not found")
+    result = await McpServerRegistry.execute_tool(db, server_id, tool_name, arguments or {})
+    return ApiResponse(data=result)

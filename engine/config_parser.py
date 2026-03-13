@@ -62,6 +62,26 @@ class KnowledgeBaseRef(BaseModel):
     ref: str
 
 
+class SubagentRef(BaseModel):
+    """Reference to a subagent for A2A communication."""
+
+    ref: str
+    name: str | None = None
+    description: str | None = None
+
+    @property
+    def slug(self) -> str:
+        """Agent name derived from ref (e.g., 'agents/summarizer' -> 'summarizer')."""
+        return self.name or self.ref.split("/")[-1]
+
+
+class McpServerRef(BaseModel):
+    """Reference to an MCP server to attach as a sidecar."""
+
+    ref: str
+    transport: str = "stdio"
+
+
 class PromptsConfig(BaseModel):
     system: str | None = None
 
@@ -114,6 +134,8 @@ class AgentConfig(BaseModel):
     knowledge_bases: list[KnowledgeBaseRef] = Field(default_factory=list)
     prompts: PromptsConfig = Field(default_factory=PromptsConfig)
     guardrails: list[str | GuardrailConfig] = Field(default_factory=list)
+    subagents: list[SubagentRef] = Field(default_factory=list)
+    mcp_servers: list[McpServerRef] = Field(default_factory=list)
     deploy: DeployConfig
     access: AccessConfig = Field(default_factory=AccessConfig)
 

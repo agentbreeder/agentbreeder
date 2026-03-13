@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import (
+    a2a,
     agents,
     audit,
     auth,
@@ -104,6 +105,7 @@ app.include_router(costs.router)
 app.include_router(audit.router)
 app.include_router(evals.router)
 app.include_router(orchestrations.router)
+app.include_router(a2a.router)
 
 
 @app.get("/health")

@@ -1,0 +1,26 @@
+name: research-coordinator
+version: 1.0.0
+description: "Coordinates research by delegating to specialist subagents"
+team: research
+owner: alice@company.com
+framework: langgraph
+tags: [a2a, research, coordinator]
+
+model:
+  primary: claude-sonnet-4
+  fallback: gpt-4o
+
+subagents:
+  - ref: agents/summarizer
+    description: "Summarize documents and research papers"
+  - ref: agents/fact-checker
+    name: verifier
+    description: "Verify claims and check facts"
+
+prompts:
+  system: >
+    You are a research coordinator. Use the summarizer subagent
+    to create summaries and the verifier subagent to fact-check claims.
+
+deploy:
+  cloud: local

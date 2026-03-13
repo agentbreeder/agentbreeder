@@ -357,7 +357,7 @@ garden eject CONFIG_PATH [--sdk SDK] [--output PATH]
 | Argument / Option | Required | Default | Description |
 |-------------------|----------|---------|-------------|
 | `CONFIG_PATH` | Yes | — | Path to `agent.yaml` |
-| `--sdk` | No | `python` | Target SDK language (currently only `python` is supported) |
+| `--sdk` | No | `python` | Target SDK language: `python` or `typescript` |
 | `--output`, `-o` | No | `agents/<name>/agent_sdk.py` | Output file path |
 
 The generated Python file recreates the YAML configuration as a builder-pattern SDK chain using `Agent`, `Tool`, `Model`, and `Memory` classes from the `agenthub` package. It includes commented-out scaffolding for middleware, event hooks, and custom routing — ready for extension.
@@ -372,6 +372,7 @@ The generated Python file recreates the YAML configuration as a builder-pattern 
 ```bash
 garden eject agent.yaml                          # Default: agents/<name>/agent_sdk.py
 garden eject agent.yaml --sdk python             # Explicit SDK target
+garden eject agent.yaml --sdk typescript          # TypeScript SDK output
 garden eject agent.yaml -o src/my_agent.py       # Custom output path
 ```
 
