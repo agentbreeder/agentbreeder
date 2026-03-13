@@ -176,4 +176,4 @@ jobs:
             | tar -xz -C /usr/local/bin gitleaks
 
       - name: Gitleaks scan
-        run: gitleaks detect --source . --no-git
+        run: gitleaks detect --source . --no-git --config .gitleaks.toml
