@@ -1,0 +1,98 @@
+# Data Analyzer Template
+# Category: data_analysis
+# Framework: openai_agents
+
+name: data-analyzer
+version: "1.0.0"
+description: "Template for building data analysis agents that query databases and generate insights."
+category: data_analysis
+framework: openai_agents
+tags: [data, analysis, sql, insights, reporting]
+author: agent-garden
+team: default
+
+parameters:
+  - name: agent_name
+    label: Agent Name
+    description: "Unique name for your data analyzer"
+    type: string
+    default: my-data-analyzer
+    required: true
+  - name: team_name
+    label: Team
+    description: "Team that owns this agent"
+    type: string
+    default: data-engineering
+    required: true
+  - name: owner_email
+    label: Owner Email
+    description: "Email of the responsible engineer"
+    type: string
+    required: true
+  - name: model
+    label: Primary Model
+    description: "LLM model to use"
+    type: select
+    default: gpt-4o
+    options:
+      - gpt-4o
+      - claude-sonnet-4
+      - gemini-2.0-flash
+  - name: database_type
+    label: Database Type
+    description: "Type of database to connect to"
+    type: select
+    default: postgresql
+    options:
+      - postgresql
+      - mysql
+      - bigquery
+
+config_template:
+  name: "{{agent_name}}"
+  version: "1.0.0"
+  description: "Data analysis agent for querying databases and generating insights"
+  team: "{{team_name}}"
+  owner: "{{owner_email}}"
+  framework: openai_agents
+  model:
+    primary: "{{model}}"
+    temperature: 0.1
+    max_tokens: 4096
+  tools:
+    - name: sql_query
+      type: function
+      description: "Execute SQL queries against the connected database"
+    - name: chart_generator
+      type: function
+      description: "Generate charts and visualizations from query results"
+  prompts:
+    system: |
+      You are a data analysis assistant. Help users explore their data by:
+      1. Understanding their question in business terms
+      2. Writing efficient SQL queries to answer it
+      3. Presenting results clearly with insights
+      Always explain your SQL before executing. Never run DELETE/UPDATE/DROP statements.
+  guardrails:
+    - content_filter
+  deploy:
+    cloud: local
+    runtime: docker-compose
+    env_vars:
+      DATABASE_TYPE: "{{database_type}}"
+
+readme: |
+  # Data Analyzer
+
+  An AI-powered data analysis agent that connects to your database and answers questions with SQL.
+
+  ## Features
+  - Natural language to SQL conversion
+  - Chart and visualization generation
+  - Read-only safety guardrails (no destructive queries)
+  - Supports PostgreSQL, MySQL, and BigQuery
+
+  ## Quick Start
+  1. Configure your agent name, team, and database type
+  2. Deploy and set the DATABASE_URL environment variable
+  3. Ask questions in natural language

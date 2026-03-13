@@ -16,7 +16,7 @@
 | **v0.4** | Observability | Tracing, cost monitoring, RBAC & teams, audit trail, lineage + Full Code SDK (Python) + `garden eject` | M14–M17, M28 | Done |
 | **v1.0** | GA | Eval framework, golden datasets, regression detection, CI gates, feedback loop + orchestration YAML | M18, M29 | Done |
 | **v1.1** | Connectivity | A2A protocol, MCP server hub, multi-agent orchestration + visual orchestration canvas + TS SDK | M19–M20, M30 | Done |
-| **v1.2** | Marketplace | Community templates, ratings, one-click deploy | M21–M22 | Planned |
+| **v1.2** | Marketplace | Community templates, ratings, one-click deploy | M21–M22 | Done |
 | **v1.3** | Enterprise | Additional SDKs (ADK, CrewAI, Claude), model catalog, SSO, AgentOps + Full Code orchestration SDK | M24–M27, M31 | Planned |
 
 ---
@@ -2167,27 +2167,27 @@ Elevate MCP from "tool connector" to a managed server hub with lifecycle managem
 
 ---
 
-## v1.2 — "Marketplace" (Planned)
+## v1.2 — "Marketplace" (Done)
 
 > **Goal:** Users can discover, share, and one-click deploy agent templates from a community marketplace.
 
 ### M21: Template System
 
-- [ ] Template schema: parameterized agent configs with user-fillable variables
-- [ ] Template creation UI: convert any agent config into a template
-- [ ] Template gallery page: grid of cards with preview, description, framework badge
-- [ ] "Use Template" flow: fill in parameters → generates agent.yaml → deploy
-- [ ] Built-in templates: Customer Support Bot, Data Analyzer, Code Reviewer, Research Assistant
-- [ ] Template versioning and deprecation
+- [x] Template schema: parameterized agent configs with user-fillable variables
+- [x] Template creation UI: convert any agent config into a template
+- [x] Template gallery page: grid of cards with preview, description, framework badge
+- [x] "Use Template" flow: fill in parameters → generates agent.yaml → deploy
+- [x] Built-in templates: Customer Support Bot, Data Analyzer, Code Reviewer, Research Assistant
+- [x] Template versioning and deprecation
 
 ### M22: Marketplace
 
-- [ ] Marketplace page: browse templates by category, framework, rating
-- [ ] Search + filters: keyword search, framework filter, tag filter
-- [ ] Template detail page: README preview, config preview, usage stats
-- [ ] Ratings & reviews: star rating + text review per template
-- [ ] "One-click deploy" from marketplace listing
-- [ ] Publish flow: submit template for listing (admin approval)
+- [x] Marketplace page: browse templates by category, framework, rating
+- [x] Search + filters: keyword search, framework filter, tag filter
+- [x] Template detail page: README preview, config preview, usage stats
+- [x] Ratings & reviews: star rating + text review per template
+- [x] "One-click deploy" from marketplace listing
+- [x] Publish flow: submit template for listing (admin approval)
 
 ---
 

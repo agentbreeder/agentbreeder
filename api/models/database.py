@@ -25,9 +25,12 @@ from api.models.enums import (
     AgentStatus,
     DeployJobStatus,
     EvalRunStatus,
+    ListingStatus,
     OrchestrationStatus,
     ProviderStatus,
     ProviderType,
+    TemplateCategory,
+    TemplateStatus,
     UserRole,
 )
 
@@ -473,4 +476,115 @@ class A2AAgent(Base):
     __table_args__ = (
         Index("ix_a2a_agents_team_status", "team", "status"),
         Index("ix_a2a_agents_agent_id", "agent_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Marketplace (M21 / M22)
+# ---------------------------------------------------------------------------
+
+
+class Template(Base):
+    """A parameterized agent configuration template."""
+
+    __tablename__ = "templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0.0")
+    description: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[TemplateCategory] = mapped_column(
+        Enum(TemplateCategory), default=TemplateCategory.other, nullable=False
+    )
+    framework: Mapped[str] = mapped_column(String(50), nullable=False)
+    config_template: Mapped[dict] = mapped_column(JSON, nullable=False)
+    parameters: Mapped[list] = mapped_column(JSON, default=list)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    author: Mapped[str] = mapped_column(String(255), nullable=False)
+    team: Mapped[str] = mapped_column(String(100), nullable=False, default="default")
+    status: Mapped[TemplateStatus] = mapped_column(
+        Enum(TemplateStatus), default=TemplateStatus.draft, nullable=False
+    )
+    use_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    readme: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    listings: Mapped[list[MarketplaceListing]] = relationship(
+        back_populates="template", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_templates_category", "category"),
+        Index("ix_templates_framework", "framework"),
+        Index("ix_templates_team_status", "team", "status"),
+    )
+
+
+class MarketplaceListing(Base):
+    """A marketplace listing for a published template."""
+
+    __tablename__ = "marketplace_listings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    template_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("templates.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[ListingStatus] = mapped_column(
+        Enum(ListingStatus), default=ListingStatus.pending, nullable=False
+    )
+    submitted_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    featured: Mapped[bool] = mapped_column(default=False, nullable=False)
+    avg_rating: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    review_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    install_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    template: Mapped[Template] = relationship(back_populates="listings")
+    reviews: Mapped[list[ListingReview]] = relationship(
+        back_populates="listing", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_listings_template_id", "template_id"),
+        Index("ix_listings_status", "status"),
+        Index("ix_listings_avg_rating", "avg_rating"),
+    )
+
+
+class ListingReview(Base):
+    """A user review/rating for a marketplace listing."""
+
+    __tablename__ = "listing_reviews"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    listing_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("marketplace_listings.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    reviewer: Mapped[str] = mapped_column(String(255), nullable=False)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    comment: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    listing: Mapped[MarketplaceListing] = relationship(back_populates="reviews")
+
+    __table_args__ = (
+        Index("ix_listing_reviews_listing_id", "listing_id"),
+        Index("ix_listing_reviews_reviewer", "reviewer"),
     )

@@ -13,9 +13,12 @@ from api.models.enums import (
     AgentStatus,
     DeployJobStatus,
     EvalRunStatus,
+    ListingStatus,
     OrchestrationStatus,
     ProviderStatus,
     ProviderType,
+    TemplateCategory,
+    TemplateStatus,
     UserRole,
 )
 
@@ -1056,3 +1059,141 @@ class A2AInvokeResponse(BaseModel):
     latency_ms: int = 0
     status: str = "success"
     error: str | None = None
+
+
+# --- Template & Marketplace Schemas (M21 / M22) ---
+
+
+class TemplateParameter(BaseModel):
+    """A user-fillable parameter in a template."""
+
+    name: str
+    label: str = ""
+    description: str = ""
+    type: str = "string"
+    default: str | None = None
+    required: bool = True
+    options: list[str] = Field(default_factory=list)
+
+
+class TemplateCreate(BaseModel):
+    name: str
+    version: str = "1.0.0"
+    description: str = ""
+    category: TemplateCategory = TemplateCategory.other
+    framework: str
+    config_template: dict[str, Any]
+    parameters: list[TemplateParameter] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    author: str
+    team: str = "default"
+    readme: str = ""
+
+
+class TemplateUpdate(BaseModel):
+    version: str | None = None
+    description: str | None = None
+    category: TemplateCategory | None = None
+    config_template: dict[str, Any] | None = None
+    parameters: list[TemplateParameter] | None = None
+    tags: list[str] | None = None
+    status: TemplateStatus | None = None
+    readme: str | None = None
+
+
+class TemplateResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    version: str
+    description: str
+    category: TemplateCategory
+    framework: str
+    config_template: dict[str, Any]
+    parameters: list[dict[str, Any]]
+    tags: list[str]
+    author: str
+    team: str
+    status: TemplateStatus
+    use_count: int
+    readme: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TemplateInstantiateRequest(BaseModel):
+    """Fill in template parameters to generate an agent.yaml."""
+
+    values: dict[str, str]
+
+
+class TemplateInstantiateResponse(BaseModel):
+    yaml_content: str
+    agent_name: str
+
+
+class MarketplaceListingCreate(BaseModel):
+    template_id: uuid.UUID
+    submitted_by: str
+
+
+class MarketplaceListingUpdate(BaseModel):
+    status: ListingStatus | None = None
+    reviewed_by: str | None = None
+    reject_reason: str | None = None
+    featured: bool | None = None
+
+
+class MarketplaceListingResponse(BaseModel):
+    id: uuid.UUID
+    template_id: uuid.UUID
+    status: ListingStatus
+    submitted_by: str
+    reviewed_by: str | None
+    reject_reason: str | None
+    featured: bool
+    avg_rating: float
+    review_count: int
+    install_count: int
+    published_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    template: TemplateResponse | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ListingReviewCreate(BaseModel):
+    reviewer: str
+    rating: int = Field(ge=1, le=5)
+    comment: str = ""
+
+
+class ListingReviewResponse(BaseModel):
+    id: uuid.UUID
+    listing_id: uuid.UUID
+    reviewer: str
+    rating: int
+    comment: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MarketplaceBrowseItem(BaseModel):
+    """Flattened view for marketplace browsing."""
+
+    listing_id: uuid.UUID
+    template_id: uuid.UUID
+    name: str
+    description: str
+    category: TemplateCategory
+    framework: str
+    tags: list[str]
+    author: str
+    avg_rating: float
+    review_count: int
+    install_count: int
+    featured: bool
+    published_at: datetime | None

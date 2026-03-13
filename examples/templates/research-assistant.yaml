@@ -1,0 +1,101 @@
+# Research Assistant Template
+# Category: research
+# Framework: langgraph
+
+name: research-assistant
+version: "1.0.0"
+description: "Template for building research agents that search, synthesize, and summarize information."
+category: research
+framework: langgraph
+tags: [research, search, synthesis, summarization, rag]
+author: agent-garden
+team: default
+
+parameters:
+  - name: agent_name
+    label: Agent Name
+    description: "Unique name for your research assistant"
+    type: string
+    default: my-research-assistant
+    required: true
+  - name: team_name
+    label: Team
+    description: "Team that owns this agent"
+    type: string
+    default: research
+    required: true
+  - name: owner_email
+    label: Owner Email
+    description: "Email of the responsible engineer"
+    type: string
+    required: true
+  - name: model
+    label: Primary Model
+    description: "LLM model to use for synthesis"
+    type: select
+    default: claude-sonnet-4
+    options:
+      - claude-opus-4
+      - claude-sonnet-4
+      - gpt-4o
+  - name: search_depth
+    label: Search Depth
+    description: "How thoroughly to search (affects latency and cost)"
+    type: select
+    default: moderate
+    options:
+      - quick
+      - moderate
+      - deep
+
+config_template:
+  name: "{{agent_name}}"
+  version: "1.0.0"
+  description: "Research assistant that searches, synthesizes, and summarizes information"
+  team: "{{team_name}}"
+  owner: "{{owner_email}}"
+  framework: langgraph
+  model:
+    primary: "{{model}}"
+    temperature: 0.4
+    max_tokens: 8192
+  tools:
+    - name: web_search
+      type: function
+      description: "Search the web for information"
+    - name: document_reader
+      type: function
+      description: "Read and extract content from documents"
+  knowledge_bases:
+    - ref: kb/research-docs
+  prompts:
+    system: |
+      You are an expert research assistant. Your job is to help users find,
+      synthesize, and summarize information from multiple sources.
+      Search depth: {{search_depth}}.
+      Always cite your sources. Present findings in a structured format.
+      Distinguish between facts and opinions. Flag conflicting information.
+  guardrails:
+    - hallucination_check
+    - content_filter
+  deploy:
+    cloud: local
+    runtime: docker-compose
+
+readme: |
+  # Research Assistant
+
+  An AI research agent that searches multiple sources, synthesizes findings,
+  and presents structured summaries with citations.
+
+  ## Features
+  - Multi-source web search
+  - Document analysis and extraction
+  - Source citation and verification
+  - Configurable search depth (quick/moderate/deep)
+  - Hallucination detection guardrails
+
+  ## Quick Start
+  1. Configure your agent name and preferred search depth
+  2. Optionally connect a knowledge base for domain-specific research
+  3. Deploy and start asking research questions

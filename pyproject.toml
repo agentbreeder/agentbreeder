@@ -141,6 +141,10 @@ module = ["engine.a2a.*"]
 disable_error_code = ["no-any-return"]
 allow_untyped_decorators = true
 
+[[tool.mypy.overrides]]
+module = ["registry.templates"]
+disable_error_code = ["no-any-return"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 99
