@@ -19,6 +19,7 @@ from engine.orchestration_parser import (
     OrchestrationDeployConfig,
     OrchestrationStrategy,
     SharedStateConfig,
+    SupervisorConfig,
 )
 from engine.orchestrator import Orchestrator
 
@@ -265,6 +266,11 @@ class OrchestrationStore:
                 AgentRef(**agent_data) if isinstance(agent_data, dict) else agent_data
             )
 
+        # Extract supervisor_config from stored data
+        supervisor_cfg_data = (
+            record.config_snapshot.get("supervisor_config", {}) if record.config_snapshot else {}
+        )
+
         config = OrchestrationConfig(
             name=record.name,
             version=record.version,
@@ -275,9 +281,19 @@ class OrchestrationStore:
             agents=agents,
             shared_state=SharedStateConfig(**(record.shared_state_config or {})),
             deploy=OrchestrationDeployConfig(**(record.deploy_config or {})),
+            supervisor_config=SupervisorConfig(**supervisor_cfg_data),
         )
 
-        orchestrator = Orchestrator(config)
+        # Resolve agent endpoints from refs
+        agent_endpoints: dict[str, str] = {}
+        for agent_name, agent_data in record.agents_config.items():
+            if isinstance(agent_data, dict) and agent_data.get("endpoint_url"):
+                agent_endpoints[agent_name] = agent_data["endpoint_url"]
+
+        orchestrator = Orchestrator(
+            config,
+            agent_endpoints=agent_endpoints if agent_endpoints else None,
+        )
         result = await orchestrator.execute(input_message, context or {})
         return result.model_dump()
 

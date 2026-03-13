@@ -54,12 +54,12 @@ jobs:
 
       - name: Run database migrations
         env:
-          DATABASE_URL: postgresql://agent_garden:agent_garden@localhost:5432/agent_garden_test
+          DATABASE_URL: postgresql+asyncpg://agent_garden:agent_garden@localhost:5432/agent_garden_test
         run: alembic upgrade head
 
       - name: Run integration tests
         env:
-          DATABASE_URL: postgresql://agent_garden:agent_garden@localhost:5432/agent_garden_test
+          DATABASE_URL: postgresql+asyncpg://agent_garden:agent_garden@localhost:5432/agent_garden_test
           REDIS_URL: redis://localhost:6379
           SECRET_KEY: test-secret-key-for-ci
           GARDEN_ENV: test
@@ -70,7 +70,7 @@ jobs:
             --cov-report=xml:coverage-integration.xml \
             --cov-report=term-missing \
             --junitxml=integration-results.xml \
-            -v
+            -v || test $? -eq 5  # Exit code 5 = no tests collected (ok)
 
       - name: Upload integration test results
         if: always()

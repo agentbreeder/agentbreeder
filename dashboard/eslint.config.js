@@ -19,5 +19,22 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Allow exporting constants/utils alongside components (common shadcn pattern)
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      // Allow underscore-prefixed unused vars (standard convention for intentionally unused params)
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+      }],
+    },
+  },
+  // Disable React rules for test files (Playwright, Vitest)
+  {
+    files: ['tests/**/*.{ts,tsx}'],
+    rules: {
+      'react-hooks/rules-of-hooks': 'off',
+      'react-refresh/only-export-components': 'off',
+    },
   },
 ])

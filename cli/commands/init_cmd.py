@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -481,7 +483,11 @@ def _prompt_selection(title: str, items: list[dict]) -> dict:
         console.print(f"  [red]Please enter a number between 1 and {len(items)}[/red]")
 
 
-def _prompt_text(label: str, default: str = "", validate_fn: callable = None) -> str:
+def _prompt_text(
+    label: str,
+    default: str = "",
+    validate_fn: Callable[..., Any] | None = None,
+) -> str:
     """Prompt for text input with optional validation."""
     while True:
         if default:

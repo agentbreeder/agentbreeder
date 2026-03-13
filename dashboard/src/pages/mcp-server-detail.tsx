@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -103,8 +103,14 @@ function DiscoveredToolCard({
 
 // Mock uptime data for the chart
 function UptimeChart() {
-  const bars = Array.from({ length: 30 }, () =>
-    Math.random() > 0.1 ? "up" : Math.random() > 0.5 ? "slow" : "down"
+  const bars = useMemo(
+    () =>
+      Array.from({ length: 30 }, (_, i) => {
+        // Deterministic mock data based on index
+        const v = ((i * 7 + 3) % 10);
+        return v > 0 ? "up" : i % 2 === 0 ? "slow" : "down";
+      }),
+    [],
   );
 
   return (

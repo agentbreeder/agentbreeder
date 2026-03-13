@@ -1,0 +1,31 @@
+name: research-supervisor
+version: 1.0.0
+description: "Supervisor coordinates research agents and synthesizes results"
+team: research
+owner: alice@company.com
+strategy: supervisor
+
+supervisor_config:
+  supervisor_agent: coordinator
+  max_iterations: 3
+
+agents:
+  coordinator:
+    ref: agents/research-coordinator
+  web-researcher:
+    ref: agents/web-researcher
+    fallback: general-researcher
+  paper-analyst:
+    ref: agents/paper-analyst
+  general-researcher:
+    ref: agents/general-researcher
+
+shared_state:
+  type: dict
+  backend: in_memory
+
+deploy:
+  target: local
+  resources:
+    cpu: "2"
+    memory: "4Gi"

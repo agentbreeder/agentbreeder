@@ -296,6 +296,7 @@ function TestRunner({
     for (const p of parameters) {
       if (p.name) inputs[p.name] = p.defaultValue || "";
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- derive test inputs from parameters
     setTestInputs(inputs);
   }, [parameters]);
 
@@ -488,6 +489,7 @@ export default function ToolBuilderPage() {
   useEffect(() => {
     if (toolResp?.data) {
       const tool = toolResp.data as ToolDetail;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync from API response
       setName(tool.name);
       setDescription(tool.description);
       if (tool.schema_definition && Object.keys(tool.schema_definition).length > 0) {

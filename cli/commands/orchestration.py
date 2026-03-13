@@ -535,7 +535,7 @@ def _run_json_mode(name: str) -> None:
             detail = str(exc)
             try:
                 if hasattr(exc, "response"):
-                    detail = exc.response.json().get("detail", detail)  # type: ignore[union-attr]
+                    detail = exc.response.json().get("detail", detail)
             except Exception:
                 pass
             sys.stdout.write(json.dumps({"error": detail}) + "\n")

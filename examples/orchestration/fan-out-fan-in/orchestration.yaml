@@ -1,0 +1,29 @@
+name: multi-perspective-analysis
+version: 1.0.0
+description: "Fan-out to specialist analysts, fan-in with a synthesizer"
+team: analytics
+owner: bob@company.com
+strategy: fan_out_fan_in
+
+supervisor_config:
+  merge_agent: synthesizer
+
+agents:
+  financial-analyst:
+    ref: agents/financial-analyst
+  risk-analyst:
+    ref: agents/risk-analyst
+  market-analyst:
+    ref: agents/market-analyst
+  synthesizer:
+    ref: agents/report-synthesizer
+
+shared_state:
+  type: dict
+  backend: in_memory
+
+deploy:
+  target: local
+  resources:
+    cpu: "2"
+    memory: "4Gi"

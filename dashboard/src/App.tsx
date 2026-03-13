@@ -16,6 +16,8 @@ import PromptsPage from "@/pages/prompts";
 import PromptDetailPage from "@/pages/prompt-detail";
 import PromptBuilderPage from "@/pages/prompt-builder";
 import ToolBuilderPage from "@/pages/tool-builder";
+import A2AAgentsPage from "@/pages/a2a-agents";
+import A2AAgentDetailPage from "@/pages/a2a-agent-detail";
 import McpServersPage from "@/pages/mcp-servers";
 import McpServerDetailPage from "@/pages/mcp-server-detail";
 import MemoryBuilderPage from "@/pages/memory-builder";
@@ -35,6 +37,7 @@ import CostsPage from "@/pages/costs";
 import BudgetsPage from "@/pages/budgets";
 import AuditPage from "@/pages/audit";
 import LineagePage from "@/pages/lineage";
+import OrchestrationBuilderPage from "@/pages/orchestration-builder";
 import EvalDatasetsPage from "@/pages/eval-datasets";
 import EvalDatasetDetailPage from "@/pages/eval-dataset-detail";
 import EvalRunsPage from "@/pages/eval-runs";
@@ -97,6 +100,8 @@ export default function App() {
               <Route path="prompts/builder" element={<PromptBuilderPage />} />
               <Route path="prompts/builder/:id" element={<PromptBuilderPage />} />
               <Route path="prompts/:id" element={<PromptDetailPage />} />
+              <Route path="a2a" element={<A2AAgentsPage />} />
+              <Route path="a2a/:id" element={<A2AAgentDetailPage />} />
               <Route path="mcp-servers" element={<McpServersPage />} />
               <Route path="mcp-servers/:id" element={<McpServerDetailPage />} />
               <Route path="memory" element={<MemoryBuilderPage />} />
@@ -116,6 +121,7 @@ export default function App() {
               <Route path="budgets" element={<BudgetsPage />} />
               <Route path="audit" element={<AuditPage />} />
               <Route path="lineage" element={<LineagePage />} />
+              <Route path="orchestrations/builder" element={<OrchestrationBuilderPage />} />
               <Route path="evals/datasets" element={<EvalDatasetsPage />} />
               <Route path="evals/datasets/:id" element={<EvalDatasetDetailPage />} />
               <Route path="evals/runs" element={<EvalRunsPage />} />

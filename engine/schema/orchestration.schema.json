@@ -40,7 +40,7 @@
     },
     "strategy": {
       "type": "string",
-      "enum": ["router", "sequential", "parallel", "hierarchical"],
+      "enum": ["router", "sequential", "parallel", "hierarchical", "supervisor", "fan_out_fan_in"],
       "description": "Multi-agent orchestration strategy"
     },
     "agents": {
@@ -94,6 +94,28 @@
         }
       },
       "description": "Shared state configuration for inter-agent communication"
+    },
+    "supervisor_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "supervisor_agent": {
+          "type": "string",
+          "description": "Name of the supervisor agent (defaults to first agent)"
+        },
+        "merge_agent": {
+          "type": "string",
+          "description": "Name of the merge agent for fan_out_fan_in (defaults to last agent)"
+        },
+        "max_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 3,
+          "description": "Max supervisor iterations"
+        }
+      },
+      "description": "Configuration for supervisor and fan_out_fan_in strategies"
     },
     "deploy": {
       "type": "object",

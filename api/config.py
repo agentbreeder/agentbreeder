@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic_settings import BaseSettings
 
 
-class Settings(BaseSettings):
+class Settings(BaseSettings):  # type: ignore[misc,unused-ignore]
     """Agent Garden configuration loaded from environment variables."""
 
     # Database

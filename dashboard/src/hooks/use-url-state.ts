@@ -1,5 +1,5 @@
 import { useSearchParams } from "react-router-dom";
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo } from "react";
 
 /**
  * Syncs a piece of state with a URL search parameter.
@@ -18,38 +18,31 @@ export function useUrlState<T extends string | number | string[]>(
 ): [T, (value: T) => void] {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Keep a stable reference for the default so callers don't need to memo.
-  const defaultRef = useRef(defaultValue);
-  defaultRef.current = defaultValue;
-
   const rawValue = searchParams.get(key);
 
-  const value: T = (() => {
-    const def = defaultRef.current;
-
-    if (rawValue === null) return def;
+  const value: T = useMemo(() => {
+    if (rawValue === null) return defaultValue;
 
     // string[]
-    if (Array.isArray(def)) {
+    if (Array.isArray(defaultValue)) {
       return (rawValue ? rawValue.split(",") : []) as T;
     }
 
     // number
-    if (typeof def === "number") {
+    if (typeof defaultValue === "number") {
       const n = Number(rawValue);
-      return (Number.isNaN(n) ? def : n) as T;
+      return (Number.isNaN(n) ? defaultValue : n) as T;
     }
 
     // string
     return rawValue as T;
-  })();
+  }, [rawValue, defaultValue]);
 
   const setValue = useCallback(
     (next: T) => {
       setSearchParams(
         (prev) => {
           const sp = new URLSearchParams(prev);
-          const def = defaultRef.current;
 
           // Determine the serialised string for `next`.
           let serialised: string;
@@ -61,10 +54,10 @@ export function useUrlState<T extends string | number | string[]>(
 
           // Determine the serialised string for `defaultValue`.
           let defaultSerialised: string;
-          if (Array.isArray(def)) {
-            defaultSerialised = (def as string[]).join(",");
+          if (Array.isArray(defaultValue)) {
+            defaultSerialised = (defaultValue as string[]).join(",");
           } else {
-            defaultSerialised = String(def);
+            defaultSerialised = String(defaultValue);
           }
 
           if (serialised === defaultSerialised || serialised === "") {
@@ -78,7 +71,7 @@ export function useUrlState<T extends string | number | string[]>(
         { replace: true },
       );
     },
-    [key, setSearchParams],
+    [key, setSearchParams, defaultValue],
   );
 
   return [value, setValue];

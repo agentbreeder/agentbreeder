@@ -130,7 +130,7 @@ async def execute_in_docker(
             exit_code = proc.returncode or 0
         except TimeoutError:
             timed_out = True
-            proc.kill()  # type: ignore[union-attr]
+            proc.kill()
             stdout_bytes, stderr_bytes = b"", b"Execution timed out"
             exit_code = 124
 
@@ -213,7 +213,7 @@ async def execute_in_subprocess(
             exit_code = proc.returncode or 0
         except TimeoutError:
             timed_out = True
-            proc.kill()  # type: ignore[union-attr]
+            proc.kill()
             stdout_bytes, stderr_bytes = b"", b"Execution timed out"
             exit_code = 124
 

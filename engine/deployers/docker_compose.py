@@ -153,7 +153,7 @@ class DockerComposeDeployer(BaseDeployer):
                             timeout // interval,
                         )
                         return HealthStatus(healthy=True, checks=checks)
-            except (httpx.ConnectError, httpx.ReadTimeout):
+            except (httpx.ConnectError, httpx.ReadTimeout, OSError, ExceptionGroup):
                 pass
 
             logger.debug(

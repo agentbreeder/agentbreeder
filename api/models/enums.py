@@ -67,3 +67,10 @@ class OrchestrationStatus(enum.StrEnum):
     deployed = "deployed"
     stopped = "stopped"
     failed = "failed"
+
+
+class A2AStatus(enum.StrEnum):
+    registered = "registered"
+    active = "active"
+    inactive = "inactive"
+    error = "error"

@@ -274,6 +274,32 @@ export interface McpServerDiscoverResult {
   total: number;
 }
 
+// --- A2A Agent types ---
+
+export type A2AStatus = "registered" | "active" | "inactive" | "error";
+
+export interface A2AAgent {
+  id: string;
+  agent_id: string | null;
+  name: string;
+  agent_card: Record<string, unknown>;
+  endpoint_url: string;
+  status: A2AStatus;
+  capabilities: string[];
+  auth_scheme: string | null;
+  team: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface A2AInvokeResponse {
+  output: string;
+  tokens: number;
+  latency_ms: number;
+  status: string;
+  error: string | null;
+}
+
 // --- Prompt Test types ---
 
 export interface PromptTestRequest {
@@ -1111,6 +1137,14 @@ export const api = {
       request<McpServerDiscoverResult>(`/mcp-servers/${id}/discover`, {
         method: "POST",
       }),
+    execute: (id: string, toolName: string, arguments_: Record<string, unknown> = {}) =>
+      request<Record<string, unknown>>(
+        `/mcp-servers/${id}/execute?tool_name=${encodeURIComponent(toolName)}`,
+        {
+          method: "POST",
+          body: JSON.stringify(arguments_),
+        }
+      ),
   },
   sandbox: {
     execute: (body: SandboxExecuteRequest) =>
@@ -1678,6 +1712,51 @@ export const api = {
       compare: (runA: string, runB: string) =>
         request<EvalComparison>(`/eval/scores/compare?run_a=${runA}&run_b=${runB}`),
     },
+  },
+  a2a: {
+    list: (params?: { team?: string; page?: number; per_page?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.team) sp.set("team", params.team);
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.per_page) sp.set("per_page", String(params.per_page));
+      const qs = sp.toString();
+      return request<A2AAgent[]>(`/a2a/agents${qs ? `?${qs}` : ""}`);
+    },
+    get: (id: string) => request<A2AAgent>(`/a2a/agents/${id}`),
+    create: (body: {
+      name: string;
+      endpoint_url: string;
+      agent_id?: string;
+      agent_card?: Record<string, unknown>;
+      capabilities?: string[];
+      auth_scheme?: string;
+      team?: string;
+    }) =>
+      request<A2AAgent>("/a2a/agents", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (
+      id: string,
+      body: {
+        endpoint_url?: string;
+        agent_card?: Record<string, unknown>;
+        capabilities?: string[];
+        auth_scheme?: string;
+        status?: string;
+      }
+    ) =>
+      request<A2AAgent>(`/a2a/agents/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/a2a/agents/${id}`, { method: "DELETE" }),
+    invoke: (agentName: string, body: { input_message: string; context?: Record<string, unknown> }) =>
+      request<A2AInvokeResponse>(`/a2a/invoke?agent_name=${encodeURIComponent(agentName)}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),

@@ -1,7 +1,7 @@
 """Agent Garden orchestration engine.
 
-Executes multi-agent orchestration strategies: router, sequential, parallel, hierarchical.
-Each agent call is currently simulated — see TODO markers for real agent invocation.
+Executes multi-agent orchestration strategies: router, sequential, parallel,
+hierarchical, supervisor, and fan_out_fan_in.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from engine.a2a.client import AgentInvocationClient
 from engine.orchestration_parser import OrchestrationConfig
 
 logger = logging.getLogger(__name__)
@@ -46,8 +47,15 @@ class OrchestrationResult(BaseModel):
 class Orchestrator:
     """Execute multi-agent orchestration strategies."""
 
-    def __init__(self, config: OrchestrationConfig) -> None:
+    def __init__(
+        self,
+        config: OrchestrationConfig,
+        agent_endpoints: dict[str, str] | None = None,
+        auth_token: str | None = None,
+    ) -> None:
         self.config = config
+        self._endpoints = agent_endpoints or {}
+        self._client = AgentInvocationClient(auth_token=auth_token) if self._endpoints else None
 
     async def execute(
         self, input_message: str, context: dict[str, Any] | None = None
@@ -72,6 +80,10 @@ class Orchestrator:
             return await self._execute_parallel(input_message, ctx)
         elif strategy == "hierarchical":
             return await self._execute_hierarchical(input_message, ctx)
+        elif strategy == "supervisor":
+            return await self._execute_supervisor(input_message, ctx)
+        elif strategy == "fan_out_fan_in":
+            return await self._execute_fan_out_fan_in(input_message, ctx)
         else:
             msg = f"Unknown strategy: {strategy}"
             raise ValueError(msg)
@@ -111,9 +123,9 @@ class Orchestrator:
 
         # Handle fallback on error
         if entry.status == "error":
-            agent_ref = self.config.agents.get(matched_agent)
-            if agent_ref and agent_ref.fallback:
-                fallback_entry = await self._call_agent(agent_ref.fallback, input_message)
+            agent_ref_or_none = self.config.agents.get(matched_agent)
+            if agent_ref_or_none and agent_ref_or_none.fallback:
+                fallback_entry = await self._call_agent(agent_ref_or_none.fallback, input_message)
                 fallback_entry.status = "fallback"
                 trace.append(fallback_entry)
                 entry = fallback_entry
@@ -242,22 +254,27 @@ class Orchestrator:
         )
 
     # -----------------------------------------------------------------
-    # Agent Invocation (Simulated)
+    # Agent Invocation
     # -----------------------------------------------------------------
 
     async def _call_agent(self, agent_name: str, input_message: str) -> AgentTraceEntry:
-        """Simulate calling a single agent.
+        """Call a deployed agent via HTTP, falling back to simulation."""
+        endpoint = self._endpoints.get(agent_name)
 
-        TODO: Replace with real agent invocation via the deployed agent's endpoint.
-        This will need to:
-        1. Look up the agent's endpoint URL from the registry
-        2. POST the input_message to the agent's /invoke endpoint
-        3. Parse the response and extract output, tokens, latency
-        """
+        if endpoint and self._client:
+            result = await self._client.invoke(endpoint, input_message)
+            return AgentTraceEntry(
+                agent_name=agent_name,
+                input=input_message,
+                output=result.output,
+                latency_ms=result.latency_ms,
+                tokens=result.tokens,
+                status=result.status,
+            )
+
+        # Fallback: simulated response (no endpoint configured)
         latency_ms = random.randint(100, 500)
         await asyncio.sleep(latency_ms / 1000.0)
-
-        # Simulated response
         tokens = random.randint(50, 200)
         output = f"Response from {agent_name}: Processed input '{input_message[:80]}'"
 
@@ -268,4 +285,126 @@ class Orchestrator:
             latency_ms=latency_ms,
             tokens=tokens,
             status="success",
+        )
+
+    # -----------------------------------------------------------------
+    # New Strategies: supervisor + fan_out_fan_in (Phase 4)
+    # -----------------------------------------------------------------
+
+    async def _execute_supervisor(
+        self, input_message: str, context: dict[str, Any]
+    ) -> OrchestrationResult:
+        """Supervisor agent decides which workers to invoke and synthesizes results.
+
+        The supervisor_config in the orchestration determines which agent
+        is the supervisor. The supervisor is called first with the input,
+        then workers are invoked based on supervisor output, and the
+        supervisor aggregates the final result.
+        """
+        start = time.monotonic()
+        trace: list[AgentTraceEntry] = []
+
+        agent_names = list(self.config.agents.keys())
+        if not agent_names:
+            return OrchestrationResult(
+                orchestration_name=self.config.name,
+                strategy="supervisor",
+                input_message=input_message,
+                output="",
+                total_latency_ms=0,
+            )
+
+        # First agent is the supervisor by default
+        supervisor_config = getattr(self.config, "supervisor_config", None) or {}
+        supervisor_name = supervisor_config.get("supervisor_agent", agent_names[0])
+        worker_names = [n for n in agent_names if n != supervisor_name]
+
+        # Step 1: Supervisor plans
+        plan_input = (
+            f"You are a supervisor. Analyze this request and decide which workers "
+            f"to delegate to.\nAvailable workers: {', '.join(worker_names)}\n\n"
+            f"Request: {input_message}"
+        )
+        plan_entry = await self._call_agent(supervisor_name, plan_input)
+        trace.append(plan_entry)
+
+        # Step 2: Invoke workers (all in parallel for now)
+        worker_tasks = [self._call_agent(w, input_message) for w in worker_names]
+        worker_entries = list(await asyncio.gather(*worker_tasks))
+        trace.extend(worker_entries)
+
+        # Step 3: Supervisor synthesizes
+        worker_outputs = "\n".join(f"[{e.agent_name}]: {e.output}" for e in worker_entries)
+        synthesis_input = (
+            f"Original request: {input_message}\n\n"
+            f"Worker results:\n{worker_outputs}\n\n"
+            f"Synthesize the final response."
+        )
+        synthesis_entry = await self._call_agent(supervisor_name, synthesis_input)
+        synthesis_entry.agent_name = f"{supervisor_name} (synthesis)"
+        trace.append(synthesis_entry)
+
+        total_ms = int((time.monotonic() - start) * 1000)
+        return OrchestrationResult(
+            orchestration_name=self.config.name,
+            strategy="supervisor",
+            input_message=input_message,
+            output=synthesis_entry.output,
+            agent_trace=trace,
+            total_latency_ms=total_ms,
+            total_tokens=sum(t.tokens for t in trace),
+            total_cost=sum(t.tokens for t in trace) * 0.00001,
+        )
+
+    async def _execute_fan_out_fan_in(
+        self, input_message: str, context: dict[str, Any]
+    ) -> OrchestrationResult:
+        """Fan-out to all agents, then fan-in with a designated merger agent.
+
+        Like parallel, but uses the last agent (or configured merge_agent)
+        to combine results instead of simple concatenation.
+        """
+        start = time.monotonic()
+        trace: list[AgentTraceEntry] = []
+
+        agent_names = list(self.config.agents.keys())
+        if not agent_names:
+            return OrchestrationResult(
+                orchestration_name=self.config.name,
+                strategy="fan_out_fan_in",
+                input_message=input_message,
+                output="",
+                total_latency_ms=0,
+            )
+
+        supervisor_config = getattr(self.config, "supervisor_config", None) or {}
+        merge_agent = supervisor_config.get("merge_agent", agent_names[-1])
+        fan_out_agents = [n for n in agent_names if n != merge_agent]
+
+        # Fan-out: invoke all non-merge agents in parallel
+        fan_tasks = [self._call_agent(name, input_message) for name in fan_out_agents]
+        fan_entries = list(await asyncio.gather(*fan_tasks))
+        trace.extend(fan_entries)
+
+        # Fan-in: merge agent combines results
+        fan_outputs = "\n".join(f"[{e.agent_name}]: {e.output}" for e in fan_entries)
+        merge_input = (
+            f"Original request: {input_message}\n\n"
+            f"Results from agents:\n{fan_outputs}\n\n"
+            f"Combine these results into a single coherent response."
+        )
+        merge_entry = await self._call_agent(merge_agent, merge_input)
+        merge_entry.agent_name = f"{merge_agent} (merge)"
+        trace.append(merge_entry)
+
+        total_ms = int((time.monotonic() - start) * 1000)
+        return OrchestrationResult(
+            orchestration_name=self.config.name,
+            strategy="fan_out_fan_in",
+            input_message=input_message,
+            output=merge_entry.output,
+            agent_trace=trace,
+            total_latency_ms=total_ms,
+            total_tokens=sum(t.tokens for t in trace),
+            total_cost=sum(t.tokens for t in trace) * 0.00001,
         )

@@ -44,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Fetch current user on mount / token change
   useEffect(() => {
     if (!token) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- early return sets initial state
       setIsLoading(false);
       setUser(null);
       return;

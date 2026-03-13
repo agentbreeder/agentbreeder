@@ -11,16 +11,16 @@ test.describe("Models Page", () => {
     await expect(
       page.locator('input[placeholder="Filter models..."]')
     ).toBeVisible();
-    await expect(page.locator("select")).toBeVisible();
+    // Provider filtering uses pill-style tab buttons instead of a select
+    await expect(page.getByRole("button", { name: "All" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "OpenAI" })).toBeVisible();
   });
 
   test("shows column headers", async ({ authedPage: page }) => {
     await page.goto("/models");
-    const headers = page.locator(
-      ".uppercase.tracking-wider"
-    );
-    await expect(headers.first()).toBeVisible();
-    const text = await headers.first().textContent();
+    const headers = page.locator(".rounded-lg.border .uppercase.tracking-wider");
+    await expect(headers).toBeVisible();
+    const text = await headers.textContent();
     expect(text?.toLowerCase()).toContain("model");
   });
 

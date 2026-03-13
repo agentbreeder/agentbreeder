@@ -61,6 +61,15 @@ guardrails:
   - name: custom_check
     endpoint: https://guardrails.company.com/check
 
+subagents:
+  - ref: agents/billing-agent
+    name: billing
+    description: "Handles billing queries"
+
+mcp_servers:
+  - ref: mcp/zendesk
+    transport: sse
+
 deploy:
   cloud: aws
   runtime: ecs-fargate
@@ -186,6 +195,45 @@ tools:
 | `type` | string | No | Tool type. Currently only `function`. |
 | `description` | string | No | Tool description. |
 | `schema` | object | No | OpenAPI-compatible schema. |
+
+---
+
+### `subagents`
+
+List of subagent references for A2A (agent-to-agent) communication. Each reference auto-generates a `call_{name}` tool during dependency resolution.
+
+```yaml
+subagents:
+  - ref: agents/billing-agent
+    name: billing
+    description: "Handles billing queries"
+  - ref: agents/tech-support
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ref` | string | **Yes** | Registry reference path to the subagent. |
+| `name` | string | No | Display name (defaults to slug from ref). |
+| `description` | string | No | Description of the subagent's purpose. |
+
+---
+
+### `mcp_servers`
+
+List of MCP server references to deploy as sidecars alongside the agent.
+
+```yaml
+mcp_servers:
+  - ref: mcp/zendesk
+    transport: sse
+  - ref: mcp/slack
+    transport: stdio
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `ref` | string | **Yes** | — | Registry reference path to the MCP server. |
+| `transport` | string | No | `stdio` | MCP transport type: `stdio`, `sse`, `streamable_http`. |
 
 ---
 

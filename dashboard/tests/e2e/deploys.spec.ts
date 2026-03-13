@@ -18,9 +18,9 @@ test.describe("Deploys Page", () => {
 
   test("shows column headers", async ({ authedPage: page }) => {
     await page.goto("/deploys");
-    const headers = page.locator(".uppercase.tracking-wider");
-    await expect(headers.first()).toBeVisible();
-    const text = await headers.first().textContent();
+    const headers = page.locator(".rounded-lg.border .uppercase.tracking-wider");
+    await expect(headers).toBeVisible();
+    const text = await headers.textContent();
     expect(text?.toLowerCase()).toContain("agent");
   });
 

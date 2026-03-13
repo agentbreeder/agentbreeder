@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from api.models.enums import (
+    A2AStatus,
     AgentStatus,
     DeployJobStatus,
     EvalRunStatus,
@@ -31,7 +32,7 @@ from api.models.enums import (
 )
 
 
-class Base(DeclarativeBase):
+class Base(DeclarativeBase):  # type: ignore[misc]
     pass
 
 
@@ -245,6 +246,10 @@ class McpServer(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    version: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    team: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    deploy_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    image_uri: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class Provider(Base):
@@ -432,4 +437,40 @@ class Orchestration(Base):
     __table_args__ = (
         Index("ix_orchestrations_team_status", "team", "status"),
         Index("ix_orchestrations_strategy", "strategy"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# A2A Agent Registry (M19)
+# ---------------------------------------------------------------------------
+
+
+class A2AAgent(Base):
+    """An A2A-compatible agent registered for inter-agent communication."""
+
+    __tablename__ = "a2a_agents"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    agent_card: Mapped[dict] = mapped_column(JSON, default=dict)
+    endpoint_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[A2AStatus] = mapped_column(
+        Enum(A2AStatus), default=A2AStatus.registered, nullable=False
+    )
+    capabilities: Mapped[list] = mapped_column(JSON, default=list)
+    auth_scheme: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    team: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_a2a_agents_team_status", "team", "status"),
+        Index("ix_a2a_agents_agent_id", "agent_id"),
     )

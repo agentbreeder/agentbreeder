@@ -543,22 +543,19 @@ function YamlEditor({
   }, []);
 
   // Handle Tab key for indentation
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Tab") {
-        e.preventDefault();
-        const ta = e.currentTarget;
-        const start = ta.selectionStart;
-        const end = ta.selectionEnd;
-        const newValue = yaml.slice(0, start) + "  " + yaml.slice(end);
-        onChange(newValue);
-        requestAnimationFrame(() => {
-          ta.selectionStart = ta.selectionEnd = start + 2;
-        });
-      }
-    },
-    [yaml, onChange]
-  );
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const ta = e.currentTarget;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const newValue = yaml.slice(0, start) + "  " + yaml.slice(end);
+      onChange(newValue);
+      requestAnimationFrame(() => {
+        ta.selectionStart = ta.selectionEnd = start + 2;
+      });
+    }
+  };
 
   return (
     <div className="relative flex h-full overflow-hidden rounded-lg border border-border bg-background font-mono text-xs">
@@ -1018,7 +1015,7 @@ function VisualBuilderForm({
 export default function AgentBuilderPage() {
   const { id } = useParams();
   const { toast } = useToast();
-  const { isDirty: _isDirty, markDirty, markClean, isBlocked, confirmNavigation, cancelNavigation } = useUnsavedChanges();
+  const { markDirty, markClean, isBlocked, confirmNavigation, cancelNavigation } = useUnsavedChanges();
 
   const [mode, setMode] = useState<"yaml" | "visual" | "canvas">("yaml");
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
@@ -1080,6 +1077,7 @@ export default function AgentBuilderPage() {
             scalingMax: 10,
           },
         };
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- sync from API response
         setFormData(loadedFormData);
         setYaml(formDataToYaml(loadedFormData));
       }

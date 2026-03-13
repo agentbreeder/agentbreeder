@@ -1,0 +1,17 @@
+# Gitleaks configuration — ignore test fixtures and example placeholders
+title = "Agent Garden Gitleaks Config"
+
+[allowlist]
+description = "Allow test fixtures, examples, and placeholder values"
+paths = [
+    '''tests/''',
+    '''examples/''',
+    '''.env.example''',
+]
+regexTarget = "match"
+regexes = [
+    '''sk-\.\.\.''',
+    '''dev-secret''',
+    '''test-secret''',
+    '''change-me''',
+]

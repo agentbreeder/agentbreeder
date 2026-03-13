@@ -750,6 +750,7 @@ export default function PromptBuilderPage() {
   useEffect(() => {
     if (promptData?.data) {
       const p = promptData.data;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync form from API response
       setName(p.name);
       setVersion(p.version);
       setDescription(p.description);
@@ -847,29 +848,6 @@ export default function PromptBuilderPage() {
     updateContentMutation.mutate();
   }, [id, updateContentMutation]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-        e.preventDefault();
-        handleSave();
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
-        e.preventDefault();
-        wrapSelection("**", "**", "bold text");
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "i") {
-        e.preventDefault();
-        wrapSelection("*", "*", "italic text");
-        return;
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleSave]);
-
   // Wrap selection with syntax
   const wrapSelection = useCallback(
     (before: string, after: string, placeholder: string) => {
@@ -893,6 +871,29 @@ export default function PromptBuilderPage() {
     },
     [content]
   );
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        handleSave();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
+        e.preventDefault();
+        wrapSelection("**", "**", "bold text");
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "i") {
+        e.preventDefault();
+        wrapSelection("*", "*", "italic text");
+        return;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleSave, wrapSelection]);
 
   // Update variable metadata
   const handleUpdateVariable = useCallback(

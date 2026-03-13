@@ -261,6 +261,7 @@ function useStreamingText(text: string, isStreaming: boolean): string {
 
   useEffect(() => {
     if (!isStreaming) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync displayed text when not streaming
       setDisplayed(text);
       indexRef.current = text.length;
       return;
@@ -364,6 +365,7 @@ export default function PlaygroundPage() {
   // Auto-select first agent
   useEffect(() => {
     if (!selectedAgentId && agents.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- initialize from loaded data
       setSelectedAgentId(agents[0].id);
     }
   }, [agents, selectedAgentId]);

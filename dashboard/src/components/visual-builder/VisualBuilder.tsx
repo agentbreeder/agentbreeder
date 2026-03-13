@@ -3,7 +3,7 @@
  * Provides the visual agent composition experience (M12.2).
  */
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   ReactFlow,
   Controls,
@@ -178,11 +178,13 @@ export function VisualBuilder({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<CanvasNodeData>>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initialEdges);
 
-  // Keep parent synced
+  // Keep parent synced via refs so callbacks always see latest values
   const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
   const edgesRef = useRef(edges);
-  edgesRef.current = edges;
+  useEffect(() => {
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
+  });
 
   // Notify parent when nodes/edges change
   const handleNodesChangeWrapped = useCallback(
