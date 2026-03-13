@@ -4,8 +4,28 @@ export { Agent } from "./agent";
 export type { AgentOptions } from "./agent";
 export { Model } from "./model";
 export { Tool } from "./tool";
-export { Orchestration } from "./orchestration";
-export type { Strategy, OrchestrationConfig, OrchAgentDef } from "./orchestration";
+export {
+  Orchestration,
+  Pipeline,
+  FanOut,
+  Supervisor,
+  Router,
+  KeywordRouter,
+  IntentRouter,
+  RoundRobinRouter,
+  ClassifierRouter,
+  orchestrationToYaml,
+} from "./orchestration";
+export type {
+  Strategy,
+  MergeStrategy,
+  OrchestrationConfig,
+  OrchAgentDef,
+  RouteRule,
+  SharedStateConfig,
+  SupervisorConfig,
+  OrchestrationDeployConfig,
+} from "./orchestration";
 export { deploy } from "./deploy";
 export type { DeployResult } from "./deploy";
 export { agentToYaml } from "./yaml";
