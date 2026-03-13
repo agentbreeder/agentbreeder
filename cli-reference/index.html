@@ -941,6 +941,89 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#garden-secret" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="garden secret">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret set
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-get" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret get
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret delete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-rotate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret rotate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-migrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret migrate
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1546,6 +1629,89 @@
       
     </span>
   </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="garden secret">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret set
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-get" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret get
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret delete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-rotate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret rotate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#garden-secret-migrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        garden secret migrate
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -2289,6 +2455,148 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a>garden<span class="w"> </span>publish<span class="w"> </span>agent<span class="w"> </span>my-agent<span class="w">                    </span><span class="c1"># Auto-version</span>
 <a id="__codelineno-43-2" name="__codelineno-43-2" href="#__codelineno-43-2"></a>garden<span class="w"> </span>publish<span class="w"> </span>agent<span class="w"> </span>my-agent<span class="w"> </span>--version<span class="w"> </span><span class="m">2</span>.0.0<span class="w">    </span><span class="c1"># Explicit version</span>
 <a id="__codelineno-43-3" name="__codelineno-43-3" href="#__codelineno-43-3"></a>garden<span class="w"> </span>publish<span class="w"> </span>prompt<span class="w"> </span>support-v3<span class="w"> </span>--json
+</code></pre></div></p>
+<hr />
+<h3 id="garden-secret"><code>garden secret</code><a class="headerlink" href="#garden-secret" title="Permanent link">&para;</a></h3>
+<p>Manage secrets across pluggable backends (env file, AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a>garden secret [SUBCOMMAND] [OPTIONS]
+</code></pre></div>
+<h4 id="garden-secret-list"><code>garden secret list</code><a class="headerlink" href="#garden-secret-list" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a>garden secret list [--backend BACKEND] [--prefix PREFIX] [--json]
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--backend</code>, <code>-b</code></td>
+<td><code>env</code></td>
+<td>Backend: <code>env</code>, <code>aws</code>, <code>gcp</code>, <code>vault</code></td>
+</tr>
+<tr>
+<td><code>--prefix</code></td>
+<td><code>garden/</code></td>
+<td>Secret prefix (AWS/GCP/Vault)</td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Off</td>
+<td>Output as JSON</td>
+</tr>
+</tbody>
+</table>
+<p>Lists secret names and masked values (actual values are never printed).</p>
+<h4 id="garden-secret-set"><code>garden secret set</code><a class="headerlink" href="#garden-secret-set" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a>garden secret set NAME [--value VALUE] [--backend BACKEND] [--prefix PREFIX] [--tag key=value] [--json]
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Argument / Option</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NAME</code></td>
+<td>Yes</td>
+<td>Secret name (e.g., <code>OPENAI_API_KEY</code>)</td>
+</tr>
+<tr>
+<td><code>--value</code>, <code>-v</code></td>
+<td>No</td>
+<td>Value (prompted securely if omitted)</td>
+</tr>
+<tr>
+<td><code>--backend</code>, <code>-b</code></td>
+<td>No</td>
+<td>Backend (<code>env</code>, <code>aws</code>, <code>gcp</code>, <code>vault</code>)</td>
+</tr>
+<tr>
+<td><code>--tag</code>, <code>-t</code></td>
+<td>No</td>
+<td><code>key=value</code> tags (cloud backends only, repeatable)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="garden-secret-get"><code>garden secret get</code><a class="headerlink" href="#garden-secret-get" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a>garden secret get NAME [--backend BACKEND] [--reveal] [--json]
+</code></pre></div>
+<p>Prints masked value by default. Use <code>--reveal</code> to print the actual value.</p>
+<h4 id="garden-secret-delete"><code>garden secret delete</code><a class="headerlink" href="#garden-secret-delete" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a>garden secret delete NAME [--backend BACKEND] [--force] [--json]
+</code></pre></div>
+<p>Prompts for confirmation unless <code>--force</code> is passed.</p>
+<h4 id="garden-secret-rotate"><code>garden secret rotate</code><a class="headerlink" href="#garden-secret-rotate" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a>garden secret rotate NAME [--value NEW_VALUE] [--backend BACKEND] [--json]
+</code></pre></div>
+<p>Prompts for the new value with confirmation if <code>--value</code> is omitted.</p>
+<h4 id="garden-secret-migrate"><code>garden secret migrate</code><a class="headerlink" href="#garden-secret-migrate" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a>garden secret migrate --from BACKEND --to BACKEND [--prefix PREFIX] [--include KEY] [--exclude KEY] [--dry-run] [--json]
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--from</code></td>
+<td>Yes</td>
+<td>Source backend (<code>env</code>, <code>aws</code>, <code>gcp</code>, <code>vault</code>)</td>
+</tr>
+<tr>
+<td><code>--to</code></td>
+<td>Yes</td>
+<td>Target backend (<code>aws</code>, <code>gcp</code>, <code>vault</code>)</td>
+</tr>
+<tr>
+<td><code>--prefix</code></td>
+<td>No</td>
+<td>Prefix for secrets in cloud backend (default: <code>garden/</code>)</td>
+</tr>
+<tr>
+<td><code>--include</code>, <code>-i</code></td>
+<td>No</td>
+<td>Only migrate these keys (repeatable)</td>
+</tr>
+<tr>
+<td><code>--exclude</code>, <code>-e</code></td>
+<td>No</td>
+<td>Skip these keys (repeatable)</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>No</td>
+<td>Preview without writing</td>
+</tr>
+</tbody>
+</table>
+<p>Migrates secrets from one backend to another. After migration, update <code>agent.yaml</code> to use <code>secret://</code> references:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="nt">deploy</span><span class="p">:</span>
+<a id="__codelineno-51-2" name="__codelineno-51-2" href="#__codelineno-51-2"></a><span class="w">  </span><span class="nt">secrets</span><span class="p">:</span>
+<a id="__codelineno-51-3" name="__codelineno-51-3" href="#__codelineno-51-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OPENAI_API_KEY</span><span class="w">     </span><span class="c1"># resolved from secret://OPENAI_API_KEY at deploy time</span>
+</code></pre></div>
+<p><strong>Examples:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a>garden<span class="w"> </span>secret<span class="w"> </span>list<span class="w">                                    </span><span class="c1"># List env secrets</span>
+<a id="__codelineno-52-2" name="__codelineno-52-2" href="#__codelineno-52-2"></a>garden<span class="w"> </span>secret<span class="w"> </span>list<span class="w"> </span>--backend<span class="w"> </span>aws<span class="w"> </span>--json<span class="w">               </span><span class="c1"># List AWS secrets as JSON</span>
+<a id="__codelineno-52-3" name="__codelineno-52-3" href="#__codelineno-52-3"></a>garden<span class="w"> </span>secret<span class="w"> </span><span class="nb">set</span><span class="w"> </span>OPENAI_API_KEY<span class="w">                      </span><span class="c1"># Prompt for value</span>
+<a id="__codelineno-52-4" name="__codelineno-52-4" href="#__codelineno-52-4"></a>garden<span class="w"> </span>secret<span class="w"> </span><span class="nb">set</span><span class="w"> </span>OPENAI_API_KEY<span class="w"> </span>--value<span class="w"> </span>sk-...<span class="w">       </span><span class="c1"># Provide value directly</span>
+<a id="__codelineno-52-5" name="__codelineno-52-5" href="#__codelineno-52-5"></a>garden<span class="w"> </span>secret<span class="w"> </span>get<span class="w"> </span>OPENAI_API_KEY<span class="w"> </span>--reveal<span class="w">             </span><span class="c1"># Print actual value</span>
+<a id="__codelineno-52-6" name="__codelineno-52-6" href="#__codelineno-52-6"></a>garden<span class="w"> </span>secret<span class="w"> </span>delete<span class="w"> </span>OPENAI_API_KEY<span class="w"> </span>--force<span class="w">           </span><span class="c1"># Delete without confirmation</span>
+<a id="__codelineno-52-7" name="__codelineno-52-7" href="#__codelineno-52-7"></a>garden<span class="w"> </span>secret<span class="w"> </span>rotate<span class="w"> </span>OPENAI_API_KEY<span class="w">                   </span><span class="c1"># Prompt for new value</span>
+<a id="__codelineno-52-8" name="__codelineno-52-8" href="#__codelineno-52-8"></a>garden<span class="w"> </span>secret<span class="w"> </span>migrate<span class="w"> </span>--from<span class="w"> </span>env<span class="w"> </span>--to<span class="w"> </span>aws<span class="w"> </span>--dry-run<span class="w">   </span><span class="c1"># Preview migration</span>
+<a id="__codelineno-52-9" name="__codelineno-52-9" href="#__codelineno-52-9"></a>garden<span class="w"> </span>secret<span class="w"> </span>migrate<span class="w"> </span>--from<span class="w"> </span>env<span class="w"> </span>--to<span class="w"> </span>aws<span class="w">             </span><span class="c1"># Migrate to AWS</span>
+<a id="__codelineno-52-10" name="__codelineno-52-10" href="#__codelineno-52-10"></a>garden<span class="w"> </span>secret<span class="w"> </span>migrate<span class="w"> </span>--from<span class="w"> </span>env<span class="w"> </span>--to<span class="w"> </span>gcp<span class="w"> </span>--exclude<span class="w"> </span>DEBUG<span class="w"> </span>--exclude<span class="w"> </span>LOG_LEVEL
 </code></pre></div></p>
 <hr />
 <h2 id="global-options">Global Options<a class="headerlink" href="#global-options" title="Permanent link">&para;</a></h2>
