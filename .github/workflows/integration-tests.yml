@@ -70,7 +70,7 @@ jobs:
             --cov-report=xml:coverage-integration.xml \
             --cov-report=term-missing \
             --junitxml=integration-results.xml \
-            -v
+            -v || test $? -eq 5  # Exit code 5 = no tests collected (ok)
 
       - name: Upload integration test results
         if: always()
