@@ -46,7 +46,7 @@ async def list_agents_v2(
     """
     from sqlalchemy import select
 
-    stmt = select(Agent).where(Agent.status != AgentStatus.archived).order_by(Agent.created_at)
+    stmt = select(Agent).where(Agent.status != AgentStatus.failed).order_by(Agent.created_at)
 
     # Cursor decode — cursor encodes the created_at timestamp of the last seen item
     if cursor:

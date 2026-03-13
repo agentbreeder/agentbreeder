@@ -10,10 +10,20 @@ from pathlib import Path
 from engine.secrets.base import SecretEntry, SecretsBackend, _mask
 
 # Keys we never migrate or list (they're infrastructure, not secrets)
-_SKIP_KEYS = frozenset({
-    "PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "PWD",
-    "GARDEN_ENV", "DATABASE_URL", "REDIS_URL",
-})
+_SKIP_KEYS = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "SHELL",
+        "TERM",
+        "LANG",
+        "PWD",
+        "GARDEN_ENV",
+        "DATABASE_URL",
+        "REDIS_URL",
+    }
+)
 
 
 def _find_env_file() -> Path:
@@ -33,7 +43,7 @@ def _parse_env_file(path: Path) -> dict[str, str]:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)=(.*)$', line)
+        match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", line)
         if not match:
             continue
         key, value = match.group(1), match.group(2)
@@ -56,7 +66,7 @@ def _write_env_file(path: Path, data: dict[str, str]) -> None:
             if not stripped or stripped.startswith("#"):
                 new_lines.append(line)
                 continue
-            match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)=', stripped)
+            match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)=", stripped)
             if match:
                 key = match.group(1)
                 if key in data:
@@ -72,9 +82,7 @@ def _write_env_file(path: Path, data: dict[str, str]) -> None:
         path.write_text("\n".join(new_lines) + "\n")
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            "\n".join(f"{k}={v}" for k, v in data.items()) + "\n"
-        )
+        path.write_text("\n".join(f"{k}={v}" for k, v in data.items()) + "\n")
 
 
 class EnvBackend(SecretsBackend):
@@ -122,8 +130,4 @@ class EnvBackend(SecretsBackend):
 
     def list_raw(self) -> dict[str, str]:
         """Return raw key→value pairs (used by migrate). Not part of public API."""
-        return {
-            k: v
-            for k, v in _parse_env_file(self._path).items()
-            if k not in _SKIP_KEYS and v
-        }
+        return {k: v for k, v in _parse_env_file(self._path).items() if k not in _SKIP_KEYS and v}

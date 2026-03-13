@@ -66,9 +66,7 @@ class APIVersionMiddleware(BaseHTTPMiddleware):
                     response.headers["Sunset"] = sunset
 
                 if successor:
-                    response.headers["Link"] = (
-                        f'<{successor}>; rel="successor-version"'
-                    )
+                    response.headers["Link"] = f'<{successor}>; rel="successor-version"'
 
                 logger.warning(
                     "Deprecated endpoint called",

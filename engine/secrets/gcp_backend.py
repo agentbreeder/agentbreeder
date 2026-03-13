@@ -25,6 +25,7 @@ _GCP_IMPORT_ERROR = (
 def _client():  # type: ignore[return]
     try:
         from google.cloud import secretmanager  # type: ignore[import-untyped]
+
         return secretmanager.SecretManagerServiceClient()
     except ImportError as exc:
         raise ImportError(_GCP_IMPORT_ERROR) from exc
@@ -74,9 +75,7 @@ class GCPSecretManagerBackend(SecretsBackend):
     async def get(self, name: str) -> str | None:
         client = _client()
         try:
-            response = client.access_secret_version(
-                request={"name": self._version_path(name)}
-            )
+            response = client.access_secret_version(request={"name": self._version_path(name)})
             return response.payload.data.decode("utf-8")
         except Exception as exc:
             # google.api_core.exceptions.NotFound → return None
@@ -85,9 +84,7 @@ class GCPSecretManagerBackend(SecretsBackend):
             logger.error("Failed to get secret '%s' from GCP: %s", name, exc)
             raise
 
-    async def set(
-        self, name: str, value: str, *, tags: dict[str, str] | None = None
-    ) -> None:
+    async def set(self, name: str, value: str, *, tags: dict[str, str] | None = None) -> None:
         client = _client()
         payload = {"data": value.encode("utf-8")}
 
@@ -132,7 +129,7 @@ class GCPSecretManagerBackend(SecretsBackend):
         entries: list[SecretEntry] = []
         request = {"parent": self._parent()}
         if self._prefix:
-            request["filter"] = f'name:{self._prefix}'  # type: ignore[assignment]
+            request["filter"] = f"name:{self._prefix}"  # type: ignore[assignment]
 
         for secret in client.list_secrets(request=request):
             raw_id = secret.name.split("/")[-1]  # e.g. "garden-OPENAI_API_KEY"
@@ -156,6 +153,7 @@ def _dt(ts: object) -> datetime | None:
         return None
     try:
         from google.protobuf.timestamp_pb2 import Timestamp  # type: ignore[import-untyped]
+
         if isinstance(ts, Timestamp):
             return datetime.fromtimestamp(ts.seconds, tz=UTC)
     except ImportError:

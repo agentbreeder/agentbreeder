@@ -70,7 +70,7 @@ class TestEnvFileParsing:
 
     def test_parse_quoted_values(self, tmp_path):
         env = tmp_path / ".env"
-        env.write_text('KEY_A="hello world"\nKEY_B=\'single quotes\'\n')
+        env.write_text("KEY_A=\"hello world\"\nKEY_B='single quotes'\n")
         result = _parse_env_file(env)
         assert result["KEY_A"] == "hello world"
         assert result["KEY_B"] == "single quotes"
@@ -312,11 +312,13 @@ class TestSecretCLI:
     @pytest.fixture
     def runner(self):
         from typer.testing import CliRunner
+
         return CliRunner()
 
     @pytest.fixture
     def cli_app(self):
         from cli.commands.secret import secret_app
+
         return secret_app
 
     @pytest.fixture
@@ -334,6 +336,7 @@ class TestSecretCLI:
         env_file = tmp_path / ".env"
         # Monkeypatch _find_env_file to use our tmp file
         import engine.secrets.env_backend as eb
+
         monkeypatch.setattr(eb, "_find_env_file", lambda: env_file)
 
         result = runner.invoke(cli_app, ["set", "TEST_KEY", "--value", "test-val", "--json"])
@@ -351,6 +354,7 @@ class TestSecretCLI:
         env_file = tmp_path / ".env"
         env_file.write_text("DEL_KEY=val\n")
         import engine.secrets.env_backend as eb
+
         monkeypatch.setattr(eb, "_find_env_file", lambda: env_file)
 
         result = runner.invoke(cli_app, ["delete", "DEL_KEY", "--force", "--json"])
@@ -361,6 +365,7 @@ class TestSecretCLI:
     def test_delete_missing_key_exits_1(self, runner, cli_app, tmp_path, monkeypatch):
         env_file = tmp_path / ".env"
         import engine.secrets.env_backend as eb
+
         monkeypatch.setattr(eb, "_find_env_file", lambda: env_file)
 
         result = runner.invoke(cli_app, ["delete", "NO_SUCH_KEY", "--force", "--json"])
@@ -370,6 +375,7 @@ class TestSecretCLI:
         src_env = tmp_path / ".env"
         src_env.write_text("OPENAI_API_KEY=sk-abc123\nANTHROPIC_KEY=ant-xyz\n")
         import engine.secrets.env_backend as eb
+
         monkeypatch.setattr(eb, "_find_env_file", lambda: src_env)
 
         # Migrate env → env (just for testing dry-run logic without cloud deps)
@@ -387,6 +393,7 @@ class TestSecretCLI:
     def test_get_missing_exits_1(self, runner, cli_app, tmp_path, monkeypatch):
         env_file = tmp_path / ".env"
         import engine.secrets.env_backend as eb
+
         monkeypatch.setattr(eb, "_find_env_file", lambda: env_file)
         result = runner.invoke(cli_app, ["get", "NO_SUCH_KEY", "--json"])
         assert result.exit_code == 1

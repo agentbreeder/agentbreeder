@@ -192,8 +192,7 @@ def secret_delete(
         return
 
     console.print(
-        f"\n  [green]✓[/green] Secret [bold]{name}[/bold] "
-        f"deleted from [bold]{backend}[/bold]\n"
+        f"\n  [green]✓[/green] Secret [bold]{name}[/bold] deleted from [bold]{backend}[/bold]\n"
     )
 
 
@@ -203,7 +202,9 @@ def secret_delete(
 @secret_app.command(name="rotate")
 def secret_rotate(
     name: str = typer.Argument(..., help="Secret name to rotate"),
-    new_value: str | None = typer.Option(None, "--value", "-v", help="New value (prompted if omitted)"),  # noqa: E501
+    new_value: str | None = typer.Option(
+        None, "--value", "-v", help="New value (prompted if omitted)"
+    ),  # noqa: E501
     backend: str = typer.Option("env", "--backend", "-b", help="Backend: env, aws, gcp, vault"),
     prefix: str = typer.Option("garden/", "--prefix", help="Secret prefix (AWS/GCP/Vault)"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
@@ -273,6 +274,7 @@ def secret_migrate(
     # For env backend, use list_raw() to get actual values for migration
     if from_backend == "env":
         from engine.secrets.env_backend import EnvBackend
+
         assert isinstance(src, EnvBackend)
         raw = src.list_raw()
         candidates = dict(raw.items())
@@ -358,6 +360,5 @@ def secret_migrate(
         )
         console.print(
             "  [dim]Next: update agent.yaml to use secret:// references:[/dim]\n"
-            "  [dim]  secrets:[/dim]\n"
-            + "".join(f"  [dim]    - {n}[/dim]\n" for n in candidates)
+            "  [dim]  secrets:[/dim]\n" + "".join(f"  [dim]    - {n}[/dim]\n" for n in candidates)
         )

@@ -557,6 +557,104 @@ garden publish prompt support-v3 --json
 
 ---
 
+### `garden secret`
+
+Manage secrets across pluggable backends (env file, AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault).
+
+```
+garden secret [SUBCOMMAND] [OPTIONS]
+```
+
+#### `garden secret list`
+
+```
+garden secret list [--backend BACKEND] [--prefix PREFIX] [--json]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--backend`, `-b` | `env` | Backend: `env`, `aws`, `gcp`, `vault` |
+| `--prefix` | `garden/` | Secret prefix (AWS/GCP/Vault) |
+| `--json` | Off | Output as JSON |
+
+Lists secret names and masked values (actual values are never printed).
+
+#### `garden secret set`
+
+```
+garden secret set NAME [--value VALUE] [--backend BACKEND] [--prefix PREFIX] [--tag key=value] [--json]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `NAME` | Yes | Secret name (e.g., `OPENAI_API_KEY`) |
+| `--value`, `-v` | No | Value (prompted securely if omitted) |
+| `--backend`, `-b` | No | Backend (`env`, `aws`, `gcp`, `vault`) |
+| `--tag`, `-t` | No | `key=value` tags (cloud backends only, repeatable) |
+
+#### `garden secret get`
+
+```
+garden secret get NAME [--backend BACKEND] [--reveal] [--json]
+```
+
+Prints masked value by default. Use `--reveal` to print the actual value.
+
+#### `garden secret delete`
+
+```
+garden secret delete NAME [--backend BACKEND] [--force] [--json]
+```
+
+Prompts for confirmation unless `--force` is passed.
+
+#### `garden secret rotate`
+
+```
+garden secret rotate NAME [--value NEW_VALUE] [--backend BACKEND] [--json]
+```
+
+Prompts for the new value with confirmation if `--value` is omitted.
+
+#### `garden secret migrate`
+
+```
+garden secret migrate --from BACKEND --to BACKEND [--prefix PREFIX] [--include KEY] [--exclude KEY] [--dry-run] [--json]
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--from` | Yes | Source backend (`env`, `aws`, `gcp`, `vault`) |
+| `--to` | Yes | Target backend (`aws`, `gcp`, `vault`) |
+| `--prefix` | No | Prefix for secrets in cloud backend (default: `garden/`) |
+| `--include`, `-i` | No | Only migrate these keys (repeatable) |
+| `--exclude`, `-e` | No | Skip these keys (repeatable) |
+| `--dry-run` | No | Preview without writing |
+
+Migrates secrets from one backend to another. After migration, update `agent.yaml` to use `secret://` references:
+
+```yaml
+deploy:
+  secrets:
+    - OPENAI_API_KEY     # resolved from secret://OPENAI_API_KEY at deploy time
+```
+
+**Examples:**
+```bash
+garden secret list                                    # List env secrets
+garden secret list --backend aws --json               # List AWS secrets as JSON
+garden secret set OPENAI_API_KEY                      # Prompt for value
+garden secret set OPENAI_API_KEY --value sk-...       # Provide value directly
+garden secret get OPENAI_API_KEY --reveal             # Print actual value
+garden secret delete OPENAI_API_KEY --force           # Delete without confirmation
+garden secret rotate OPENAI_API_KEY                   # Prompt for new value
+garden secret migrate --from env --to aws --dry-run   # Preview migration
+garden secret migrate --from env --to aws             # Migrate to AWS
+garden secret migrate --from env --to gcp --exclude DEBUG --exclude LOG_LEVEL
+```
+
+---
+
 ## Global Options
 
 All commands support:

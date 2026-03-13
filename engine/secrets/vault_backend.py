@@ -16,15 +16,13 @@ from engine.secrets.base import SecretEntry, SecretsBackend
 
 logger = logging.getLogger(__name__)
 
-_HVAC_IMPORT_ERROR = (
-    "HashiCorp Vault backend requires hvac. "
-    "Install it with: pip install hvac"
-)
+_HVAC_IMPORT_ERROR = "HashiCorp Vault backend requires hvac. Install it with: pip install hvac"
 
 
 def _client(addr: str, token: str):  # type: ignore[return]
     try:
         import hvac  # type: ignore[import-untyped]
+
         client = hvac.Client(url=addr, token=token)
         if not client.is_authenticated():
             raise PermissionError(
@@ -76,9 +74,7 @@ class VaultBackend(SecretsBackend):
             logger.error("Failed to get secret '%s' from Vault: %s", name, exc)
             raise
 
-    async def set(
-        self, name: str, value: str, *, tags: dict[str, str] | None = None
-    ) -> None:
+    async def set(self, name: str, value: str, *, tags: dict[str, str] | None = None) -> None:
         client = _client(self._addr, self._token)
         client.secrets.kv.v2.create_or_update_secret(
             path=self._path(name),

@@ -21,8 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _BOTO_IMPORT_ERROR = (
-    "AWS Secrets Manager backend requires boto3. "
-    "Install it with: pip install boto3"
+    "AWS Secrets Manager backend requires boto3. Install it with: pip install boto3"
 )
 
 
@@ -30,6 +29,7 @@ def _client(region: str):  # type: ignore[return]
     """Create a boto3 Secrets Manager client. Raises ImportError if boto3 not installed."""
     try:
         import boto3  # type: ignore[import-untyped]
+
         return boto3.client("secretsmanager", region_name=region)
     except ImportError as exc:
         raise ImportError(_BOTO_IMPORT_ERROR) from exc
@@ -74,9 +74,7 @@ class AWSSecretsManagerBackend(SecretsBackend):
             logger.error("Failed to get secret '%s' from AWS: %s", name, exc)
             raise
 
-    async def set(
-        self, name: str, value: str, *, tags: dict[str, str] | None = None
-    ) -> None:
+    async def set(self, name: str, value: str, *, tags: dict[str, str] | None = None) -> None:
         client = _client(self._region)
         full_name = self._full_name(name)
         secret_string = json.dumps({"value": value})

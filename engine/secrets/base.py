@@ -13,7 +13,7 @@ class SecretEntry:
 
     name: str
     masked_value: str  # e.g. "••••abcd"
-    backend: str       # "env" | "aws" | "gcp" | "vault" | "doppler"
+    backend: str  # "env" | "aws" | "gcp" | "vault" | "doppler"
     created_at: datetime | None = None
     updated_at: datetime | None = None
     tags: dict[str, str] = field(default_factory=dict)

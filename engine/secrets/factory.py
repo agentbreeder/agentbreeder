@@ -7,7 +7,7 @@ import re
 from engine.secrets.base import SecretsBackend
 
 # Pattern for secret references in agent.yaml values: secret://KEY_NAME
-_SECRET_REF_RE = re.compile(r'^secret://(.+)$')
+_SECRET_REF_RE = re.compile(r"^secret://(.+)$")
 
 
 def get_backend(backend: str = "env", **kwargs: object) -> SecretsBackend:
@@ -27,20 +27,21 @@ def get_backend(backend: str = "env", **kwargs: object) -> SecretsBackend:
     backend = backend.lower()
     if backend == "env":
         from engine.secrets.env_backend import EnvBackend
+
         return EnvBackend(**kwargs)  # type: ignore[arg-type]
     if backend in ("aws", "aws_secrets_manager"):
         from engine.secrets.aws_backend import AWSSecretsManagerBackend
+
         return AWSSecretsManagerBackend(**kwargs)  # type: ignore[arg-type]
     if backend in ("gcp", "gcp_secret_manager"):
         from engine.secrets.gcp_backend import GCPSecretManagerBackend
+
         return GCPSecretManagerBackend(**kwargs)  # type: ignore[arg-type]
     if backend in ("vault", "hashicorp_vault"):
         from engine.secrets.vault_backend import VaultBackend
+
         return VaultBackend(**kwargs)  # type: ignore[arg-type]
-    raise ValueError(
-        f"Unknown secrets backend: '{backend}'. "
-        "Supported: env, aws, gcp, vault"
-    )
+    raise ValueError(f"Unknown secrets backend: '{backend}'. Supported: env, aws, gcp, vault")
 
 
 async def resolve_secret_refs(
