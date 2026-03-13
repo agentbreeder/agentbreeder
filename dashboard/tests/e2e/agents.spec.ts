@@ -30,8 +30,8 @@ test.describe("Agents Page", () => {
 
   test("column headers are visible", async ({ authedPage: page }) => {
     await page.goto("/agents");
-    // Use more specific selectors for column headers
-    const headerRow = page.locator(".uppercase.tracking-wider");
+    // Use a selector scoped to the table container (rounded border div) to avoid matching sidebar section headers
+    const headerRow = page.locator(".rounded-lg.border .uppercase.tracking-wider");
     await expect(headerRow).toBeVisible();
     await expect(headerRow).toContainText("Agent");
     await expect(headerRow).toContainText("Framework");
