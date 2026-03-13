@@ -484,7 +484,9 @@ def _prompt_selection(title: str, items: list[dict]) -> dict:
 
 
 def _prompt_text(
-    label: str, default: str = "", validate_fn: Callable[..., Any] | None = None,
+    label: str,
+    default: str = "",
+    validate_fn: Callable[..., Any] | None = None,
 ) -> str:
     """Prompt for text input with optional validation."""
     while True:
