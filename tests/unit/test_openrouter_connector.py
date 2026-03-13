@@ -10,7 +10,6 @@ import pytest
 
 from connectors.openrouter.connector import OpenRouterConnector, _extract_provider
 
-
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -182,7 +181,12 @@ class TestOpenRouterConnectorScan:
             json_data={
                 "data": [
                     {"id": "", "name": "Empty"},
-                    {"id": "openai/gpt-4o", "name": "GPT-4o", "context_length": 128000, "pricing": {}},
+                    {
+                        "id": "openai/gpt-4o",
+                        "name": "GPT-4o",
+                        "context_length": 128000,
+                        "pricing": {},
+                    },
                 ]
             },
         )

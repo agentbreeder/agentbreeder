@@ -27,9 +27,18 @@ class TestFleetOverview:
 
         agent = result["agents"][0]
         required_keys = {
-            "id", "name", "team", "status", "health_score",
-            "invocations_24h", "error_rate_pct", "avg_latency_ms",
-            "cost_24h_usd", "last_deploy", "model", "framework",
+            "id",
+            "name",
+            "team",
+            "status",
+            "health_score",
+            "invocations_24h",
+            "error_rate_pct",
+            "avg_latency_ms",
+            "cost_24h_usd",
+            "last_deploy",
+            "model",
+            "framework",
         }
         assert required_keys.issubset(agent.keys())
 
@@ -339,9 +348,7 @@ class TestCompliance:
             assert "status" in ctrl
             assert ctrl["status"] in ("pass", "fail", "partial")
 
-    def test_compliance_overall_non_compliant_when_failures(
-        self, store: AgentOpsStore
-    ) -> None:
+    def test_compliance_overall_non_compliant_when_failures(self, store: AgentOpsStore) -> None:
         result = store.get_compliance_status()
         if result["controls_failed"] > 0:
             assert result["overall_status"] == "non_compliant"

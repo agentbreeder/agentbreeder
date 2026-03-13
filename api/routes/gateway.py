@@ -260,8 +260,8 @@ def _generate_log_entries(count: int = 20) -> list[dict]:
         cost = 0.0
         if model_info:
             cost = (
-                input_tokens * model_info["input_price_per_million"] / 1_000_000
-                + output_tokens * model_info["output_price_per_million"] / 1_000_000
+                input_tokens * float(model_info["input_price_per_million"]) / 1_000_000
+                + output_tokens * float(model_info["output_price_per_million"]) / 1_000_000
             )
         entries.append(
             {
@@ -326,9 +326,7 @@ async def list_gateway_providers() -> ApiResponse[list[dict]]:
     """List configured gateway providers with health status."""
     return ApiResponse(
         data=_GATEWAY_PROVIDERS,
-        meta=ApiMeta(
-            page=1, per_page=len(_GATEWAY_PROVIDERS), total=len(_GATEWAY_PROVIDERS)
-        ),
+        meta=ApiMeta(page=1, per_page=len(_GATEWAY_PROVIDERS), total=len(_GATEWAY_PROVIDERS)),
     )
 
 
@@ -378,7 +376,7 @@ async def cost_comparison() -> ApiResponse[list[dict]]:
     ]
 
     # Sort by input price ascending
-    comparison.sort(key=lambda x: x["input_per_million"])
+    comparison.sort(key=lambda x: float(x["input_per_million"]))
 
     return ApiResponse(
         data=comparison,

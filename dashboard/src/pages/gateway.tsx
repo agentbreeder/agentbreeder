@@ -8,7 +8,6 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  ChevronDown,
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";

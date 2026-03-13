@@ -22,7 +22,6 @@ from engine.providers.models import (
     ToolFunction,
 )
 
-
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -206,8 +205,12 @@ class TestGoogleProviderGenerate:
         """Test streaming via SSE events."""
         provider = GoogleProvider(_config())
 
-        event1 = {"candidates": [{"content": {"parts": [{"text": "Hello"}]}, "finishReason": None}]}
-        event2 = {"candidates": [{"content": {"parts": [{"text": " world"}]}, "finishReason": None}]}
+        event1 = {
+            "candidates": [{"content": {"parts": [{"text": "Hello"}]}, "finishReason": None}]
+        }
+        event2 = {
+            "candidates": [{"content": {"parts": [{"text": " world"}]}, "finishReason": None}]
+        }
         event3 = {"candidates": [{"content": {"parts": []}, "finishReason": "STOP"}]}
 
         sse_lines = [
@@ -230,9 +233,7 @@ class TestGoogleProviderGenerate:
         provider._client.stream = MagicMock(return_value=mock_stream_ctx)
 
         chunks = []
-        async for chunk in provider.generate_stream(
-            messages=[{"role": "user", "content": "Hi"}]
-        ):
+        async for chunk in provider.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
             chunks.append(chunk)
 
         text_chunks = [c for c in chunks if c.content]
@@ -377,3 +378,137 @@ class TestGoogleModelSupportsTools:
         data = _generate_content_response(finish_reason="SAFETY")
         result = provider._parse_response(data, "gemini-2.5-pro")
         assert result.finish_reason == "content_filter"
+
+
+class TestGoogleProviderStreamAndClose:
+    @pytest.mark.asyncio
+    async def test_generate_with_stream_true_calls_collect_stream(self) -> None:
+        """generate(stream=True) should go through _collect_stream."""
+        provider = GoogleProvider(_config())
+
+        event1 = {"candidates": [{"content": {"parts": [{"text": "Hi"}]}, "finishReason": None}]}
+        event2 = {"candidates": [{"content": {"parts": []}, "finishReason": "STOP"}]}
+
+        sse_lines = [
+            f"data: {json.dumps(event1)}",
+            f"data: {json.dumps(event2)}",
+        ]
+
+        async def _fake_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream_ctx)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_stream_ctx.status_code = 200
+        mock_stream_ctx.aiter_lines = _fake_lines
+        provider._client.stream = MagicMock(return_value=mock_stream_ctx)
+
+        result = await provider.generate(messages=[{"role": "user", "content": "Hi"}], stream=True)
+        assert result.content == "Hi"
+        assert result.finish_reason == "stop"
+        assert result.provider == "google"
+
+    @pytest.mark.asyncio
+    async def test_close(self) -> None:
+        provider = GoogleProvider(_config())
+        provider._client = AsyncMock()
+        await provider.close()
+        provider._client.aclose.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stream_skips_invalid_json(self) -> None:
+        provider = GoogleProvider(_config())
+
+        event = {"candidates": [{"content": {"parts": [{"text": "ok"}]}, "finishReason": None}]}
+        sse_lines = [
+            "data: not-valid-json",
+            f"data: {json.dumps(event)}",
+        ]
+
+        async def _fake_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream_ctx)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_stream_ctx.status_code = 200
+        mock_stream_ctx.aiter_lines = _fake_lines
+        provider._client.stream = MagicMock(return_value=mock_stream_ctx)
+
+        chunks = []
+        async for chunk in provider.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+            chunks.append(chunk)
+
+        assert any(c.content == "ok" for c in chunks)
+
+    @pytest.mark.asyncio
+    async def test_stream_skips_empty_data_lines(self) -> None:
+        provider = GoogleProvider(_config())
+
+        event = {"candidates": [{"content": {"parts": [{"text": "X"}]}, "finishReason": None}]}
+        sse_lines = [
+            "event: ping",
+            "data: ",
+            f"data: {json.dumps(event)}",
+        ]
+
+        async def _fake_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream_ctx)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_stream_ctx.status_code = 200
+        mock_stream_ctx.aiter_lines = _fake_lines
+        provider._client.stream = MagicMock(return_value=mock_stream_ctx)
+
+        chunks = []
+        async for chunk in provider.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+            chunks.append(chunk)
+
+        assert any(c.content == "X" for c in chunks)
+
+    @pytest.mark.asyncio
+    async def test_stream_skips_done_sentinel(self) -> None:
+        provider = GoogleProvider(_config())
+
+        event = {"candidates": [{"content": {"parts": [{"text": "Y"}]}, "finishReason": None}]}
+        sse_lines = [
+            f"data: {json.dumps(event)}",
+            "data: [DONE]",
+        ]
+
+        async def _fake_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream_ctx)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_stream_ctx.status_code = 200
+        mock_stream_ctx.aiter_lines = _fake_lines
+        provider._client.stream = MagicMock(return_value=mock_stream_ctx)
+
+        chunks = []
+        async for chunk in provider.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+            chunks.append(chunk)
+
+        assert any(c.content == "Y" for c in chunks)
+
+    def test_parse_stream_event_no_candidates_returns_none(self) -> None:
+        result = GoogleProvider._parse_stream_event({"candidates": []}, "gemini-2.5-pro")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_check_status_500(self) -> None:
+        provider = GoogleProvider(_config())
+        mock_resp = httpx.Response(500, text="Internal Server Error")
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=mock_resp)
+
+        with pytest.raises(ProviderError, match="500"):
+            await provider.generate(messages=[{"role": "user", "content": "Hi"}])

@@ -22,7 +22,6 @@ from engine.providers.models import (
     ToolFunction,
 )
 
-
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -178,12 +177,11 @@ class TestAnthropicProviderGenerate:
         """Test streaming: mock the streaming client and yield SSE events."""
         provider = AnthropicProvider(_config())
 
-        sse_lines = [
-            'data: {"type": "message_start", "message": {"model": "claude-sonnet-4-6", "usage": {}}}',
-            'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello"}}',
-            'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": " world"}}',
-            'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}}',
-        ]
+        _start = '{"type":"message_start","message":{"model":"claude-sonnet-4-6","usage":{}}}'
+        _d1 = '{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}'
+        _d2 = '{"type":"content_block_delta","delta":{"type":"text_delta","text":" world"}}'
+        _stop = '{"type":"message_delta","delta":{"stop_reason":"end_turn"}}'
+        sse_lines = [f"data: {_start}", f"data: {_d1}", f"data: {_d2}", f"data: {_stop}"]
 
         async def _fake_lines():
             for line in sse_lines:
@@ -199,9 +197,7 @@ class TestAnthropicProviderGenerate:
         provider._client.stream = MagicMock(return_value=mock_stream_ctx)
 
         chunks = []
-        async for chunk in provider.generate_stream(
-            messages=[{"role": "user", "content": "Hi"}]
-        ):
+        async for chunk in provider.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
             chunks.append(chunk)
 
         text_chunks = [c for c in chunks if c.content]
@@ -232,9 +228,7 @@ class TestAnthropicProviderGenerate:
         provider._client = AsyncMock()
         provider._client.post = AsyncMock(return_value=mock_resp)
 
-        await provider.generate(
-            messages=[{"role": "user", "content": "Hi"}], max_tokens=512
-        )
+        await provider.generate(messages=[{"role": "user", "content": "Hi"}], max_tokens=512)
 
         payload = provider._client.post.call_args[1]["json"]
         assert payload["max_tokens"] == 512
@@ -352,3 +346,113 @@ class TestAnthropicModelSupportsTools:
 
     def test_unknown_model_no_tools(self) -> None:
         assert AnthropicProvider._model_supports_tools("some-unknown-model") is False
+
+
+class TestAnthropicProviderStreamAndClose:
+    @pytest.mark.asyncio
+    async def test_generate_with_stream_true_calls_collect_stream(self) -> None:
+        """generate(stream=True) should go through _collect_stream."""
+        provider = AnthropicProvider(_config())
+
+        sse_lines = [
+            'data: {"type": "message_start", "message": {"model": "claude-sonnet-4-6"}}',
+            'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hi"}}',
+            'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}}',
+        ]
+
+        async def _fake_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream_ctx)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_stream_ctx.status_code = 200
+        mock_stream_ctx.aiter_lines = _fake_lines
+        provider._client.stream = MagicMock(return_value=mock_stream_ctx)
+
+        result = await provider.generate(messages=[{"role": "user", "content": "Hi"}], stream=True)
+        assert result.content == "Hi"
+        assert result.finish_reason == "stop"
+        assert result.provider == "anthropic"
+
+    @pytest.mark.asyncio
+    async def test_generate_with_temperature(self) -> None:
+        provider = AnthropicProvider(_config())
+        mock_resp = httpx.Response(200, json=_messages_response())
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=mock_resp)
+
+        await provider.generate(messages=[{"role": "user", "content": "Hi"}], temperature=0.3)
+        payload = provider._client.post.call_args[1]["json"]
+        assert payload["temperature"] == 0.3
+
+    @pytest.mark.asyncio
+    async def test_close(self) -> None:
+        provider = AnthropicProvider(_config())
+        provider._client = AsyncMock()
+        await provider.close()
+        provider._client.aclose.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stream_skips_invalid_json(self) -> None:
+        """Lines with invalid JSON are skipped with a warning."""
+        provider = AnthropicProvider(_config())
+
+        sse_lines = [
+            "data: not-valid-json",
+            'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "ok"}}',
+        ]
+
+        async def _fake_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream_ctx)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_stream_ctx.status_code = 200
+        mock_stream_ctx.aiter_lines = _fake_lines
+        provider._client.stream = MagicMock(return_value=mock_stream_ctx)
+
+        chunks = []
+        async for chunk in provider.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+            chunks.append(chunk)
+
+        assert any(c.content == "ok" for c in chunks)
+
+    @pytest.mark.asyncio
+    async def test_stream_skips_empty_data_lines(self) -> None:
+        """Empty data lines and non-data lines are skipped."""
+        provider = AnthropicProvider(_config())
+
+        sse_lines = [
+            "event: ping",
+            "data: ",
+            'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "X"}}',
+        ]
+
+        async def _fake_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream_ctx)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_stream_ctx.status_code = 200
+        mock_stream_ctx.aiter_lines = _fake_lines
+        provider._client.stream = MagicMock(return_value=mock_stream_ctx)
+
+        chunks = []
+        async for chunk in provider.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+            chunks.append(chunk)
+
+        assert any(c.content == "X" for c in chunks)
+
+    def test_parse_stream_event_unknown_type_returns_none(self) -> None:
+        result = AnthropicProvider._parse_stream_event({"type": "unknown_event"})
+        assert result is None
+
+    def test_parse_stream_event_message_start_no_model(self) -> None:
+        result = AnthropicProvider._parse_stream_event({"type": "message_start", "message": {}})
+        assert result is None

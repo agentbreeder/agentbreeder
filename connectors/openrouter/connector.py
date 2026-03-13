@@ -51,9 +51,7 @@ class OpenRouterConnector(BaseConnector):
         """Check if the OpenRouter API is reachable."""
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.get(
-                    f"{self._base_url}/models", headers=self._headers()
-                )
+                resp = await client.get(f"{self._base_url}/models", headers=self._headers())
                 return resp.status_code == 200
         except httpx.HTTPError:
             return False
@@ -64,15 +62,11 @@ class OpenRouterConnector(BaseConnector):
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.get(
-                    f"{self._base_url}/models", headers=self._headers()
-                )
+                resp = await client.get(f"{self._base_url}/models", headers=self._headers())
                 resp.raise_for_status()
                 data = resp.json()
         except httpx.HTTPError as e:
-            logger.warning(
-                "Failed to fetch models from OpenRouter at %s: %s", self._base_url, e
-            )
+            logger.warning("Failed to fetch models from OpenRouter at %s: %s", self._base_url, e)
             return []
         except (ValueError, KeyError) as e:
             logger.warning("Invalid response from OpenRouter: %s", e)

@@ -270,8 +270,7 @@ _SEED_INCIDENTS = [
                 "timestamp": "2026-03-13T09:00:00+00:00",
                 "actor": "bob@company.com",
                 "message": (
-                    "Mitigated: switched batch feature to use "
-                    "claude-sonnet-4.6 for initial pass"
+                    "Mitigated: switched batch feature to use claude-sonnet-4.6 for initial pass"
                 ),
             },
         ],
@@ -431,14 +430,12 @@ class AgentOpsStore:
         self._agents: list[dict[str, Any]] = list(_SEED_AGENTS)
         self._events: list[dict[str, Any]] = list(_SEED_EVENTS)
         self._incidents: dict[str, dict[str, Any]] = {
-            inc["id"]: {**inc} for inc in _SEED_INCIDENTS
+            str(inc["id"]): {**inc} for inc in _SEED_INCIDENTS
         }
         self._canaries: dict[str, dict[str, Any]] = {}
         self._cost_anomalies: list[dict[str, Any]] = list(_SEED_COST_ANOMALIES)
         self._cost_suggestions: list[dict[str, Any]] = list(_SEED_COST_SUGGESTIONS)
-        self._compliance_controls: list[dict[str, Any]] = list(
-            _SEED_COMPLIANCE_CONTROLS
-        )
+        self._compliance_controls: list[dict[str, Any]] = list(_SEED_COMPLIANCE_CONTROLS)
 
     # -----------------------------------------------------------------------
     # Fleet Overview
@@ -451,9 +448,7 @@ class AgentOpsStore:
         degraded = sum(1 for a in self._agents if a["status"] == "degraded")
         down = sum(1 for a in self._agents if a["status"] == "down")
         avg_health = (
-            round(sum(a["health_score"] for a in self._agents) / total, 1)
-            if total
-            else 0.0
+            round(sum(a["health_score"] for a in self._agents) / total, 1) if total else 0.0
         )
         return {
             "agents": list(self._agents),
@@ -480,9 +475,7 @@ class AgentOpsStore:
         ]
         return {"grid": grid, "total": len(grid)}
 
-    def get_top_agents(
-        self, metric: str = "cost", limit: int = 5
-    ) -> list[dict[str, Any]]:
+    def get_top_agents(self, metric: str = "cost", limit: int = 5) -> list[dict[str, Any]]:
         """Top N agents by cost | errors | latency | invocations."""
         sort_key: dict[str, str] = {
             "cost": "cost_24h_usd",
@@ -498,9 +491,7 @@ class AgentOpsStore:
     # Events
     # -----------------------------------------------------------------------
 
-    def get_events(
-        self, limit: int = 50, since: str | None = None
-    ) -> list[dict[str, Any]]:
+    def get_events(self, limit: int = 50, since: str | None = None) -> list[dict[str, Any]]:
         """Return recent operations events, newest-first."""
         events = self._events
         if since:
@@ -725,9 +716,7 @@ class AgentOpsStore:
             trend_factor = 1.0 + (i * 0.005)
             noise = (((i * 7) % 11) - 5) * 0.01  # deterministic "noise"
             projected = round(base_daily_cost * trend_factor * (1 + noise), 2)
-            forecast_points.append(
-                {"date": date.isoformat(), "projected_cost": projected}
-            )
+            forecast_points.append({"date": date.isoformat(), "projected_cost": projected})
 
         current_month_spend = base_daily_cost * 13  # 13 days into month
         projected_month_spend = base_daily_cost * (1.03 * 30)

@@ -99,9 +99,7 @@ class AnthropicProvider(ProviderBase):
                 messages, resolved_model, temperature, max_tokens, tools
             )
 
-        payload = self._build_payload(
-            messages, resolved_model, temperature, max_tokens, tools
-        )
+        payload = self._build_payload(messages, resolved_model, temperature, max_tokens, tools)
         response = await self._request("POST", "/messages", payload)
         return self._parse_response(response)
 
@@ -114,9 +112,7 @@ class AnthropicProvider(ProviderBase):
         tools: list[ToolDefinition] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         resolved_model = self._resolve_model(model) or DEFAULT_MODEL
-        payload = self._build_payload(
-            messages, resolved_model, temperature, max_tokens, tools
-        )
+        payload = self._build_payload(messages, resolved_model, temperature, max_tokens, tools)
         payload["stream"] = True
 
         async with self._client.stream("POST", "/messages", json=payload) as resp:
@@ -205,9 +201,7 @@ class AnthropicProvider(ProviderBase):
             "input_schema": tool.function.parameters or {"type": "object", "properties": {}},
         }
 
-    async def _request(
-        self, method: str, path: str, payload: dict[str, Any] | None = None
-    ) -> Any:
+    async def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
         """Make an HTTP request and handle errors."""
         try:
             if method == "GET":
@@ -270,7 +264,8 @@ class AnthropicProvider(ProviderBase):
             usage=UsageInfo(
                 prompt_tokens=usage_data.get("input_tokens", 0),
                 completion_tokens=usage_data.get("output_tokens", 0),
-                total_tokens=usage_data.get("input_tokens", 0) + usage_data.get("output_tokens", 0),
+                total_tokens=usage_data.get("input_tokens", 0)
+                + usage_data.get("output_tokens", 0),
             ),
             model=data.get("model", ""),
             provider="anthropic",

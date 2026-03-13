@@ -192,9 +192,7 @@ class GoogleProvider(ProviderBase):
             payload["generationConfig"] = generation_config
 
         if tools:
-            payload["tools"] = [
-                {"functionDeclarations": [self._convert_tool(t) for t in tools]}
-            ]
+            payload["tools"] = [{"functionDeclarations": [self._convert_tool(t) for t in tools]}]
 
         return payload
 
@@ -207,9 +205,7 @@ class GoogleProvider(ProviderBase):
             "parameters": tool.function.parameters or {"type": "object", "properties": {}},
         }
 
-    async def _request(
-        self, method: str, path: str, payload: dict[str, Any] | None = None
-    ) -> Any:
+    async def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
         """Make an HTTP request and handle errors."""
         params = {"key": self._api_key}
         try:
@@ -285,9 +281,7 @@ class GoogleProvider(ProviderBase):
         )
 
     @staticmethod
-    def _parse_stream_event(
-        data: dict[str, Any], model_id: str
-    ) -> StreamChunk | None:
+    def _parse_stream_event(data: dict[str, Any], model_id: str) -> StreamChunk | None:
         """Parse a single SSE event from Gemini streaming."""
         candidates = data.get("candidates", [])
         if not candidates:
