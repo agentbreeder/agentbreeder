@@ -6,9 +6,10 @@ import time
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
-import pytest
 import jwt
-from jwt.exceptions import ExpiredSignatureError, PyJWTError as JWTError
+import pytest
+from jwt.exceptions import ExpiredSignatureError
+from jwt.exceptions import PyJWTError as JWTError
 
 # ---------------------------------------------------------------------------
 # Protocol tests
