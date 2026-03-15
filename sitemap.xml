@@ -52,4 +52,28 @@
          <loc>https://open-agent-garden.github.io/agent-garden/quickstart/</loc>
          <lastmod>2026-03-15</lastmod>
     </url>
+    <url>
+         <loc>https://open-agent-garden.github.io/agent-garden/migrations/FROM_AUTOGEN/</loc>
+         <lastmod>2026-03-15</lastmod>
+    </url>
+    <url>
+         <loc>https://open-agent-garden.github.io/agent-garden/migrations/FROM_CREWAI/</loc>
+         <lastmod>2026-03-15</lastmod>
+    </url>
+    <url>
+         <loc>https://open-agent-garden.github.io/agent-garden/migrations/FROM_CUSTOM/</loc>
+         <lastmod>2026-03-15</lastmod>
+    </url>
+    <url>
+         <loc>https://open-agent-garden.github.io/agent-garden/migrations/FROM_LANGGRAPH/</loc>
+         <lastmod>2026-03-15</lastmod>
+    </url>
+    <url>
+         <loc>https://open-agent-garden.github.io/agent-garden/migrations/FROM_OPENAI_AGENTS/</loc>
+         <lastmod>2026-03-15</lastmod>
+    </url>
+    <url>
+         <loc>https://open-agent-garden.github.io/agent-garden/migrations/OVERVIEW/</loc>
+         <lastmod>2026-03-15</lastmod>
+    </url>
 </urlset>
