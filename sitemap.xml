@@ -2,38 +2,54 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://open-agent-garden.github.io/agent-garden/</loc>
-         <lastmod>2026-03-13</lastmod>
+         <lastmod>2026-03-15</lastmod>
     </url>
     <url>
          <loc>https://open-agent-garden.github.io/agent-garden/ANALYSIS/</loc>
-         <lastmod>2026-03-13</lastmod>
+         <lastmod>2026-03-15</lastmod>
+    </url>
+    <url>
+         <loc>https://open-agent-garden.github.io/agent-garden/GITHUB_ISSUES/</loc>
+         <lastmod>2026-03-15</lastmod>
+    </url>
+    <url>
+         <loc>https://open-agent-garden.github.io/agent-garden/MARKET_RESEARCH/</loc>
+         <lastmod>2026-03-15</lastmod>
+    </url>
+    <url>
+         <loc>https://open-agent-garden.github.io/agent-garden/OSS_VC_PLAYBOOK/</loc>
+         <lastmod>2026-03-15</lastmod>
+    </url>
+    <url>
+         <loc>https://open-agent-garden.github.io/agent-garden/PITCH_DECK/</loc>
+         <lastmod>2026-03-15</lastmod>
     </url>
     <url>
          <loc>https://open-agent-garden.github.io/agent-garden/agent-yaml/</loc>
-         <lastmod>2026-03-13</lastmod>
+         <lastmod>2026-03-15</lastmod>
     </url>
     <url>
          <loc>https://open-agent-garden.github.io/agent-garden/api-stability/</loc>
-         <lastmod>2026-03-13</lastmod>
+         <lastmod>2026-03-15</lastmod>
     </url>
     <url>
          <loc>https://open-agent-garden.github.io/agent-garden/cli-reference/</loc>
-         <lastmod>2026-03-13</lastmod>
+         <lastmod>2026-03-15</lastmod>
     </url>
     <url>
          <loc>https://open-agent-garden.github.io/agent-garden/local-development/</loc>
-         <lastmod>2026-03-13</lastmod>
+         <lastmod>2026-03-15</lastmod>
     </url>
     <url>
          <loc>https://open-agent-garden.github.io/agent-garden/orchestration-sdk/</loc>
-         <lastmod>2026-03-13</lastmod>
+         <lastmod>2026-03-15</lastmod>
     </url>
     <url>
          <loc>https://open-agent-garden.github.io/agent-garden/orchestration-yaml/</loc>
-         <lastmod>2026-03-13</lastmod>
+         <lastmod>2026-03-15</lastmod>
     </url>
     <url>
          <loc>https://open-agent-garden.github.io/agent-garden/quickstart/</loc>
-         <lastmod>2026-03-13</lastmod>
+         <lastmod>2026-03-15</lastmod>
     </url>
 </urlset>
