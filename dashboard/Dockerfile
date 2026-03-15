@@ -10,15 +10,12 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# Production stage — serve with lightweight static server
-FROM node:22-alpine AS production
+# Production stage — nginx serves static files + proxies /api to backend
+FROM nginx:alpine AS production
 
-WORKDIR /app
-
-RUN npm install -g serve@14
-
-COPY --from=build /app/dist ./dist
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 3001
 
-CMD ["serve", "-s", "dist", "-l", "3001"]
+CMD ["nginx", "-g", "daemon off;"]

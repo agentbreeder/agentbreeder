@@ -15,6 +15,7 @@ from cli.commands import (
     chat,
     deploy,
     describe,
+    down,
     init_cmd,
     list_cmd,
     logs,
@@ -29,6 +30,7 @@ from cli.commands import (
     submit,
     teardown,
     template,
+    up,
     validate,
 )
 from cli.commands import (
@@ -42,6 +44,8 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
+app.command(name="up")(up.up)
+app.command(name="down")(down.down)
 app.command(name="init")(init_cmd.init)
 app.command(name="deploy")(deploy.deploy)
 app.command(name="validate")(validate.validate)
