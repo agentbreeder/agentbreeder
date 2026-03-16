@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 TEMPLATE_DIR = Path(__file__).parent
 AGENT_YAML = TEMPLATE_DIR / "agent.yaml"
 
@@ -29,6 +28,7 @@ class TestAgentConfig:
 
     def test_version_is_semver(self, agent_config: dict) -> None:
         import re
+
         assert re.match(r"^\d+\.\d+\.\d+$", agent_config["version"])
 
     def test_guardrails_present(self, agent_config: dict) -> None:
@@ -40,17 +40,15 @@ class TestGraph:
     def test_graph_module_importable(self) -> None:
         """Verify the graph.py module can be imported."""
         import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "graph", TEMPLATE_DIR / "graph.py"
-        )
+
+        spec = importlib.util.spec_from_file_location("graph", TEMPLATE_DIR / "graph.py")
         assert spec is not None, "graph.py must be importable"
 
     def test_graph_exports_graph_object(self) -> None:
         """Verify the module exports a 'graph' object."""
         import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "graph", TEMPLATE_DIR / "graph.py"
-        )
+
+        spec = importlib.util.spec_from_file_location("graph", TEMPLATE_DIR / "graph.py")
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)
@@ -61,9 +59,8 @@ class TestGraph:
     def test_tool_execution(self) -> None:
         """Test the execute_tool function directly."""
         import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "graph", TEMPLATE_DIR / "graph.py"
-        )
+
+        spec = importlib.util.spec_from_file_location("graph", TEMPLATE_DIR / "graph.py")
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)

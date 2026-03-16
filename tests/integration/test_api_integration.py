@@ -567,9 +567,7 @@ class TestTemplateCRUDFlow:
 
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
     @patch("api.routes.templates.TemplateRegistry.create", new_callable=AsyncMock)
-    def test_create_template(
-        self, mock_create: AsyncMock, mock_user: AsyncMock
-    ) -> None:
+    def test_create_template(self, mock_create: AsyncMock, mock_user: AsyncMock) -> None:
         """POST /api/v1/templates should create a new template."""
         template_id = uuid.uuid4()
         mock_user.return_value = _make_mock_user()

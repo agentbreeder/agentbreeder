@@ -29,13 +29,18 @@ def _mock_subprocess_fail(*args, **kwargs):
 
 def _mock_subprocess_git_root(root: str):
     """Return a subprocess mock that returns a git root path."""
+
     def _run(*args, **kwargs):
         cmd = args[0] if args else kwargs.get("args", [])
         if cmd and "rev-parse" in cmd:
             return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=root + "\n", stderr="",
+                args=cmd,
+                returncode=0,
+                stdout=root + "\n",
+                stderr="",
             )
         return _mock_subprocess_ok(*args, **kwargs)
+
     return _run
 
 
@@ -195,7 +200,10 @@ class TestCheckDocker:
             patch(
                 "cli.commands.up.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=1, stdout="", stderr="",
+                    args=[],
+                    returncode=1,
+                    stdout="",
+                    stderr="",
                 ),
             ),
         ):
@@ -213,11 +221,17 @@ class TestCheckDocker:
             cmd = args[0] if args else kwargs.get("args", [])
             if "version" in cmd:
                 return subprocess.CompletedProcess(
-                    args=cmd, returncode=0, stdout="", stderr="",
+                    args=cmd,
+                    returncode=0,
+                    stdout="",
+                    stderr="",
                 )
             # docker info fails
             return subprocess.CompletedProcess(
-                args=cmd, returncode=1, stdout="", stderr="",
+                args=cmd,
+                returncode=1,
+                stdout="",
+                stderr="",
             )
 
         with (
@@ -235,7 +249,10 @@ class TestCheckDocker:
             patch(
                 "cli.commands.up.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="", stderr="",
+                    args=[],
+                    returncode=0,
+                    stdout="",
+                    stderr="",
                 ),
             ),
         ):
@@ -247,7 +264,10 @@ class TestCheckDocker:
 
         mock_run = MagicMock(
             return_value=subprocess.CompletedProcess(
-                args=[], returncode=0, stdout="", stderr="",
+                args=[],
+                returncode=0,
+                stdout="",
+                stderr="",
             ),
         )
 
@@ -327,7 +347,8 @@ class TestGenerateEnv:
             assert f"{var}=" in content, f"Missing {var} in generated .env"
 
     def test_interactive_mode_prompts_for_keys(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Interactive mode should prompt for API keys."""
         from cli.commands.up import _generate_env
@@ -341,7 +362,8 @@ class TestGenerateEnv:
         assert mock_console.input.call_count == 3
 
     def test_interactive_mode_writes_provided_keys(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """User-provided keys should appear in the .env file."""
         from cli.commands.up import _generate_env
@@ -397,7 +419,8 @@ class TestUpCommand:
     def test_docker_not_found_exits_1(self) -> None:
         """Should exit 1 when Docker is not installed."""
         with patch(
-            "cli.commands.up._check_docker", return_value=False,
+            "cli.commands.up._check_docker",
+            return_value=False,
         ):
             result = runner.invoke(app, ["up", "--no-input", "--no-browser"])
 
@@ -430,16 +453,19 @@ class TestUpCommand:
             patch(
                 "cli.commands.up.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
             patch(
-                "cli.commands.up._wait_for_health", return_value=True,
+                "cli.commands.up._wait_for_health",
+                return_value=True,
             ),
             patch("cli.commands.up.webbrowser.open"),
         ):
             result = runner.invoke(
-                app, ["up", "--no-input", "--no-browser"],
+                app,
+                ["up", "--no-input", "--no-browser"],
             )
 
         assert result.exit_code == 0
@@ -462,11 +488,13 @@ class TestUpCommand:
             patch(
                 "cli.commands.up.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
             patch(
-                "cli.commands.up._wait_for_health", return_value=True,
+                "cli.commands.up._wait_for_health",
+                return_value=True,
             ),
             patch("cli.commands.up.webbrowser.open"),
             patch(
@@ -474,7 +502,8 @@ class TestUpCommand:
             ) as mock_gen,
         ):
             result = runner.invoke(
-                app, ["up", "--no-input", "--no-browser"],
+                app,
+                ["up", "--no-input", "--no-browser"],
             )
 
         assert result.exit_code == 0
@@ -482,7 +511,8 @@ class TestUpCommand:
         assert "existing" in result.output.lower() or "Using" in result.output
 
     def test_env_file_option_nonexistent_exits_1(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """--env-file pointing to missing file should exit 1."""
         deploy = tmp_path / "deploy"
@@ -501,15 +531,19 @@ class TestUpCommand:
             result = runner.invoke(
                 app,
                 [
-                    "up", "--no-input", "--no-browser",
-                    "--env-file", str(missing),
+                    "up",
+                    "--no-input",
+                    "--no-browser",
+                    "--env-file",
+                    str(missing),
                 ],
             )
 
         assert result.exit_code == 1
 
     def test_env_file_option_existing_is_used(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """--env-file with valid path should use that file."""
         deploy = tmp_path / "deploy"
@@ -527,26 +561,32 @@ class TestUpCommand:
             patch(
                 "cli.commands.up.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
             patch(
-                "cli.commands.up._wait_for_health", return_value=True,
+                "cli.commands.up._wait_for_health",
+                return_value=True,
             ),
             patch("cli.commands.up.webbrowser.open"),
         ):
             result = runner.invoke(
                 app,
                 [
-                    "up", "--no-input", "--no-browser",
-                    "--env-file", str(custom_env),
+                    "up",
+                    "--no-input",
+                    "--no-browser",
+                    "--env-file",
+                    str(custom_env),
                 ],
             )
 
         assert result.exit_code == 0
 
     def test_docker_compose_up_fails_exits_1(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Should exit 1 when docker compose up returns non-zero."""
         deploy = tmp_path / "deploy"
@@ -563,18 +603,21 @@ class TestUpCommand:
             patch(
                 "cli.commands.up.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=1,
+                    args=[],
+                    returncode=1,
                 ),
             ),
         ):
             result = runner.invoke(
-                app, ["up", "--no-input", "--no-browser"],
+                app,
+                ["up", "--no-input", "--no-browser"],
             )
 
         assert result.exit_code == 1
 
     def test_no_browser_flag_prevents_open(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """--no-browser should prevent webbrowser.open from being called."""
         deploy = tmp_path / "deploy"
@@ -591,23 +634,27 @@ class TestUpCommand:
             patch(
                 "cli.commands.up.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
             patch(
-                "cli.commands.up._wait_for_health", return_value=True,
+                "cli.commands.up._wait_for_health",
+                return_value=True,
             ),
             patch("cli.commands.up.webbrowser.open") as mock_browser,
         ):
             result = runner.invoke(
-                app, ["up", "--no-input", "--no-browser"],
+                app,
+                ["up", "--no-input", "--no-browser"],
             )
 
         assert result.exit_code == 0
         mock_browser.assert_not_called()
 
     def test_browser_opens_when_healthy_and_flag_not_set(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Without --no-browser, should open browser when dashboard is healthy."""
         deploy = tmp_path / "deploy"
@@ -624,11 +671,13 @@ class TestUpCommand:
             patch(
                 "cli.commands.up.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
             patch(
-                "cli.commands.up._wait_for_health", return_value=True,
+                "cli.commands.up._wait_for_health",
+                return_value=True,
             ),
             patch("cli.commands.up.webbrowser.open") as mock_browser,
         ):
@@ -638,7 +687,8 @@ class TestUpCommand:
         mock_browser.assert_called_once_with("http://localhost:3001")
 
     def test_no_build_flag_omits_build_arg(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """--no-build should not include --build in the docker command."""
         deploy = tmp_path / "deploy"
@@ -648,7 +698,8 @@ class TestUpCommand:
 
         mock_run = MagicMock(
             return_value=subprocess.CompletedProcess(
-                args=[], returncode=0,
+                args=[],
+                returncode=0,
             ),
         )
 
@@ -660,12 +711,14 @@ class TestUpCommand:
             ),
             patch("cli.commands.up.subprocess.run", mock_run),
             patch(
-                "cli.commands.up._wait_for_health", return_value=True,
+                "cli.commands.up._wait_for_health",
+                return_value=True,
             ),
             patch("cli.commands.up.webbrowser.open"),
         ):
             result = runner.invoke(
-                app, ["up", "--no-input", "--no-browser", "--no-build"],
+                app,
+                ["up", "--no-input", "--no-browser", "--no-build"],
             )
 
         assert result.exit_code == 0
@@ -674,7 +727,8 @@ class TestUpCommand:
         assert "--build" not in cmd
 
     def test_build_flag_includes_build_arg(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Default --build should include --build in the docker command."""
         deploy = tmp_path / "deploy"
@@ -684,7 +738,8 @@ class TestUpCommand:
 
         mock_run = MagicMock(
             return_value=subprocess.CompletedProcess(
-                args=[], returncode=0,
+                args=[],
+                returncode=0,
             ),
         )
 
@@ -696,12 +751,14 @@ class TestUpCommand:
             ),
             patch("cli.commands.up.subprocess.run", mock_run),
             patch(
-                "cli.commands.up._wait_for_health", return_value=True,
+                "cli.commands.up._wait_for_health",
+                return_value=True,
             ),
             patch("cli.commands.up.webbrowser.open"),
         ):
             result = runner.invoke(
-                app, ["up", "--no-input", "--no-browser"],
+                app,
+                ["up", "--no-input", "--no-browser"],
             )
 
         assert result.exit_code == 0
@@ -709,7 +766,8 @@ class TestUpCommand:
         assert "--build" in cmd
 
     def test_health_check_failure_still_exits_0(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Health check timeout should warn but not fail the command."""
         deploy = tmp_path / "deploy"
@@ -726,7 +784,8 @@ class TestUpCommand:
             patch(
                 "cli.commands.up.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
             patch(
@@ -736,7 +795,8 @@ class TestUpCommand:
             patch("cli.commands.up.webbrowser.open"),
         ):
             result = runner.invoke(
-                app, ["up", "--no-input", "--no-browser"],
+                app,
+                ["up", "--no-input", "--no-browser"],
             )
 
         assert result.exit_code == 0
@@ -757,16 +817,19 @@ class TestUpCommand:
             patch(
                 "cli.commands.up.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
             patch(
-                "cli.commands.up._wait_for_health", return_value=True,
+                "cli.commands.up._wait_for_health",
+                return_value=True,
             ),
             patch("cli.commands.up.webbrowser.open"),
         ):
             result = runner.invoke(
-                app, ["up", "--no-input", "--no-browser"],
+                app,
+                ["up", "--no-input", "--no-browser"],
             )
 
         assert result.exit_code == 0
@@ -787,9 +850,12 @@ class TestWaitForHealth:
         mock_resp.status_code = 200
 
         import httpx as _httpx
+
         with patch.object(_httpx, "get", return_value=mock_resp):
             result = _wait_for_health(
-                "http://localhost:8000/health", "API", timeout=5,
+                "http://localhost:8000/health",
+                "API",
+                timeout=5,
             )
         assert result is True
 
@@ -798,15 +864,19 @@ class TestWaitForHealth:
         import httpx as _httpx
 
         from cli.commands.up import _wait_for_health
+
         with (
             patch.object(
-                _httpx, "get",
+                _httpx,
+                "get",
                 side_effect=_httpx.ConnectError("refused"),
             ),
             patch("cli.commands.up.time.sleep"),
         ):
             result = _wait_for_health(
-                "http://localhost:8000/health", "API", timeout=0,
+                "http://localhost:8000/health",
+                "API",
+                timeout=0,
             )
 
         assert result is False
@@ -834,7 +904,9 @@ class TestWaitForHealth:
             patch("cli.commands.up.time.sleep"),
         ):
             result = _wait_for_health(
-                "http://localhost:8000/health", "API", timeout=30,
+                "http://localhost:8000/health",
+                "API",
+                timeout=30,
             )
 
         assert result is True
@@ -850,7 +922,8 @@ class TestDownCommand:
     def test_compose_dir_not_found_exits_1(self) -> None:
         """Should exit 1 when compose dir is not found."""
         with patch(
-            "cli.commands.down._find_compose_dir", return_value=None,
+            "cli.commands.down._find_compose_dir",
+            return_value=None,
         ):
             result = runner.invoke(app, ["down"])
 
@@ -870,7 +943,8 @@ class TestDownCommand:
             patch(
                 "cli.commands.down.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
         ):
@@ -887,7 +961,8 @@ class TestDownCommand:
 
         mock_run = MagicMock(
             return_value=subprocess.CompletedProcess(
-                args=[], returncode=0,
+                args=[],
+                returncode=0,
             ),
         )
 
@@ -912,7 +987,8 @@ class TestDownCommand:
 
         mock_run = MagicMock(
             return_value=subprocess.CompletedProcess(
-                args=[], returncode=0,
+                args=[],
+                returncode=0,
             ),
         )
 
@@ -943,7 +1019,8 @@ class TestDownCommand:
             patch(
                 "cli.commands.down.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
         ):
@@ -968,7 +1045,8 @@ class TestDownCommand:
             patch(
                 "cli.commands.down.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
         ):
@@ -993,7 +1071,8 @@ class TestDownCommand:
             patch(
                 "cli.commands.down.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=1,
+                    args=[],
+                    returncode=1,
                 ),
             ),
         ):
@@ -1017,7 +1096,8 @@ class TestDownCommand:
             patch(
                 "cli.commands.down.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=1,
+                    args=[],
+                    returncode=1,
                 ),
             ),
         ):
@@ -1026,7 +1106,8 @@ class TestDownCommand:
         assert result.exit_code == 1
 
     def test_clean_shows_volumes_removed_message(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """--clean should mention volumes removal in output."""
         deploy = tmp_path / "deploy"
@@ -1041,7 +1122,8 @@ class TestDownCommand:
             patch(
                 "cli.commands.down.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0,
+                    args=[],
+                    returncode=0,
                 ),
             ),
         ):
@@ -1052,7 +1134,8 @@ class TestDownCommand:
         assert "volume" in low or "deleted" in low
 
     def test_down_uses_correct_compose_file(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Should pass the correct -f flag to docker compose."""
         deploy = tmp_path / "deploy"
@@ -1061,7 +1144,8 @@ class TestDownCommand:
 
         mock_run = MagicMock(
             return_value=subprocess.CompletedProcess(
-                args=[], returncode=0,
+                args=[],
+                returncode=0,
             ),
         )
 

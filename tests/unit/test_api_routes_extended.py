@@ -33,9 +33,7 @@ _NOW_ISO = _NOW.isoformat()
 
 def _auth_headers() -> dict[str, str]:
     """Return Authorization headers with a valid JWT."""
-    token = create_access_token(
-        str(uuid.uuid4()), "test@test.com", "viewer"
-    )
+    token = create_access_token(str(uuid.uuid4()), "test@test.com", "viewer")
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -179,9 +177,7 @@ class TestCreateAgentFromYaml:
         "api.routes.agents.create_from_yaml",
         new_callable=AsyncMock,
     )
-    def test_create_from_yaml_success(
-        self, mock_create, mock_get_user
-    ) -> None:
+    def test_create_from_yaml_success(self, mock_create, mock_get_user) -> None:
         mock_get_user.return_value = _make_mock_user()
         mock_create.return_value = _make_agent("yaml-agent")
         resp = client.post(
@@ -197,9 +193,7 @@ class TestCreateAgentFromYaml:
         "api.routes.agents.create_from_yaml",
         new_callable=AsyncMock,
     )
-    def test_create_from_yaml_invalid(
-        self, mock_create, mock_get_user
-    ) -> None:
+    def test_create_from_yaml_invalid(self, mock_create, mock_get_user) -> None:
         mock_get_user.return_value = _make_mock_user()
         mock_create.side_effect = ValueError("Validation failed")
         resp = client.post(
@@ -270,9 +264,7 @@ class TestCloneAgent:
         "api.routes.agents.AgentRegistry.get_by_id",
         new_callable=AsyncMock,
     )
-    def test_clone_source_not_found(
-        self, mock_get_by_id, mock_get_user
-    ) -> None:
+    def test_clone_source_not_found(self, mock_get_by_id, mock_get_user) -> None:
         mock_get_user.return_value = _make_mock_user()
         mock_get_by_id.return_value = None
         resp = client.post(
@@ -291,9 +283,7 @@ class TestCloneAgent:
         "api.routes.agents.AgentRegistry.get_by_id",
         new_callable=AsyncMock,
     )
-    def test_clone_name_conflict(
-        self, mock_get_by_id, mock_get, mock_get_user
-    ) -> None:
+    def test_clone_name_conflict(self, mock_get_by_id, mock_get, mock_get_user) -> None:
         mock_get_user.return_value = _make_mock_user()
         mock_get_by_id.return_value = _make_agent("src")
         mock_get.return_value = _make_agent("existing")
@@ -410,9 +400,7 @@ class TestCancelDeploy:
     )
     def test_cancel_not_found(self, mock_cancel) -> None:
         mock_cancel.return_value = False
-        resp = client.delete(
-            f"/api/v1/deploys/{uuid.uuid4()}"
-        )
+        resp = client.delete(f"/api/v1/deploys/{uuid.uuid4()}")
         assert resp.status_code == 404
 
 
@@ -424,9 +412,7 @@ class TestRollbackDeploy:
     def test_rollback_success(self, mock_rb) -> None:
         mock_rb.return_value = True
         job_id = uuid.uuid4()
-        resp = client.post(
-            f"/api/v1/deploys/{job_id}/rollback"
-        )
+        resp = client.post(f"/api/v1/deploys/{job_id}/rollback")
         assert resp.status_code == 200
         assert resp.json()["data"]["rolled_back"] is True
 
@@ -436,9 +422,7 @@ class TestRollbackDeploy:
     )
     def test_rollback_not_failed(self, mock_rb) -> None:
         mock_rb.return_value = False
-        resp = client.post(
-            f"/api/v1/deploys/{uuid.uuid4()}/rollback"
-        )
+        resp = client.post(f"/api/v1/deploys/{uuid.uuid4()}/rollback")
         assert resp.status_code == 400
 
 
@@ -513,9 +497,7 @@ class TestCostEvents:
         store.record_cost_event.assert_called_once()
 
     @patch("api.routes.costs.get_cost_store")
-    def test_record_event_missing_fields(
-        self, mock_store_fn
-    ) -> None:
+    def test_record_event_missing_fields(self, mock_store_fn) -> None:
         mock_store_fn.return_value = MagicMock()
         resp = client.post(
             "/api/v1/costs/events",
@@ -524,9 +506,7 @@ class TestCostEvents:
         assert resp.status_code == 400
 
     @patch("api.routes.costs.get_cost_store")
-    def test_record_event_missing_tokens(
-        self, mock_store_fn
-    ) -> None:
+    def test_record_event_missing_tokens(self, mock_store_fn) -> None:
         mock_store_fn.return_value = MagicMock()
         resp = client.post(
             "/api/v1/costs/events",
@@ -571,9 +551,7 @@ class TestCostSummary:
             params={"team": "eng", "days": 7},
         )
         assert resp.status_code == 200
-        store.get_cost_summary.assert_called_once_with(
-            team="eng", agent_name=None, days=7
-        )
+        store.get_cost_summary.assert_called_once_with(team="eng", agent_name=None, days=7)
 
 
 class TestCostBreakdown:
@@ -639,9 +617,7 @@ class TestCompareModels:
         assert "savings_pct" in resp.json()["data"]
 
     @patch("api.routes.costs.get_cost_store")
-    def test_compare_missing_models(
-        self, mock_store_fn
-    ) -> None:
+    def test_compare_missing_models(self, mock_store_fn) -> None:
         mock_store_fn.return_value = MagicMock()
         resp = client.post(
             "/api/v1/costs/compare",
@@ -684,9 +660,7 @@ class TestBudgets:
         assert resp.status_code == 201
 
     @patch("api.routes.costs.get_cost_store")
-    def test_create_budget_missing_fields(
-        self, mock_store_fn
-    ) -> None:
+    def test_create_budget_missing_fields(self, mock_store_fn) -> None:
         mock_store_fn.return_value = MagicMock()
         resp = client.post(
             "/api/v1/budgets",
@@ -732,9 +706,7 @@ class TestBudgets:
         assert resp.status_code == 200
 
     @patch("api.routes.costs.get_cost_store")
-    def test_update_budget_not_found(
-        self, mock_store_fn
-    ) -> None:
+    def test_update_budget_not_found(self, mock_store_fn) -> None:
         store = MagicMock()
         store.update_budget.return_value = None
         mock_store_fn.return_value = store
@@ -771,9 +743,7 @@ class TestListTeams:
         "api.routes.teams.TeamService.list_teams",
         new_callable=AsyncMock,
     )
-    def test_list_returns_teams(
-        self, mock_list, mock_count
-    ) -> None:
+    def test_list_returns_teams(self, mock_list, mock_count) -> None:
         team = MagicMock()
         team.id = "t1"
         team.name = "eng"
@@ -870,9 +840,7 @@ class TestUpdateTeam:
         "api.routes.teams.TeamService.update_team",
         new_callable=AsyncMock,
     )
-    def test_update_success(
-        self, mock_update, mock_count
-    ) -> None:
+    def test_update_success(self, mock_update, mock_count) -> None:
         team = MagicMock()
         team.id = "t1"
         team.name = "eng"
@@ -946,9 +914,7 @@ class TestTeamMembers:
         "api.routes.teams.TeamService.add_member",
         new_callable=AsyncMock,
     )
-    def test_add_member_team_not_found(
-        self, mock_add
-    ) -> None:
+    def test_add_member_team_not_found(self, mock_add) -> None:
         mock_add.side_effect = ValueError("Team not found")
         resp = client.post(
             "/api/v1/teams/nope/members",
@@ -1003,9 +969,7 @@ class TestTeamApiKeys:
         "api.routes.teams.TeamService.get_team",
         new_callable=AsyncMock,
     )
-    def test_list_keys_team_not_found(
-        self, mock_team
-    ) -> None:
+    def test_list_keys_team_not_found(self, mock_team) -> None:
         mock_team.return_value = None
         resp = client.get("/api/v1/teams/nope/api-keys")
         assert resp.status_code == 404
@@ -1044,9 +1008,7 @@ class TestTeamApiKeys:
         "api.routes.teams.TeamService.delete_api_key",
         new_callable=AsyncMock,
     )
-    def test_delete_api_key_not_found(
-        self, mock_del
-    ) -> None:
+    def test_delete_api_key_not_found(self, mock_del) -> None:
         mock_del.return_value = False
         resp = client.delete("/api/v1/teams/t1/api-keys/k99")
         assert resp.status_code == 404
@@ -1060,9 +1022,7 @@ class TestTeamApiKeys:
             "success": True,
             "provider": "openai",
         }
-        resp = client.post(
-            "/api/v1/teams/t1/api-keys/k1/test"
-        )
+        resp = client.post("/api/v1/teams/t1/api-keys/k1/test")
         assert resp.status_code == 200
         assert resp.json()["data"]["success"] is True
 
@@ -1120,9 +1080,7 @@ class TestCreateTemplate:
         "api.routes.templates.TemplateRegistry.create",
         new_callable=AsyncMock,
     )
-    def test_create_success(
-        self, mock_create, mock_get_user
-    ) -> None:
+    def test_create_success(self, mock_create, mock_get_user) -> None:
         mock_get_user.return_value = _make_mock_user()
         mock_create.return_value = _make_template()
         resp = client.post(
@@ -1157,9 +1115,7 @@ class TestGetTemplate:
     )
     def test_get_not_found(self, mock_get) -> None:
         mock_get.return_value = None
-        resp = client.get(
-            f"/api/v1/templates/{uuid.uuid4()}"
-        )
+        resp = client.get(f"/api/v1/templates/{uuid.uuid4()}")
         assert resp.status_code == 404
 
 
@@ -1169,13 +1125,9 @@ class TestUpdateTemplate:
         "api.routes.templates.TemplateRegistry.update",
         new_callable=AsyncMock,
     )
-    def test_update_success(
-        self, mock_update, mock_get_user
-    ) -> None:
+    def test_update_success(self, mock_update, mock_get_user) -> None:
         mock_get_user.return_value = _make_mock_user()
-        mock_update.return_value = _make_template(
-            description="Updated"
-        )
+        mock_update.return_value = _make_template(description="Updated")
         tid = uuid.uuid4()
         resp = client.put(
             f"/api/v1/templates/{tid}",
@@ -1189,9 +1141,7 @@ class TestUpdateTemplate:
         "api.routes.templates.TemplateRegistry.update",
         new_callable=AsyncMock,
     )
-    def test_update_not_found(
-        self, mock_update, mock_get_user
-    ) -> None:
+    def test_update_not_found(self, mock_update, mock_get_user) -> None:
         mock_get_user.return_value = _make_mock_user()
         mock_update.return_value = None
         resp = client.put(
@@ -1208,9 +1158,7 @@ class TestDeleteTemplate:
         "api.routes.templates.TemplateRegistry.delete",
         new_callable=AsyncMock,
     )
-    def test_delete_success(
-        self, mock_del, mock_get_user
-    ) -> None:
+    def test_delete_success(self, mock_del, mock_get_user) -> None:
         mock_get_user.return_value = _make_mock_user()
         mock_del.return_value = True
         resp = client.delete(
@@ -1225,9 +1173,7 @@ class TestDeleteTemplate:
         "api.routes.templates.TemplateRegistry.delete",
         new_callable=AsyncMock,
     )
-    def test_delete_not_found(
-        self, mock_del, mock_get_user
-    ) -> None:
+    def test_delete_not_found(self, mock_del, mock_get_user) -> None:
         mock_get_user.return_value = _make_mock_user()
         mock_del.return_value = False
         resp = client.delete(
@@ -1239,17 +1185,14 @@ class TestDeleteTemplate:
 
 class TestInstantiateTemplate:
     @patch(
-        "api.routes.templates.TemplateRegistry"
-        ".increment_use_count",
+        "api.routes.templates.TemplateRegistry.increment_use_count",
         new_callable=AsyncMock,
     )
     @patch(
         "api.routes.templates.TemplateRegistry.get_by_id",
         new_callable=AsyncMock,
     )
-    def test_instantiate_success(
-        self, mock_get, mock_inc
-    ) -> None:
+    def test_instantiate_success(self, mock_get, mock_inc) -> None:
         tmpl = _make_template()
         mock_get.return_value = tmpl
         resp = client.post(
@@ -1278,9 +1221,7 @@ class TestInstantiateTemplate:
 
 
 class TestListOrchestrations:
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_list_all(self, mock_store_fn) -> None:
         store = MagicMock()
         store.list.return_value = [
@@ -1291,9 +1232,7 @@ class TestListOrchestrations:
         assert resp.status_code == 200
         assert len(resp.json()["data"]) == 1
 
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_list_with_filter(self, mock_store_fn) -> None:
         store = MagicMock()
         store.list.return_value = []
@@ -1302,15 +1241,11 @@ class TestListOrchestrations:
             "/api/v1/orchestrations",
             params={"team": "eng", "status": "deployed"},
         )
-        store.list.assert_called_once_with(
-            team="eng", status="deployed"
-        )
+        store.list.assert_called_once_with(team="eng", status="deployed")
 
 
 class TestCreateOrchestration:
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_create_success(self, mock_store_fn) -> None:
         store = MagicMock()
         store.create.return_value = {
@@ -1329,12 +1264,8 @@ class TestCreateOrchestration:
         )
         assert resp.status_code == 201
 
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
-    def test_create_missing_fields(
-        self, mock_store_fn
-    ) -> None:
+    @patch("api.routes.orchestrations.get_orchestration_store")
+    def test_create_missing_fields(self, mock_store_fn) -> None:
         mock_store_fn.return_value = MagicMock()
         resp = client.post(
             "/api/v1/orchestrations",
@@ -1344,9 +1275,7 @@ class TestCreateOrchestration:
 
 
 class TestGetOrchestration:
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_get_found(self, mock_store_fn) -> None:
         store = MagicMock()
         store.get.return_value = {
@@ -1358,9 +1287,7 @@ class TestGetOrchestration:
         assert resp.status_code == 200
         assert resp.json()["data"]["name"] == "orch-1"
 
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_get_not_found(self, mock_store_fn) -> None:
         store = MagicMock()
         store.get.return_value = None
@@ -1370,9 +1297,7 @@ class TestGetOrchestration:
 
 
 class TestUpdateOrchestration:
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_update_success(self, mock_store_fn) -> None:
         store = MagicMock()
         store.update.return_value = {
@@ -1386,9 +1311,7 @@ class TestUpdateOrchestration:
         )
         assert resp.status_code == 200
 
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_update_not_found(self, mock_store_fn) -> None:
         store = MagicMock()
         store.update.return_value = None
@@ -1401,9 +1324,7 @@ class TestUpdateOrchestration:
 
 
 class TestDeleteOrchestration:
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_delete_success(self, mock_store_fn) -> None:
         store = MagicMock()
         store.delete.return_value = True
@@ -1412,9 +1333,7 @@ class TestDeleteOrchestration:
         assert resp.status_code == 200
         assert resp.json()["data"]["deleted"] == "o1"
 
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_delete_not_found(self, mock_store_fn) -> None:
         store = MagicMock()
         store.delete.return_value = False
@@ -1424,15 +1343,9 @@ class TestDeleteOrchestration:
 
 
 class TestValidateOrchestration:
-    @patch(
-        "api.routes.orchestrations.validate_orchestration"
-    )
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
-    def test_validate_valid(
-        self, mock_store_fn, mock_validate
-    ) -> None:
+    @patch("api.routes.orchestrations.validate_orchestration")
+    @patch("api.routes.orchestrations.get_orchestration_store")
+    def test_validate_valid(self, mock_store_fn, mock_validate) -> None:
         result = MagicMock()
         result.valid = True
         result.errors = []
@@ -1445,12 +1358,8 @@ class TestValidateOrchestration:
         assert resp.status_code == 200
         assert resp.json()["data"]["valid"] is True
 
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
-    def test_validate_empty_yaml(
-        self, mock_store_fn
-    ) -> None:
+    @patch("api.routes.orchestrations.get_orchestration_store")
+    def test_validate_empty_yaml(self, mock_store_fn) -> None:
         mock_store_fn.return_value = MagicMock()
         resp = client.post(
             "/api/v1/orchestrations/validate",
@@ -1460,9 +1369,7 @@ class TestValidateOrchestration:
 
 
 class TestDeployOrchestration:
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_deploy_success(self, mock_store_fn) -> None:
         store = MagicMock()
         store.deploy.return_value = {
@@ -1470,34 +1377,24 @@ class TestDeployOrchestration:
             "status": "deployed",
         }
         mock_store_fn.return_value = store
-        resp = client.post(
-            "/api/v1/orchestrations/o1/deploy"
-        )
+        resp = client.post("/api/v1/orchestrations/o1/deploy")
         assert resp.status_code == 200
         assert resp.json()["data"]["status"] == "deployed"
 
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_deploy_not_found(self, mock_store_fn) -> None:
         store = MagicMock()
         store.deploy.return_value = None
         mock_store_fn.return_value = store
-        resp = client.post(
-            "/api/v1/orchestrations/nope/deploy"
-        )
+        resp = client.post("/api/v1/orchestrations/nope/deploy")
         assert resp.status_code == 404
 
 
 class TestExecuteOrchestration:
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_execute_success(self, mock_store_fn) -> None:
         store = MagicMock()
-        store.execute = AsyncMock(
-            return_value={"output": "done"}
-        )
+        store.execute = AsyncMock(return_value={"output": "done"})
         mock_store_fn.return_value = store
         resp = client.post(
             "/api/v1/orchestrations/o1/execute",
@@ -1505,12 +1402,8 @@ class TestExecuteOrchestration:
         )
         assert resp.status_code == 200
 
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
-    def test_execute_missing_message(
-        self, mock_store_fn
-    ) -> None:
+    @patch("api.routes.orchestrations.get_orchestration_store")
+    def test_execute_missing_message(self, mock_store_fn) -> None:
         mock_store_fn.return_value = MagicMock()
         resp = client.post(
             "/api/v1/orchestrations/o1/execute",
@@ -1518,14 +1411,10 @@ class TestExecuteOrchestration:
         )
         assert resp.status_code == 400
 
-    @patch(
-        "api.routes.orchestrations.get_orchestration_store"
-    )
+    @patch("api.routes.orchestrations.get_orchestration_store")
     def test_execute_not_found(self, mock_store_fn) -> None:
         store = MagicMock()
-        store.execute = AsyncMock(
-            side_effect=ValueError("not found")
-        )
+        store.execute = AsyncMock(side_effect=ValueError("not found"))
         mock_store_fn.return_value = store
         resp = client.post(
             "/api/v1/orchestrations/o1/execute",

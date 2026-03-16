@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 TEMPLATE_DIR = Path(__file__).parent
 AGENT_YAML = TEMPLATE_DIR / "agent.yaml"
 
@@ -29,6 +28,7 @@ class TestAgentConfig:
 
     def test_version_is_semver(self, agent_config: dict) -> None:
         import re
+
         assert re.match(r"^\d+\.\d+\.\d+$", agent_config["version"])
 
     def test_guardrails_present(self, agent_config: dict) -> None:
@@ -47,16 +47,14 @@ class TestAgentConfig:
 class TestAgent:
     def test_agent_module_importable(self) -> None:
         import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "agent", TEMPLATE_DIR / "agent.py"
-        )
+
+        spec = importlib.util.spec_from_file_location("agent", TEMPLATE_DIR / "agent.py")
         assert spec is not None, "agent.py must be importable"
 
     def test_agent_exports_required_objects(self) -> None:
         import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "agent", TEMPLATE_DIR / "agent.py"
-        )
+
+        spec = importlib.util.spec_from_file_location("agent", TEMPLATE_DIR / "agent.py")
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)
@@ -67,9 +65,8 @@ class TestAgent:
 
     def test_tool_functions_work(self) -> None:
         import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "agent", TEMPLATE_DIR / "agent.py"
-        )
+
+        spec = importlib.util.spec_from_file_location("agent", TEMPLATE_DIR / "agent.py")
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)

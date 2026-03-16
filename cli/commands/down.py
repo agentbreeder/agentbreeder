@@ -44,9 +44,12 @@ def down(
     project_root = compose_dir.parent
 
     cmd = [
-        "docker", "compose",
-        "-f", str(compose_file),
-        "--project-directory", str(project_root),
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(project_root),
         "down",
     ]
     if clean:
@@ -58,7 +61,7 @@ def down(
         else:
             console.print("  Stopping services...")
 
-    result = subprocess.run(cmd, cwd=str(project_root))
+    result = subprocess.run(cmd, cwd=str(project_root))  # noqa: S603
 
     if result.returncode != 0:
         if json_output:

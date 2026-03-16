@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 TEMPLATE_DIR = Path(__file__).parent
 AGENT_YAML = TEMPLATE_DIR / "agent.yaml"
 
@@ -26,6 +25,7 @@ class TestAgentConfig:
 
     def test_version_is_semver(self, agent_config: dict) -> None:
         import re
+
         assert re.match(r"^\d+\.\d+\.\d+$", agent_config["version"])
 
     def test_high_max_tokens_for_reports(self, agent_config: dict) -> None:
@@ -35,8 +35,7 @@ class TestAgentConfig:
     def test_guardrails_present(self, agent_config: dict) -> None:
         guardrails = agent_config.get("guardrails", [])
         assert "pii_detection" in guardrails
-        assert "hallucination_check" in guardrails, \
-            "Research agent must have hallucination check"
+        assert "hallucination_check" in guardrails, "Research agent must have hallucination check"
 
     def test_web_search_tool_configured(self, agent_config: dict) -> None:
         tools = agent_config.get("tools", [])

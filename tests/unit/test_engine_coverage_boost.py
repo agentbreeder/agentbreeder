@@ -54,9 +54,7 @@ class TestDeployServiceUpdateJobStatus:
             return_value=ctx,
         ):
             job_id = uuid.uuid4()
-            await _update_job_status(
-                job_id, DeployJobStatus.building
-            )
+            await _update_job_status(job_id, DeployJobStatus.building)
 
         mock_session.execute.assert_called_once()
         mock_session.commit.assert_called_once()
@@ -215,9 +213,7 @@ class TestDeployServiceCreateDeploy:
         session.execute = AsyncMock(return_value=mock_result)
 
         with pytest.raises(ValueError, match="not found"):
-            await DeployService.create_deploy(
-                session, uuid.uuid4()
-            )
+            await DeployService.create_deploy(session, uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_create_deploy_success(self) -> None:
@@ -244,13 +240,9 @@ class TestDeployServiceCreateDeploy:
             "api.services.deploy_service.DeployJob",
             return_value=mock_job,
         ):
-            with patch(
-                "asyncio.create_task"
-            ) as mock_task:
+            with patch("asyncio.create_task") as mock_task:
                 mock_task.return_value = MagicMock()
-                result = await DeployService.create_deploy(
-                    session, uuid.uuid4(), target="local"
-                )
+                result = await DeployService.create_deploy(session, uuid.uuid4(), target="local")
 
         assert result == mock_job
         assert mock_job.id in _job_logs
@@ -272,9 +264,7 @@ class TestDeployServiceGetStatus:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await DeployService.get_deploy_status(
-            session, uuid.uuid4()
-        )
+        result = await DeployService.get_deploy_status(session, uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
@@ -298,9 +288,7 @@ class TestDeployServiceGetStatus:
         mock_result.scalar_one_or_none.return_value = mock_job
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await DeployService.get_deploy_status(
-            session, mock_job.id
-        )
+        result = await DeployService.get_deploy_status(session, mock_job.id)
         assert result is not None
         assert result["agent_name"] == "test-agent"
         assert result["status"] == "building"
@@ -318,9 +306,7 @@ class TestDeployServiceCancel:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await DeployService.cancel_deploy(
-            session, uuid.uuid4()
-        )
+        result = await DeployService.cancel_deploy(session, uuid.uuid4())
         assert result is False
 
     @pytest.mark.asyncio
@@ -343,9 +329,7 @@ class TestDeployServiceCancel:
         mock_result.scalar_one_or_none.return_value = mock_job
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await DeployService.cancel_deploy(
-            session, job_id
-        )
+        result = await DeployService.cancel_deploy(session, job_id)
         assert result is True
         mock_task.cancel.assert_called_once()
 
@@ -369,9 +353,7 @@ class TestDeployServiceCancel:
         mock_result.scalar_one_or_none.return_value = mock_job
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await DeployService.cancel_deploy(
-            session, job_id
-        )
+        result = await DeployService.cancel_deploy(session, job_id)
         assert result is True
         mock_task.cancel.assert_not_called()
 
@@ -388,9 +370,7 @@ class TestDeployServiceRollback:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await DeployService.rollback_deploy(
-            session, uuid.uuid4()
-        )
+        result = await DeployService.rollback_deploy(session, uuid.uuid4())
         assert result is False
 
     @pytest.mark.asyncio
@@ -405,9 +385,7 @@ class TestDeployServiceRollback:
         mock_result.scalar_one_or_none.return_value = mock_job
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await DeployService.rollback_deploy(
-            session, uuid.uuid4()
-        )
+        result = await DeployService.rollback_deploy(session, uuid.uuid4())
         assert result is False
 
     @pytest.mark.asyncio
@@ -434,9 +412,7 @@ class TestDeployServiceRollback:
         session.execute = AsyncMock(return_value=mock_result)
 
         _job_logs[job_id] = []
-        result = await DeployService.rollback_deploy(
-            session, job_id
-        )
+        result = await DeployService.rollback_deploy(session, job_id)
         assert result is True
         assert mock_agent.status == AgentStatus.stopped
         assert mock_agent.endpoint_url is None
@@ -474,9 +450,7 @@ tags: [test, new]
         # Second call for DeployJob
         mock_result_no_agent = MagicMock()
         mock_result_no_agent.scalar_one_or_none.return_value = None
-        session.execute = AsyncMock(
-            return_value=mock_result_no_agent
-        )
+        session.execute = AsyncMock(return_value=mock_result_no_agent)
         session.add = MagicMock()
         session.flush = AsyncMock()
 
@@ -488,15 +462,11 @@ tags: [test, new]
                 "api.services.deploy_service.DeployJob",
                 return_value=mock_job,
             ),
-            patch(
-                "asyncio.create_task"
-            ) as mock_task,
+            patch("asyncio.create_task") as mock_task,
         ):
             mock_task.return_value = MagicMock()
-            agent, job = (
-                await DeployService.create_agent_and_deploy(
-                    session, yaml_content, target="gcp"
-                )
+            agent, job = await DeployService.create_agent_and_deploy(
+                session, yaml_content, target="gcp"
             )
 
         assert agent is not None
@@ -530,9 +500,7 @@ model:
         existing_agent.id = uuid.uuid4()
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = (
-            existing_agent
-        )
+        mock_result.scalar_one_or_none.return_value = existing_agent
         session.execute = AsyncMock(return_value=mock_result)
         session.add = MagicMock()
         session.flush = AsyncMock()
@@ -545,16 +513,10 @@ model:
                 "api.services.deploy_service.DeployJob",
                 return_value=mock_job,
             ),
-            patch(
-                "asyncio.create_task"
-            ) as mock_task,
+            patch("asyncio.create_task") as mock_task,
         ):
             mock_task.return_value = MagicMock()
-            agent, job = (
-                await DeployService.create_agent_and_deploy(
-                    session, yaml_content
-                )
-            )
+            agent, job = await DeployService.create_agent_and_deploy(session, yaml_content)
 
         assert agent == existing_agent
         assert existing_agent.version == "2.0.0"
@@ -634,9 +596,7 @@ class TestGCPDeployerGetRunClient:
 
         deployer = GCPCloudRunDeployer()
 
-        with patch(
-            "builtins.__import__", side_effect=ImportError
-        ):
+        with patch("builtins.__import__", side_effect=ImportError):
             with pytest.raises(ImportError):
                 deployer._get_run_client()
 
@@ -653,16 +613,12 @@ class TestGCPDeployerGetArClient:
 
         real_import = __import__
 
-        def mock_import(
-            name: str, *args: Any, **kw: Any
-        ) -> Any:
+        def mock_import(name: str, *args: Any, **kw: Any) -> Any:
             if "artifactregistry" in name:
                 raise ImportError("no module")
             return real_import(name, *args, **kw)
 
-        with patch(
-            "builtins.__import__", side_effect=mock_import
-        ):
+        with patch("builtins.__import__", side_effect=mock_import):
             with pytest.raises(ImportError):
                 deployer._get_ar_client()
 
@@ -678,19 +634,13 @@ class TestGCPDeployerEnsureArtifactRegistry:
         )
 
         deployer = GCPCloudRunDeployer()
-        gcp = CloudRunConfig(
-            project_id="proj", region="us-central1"
-        )
+        gcp = CloudRunConfig(project_id="proj", region="us-central1")
 
         mock_ar_client = AsyncMock()
-        mock_ar_client.get_repository = AsyncMock(
-            return_value=MagicMock()
-        )
+        mock_ar_client.get_repository = AsyncMock(return_value=MagicMock())
 
         mock_ar_module = MagicMock()
-        mock_ar_module.ArtifactRegistryAsyncClient.return_value = (
-            mock_ar_client
-        )
+        mock_ar_module.ArtifactRegistryAsyncClient.return_value = mock_ar_client
 
         with (
             patch.object(
@@ -720,14 +670,10 @@ class TestGCPDeployerEnsureArtifactRegistry:
         )
 
         deployer = GCPCloudRunDeployer()
-        gcp = CloudRunConfig(
-            project_id="proj", region="us-central1"
-        )
+        gcp = CloudRunConfig(project_id="proj", region="us-central1")
 
         mock_ar_client = AsyncMock()
-        mock_ar_client.get_repository = AsyncMock(
-            side_effect=Exception("Not found")
-        )
+        mock_ar_client.get_repository = AsyncMock(side_effect=Exception("Not found"))
         mock_ar_client.create_repository = AsyncMock()
 
         mock_ar_module = MagicMock()
@@ -762,9 +708,7 @@ class TestGCPDeployerEnsureArtifactRegistry:
         )
 
         deployer = GCPCloudRunDeployer()
-        gcp = CloudRunConfig(
-            project_id="proj", region="us-central1"
-        )
+        gcp = CloudRunConfig(project_id="proj", region="us-central1")
 
         with patch.object(
             deployer,
@@ -829,20 +773,14 @@ class TestGCPDeployerGetLogs:
         mock_entry.payload = "test log entry"
 
         mock_logging_client = MagicMock()
-        mock_logging_client.list_entries.return_value = [
-            mock_entry
-        ]
+        mock_logging_client.list_entries.return_value = [mock_entry]
 
         mock_logging_module = MagicMock()
-        mock_logging_module.Client.return_value = (
-            mock_logging_client
-        )
+        mock_logging_module.Client.return_value = mock_logging_client
 
         real_import = __import__
 
-        def mock_import(
-            name: str, *args: Any, **kw: Any
-        ) -> Any:
+        def mock_import(name: str, *args: Any, **kw: Any) -> Any:
             if name == "google.cloud":
                 mod = MagicMock()
                 mod.logging = mock_logging_module
@@ -854,9 +792,7 @@ class TestGCPDeployerGetLogs:
             side_effect=mock_import,
         ):
             since = datetime.now(UTC)
-            logs = await deployer.get_logs(
-                "test-agent", since=since
-            )
+            logs = await deployer.get_logs("test-agent", since=since)
 
         # Logs should contain entries or fallback messages
         assert isinstance(logs, list)
@@ -879,20 +815,14 @@ class TestGCPDeployerGetLogs:
 
         real_import = __import__
 
-        def mock_import(
-            name: str, *args: Any, **kw: Any
-        ) -> Any:
+        def mock_import(name: str, *args: Any, **kw: Any) -> Any:
             if "google.cloud" in name and "logging" in name:
                 mod = MagicMock()
-                mod.Client.side_effect = Exception(
-                    "API error"
-                )
+                mod.Client.side_effect = Exception("API error")
                 return mod
             return real_import(name, *args, **kw)
 
-        with patch(
-            "builtins.__import__", side_effect=mock_import
-        ):
+        with patch("builtins.__import__", side_effect=mock_import):
             logs = await deployer.get_logs("test-agent")
 
         assert isinstance(logs, list)
@@ -931,9 +861,7 @@ class TestGCPDeployerGetUrl:
         mock_service = MagicMock()
         mock_service.uri = "https://test-agent.a.run.app"
         mock_run_client = AsyncMock()
-        mock_run_client.get_service = AsyncMock(
-            return_value=mock_service
-        )
+        mock_run_client.get_service = AsyncMock(return_value=mock_service)
 
         mock_request_cls = MagicMock()
         with (
@@ -945,9 +873,7 @@ class TestGCPDeployerGetUrl:
             patch.dict(
                 "sys.modules",
                 {
-                    "google.cloud.run_v2": MagicMock(
-                        GetServiceRequest=mock_request_cls
-                    ),
+                    "google.cloud.run_v2": MagicMock(GetServiceRequest=mock_request_cls),
                 },
             ),
         ):
@@ -966,9 +892,7 @@ class TestGCPDeployerStatus:
         )
 
         deployer = GCPCloudRunDeployer()
-        with pytest.raises(
-            RuntimeError, match="Cannot get status"
-        ):
+        with pytest.raises(RuntimeError, match="Cannot get status"):
             await deployer.status("test-agent")
 
     @pytest.mark.asyncio
@@ -990,17 +914,13 @@ class TestGCPDeployerStatus:
         mock_service = MagicMock()
         mock_service.uri = "https://test-agent.a.run.app"
         mock_service.terminal_condition = MagicMock()
-        mock_service.terminal_condition.state = (
-            "CONDITION_SUCCEEDED"
-        )
+        mock_service.terminal_condition.state = "CONDITION_SUCCEEDED"
         mock_service.latest_ready_revision = "rev-001"
         mock_service.ingress = "INGRESS_TRAFFIC_ALL"
         mock_service.labels = {"team": "platform"}
 
         mock_run_client = AsyncMock()
-        mock_run_client.get_service = AsyncMock(
-            return_value=mock_service
-        )
+        mock_run_client.get_service = AsyncMock(return_value=mock_service)
 
         mock_request_cls = MagicMock()
         with (
@@ -1012,9 +932,7 @@ class TestGCPDeployerStatus:
             patch.dict(
                 "sys.modules",
                 {
-                    "google.cloud.run_v2": MagicMock(
-                        GetServiceRequest=mock_request_cls
-                    ),
+                    "google.cloud.run_v2": MagicMock(GetServiceRequest=mock_request_cls),
                 },
             ),
         ):
@@ -1038,17 +956,13 @@ class TestGCPDeployerAllowUnauthenticated:
         )
 
         deployer = GCPCloudRunDeployer()
-        gcp = CloudRunConfig(
-            project_id="proj", region="us-central1"
-        )
+        gcp = CloudRunConfig(project_id="proj", region="us-central1")
 
         mock_policy = MagicMock()
         mock_policy.bindings = []
 
         mock_run_client = AsyncMock()
-        mock_run_client.get_iam_policy = AsyncMock(
-            return_value=mock_policy
-        )
+        mock_run_client.get_iam_policy = AsyncMock(return_value=mock_policy)
         mock_run_client.set_iam_policy = AsyncMock()
 
         mock_iam_module = MagicMock()
@@ -1070,9 +984,7 @@ class TestGCPDeployerAllowUnauthenticated:
                 },
             ),
         ):
-            await deployer._allow_unauthenticated(
-                "test-agent", gcp
-            )
+            await deployer._allow_unauthenticated("test-agent", gcp)
 
         mock_run_client.set_iam_policy.assert_called_once()
 
@@ -1084,9 +996,7 @@ class TestGCPDeployerAllowUnauthenticated:
         )
 
         deployer = GCPCloudRunDeployer()
-        gcp = CloudRunConfig(
-            project_id="proj", region="us-central1"
-        )
+        gcp = CloudRunConfig(project_id="proj", region="us-central1")
 
         with patch.object(
             deployer,
@@ -1094,9 +1004,7 @@ class TestGCPDeployerAllowUnauthenticated:
             side_effect=Exception("IAM error"),
         ):
             # Should not raise, just log warning
-            await deployer._allow_unauthenticated(
-                "test-agent", gcp
-            )
+            await deployer._allow_unauthenticated("test-agent", gcp)
 
 
 class TestGCPDeployerDeployWithoutProvision:
@@ -1190,9 +1098,7 @@ class TestOllamaProviderGenerateStream:
                 yield line
 
         mock_response.aiter_lines = async_lines
-        mock_response.__aenter__ = AsyncMock(
-            return_value=mock_response
-        )
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=False)
 
         with patch.object(
@@ -1201,9 +1107,7 @@ class TestOllamaProviderGenerateStream:
             return_value=mock_response,
         ):
             chunks = []
-            async for chunk in provider.generate_stream(
-                [{"role": "user", "content": "Hi"}]
-            ):
+            async for chunk in provider.generate_stream([{"role": "user", "content": "Hi"}]):
                 chunks.append(chunk)
 
         assert len(chunks) == 2
@@ -1231,9 +1135,7 @@ class TestOllamaProviderGenerateStream:
                 yield line
 
         mock_response.aiter_lines = async_lines
-        mock_response.__aenter__ = AsyncMock(
-            return_value=mock_response
-        )
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=False)
 
         with patch.object(
@@ -1242,9 +1144,7 @@ class TestOllamaProviderGenerateStream:
             return_value=mock_response,
         ):
             chunks = []
-            async for chunk in provider.generate_stream(
-                [{"role": "user", "content": "Hi"}]
-            ):
+            async for chunk in provider.generate_stream([{"role": "user", "content": "Hi"}]):
                 chunks.append(chunk)
 
         assert len(chunks) == 0
@@ -1324,9 +1224,7 @@ class TestOllamaProviderListModels:
         llama = next(m for m in models if "llama3.1" in m.id)
         assert llama.supports_tools is True
         assert llama.is_local is True
-        codellama = next(
-            m for m in models if "codellama" in m.id
-        )
+        codellama = next(m for m in models if "codellama" in m.id)
         assert codellama.supports_tools is False
 
 
@@ -1349,9 +1247,7 @@ class TestOllamaProviderRequest:
             side_effect=httpx.TimeoutException("timed out"),
         ):
             with pytest.raises(ProviderError, match="timed out"):
-                await provider._request(
-                    "POST", "/v1/chat/completions", {}
-                )
+                await provider._request("POST", "/v1/chat/completions", {})
 
     @pytest.mark.asyncio
     async def test_request_connect_error(self) -> None:
@@ -1368,12 +1264,8 @@ class TestOllamaProviderRequest:
             "post",
             side_effect=httpx.ConnectError("refused"),
         ):
-            with pytest.raises(
-                ProviderError, match="Cannot connect"
-            ):
-                await provider._request(
-                    "POST", "/v1/chat/completions", {}
-                )
+            with pytest.raises(ProviderError, match="Cannot connect"):
+                await provider._request("POST", "/v1/chat/completions", {})
 
     @pytest.mark.asyncio
     async def test_request_get_method(self) -> None:
@@ -1488,9 +1380,7 @@ class TestOllamaProviderCollectStream:
             for c in chunks:
                 yield c
 
-        with patch.object(
-            provider, "generate_stream", side_effect=mock_stream
-        ):
+        with patch.object(provider, "generate_stream", side_effect=mock_stream):
             result = await provider._collect_stream(
                 [{"role": "user", "content": "Hi"}],
                 "llama3.1",
@@ -1518,14 +1408,10 @@ class TestOllamaDetect:
 
         mock_client = AsyncMock()
         mock_client.get = AsyncMock(return_value=mock_resp)
-        mock_client.__aenter__ = AsyncMock(
-            return_value=mock_client
-        )
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch(
-            "httpx.AsyncClient", return_value=mock_client
-        ):
+        with patch("httpx.AsyncClient", return_value=mock_client):
             result = await OllamaProvider.detect()
 
         assert result is True
@@ -1537,17 +1423,11 @@ class TestOllamaDetect:
         )
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(
-            side_effect=httpx.ConnectError("refused")
-        )
-        mock_client.__aenter__ = AsyncMock(
-            return_value=mock_client
-        )
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch(
-            "httpx.AsyncClient", return_value=mock_client
-        ):
+        with patch("httpx.AsyncClient", return_value=mock_client):
             result = await OllamaProvider.detect()
 
         assert result is False
@@ -1639,9 +1519,7 @@ class TestOpenAIProviderRequest:
             side_effect=httpx.TimeoutException("timeout"),
         ):
             with pytest.raises(ProviderError, match="timed out"):
-                await provider._request(
-                    "POST", "/chat/completions", {}
-                )
+                await provider._request("POST", "/chat/completions", {})
 
     @pytest.mark.asyncio
     async def test_request_connect_error(self) -> None:
@@ -1658,12 +1536,8 @@ class TestOpenAIProviderRequest:
             "post",
             side_effect=httpx.ConnectError("refused"),
         ):
-            with pytest.raises(
-                ProviderError, match="Failed to connect"
-            ):
-                await provider._request(
-                    "POST", "/chat/completions", {}
-                )
+            with pytest.raises(ProviderError, match="Failed to connect"):
+                await provider._request("POST", "/chat/completions", {})
 
 
 class TestOpenAIProviderListModels:
@@ -1775,9 +1649,7 @@ class TestOpenAIProviderCollectStream:
             for c in chunks:
                 yield c
 
-        with patch.object(
-            provider, "generate_stream", side_effect=mock_stream
-        ):
+        with patch.object(provider, "generate_stream", side_effect=mock_stream):
             result = await provider._collect_stream(
                 [{"role": "user", "content": "Hi"}],
                 "gpt-4o",
@@ -1836,17 +1708,11 @@ class TestOpenAIProviderModelSupportsTools:
         )
 
         assert OpenAIProvider._model_supports_tools("gpt-4o")
-        assert OpenAIProvider._model_supports_tools(
-            "gpt-3.5-turbo"
-        )
+        assert OpenAIProvider._model_supports_tools("gpt-3.5-turbo")
         assert OpenAIProvider._model_supports_tools("o3-mini")
         assert OpenAIProvider._model_supports_tools("o4-mini")
-        assert not OpenAIProvider._model_supports_tools(
-            "dall-e-3"
-        )
-        assert not OpenAIProvider._model_supports_tools(
-            "whisper-1"
-        )
+        assert not OpenAIProvider._model_supports_tools("dall-e-3")
+        assert not OpenAIProvider._model_supports_tools("whisper-1")
 
 
 class TestOpenAIProviderNoKey:
@@ -1868,9 +1734,7 @@ class TestOpenAIProviderNoKey:
         )
         with (
             patch.dict("os.environ", {}, clear=True),
-            pytest.raises(
-                AuthenticationError, match="API key not found"
-            ),
+            pytest.raises(AuthenticationError, match="API key not found"),
         ):
             OpenAIProvider(config)
 
@@ -1892,9 +1756,7 @@ class TestMcpServerRegistryUpdate:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await McpServerRegistry.update(
-            session, "bad-id"
-        )
+        result = await McpServerRegistry.update(session, "bad-id")
         assert result is None
 
     @pytest.mark.asyncio
@@ -1909,9 +1771,7 @@ class TestMcpServerRegistryUpdate:
         mock_server.status = "active"
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = (
-            mock_server
-        )
+        mock_result.scalar_one_or_none.return_value = mock_server
         session.execute = AsyncMock(return_value=mock_result)
         session.flush = AsyncMock()
 
@@ -1943,9 +1803,7 @@ class TestMcpServerRegistryDelete:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await McpServerRegistry.delete(
-            session, "bad-id"
-        )
+        result = await McpServerRegistry.delete(session, "bad-id")
         assert result is False
 
     @pytest.mark.asyncio
@@ -1957,16 +1815,12 @@ class TestMcpServerRegistryDelete:
         mock_server.name = "test-server"
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = (
-            mock_server
-        )
+        mock_result.scalar_one_or_none.return_value = mock_server
         session.execute = AsyncMock(return_value=mock_result)
         session.delete = AsyncMock()
         session.flush = AsyncMock()
 
-        result = await McpServerRegistry.delete(
-            session, str(uuid.uuid4())
-        )
+        result = await McpServerRegistry.delete(session, str(uuid.uuid4()))
         assert result is True
         session.delete.assert_called_once_with(mock_server)
 
@@ -1979,9 +1833,7 @@ class TestMcpServerRegistryGetById:
         from registry.mcp_servers import McpServerRegistry
 
         session = AsyncMock()
-        result = await McpServerRegistry.get_by_id(
-            session, "not-a-uuid"
-        )
+        result = await McpServerRegistry.get_by_id(session, "not-a-uuid")
         assert result is None
 
 
@@ -1997,9 +1849,7 @@ class TestMcpServerRegistryExecuteTool:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await McpServerRegistry.execute_tool(
-            session, "bad-id", "tool", {}
-        )
+        result = await McpServerRegistry.execute_tool(session, "bad-id", "tool", {})
         assert result["success"] is False
 
     @pytest.mark.asyncio
@@ -2012,9 +1862,7 @@ class TestMcpServerRegistryExecuteTool:
         mock_server.endpoint = None
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = (
-            mock_server
-        )
+        mock_result.scalar_one_or_none.return_value = mock_server
         session.execute = AsyncMock(return_value=mock_result)
 
         result = await McpServerRegistry.execute_tool(
@@ -2044,9 +1892,7 @@ class TestPromptRegistryUpdate:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await PromptRegistry.update(
-            session, "bad-id"
-        )
+        result = await PromptRegistry.update(session, "bad-id")
         assert result is None
 
     @pytest.mark.asyncio
@@ -2061,9 +1907,7 @@ class TestPromptRegistryUpdate:
         mock_prompt.description = "old desc"
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = (
-            mock_prompt
-        )
+        mock_result.scalar_one_or_none.return_value = mock_prompt
         session.execute = AsyncMock(return_value=mock_result)
         session.flush = AsyncMock()
 
@@ -2091,9 +1935,7 @@ class TestPromptRegistryDelete:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await PromptRegistry.delete(
-            session, "bad-id"
-        )
+        result = await PromptRegistry.delete(session, "bad-id")
         assert result is False
 
     @pytest.mark.asyncio
@@ -2106,16 +1948,12 @@ class TestPromptRegistryDelete:
         mock_prompt.version = "1.0.0"
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = (
-            mock_prompt
-        )
+        mock_result.scalar_one_or_none.return_value = mock_prompt
         session.execute = AsyncMock(return_value=mock_result)
         session.delete = AsyncMock()
         session.flush = AsyncMock()
 
-        result = await PromptRegistry.delete(
-            session, "some-id"
-        )
+        result = await PromptRegistry.delete(session, "some-id")
         assert result is True
 
 
@@ -2131,9 +1969,7 @@ class TestPromptRegistryUpdateContent:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await PromptRegistry.update_content(
-            session, "bad-id", "new content"
-        )
+        result = await PromptRegistry.update_content(session, "bad-id", "new content")
         assert result is None
 
     @pytest.mark.asyncio
@@ -2147,15 +1983,11 @@ class TestPromptRegistryUpdateContent:
 
         # First call for prompt lookup, subsequent for count
         mock_result1 = MagicMock()
-        mock_result1.scalar_one_or_none.return_value = (
-            mock_prompt
-        )
+        mock_result1.scalar_one_or_none.return_value = mock_prompt
         mock_result2 = MagicMock()
         mock_result2.scalar.return_value = 2  # 2 existing
 
-        session.execute = AsyncMock(
-            side_effect=[mock_result1, mock_result2]
-        )
+        session.execute = AsyncMock(side_effect=[mock_result1, mock_result2])
         session.add = MagicMock()
         session.flush = AsyncMock()
 
@@ -2186,17 +2018,11 @@ class TestPromptRegistrySearch:
 
         mock_prompts = [MagicMock(), MagicMock()]
         mock_list_result = MagicMock()
-        mock_list_result.scalars.return_value.all.return_value = (
-            mock_prompts
-        )
+        mock_list_result.scalars.return_value.all.return_value = mock_prompts
 
-        session.execute = AsyncMock(
-            side_effect=[mock_count_result, mock_list_result]
-        )
+        session.execute = AsyncMock(side_effect=[mock_count_result, mock_list_result])
 
-        prompts, total = await PromptRegistry.search(
-            session, "test"
-        )
+        prompts, total = await PromptRegistry.search(session, "test")
 
         assert total == 2
         assert len(prompts) == 2
@@ -2216,15 +2042,9 @@ class TestPromptRegistryDiffVersions:
         mock_r2 = MagicMock()
         mock_r2.scalar_one_or_none.return_value = MagicMock()
 
-        session.execute = AsyncMock(
-            side_effect=[mock_r1, mock_r2]
-        )
+        session.execute = AsyncMock(side_effect=[mock_r1, mock_r2])
 
-        v1, v2, diff = (
-            await PromptRegistry.diff_version_snapshots(
-                session, "p1", "v1", "v2"
-            )
-        )
+        v1, v2, diff = await PromptRegistry.diff_version_snapshots(session, "p1", "v1", "v2")
         assert diff == ""
         assert v1 is None
 
@@ -2247,15 +2067,9 @@ class TestPromptRegistryDiffVersions:
         mock_r2 = MagicMock()
         mock_r2.scalar_one_or_none.return_value = ver2
 
-        session.execute = AsyncMock(
-            side_effect=[mock_r1, mock_r2]
-        )
+        session.execute = AsyncMock(side_effect=[mock_r1, mock_r2])
 
-        v1, v2, diff = (
-            await PromptRegistry.diff_version_snapshots(
-                session, "p1", "v1-id", "v2-id"
-            )
-        )
+        v1, v2, diff = await PromptRegistry.diff_version_snapshots(session, "p1", "v1-id", "v2-id")
 
         assert v1 is not None
         assert v2 is not None
@@ -2274,9 +2088,7 @@ class TestPromptRegistryDuplicate:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await PromptRegistry.duplicate(
-            session, "bad-id"
-        )
+        result = await PromptRegistry.duplicate(session, "bad-id")
         assert result is None
 
     @pytest.mark.asyncio
@@ -2304,15 +2116,11 @@ class TestPromptRegistryDuplicate:
             source,
         ]
 
-        session.execute = AsyncMock(
-            side_effect=[mock_r1, mock_r2]
-        )
+        session.execute = AsyncMock(side_effect=[mock_r1, mock_r2])
         session.add = MagicMock()
         session.flush = AsyncMock()
 
-        result = await PromptRegistry.duplicate(
-            session, "some-id"
-        )
+        result = await PromptRegistry.duplicate(session, "some-id")
 
         assert result is not None
         session.add.assert_called_once()
@@ -2335,9 +2143,7 @@ class TestToolRegistryGetUsage:
         mock_result.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=mock_result)
 
-        result = await ToolRegistry.get_usage(
-            session, "bad-id"
-        )
+        result = await ToolRegistry.get_usage(session, "bad-id")
         assert result == []
 
     @pytest.mark.asyncio
@@ -2350,15 +2156,11 @@ class TestToolRegistryGetUsage:
         mock_tool.name = "zendesk-mcp"
 
         agent1 = MagicMock()
-        agent1.config_snapshot = {
-            "tools": [{"ref": "tools/zendesk-mcp"}]
-        }
+        agent1.config_snapshot = {"tools": [{"ref": "tools/zendesk-mcp"}]}
         agent1.status = "running"
 
         agent2 = MagicMock()
-        agent2.config_snapshot = {
-            "tools": [{"name": "other-tool"}]
-        }
+        agent2.config_snapshot = {"tools": [{"name": "other-tool"}]}
         agent2.status = "running"
 
         # First call: get_by_id, second: list agents
@@ -2371,13 +2173,9 @@ class TestToolRegistryGetUsage:
             agent2,
         ]
 
-        session.execute = AsyncMock(
-            side_effect=[mock_r1, mock_r2]
-        )
+        session.execute = AsyncMock(side_effect=[mock_r1, mock_r2])
 
-        result = await ToolRegistry.get_usage(
-            session, str(uuid.uuid4())
-        )
+        result = await ToolRegistry.get_usage(session, str(uuid.uuid4()))
         assert len(result) == 1
         assert result[0] == agent1
 
@@ -2400,13 +2198,9 @@ class TestToolRegistryGetUsage:
         mock_r2 = MagicMock()
         mock_r2.scalars.return_value.all.return_value = [agent]
 
-        session.execute = AsyncMock(
-            side_effect=[mock_r1, mock_r2]
-        )
+        session.execute = AsyncMock(side_effect=[mock_r1, mock_r2])
 
-        result = await ToolRegistry.get_usage(
-            session, str(uuid.uuid4())
-        )
+        result = await ToolRegistry.get_usage(session, str(uuid.uuid4()))
         assert result == []
 
 
@@ -2418,9 +2212,7 @@ class TestToolRegistryGetById:
         from registry.tools import ToolRegistry
 
         session = AsyncMock()
-        result = await ToolRegistry.get_by_id(
-            session, "not-a-uuid"
-        )
+        result = await ToolRegistry.get_by_id(session, "not-a-uuid")
         assert result is None
 
 
@@ -2438,17 +2230,11 @@ class TestToolRegistrySearch:
 
         mock_tools = [MagicMock()]
         mock_list_result = MagicMock()
-        mock_list_result.scalars.return_value.all.return_value = (
-            mock_tools
-        )
+        mock_list_result.scalars.return_value.all.return_value = mock_tools
 
-        session.execute = AsyncMock(
-            side_effect=[mock_count_result, mock_list_result]
-        )
+        session.execute = AsyncMock(side_effect=[mock_count_result, mock_list_result])
 
-        tools, total = await ToolRegistry.search(
-            session, "zendesk"
-        )
+        tools, total = await ToolRegistry.search(session, "zendesk")
         assert total == 1
         assert len(tools) == 1
 
@@ -2458,9 +2244,7 @@ class TestToolRegistrySearch:
 # ===================================================================
 
 
-def _make_orch_config(
-    strategy: str, agents: dict[str, Any] | None = None
-) -> Any:
+def _make_orch_config(strategy: str, agents: dict[str, Any] | None = None) -> Any:
     from engine.orchestration_parser import (
         AgentRef,
         OrchestrationConfig,
@@ -2554,9 +2338,7 @@ class TestOrchestratorSupervisor:
 
         call_count = 0
 
-        async def mock_call(
-            name: str, inp: str
-        ) -> AgentTraceEntry:
+        async def mock_call(name: str, inp: str) -> AgentTraceEntry:
             nonlocal call_count
             call_count += 1
             return AgentTraceEntry(
@@ -2610,9 +2392,7 @@ class TestOrchestratorFanOutFanIn:
         # Same fix as supervisor: set to None so or {} fires
         orch.config.supervisor_config = None  # type: ignore[assignment]
 
-        async def mock_call(
-            name: str, inp: str
-        ) -> AgentTraceEntry:
+        async def mock_call(name: str, inp: str) -> AgentTraceEntry:
             return AgentTraceEntry(
                 agent_name=name,
                 input=inp,
@@ -2656,9 +2436,7 @@ class TestOrchestratorCallAgent:
 
         config = _make_orch_config("sequential")
         endpoints = {"agent-a": "http://agent-a:8080"}
-        orch = Orchestrator(
-            config, agent_endpoints=endpoints
-        )
+        orch = Orchestrator(config, agent_endpoints=endpoints)
 
         mock_result = MagicMock()
         mock_result.output = "real response"
@@ -2667,13 +2445,9 @@ class TestOrchestratorCallAgent:
         mock_result.status = "success"
 
         orch._client = AsyncMock()
-        orch._client.invoke = AsyncMock(
-            return_value=mock_result
-        )
+        orch._client.invoke = AsyncMock(return_value=mock_result)
 
-        entry = await orch._call_agent(
-            "agent-a", "test input"
-        )
+        entry = await orch._call_agent("agent-a", "test input")
 
         assert entry.output == "real response"
         assert entry.latency_ms == 200
@@ -2725,9 +2499,7 @@ class TestRAGStoreSearch:
                 id=f"chunk-{i}",
                 text=f"Document about topic {i}",
                 source=f"file-{i}.txt",
-                embedding=_pseudo_embedding(
-                    f"topic {i}", 768
-                ),
+                embedding=_pseudo_embedding(f"topic {i}", 768),
             )
             idx.chunks.append(chunk)
         idx.chunk_count = 3
@@ -2737,9 +2509,7 @@ class TestRAGStoreSearch:
             new_callable=AsyncMock,
             return_value=[_pseudo_embedding("query", 768)],
         ):
-            results = await store.search(
-                idx.id, "topic 1", top_k=2
-            )
+            results = await store.search(idx.id, "topic 1", top_k=2)
 
         assert len(results) <= 2
         assert all(hasattr(r, "score") for r in results)
@@ -2778,9 +2548,7 @@ class TestRAGStoreIngestFiles:
 
         store = RAGStore()
         with pytest.raises(ValueError, match="not found"):
-            await store.ingest_files(
-                "bad-id", [("test.txt", b"content")]
-            )
+            await store.ingest_files("bad-id", [("test.txt", b"content")])
 
     @pytest.mark.asyncio
     async def test_ingest_files_success(self) -> None:
@@ -2800,9 +2568,7 @@ class TestRAGStoreIngestFiles:
         # Content large enough to produce chunks
         content = b"A" * 600
 
-        async def mock_embed(
-            texts: list[str], **kw: Any
-        ) -> list[list[float]]:
+        async def mock_embed(texts: list[str], **kw: Any) -> list[list[float]]:
             return [_pseudo_embedding(t, 768) for t in texts]
 
         with patch(
@@ -2860,9 +2626,7 @@ class TestRAGEmbedTexts:
     async def test_embed_unknown_model_fallback(self) -> None:
         from api.services.rag_service import embed_texts
 
-        result = await embed_texts(
-            ["test"], model="unknown/model"
-        )
+        result = await embed_texts(["test"], model="unknown/model")
         assert len(result) == 1
         assert len(result[0]) == 768  # default dims
 
@@ -2888,9 +2652,7 @@ class TestRAGExtractText:
     def test_extract_json_invalid(self) -> None:
         from api.services.rag_service import extract_text
 
-        result = extract_text(
-            "bad.json", b"not json at all"
-        )
+        result = extract_text("bad.json", b"not json at all")
         assert "not json" in result
 
     def test_extract_pdf(self) -> None:
@@ -2962,9 +2724,7 @@ class TestRAGHybridSearch:
             source="f.txt",
             embedding=None,
         )
-        result = hybrid_search(
-            [1.0, 0.0], "test", [chunk_no_emb]
-        )
+        result = hybrid_search([1.0, 0.0], "test", [chunk_no_emb])
         assert result == []
 
 

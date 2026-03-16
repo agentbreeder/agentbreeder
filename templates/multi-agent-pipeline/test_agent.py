@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 TEMPLATE_DIR = Path(__file__).parent
 AGENT_YAML = TEMPLATE_DIR / "agent.yaml"
 ORCHESTRATION_YAML = TEMPLATE_DIR / "orchestration.yaml"
@@ -33,6 +32,7 @@ class TestAgentConfig:
 
     def test_version_is_semver(self, agent_config: dict) -> None:
         import re
+
         assert re.match(r"^\d+\.\d+\.\d+$", agent_config["version"])
 
     def test_subagents_configured(self, agent_config: dict) -> None:

@@ -57,18 +57,14 @@ class TestDeployCommand:
         assert result.exit_code != 0
 
     def test_deploy_invalid_yaml_fails(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write("name: test-agent\n")
         f.close()
         result = runner.invoke(app, ["deploy", f.name])
         assert result.exit_code == 1
 
     def test_deploy_valid_yaml_success(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_YAML)
         f.close()
 
@@ -82,9 +78,7 @@ class TestDeployCommand:
             "endpoint_url": "http://localhost:8080",
         }
 
-        with patch(
-            "cli.commands.deploy.DeployEngine"
-        ) as mock_engine_cls:
+        with patch("cli.commands.deploy.DeployEngine") as mock_engine_cls:
             engine_inst = mock_engine_cls.return_value
             engine_inst.deploy = AsyncMock(return_value=mock_result)
             result = runner.invoke(app, ["deploy", f.name])
@@ -93,9 +87,7 @@ class TestDeployCommand:
         assert "successful" in result.output.lower() or "test-agent" in result.output
 
     def test_deploy_json_output_success(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_YAML)
         f.close()
 
@@ -106,36 +98,24 @@ class TestDeployCommand:
             "endpoint_url": "http://localhost:8080",
         }
 
-        with patch(
-            "cli.commands.deploy.DeployEngine"
-        ) as mock_engine_cls:
+        with patch("cli.commands.deploy.DeployEngine") as mock_engine_cls:
             engine_inst = mock_engine_cls.return_value
             engine_inst.deploy = AsyncMock(return_value=mock_result)
-            result = runner.invoke(
-                app, ["deploy", f.name, "--json"]
-            )
+            result = runner.invoke(app, ["deploy", f.name, "--json"])
 
         assert result.exit_code == 0
         output = json.loads(result.output)
         assert output["agent_name"] == "test-agent"
 
     def test_deploy_engine_exception_json(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_YAML)
         f.close()
 
-        with patch(
-            "cli.commands.deploy.DeployEngine"
-        ) as mock_engine_cls:
+        with patch("cli.commands.deploy.DeployEngine") as mock_engine_cls:
             engine_inst = mock_engine_cls.return_value
-            engine_inst.deploy = AsyncMock(
-                side_effect=RuntimeError("boom")
-            )
-            result = runner.invoke(
-                app, ["deploy", f.name, "--json"]
-            )
+            engine_inst.deploy = AsyncMock(side_effect=RuntimeError("boom"))
+            result = runner.invoke(app, ["deploy", f.name, "--json"])
 
         assert result.exit_code == 1
         found_json = False
@@ -150,9 +130,7 @@ class TestDeployCommand:
         assert found_json or "error" in result.output.lower()
 
     def test_deploy_target_flag(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_YAML)
         f.close()
 
@@ -162,14 +140,10 @@ class TestDeployCommand:
         mock_result.endpoint_url = "http://localhost:8080"
         mock_result.model_dump.return_value = {}
 
-        with patch(
-            "cli.commands.deploy.DeployEngine"
-        ) as mock_engine_cls:
+        with patch("cli.commands.deploy.DeployEngine") as mock_engine_cls:
             engine_inst = mock_engine_cls.return_value
             engine_inst.deploy = AsyncMock(return_value=mock_result)
-            result = runner.invoke(
-                app, ["deploy", f.name, "--target", "aws"]
-            )
+            result = runner.invoke(app, ["deploy", f.name, "--target", "aws"])
 
         assert result.exit_code == 0
         call_kwargs = engine_inst.deploy.call_args
@@ -221,9 +195,7 @@ class TestSecretCommand:
             "cli.commands.secret._get_backend",
             return_value=mock_backend,
         ):
-            result = runner.invoke(
-                app, ["secret", "list", "--json"]
-            )
+            result = runner.invoke(app, ["secret", "list", "--json"])
 
         assert result.exit_code == 0
         output = json.loads(result.output)
@@ -243,9 +215,7 @@ class TestSecretCommand:
             "cli.commands.secret._get_backend",
             return_value=mock_backend,
         ):
-            result = runner.invoke(
-                app, ["secret", "list", "--json"]
-            )
+            result = runner.invoke(app, ["secret", "list", "--json"])
 
         assert result.exit_code == 0
         output = json.loads(result.output)
@@ -253,9 +223,7 @@ class TestSecretCommand:
         assert output[0]["name"] == "MY_KEY"
 
     def test_secret_list_invalid_backend(self) -> None:
-        result = runner.invoke(
-            app, ["secret", "list", "--backend", "bogus"]
-        )
+        result = runner.invoke(app, ["secret", "list", "--backend", "bogus"])
         assert result.exit_code != 0
 
     def test_secret_set_with_value(self) -> None:
@@ -285,8 +253,12 @@ class TestSecretCommand:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "set", "MY_KEY",
-                    "--value", "s3cr3t", "--json",
+                    "secret",
+                    "set",
+                    "MY_KEY",
+                    "--value",
+                    "s3cr3t",
+                    "--json",
                 ],
             )
 
@@ -303,9 +275,7 @@ class TestSecretCommand:
             "cli.commands.secret._get_backend",
             return_value=mock_backend,
         ):
-            result = runner.invoke(
-                app, ["secret", "get", "MY_KEY"]
-            )
+            result = runner.invoke(app, ["secret", "get", "MY_KEY"])
 
         assert result.exit_code == 0
         assert "MY_KEY" in result.output
@@ -318,9 +288,7 @@ class TestSecretCommand:
             "cli.commands.secret._get_backend",
             return_value=mock_backend,
         ):
-            result = runner.invoke(
-                app, ["secret", "get", "MISSING"]
-            )
+            result = runner.invoke(app, ["secret", "get", "MISSING"])
 
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
@@ -333,9 +301,7 @@ class TestSecretCommand:
             "cli.commands.secret._get_backend",
             return_value=mock_backend,
         ):
-            result = runner.invoke(
-                app, ["secret", "get", "MY_KEY", "--json"]
-            )
+            result = runner.invoke(app, ["secret", "get", "MY_KEY", "--json"])
 
         assert result.exit_code == 0
         output = json.loads(result.output)
@@ -367,9 +333,7 @@ class TestSecretCommand:
             "cli.commands.secret._get_backend",
             return_value=mock_backend,
         ):
-            result = runner.invoke(
-                app, ["secret", "delete", "MY_KEY", "--force"]
-            )
+            result = runner.invoke(app, ["secret", "delete", "MY_KEY", "--force"])
 
         assert result.exit_code == 0
         mock_backend.delete.assert_called_once()
@@ -393,17 +357,13 @@ class TestSecretCommand:
 
     def test_secret_delete_not_found(self) -> None:
         mock_backend = MagicMock()
-        mock_backend.delete = AsyncMock(
-            side_effect=KeyError("MY_KEY")
-        )
+        mock_backend.delete = AsyncMock(side_effect=KeyError("MY_KEY"))
 
         with patch(
             "cli.commands.secret._get_backend",
             return_value=mock_backend,
         ):
-            result = runner.invoke(
-                app, ["secret", "delete", "MY_KEY", "--force"]
-            )
+            result = runner.invoke(app, ["secret", "delete", "MY_KEY", "--force"])
 
         assert result.exit_code == 1
 
@@ -418,8 +378,12 @@ class TestSecretCommand:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "rotate", "MY_KEY",
-                    "--value", "new-val", "--json",
+                    "secret",
+                    "rotate",
+                    "MY_KEY",
+                    "--value",
+                    "new-val",
+                    "--json",
                 ],
             )
 
@@ -429,9 +393,7 @@ class TestSecretCommand:
 
     def test_secret_rotate_key_not_found(self) -> None:
         mock_backend = MagicMock()
-        mock_backend.rotate = AsyncMock(
-            side_effect=KeyError("MY_KEY not found")
-        )
+        mock_backend.rotate = AsyncMock(side_effect=KeyError("MY_KEY not found"))
 
         with patch(
             "cli.commands.secret._get_backend",
@@ -440,8 +402,11 @@ class TestSecretCommand:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "rotate", "MY_KEY",
-                    "--value", "new-val",
+                    "secret",
+                    "rotate",
+                    "MY_KEY",
+                    "--value",
+                    "new-val",
                 ],
             )
 
@@ -478,12 +443,8 @@ class TestTemplateCommand:
         mock_client.get = AsyncMock(return_value=mock_resp)
 
         with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
-            )
-            mock_cls.return_value.__aexit__ = AsyncMock(
-                return_value=False
-            )
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             result = runner.invoke(app, ["template", "list"])
 
         assert result.exit_code == 1
@@ -496,37 +457,32 @@ class TestTemplateCommand:
         mock_client.get = AsyncMock(return_value=mock_resp)
 
         with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
-            )
-            mock_cls.return_value.__aexit__ = AsyncMock(
-                return_value=False
-            )
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             result = runner.invoke(app, ["template", "list"])
 
         assert result.exit_code == 0
         assert "No templates" in result.output or "no" in result.output.lower()
 
     def test_template_create_invalid_yaml(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write("- not a mapping\n")
         f.close()
 
         result = runner.invoke(
             app,
             [
-                "template", "create", f.name,
-                "--name", "bad-tmpl",
+                "template",
+                "create",
+                f.name,
+                "--name",
+                "bad-tmpl",
             ],
         )
         assert result.exit_code == 1
 
     def test_template_create_success(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_YAML)
         f.close()
 
@@ -536,20 +492,22 @@ class TestTemplateCommand:
         mock_client.post = AsyncMock(return_value=mock_resp)
 
         with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
-            )
-            mock_cls.return_value.__aexit__ = AsyncMock(
-                return_value=False
-            )
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             result = runner.invoke(
                 app,
                 [
-                    "template", "create", f.name,
-                    "--name", "my-tmpl",
-                    "--description", "A test",
-                    "--category", "starter",
-                    "--author", "tester",
+                    "template",
+                    "create",
+                    f.name,
+                    "--name",
+                    "my-tmpl",
+                    "--description",
+                    "A test",
+                    "--category",
+                    "starter",
+                    "--author",
+                    "tester",
                 ],
             )
 
@@ -560,8 +518,11 @@ class TestTemplateCommand:
         result = runner.invoke(
             app,
             [
-                "template", "use", "my-tmpl",
-                "--params", "not-json",
+                "template",
+                "use",
+                "my-tmpl",
+                "--params",
+                "not-json",
             ],
         )
         assert result.exit_code == 1
@@ -584,9 +545,7 @@ class TestOrchestrationCommand:
         assert result.exit_code in (0, 2)
 
     def test_orchestration_validate_valid(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_ORCH_YAML)
         f.close()
 
@@ -598,17 +557,13 @@ class TestOrchestrationCommand:
             "cli.commands.orchestration.validate_orchestration",
             return_value=mock_result,
         ):
-            result = runner.invoke(
-                app, ["orchestration", "validate", f.name]
-            )
+            result = runner.invoke(app, ["orchestration", "validate", f.name])
 
         assert result.exit_code == 0
         assert "Valid" in result.output or "valid" in result.output.lower()
 
     def test_orchestration_validate_invalid(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write("name: bad\n")
         f.close()
 
@@ -626,16 +581,12 @@ class TestOrchestrationCommand:
             "cli.commands.orchestration.validate_orchestration",
             return_value=mock_result,
         ):
-            result = runner.invoke(
-                app, ["orchestration", "validate", f.name]
-            )
+            result = runner.invoke(app, ["orchestration", "validate", f.name])
 
         assert result.exit_code == 1
 
     def test_orchestration_validate_json(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_ORCH_YAML)
         f.close()
 
@@ -659,33 +610,21 @@ class TestOrchestrationCommand:
     def test_orchestration_list_connection_error(self) -> None:
         import httpx
 
-        with patch(
-            "cli.commands.orchestration._get_client"
-        ) as mock_get:
+        with patch("cli.commands.orchestration._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
-            mock_client.get.side_effect = httpx.ConnectError(
-                "refused"
-            )
+            mock_client.get.side_effect = httpx.ConnectError("refused")
             mock_get.return_value = mock_client
 
-            result = runner.invoke(
-                app, ["orchestration", "list"]
-            )
+            result = runner.invoke(app, ["orchestration", "list"])
 
         assert result.exit_code == 1
 
     def test_orchestration_list_empty(self) -> None:
-        with patch(
-            "cli.commands.orchestration._get_client"
-        ) as mock_get:
+        with patch("cli.commands.orchestration._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
             mock_resp = MagicMock()
             mock_resp.status_code = 200
@@ -694,21 +633,15 @@ class TestOrchestrationCommand:
             mock_client.get.return_value = mock_resp
             mock_get.return_value = mock_client
 
-            result = runner.invoke(
-                app, ["orchestration", "list"]
-            )
+            result = runner.invoke(app, ["orchestration", "list"])
 
         assert result.exit_code == 0
         assert "No orchestration" in result.output or "no" in result.output.lower()
 
     def test_orchestration_status_not_found(self) -> None:
-        with patch(
-            "cli.commands.orchestration._get_client"
-        ) as mock_get:
+        with patch("cli.commands.orchestration._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
             mock_resp = MagicMock()
             mock_resp.status_code = 200
@@ -717,17 +650,13 @@ class TestOrchestrationCommand:
             mock_client.get.return_value = mock_resp
             mock_get.return_value = mock_client
 
-            result = runner.invoke(
-                app, ["orchestration", "status", "nope"]
-            )
+            result = runner.invoke(app, ["orchestration", "status", "nope"])
 
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
 
     def test_orchestration_deploy_validation_fail(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write("name: bad\n")
         f.close()
 
@@ -745,9 +674,7 @@ class TestOrchestrationCommand:
             "cli.commands.orchestration.validate_orchestration",
             return_value=mock_result,
         ):
-            result = runner.invoke(
-                app, ["orchestration", "deploy", f.name]
-            )
+            result = runner.invoke(app, ["orchestration", "deploy", f.name])
 
         assert result.exit_code == 1
 
@@ -775,10 +702,7 @@ class TestEjectCommand:
         from cli.commands.eject import _generate_python_sdk
 
         yaml_str = VALID_YAML + (
-            "tools:\n"
-            "  - ref: tools/zendesk-mcp\n"
-            "  - name: search\n"
-            "    description: Search KB\n"
+            "tools:\n  - ref: tools/zendesk-mcp\n  - name: search\n    description: Search KB\n"
         )
         code = _generate_python_sdk(yaml_str)
         assert "zendesk-mcp" in code
@@ -787,11 +711,7 @@ class TestEjectCommand:
     def test_generate_python_sdk_with_guardrails(self) -> None:
         from cli.commands.eject import _generate_python_sdk
 
-        yaml_str = VALID_YAML + (
-            "guardrails:\n"
-            "  - pii_detection\n"
-            "  - hallucination_check\n"
-        )
+        yaml_str = VALID_YAML + ("guardrails:\n  - pii_detection\n  - hallucination_check\n")
         code = _generate_python_sdk(yaml_str)
         assert "pii_detection" in code
         assert "hallucination_check" in code
@@ -815,10 +735,7 @@ class TestEjectCommand:
     def test_generate_typescript_sdk_with_tools(self) -> None:
         from cli.commands.eject import _generate_typescript_sdk
 
-        yaml_str = VALID_YAML + (
-            "tools:\n"
-            "  - ref: tools/slack\n"
-        )
+        yaml_str = VALID_YAML + ("tools:\n  - ref: tools/slack\n")
         code = _generate_typescript_sdk(yaml_str)
         assert "tools/slack" in code
 
@@ -833,11 +750,7 @@ class TestEjectCommand:
     def test_generate_python_sdk_with_memory(self) -> None:
         from cli.commands.eject import _generate_python_sdk
 
-        yaml_str = VALID_YAML + (
-            "memory:\n"
-            "  backend: redis\n"
-            "  max_messages: 50\n"
-        )
+        yaml_str = VALID_YAML + ("memory:\n  backend: redis\n  max_messages: 50\n")
         code = _generate_python_sdk(yaml_str)
         assert "redis" in code
         assert "50" in code
@@ -845,10 +758,7 @@ class TestEjectCommand:
     def test_generate_python_sdk_with_prompts(self) -> None:
         from cli.commands.eject import _generate_python_sdk
 
-        yaml_str = VALID_YAML + (
-            "prompts:\n"
-            "  system: prompts/support-v3\n"
-        )
+        yaml_str = VALID_YAML + ("prompts:\n  system: prompts/support-v3\n")
         code = _generate_python_sdk(yaml_str)
         assert "prompts/support-v3" in code
 
@@ -867,17 +777,11 @@ class TestChatCommand:
     def test_chat_connection_error(self) -> None:
         import httpx
 
-        with patch(
-            "cli.commands.chat._get_client"
-        ) as mock_get:
+        with patch("cli.commands.chat._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
-            mock_client.post.side_effect = httpx.ConnectError(
-                "refused"
-            )
+            mock_client.post.side_effect = httpx.ConnectError("refused")
             mock_get.return_value = mock_client
 
             # Provide stdin so it tries one message then EOF
@@ -891,13 +795,9 @@ class TestChatCommand:
         assert "error" in result.output.lower()
 
     def test_chat_json_mode_success(self) -> None:
-        with patch(
-            "cli.commands.chat._get_client"
-        ) as mock_get:
+        with patch("cli.commands.chat._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
             mock_resp = MagicMock()
             mock_resp.status_code = 200
@@ -973,9 +873,7 @@ class TestEvalCommand:
             "cli.commands.eval._get_store",
             return_value=mock_store,
         ):
-            result = runner.invoke(
-                app, ["eval", "datasets", "--json"]
-            )
+            result = runner.invoke(app, ["eval", "datasets", "--json"])
 
         assert result.exit_code == 0
         output = json.loads(result.output)
@@ -990,18 +888,14 @@ class TestEvalCommand:
             "cli.commands.eval._get_store",
             return_value=mock_store,
         ):
-            result = runner.invoke(
-                app, ["eval", "results", "nonexistent-id"]
-            )
+            result = runner.invoke(app, ["eval", "results", "nonexistent-id"])
 
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
 
     def test_eval_run_dataset_not_found(self) -> None:
         mock_store = MagicMock()
-        mock_store.create_run.side_effect = ValueError(
-            "Dataset not found"
-        )
+        mock_store.create_run.side_effect = ValueError("Dataset not found")
 
         with patch(
             "cli.commands.eval._get_store",
@@ -1010,8 +904,11 @@ class TestEvalCommand:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "run", "my-agent",
-                    "--dataset", "missing-ds",
+                    "eval",
+                    "run",
+                    "my-agent",
+                    "--dataset",
+                    "missing-ds",
                 ],
             )
 
@@ -1019,9 +916,7 @@ class TestEvalCommand:
 
     def test_eval_run_json_error(self) -> None:
         mock_store = MagicMock()
-        mock_store.create_run.side_effect = ValueError(
-            "Dataset not found"
-        )
+        mock_store.create_run.side_effect = ValueError("Dataset not found")
 
         with patch(
             "cli.commands.eval._get_store",
@@ -1030,8 +925,12 @@ class TestEvalCommand:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "run", "my-agent",
-                    "--dataset", "missing", "--json",
+                    "eval",
+                    "run",
+                    "my-agent",
+                    "--dataset",
+                    "missing",
+                    "--json",
                 ],
             )
 
@@ -1069,8 +968,11 @@ class TestEvalCommand:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "gate", "run-1",
-                    "--threshold", "0.7",
+                    "eval",
+                    "gate",
+                    "run-1",
+                    "--threshold",
+                    "0.7",
                 ],
             )
 
@@ -1098,8 +1000,11 @@ class TestEvalCommand:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "gate", "run-1",
-                    "--threshold", "0.7",
+                    "eval",
+                    "gate",
+                    "run-1",
+                    "--threshold",
+                    "0.7",
                 ],
             )
 
@@ -1126,9 +1031,13 @@ class TestEvalCommand:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "gate", "run-1",
-                    "--threshold", "0.7",
-                    "--metrics", "correctness",
+                    "eval",
+                    "gate",
+                    "run-1",
+                    "--threshold",
+                    "0.7",
+                    "--metrics",
+                    "correctness",
                     "--json",
                 ],
             )
@@ -1145,9 +1054,7 @@ class TestEvalCommand:
             "cli.commands.eval._get_store",
             return_value=mock_store,
         ):
-            result = runner.invoke(
-                app, ["eval", "gate", "no-run"]
-            )
+            result = runner.invoke(app, ["eval", "gate", "no-run"])
 
         assert result.exit_code == 1
 
@@ -1162,25 +1069,19 @@ class TestEvalCommand:
             "cli.commands.eval._get_store",
             return_value=mock_store,
         ):
-            result = runner.invoke(
-                app, ["eval", "gate", "run-1"]
-            )
+            result = runner.invoke(app, ["eval", "gate", "run-1"])
 
         assert result.exit_code == 1
 
     def test_eval_compare_error(self) -> None:
         mock_store = MagicMock()
-        mock_store.compare_runs.side_effect = ValueError(
-            "Run A not found"
-        )
+        mock_store.compare_runs.side_effect = ValueError("Run A not found")
 
         with patch(
             "cli.commands.eval._get_store",
             return_value=mock_store,
         ):
-            result = runner.invoke(
-                app, ["eval", "compare", "a", "b"]
-            )
+            result = runner.invoke(app, ["eval", "compare", "a", "b"])
 
         assert result.exit_code == 1
 
@@ -1203,9 +1104,7 @@ class TestEvalCommand:
             "cli.commands.eval._get_store",
             return_value=mock_store,
         ):
-            result = runner.invoke(
-                app, ["eval", "compare", "a", "b", "--json"]
-            )
+            result = runner.invoke(app, ["eval", "compare", "a", "b", "--json"])
 
         assert result.exit_code == 0
         output = json.loads(result.output)
@@ -1226,64 +1125,42 @@ class TestPublishCommand:
     def test_publish_connection_error(self) -> None:
         import httpx
 
-        with patch(
-            "cli.commands.publish._get_client"
-        ) as mock_get:
+        with patch("cli.commands.publish._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
-            mock_client.get.side_effect = httpx.ConnectError(
-                "refused"
-            )
+            mock_client.get.side_effect = httpx.ConnectError("refused")
             mock_get.return_value = mock_client
 
-            result = runner.invoke(
-                app, ["publish", "agent", "my-agent"]
-            )
+            result = runner.invoke(app, ["publish", "agent", "my-agent"])
 
         assert result.exit_code == 1
 
     def test_publish_no_approved_pr(self) -> None:
-        with patch(
-            "cli.commands.publish._get_client"
-        ) as mock_get:
+        with patch("cli.commands.publish._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
             mock_resp = MagicMock()
             mock_resp.status_code = 200
-            mock_resp.json.return_value = {
-                "data": {"prs": []}
-            }
+            mock_resp.json.return_value = {"data": {"prs": []}}
             mock_resp.raise_for_status = MagicMock()
             mock_client.get.return_value = mock_resp
             mock_get.return_value = mock_client
 
-            result = runner.invoke(
-                app, ["publish", "agent", "my-agent"]
-            )
+            result = runner.invoke(app, ["publish", "agent", "my-agent"])
 
         assert result.exit_code == 1
         assert "not found" in result.output.lower() or "no approved" in result.output.lower()
 
     def test_publish_json_no_pr(self) -> None:
-        with patch(
-            "cli.commands.publish._get_client"
-        ) as mock_get:
+        with patch("cli.commands.publish._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
             mock_resp = MagicMock()
             mock_resp.status_code = 200
-            mock_resp.json.return_value = {
-                "data": {"prs": []}
-            }
+            mock_resp.json.return_value = {"data": {"prs": []}}
             mock_resp.raise_for_status = MagicMock()
             mock_client.get.return_value = mock_resp
             mock_get.return_value = mock_client
@@ -1320,37 +1197,30 @@ class TestSubmitCommand:
     def test_submit_connection_error(self) -> None:
         import httpx
 
-        with patch(
-            "cli.commands.submit._get_client"
-        ) as mock_get:
+        with patch("cli.commands.submit._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
-            mock_client.post.side_effect = httpx.ConnectError(
-                "refused"
-            )
+            mock_client.post.side_effect = httpx.ConnectError("refused")
             mock_get.return_value = mock_client
 
             result = runner.invoke(
                 app,
                 [
-                    "submit", "agent", "my-agent",
-                    "-m", "Initial submit",
+                    "submit",
+                    "agent",
+                    "my-agent",
+                    "-m",
+                    "Initial submit",
                 ],
             )
 
         assert result.exit_code == 1
 
     def test_submit_success(self) -> None:
-        with patch(
-            "cli.commands.submit._get_client"
-        ) as mock_get:
+        with patch("cli.commands.submit._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
             mock_resp = MagicMock()
             mock_resp.status_code = 200
@@ -1371,8 +1241,11 @@ class TestSubmitCommand:
             result = runner.invoke(
                 app,
                 [
-                    "submit", "agent", "my-agent",
-                    "-m", "Test submit",
+                    "submit",
+                    "agent",
+                    "my-agent",
+                    "-m",
+                    "Test submit",
                 ],
             )
 
@@ -1380,13 +1253,9 @@ class TestSubmitCommand:
         assert "pr-123" in result.output
 
     def test_submit_json_success(self) -> None:
-        with patch(
-            "cli.commands.submit._get_client"
-        ) as mock_get:
+        with patch("cli.commands.submit._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
             mock_resp = MagicMock()
             mock_resp.status_code = 200
@@ -1405,8 +1274,12 @@ class TestSubmitCommand:
             result = runner.invoke(
                 app,
                 [
-                    "submit", "agent", "x",
-                    "-m", "msg", "--json",
+                    "submit",
+                    "agent",
+                    "x",
+                    "-m",
+                    "msg",
+                    "--json",
                 ],
             )
 
@@ -1417,25 +1290,17 @@ class TestSubmitCommand:
     def test_submit_http_error(self) -> None:
         import httpx
 
-        with patch(
-            "cli.commands.submit._get_client"
-        ) as mock_get:
+        with patch("cli.commands.submit._get_client") as mock_get:
             mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(
-                return_value=mock_client
-            )
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
 
             mock_response = MagicMock()
             mock_response.status_code = 409
-            mock_response.json.return_value = {
-                "detail": "PR already exists"
-            }
+            mock_response.json.return_value = {"detail": "PR already exists"}
 
-            mock_client.post.side_effect = (
-                httpx.HTTPStatusError(
-                    "409", request=MagicMock(), response=mock_response
-                )
+            mock_client.post.side_effect = httpx.HTTPStatusError(
+                "409", request=MagicMock(), response=mock_response
             )
             mock_get.return_value = mock_client
 

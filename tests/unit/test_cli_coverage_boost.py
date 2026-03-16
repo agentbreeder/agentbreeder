@@ -98,9 +98,7 @@ class TestOrchValidateInternals:
     """Lines 149-209: validate --json with errors, error.suggestion."""
 
     def test_validate_json_with_errors(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write("name: bad\n")
         f.close()
 
@@ -130,9 +128,7 @@ class TestOrchValidateInternals:
         assert out["errors"][0]["suggestion"] == "Add strategy"
 
     def test_validate_invalid_shows_suggestion(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write("name: bad\n")
         f.close()
 
@@ -256,9 +252,7 @@ class TestOrchDeploy:
     """Lines 149-209, 291-333: deploy subcommand success paths."""
 
     def test_deploy_success_rich(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_ORCH_YAML)
         f.close()
 
@@ -313,9 +307,7 @@ class TestOrchDeploy:
         assert "deployed" in result.output.lower()
 
     def test_deploy_success_json(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_ORCH_YAML)
         f.close()
 
@@ -365,9 +357,7 @@ class TestOrchDeploy:
         assert out["name"] == "test-orch"
 
     def test_deploy_connect_error_rich(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_ORCH_YAML)
         f.close()
 
@@ -397,9 +387,7 @@ class TestOrchDeploy:
         assert result.exit_code == 1
 
     def test_deploy_connect_error_json(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_ORCH_YAML)
         f.close()
 
@@ -429,9 +417,7 @@ class TestOrchDeploy:
         assert result.exit_code == 1
 
     def test_deploy_http_error_rich(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_ORCH_YAML)
         f.close()
 
@@ -440,17 +426,11 @@ class TestOrchDeploy:
         mock_val.errors = []
 
         request = httpx.Request("POST", "http://localhost")
-        response = httpx.Response(
-            status_code=422, request=request
-        )
-        exc = httpx.HTTPStatusError(
-            "bad", request=request, response=response
-        )
+        response = httpx.Response(status_code=422, request=request)
+        exc = httpx.HTTPStatusError("bad", request=request, response=response)
         # Make response.json() return detail
         response_mock = MagicMock()
-        response_mock.json.return_value = {
-            "detail": "Deploy failed"
-        }
+        response_mock.json.return_value = {"detail": "Deploy failed"}
         exc.response = response_mock
 
         client = _mock_httpx_client(post_side_effect=exc)
@@ -473,9 +453,7 @@ class TestOrchDeploy:
         assert result.exit_code == 1
 
     def test_deploy_http_error_json(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_ORCH_YAML)
         f.close()
 
@@ -484,16 +462,10 @@ class TestOrchDeploy:
         mock_val.errors = []
 
         request = httpx.Request("POST", "http://localhost")
-        response = httpx.Response(
-            status_code=422, request=request
-        )
-        exc = httpx.HTTPStatusError(
-            "bad", request=request, response=response
-        )
+        response = httpx.Response(status_code=422, request=request)
+        exc = httpx.HTTPStatusError("bad", request=request, response=response)
         response_mock = MagicMock()
-        response_mock.json.return_value = {
-            "detail": "Deploy failed"
-        }
+        response_mock.json.return_value = {"detail": "Deploy failed"}
         exc.response = response_mock
 
         client = _mock_httpx_client(post_side_effect=exc)
@@ -516,9 +488,7 @@ class TestOrchDeploy:
         assert result.exit_code == 1
 
     def test_deploy_validation_fail_json(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write("name: bad\n")
         f.close()
 
@@ -577,9 +547,7 @@ class TestOrchList:
             "cli.commands.orchestration._get_client",
             return_value=client,
         ):
-            result = runner.invoke(
-                app, ["orchestration", "list"]
-            )
+            result = runner.invoke(app, ["orchestration", "list"])
 
         assert result.exit_code == 0
         assert "pipeline-a" in result.output
@@ -613,9 +581,12 @@ class TestOrchList:
             result = runner.invoke(
                 app,
                 [
-                    "orchestration", "list",
-                    "--team", "eng",
-                    "--status", "deployed",
+                    "orchestration",
+                    "list",
+                    "--team",
+                    "eng",
+                    "--status",
+                    "deployed",
                 ],
             )
 
@@ -697,12 +668,8 @@ class TestOrchChat:
         }
 
         request = httpx.Request("POST", "http://localhost")
-        response = httpx.Response(
-            status_code=500, request=request
-        )
-        exc = httpx.HTTPStatusError(
-            "bad", request=request, response=response
-        )
+        response = httpx.Response(status_code=500, request=request)
+        exc = httpx.HTTPStatusError("bad", request=request, response=response)
         response_mock = MagicMock()
         response_mock.json.return_value = {"detail": "err"}
         exc.response = response_mock
@@ -818,12 +785,8 @@ class TestEvalRun:
 
     def test_run_success_rich(self) -> None:
         mock_store = MagicMock()
-        mock_store.create_run.return_value = {
-            "id": "run-001"
-        }
-        mock_store.execute_run.return_value = (
-            self._make_run_result()
-        )
+        mock_store.create_run.return_value = {"id": "run-001"}
+        mock_store.execute_run.return_value = self._make_run_result()
 
         with patch(
             "cli.commands.eval._get_store",
@@ -832,8 +795,11 @@ class TestEvalRun:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "run", "my-agent",
-                    "--dataset", "ds-1",
+                    "eval",
+                    "run",
+                    "my-agent",
+                    "--dataset",
+                    "ds-1",
                 ],
             )
 
@@ -842,12 +808,8 @@ class TestEvalRun:
 
     def test_run_success_json(self) -> None:
         mock_store = MagicMock()
-        mock_store.create_run.return_value = {
-            "id": "run-001"
-        }
-        mock_store.execute_run.return_value = (
-            self._make_run_result()
-        )
+        mock_store.create_run.return_value = {"id": "run-001"}
+        mock_store.execute_run.return_value = self._make_run_result()
 
         with patch(
             "cli.commands.eval._get_store",
@@ -856,8 +818,11 @@ class TestEvalRun:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "run", "my-agent",
-                    "--dataset", "ds-1",
+                    "eval",
+                    "run",
+                    "my-agent",
+                    "--dataset",
+                    "ds-1",
                     "--json",
                 ],
             )
@@ -871,12 +836,8 @@ class TestEvalRun:
 
     def test_run_with_overrides(self) -> None:
         mock_store = MagicMock()
-        mock_store.create_run.return_value = {
-            "id": "run-001"
-        }
-        mock_store.execute_run.return_value = (
-            self._make_run_result()
-        )
+        mock_store.create_run.return_value = {"id": "run-001"}
+        mock_store.execute_run.return_value = self._make_run_result()
 
         with patch(
             "cli.commands.eval._get_store",
@@ -885,11 +846,17 @@ class TestEvalRun:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "run", "my-agent",
-                    "--dataset", "ds-1",
-                    "--model", "gpt-4o",
-                    "--temperature", "0.5",
-                    "--judge", "claude-sonnet-4",
+                    "eval",
+                    "run",
+                    "my-agent",
+                    "--dataset",
+                    "ds-1",
+                    "--model",
+                    "gpt-4o",
+                    "--temperature",
+                    "0.5",
+                    "--judge",
+                    "claude-sonnet-4",
                 ],
             )
 
@@ -905,12 +872,8 @@ class TestEvalRun:
 
     def test_run_execute_error_rich(self) -> None:
         mock_store = MagicMock()
-        mock_store.create_run.return_value = {
-            "id": "run-001"
-        }
-        mock_store.execute_run.side_effect = RuntimeError(
-            "agent crashed"
-        )
+        mock_store.create_run.return_value = {"id": "run-001"}
+        mock_store.execute_run.side_effect = RuntimeError("agent crashed")
 
         with patch(
             "cli.commands.eval._get_store",
@@ -919,8 +882,11 @@ class TestEvalRun:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "run", "my-agent",
-                    "--dataset", "ds-1",
+                    "eval",
+                    "run",
+                    "my-agent",
+                    "--dataset",
+                    "ds-1",
                 ],
             )
 
@@ -928,12 +894,8 @@ class TestEvalRun:
 
     def test_run_execute_error_json(self) -> None:
         mock_store = MagicMock()
-        mock_store.create_run.return_value = {
-            "id": "run-001"
-        }
-        mock_store.execute_run.side_effect = RuntimeError(
-            "agent crashed"
-        )
+        mock_store.create_run.return_value = {"id": "run-001"}
+        mock_store.execute_run.side_effect = RuntimeError("agent crashed")
 
         with patch(
             "cli.commands.eval._get_store",
@@ -942,8 +904,11 @@ class TestEvalRun:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "run", "my-agent",
-                    "--dataset", "ds-1",
+                    "eval",
+                    "run",
+                    "my-agent",
+                    "--dataset",
+                    "ds-1",
                     "--json",
                 ],
             )
@@ -953,9 +918,7 @@ class TestEvalRun:
     def test_run_no_metrics(self) -> None:
         """Run completes but summary has no metrics."""
         mock_store = MagicMock()
-        mock_store.create_run.return_value = {
-            "id": "run-002"
-        }
+        mock_store.create_run.return_value = {"id": "run-002"}
         mock_store.execute_run.return_value = {
             "id": "run-002",
             "status": "completed",
@@ -975,8 +938,11 @@ class TestEvalRun:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "run", "my-agent",
-                    "--dataset", "ds-1",
+                    "eval",
+                    "run",
+                    "my-agent",
+                    "--dataset",
+                    "ds-1",
                 ],
             )
 
@@ -1048,9 +1014,13 @@ class TestEvalGateInternals:
             result = runner.invoke(
                 app,
                 [
-                    "eval", "gate", "run-1",
-                    "--threshold", "0.7",
-                    "--metrics", "correctness",
+                    "eval",
+                    "gate",
+                    "run-1",
+                    "--threshold",
+                    "0.7",
+                    "--metrics",
+                    "correctness",
                     "--json",
                 ],
             )
@@ -1094,9 +1064,7 @@ class TestEvalCompare:
             "cli.commands.eval._get_store",
             return_value=mock_store,
         ):
-            result = runner.invoke(
-                app, ["eval", "compare", "a", "b"]
-            )
+            result = runner.invoke(app, ["eval", "compare", "a", "b"])
 
         assert result.exit_code == 0
         assert "agent-a" in result.output
@@ -1113,18 +1081,14 @@ class TestEvalCompare:
             "cli.commands.eval._get_store",
             return_value=mock_store,
         ):
-            result = runner.invoke(
-                app, ["eval", "compare", "a", "b"]
-            )
+            result = runner.invoke(app, ["eval", "compare", "a", "b"])
 
         assert result.exit_code == 0
         assert "No metrics" in result.output
 
     def test_compare_error_json(self) -> None:
         mock_store = MagicMock()
-        mock_store.compare_runs.side_effect = ValueError(
-            "Run A missing"
-        )
+        mock_store.compare_runs.side_effect = ValueError("Run A missing")
 
         with patch(
             "cli.commands.eval._get_store",
@@ -1162,8 +1126,7 @@ class TestEvalResults:
             },
             {
                 "actual_output": (
-                    "a very long answer that exceeds "
-                    "forty characters in total length"
+                    "a very long answer that exceeds forty characters in total length"
                 ),
                 "scores": {
                     "correctness": 0.6,
@@ -1179,9 +1142,7 @@ class TestEvalResults:
             "cli.commands.eval._get_store",
             return_value=mock_store,
         ):
-            result = runner.invoke(
-                app, ["eval", "results", "run-1"]
-            )
+            result = runner.invoke(app, ["eval", "results", "run-1"])
 
         assert result.exit_code == 0
         assert "my-agent" in result.output
@@ -1230,9 +1191,7 @@ class TestEvalResults:
             "cli.commands.eval._get_store",
             return_value=mock_store,
         ):
-            result = runner.invoke(
-                app, ["eval", "results", "run-1"]
-            )
+            result = runner.invoke(app, ["eval", "results", "run-1"])
 
         assert result.exit_code == 0
         assert "No results" in result.output
@@ -1293,9 +1252,7 @@ class TestSecretListTable:
             "cli.commands.secret._get_backend",
             return_value=backend,
         ):
-            result = runner.invoke(
-                app, ["secret", "list"]
-            )
+            result = runner.invoke(app, ["secret", "list"])
 
         assert result.exit_code == 0
         assert "API_KEY" in result.output
@@ -1314,9 +1271,7 @@ class TestSecretListTable:
             "cli.commands.secret._get_backend",
             return_value=backend,
         ):
-            result = runner.invoke(
-                app, ["secret", "list"]
-            )
+            result = runner.invoke(app, ["secret", "list"])
 
         assert result.exit_code == 0
 
@@ -1394,8 +1349,11 @@ class TestSecretRotate:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "rotate", "MY_KEY",
-                    "--value", "new-val",
+                    "secret",
+                    "rotate",
+                    "MY_KEY",
+                    "--value",
+                    "new-val",
                 ],
             )
 
@@ -1446,9 +1404,12 @@ class TestSecretMigrate:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "migrate",
-                    "--from", "env",
-                    "--to", "aws",
+                    "secret",
+                    "migrate",
+                    "--from",
+                    "env",
+                    "--to",
+                    "aws",
                     "--dry-run",
                 ],
             )
@@ -1480,9 +1441,12 @@ class TestSecretMigrate:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "migrate",
-                    "--from", "env",
-                    "--to", "aws",
+                    "secret",
+                    "migrate",
+                    "--from",
+                    "env",
+                    "--to",
+                    "aws",
                 ],
             )
 
@@ -1514,12 +1478,18 @@ class TestSecretMigrate:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "migrate",
-                    "--from", "env",
-                    "--to", "aws",
-                    "--include", "API_KEY",
-                    "--include", "DB_PASS",
-                    "--exclude", "DB_PASS",
+                    "secret",
+                    "migrate",
+                    "--from",
+                    "env",
+                    "--to",
+                    "aws",
+                    "--include",
+                    "API_KEY",
+                    "--include",
+                    "DB_PASS",
+                    "--exclude",
+                    "DB_PASS",
                 ],
             )
 
@@ -1547,9 +1517,12 @@ class TestSecretMigrate:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "migrate",
-                    "--from", "env",
-                    "--to", "aws",
+                    "secret",
+                    "migrate",
+                    "--from",
+                    "env",
+                    "--to",
+                    "aws",
                 ],
             )
 
@@ -1579,9 +1552,12 @@ class TestSecretMigrate:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "migrate",
-                    "--from", "env",
-                    "--to", "aws",
+                    "secret",
+                    "migrate",
+                    "--from",
+                    "env",
+                    "--to",
+                    "aws",
                     "--json",
                 ],
             )
@@ -1600,9 +1576,7 @@ class TestSecretMigrate:
         }
 
         dst = MagicMock()
-        dst.set = AsyncMock(
-            side_effect=[None, RuntimeError("perm denied")]
-        )
+        dst.set = AsyncMock(side_effect=[None, RuntimeError("perm denied")])
 
         def mock_get_backend(name, **kw):
             if name == "env":
@@ -1616,9 +1590,12 @@ class TestSecretMigrate:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "migrate",
-                    "--from", "env",
-                    "--to", "aws",
+                    "secret",
+                    "migrate",
+                    "--from",
+                    "env",
+                    "--to",
+                    "aws",
                 ],
             )
 
@@ -1652,9 +1629,12 @@ class TestSecretMigrate:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "migrate",
-                    "--from", "aws",
-                    "--to", "gcp",
+                    "secret",
+                    "migrate",
+                    "--from",
+                    "aws",
+                    "--to",
+                    "gcp",
                 ],
             )
 
@@ -1680,9 +1660,12 @@ class TestSecretMigrate:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "migrate",
-                    "--from", "env",
-                    "--to", "aws",
+                    "secret",
+                    "migrate",
+                    "--from",
+                    "env",
+                    "--to",
+                    "aws",
                     "--dry-run",
                     "--json",
                 ],
@@ -1707,7 +1690,9 @@ class TestSecretGetMasking:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "get", "MY_KEY",
+                    "secret",
+                    "get",
+                    "MY_KEY",
                     "--reveal",
                 ],
             )
@@ -1746,18 +1731,21 @@ class TestSecretSetTags:
             result = runner.invoke(
                 app,
                 [
-                    "secret", "set", "MY_KEY",
-                    "--value", "val",
-                    "--tag", "env=prod",
-                    "--tag", "team=eng",
+                    "secret",
+                    "set",
+                    "MY_KEY",
+                    "--value",
+                    "val",
+                    "--tag",
+                    "env=prod",
+                    "--tag",
+                    "team=eng",
                 ],
             )
 
         assert result.exit_code == 0
         call_kwargs = backend.set.call_args
-        tags = call_kwargs.kwargs.get(
-            "tags", call_kwargs[1].get("tags")
-        )
+        tags = call_kwargs.kwargs.get("tags", call_kwargs[1].get("tags"))
         assert tags == {"env": "prod", "team": "eng"}
 
 
@@ -1835,33 +1823,25 @@ class TestLogsShowLogs:
             "cli.commands.logs._load_state",
             return_value={"agents": {}},
         ):
-            result = runner.invoke(
-                app, ["logs", "nope", "--json"]
-            )
+            result = runner.invoke(app, ["logs", "nope", "--json"])
 
         assert result.exit_code == 1
 
     def test_logs_stopped_agent_warning(self) -> None:
         mock_deployer = MagicMock()
-        mock_deployer.get_logs = AsyncMock(
-            return_value=["line1"]
-        )
+        mock_deployer.get_logs = AsyncMock(return_value=["line1"])
 
         with (
             patch(
                 "cli.commands.logs._load_state",
-                return_value=self._state_with_agent(
-                    status="stopped"
-                ),
+                return_value=self._state_with_agent(status="stopped"),
             ),
             patch(
                 "engine.deployers.docker_compose.DockerComposeDeployer",
                 return_value=mock_deployer,
             ),
         ):
-            result = runner.invoke(
-                app, ["logs", "my-agent"]
-            )
+            result = runner.invoke(app, ["logs", "my-agent"])
 
         assert result.exit_code == 0
         assert "stopped" in result.output.lower()
@@ -1874,9 +1854,7 @@ class TestLogsShowLogs:
             "normal line",
         ]
         mock_deployer = MagicMock()
-        mock_deployer.get_logs = AsyncMock(
-            return_value=lines
-        )
+        mock_deployer.get_logs = AsyncMock(return_value=lines)
 
         with (
             patch(
@@ -1888,18 +1866,14 @@ class TestLogsShowLogs:
                 return_value=mock_deployer,
             ),
         ):
-            result = runner.invoke(
-                app, ["logs", "my-agent"]
-            )
+            result = runner.invoke(app, ["logs", "my-agent"])
 
         assert result.exit_code == 0
 
     def test_logs_trim_to_n_lines(self) -> None:
         lines = [f"line-{i}" for i in range(100)]
         mock_deployer = MagicMock()
-        mock_deployer.get_logs = AsyncMock(
-            return_value=lines
-        )
+        mock_deployer.get_logs = AsyncMock(return_value=lines)
 
         with (
             patch(
@@ -1920,9 +1894,7 @@ class TestLogsShowLogs:
 
     def test_logs_json_output(self) -> None:
         mock_deployer = MagicMock()
-        mock_deployer.get_logs = AsyncMock(
-            return_value=["line1", "line2"]
-        )
+        mock_deployer.get_logs = AsyncMock(return_value=["line1", "line2"])
 
         with (
             patch(
@@ -1943,9 +1915,7 @@ class TestLogsShowLogs:
 
     def test_logs_runtime_error(self) -> None:
         mock_deployer = MagicMock()
-        mock_deployer.get_logs = AsyncMock(
-            side_effect=RuntimeError("container gone")
-        )
+        mock_deployer.get_logs = AsyncMock(side_effect=RuntimeError("container gone"))
 
         with (
             patch(
@@ -1957,17 +1927,13 @@ class TestLogsShowLogs:
                 return_value=mock_deployer,
             ),
         ):
-            result = runner.invoke(
-                app, ["logs", "my-agent"]
-            )
+            result = runner.invoke(app, ["logs", "my-agent"])
 
         assert result.exit_code == 1
 
     def test_logs_no_lines_message(self) -> None:
         mock_deployer = MagicMock()
-        mock_deployer.get_logs = AsyncMock(
-            return_value=["Container not found"]
-        )
+        mock_deployer.get_logs = AsyncMock(return_value=["Container not found"])
 
         with (
             patch(
@@ -1979,9 +1945,7 @@ class TestLogsShowLogs:
                 return_value=mock_deployer,
             ),
         ):
-            result = runner.invoke(
-                app, ["logs", "my-agent"]
-            )
+            result = runner.invoke(app, ["logs", "my-agent"])
 
         assert result.exit_code == 0
         assert "No logs" in result.output
@@ -2013,11 +1977,7 @@ class TestLogsShowLogs:
         """Other agents exist, suggest them."""
         with patch(
             "cli.commands.logs._load_state",
-            return_value={
-                "agents": {
-                    "other-agent": {"status": "running"}
-                }
-            },
+            return_value={"agents": {"other-agent": {"status": "running"}}},
         ):
             result = runner.invoke(app, ["logs", "nope"])
 
@@ -2030,18 +1990,12 @@ class TestLogsFollowMode:
 
     def test_follow_ctrl_c_breaks(self) -> None:
         mock_deployer = MagicMock()
-        mock_deployer.get_logs = AsyncMock(
-            side_effect=RuntimeError("gone")
-        )
+        mock_deployer.get_logs = AsyncMock(side_effect=RuntimeError("gone"))
 
         with (
             patch(
                 "cli.commands.logs._load_state",
-                return_value={
-                    "agents": {
-                        "my-agent": {"status": "running"}
-                    }
-                },
+                return_value={"agents": {"my-agent": {"status": "running"}}},
             ),
             patch(
                 "engine.deployers.docker_compose.DockerComposeDeployer",
@@ -2110,20 +2064,12 @@ class TestTemplateList:
         }
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(
-            return_value=mock_resp
-        )
+        mock_client.get = AsyncMock(return_value=mock_resp)
 
         with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
-            )
-            mock_cls.return_value.__aexit__ = AsyncMock(
-                return_value=False
-            )
-            result = runner.invoke(
-                app, ["template", "list"]
-            )
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            result = runner.invoke(app, ["template", "list"])
 
         assert result.exit_code == 0
         assert "qa-bot" in result.output
@@ -2134,24 +2080,22 @@ class TestTemplateList:
         mock_resp.json.return_value = {"data": []}
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(
-            return_value=mock_resp
-        )
+        mock_client.get = AsyncMock(return_value=mock_resp)
 
         with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
-            )
-            mock_cls.return_value.__aexit__ = AsyncMock(
-                return_value=False
-            )
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             result = runner.invoke(
                 app,
                 [
-                    "template", "list",
-                    "--category", "support",
-                    "--framework", "langgraph",
-                    "--status", "published",
+                    "template",
+                    "list",
+                    "--category",
+                    "support",
+                    "--framework",
+                    "langgraph",
+                    "--status",
+                    "published",
                 ],
             )
 
@@ -2162,9 +2106,7 @@ class TestTemplateCreateErrors:
     """Lines 121-122: create API error."""
 
     def test_create_api_error(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_YAML)
         f.close()
 
@@ -2173,22 +2115,19 @@ class TestTemplateCreateErrors:
         mock_resp.text = "Internal Server Error"
 
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(
-            return_value=mock_resp
-        )
+        mock_client.post = AsyncMock(return_value=mock_resp)
 
         with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
-            )
-            mock_cls.return_value.__aexit__ = AsyncMock(
-                return_value=False
-            )
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             result = runner.invoke(
                 app,
                 [
-                    "template", "create", f.name,
-                    "--name", "my-tpl",
+                    "template",
+                    "create",
+                    f.name,
+                    "--name",
+                    "my-tpl",
                 ],
             )
 
@@ -2214,27 +2153,22 @@ class TestTemplateUse:
         }
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(
-            return_value=list_resp
-        )
-        mock_client.post = AsyncMock(
-            return_value=inst_resp
-        )
+        mock_client.get = AsyncMock(return_value=list_resp)
+        mock_client.post = AsyncMock(return_value=inst_resp)
 
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "agent.yaml"
             with patch("httpx.AsyncClient") as mock_cls:
-                mock_cls.return_value.__aenter__ = (
-                    AsyncMock(return_value=mock_client)
-                )
-                mock_cls.return_value.__aexit__ = (
-                    AsyncMock(return_value=False)
-                )
+                mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+                mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
                 result = runner.invoke(
                     app,
                     [
-                        "template", "use", "qa-bot",
-                        "--output", str(out),
+                        "template",
+                        "use",
+                        "qa-bot",
+                        "--output",
+                        str(out),
                     ],
                 )
 
@@ -2247,17 +2181,11 @@ class TestTemplateUse:
         list_resp.json.return_value = {"data": []}
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(
-            return_value=list_resp
-        )
+        mock_client.get = AsyncMock(return_value=list_resp)
 
         with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = (
-                AsyncMock(return_value=mock_client)
-            )
-            mock_cls.return_value.__aexit__ = (
-                AsyncMock(return_value=False)
-            )
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             result = runner.invoke(
                 app,
                 ["template", "use", "nonexistent"],
@@ -2275,12 +2203,8 @@ class TestTemplateUse:
         mock_client.get = AsyncMock(return_value=resp)
 
         with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = (
-                AsyncMock(return_value=mock_client)
-            )
-            mock_cls.return_value.__aexit__ = (
-                AsyncMock(return_value=False)
-            )
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             result = runner.invoke(
                 app,
                 ["template", "use", "my-tpl"],
@@ -2302,20 +2226,12 @@ class TestTemplateUse:
         inst_resp.text = "Invalid params"
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(
-            return_value=list_resp
-        )
-        mock_client.post = AsyncMock(
-            return_value=inst_resp
-        )
+        mock_client.get = AsyncMock(return_value=list_resp)
+        mock_client.post = AsyncMock(return_value=inst_resp)
 
         with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = (
-                AsyncMock(return_value=mock_client)
-            )
-            mock_cls.return_value.__aexit__ = (
-                AsyncMock(return_value=False)
-            )
+            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             result = runner.invoke(
                 app,
                 ["template", "use", "qa-bot"],
@@ -2336,10 +2252,7 @@ class TestEjectRemainingBranches:
         from cli.commands.eject import _generate_python_sdk
 
         yaml_str = VALID_YAML + (
-            "deploy:\n"
-            "  cloud: aws\n"
-            "  runtime: ecs-fargate\n"
-            "  region: us-east-1\n"
+            "deploy:\n  cloud: aws\n  runtime: ecs-fargate\n  region: us-east-1\n"
         )
         code = _generate_python_sdk(yaml_str)
         assert "aws" in code
@@ -2349,11 +2262,7 @@ class TestEjectRemainingBranches:
     def test_python_sdk_with_tags(self) -> None:
         from cli.commands.eject import _generate_python_sdk
 
-        yaml_str = VALID_YAML + (
-            "tags:\n"
-            "  - production\n"
-            "  - support\n"
-        )
+        yaml_str = VALID_YAML + ("tags:\n  - production\n  - support\n")
         code = _generate_python_sdk(yaml_str)
         assert ".tag(" in code
         assert "production" in code
@@ -2401,9 +2310,7 @@ class TestEjectRemainingBranches:
             _generate_typescript_sdk,
         )
 
-        yaml_str = VALID_YAML.replace(
-            "cloud: local", "cloud: aws"
-        )
+        yaml_str = VALID_YAML.replace("cloud: local", "cloud: aws")
         code = _generate_typescript_sdk(yaml_str)
         assert "withDeploy" in code
         assert "aws" in code
@@ -2413,9 +2320,7 @@ class TestEjectRemainingBranches:
             _generate_typescript_sdk,
         )
 
-        yaml_str = VALID_YAML + (
-            "tags:\n  - production\n"
-        )
+        yaml_str = VALID_YAML + ("tags:\n  - production\n")
         code = _generate_typescript_sdk(yaml_str)
         assert ".tag(" in code
 
@@ -2425,9 +2330,7 @@ class TestEjectRemainingBranches:
         )
 
         yaml_str = VALID_YAML + (
-            "subagents:\n"
-            '  - ref: agents/helper\n'
-            '    description: Helper agent\n'
+            "subagents:\n  - ref: agents/helper\n    description: Helper agent\n"
         )
         code = _generate_typescript_sdk(yaml_str)
         assert "withSubagent" in code
@@ -2438,10 +2341,7 @@ class TestEjectRemainingBranches:
             _generate_typescript_sdk,
         )
 
-        yaml_str = VALID_YAML + (
-            "guardrails:\n"
-            "  - pii_detection\n"
-        )
+        yaml_str = VALID_YAML + ("guardrails:\n  - pii_detection\n")
         code = _generate_typescript_sdk(yaml_str)
         assert "withGuardrail" in code
 
@@ -2450,10 +2350,7 @@ class TestEjectRemainingBranches:
             _generate_typescript_sdk,
         )
 
-        yaml_str = VALID_YAML + (
-            "prompts:\n"
-            "  system: prompts/support-v3\n"
-        )
+        yaml_str = VALID_YAML + ("prompts:\n  system: prompts/support-v3\n")
         code = _generate_typescript_sdk(yaml_str)
         assert "withPrompt" in code
 
@@ -2462,10 +2359,7 @@ class TestEjectRemainingBranches:
             _generate_typescript_sdk,
         )
 
-        yaml_str = VALID_YAML + (
-            "tools:\n"
-            "  - name: calc\n"
-        )
+        yaml_str = VALID_YAML + ("tools:\n  - name: calc\n")
         code = _generate_typescript_sdk(yaml_str)
         assert "calc" in code
 
@@ -2475,9 +2369,7 @@ class TestEjectRemainingBranches:
 
         from cli.commands.eject import eject as eject_fn
 
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_YAML)
         f.close()
 
@@ -2493,9 +2385,7 @@ class TestEjectRemainingBranches:
         """eject without --output uses agents/<name>/..."""
         from cli.commands.eject import eject as eject_fn
 
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_YAML)
         f.close()
 
@@ -2510,12 +2400,7 @@ class TestEjectRemainingBranches:
                     sdk="python",
                     output=None,
                 )
-                expected = (
-                    Path(td)
-                    / "agents"
-                    / "test-agent"
-                    / "agent_sdk.py"
-                )
+                expected = Path(td) / "agents" / "test-agent" / "agent_sdk.py"
                 assert expected.exists()
             finally:
                 os.chdir(old_cwd)
@@ -2523,9 +2408,7 @@ class TestEjectRemainingBranches:
     def test_eject_with_output_path(self) -> None:
         from cli.commands.eject import eject as eject_fn
 
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_YAML)
         f.close()
 
@@ -2543,9 +2426,7 @@ class TestEjectRemainingBranches:
     def test_eject_typescript_output(self) -> None:
         from cli.commands.eject import eject as eject_fn
 
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write(VALID_YAML)
         f.close()
 
@@ -2586,13 +2467,10 @@ class TestValidateOrchestration:
         mock_result.errors = []
 
         with patch(
-            "engine.orchestration_parser"
-            ".validate_orchestration",
+            "engine.orchestration_parser.validate_orchestration",
             return_value=mock_result,
         ):
-            result = runner.invoke(
-                app, ["validate", f.name]
-            )
+            result = runner.invoke(app, ["validate", f.name])
 
         assert result.exit_code == 0
 
@@ -2613,48 +2491,29 @@ class TestValidateOrchestration:
         mock_result.errors = []
 
         with patch(
-            "engine.orchestration_parser"
-            ".validate_orchestration",
+            "engine.orchestration_parser.validate_orchestration",
             return_value=mock_result,
         ):
-            result = runner.invoke(
-                app, ["validate", f.name]
-            )
+            result = runner.invoke(app, ["validate", f.name])
 
         assert result.exit_code == 0
 
     def test_validate_mcp_config_skipped(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
-        f.write(
-            "name: my-mcp\n"
-            "transport: stdio\n"
-            "command: npx\n"
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+        f.write("name: my-mcp\ntransport: stdio\ncommand: npx\n")
         f.close()
 
-        result = runner.invoke(
-            app, ["validate", f.name]
-        )
+        result = runner.invoke(app, ["validate", f.name])
 
         assert result.exit_code == 0
         assert "Skipped" in result.output
 
     def test_validate_mcp_config_skipped_json(self) -> None:
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
-        f.write(
-            "name: my-mcp\n"
-            "transport: stdio\n"
-            "command: npx\n"
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+        f.write("name: my-mcp\ntransport: stdio\ncommand: npx\n")
         f.close()
 
-        result = runner.invoke(
-            app, ["validate", f.name, "--json"]
-        )
+        result = runner.invoke(app, ["validate", f.name, "--json"])
 
         assert result.exit_code == 0
         out = json.loads(result.output)
@@ -2689,8 +2548,7 @@ class TestValidateOrchestration:
         mock_result.errors = [mock_err]
 
         with patch(
-            "engine.orchestration_parser"
-            ".validate_orchestration",
+            "engine.orchestration_parser.validate_orchestration",
             return_value=mock_result,
         ):
             result = runner.invoke(
@@ -2708,9 +2566,7 @@ class TestValidateOrchestration:
         """_detect_config_type falls back to agent."""
         from cli.commands.validate import _detect_config_type
 
-        f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        )
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         f.write("not: valid: yaml: [[[\n")
         f.close()
 

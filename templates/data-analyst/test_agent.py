@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 TEMPLATE_DIR = Path(__file__).parent
 AGENT_YAML = TEMPLATE_DIR / "agent.yaml"
 
@@ -26,6 +25,7 @@ class TestAgentConfig:
 
     def test_version_is_semver(self, agent_config: dict) -> None:
         import re
+
         assert re.match(r"^\d+\.\d+\.\d+$", agent_config["version"])
 
     def test_very_low_temperature(self, agent_config: dict) -> None:
@@ -48,13 +48,13 @@ class TestAgentConfig:
 
     def test_read_only_enforcement(self, agent_config: dict) -> None:
         env_vars = agent_config["deploy"].get("env_vars", {})
-        assert env_vars.get("DB_READ_ONLY") == "true", \
-            "Database access must be read-only"
+        assert env_vars.get("DB_READ_ONLY") == "true", "Database access must be read-only"
 
     def test_prompt_enforces_select_only(self, agent_config: dict) -> None:
         prompt = agent_config["prompts"]["system"]
         assert "SELECT" in prompt
-        assert "never" in prompt.lower() and "DELETE" in prompt
+        assert "never" in prompt.lower()
+        assert "DELETE" in prompt
 
     def test_database_url_in_secrets(self, agent_config: dict) -> None:
         secrets = agent_config["deploy"].get("secrets", [])

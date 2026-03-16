@@ -159,7 +159,7 @@ def parse_single_issue(title: str, text: str, section: str | None) -> dict:
     labels_match = re.search(r"\*\*Labels:\*\*\s*(.+)", text)
     if labels_match:
         raw = labels_match.group(1)
-        labels = [l.strip().strip("`") for l in raw.split(",")]
+        labels = [label.strip().strip("`") for label in raw.split(",")]
 
     # Extract effort
     effort = ""

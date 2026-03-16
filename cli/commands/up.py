@@ -43,7 +43,9 @@ def _find_compose_dir() -> Path | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             root = Path(result.stdout.strip())
@@ -80,7 +82,8 @@ def _check_docker() -> bool:
     # Check Docker Compose v2
     result = subprocess.run(
         ["docker", "compose", "version"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         console.print(
@@ -97,7 +100,8 @@ def _check_docker() -> bool:
     # Check Docker daemon is running
     result = subprocess.run(
         ["docker", "info"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         console.print(
@@ -250,8 +254,7 @@ def up(
     console.print()
     console.print(
         Panel(
-            "[bold]Agent Garden[/bold]\n"
-            "[dim]Starting the platform locally...[/dim]",
+            "[bold]Agent Garden[/bold]\n[dim]Starting the platform locally...[/dim]",
             border_style="blue",
             padding=(1, 2),
         )
@@ -302,15 +305,19 @@ def up(
     console.print()
 
     cmd = [
-        "docker", "compose",
-        "-f", str(compose_file),
-        "--project-directory", str(project_root),
-        "up", "-d",
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(project_root),
+        "up",
+        "-d",
     ]
     if build:
         cmd.append("--build")
 
-    result = subprocess.run(cmd, cwd=str(project_root))
+    result = subprocess.run(cmd, cwd=str(project_root))  # noqa: S603
 
     if result.returncode != 0:
         console.print(

@@ -12,11 +12,10 @@ Export the agent config as `agent_config` and the handler as `handle_message`
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import anthropic
-
 
 # --- Tool definitions ---
 
@@ -29,7 +28,8 @@ TOOLS = [
             "properties": {
                 "timezone": {
                     "type": "string",
-                    "description": "IANA timezone name (e.g., 'America/New_York', 'Europe/London')",
+                    "description": "IANA timezone name (e.g., 'America/New_York',"
+                    " 'Europe/London')",
                 },
             },
             "required": ["timezone"],
@@ -123,18 +123,18 @@ async def handle_message(message: str, history: list[dict] | None = None) -> str
             for block in response.content:
                 if block.type == "tool_use":
                     result = execute_tool(block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    })
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result,
+                        }
+                    )
 
             messages.append({"role": "user", "content": tool_results})
         else:
             # No more tool calls — extract final text response
-            text_parts = [
-                block.text for block in response.content if block.type == "text"
-            ]
+            text_parts = [block.text for block in response.content if block.type == "text"]
             return "\n".join(text_parts)
 
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 
@@ -60,8 +60,16 @@ def execute_tool(name: str, args: dict) -> str:
 
     if name == "calculator":
         expression = args.get("expression", "")
-        allowed = {"abs": abs, "round": round, "min": min, "max": max,
-                   "pow": pow, "sqrt": math.sqrt, "pi": math.pi, "e": math.e}
+        allowed = {
+            "abs": abs,
+            "round": round,
+            "min": min,
+            "max": max,
+            "pow": pow,
+            "sqrt": math.sqrt,
+            "pi": math.pi,
+            "e": math.e,
+        }
         try:
             result = eval(expression, {"__builtins__": {}}, allowed)  # noqa: S307
             return str(result)
@@ -72,6 +80,7 @@ def execute_tool(name: str, args: dict) -> str:
 
 
 # --- Graph nodes ---
+
 
 def agent_node(state: AgentState) -> AgentState:
     """Main agent node — processes messages and decides next action.
@@ -90,23 +99,42 @@ def agent_node(state: AgentState) -> AgentState:
 
     # Simple demonstration logic — replace with LLM tool-calling in production
     if "calculate" in content.lower() or "math" in content.lower():
-        return {"messages": [AIMessage(
-            content="",
-            tool_calls=[{"id": "calc_1", "name": "calculator",
-                         "args": {"expression": content.split(":")[-1].strip()}}],
-        )]}
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "calc_1",
+                            "name": "calculator",
+                            "args": {"expression": content.split(":")[-1].strip()},
+                        }
+                    ],
+                )
+            ]
+        }
 
     if "search" in content.lower() or "find" in content.lower():
-        return {"messages": [AIMessage(
-            content="",
-            tool_calls=[{"id": "search_1", "name": "search",
-                         "args": {"query": content}}],
-        )]}
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"id": "search_1", "name": "search", "args": {"query": content}}],
+                )
+            ]
+        }
 
-    return {"messages": [AIMessage(
-        content=f"I received your message: '{content}'. I can help you search for information "
-                "or perform calculations. Try asking me to 'search for X' or 'calculate: 2+2'.",
-    )]}
+    return {
+        "messages": [
+            AIMessage(
+                content=(
+                    f"I received your message: '{content}'. I can help you search for"
+                    " information or perform calculations. Try asking me to 'search for X'"
+                    " or 'calculate: 2+2'."
+                ),
+            )
+        ]
+    }
 
 
 def tool_node(state: AgentState) -> AgentState:
@@ -120,10 +148,12 @@ def tool_node(state: AgentState) -> AgentState:
     tool_messages = []
     for tool_call in last_message.tool_calls:
         result = execute_tool(tool_call["name"], tool_call["args"])
-        tool_messages.append(ToolMessage(
-            content=result,
-            tool_call_id=tool_call["id"],
-        ))
+        tool_messages.append(
+            ToolMessage(
+                content=result,
+                tool_call_id=tool_call["id"],
+            )
+        )
 
     return {"messages": tool_messages}
 

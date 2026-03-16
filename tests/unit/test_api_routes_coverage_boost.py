@@ -29,9 +29,7 @@ _NOW_ISO = _NOW.isoformat()
 
 
 def _auth_headers() -> dict[str, str]:
-    token = create_access_token(
-        str(uuid.uuid4()), "test@test.com", "viewer"
-    )
+    token = create_access_token(str(uuid.uuid4()), "test@test.com", "viewer")
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -67,9 +65,7 @@ class TestEvalDatasets:
     @patch("api.routes.evals.get_eval_store")
     def test_list_datasets(self, mock_gs):
         store = _eval_store()
-        store.list_datasets.return_value = [
-            {"id": "ds-1", "name": "set-a"}
-        ]
+        store.list_datasets.return_value = [{"id": "ds-1", "name": "set-a"}]
         mock_gs.return_value = store
         resp = client.get("/api/v1/eval/datasets")
         assert resp.status_code == 200
@@ -85,16 +81,12 @@ class TestEvalDatasets:
             params={"team": "eng", "agent_id": "a1"},
         )
         assert resp.status_code == 200
-        store.list_datasets.assert_called_once_with(
-            team="eng", agent_id="a1"
-        )
+        store.list_datasets.assert_called_once_with(team="eng", agent_id="a1")
 
     @patch("api.routes.evals.get_eval_store")
     def test_create_dataset(self, mock_gs):
         store = _eval_store()
-        store.create_dataset.return_value = {
-            "id": "ds-1", "name": "new-ds"
-        }
+        store.create_dataset.return_value = {"id": "ds-1", "name": "new-ds"}
         mock_gs.return_value = store
         resp = client.post(
             "/api/v1/eval/datasets",
@@ -106,9 +98,7 @@ class TestEvalDatasets:
     @patch("api.routes.evals.get_eval_store")
     def test_create_dataset_missing_name(self, mock_gs):
         mock_gs.return_value = _eval_store()
-        resp = client.post(
-            "/api/v1/eval/datasets", json={}
-        )
+        resp = client.post("/api/v1/eval/datasets", json={})
         assert resp.status_code == 400
 
     @patch("api.routes.evals.get_eval_store")
@@ -116,17 +106,13 @@ class TestEvalDatasets:
         store = _eval_store()
         store.create_dataset.side_effect = ValueError("dup")
         mock_gs.return_value = store
-        resp = client.post(
-            "/api/v1/eval/datasets", json={"name": "dup"}
-        )
+        resp = client.post("/api/v1/eval/datasets", json={"name": "dup"})
         assert resp.status_code == 409
 
     @patch("api.routes.evals.get_eval_store")
     def test_get_dataset(self, mock_gs):
         store = _eval_store()
-        store.get_dataset.return_value = {
-            "id": "ds-1", "name": "s"
-        }
+        store.get_dataset.return_value = {"id": "ds-1", "name": "s"}
         mock_gs.return_value = store
         resp = client.get("/api/v1/eval/datasets/ds-1")
         assert resp.status_code == 200
@@ -252,9 +238,7 @@ class TestEvalRuns:
     def test_create_run(self, mock_gs):
         store = _eval_store()
         store.create_run.return_value = {"id": "run-1"}
-        store.execute_run.return_value = {
-            "id": "run-1", "status": "completed"
-        }
+        store.execute_run.return_value = {"id": "run-1", "status": "completed"}
         mock_gs.return_value = store
         resp = client.post(
             "/api/v1/eval/runs",
@@ -268,9 +252,7 @@ class TestEvalRuns:
     @patch("api.routes.evals.get_eval_store")
     def test_create_run_missing_fields(self, mock_gs):
         mock_gs.return_value = _eval_store()
-        resp = client.post(
-            "/api/v1/eval/runs", json={}
-        )
+        resp = client.post("/api/v1/eval/runs", json={})
         assert resp.status_code == 400
 
     @patch("api.routes.evals.get_eval_store")
@@ -295,9 +277,7 @@ class TestEvalRuns:
     @patch("api.routes.evals.get_eval_store")
     def test_get_run(self, mock_gs):
         store = _eval_store()
-        store.get_run.return_value = {
-            "id": "run-1", "status": "completed"
-        }
+        store.get_run.return_value = {"id": "run-1", "status": "completed"}
         store.get_results.return_value = []
         mock_gs.return_value = store
         resp = client.get("/api/v1/eval/runs/run-1")
@@ -315,12 +295,8 @@ class TestEvalRuns:
     @patch("api.routes.evals.get_eval_store")
     def test_cancel_run(self, mock_gs):
         store = _eval_store()
-        store.get_run.return_value = {
-            "id": "run-1", "status": "running"
-        }
-        store.update_run_status.return_value = {
-            "id": "run-1", "status": "cancelled"
-        }
+        store.get_run.return_value = {"id": "run-1", "status": "running"}
+        store.update_run_status.return_value = {"id": "run-1", "status": "cancelled"}
         mock_gs.return_value = store
         resp = client.delete("/api/v1/eval/runs/run-1")
         assert resp.status_code == 200
@@ -336,9 +312,7 @@ class TestEvalRuns:
     @patch("api.routes.evals.get_eval_store")
     def test_cancel_run_completed(self, mock_gs):
         store = _eval_store()
-        store.get_run.return_value = {
-            "id": "run-1", "status": "completed"
-        }
+        store.get_run.return_value = {"id": "run-1", "status": "completed"}
         mock_gs.return_value = store
         resp = client.delete("/api/v1/eval/runs/run-1")
         assert resp.status_code == 400
@@ -348,9 +322,7 @@ class TestEvalScores:
     @patch("api.routes.evals.get_eval_store")
     def test_score_trend(self, mock_gs):
         store = _eval_store()
-        store.get_score_trend.return_value = [
-            {"run_id": "r1", "score": 0.9}
-        ]
+        store.get_score_trend.return_value = [{"run_id": "r1", "score": 0.9}]
         mock_gs.return_value = store
         resp = client.get(
             "/api/v1/eval/scores/trend",
@@ -397,11 +369,7 @@ class TestEvalBadge:
         store.list_runs.return_value = [
             {
                 "status": "completed",
-                "summary": {
-                    "metrics": {
-                        "correctness": {"mean": 0.85}
-                    }
-                },
+                "summary": {"metrics": {"correctness": {"mean": 0.85}}},
             }
         ]
         mock_gs.return_value = store
@@ -415,11 +383,7 @@ class TestEvalBadge:
         store.list_runs.return_value = [
             {
                 "status": "completed",
-                "summary": {
-                    "metrics": {
-                        "correctness": {"mean": 0.4}
-                    }
-                },
+                "summary": {"metrics": {"correctness": {"mean": 0.4}}},
             }
         ]
         mock_gs.return_value = store
@@ -433,11 +397,7 @@ class TestEvalBadge:
         store.list_runs.return_value = [
             {
                 "status": "completed",
-                "summary": {
-                    "metrics": {
-                        "relevance": {"mean": 0.65}
-                    }
-                },
+                "summary": {"metrics": {"relevance": {"mean": 0.65}}},
             }
         ]
         mock_gs.return_value = store
@@ -464,9 +424,7 @@ class TestEvalSchedules:
     @patch("api.routes.evals.get_eval_store")
     def test_create_schedule(self, mock_gs):
         store = _eval_store()
-        store.create_schedule.return_value = {
-            "id": "s1", "cron": "0 0 * * *"
-        }
+        store.create_schedule.return_value = {"id": "s1", "cron": "0 0 * * *"}
         mock_gs.return_value = store
         resp = client.post(
             "/api/v1/eval/schedules",
@@ -481,9 +439,7 @@ class TestEvalSchedules:
     @patch("api.routes.evals.get_eval_store")
     def test_create_schedule_missing(self, mock_gs):
         mock_gs.return_value = _eval_store()
-        resp = client.post(
-            "/api/v1/eval/schedules", json={}
-        )
+        resp = client.post("/api/v1/eval/schedules", json={})
         assert resp.status_code == 400
 
     @patch("api.routes.evals.get_eval_store")
@@ -515,9 +471,7 @@ class TestEvalPromoteCheck:
     @patch("api.routes.evals.get_eval_store")
     def test_promote_check(self, mock_gs):
         store = _eval_store()
-        store.promote_check.return_value = {
-            "passed": True, "scores": {}
-        }
+        store.promote_check.return_value = {"passed": True, "scores": {}}
         mock_gs.return_value = store
         resp = client.post(
             "/api/v1/eval/promote-check",
@@ -528,9 +482,7 @@ class TestEvalPromoteCheck:
     @patch("api.routes.evals.get_eval_store")
     def test_promote_check_missing_name(self, mock_gs):
         mock_gs.return_value = _eval_store()
-        resp = client.post(
-            "/api/v1/eval/promote-check", json={}
-        )
+        resp = client.post("/api/v1/eval/promote-check", json={})
         assert resp.status_code == 400
 
 
@@ -664,9 +616,7 @@ class TestGitDiff:
         diff.stats = "1 file changed, 2 insertions(+)"
         svc.diff.return_value = diff
         mock_gg.return_value = svc
-        resp = client.get(
-            "/api/v1/git/diff/draft%2Fx"
-        )
+        resp = client.get("/api/v1/git/diff/draft%2Fx")
         assert resp.status_code == 200
 
     @patch("api.routes.git._get_git")
@@ -737,9 +687,7 @@ class TestGitPRs:
         svc = _mock_pr_service()
         svc.get_pr.return_value = None
         mock_gp.return_value = svc
-        resp = client.get(
-            f"/api/v1/git/prs/{uuid.uuid4()}"
-        )
+        resp = client.get(f"/api/v1/git/prs/{uuid.uuid4()}")
         assert resp.status_code == 404
 
     @patch("api.routes.git._get_pr")
@@ -824,9 +772,7 @@ class TestAgentOpsFleet:
     @patch("api.routes.agentops.get_agentops_store")
     def test_fleet_heatmap(self, mock_gs):
         store = _eval_store()
-        store.get_fleet_heatmap.return_value = {
-            "total": 2, "cells": []
-        }
+        store.get_fleet_heatmap.return_value = {"total": 2, "cells": []}
         mock_gs.return_value = store
         resp = client.get("/api/v1/agentops/fleet/heatmap")
         assert resp.status_code == 200
@@ -834,9 +780,7 @@ class TestAgentOpsFleet:
     @patch("api.routes.agentops.get_agentops_store")
     def test_top_agents(self, mock_gs):
         store = _eval_store()
-        store.get_top_agents.return_value = [
-            {"name": "bot", "cost": 10}
-        ]
+        store.get_top_agents.return_value = [{"name": "bot", "cost": 10}]
         mock_gs.return_value = store
         resp = client.get(
             "/api/v1/agentops/top-agents",
@@ -877,9 +821,7 @@ class TestAgentOpsIncidents:
     @patch("api.routes.agentops.get_agentops_store")
     def test_create_incident(self, mock_gs):
         store = _eval_store()
-        store.create_incident.return_value = {
-            "id": "inc-1", "title": "Down"
-        }
+        store.create_incident.return_value = {"id": "inc-1", "title": "Down"}
         mock_gs.return_value = store
         resp = client.post(
             "/api/v1/agentops/incidents",
@@ -894,9 +836,7 @@ class TestAgentOpsIncidents:
     @patch("api.routes.agentops.get_agentops_store")
     def test_create_incident_missing(self, mock_gs):
         mock_gs.return_value = _eval_store()
-        resp = client.post(
-            "/api/v1/agentops/incidents", json={}
-        )
+        resp = client.post("/api/v1/agentops/incidents", json={})
         assert resp.status_code == 400
 
     @patch("api.routes.agentops.get_agentops_store")
@@ -940,9 +880,7 @@ class TestAgentOpsIncidents:
     @patch("api.routes.agentops.get_agentops_store")
     def test_execute_action(self, mock_gs):
         store = _eval_store()
-        store.execute_action.return_value = {
-            "success": True
-        }
+        store.execute_action.return_value = {"success": True}
         mock_gs.return_value = store
         resp = client.post(
             "/api/v1/agentops/incidents/inc-1/actions",
@@ -962,9 +900,7 @@ class TestAgentOpsIncidents:
     @patch("api.routes.agentops.get_agentops_store")
     def test_execute_action_failed(self, mock_gs):
         store = _eval_store()
-        store.execute_action.return_value = {
-            "success": False, "error": "not found"
-        }
+        store.execute_action.return_value = {"success": False, "error": "not found"}
         mock_gs.return_value = store
         resp = client.post(
             "/api/v1/agentops/incidents/inc-1/actions",
@@ -977,9 +913,7 @@ class TestAgentOpsCanary:
     @patch("api.routes.agentops.get_agentops_store")
     def test_start_canary(self, mock_gs):
         store = _eval_store()
-        store.start_canary.return_value = {
-            "id": "c1", "status": "active"
-        }
+        store.start_canary.return_value = {"id": "c1", "status": "active"}
         mock_gs.return_value = store
         resp = client.post(
             "/api/v1/agentops/canary",
@@ -993,9 +927,7 @@ class TestAgentOpsCanary:
     @patch("api.routes.agentops.get_agentops_store")
     def test_start_canary_missing(self, mock_gs):
         mock_gs.return_value = _eval_store()
-        resp = client.post(
-            "/api/v1/agentops/canary", json={}
-        )
+        resp = client.post("/api/v1/agentops/canary", json={})
         assert resp.status_code == 400
 
     @patch("api.routes.agentops.get_agentops_store")
@@ -1041,9 +973,7 @@ class TestAgentOpsCosts:
     @patch("api.routes.agentops.get_agentops_store")
     def test_cost_forecast(self, mock_gs):
         store = _eval_store()
-        store.get_cost_forecast.return_value = {
-            "projected": 100
-        }
+        store.get_cost_forecast.return_value = {"projected": 100}
         mock_gs.return_value = store
         resp = client.get("/api/v1/agentops/costs/forecast")
         assert resp.status_code == 200
@@ -1061,9 +991,7 @@ class TestAgentOpsCosts:
         store = _eval_store()
         store.get_cost_suggestions.return_value = []
         mock_gs.return_value = store
-        resp = client.get(
-            "/api/v1/agentops/costs/suggestions"
-        )
+        resp = client.get("/api/v1/agentops/costs/suggestions")
         assert resp.status_code == 200
 
 
@@ -1071,25 +999,17 @@ class TestAgentOpsCompliance:
     @patch("api.routes.agentops.get_agentops_store")
     def test_compliance_status(self, mock_gs):
         store = _eval_store()
-        store.get_compliance_status.return_value = {
-            "passed": 5
-        }
+        store.get_compliance_status.return_value = {"passed": 5}
         mock_gs.return_value = store
-        resp = client.get(
-            "/api/v1/agentops/compliance/status"
-        )
+        resp = client.get("/api/v1/agentops/compliance/status")
         assert resp.status_code == 200
 
     @patch("api.routes.agentops.get_agentops_store")
     def test_compliance_report(self, mock_gs):
         store = _eval_store()
-        store.generate_compliance_report.return_value = {
-            "report": "ok"
-        }
+        store.generate_compliance_report.return_value = {"report": "ok"}
         mock_gs.return_value = store
-        resp = client.get(
-            "/api/v1/agentops/compliance/report"
-        )
+        resp = client.get("/api/v1/agentops/compliance/report")
         assert resp.status_code == 200
 
 
@@ -1163,9 +1083,7 @@ class TestMemoryConfigs:
         new_callable=AsyncMock,
     )
     def test_list_configs(self, mock_lc):
-        mock_lc.return_value = (
-            [_mem_config_model()], 1
-        )
+        mock_lc.return_value = ([_mem_config_model()], 1)
         resp = client.get("/api/v1/memory/configs")
         assert resp.status_code == 200
         assert resp.json()["meta"]["total"] == 1
@@ -1194,9 +1112,7 @@ class TestMemoryConfigs:
     )
     def test_delete_config(self, mock_dc):
         mock_dc.return_value = True
-        resp = client.delete(
-            "/api/v1/memory/configs/cfg1"
-        )
+        resp = client.delete("/api/v1/memory/configs/cfg1")
         assert resp.status_code == 200
 
     @patch(
@@ -1205,9 +1121,7 @@ class TestMemoryConfigs:
     )
     def test_delete_config_not_found(self, mock_dc):
         mock_dc.return_value = False
-        resp = client.delete(
-            "/api/v1/memory/configs/bad"
-        )
+        resp = client.delete("/api/v1/memory/configs/bad")
         assert resp.status_code == 404
 
 
@@ -1228,9 +1142,7 @@ class TestMemoryStats:
             "linked_agent_count": 2,
         }
         mock_gs.return_value = stats
-        resp = client.get(
-            "/api/v1/memory/configs/cfg1/stats"
-        )
+        resp = client.get("/api/v1/memory/configs/cfg1/stats")
         assert resp.status_code == 200
 
     @patch(
@@ -1239,9 +1151,7 @@ class TestMemoryStats:
     )
     def test_get_stats_not_found(self, mock_gs):
         mock_gs.return_value = None
-        resp = client.get(
-            "/api/v1/memory/configs/bad/stats"
-        )
+        resp = client.get("/api/v1/memory/configs/bad/stats")
         assert resp.status_code == 404
 
 
@@ -1299,9 +1209,7 @@ class TestMemoryConversations:
             "agent_id": None,
         }
         mock_lc.return_value = ([conv], 1)
-        resp = client.get(
-            "/api/v1/memory/configs/cfg1/conversations"
-        )
+        resp = client.get("/api/v1/memory/configs/cfg1/conversations")
         assert resp.status_code == 200
 
     @patch(
@@ -1310,9 +1218,7 @@ class TestMemoryConversations:
     )
     def test_list_conversations_no_config(self, mock_gc):
         mock_gc.return_value = None
-        resp = client.get(
-            "/api/v1/memory/configs/bad/conversations"
-        )
+        resp = client.get("/api/v1/memory/configs/bad/conversations")
         assert resp.status_code == 404
 
     @patch(
@@ -1326,9 +1232,7 @@ class TestMemoryConversations:
     def test_get_conversation(self, mock_gc, mock_gconv):
         mock_gc.return_value = _mem_config_model()
         mock_gconv.return_value = [_mem_msg_model()]
-        resp = client.get(
-            "/api/v1/memory/configs/cfg1/conversations/s1"
-        )
+        resp = client.get("/api/v1/memory/configs/cfg1/conversations/s1")
         assert resp.status_code == 200
 
     @patch(
@@ -1337,9 +1241,7 @@ class TestMemoryConversations:
     )
     def test_get_conversation_no_config(self, mock_gc):
         mock_gc.return_value = None
-        resp = client.get(
-            "/api/v1/memory/configs/bad/conversations/s1"
-        )
+        resp = client.get("/api/v1/memory/configs/bad/conversations/s1")
         assert resp.status_code == 404
 
     @patch(
@@ -1477,9 +1379,7 @@ class TestTracingList:
     @patch("api.routes.tracing.get_tracing_store")
     def test_list_traces(self, mock_gs):
         store = MagicMock()
-        store.list_traces.return_value = (
-            [_trace_data()], 1
-        )
+        store.list_traces.return_value = ([_trace_data()], 1)
         mock_gs.return_value = store
         resp = client.get("/api/v1/traces")
         assert resp.status_code == 200
@@ -1490,9 +1390,7 @@ class TestTracingList:
         store = MagicMock()
         store.search_traces.return_value = ([], 0)
         mock_gs.return_value = store
-        resp = client.get(
-            "/api/v1/traces", params={"q": "err"}
-        )
+        resp = client.get("/api/v1/traces", params={"q": "err"})
         assert resp.status_code == 200
         store.search_traces.assert_called_once()
 
@@ -1516,9 +1414,7 @@ class TestTracingDetail:
     def test_get_trace(self, mock_gs):
         store = MagicMock()
         store.get_trace.return_value = _trace_data()
-        store.get_trace_spans.return_value = [
-            _span_data()
-        ]
+        store.get_trace_spans.return_value = [_span_data()]
         mock_gs.return_value = store
         resp = client.get("/api/v1/traces/t-001")
         assert resp.status_code == 200
@@ -1609,9 +1505,7 @@ class TestTracingMetrics:
             "daily_breakdown": [],
         }
         mock_gs.return_value = store
-        resp = client.get(
-            "/api/v1/traces/metrics/bot"
-        )
+        resp = client.get("/api/v1/traces/metrics/bot")
         assert resp.status_code == 200
 
 
@@ -1673,17 +1567,13 @@ class TestRagIndexes:
     @patch("api.routes.rag.get_rag_store")
     def test_create_index_no_name(self, mock_gs):
         mock_gs.return_value = MagicMock()
-        resp = client.post(
-            "/api/v1/rag/indexes", json={}
-        )
+        resp = client.post("/api/v1/rag/indexes", json={})
         assert resp.status_code == 400
 
     @patch("api.routes.rag.get_rag_store")
     def test_list_indexes(self, mock_gs):
         store = MagicMock()
-        store.list_indexes.return_value = (
-            [_rag_index()], 1
-        )
+        store.list_indexes.return_value = ([_rag_index()], 1)
         mock_gs.return_value = store
         resp = client.get("/api/v1/rag/indexes")
         assert resp.status_code == 200
@@ -1710,9 +1600,7 @@ class TestRagIndexes:
         store = MagicMock()
         store.delete_index.return_value = True
         mock_gs.return_value = store
-        resp = client.delete(
-            "/api/v1/rag/indexes/idx-1"
-        )
+        resp = client.delete("/api/v1/rag/indexes/idx-1")
         assert resp.status_code == 200
 
     @patch("api.routes.rag.get_rag_store")
@@ -1730,9 +1618,7 @@ class TestRagSearch:
         store = MagicMock()
         store.get_index.return_value = _rag_index()
         hit = MagicMock()
-        hit.to_dict.return_value = {
-            "chunk_id": "c1", "score": 0.9
-        }
+        hit.to_dict.return_value = {"chunk_id": "c1", "score": 0.9}
         store.search = AsyncMock(return_value=[hit])
         mock_gs.return_value = store
         resp = client.post(
@@ -1748,9 +1634,7 @@ class TestRagSearch:
     @patch("api.routes.rag.get_rag_store")
     def test_search_missing_fields(self, mock_gs):
         mock_gs.return_value = MagicMock()
-        resp = client.post(
-            "/api/v1/rag/search", json={}
-        )
+        resp = client.post("/api/v1/rag/search", json={})
         assert resp.status_code == 400
 
     @patch("api.routes.rag.get_rag_store")
@@ -1773,9 +1657,7 @@ class TestRagIngest:
         mock_gs.return_value = store
         resp = client.post(
             "/api/v1/rag/indexes/bad/ingest",
-            files=[
-                ("files", ("doc.txt", b"hello", "text/plain"))
-            ],
+            files=[("files", ("doc.txt", b"hello", "text/plain"))],
         )
         assert resp.status_code == 404
 
@@ -1786,9 +1668,7 @@ class TestRagIngest:
         mock_gs.return_value = store
         resp = client.post(
             "/api/v1/rag/indexes/idx-1/ingest",
-            files=[
-                ("files", ("img.png", b"\x89PNG", "image/png"))
-            ],
+            files=[("files", ("img.png", b"\x89PNG", "image/png"))],
         )
         assert resp.status_code == 400
 
@@ -1797,14 +1677,10 @@ class TestRagIngest:
         store = MagicMock()
         job = MagicMock()
         job.index_id = "idx-1"
-        job.to_dict.return_value = {
-            "id": "j1", "status": "completed"
-        }
+        job.to_dict.return_value = {"id": "j1", "status": "completed"}
         store.get_ingest_job.return_value = job
         mock_gs.return_value = store
-        resp = client.get(
-            "/api/v1/rag/indexes/idx-1/ingest/j1"
-        )
+        resp = client.get("/api/v1/rag/indexes/idx-1/ingest/j1")
         assert resp.status_code == 200
 
     @patch("api.routes.rag.get_rag_store")
@@ -1812,9 +1688,7 @@ class TestRagIngest:
         store = MagicMock()
         store.get_ingest_job.return_value = None
         mock_gs.return_value = store
-        resp = client.get(
-            "/api/v1/rag/indexes/idx-1/ingest/bad"
-        )
+        resp = client.get("/api/v1/rag/indexes/idx-1/ingest/bad")
         assert resp.status_code == 404
 
 
@@ -1851,9 +1725,7 @@ class TestAuditEvents:
         new_callable=AsyncMock,
     )
     def test_list_events(self, mock_le):
-        mock_le.return_value = (
-            [_audit_event_model()], 1
-        )
+        mock_le.return_value = ([_audit_event_model()], 1)
         resp = client.get("/api/v1/audit")
         assert resp.status_code == 200
         assert resp.json()["meta"]["total"] == 1
@@ -1895,9 +1767,7 @@ class TestAuditEvents:
     )
     def test_get_events_for_resource(self, mock_ge):
         mock_ge.return_value = [_audit_event_model()]
-        resp = client.get(
-            "/api/v1/audit/resource/agent/a1"
-        )
+        resp = client.get("/api/v1/audit/resource/agent/a1")
         assert resp.status_code == 200
 
     @patch(
@@ -1957,9 +1827,7 @@ class TestLineage:
         affected.dependency_type = "uses"
         analysis.affected_agents = [affected]
         mock_ia.return_value = analysis
-        resp = client.get(
-            "/api/v1/lineage/impact/tool/tool-a"
-        )
+        resp = client.get("/api/v1/lineage/impact/tool/tool-a")
         assert resp.status_code == 200
 
     @patch(
@@ -2048,9 +1916,7 @@ class TestMcpServersCRUD:
         new_callable=AsyncMock,
     )
     def test_list(self, mock_list):
-        mock_list.return_value = (
-            [_mcp_server_mock()], 1
-        )
+        mock_list.return_value = ([_mcp_server_mock()], 1)
         resp = client.get("/api/v1/mcp-servers")
         assert resp.status_code == 200
 
@@ -2147,9 +2013,7 @@ class TestMcpServersActions:
             "latency_ms": 42,
             "error": None,
         }
-        resp = client.post(
-            "/api/v1/mcp-servers/s1/test"
-        )
+        resp = client.post("/api/v1/mcp-servers/s1/test")
         assert resp.status_code == 200
 
     @patch(
@@ -2158,9 +2022,7 @@ class TestMcpServersActions:
     )
     def test_test_connection_not_found(self, mock_get):
         mock_get.return_value = None
-        resp = client.post(
-            "/api/v1/mcp-servers/bad/test"
-        )
+        resp = client.post("/api/v1/mcp-servers/bad/test")
         assert resp.status_code == 404
 
     @patch(
@@ -2183,9 +2045,7 @@ class TestMcpServersActions:
             ],
             "total": 1,
         }
-        resp = client.post(
-            "/api/v1/mcp-servers/s1/discover"
-        )
+        resp = client.post("/api/v1/mcp-servers/s1/discover")
         assert resp.status_code == 200
 
     @patch(
@@ -2194,9 +2054,7 @@ class TestMcpServersActions:
     )
     def test_discover_not_found(self, mock_get):
         mock_get.return_value = None
-        resp = client.post(
-            "/api/v1/mcp-servers/bad/discover"
-        )
+        resp = client.post("/api/v1/mcp-servers/bad/discover")
         assert resp.status_code == 404
 
     @patch(
@@ -2262,9 +2120,7 @@ class TestA2AAgents:
         new_callable=AsyncMock,
     )
     def test_list(self, mock_list):
-        mock_list.return_value = (
-            [_a2a_agent_mock()], 1
-        )
+        mock_list.return_value = ([_a2a_agent_mock()], 1)
         resp = client.get("/api/v1/a2a/agents")
         assert resp.status_code == 200
 
@@ -2451,9 +2307,7 @@ class TestMarketplaceListings:
         listing.updated_at = _NOW
         listing.template = None
         mock_get.return_value = listing
-        resp = client.get(
-            f"/api/v1/marketplace/listings/{listing.id}"
-        )
+        resp = client.get(f"/api/v1/marketplace/listings/{listing.id}")
         assert resp.status_code == 200
 
     @patch(
@@ -2462,9 +2316,7 @@ class TestMarketplaceListings:
     )
     def test_get_listing_not_found(self, mock_get):
         mock_get.return_value = None
-        resp = client.get(
-            f"/api/v1/marketplace/listings/{uuid.uuid4()}"
-        )
+        resp = client.get(f"/api/v1/marketplace/listings/{uuid.uuid4()}")
         assert resp.status_code == 404
 
     @patch(
@@ -2474,9 +2326,7 @@ class TestMarketplaceListings:
     def test_install(self, mock_inc):
         mock_inc.return_value = None
         lid = uuid.uuid4()
-        resp = client.post(
-            f"/api/v1/marketplace/listings/{lid}/install"
-        )
+        resp = client.post(f"/api/v1/marketplace/listings/{lid}/install")
         assert resp.status_code == 200
         assert resp.json()["data"]["installed"] is True
 
@@ -2487,9 +2337,7 @@ class TestMarketplaceListings:
     def test_list_reviews(self, mock_gr):
         mock_gr.return_value = ([], 0)
         lid = uuid.uuid4()
-        resp = client.get(
-            f"/api/v1/marketplace/listings/{lid}/reviews"
-        )
+        resp = client.get(f"/api/v1/marketplace/listings/{lid}/reviews")
         assert resp.status_code == 200
 
 
@@ -2525,9 +2373,7 @@ class TestProvidersCRUD:
         new_callable=AsyncMock,
     )
     def test_list_providers(self, mock_list):
-        mock_list.return_value = (
-            [_provider_mock()], 1
-        )
+        mock_list.return_value = ([_provider_mock()], 1)
         resp = client.get("/api/v1/providers")
         assert resp.status_code == 200
 
@@ -2547,9 +2393,7 @@ class TestProvidersCRUD:
     )
     def test_get_provider_not_found(self, mock_get):
         mock_get.return_value = None
-        resp = client.get(
-            f"/api/v1/providers/{uuid.uuid4()}"
-        )
+        resp = client.get(f"/api/v1/providers/{uuid.uuid4()}")
         assert resp.status_code == 404
 
     @patch(
@@ -2580,9 +2424,7 @@ class TestProvidersCRUD:
         new_callable=AsyncMock,
     )
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
-    def test_update_provider(
-        self, mock_gu, mock_get, mock_upd
-    ):
+    def test_update_provider(self, mock_gu, mock_get, mock_upd):
         mock_gu.return_value = _make_mock_user()
         p = _provider_mock()
         mock_get.return_value = p
@@ -2599,9 +2441,7 @@ class TestProvidersCRUD:
         new_callable=AsyncMock,
     )
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
-    def test_update_provider_not_found(
-        self, mock_gu, mock_get
-    ):
+    def test_update_provider_not_found(self, mock_gu, mock_get):
         mock_gu.return_value = _make_mock_user()
         mock_get.return_value = None
         resp = client.put(
@@ -2620,9 +2460,7 @@ class TestProvidersCRUD:
         new_callable=AsyncMock,
     )
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
-    def test_delete_provider(
-        self, mock_gu, mock_get, mock_del
-    ):
+    def test_delete_provider(self, mock_gu, mock_get, mock_del):
         mock_gu.return_value = _make_mock_user()
         p = _provider_mock()
         mock_get.return_value = p
@@ -2638,9 +2476,7 @@ class TestProvidersCRUD:
         new_callable=AsyncMock,
     )
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
-    def test_delete_provider_not_found(
-        self, mock_gu, mock_get
-    ):
+    def test_delete_provider_not_found(self, mock_gu, mock_get):
         mock_gu.return_value = _make_mock_user()
         mock_get.return_value = None
         resp = client.delete(
@@ -2660,9 +2496,7 @@ class TestProviderActions:
         new_callable=AsyncMock,
     )
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
-    def test_test_provider(
-        self, mock_gu, mock_get, mock_tc
-    ):
+    def test_test_provider(self, mock_gu, mock_get, mock_tc):
         mock_gu.return_value = _make_mock_user()
         p = _provider_mock()
         mock_get.return_value = p
@@ -2682,9 +2516,7 @@ class TestProviderActions:
         new_callable=AsyncMock,
     )
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
-    def test_test_provider_not_found(
-        self, mock_gu, mock_get
-    ):
+    def test_test_provider_not_found(self, mock_gu, mock_get):
         mock_gu.return_value = _make_mock_user()
         mock_get.return_value = None
         resp = client.post(
@@ -2706,9 +2538,7 @@ class TestProviderActions:
         new_callable=AsyncMock,
     )
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
-    def test_discover_models(
-        self, mock_gu, mock_get, mock_dm, mock_ar
-    ):
+    def test_discover_models(self, mock_gu, mock_get, mock_dm, mock_ar):
         mock_gu.return_value = _make_mock_user()
         p = _provider_mock()
         mock_get.return_value = p
@@ -2735,9 +2565,7 @@ class TestProviderActions:
         new_callable=AsyncMock,
     )
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
-    def test_toggle_provider(
-        self, mock_gu, mock_get, mock_toggle
-    ):
+    def test_toggle_provider(self, mock_gu, mock_get, mock_toggle):
         mock_gu.return_value = _make_mock_user()
         p = _provider_mock()
         mock_get.return_value = p
@@ -2759,9 +2587,7 @@ class TestProviderStatus:
         override get_db dependency."""
         from api.database import get_db
 
-        mock_list.return_value = (
-            [_provider_mock()], 1
-        )
+        mock_list.return_value = ([_provider_mock()], 1)
         mock_db = AsyncMock()
         result = MagicMock()
         result.scalar.return_value = 3
@@ -2772,16 +2598,12 @@ class TestProviderStatus:
 
         app.dependency_overrides[get_db] = _override_db
         try:
-            resp = client.get(
-                "/api/v1/providers/status"
-            )
+            resp = client.get("/api/v1/providers/status")
             assert resp.status_code == 200
             data = resp.json()["data"]
             assert data["has_providers"] is True
         finally:
-            app.dependency_overrides.pop(
-                get_db, None
-            )
+            app.dependency_overrides.pop(get_db, None)
 
 
 # ===================================================================
@@ -2850,9 +2672,7 @@ class TestRegistryModels:
         m.created_at = _NOW
         m.updated_at = _NOW
         mock_get.return_value = m
-        resp = client.get(
-            f"/api/v1/registry/models/{m.id}"
-        )
+        resp = client.get(f"/api/v1/registry/models/{m.id}")
         assert resp.status_code == 200
 
     @patch(
@@ -2861,9 +2681,7 @@ class TestRegistryModels:
     )
     def test_get_model_not_found(self, mock_get):
         mock_get.return_value = None
-        resp = client.get(
-            f"/api/v1/registry/models/{uuid.uuid4()}"
-        )
+        resp = client.get(f"/api/v1/registry/models/{uuid.uuid4()}")
         assert resp.status_code == 404
 
 
@@ -2920,9 +2738,7 @@ class TestRegistryPrompts:
         p.created_at = _NOW
         p.updated_at = _NOW
         mock_get.return_value = p
-        resp = client.get(
-            f"/api/v1/registry/prompts/{p.id}"
-        )
+        resp = client.get(f"/api/v1/registry/prompts/{p.id}")
         assert resp.status_code == 200
 
     @patch(
@@ -2931,9 +2747,7 @@ class TestRegistryPrompts:
     )
     def test_get_prompt_not_found(self, mock_get):
         mock_get.return_value = None
-        resp = client.get(
-            f"/api/v1/registry/prompts/{uuid.uuid4()}"
-        )
+        resp = client.get(f"/api/v1/registry/prompts/{uuid.uuid4()}")
         assert resp.status_code == 404
 
     @patch(
@@ -2976,9 +2790,7 @@ class TestRegistryPrompts:
     )
     def test_delete_prompt(self, mock_del):
         mock_del.return_value = True
-        resp = client.delete(
-            f"/api/v1/registry/prompts/{uuid.uuid4()}"
-        )
+        resp = client.delete(f"/api/v1/registry/prompts/{uuid.uuid4()}")
         assert resp.status_code == 200
 
     @patch(
@@ -2987,9 +2799,7 @@ class TestRegistryPrompts:
     )
     def test_delete_prompt_not_found(self, mock_del):
         mock_del.return_value = False
-        resp = client.delete(
-            f"/api/v1/registry/prompts/{uuid.uuid4()}"
-        )
+        resp = client.delete(f"/api/v1/registry/prompts/{uuid.uuid4()}")
         assert resp.status_code == 404
 
     @patch(
@@ -3008,9 +2818,7 @@ class TestRegistryPrompts:
         p.created_at = _NOW
         p.updated_at = _NOW
         mock_dup.return_value = p
-        resp = client.post(
-            f"/api/v1/registry/prompts/{uuid.uuid4()}/duplicate"
-        )
+        resp = client.post(f"/api/v1/registry/prompts/{uuid.uuid4()}/duplicate")
         assert resp.status_code == 201
 
     @patch(
@@ -3019,9 +2827,7 @@ class TestRegistryPrompts:
     )
     def test_duplicate_prompt_not_found(self, mock_dup):
         mock_dup.return_value = None
-        resp = client.post(
-            f"/api/v1/registry/prompts/{uuid.uuid4()}/duplicate"
-        )
+        resp = client.post(f"/api/v1/registry/prompts/{uuid.uuid4()}/duplicate")
         assert resp.status_code == 404
 
     @patch(
@@ -3040,9 +2846,7 @@ class TestRegistryPrompts:
         p.created_at = _NOW
         p.updated_at = _NOW
         mock_gv.return_value = [p]
-        resp = client.get(
-            f"/api/v1/registry/prompts/{uuid.uuid4()}/versions"
-        )
+        resp = client.get(f"/api/v1/registry/prompts/{uuid.uuid4()}/versions")
         assert resp.status_code == 200
 
     @patch(
@@ -3051,9 +2855,7 @@ class TestRegistryPrompts:
     )
     def test_list_prompt_versions_not_found(self, mock_gv):
         mock_gv.return_value = []
-        resp = client.get(
-            f"/api/v1/registry/prompts/{uuid.uuid4()}/versions"
-        )
+        resp = client.get(f"/api/v1/registry/prompts/{uuid.uuid4()}/versions")
         assert resp.status_code == 404
 
 
@@ -3075,9 +2877,7 @@ class TestRegistryToolDetail:
         t.created_at = _NOW
         t.updated_at = _NOW
         mock_get.return_value = t
-        resp = client.get(
-            f"/api/v1/registry/tools/{t.id}"
-        )
+        resp = client.get(f"/api/v1/registry/tools/{t.id}")
         assert resp.status_code == 200
 
     @patch(
@@ -3086,9 +2886,7 @@ class TestRegistryToolDetail:
     )
     def test_get_tool_not_found(self, mock_get):
         mock_get.return_value = None
-        resp = client.get(
-            f"/api/v1/registry/tools/{uuid.uuid4()}"
-        )
+        resp = client.get(f"/api/v1/registry/tools/{uuid.uuid4()}")
         assert resp.status_code == 404
 
 

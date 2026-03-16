@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import google.generativeai as genai
 
-
 # --- Tool definitions ---
+
 
 def search_web(query: str) -> str:
     """Search the web for information.
@@ -95,7 +95,8 @@ async def handle_message(message: str, history: list | None = None) -> str:
     # Handle function calls
     while response.candidates[0].content.parts:
         function_calls = [
-            part for part in response.candidates[0].content.parts
+            part
+            for part in response.candidates[0].content.parts
             if hasattr(part, "function_call") and part.function_call.name
         ]
 

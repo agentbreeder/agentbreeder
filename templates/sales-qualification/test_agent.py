@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 TEMPLATE_DIR = Path(__file__).parent
 AGENT_YAML = TEMPLATE_DIR / "agent.yaml"
 
@@ -26,6 +25,7 @@ class TestAgentConfig:
 
     def test_version_is_semver(self, agent_config: dict) -> None:
         import re
+
         assert re.match(r"^\d+\.\d+\.\d+$", agent_config["version"])
 
     def test_guardrails_present(self, agent_config: dict) -> None:
@@ -50,8 +50,9 @@ class TestAgentConfig:
 
     def test_auto_outreach_disabled_by_default(self, agent_config: dict) -> None:
         env_vars = agent_config["deploy"].get("env_vars", {})
-        assert env_vars.get("AUTO_OUTREACH_ENABLED") == "false", \
+        assert env_vars.get("AUTO_OUTREACH_ENABLED") == "false", (
             "Auto outreach should be disabled by default for safety"
+        )
 
     def test_prompt_has_scoring_framework(self, agent_config: dict) -> None:
         prompt = agent_config["prompts"]["system"]

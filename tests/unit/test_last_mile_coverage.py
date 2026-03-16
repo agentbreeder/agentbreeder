@@ -12,9 +12,7 @@ from api.services.auth import create_access_token
 
 
 def _auth_headers(role: str = "admin") -> dict[str, str]:
-    token = create_access_token(
-        str(uuid.uuid4()), "test@test.com", role
-    )
+    token = create_access_token(str(uuid.uuid4()), "test@test.com", role)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -70,9 +68,7 @@ class TestProviderRegistryGetProvider:
         from engine.providers.registry import FallbackChain
 
         cfg = FallbackConfig(
-            primary=ProviderConfig(
-                provider_type="openai", api_key="k"
-            ),
+            primary=ProviderConfig(provider_type="openai", api_key="k"),
             fallbacks=[],
         )
         chain = FallbackChain(cfg)
@@ -86,13 +82,9 @@ class TestProviderRegistryGetProvider:
         from engine.providers.registry import FallbackChain
 
         cfg = FallbackConfig(
-            primary=ProviderConfig(
-                provider_type="openai", api_key="k1"
-            ),
+            primary=ProviderConfig(provider_type="openai", api_key="k1"),
             fallbacks=[
-                ProviderConfig(
-                    provider_type="anthropic", api_key="k2"
-                ),
+                ProviderConfig(provider_type="anthropic", api_key="k2"),
             ],
         )
         chain = FallbackChain(cfg)
@@ -150,13 +142,12 @@ class TestMcpServerRegistryAsync:
         mock_session = AsyncMock()
 
         with patch.object(
-            McpServerRegistry, "get_by_id",
+            McpServerRegistry,
+            "get_by_id",
             new_callable=AsyncMock,
             return_value=mock_server,
         ):
-            result = await McpServerRegistry.test_connection(
-                mock_session, "server-1"
-            )
+            result = await McpServerRegistry.test_connection(mock_session, "server-1")
             assert result["success"] is True
             assert result["latency_ms"] == 0
 
@@ -167,13 +158,12 @@ class TestMcpServerRegistryAsync:
         mock_session = AsyncMock()
 
         with patch.object(
-            McpServerRegistry, "get_by_id",
+            McpServerRegistry,
+            "get_by_id",
             new_callable=AsyncMock,
             return_value=None,
         ):
-            result = await McpServerRegistry.test_connection(
-                mock_session, "nonexistent"
-            )
+            result = await McpServerRegistry.test_connection(mock_session, "nonexistent")
             assert result["success"] is False
 
     @pytest.mark.asyncio
@@ -183,13 +173,12 @@ class TestMcpServerRegistryAsync:
         mock_session = AsyncMock()
 
         with patch.object(
-            McpServerRegistry, "get_by_id",
+            McpServerRegistry,
+            "get_by_id",
             new_callable=AsyncMock,
             return_value=None,
         ):
-            result = await McpServerRegistry.discover_tools(
-                mock_session, "nonexistent"
-            )
+            result = await McpServerRegistry.discover_tools(mock_session, "nonexistent")
             assert result["tools"] == []
             assert result["total"] == 0
 
@@ -205,13 +194,12 @@ class TestMcpServerRegistryAsync:
         mock_session = AsyncMock()
 
         with patch.object(
-            McpServerRegistry, "get_by_id",
+            McpServerRegistry,
+            "get_by_id",
             new_callable=AsyncMock,
             return_value=mock_server,
         ):
-            result = await McpServerRegistry.discover_tools(
-                mock_session, "server-1"
-            )
+            result = await McpServerRegistry.discover_tools(mock_session, "server-1")
             # Falls back to placeholder tools
             assert result["total"] > 0
 

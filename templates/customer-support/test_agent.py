@@ -6,11 +6,9 @@ Validates configuration, guardrails, and escalation logic.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
-
 
 TEMPLATE_DIR = Path(__file__).parent
 AGENT_YAML = TEMPLATE_DIR / "agent.yaml"
@@ -39,6 +37,7 @@ class TestAgentConfig:
 
     def test_version_is_semver(self, agent_config: dict) -> None:
         import re
+
         assert re.match(r"^\d+\.\d+\.\d+$", agent_config["version"])
 
     def test_model_has_primary_and_fallback(self, agent_config: dict) -> None:
@@ -70,8 +69,9 @@ class TestAgentConfig:
 
     def test_access_control_configured(self, agent_config: dict) -> None:
         access = agent_config.get("access", {})
-        assert access.get("visibility") in ("team", "private"), \
+        assert access.get("visibility") in ("team", "private"), (
             "Support agent should not be publicly accessible"
+        )
 
 
 class TestEscalationLogic:

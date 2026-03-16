@@ -46,9 +46,7 @@ _NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _auth_headers() -> dict[str, str]:
-    token = create_access_token(
-        str(uuid.uuid4()), "test@test.com", "admin"
-    )
+    token = create_access_token(str(uuid.uuid4()), "test@test.com", "admin")
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -104,9 +102,7 @@ class TestRegistryToolUsage:
     @patch("api.routes.registry.ToolRegistry")
     def test_tool_usage_not_found(self, mock_tr):
         mock_tr.get_by_id = AsyncMock(return_value=None)
-        resp = client.get(
-            f"/api/v1/registry/tools/{uuid.uuid4()}/usage"
-        )
+        resp = client.get(f"/api/v1/registry/tools/{uuid.uuid4()}/usage")
         assert resp.status_code == 404
 
     @patch("api.routes.registry.ToolRegistry")
@@ -134,46 +130,51 @@ class TestRegistryModelCompare:
     def test_compare_success(self, mock_mr):
         uid1, uid2 = uuid.uuid4(), uuid.uuid4()
         m1 = _mock_obj(
-            id=uid1, name="gpt-4o", provider="openai",
-            description="", source="manual", config={},
+            id=uid1,
+            name="gpt-4o",
+            provider="openai",
+            description="",
+            source="manual",
+            config={},
             status="active",
-            context_window=128000, max_output_tokens=4096,
+            context_window=128000,
+            max_output_tokens=4096,
             input_price_per_million=5.0,
             output_price_per_million=15.0,
-            capabilities=[], created_at=_NOW, updated_at=_NOW,
+            capabilities=[],
+            created_at=_NOW,
+            updated_at=_NOW,
         )
         m2 = _mock_obj(
-            id=uid2, name="claude", provider="anthropic",
-            description="", source="manual", config={},
+            id=uid2,
+            name="claude",
+            provider="anthropic",
+            description="",
+            source="manual",
+            config={},
             status="active",
-            context_window=200000, max_output_tokens=4096,
+            context_window=200000,
+            max_output_tokens=4096,
             input_price_per_million=3.0,
             output_price_per_million=15.0,
-            capabilities=[], created_at=_NOW, updated_at=_NOW,
+            capabilities=[],
+            created_at=_NOW,
+            updated_at=_NOW,
         )
         mock_mr.get_by_ids = AsyncMock(return_value=[m1, m2])
-        resp = client.get(
-            "/api/v1/registry/models/compare"
-            f"?ids={uid1},{uid2}"
-        )
+        resp = client.get(f"/api/v1/registry/models/compare?ids={uid1},{uid2}")
         assert resp.status_code == 200
         assert len(resp.json()["data"]) == 2
 
     @patch("api.routes.registry.ModelRegistry")
     def test_compare_bad_count(self, mock_mr):
-        resp = client.get(
-            "/api/v1/registry/models/compare?ids=m1"
-        )
+        resp = client.get("/api/v1/registry/models/compare?ids=m1")
         assert resp.status_code == 400
 
     @patch("api.routes.registry.ModelRegistry")
     def test_compare_not_found(self, mock_mr):
-        mock_mr.get_by_ids = AsyncMock(
-            return_value=[_mock_obj()]
-        )
-        resp = client.get(
-            "/api/v1/registry/models/compare?ids=m1,m2"
-        )
+        mock_mr.get_by_ids = AsyncMock(return_value=[_mock_obj()])
+        resp = client.get("/api/v1/registry/models/compare?ids=m1,m2")
         assert resp.status_code == 404
 
 
@@ -189,12 +190,8 @@ class TestRegistryModelUsage:
             status="running",
         )
         mock_mr.get_by_id = AsyncMock(return_value=_mock_obj())
-        mock_mr.get_usage = AsyncMock(
-            return_value=[(agent, "primary")]
-        )
-        resp = client.get(
-            f"/api/v1/registry/models/{mid}/usage"
-        )
+        mock_mr.get_usage = AsyncMock(return_value=[(agent, "primary")])
+        resp = client.get(f"/api/v1/registry/models/{mid}/usage")
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data[0]["usage_type"] == "primary"
@@ -202,9 +199,7 @@ class TestRegistryModelUsage:
     @patch("api.routes.registry.ModelRegistry")
     def test_model_usage_not_found(self, mock_mr):
         mock_mr.get_by_id = AsyncMock(return_value=None)
-        resp = client.get(
-            f"/api/v1/registry/models/{uuid.uuid4()}/usage"
-        )
+        resp = client.get(f"/api/v1/registry/models/{uuid.uuid4()}/usage")
         assert resp.status_code == 404
 
     @patch("api.routes.registry.ModelRegistry")
@@ -212,16 +207,10 @@ class TestRegistryModelUsage:
         mid = str(uuid.uuid4())
         se = MagicMock()
         se.value = "active"
-        agent = _mock_obj(
-            id=str(uuid.uuid4()), name="a", status=se
-        )
+        agent = _mock_obj(id=str(uuid.uuid4()), name="a", status=se)
         mock_mr.get_by_id = AsyncMock(return_value=_mock_obj())
-        mock_mr.get_usage = AsyncMock(
-            return_value=[(agent, "fallback")]
-        )
-        resp = client.get(
-            f"/api/v1/registry/models/{mid}/usage"
-        )
+        mock_mr.get_usage = AsyncMock(return_value=[(agent, "fallback")])
+        resp = client.get(f"/api/v1/registry/models/{mid}/usage")
         assert resp.status_code == 200
         assert resp.json()["data"][0]["agent_status"] == "active"
 
@@ -242,22 +231,15 @@ class TestRegistryPromptVersions:
             author="alice",
             created_at=_NOW,
         )
-        mock_pr.list_version_snapshots = AsyncMock(
-            return_value=[ver]
-        )
-        resp = client.get(
-            f"/api/v1/registry/prompts/{pid}/versions/history"
-        )
+        mock_pr.list_version_snapshots = AsyncMock(return_value=[ver])
+        resp = client.get(f"/api/v1/registry/prompts/{pid}/versions/history")
         assert resp.status_code == 200
         assert len(resp.json()["data"]) == 1
 
     @patch("api.routes.registry.PromptRegistry")
     def test_version_history_not_found(self, mock_pr):
         mock_pr.get_by_id = AsyncMock(return_value=None)
-        resp = client.get(
-            f"/api/v1/registry/prompts/{uuid.uuid4()}"
-            "/versions/history"
-        )
+        resp = client.get(f"/api/v1/registry/prompts/{uuid.uuid4()}/versions/history")
         assert resp.status_code == 404
 
     @patch("api.routes.registry.PromptRegistry")
@@ -273,9 +255,7 @@ class TestRegistryPromptVersions:
             author="bob",
             created_at=_NOW,
         )
-        mock_pr.create_version_snapshot = AsyncMock(
-            return_value=ver
-        )
+        mock_pr.create_version_snapshot = AsyncMock(return_value=ver)
         resp = client.post(
             f"/api/v1/registry/prompts/{pid}/versions/history",
             json={
@@ -288,13 +268,10 @@ class TestRegistryPromptVersions:
         assert resp.status_code == 201
 
     @patch("api.routes.registry.PromptRegistry")
-    def test_create_version_snapshot_prompt_missing(
-        self, mock_pr
-    ):
+    def test_create_version_snapshot_prompt_missing(self, mock_pr):
         mock_pr.get_by_id = AsyncMock(return_value=None)
         resp = client.post(
-            f"/api/v1/registry/prompts/{uuid.uuid4()}"
-            "/versions/history",
+            f"/api/v1/registry/prompts/{uuid.uuid4()}/versions/history",
             json={
                 "version": "1.0.0",
                 "content": "x",
@@ -317,23 +294,15 @@ class TestRegistryPromptVersions:
             author="a",
             created_at=_NOW,
         )
-        mock_pr.get_version_snapshot = AsyncMock(
-            return_value=ver
-        )
-        resp = client.get(
-            f"/api/v1/registry/prompts/{pid}"
-            f"/versions/history/{vid}"
-        )
+        mock_pr.get_version_snapshot = AsyncMock(return_value=ver)
+        resp = client.get(f"/api/v1/registry/prompts/{pid}/versions/history/{vid}")
         assert resp.status_code == 200
 
     @patch("api.routes.registry.PromptRegistry")
     def test_get_version_snapshot_not_found(self, mock_pr):
-        mock_pr.get_version_snapshot = AsyncMock(
-            return_value=None
-        )
+        mock_pr.get_version_snapshot = AsyncMock(return_value=None)
         resp = client.get(
-            f"/api/v1/registry/prompts/{uuid.uuid4()}"
-            f"/versions/history/{uuid.uuid4()}"
+            f"/api/v1/registry/prompts/{uuid.uuid4()}/versions/history/{uuid.uuid4()}"
         )
         assert resp.status_code == 404
 
@@ -346,31 +315,28 @@ class TestRegistryPromptVersions:
             id=uuid.UUID(vid1),
             prompt_id=uuid.UUID(pid),
             version="1.0.0",
-            content="a", change_summary="", author="x",
+            content="a",
+            change_summary="",
+            author="x",
             created_at=_NOW,
         )
         v2 = _mock_obj(
             id=uuid.UUID(vid2),
             prompt_id=uuid.UUID(pid),
             version="2.0.0",
-            content="b", change_summary="", author="x",
+            content="b",
+            change_summary="",
+            author="x",
             created_at=_NOW,
         )
-        mock_pr.diff_version_snapshots = AsyncMock(
-            return_value=(v1, v2, "--- a\n+++ b\n-a\n+b")
-        )
-        resp = client.get(
-            f"/api/v1/registry/prompts/{pid}"
-            f"/versions/history/{vid1}/diff/{vid2}"
-        )
+        mock_pr.diff_version_snapshots = AsyncMock(return_value=(v1, v2, "--- a\n+++ b\n-a\n+b"))
+        resp = client.get(f"/api/v1/registry/prompts/{pid}/versions/history/{vid1}/diff/{vid2}")
         assert resp.status_code == 200
         assert "diff" in resp.json()["data"]
 
     @patch("api.routes.registry.PromptRegistry")
     def test_diff_versions_missing(self, mock_pr):
-        mock_pr.diff_version_snapshots = AsyncMock(
-            return_value=(None, None, "")
-        )
+        mock_pr.diff_version_snapshots = AsyncMock(return_value=(None, None, ""))
         resp = client.get(
             f"/api/v1/registry/prompts/{uuid.uuid4()}"
             f"/versions/history/{uuid.uuid4()}"
@@ -386,37 +352,57 @@ class TestRegistryCrossEntitySearch:
     @patch("api.routes.registry.ModelRegistry")
     @patch("api.routes.registry.ToolRegistry")
     @patch("api.routes.registry.AgentRegistry")
-    def test_search_returns_all_types(
-        self, mock_ar, mock_tr, mock_mr, mock_pr
-    ):
-        mock_ar.search = AsyncMock(return_value=(
-            [_mock_obj(
-                id=str(uuid.uuid4()), name="agent1",
-                description="d", team="t",
-            )],
-            1,
-        ))
-        mock_tr.search = AsyncMock(return_value=(
-            [_mock_obj(
-                id=str(uuid.uuid4()), name="tool1",
-                description="d",
-            )],
-            1,
-        ))
-        mock_mr.search = AsyncMock(return_value=(
-            [_mock_obj(
-                id=str(uuid.uuid4()), name="model1",
-                description="d",
-            )],
-            1,
-        ))
-        mock_pr.search = AsyncMock(return_value=(
-            [_mock_obj(
-                id=str(uuid.uuid4()), name="prompt1",
-                description="d", team="t",
-            )],
-            1,
-        ))
+    def test_search_returns_all_types(self, mock_ar, mock_tr, mock_mr, mock_pr):
+        mock_ar.search = AsyncMock(
+            return_value=(
+                [
+                    _mock_obj(
+                        id=str(uuid.uuid4()),
+                        name="agent1",
+                        description="d",
+                        team="t",
+                    )
+                ],
+                1,
+            )
+        )
+        mock_tr.search = AsyncMock(
+            return_value=(
+                [
+                    _mock_obj(
+                        id=str(uuid.uuid4()),
+                        name="tool1",
+                        description="d",
+                    )
+                ],
+                1,
+            )
+        )
+        mock_mr.search = AsyncMock(
+            return_value=(
+                [
+                    _mock_obj(
+                        id=str(uuid.uuid4()),
+                        name="model1",
+                        description="d",
+                    )
+                ],
+                1,
+            )
+        )
+        mock_pr.search = AsyncMock(
+            return_value=(
+                [
+                    _mock_obj(
+                        id=str(uuid.uuid4()),
+                        name="prompt1",
+                        description="d",
+                        team="t",
+                    )
+                ],
+                1,
+            )
+        )
         resp = client.get("/api/v1/registry/search?q=test")
         assert resp.status_code == 200
         data = resp.json()["data"]
@@ -427,9 +413,7 @@ class TestRegistryCrossEntitySearch:
     @patch("api.routes.registry.ModelRegistry")
     @patch("api.routes.registry.ToolRegistry")
     @patch("api.routes.registry.AgentRegistry")
-    def test_search_empty(
-        self, mock_ar, mock_tr, mock_mr, mock_pr
-    ):
+    def test_search_empty(self, mock_ar, mock_tr, mock_mr, mock_pr):
         mock_ar.search = AsyncMock(return_value=([], 0))
         mock_tr.search = AsyncMock(return_value=([], 0))
         mock_mr.search = AsyncMock(return_value=([], 0))
@@ -450,9 +434,7 @@ class TestMarketplaceListingDetail:
     @patch("api.auth.get_user_by_id")
     @patch("api.routes.marketplace.TemplateRegistry")
     @patch("api.routes.marketplace.MarketplaceRegistry")
-    def test_submit_listing_template_not_found(
-        self, mock_mkt, mock_tmpl, mock_get_user
-    ):
+    def test_submit_listing_template_not_found(self, mock_mkt, mock_tmpl, mock_get_user):
         mock_get_user.return_value = _mock_user()
         mock_tmpl.get_by_id = AsyncMock(return_value=None)
         resp = client.post(
@@ -508,17 +490,13 @@ class TestMarketplaceListingDetail:
             updated_at=_NOW,
         )
         mock_mkt.get_by_id = AsyncMock(return_value=listing)
-        resp = client.get(
-            f"/api/v1/marketplace/listings/{lid}"
-        )
+        resp = client.get(f"/api/v1/marketplace/listings/{lid}")
         assert resp.status_code == 200
 
     @patch("api.routes.marketplace.MarketplaceRegistry")
     def test_get_listing_not_found(self, mock_mkt):
         mock_mkt.get_by_id = AsyncMock(return_value=None)
-        resp = client.get(
-            f"/api/v1/marketplace/listings/{uuid.uuid4()}"
-        )
+        resp = client.get(f"/api/v1/marketplace/listings/{uuid.uuid4()}")
         assert resp.status_code == 404
 
 
@@ -533,13 +511,19 @@ class TestMarketplaceUpdateListing:
         mock_get_user.return_value = _mock_user()
         lid = uuid.uuid4()
         listing = _mock_obj(
-            id=lid, template_id=uuid.uuid4(),
-            template=None, status=ListingStatus.approved,
-            submitted_by="a", reviewed_by="b",
+            id=lid,
+            template_id=uuid.uuid4(),
+            template=None,
+            status=ListingStatus.approved,
+            submitted_by="a",
+            reviewed_by="b",
             reject_reason=None,
-            avg_rating=0, review_count=0,
-            install_count=0, featured=False,
-            published_at=_NOW, created_at=_NOW,
+            avg_rating=0,
+            review_count=0,
+            install_count=0,
+            featured=False,
+            published_at=_NOW,
+            created_at=_NOW,
             updated_at=_NOW,
         )
         mock_mkt.get_by_id = AsyncMock(return_value=listing)
@@ -562,13 +546,19 @@ class TestMarketplaceUpdateListing:
         mock_get_user.return_value = _mock_user()
         lid = uuid.uuid4()
         listing = _mock_obj(
-            id=lid, template_id=uuid.uuid4(),
-            template=None, status=ListingStatus.rejected,
-            submitted_by="a", reviewed_by="b",
+            id=lid,
+            template_id=uuid.uuid4(),
+            template=None,
+            status=ListingStatus.rejected,
+            submitted_by="a",
+            reviewed_by="b",
             reject_reason="low quality",
-            avg_rating=0, review_count=0,
-            install_count=0, featured=False,
-            published_at=_NOW, created_at=_NOW,
+            avg_rating=0,
+            review_count=0,
+            install_count=0,
+            featured=False,
+            published_at=_NOW,
+            created_at=_NOW,
             updated_at=_NOW,
         )
         mock_mkt.get_by_id = AsyncMock(return_value=listing)
@@ -592,13 +582,19 @@ class TestMarketplaceUpdateListing:
         mock_get_user.return_value = _mock_user()
         lid = uuid.uuid4()
         listing = _mock_obj(
-            id=lid, template_id=uuid.uuid4(),
-            template=None, status=ListingStatus.approved,
-            submitted_by="a", reviewed_by=None,
+            id=lid,
+            template_id=uuid.uuid4(),
+            template=None,
+            status=ListingStatus.approved,
+            submitted_by="a",
+            reviewed_by=None,
             reject_reason=None,
-            avg_rating=0, review_count=0,
-            install_count=0, featured=True,
-            published_at=_NOW, created_at=_NOW,
+            avg_rating=0,
+            review_count=0,
+            install_count=0,
+            featured=True,
+            published_at=_NOW,
+            created_at=_NOW,
             updated_at=_NOW,
         )
         mock_mkt.get_by_id = AsyncMock(return_value=listing)
@@ -654,14 +650,11 @@ class TestMarketplaceReviews:
 
     @patch("api.auth.get_user_by_id")
     @patch("api.routes.marketplace.MarketplaceRegistry")
-    def test_add_review_listing_not_found(
-        self, mock_mkt, mock_get_user
-    ):
+    def test_add_review_listing_not_found(self, mock_mkt, mock_get_user):
         mock_get_user.return_value = _mock_user()
         mock_mkt.get_by_id = AsyncMock(return_value=None)
         resp = client.post(
-            f"/api/v1/marketplace/listings/{uuid.uuid4()}"
-            "/reviews",
+            f"/api/v1/marketplace/listings/{uuid.uuid4()}/reviews",
             json={
                 "reviewer": "alice",
                 "rating": 5,
@@ -685,19 +678,26 @@ class TestMcpServerUpdate:
         from registry.mcp_servers import McpServerRegistry
 
         server = _mock_obj(
-            id=uuid.uuid4(), name="old", endpoint="e",
-            transport="stdio", status="active",
+            id=uuid.uuid4(),
+            name="old",
+            endpoint="e",
+            transport="stdio",
+            status="active",
         )
         session = AsyncMock()
         with patch.object(
-            McpServerRegistry, "get_by_id",
+            McpServerRegistry,
+            "get_by_id",
             new_callable=AsyncMock,
             return_value=server,
         ):
             result = await McpServerRegistry.update(
-                session, str(server.id),
-                name="new-name", endpoint="http://new",
-                transport="sse", status="error",
+                session,
+                str(server.id),
+                name="new-name",
+                endpoint="http://new",
+                transport="sse",
+                status="error",
             )
         assert result.name == "new-name"
         assert result.endpoint == "http://new"
@@ -708,13 +708,12 @@ class TestMcpServerUpdate:
 
         session = AsyncMock()
         with patch.object(
-            McpServerRegistry, "get_by_id",
+            McpServerRegistry,
+            "get_by_id",
             new_callable=AsyncMock,
             return_value=None,
         ):
-            result = await McpServerRegistry.update(
-                session, "bad-id", name="x"
-            )
+            result = await McpServerRegistry.update(session, "bad-id", name="x")
         assert result is None
 
 
@@ -726,17 +725,17 @@ class TestMcpServerDelete:
         from registry.mcp_servers import McpServerRegistry
 
         server = _mock_obj(
-            id=uuid.uuid4(), name="doomed",
+            id=uuid.uuid4(),
+            name="doomed",
         )
         session = AsyncMock()
         with patch.object(
-            McpServerRegistry, "get_by_id",
+            McpServerRegistry,
+            "get_by_id",
             new_callable=AsyncMock,
             return_value=server,
         ):
-            result = await McpServerRegistry.delete(
-                session, str(server.id)
-            )
+            result = await McpServerRegistry.delete(session, str(server.id))
         assert result is True
         session.delete.assert_called_once_with(server)
 
@@ -746,13 +745,12 @@ class TestMcpServerDelete:
 
         session = AsyncMock()
         with patch.object(
-            McpServerRegistry, "get_by_id",
+            McpServerRegistry,
+            "get_by_id",
             new_callable=AsyncMock,
             return_value=None,
         ):
-            result = await McpServerRegistry.delete(
-                session, "nope"
-            )
+            result = await McpServerRegistry.delete(session, "nope")
         assert result is False
 
 
@@ -766,31 +764,31 @@ class TestMcpServerExecuteTool:
         from registry.mcp_servers import McpServerRegistry
 
         server = _mock_obj(
-            id=uuid.uuid4(), name="srv",
-            transport="sse", endpoint="http://srv:8080",
+            id=uuid.uuid4(),
+            name="srv",
+            transport="sse",
+            endpoint="http://srv:8080",
         )
         session = AsyncMock()
 
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "result": {"output": "done"}
-        }
+        mock_resp.json.return_value = {"result": {"output": "done"}}
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=mock_resp)
-        mock_client.__aenter__ = AsyncMock(
-            return_value=mock_client
-        )
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
         with (
             patch.object(
-                McpServerRegistry, "get_by_id",
+                McpServerRegistry,
+                "get_by_id",
                 new_callable=AsyncMock,
                 return_value=server,
             ),
             patch.object(
-                real_httpx, "AsyncClient",
+                real_httpx,
+                "AsyncClient",
                 return_value=mock_client,
             ),
         ):
@@ -806,7 +804,8 @@ class TestMcpServerExecuteTool:
         from registry.mcp_servers import McpServerRegistry
 
         server = _mock_obj(
-            id=uuid.uuid4(), name="srv",
+            id=uuid.uuid4(),
+            name="srv",
             transport="streamable_http",
             endpoint="http://srv:8080",
         )
@@ -816,25 +815,23 @@ class TestMcpServerExecuteTool:
         mock_resp.status_code = 500
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=mock_resp)
-        mock_client.__aenter__ = AsyncMock(
-            return_value=mock_client
-        )
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
         with (
             patch.object(
-                McpServerRegistry, "get_by_id",
+                McpServerRegistry,
+                "get_by_id",
                 new_callable=AsyncMock,
                 return_value=server,
             ),
             patch.object(
-                real_httpx, "AsyncClient",
+                real_httpx,
+                "AsyncClient",
                 return_value=mock_client,
             ),
         ):
-            result = await McpServerRegistry.execute_tool(
-                session, str(server.id), "tool", {}
-            )
+            result = await McpServerRegistry.execute_tool(session, str(server.id), "tool", {})
         assert result["success"] is False
         assert "500" in result["error"]
 
@@ -845,34 +842,32 @@ class TestMcpServerExecuteTool:
         from registry.mcp_servers import McpServerRegistry
 
         server = _mock_obj(
-            id=uuid.uuid4(), name="srv",
-            transport="sse", endpoint="http://srv:8080",
+            id=uuid.uuid4(),
+            name="srv",
+            transport="sse",
+            endpoint="http://srv:8080",
         )
         session = AsyncMock()
 
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(
-            side_effect=ConnectionError("timeout")
-        )
-        mock_client.__aenter__ = AsyncMock(
-            return_value=mock_client
-        )
+        mock_client.post = AsyncMock(side_effect=ConnectionError("timeout"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
         with (
             patch.object(
-                McpServerRegistry, "get_by_id",
+                McpServerRegistry,
+                "get_by_id",
                 new_callable=AsyncMock,
                 return_value=server,
             ),
             patch.object(
-                real_httpx, "AsyncClient",
+                real_httpx,
+                "AsyncClient",
                 return_value=mock_client,
             ),
         ):
-            result = await McpServerRegistry.execute_tool(
-                session, str(server.id), "tool", {}
-            )
+            result = await McpServerRegistry.execute_tool(session, str(server.id), "tool", {})
         assert result["success"] is False
 
     @pytest.mark.asyncio
@@ -881,13 +876,12 @@ class TestMcpServerExecuteTool:
 
         session = AsyncMock()
         with patch.object(
-            McpServerRegistry, "get_by_id",
+            McpServerRegistry,
+            "get_by_id",
             new_callable=AsyncMock,
             return_value=None,
         ):
-            result = await McpServerRegistry.execute_tool(
-                session, "bad", "tool", {}
-            )
+            result = await McpServerRegistry.execute_tool(session, "bad", "tool", {})
         assert result["success"] is False
 
     @pytest.mark.asyncio
@@ -895,18 +889,19 @@ class TestMcpServerExecuteTool:
         from registry.mcp_servers import McpServerRegistry
 
         server = _mock_obj(
-            id=uuid.uuid4(), name="local",
-            transport="stdio", endpoint="",
+            id=uuid.uuid4(),
+            name="local",
+            transport="stdio",
+            endpoint="",
         )
         session = AsyncMock()
         with patch.object(
-            McpServerRegistry, "get_by_id",
+            McpServerRegistry,
+            "get_by_id",
             new_callable=AsyncMock,
             return_value=server,
         ):
-            result = await McpServerRegistry.execute_tool(
-                session, str(server.id), "my-tool", {}
-            )
+            result = await McpServerRegistry.execute_tool(session, str(server.id), "my-tool", {})
         assert result["success"] is True
         assert "Simulated" in result["result"]["output"]
 
@@ -920,9 +915,7 @@ class TestProviderAdd:
     """Lines 279-377: provider add (non-interactive)."""
 
     def test_add_unknown_type(self):
-        result = runner.invoke(
-            cli_app, ["provider", "add", "badtype"]
-        )
+        result = runner.invoke(cli_app, ["provider", "add", "badtype"])
         assert result.exit_code == 1
         assert "Unknown" in result.output
 
@@ -930,9 +923,7 @@ class TestProviderAdd:
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
             with (
-                patch(
-                    "cli.commands.provider.PROVIDERS_FILE", pf
-                ),
+                patch("cli.commands.provider.PROVIDERS_FILE", pf),
                 patch(
                     "cli.commands.provider._write_env_key",
                     return_value=Path(tmpdir) / ".env",
@@ -941,8 +932,11 @@ class TestProviderAdd:
                 result = runner.invoke(
                     cli_app,
                     [
-                        "provider", "add", "ollama",
-                        "--base-url", "http://localhost:11434",
+                        "provider",
+                        "add",
+                        "ollama",
+                        "--base-url",
+                        "http://localhost:11434",
                         "--json",
                     ],
                 )
@@ -954,9 +948,7 @@ class TestProviderAdd:
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
             with (
-                patch(
-                    "cli.commands.provider.PROVIDERS_FILE", pf
-                ),
+                patch("cli.commands.provider.PROVIDERS_FILE", pf),
                 patch(
                     "cli.commands.provider._write_env_key",
                     return_value=Path(tmpdir) / ".env",
@@ -965,8 +957,11 @@ class TestProviderAdd:
                 result = runner.invoke(
                     cli_app,
                     [
-                        "provider", "add", "openai",
-                        "--api-key", "sk-test123456789",
+                        "provider",
+                        "add",
+                        "openai",
+                        "--api-key",
+                        "sk-test123456789",
                         "--json",
                     ],
                 )
@@ -978,9 +973,7 @@ class TestProviderAdd:
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
             with (
-                patch(
-                    "cli.commands.provider.PROVIDERS_FILE", pf
-                ),
+                patch("cli.commands.provider.PROVIDERS_FILE", pf),
                 patch(
                     "cli.commands.provider._write_env_key",
                     return_value=Path(tmpdir) / ".env",
@@ -989,8 +982,11 @@ class TestProviderAdd:
                 result = runner.invoke(
                     cli_app,
                     [
-                        "provider", "add", "openai",
-                        "--api-key", "sk-test123456789",
+                        "provider",
+                        "add",
+                        "openai",
+                        "--api-key",
+                        "sk-test123456789",
                     ],
                 )
             assert result.exit_code == 0
@@ -1004,31 +1000,29 @@ class TestProviderTest:
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
             pf.write_text("{}")
-            with patch(
-                "cli.commands.provider.PROVIDERS_FILE", pf
-            ):
-                result = runner.invoke(
-                    cli_app, ["provider", "test", "openai"]
-                )
+            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
+                result = runner.invoke(cli_app, ["provider", "test", "openai"])
             assert result.exit_code == 1
 
     def test_provider_test_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
-            pf.write_text(json.dumps({
-                "openai": {
-                    "name": "OpenAI",
-                    "provider_type": "openai",
-                    "base_url": "https://api.openai.com/v1",
-                    "status": "active",
-                    "model_count": 7,
-                    "latency_ms": 50,
-                    "masked_key": "••••1234",
-                },
-            }))
-            with patch(
-                "cli.commands.provider.PROVIDERS_FILE", pf
-            ):
+            pf.write_text(
+                json.dumps(
+                    {
+                        "openai": {
+                            "name": "OpenAI",
+                            "provider_type": "openai",
+                            "base_url": "https://api.openai.com/v1",
+                            "status": "active",
+                            "model_count": 7,
+                            "latency_ms": 50,
+                            "masked_key": "••••1234",
+                        },
+                    }
+                )
+            )
+            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
                 result = runner.invoke(
                     cli_app,
                     ["provider", "test", "openai", "--json"],
@@ -1040,20 +1034,22 @@ class TestProviderTest:
     def test_provider_test_rich(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
-            pf.write_text(json.dumps({
-                "openai": {
-                    "name": "OpenAI",
-                    "provider_type": "openai",
-                    "base_url": "https://api.openai.com/v1",
-                    "status": "active",
-                    "model_count": 7,
-                    "latency_ms": 50,
-                    "masked_key": "••••1234",
-                },
-            }))
-            with patch(
-                "cli.commands.provider.PROVIDERS_FILE", pf
-            ):
+            pf.write_text(
+                json.dumps(
+                    {
+                        "openai": {
+                            "name": "OpenAI",
+                            "provider_type": "openai",
+                            "base_url": "https://api.openai.com/v1",
+                            "status": "active",
+                            "model_count": 7,
+                            "latency_ms": 50,
+                            "masked_key": "••••1234",
+                        },
+                    }
+                )
+            )
+            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
                 result = runner.invoke(
                     cli_app,
                     ["provider", "test", "openai"],
@@ -1069,36 +1065,34 @@ class TestProviderRemove:
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
             pf.write_text("{}")
-            with patch(
-                "cli.commands.provider.PROVIDERS_FILE", pf
-            ):
-                result = runner.invoke(
-                    cli_app, ["provider", "remove", "openai"]
-                )
+            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
+                result = runner.invoke(cli_app, ["provider", "remove", "openai"])
             assert result.exit_code == 1
 
     def test_remove_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
-            pf.write_text(json.dumps({
-                "openai": {
-                    "name": "OpenAI",
-                    "provider_type": "openai",
-                    "status": "active",
-                },
-            }))
+            pf.write_text(
+                json.dumps(
+                    {
+                        "openai": {
+                            "name": "OpenAI",
+                            "provider_type": "openai",
+                            "status": "active",
+                        },
+                    }
+                )
+            )
             with (
-                patch(
-                    "cli.commands.provider.PROVIDERS_FILE", pf
-                ),
-                patch(
-                    "cli.commands.provider._remove_env_key"
-                ),
+                patch("cli.commands.provider.PROVIDERS_FILE", pf),
+                patch("cli.commands.provider._remove_env_key"),
             ):
                 result = runner.invoke(
                     cli_app,
                     [
-                        "provider", "remove", "openai",
+                        "provider",
+                        "remove",
+                        "openai",
                         "--json",
                     ],
                 )
@@ -1109,20 +1103,20 @@ class TestProviderRemove:
     def test_remove_confirm_yes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
-            pf.write_text(json.dumps({
-                "openai": {
-                    "name": "OpenAI",
-                    "provider_type": "openai",
-                    "status": "active",
-                },
-            }))
+            pf.write_text(
+                json.dumps(
+                    {
+                        "openai": {
+                            "name": "OpenAI",
+                            "provider_type": "openai",
+                            "status": "active",
+                        },
+                    }
+                )
+            )
             with (
-                patch(
-                    "cli.commands.provider.PROVIDERS_FILE", pf
-                ),
-                patch(
-                    "cli.commands.provider._remove_env_key"
-                ),
+                patch("cli.commands.provider.PROVIDERS_FILE", pf),
+                patch("cli.commands.provider._remove_env_key"),
             ):
                 result = runner.invoke(
                     cli_app,
@@ -1135,16 +1129,18 @@ class TestProviderRemove:
     def test_remove_confirm_no(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
-            pf.write_text(json.dumps({
-                "openai": {
-                    "name": "OpenAI",
-                    "provider_type": "openai",
-                    "status": "active",
-                },
-            }))
-            with patch(
-                "cli.commands.provider.PROVIDERS_FILE", pf
-            ):
+            pf.write_text(
+                json.dumps(
+                    {
+                        "openai": {
+                            "name": "OpenAI",
+                            "provider_type": "openai",
+                            "status": "active",
+                        },
+                    }
+                )
+            )
+            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
                 result = runner.invoke(
                     cli_app,
                     ["provider", "remove", "openai"],
@@ -1161,9 +1157,7 @@ class TestProviderEnableDisable:
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
             pf.write_text("{}")
-            with patch(
-                "cli.commands.provider.PROVIDERS_FILE", pf
-            ):
+            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
                 result = runner.invoke(
                     cli_app,
                     ["provider", "disable", "openai"],
@@ -1174,9 +1168,7 @@ class TestProviderEnableDisable:
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
             pf.write_text("{}")
-            with patch(
-                "cli.commands.provider.PROVIDERS_FILE", pf
-            ):
+            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
                 result = runner.invoke(
                     cli_app,
                     ["provider", "enable", "openai"],
@@ -1186,20 +1178,24 @@ class TestProviderEnableDisable:
     def test_disable_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
-            pf.write_text(json.dumps({
-                "openai": {
-                    "name": "OpenAI",
-                    "provider_type": "openai",
-                    "status": "active",
-                },
-            }))
-            with patch(
-                "cli.commands.provider.PROVIDERS_FILE", pf
-            ):
+            pf.write_text(
+                json.dumps(
+                    {
+                        "openai": {
+                            "name": "OpenAI",
+                            "provider_type": "openai",
+                            "status": "active",
+                        },
+                    }
+                )
+            )
+            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
                 result = runner.invoke(
                     cli_app,
                     [
-                        "provider", "disable", "openai",
+                        "provider",
+                        "disable",
+                        "openai",
                         "--json",
                     ],
                 )
@@ -1210,20 +1206,24 @@ class TestProviderEnableDisable:
     def test_enable_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             pf = Path(tmpdir) / "providers.json"
-            pf.write_text(json.dumps({
-                "openai": {
-                    "name": "OpenAI",
-                    "provider_type": "openai",
-                    "status": "disabled",
-                },
-            }))
-            with patch(
-                "cli.commands.provider.PROVIDERS_FILE", pf
-            ):
+            pf.write_text(
+                json.dumps(
+                    {
+                        "openai": {
+                            "name": "OpenAI",
+                            "provider_type": "openai",
+                            "status": "disabled",
+                        },
+                    }
+                )
+            )
+            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
                 result = runner.invoke(
                     cli_app,
                     [
-                        "provider", "enable", "openai",
+                        "provider",
+                        "enable",
+                        "openai",
                         "--json",
                     ],
                 )
@@ -1258,9 +1258,7 @@ def _mock_httpx_client(
     post_side_effect=None,
 ):
     mock_client = MagicMock()
-    mock_client.__enter__ = MagicMock(
-        return_value=mock_client
-    )
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
 
     if get_json is not None:
@@ -1289,9 +1287,7 @@ class TestOrchestrationRun:
 
     def test_chat_not_found(self):
 
-        mock_client = _mock_httpx_client(
-            get_json={"data": []}
-        )
+        mock_client = _mock_httpx_client(get_json={"data": []})
         with patch(
             "cli.commands.orchestration._get_client",
             return_value=mock_client,
@@ -1389,7 +1385,9 @@ class TestOrchestrationRun:
             result = runner.invoke(
                 cli_app,
                 [
-                    "orchestration", "chat", "myorch",
+                    "orchestration",
+                    "chat",
+                    "myorch",
                     "--verbose",
                 ],
                 input="test\n/quit\n",
@@ -1426,9 +1424,7 @@ class TestOrchestrationJsonMode:
 
     def test_json_mode_not_found(self):
 
-        mock_client = _mock_httpx_client(
-            get_json={"data": []}
-        )
+        mock_client = _mock_httpx_client(get_json={"data": []})
         with patch(
             "cli.commands.orchestration._get_client",
             return_value=mock_client,
@@ -1436,7 +1432,9 @@ class TestOrchestrationJsonMode:
             result = runner.invoke(
                 cli_app,
                 [
-                    "orchestration", "chat", "missing",
+                    "orchestration",
+                    "chat",
+                    "missing",
                     "--json",
                 ],
                 input="hello\n",
@@ -1468,7 +1466,9 @@ class TestOrchestrationJsonMode:
             result = runner.invoke(
                 cli_app,
                 [
-                    "orchestration", "chat", "myorch",
+                    "orchestration",
+                    "chat",
+                    "myorch",
                     "--json",
                 ],
                 input="question\n",
@@ -1498,7 +1498,9 @@ class TestOrchestrationJsonMode:
             result = runner.invoke(
                 cli_app,
                 [
-                    "orchestration", "chat", "myorch",
+                    "orchestration",
+                    "chat",
+                    "myorch",
                     "--json",
                 ],
                 input="hello\n",
@@ -1563,9 +1565,7 @@ class TestAuthServiceDecode:
                 return_value=True,
             ),
         ):
-            result = await authenticate_user(
-                AsyncMock(), "a@b.com", "pass"
-            )
+            result = await authenticate_user(AsyncMock(), "a@b.com", "pass")
         assert result is user
 
     @pytest.mark.asyncio
@@ -1584,9 +1584,7 @@ class TestAuthServiceDecode:
                 return_value=False,
             ),
         ):
-            result = await authenticate_user(
-                AsyncMock(), "a@b.com", "wrong"
-            )
+            result = await authenticate_user(AsyncMock(), "a@b.com", "wrong")
         assert result is None
 
     @pytest.mark.asyncio
@@ -1599,9 +1597,7 @@ class TestAuthServiceDecode:
             new_callable=AsyncMock,
             return_value=user,
         ):
-            result = await authenticate_user(
-                AsyncMock(), "a@b.com", "pass"
-            )
+            result = await authenticate_user(AsyncMock(), "a@b.com", "pass")
         assert result is None
 
     @pytest.mark.asyncio
@@ -1613,9 +1609,7 @@ class TestAuthServiceDecode:
             new_callable=AsyncMock,
             return_value=None,
         ):
-            result = await authenticate_user(
-                AsyncMock(), "a@b.com", "pass"
-            )
+            result = await authenticate_user(AsyncMock(), "a@b.com", "pass")
         assert result is None
 
     @pytest.mark.asyncio
@@ -1626,9 +1620,7 @@ class TestAuthServiceDecode:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db.execute.return_value = mock_result
-        result = await get_user_by_id(
-            mock_db, uuid.uuid4()
-        )
+        result = await get_user_by_id(mock_db, uuid.uuid4())
         assert result is None
 
 
@@ -1662,12 +1654,8 @@ class TestApiMainLifespan:
 
         mock_db = AsyncMock()
         mock_session_ctx = AsyncMock()
-        mock_session_ctx.__aenter__ = AsyncMock(
-            return_value=mock_db
-        )
-        mock_session_ctx.__aexit__ = AsyncMock(
-            return_value=False
-        )
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
         with (
             patch(
@@ -1688,12 +1676,8 @@ class TestApiMainLifespan:
 
         mock_db = AsyncMock()
         mock_session_ctx = AsyncMock()
-        mock_session_ctx.__aenter__ = AsyncMock(
-            return_value=mock_db
-        )
-        mock_session_ctx.__aexit__ = AsyncMock(
-            return_value=False
-        )
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
         with (
             patch(
@@ -1740,9 +1724,7 @@ class TestApiAuthDependency:
         assert resp.status_code == 401
 
     def test_valid_token_user_not_found(self):
-        token = create_access_token(
-            str(uuid.uuid4()), "ghost@test.com", "admin"
-        )
+        token = create_access_token(str(uuid.uuid4()), "ghost@test.com", "admin")
         with patch(
             "api.auth.get_user_by_id",
             new_callable=AsyncMock,
@@ -1754,9 +1736,7 @@ class TestApiAuthDependency:
                     "template_id": str(uuid.uuid4()),
                     "submitted_by": "alice",
                 },
-                headers={
-                    "Authorization": f"Bearer {token}"
-                },
+                headers={"Authorization": f"Bearer {token}"},
             )
         assert resp.status_code == 401
 
@@ -1832,69 +1812,52 @@ class TestTeardownContainer:
         mock_deployer = MagicMock()
         with (
             patch(
-                "engine.deployers.docker_compose"
-                ".DockerComposeDeployer",
+                "engine.deployers.docker_compose.DockerComposeDeployer",
                 return_value=mock_deployer,
             ),
-            patch(
-                "cli.commands.teardown.asyncio.run"
-            ),
+            patch("cli.commands.teardown.asyncio.run"),
         ):
-            result = _teardown_container(
-                "my-agent", False
-            )
+            result = _teardown_container("my-agent", False)
         assert result is True
 
     def test_teardown_container_runtime_error(self):
         from cli.commands.teardown import _teardown_container
 
         with patch(
-            "engine.deployers.docker_compose"
-            ".DockerComposeDeployer",
+            "engine.deployers.docker_compose.DockerComposeDeployer",
             side_effect=RuntimeError("no docker"),
         ):
-            result = _teardown_container(
-                "my-agent", False
-            )
+            result = _teardown_container("my-agent", False)
         assert result is False
 
     def test_teardown_container_generic_error(self):
         from cli.commands.teardown import _teardown_container
 
         with patch(
-            "engine.deployers.docker_compose"
-            ".DockerComposeDeployer",
+            "engine.deployers.docker_compose.DockerComposeDeployer",
             side_effect=Exception("boom"),
         ):
-            result = _teardown_container(
-                "my-agent", False
-            )
+            result = _teardown_container("my-agent", False)
         assert result is False
 
     def test_teardown_container_runtime_error_json(self):
         from cli.commands.teardown import _teardown_container
 
         with patch(
-            "engine.deployers.docker_compose"
-            ".DockerComposeDeployer",
+            "engine.deployers.docker_compose.DockerComposeDeployer",
             side_effect=RuntimeError("no docker"),
         ):
-            result = _teardown_container(
-                "my-agent", True
-            )
+            result = _teardown_container("my-agent", True)
         assert result is False
 
     def test_teardown_container_generic_error_json(self):
         from cli.commands.teardown import _teardown_container
 
         with patch(
-            "engine.deployers.docker_compose"
-            ".DockerComposeDeployer",
+            "engine.deployers.docker_compose.DockerComposeDeployer",
             side_effect=Exception("boom"),
         ):
-            result = _teardown_container(
-                "my-agent", True
-            )
+            result = _teardown_container("my-agent", True)
         assert result is False
 
     def test_teardown_force_with_running_agent_json(self):
@@ -1931,8 +1894,10 @@ class TestTeardownContainer:
                 result = runner.invoke(
                     cli_app,
                     [
-                        "teardown", "my-agent",
-                        "--force", "--json",
+                        "teardown",
+                        "my-agent",
+                        "--force",
+                        "--json",
                     ],
                 )
             assert result.exit_code == 0
