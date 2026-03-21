@@ -1,9 +1,9 @@
-"""garden chat — interactive terminal chat with a deployed agent.
+"""agentbreeder chat — interactive terminal chat with a deployed agent.
 
 Usage:
-    garden chat my-agent
-    garden chat my-agent --verbose
-    garden chat my-agent --model gpt-4o --env staging
+    agentbreeder chat my-agent
+    agentbreeder chat my-agent --verbose
+    agentbreeder chat my-agent --model gpt-4o --env staging
 """
 
 from __future__ import annotations
@@ -68,9 +68,9 @@ def chat(
     Press Ctrl+C to end the session and see a usage summary.
 
     Examples:
-        garden chat my-agent
-        garden chat my-agent --verbose --model gpt-4o
-        echo "hello" | garden chat my-agent --json
+        agentbreeder chat my-agent
+        agentbreeder chat my-agent --verbose --model gpt-4o
+        echo "hello" | agentbreeder chat my-agent --json
     """
     if json_output:
         _run_json_mode(agent_name, model)

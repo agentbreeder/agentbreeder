@@ -20,8 +20,8 @@ from engine.runtimes.base import ContainerImage
 
 logger = logging.getLogger(__name__)
 
-GARDEN_DIR = Path.home() / ".garden"
-STATE_FILE = GARDEN_DIR / "state.json"
+AGENTBREEDER_DIR = Path.home() / ".agentbreeder"
+STATE_FILE = AGENTBREEDER_DIR / "state.json"
 BASE_PORT = 8080
 
 
@@ -29,7 +29,7 @@ class DockerComposeDeployer(BaseDeployer):
     """Deploys agents as local Docker containers."""
 
     def __init__(self) -> None:
-        GARDEN_DIR.mkdir(parents=True, exist_ok=True)
+        AGENTBREEDER_DIR.mkdir(parents=True, exist_ok=True)
         self._state = self._load_state()
 
     def _load_state(self) -> dict:
@@ -89,7 +89,7 @@ class DockerComposeDeployer(BaseDeployer):
                     logger.debug("  %s", line)
 
         # Stop existing container if any
-        container_name = f"garden-{config.name}"
+        container_name = f"agentbreeder-{config.name}"
         try:
             existing = client.containers.get(container_name)
             logger.info("Stopping existing container: %s", container_name)
@@ -173,7 +173,7 @@ class DockerComposeDeployer(BaseDeployer):
             raise RuntimeError(msg) from e
 
         client = docker.from_env()
-        container_name = f"garden-{agent_name}"
+        container_name = f"agentbreeder-{agent_name}"
 
         try:
             container = client.containers.get(container_name)
@@ -198,7 +198,7 @@ class DockerComposeDeployer(BaseDeployer):
             raise RuntimeError(msg) from e
 
         client = docker.from_env()
-        container_name = f"garden-{agent_name}"
+        container_name = f"agentbreeder-{agent_name}"
 
         try:
             container = client.containers.get(container_name)

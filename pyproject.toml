@@ -56,7 +56,7 @@ docs = [
 ]
 
 [project.scripts]
-garden = "cli.main:app"
+agentbreeder = "cli.main:app"
 
 [project.urls]
 Homepage = "https://agentbreeder.com"

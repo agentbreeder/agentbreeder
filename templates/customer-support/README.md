@@ -19,12 +19,12 @@ Production-ready tier-1 customer support agent with Zendesk integration, RAG-pow
 
 2. **Validate the configuration:**
    ```bash
-   garden validate
+   agentbreeder validate
    ```
 
 3. **Deploy locally:**
    ```bash
-   garden deploy --target local
+   agentbreeder deploy --target local
    ```
 
 ## Architecture

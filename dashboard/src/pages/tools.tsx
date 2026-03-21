@@ -220,7 +220,7 @@ export default function ToolsPage() {
         <EmptyState
           icon={Wrench}
           title="No tools registered"
-          description="Run `garden scan` to discover MCP servers and register them."
+          description="Run `agentbreeder scan` to discover MCP servers and register them."
         />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">

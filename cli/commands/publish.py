@@ -1,8 +1,8 @@
-"""garden publish — merge an approved PR, tag, and publish to registry.
+"""agentbreeder publish — merge an approved PR, tag, and publish to registry.
 
 Usage:
-    garden publish agent my-agent
-    garden publish prompt support-v3 --version 2.1.0
+    agentbreeder publish agent my-agent
+    agentbreeder publish prompt support-v3 --version 2.1.0
 """
 
 from __future__ import annotations
@@ -110,8 +110,8 @@ def publish(
     to the AgentBreeder registry.
 
     Examples:
-        garden publish agent my-agent
-        garden publish prompt support-v3 --version 2.1.0
+        agentbreeder publish agent my-agent
+        agentbreeder publish prompt support-v3 --version 2.1.0
     """
     if not json_output:
         console.print()
@@ -161,8 +161,8 @@ def publish(
                     f"[bold red]Not found[/bold red]\n\n"
                     f"  {msg}\n\n"
                     f"  [dim]Ensure a PR has been submitted and approved:\n"
-                    f"    garden submit {resource_type} {name}\n"
-                    f"    garden review approve <pr-id>[/dim]",
+                    f"    agentbreeder submit {resource_type} {name}\n"
+                    f"    agentbreeder review approve <pr-id>[/dim]",
                     title="Error",
                     border_style="red",
                 )

@@ -546,7 +546,7 @@ class TestSubmitRichOutput:
             result = runner.invoke(app, ["submit", "agent", "my-agent"])
         assert result.exit_code == 0
         assert "Submitted for Review" in result.output
-        assert "garden review show" in result.output
+        assert "agentbreeder review show" in result.output
 
     def test_submit_rich_panel_with_many_files(self) -> None:
         """Diff with > 5 files should show truncation message."""
@@ -863,7 +863,7 @@ class TestReviewRichOutput:
         assert result.exit_code == 0
         assert "Approved" in result.output
         assert "PR approved" in result.output
-        assert "garden publish" in result.output
+        assert "agentbreeder publish" in result.output
 
     def test_review_approve_connection_error(self) -> None:
         """ConnectError on approve."""

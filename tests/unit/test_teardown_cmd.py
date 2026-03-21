@@ -1,4 +1,4 @@
-"""Tests for the garden teardown command."""
+"""Tests for the agentbreeder teardown command."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _sample_state() -> dict:
                 "port": 8080,
                 "endpoint_url": "http://localhost:8080",
                 "container_id": "abc123def456",
-                "container_name": "garden-my-agent",
+                "container_name": "agentbreeder-my-agent",
                 "status": "running",
                 "deployed_at": "2026-03-09T10:00:00",
             }

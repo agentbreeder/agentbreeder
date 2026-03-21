@@ -18,12 +18,12 @@ RAG-based document question-answering agent that searches over indexed documents
 
 2. **Deploy locally:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Ask a question:**
    ```bash
-   garden chat document-qa-agent --message "What is our company's remote work policy?"
+   agentbreeder chat document-qa-agent --message "What is our company's remote work policy?"
    ```
 
 ## Architecture

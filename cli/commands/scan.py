@@ -1,4 +1,4 @@
-"""garden scan — discover tools and models from connectors."""
+"""agentbreeder scan — discover tools and models from connectors."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from connectors.mcp_scanner.scanner import MCPScanner
 
 console = Console()
 
-REGISTRY_DIR = Path.home() / ".garden" / "registry"
+REGISTRY_DIR = Path.home() / ".agentbreeder" / "registry"
 
 
 def scan(

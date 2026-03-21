@@ -1,4 +1,4 @@
-"""garden logs — tail logs from a deployed agent."""
+"""agentbreeder logs — tail logs from a deployed agent."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from rich.panel import Panel
 
 console = Console()
 
-STATE_FILE = Path.home() / ".garden" / "state.json"
+STATE_FILE = Path.home() / ".agentbreeder" / "state.json"
 
 
 def _load_state() -> dict:
@@ -41,10 +41,10 @@ def logs(
     """Show logs from a deployed agent.
 
     Examples:
-        garden logs my-agent
-        garden logs my-agent --lines 100
-        garden logs my-agent --follow
-        garden logs my-agent --since 5m
+        agentbreeder logs my-agent
+        agentbreeder logs my-agent --lines 100
+        agentbreeder logs my-agent --follow
+        agentbreeder logs my-agent --since 5m
     """
     state = _load_state()
     agents = state.get("agents", {})
@@ -64,7 +64,7 @@ def logs(
             if available:
                 msg += f"\n\n  Available agents: [cyan]{', '.join(available)}[/cyan]"
             else:
-                msg += "\n\n  No agents deployed yet. Run: [cyan]garden deploy[/cyan]"
+                msg += "\n\n  No agents deployed yet. Run: [cyan]agentbreeder deploy[/cyan]"
             console.print(Panel(msg, title="Error", border_style="red"))
             console.print()
         raise typer.Exit(code=1)

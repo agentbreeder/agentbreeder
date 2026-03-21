@@ -215,10 +215,10 @@ agents:
 
 ```bash
 # Validate against JSON Schema
-garden orchestration validate orchestration.yaml
+agentbreeder orchestration validate orchestration.yaml
 
 # Validate all orchestrations in a workspace
-garden validate
+agentbreeder validate
 ```
 
 Validation checks:
@@ -256,4 +256,4 @@ See [Full Code Orchestration SDK](orchestration-sdk.md) for the complete SDK ref
 
 ---
 
-*See also: [Full Code Orchestration SDK](orchestration-sdk.md) · [CLI reference](cli-reference.md#garden-orchestration) · [agent.yaml reference](agent-yaml.md)*
+*See also: [Full Code Orchestration SDK](orchestration-sdk.md) · [CLI reference](cli-reference.md#agentbreeder-orchestration) · [agent.yaml reference](agent-yaml.md)*

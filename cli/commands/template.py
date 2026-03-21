@@ -1,4 +1,4 @@
-"""garden template — manage agent templates."""
+"""agentbreeder template — manage agent templates."""
 
 from __future__ import annotations
 

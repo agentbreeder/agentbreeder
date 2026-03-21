@@ -18,12 +18,12 @@ Sequential CrewAI crew with a researcher and writer agent. Use this as a startin
 
 2. **Deploy locally:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Run the crew:**
    ```bash
-   garden chat crewai-starter-agent --message "Write an article about quantum computing"
+   agentbreeder chat crewai-starter-agent --message "Write an article about quantum computing"
    ```
 
 ## Architecture

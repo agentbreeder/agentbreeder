@@ -10,7 +10,7 @@ export interface DeployResult {
 }
 
 export async function deploy(config: AgentConfig, target = "local"): Promise<DeployResult> {
-  // Placeholder — real implementation would call the garden CLI or API
+  // Placeholder — real implementation would call the agentbreeder CLI or API
   return {
     agent: config.name,
     version: config.version,

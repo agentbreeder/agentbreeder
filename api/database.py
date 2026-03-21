@@ -10,7 +10,7 @@ from api.config import settings
 
 engine = create_async_engine(
     settings.database_url,
-    echo=settings.garden_env == "development",
+    echo=settings.agentbreeder_env == "development",
     pool_size=10,
     max_overflow=20,
 )

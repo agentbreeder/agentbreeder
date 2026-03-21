@@ -44,9 +44,9 @@ class AWSSecretsManagerBackend(SecretsBackend):
     Secrets Manager secrets created via the console.
     """
 
-    def __init__(self, region: str = "us-east-1", prefix: str = "garden/") -> None:
+    def __init__(self, region: str = "us-east-1", prefix: str = "agentbreeder/") -> None:
         self._region = region
-        # e.g. prefix="garden/" → "OPENAI_API_KEY" stored as "garden/OPENAI_API_KEY"
+        # e.g. prefix="agentbreeder/" → "OPENAI_API_KEY" stored as "agentbreeder/OPENAI_API_KEY"
         self._prefix = prefix
 
     @property

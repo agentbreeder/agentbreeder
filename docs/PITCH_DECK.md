@@ -63,7 +63,7 @@ deploy:
 ```
 
 ```bash
-$ garden deploy
+$ agentbreeder deploy
 
 Validating agent.yaml...          OK
 Checking RBAC permissions...      OK
@@ -134,7 +134,7 @@ Return Endpoint URL
 **Tier mobility is a first-class feature:**
 - Start in the visual builder (No Code)
 - Click "View YAML" to see exactly what was generated (Low Code)
-- Run `garden eject` to get full SDK scaffolding (Full Code)
+- Run `agentbreeder eject` to get full SDK scaffolding (Full Code)
 - No lock-in at any level. Move freely between tiers.
 
 This is how you serve the entire organization --- from the PM who wants to prototype a support agent in 10 minutes to the ML engineer who needs custom routing logic.
@@ -148,7 +148,7 @@ This is how you serve the entire organization --- from the PM who wants to proto
 **Step 1:** Start the entire platform locally
 
 ```bash
-$ garden up
+$ agentbreeder up
 Starting AgentBreeder...
   PostgreSQL    .... running (port 5432)
   Redis         .... running (port 6379)
@@ -161,7 +161,7 @@ AgentBreeder is ready at http://localhost:3000
 **Step 2:** Scaffold from a template
 
 ```bash
-$ garden init --template customer-support
+$ agentbreeder init --template customer-support
 Created ./customer-support-agent/
   agent.yaml          # Pre-configured for LangGraph + Claude
   prompts/system.md   # Battle-tested support prompt
@@ -171,7 +171,7 @@ Created ./customer-support-agent/
 **Step 3:** Deploy with full governance
 
 ```bash
-$ garden deploy --target local
+$ agentbreeder deploy --target local
 Agent live at http://localhost:8080/customer-support-agent
 Dashboard: http://localhost:3000/agents/customer-support-agent
 ```
@@ -196,7 +196,7 @@ MCP (Model Context Protocol) has **97M+ npm downloads** and is now under the Lin
 **85% of organizations** are already using AI agents in some capacity. **40% plan to embed agents in customer-facing applications by end of 2026** (Gartner). But governance tools do not exist. Every enterprise is building this internally, poorly, from scratch.
 
 **4. Framework fatigue**
-15+ agent frameworks, zero deployment solutions. Developers are exhausted from re-inventing deployment for every framework. They want a `garden deploy` that just works.
+15+ agent frameworks, zero deployment solutions. Developers are exhausted from re-inventing deployment for every framework. They want a `agentbreeder deploy` that just works.
 
 **5. The "Kubernetes moment" for AI agents**
 Just as Kubernetes standardized container orchestration (and created a $7B+ ecosystem), the AI agent deployment layer needs a standard. AgentBreeder is that standard.
@@ -244,7 +244,7 @@ Total AI agent market by 2033
 | **MCP native** | Sidecar injection | Plugin system | None | None | None |
 | **A2A protocol** | Built-in | None | None | None | None |
 | **Open source** | Apache 2.0 | Partial (MIT core) | Custom license | Proprietary | Proprietary |
-| **One-command deploy** | `garden deploy` | No | No | No | No |
+| **One-command deploy** | `agentbreeder deploy` | No | No | No | No |
 
 **Our moat**: AgentBreeder is the only platform that is simultaneously framework-agnostic, multi-cloud, and governance-first. Competitors optimize for one axis. We optimize for the intersection --- which is exactly what enterprises need.
 
@@ -296,7 +296,7 @@ Total AI agent market by 2033
 
 **Phase 2: Cloud Platform (Months 4-6)**
 
-- Launch AgentBreeder Cloud: `garden deploy --target cloud`
+- Launch AgentBreeder Cloud: `agentbreeder deploy --target cloud`
 - Free tier (3 agents), Pro ($49/agent/mo), Team ($29/seat/mo)
 - Target YC companies, Techstars, and startup accelerators
 - Partnership with LLM providers (Anthropic, OpenAI) for co-marketing
@@ -323,7 +323,7 @@ Total AI agent market by 2033
 - [x] **Three-tier builder**: visual canvas, YAML editor, Python/TS SDK --- all compiling to the same pipeline
 - [x] **Governance built-in**: RBAC, audit trail, cost tracking, team management
 - [x] **Comprehensive test suite**: 2,427 tests, 94% code coverage
-- [x] **One-command startup**: `garden up` launches the entire platform locally
+- [x] **One-command startup**: `agentbreeder up` launches the entire platform locally
 - [x] **Secrets management**: pluggable backends (env, AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault)
 
 ### What is next

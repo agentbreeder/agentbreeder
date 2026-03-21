@@ -44,7 +44,7 @@ For each affected doc: read the current doc, read the changed source, update the
 ### CLI Reference (`docs/cli-reference.md`)
 - Read every command in `cli/commands/*.py` and `cli/main.py`
 - Document: name, description, arguments, options, flags, examples
-- Use `garden <command> --help` output as source of truth
+- Use `agentbreeder <command> --help` output as source of truth
 - Include `--json` output format examples where applicable
 - Remove docs for deleted commands, add docs for new commands
 

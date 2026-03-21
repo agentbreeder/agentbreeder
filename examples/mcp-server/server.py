@@ -173,7 +173,7 @@ _MOCK_DOCS = [
     {
         "title": "Getting Started with AgentBreeder",
         "snippet": "Install AgentBreeder with pip install agentbreeder-sdk. "
-        "Create an agent.yaml file and run garden deploy.",
+        "Create an agent.yaml file and run agentbreeder deploy.",
         "url": "https://docs.agentbreeder.dev/getting-started",
     },
     {

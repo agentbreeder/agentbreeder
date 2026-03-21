@@ -20,7 +20,7 @@
 
 **Before:** You write LangGraph code, figure out how to containerize it, manually deploy it, and hope someone documents where it lives.
 
-**After:** You write the same LangGraph code, add a 10-line YAML file, run `garden deploy`, and get a production-ready container with RBAC, cost tracking, health checks, and registry entry -- automatically.
+**After:** You write the same LangGraph code, add a 10-line YAML file, run `agentbreeder deploy`, and get a production-ready container with RBAC, cost tracking, health checks, and registry entry -- automatically.
 
 Your LangGraph graph, state, nodes, edges, and tools are unchanged. AgentBreeder wraps your graph in a FastAPI server and handles everything else.
 
@@ -61,7 +61,7 @@ my-langgraph-agent/
   agent.yaml              # NEW -- 10 lines
 ```
 
-You run `garden deploy agent.yaml` and get all of the above for free.
+You run `agentbreeder deploy agent.yaml` and get all of the above for free.
 
 ---
 
@@ -141,7 +141,7 @@ That is the minimal config. Every field maps to something AgentBreeder handles a
 ### Step 4: Validate
 
 ```bash
-garden validate agent.yaml
+agentbreeder validate agent.yaml
 ```
 
 This checks your YAML against the JSON Schema and verifies that your `agent.py` exists with the expected exports. Fix any errors before proceeding.
@@ -149,7 +149,7 @@ This checks your YAML against the JSON Schema and verifies that your `agent.py` 
 ### Step 5: Deploy locally
 
 ```bash
-garden deploy agent.yaml --target local
+agentbreeder deploy agent.yaml --target local
 ```
 
 AgentBreeder will:
@@ -218,7 +218,7 @@ deploy:
 ```
 
 ```bash
-garden deploy agent.yaml --target aws
+agentbreeder deploy agent.yaml --target aws
 ```
 
 Or for GCP:
@@ -231,7 +231,7 @@ deploy:
 ```
 
 ```bash
-garden deploy agent.yaml --target gcp
+agentbreeder deploy agent.yaml --target gcp
 ```
 
 ---
@@ -248,7 +248,7 @@ garden deploy agent.yaml --target gcp
 | Subgraphs | `subagents:` in `agent.yaml` | Cross-agent calls via A2A protocol |
 | `MemorySaver` | `knowledge_bases:` in `agent.yaml` | Registry-managed, shared across agents |
 | Human-in-the-loop | `access.require_approval: true` | Deploy-level approval gates |
-| `langgraph serve` | `garden deploy` | AG replaces LangGraph's own serve command |
+| `langgraph serve` | `agentbreeder deploy` | AG replaces LangGraph's own serve command |
 | LangSmith tracing | AG tracing (OpenTelemetry) | Automatic, no code changes |
 | Environment variables | `deploy.env_vars` / `deploy.secrets` | Secrets use cloud-native secret managers |
 
@@ -317,12 +317,12 @@ This chains agents: classifier output feeds into resolver, then responder. Each 
 
 | Feature | Before (LangGraph only) | After (LangGraph + AG) |
 |---------|------------------------|------------------------|
-| Deploy | Manual Docker + Terraform | `garden deploy agent.yaml` |
+| Deploy | Manual Docker + Terraform | `agentbreeder deploy agent.yaml` |
 | Multi-cloud | Rewrite per provider | Change `cloud: aws` to `cloud: gcp` |
 | RBAC | Not available | Automatic on every deploy |
 | Cost tracking | Manual / LangSmith | Per-agent, per-team, per-model |
 | Audit trail | Not available | Every deploy and invocation logged |
-| Agent registry | Not available | `garden search` finds any agent |
+| Agent registry | Not available | `agentbreeder search` finds any agent |
 | Health checks | Manual | Automatic with configurable intervals |
 | Autoscaling | Manual cloud config | Declarative in `agent.yaml` |
 | Model fallback | Try/except in code | `fallback: gpt-4o-mini` |
@@ -460,7 +460,7 @@ deploy:
 **Deploy:**
 
 ```bash
-garden deploy agent.yaml
+agentbreeder deploy agent.yaml
 ```
 
 That is it. Your LangGraph agent is now deployed with governance, health checks, and registry entry.

@@ -59,7 +59,7 @@ A default admin account is created on first startup:
 ## 4. Create Your First Agent
 
 ```bash
-garden init
+agentbreeder init
 ```
 
 Follow the interactive wizard to scaffold a new agent project. It will create:
@@ -72,13 +72,13 @@ Follow the interactive wizard to scaffold a new agent project. It will create:
 
 ```bash
 # Validate the config
-garden validate
+agentbreeder validate
 
 # Deploy locally
-garden deploy --target local
+agentbreeder deploy --target local
 
 # Deploy to GCP Cloud Run
-garden deploy --target cloud-run --region us-central1
+agentbreeder deploy --target cloud-run --region us-central1
 ```
 
 ### Local models with Ollama
@@ -95,17 +95,17 @@ Start Ollama before deploying:
 ```bash
 ollama serve &
 ollama pull llama3
-garden deploy --target local
+agentbreeder deploy --target local
 ```
 
 ## 6. Verify
 
 ```bash
 # Check status
-garden status
+agentbreeder status
 
 # View logs
-garden logs <agent-name> --follow
+agentbreeder logs <agent-name> --follow
 
 # Browse the dashboard
 open http://localhost:3001
@@ -117,21 +117,21 @@ open http://localhost:3001
 
 | Command            | Description                              |
 |--------------------|------------------------------------------|
-| `garden init`      | Scaffold a new agent project             |
-| `garden validate`  | Validate agent.yaml without deploying    |
-| `garden deploy`    | Deploy an agent                          |
-| `garden list`      | List agents/tools/models/prompts         |
-| `garden describe`  | Show detail for a registry entity        |
-| `garden search`    | Search across the registry               |
-| `garden logs`      | Tail logs from a deployed agent          |
-| `garden status`    | Show deploy status                       |
-| `garden teardown`  | Remove a deployed agent                  |
-| `garden scan`      | Discover MCP servers and LiteLLM models  |
-| `garden chat`      | Interactive chat with a deployed agent    |
-| `garden submit`    | Submit a resource for review (create PR)  |
-| `garden review`    | Review, approve, or reject pull requests  |
-| `garden publish`   | Merge approved PR and publish to registry |
-| `garden provider`  | Manage LLM provider connections           |
+| `agentbreeder init`      | Scaffold a new agent project             |
+| `agentbreeder validate`  | Validate agent.yaml without deploying    |
+| `agentbreeder deploy`    | Deploy an agent                          |
+| `agentbreeder list`      | List agents/tools/models/prompts         |
+| `agentbreeder describe`  | Show detail for a registry entity        |
+| `agentbreeder search`    | Search across the registry               |
+| `agentbreeder logs`      | Tail logs from a deployed agent          |
+| `agentbreeder status`    | Show deploy status                       |
+| `agentbreeder teardown`  | Remove a deployed agent                  |
+| `agentbreeder scan`      | Discover MCP servers and LiteLLM models  |
+| `agentbreeder chat`      | Interactive chat with a deployed agent    |
+| `agentbreeder submit`    | Submit a resource for review (create PR)  |
+| `agentbreeder review`    | Review, approve, or reject pull requests  |
+| `agentbreeder publish`   | Merge approved PR and publish to registry |
+| `agentbreeder provider`  | Manage LLM provider connections           |
 
 ---
 

@@ -1,10 +1,10 @@
 """AgentBreeder CLI — the developer interface.
 
 Usage:
-    garden deploy ./agent.yaml --target local
-    garden validate ./agent.yaml
-    garden list agents
-    garden describe agent <name>
+    agentbreeder deploy ./agent.yaml --target local
+    agentbreeder validate ./agent.yaml
+    agentbreeder list agents
+    agentbreeder describe agent <name>
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from cli.commands import (
 )
 
 app = typer.Typer(
-    name="garden",
+    name="agentbreeder",
     help="AgentBreeder — Define Once. Deploy Anywhere. Govern Automatically.",
     no_args_is_help=True,
     rich_markup_mode="rich",

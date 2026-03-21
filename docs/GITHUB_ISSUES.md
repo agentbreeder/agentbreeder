@@ -8,13 +8,13 @@
 
 ---
 
-### Issue 1: Create 20+ Agent Templates for `garden init --template`
+### Issue 1: Create 20+ Agent Templates for `agentbreeder init --template`
 
 **Priority:** P0
 **Labels:** `enhancement`, `templates`, `launch`
 
 **Description:**
-Create a library of high-quality, production-ready starter templates that users can scaffold with `garden init --template <name>`. Templates are the single most important driver of time-to-first-deploy. Every template must work on the first try with zero configuration beyond API keys.
+Create a library of high-quality, production-ready starter templates that users can scaffold with `agentbreeder init --template <name>`. Templates are the single most important driver of time-to-first-deploy. Every template must work on the first try with zero configuration beyond API keys.
 
 Required templates:
 - `customer-support` -- Zendesk MCP integration + RAG over product docs
@@ -36,12 +36,12 @@ Each template must include:
 - Screenshot or terminal output showing the template in action
 
 **Acceptance Criteria:**
-- [ ] All 20+ templates pass `garden validate` without errors
-- [ ] All templates deploy successfully with `garden deploy --target local`
+- [ ] All 20+ templates pass `agentbreeder validate` without errors
+- [ ] All templates deploy successfully with `agentbreeder deploy --target local`
 - [ ] Each template has a README with < 5 minute setup instructions
 - [ ] Each template includes at least one passing test
-- [ ] `garden init --template` lists all templates with descriptions
-- [ ] Templates are indexed in the registry for `garden search`
+- [ ] `agentbreeder init --template` lists all templates with descriptions
+- [ ] Templates are indexed in the registry for `agentbreeder search`
 
 **Estimated Effort:** 3-4 weeks (2 engineers)
 
@@ -56,9 +56,9 @@ Each template must include:
 Create two demo assets that show AgentBreeder's end-to-end workflow:
 
 1. **Terminal GIF** (asciinema or VHS): A 60-second recording showing:
-   - `garden up` starting the local platform
-   - `garden init --template customer-support` scaffolding an agent
-   - `garden deploy --target local` deploying it
+   - `agentbreeder up` starting the local platform
+   - `agentbreeder init --template customer-support` scaffolding an agent
+   - `agentbreeder deploy --target local` deploying it
    - The agent responding to a test query
    - The dashboard showing governance (RBAC, cost, audit trail)
 
@@ -88,7 +88,7 @@ Write four migration guides targeting developers who already have agents deploye
 
 Guides to write:
 
-1. **Migrate from LangChain Deployment** -- Show how to wrap an existing LangChain/LangGraph agent in `agent.yaml`, replace custom deployment scripts with `garden deploy`, and gain governance automatically. Include before/after code comparison.
+1. **Migrate from LangChain Deployment** -- Show how to wrap an existing LangChain/LangGraph agent in `agent.yaml`, replace custom deployment scripts with `agentbreeder deploy`, and gain governance automatically. Include before/after code comparison.
 
 2. **Deploy CrewAI Agents with Governance** -- Take a working CrewAI crew definition and show how AgentBreeder adds RBAC, cost tracking, and audit trail without changing the crew logic. Emphasize what they gain vs. running CrewAI standalone.
 
@@ -105,7 +105,7 @@ Each guide should include:
 
 **Acceptance Criteria:**
 - [ ] All four guides are published in `docs/guides/`
-- [ ] Each guide includes working code examples that pass `garden validate`
+- [ ] Each guide includes working code examples that pass `agentbreeder validate`
 - [ ] Each guide has been tested end-to-end by someone other than the author
 - [ ] Guides are linked from the main documentation index
 - [ ] Each guide targets relevant SEO keywords in the title and headings
@@ -158,7 +158,7 @@ Each comparison page should include:
 Redesign the README.md and (if applicable) the landing page to maximize conversion from visitor to first deploy. The current README is developer-oriented but does not sell the value proposition quickly enough.
 
 New structure:
-- **Hero section:** Animated terminal GIF (from Issue 2), one-liner tagline ("Define Once. Deploy Anywhere. Govern Automatically."), copy-pasteable get-started block (`pip install agentbreeder && garden init --template customer-support && garden deploy`)
+- **Hero section:** Animated terminal GIF (from Issue 2), one-liner tagline ("Define Once. Deploy Anywhere. Govern Automatically."), copy-pasteable get-started block (`pip install agentbreeder && agentbreeder init --template customer-support && agentbreeder deploy`)
 - **Three-tier visual:** A clean graphic showing No Code / Low Code / Full Code tiers with arrows showing tier mobility
 - **Template gallery:** Grid of 6-8 featured templates with icons and one-line descriptions
 - **Feature highlights:** 4 panels -- Framework Agnostic, Multi-Cloud, Governance Built-In, Agent Registry
@@ -295,7 +295,7 @@ First month content plan:
 **Labels:** `enhancement`, `engine`
 
 **Description:**
-Add a CrewAI runtime builder at `engine/runtimes/crewai.py` that implements the `RuntimeBuilder` abstract interface. This enables users to deploy CrewAI-based agents through the standard `garden deploy` pipeline.
+Add a CrewAI runtime builder at `engine/runtimes/crewai.py` that implements the `RuntimeBuilder` abstract interface. This enables users to deploy CrewAI-based agents through the standard `agentbreeder deploy` pipeline.
 
 The runtime must:
 - Parse CrewAI-specific configuration from `agent.yaml` (crew definition, agent roles, task definitions)
@@ -327,7 +327,7 @@ Reference the existing `engine/runtimes/langgraph.py` and `engine/runtimes/opena
 **Labels:** `enhancement`, `engine`
 
 **Description:**
-Add a Claude SDK runtime builder at `engine/runtimes/claude_sdk.py` that implements the `RuntimeBuilder` abstract interface. This enables users to deploy agents built with Anthropic's Claude SDK (tool use, multi-turn conversations) through the standard `garden deploy` pipeline.
+Add a Claude SDK runtime builder at `engine/runtimes/claude_sdk.py` that implements the `RuntimeBuilder` abstract interface. This enables users to deploy agents built with Anthropic's Claude SDK (tool use, multi-turn conversations) through the standard `agentbreeder deploy` pipeline.
 
 The runtime must:
 - Parse Claude SDK-specific configuration from `agent.yaml` (model selection, tool definitions, system prompt)
@@ -355,7 +355,7 @@ The runtime must:
 **Labels:** `enhancement`, `engine`
 
 **Description:**
-Add a Google ADK (Agent Development Kit) runtime builder at `engine/runtimes/google_adk.py` that implements the `RuntimeBuilder` abstract interface. This enables users to deploy agents built with Google's ADK through the standard `garden deploy` pipeline.
+Add a Google ADK (Agent Development Kit) runtime builder at `engine/runtimes/google_adk.py` that implements the `RuntimeBuilder` abstract interface. This enables users to deploy agents built with Google's ADK through the standard `agentbreeder deploy` pipeline.
 
 The runtime must:
 - Parse Google ADK-specific configuration from `agent.yaml`
@@ -410,7 +410,7 @@ Infrastructure provisioning should use Pulumi (Python) consistent with the proje
 - [ ] Health check endpoint verified post-deploy
 - [ ] Rollback works on failed health check
 - [ ] Agent endpoint registered in registry after successful deploy
-- [ ] `garden teardown` removes all created resources
+- [ ] `agentbreeder teardown` removes all created resources
 - [ ] Unit tests with > 80% coverage
 - [ ] Integration test with real AWS account (can be in CI with credentials)
 
@@ -424,7 +424,7 @@ Infrastructure provisioning should use Pulumi (Python) consistent with the proje
 **Labels:** `enhancement`, `engine`, `cloud`
 
 **Description:**
-Implement a Kubernetes deployer at `engine/deployers/kubernetes.py`. This deployer targets any Kubernetes cluster (EKS, GKE, self-hosted) and enables `garden deploy --target kubernetes`.
+Implement a Kubernetes deployer at `engine/deployers/kubernetes.py`. This deployer targets any Kubernetes cluster (EKS, GKE, self-hosted) and enables `agentbreeder deploy --target kubernetes`.
 
 The deployer must:
 - Implement the `Deployer` abstract interface
@@ -444,7 +444,7 @@ Consider integration with Google's Kubernetes Agent Sandbox (gVisor, WarmPools) 
 - [ ] HPA configured per `deploy.scaling`
 - [ ] Secrets mounted from Kubernetes secrets
 - [ ] Health probes configured
-- [ ] `garden teardown` deletes all created resources
+- [ ] `agentbreeder teardown` deletes all created resources
 - [ ] Unit tests with > 80% coverage
 - [ ] Integration test with kind or minikube in CI
 
@@ -458,7 +458,7 @@ Consider integration with Google's Kubernetes Agent Sandbox (gVisor, WarmPools) 
 **Labels:** `epic`, `cloud`, `revenue`
 
 **Description:**
-Build the managed deployment service that enables `garden deploy --target cloud`. This is the primary revenue driver for AgentBreeder -- users get one-command deployment without managing their own cloud infrastructure.
+Build the managed deployment service that enables `agentbreeder deploy --target cloud`. This is the primary revenue driver for AgentBreeder -- users get one-command deployment without managing their own cloud infrastructure.
 
 Components:
 
@@ -485,8 +485,8 @@ Components:
 
 **Acceptance Criteria:**
 - [ ] User signup and login flow works (email + GitHub OAuth)
-- [ ] `garden login` authenticates CLI with cloud platform
-- [ ] `garden deploy --target cloud` deploys an agent to managed infrastructure
+- [ ] `agentbreeder login` authenticates CLI with cloud platform
+- [ ] `agentbreeder deploy --target cloud` deploys an agent to managed infrastructure
 - [ ] Deployed agent is accessible at `*.agentbreeder.dev` with TLS
 - [ ] Usage metering tracks compute hours accurately
 - [ ] Stripe billing integration processes payments
@@ -569,7 +569,7 @@ Use the Google A2A (Agent-to-Agent) Agent Card format as the standard discovery 
 The implementation should:
 - Generate an A2A Agent Card for every deployed agent based on `agent.yaml` metadata
 - Serve Agent Cards at the standard `/.well-known/agent.json` endpoint
-- Index Agent Cards in the registry for discovery via `garden search` and the registry API
+- Index Agent Cards in the registry for discovery via `agentbreeder search` and the registry API
 - Support both AgentBreeder-internal and external A2A agents in the registry
 - Enable inter-agent discovery (Agent A can find and call Agent B via registry)
 
@@ -579,7 +579,7 @@ This builds on the existing A2A implementation in `engine/a2a/` and `api/routes/
 - [ ] Every deployed agent has an A2A Agent Card generated
 - [ ] Agent Cards are served at `/.well-known/agent.json`
 - [ ] Registry indexes Agent Cards for search
-- [ ] `garden search` returns Agent Card data
+- [ ] `agentbreeder search` returns Agent Card data
 - [ ] External A2A agents can be registered in the registry
 - [ ] Agent-to-agent discovery works through the registry
 - [ ] Unit and integration tests
@@ -689,7 +689,7 @@ The implementation should:
 - SOC 2: Export access logs, configuration changes, deployment events, data access patterns
 - HIPAA: Export PHI access logs, user authentication events, system access logs with timestamps
 - Support scheduled exports (daily/weekly) to customer-owned S3/GCS buckets
-- Support on-demand export via API and CLI (`garden audit export`)
+- Support on-demand export via API and CLI (`agentbreeder audit export`)
 - Include tamper-evident log signing (hash chain or similar)
 - Retention policy configuration (e.g., 7 years for HIPAA)
 
@@ -697,7 +697,7 @@ The implementation should:
 - [ ] SOC 2 audit export produces a report accepted by auditors
 - [ ] HIPAA audit export includes all required access log fields
 - [ ] Scheduled exports to S3/GCS work reliably
-- [ ] On-demand export via API and `garden audit export` CLI command
+- [ ] On-demand export via API and `agentbreeder audit export` CLI command
 - [ ] Log entries are tamper-evident (hash chain verification)
 - [ ] Retention policy is configurable per organization
 - [ ] Export formats: JSON, CSV, and PDF summary report
@@ -753,23 +753,23 @@ Build the community marketplace for sharing and discovering agent templates. The
 
 MVP features:
 
-1. **Publishing:** `garden publish` CLI command packages an agent template (agent.yaml + code + README + tests) and publishes it to the marketplace. Requires a verified account.
+1. **Publishing:** `agentbreeder publish` CLI command packages an agent template (agent.yaml + code + README + tests) and publishes it to the marketplace. Requires a verified account.
 
-2. **Browsing:** Web UI and CLI (`garden search --marketplace`) for discovering templates. Categories, tags, search, and sorting (stars, downloads, recency).
+2. **Browsing:** Web UI and CLI (`agentbreeder search --marketplace`) for discovering templates. Categories, tags, search, and sorting (stars, downloads, recency).
 
-3. **Installing:** `garden init --template marketplace:<author>/<name>` installs a marketplace template locally.
+3. **Installing:** `agentbreeder init --template marketplace:<author>/<name>` installs a marketplace template locally.
 
 4. **Featured templates:** Curated section of high-quality templates maintained by the AgentBreeder team.
 
-5. **Quality gates:** Published templates must pass `garden validate`, include a README, and include at least one test.
+5. **Quality gates:** Published templates must pass `agentbreeder validate`, include a README, and include at least one test.
 
 Future (not MVP): ratings/reviews, paid templates, verified publishers.
 
 **Acceptance Criteria:**
-- [ ] `garden publish` packages and uploads a template
+- [ ] `agentbreeder publish` packages and uploads a template
 - [ ] Marketplace web UI shows browsable template catalog
 - [ ] Search works by name, tag, framework, and description
-- [ ] `garden init --template marketplace:<author>/<name>` installs a template
+- [ ] `agentbreeder init --template marketplace:<author>/<name>` installs a template
 - [ ] Featured templates section is curated
 - [ ] Quality gates enforce validation, README, and test requirements
 - [ ] Published templates display download count and star count
@@ -1044,7 +1044,7 @@ Application preparation:
    - Technical insight (what do we understand that others do not)
 
 2. **Demo video** (1 minute):
-   - Show `garden deploy` end-to-end
+   - Show `agentbreeder deploy` end-to-end
    - Show governance features in dashboard
    - Show three-tier builder (No Code, Low Code, Full Code)
 

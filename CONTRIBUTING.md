@@ -45,7 +45,7 @@ docker compose up -d
 
 # Verify
 pytest tests/unit/
-garden --help
+agentbreeder --help
 
 # Frontend (optional)
 cd dashboard && npm install && npm run dev
@@ -102,7 +102,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 feat: add Azure Container Apps deployer
 fix: improve YAML validation error messages
-docs: update CLI reference for garden search
+docs: update CLI reference for agentbreeder search
 chore: bump FastAPI to 0.110
 ```
 

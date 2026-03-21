@@ -24,7 +24,7 @@ python agent.py
 ## Deploy with AgentBreeder
 
 ```bash
-garden deploy examples/openai-agents-agent/
+agentbreeder deploy examples/openai-agents-agent/
 ```
 
 ## Project structure

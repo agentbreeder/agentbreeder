@@ -45,7 +45,7 @@ agents:
 
 
 class TestDeployCommand:
-    """Tests for `garden deploy`."""
+    """Tests for `agentbreeder deploy`."""
 
     def test_deploy_help(self) -> None:
         result = runner.invoke(app, ["deploy", "--help"])
@@ -156,7 +156,7 @@ class TestDeployCommand:
 
 
 class TestSecretCommand:
-    """Tests for `garden secret` subcommands."""
+    """Tests for `agentbreeder secret` subcommands."""
 
     def test_secret_help(self) -> None:
         result = runner.invoke(app, ["secret", "--help"])
@@ -424,7 +424,7 @@ class TestSecretCommand:
 
 
 class TestTemplateCommand:
-    """Tests for `garden template` subcommands."""
+    """Tests for `agentbreeder template` subcommands."""
 
     def test_template_help(self) -> None:
         result = runner.invoke(app, ["template", "--help"])
@@ -533,7 +533,7 @@ class TestTemplateCommand:
 
 
 class TestOrchestrationCommand:
-    """Tests for `garden orchestration` subcommands."""
+    """Tests for `agentbreeder orchestration` subcommands."""
 
     def test_orchestration_help(self) -> None:
         result = runner.invoke(app, ["orchestration", "--help"])
@@ -683,7 +683,7 @@ class TestOrchestrationCommand:
 
 
 class TestEjectCommand:
-    """Tests for `garden eject` internal functions.
+    """Tests for `agentbreeder eject` internal functions.
 
     eject is not registered in main.py, so we test the
     generation functions directly.
@@ -767,7 +767,7 @@ class TestEjectCommand:
 
 
 class TestChatCommand:
-    """Tests for `garden chat`."""
+    """Tests for `agentbreeder chat`."""
 
     def test_chat_help(self) -> None:
         result = runner.invoke(app, ["chat", "--help"])
@@ -832,7 +832,7 @@ class TestChatCommand:
 
 
 class TestEvalCommand:
-    """Tests for `garden eval` subcommands."""
+    """Tests for `agentbreeder eval` subcommands."""
 
     def test_eval_help(self) -> None:
         result = runner.invoke(app, ["eval", "--help"])
@@ -1115,7 +1115,7 @@ class TestEvalCommand:
 
 
 class TestPublishCommand:
-    """Tests for `garden publish`."""
+    """Tests for `agentbreeder publish`."""
 
     def test_publish_help(self) -> None:
         result = runner.invoke(app, ["publish", "--help"])
@@ -1187,7 +1187,7 @@ class TestPublishCommand:
 
 
 class TestSubmitCommand:
-    """Tests for `garden submit`."""
+    """Tests for `agentbreeder submit`."""
 
     def test_submit_help(self) -> None:
         result = runner.invoke(app, ["submit", "--help"])

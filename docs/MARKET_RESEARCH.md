@@ -23,7 +23,7 @@ The AI agent market is undergoing a seismic shift from experimental chatbots to 
 
 **The core insight:** The market has dozens of tools to *build* agents and a handful of cloud platforms to *run* them — but **no product that combines framework-agnostic deployment, automatic governance, multi-cloud support, a shared organizational registry, and three-tier builder accessibility** into a single open-source platform.
 
-AgentBreeder occupies this gap. Our thesis: **governance should be a side effect of deploying, not extra configuration.** A developer writes one `agent.yaml`, runs `garden deploy`, and their agent is live — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and requiring zero extra work.
+AgentBreeder occupies this gap. Our thesis: **governance should be a side effect of deploying, not extra configuration.** A developer writes one `agent.yaml`, runs `agentbreeder deploy`, and their agent is live — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and requiring zero extra work.
 
 This document provides a comprehensive analysis of the competitive landscape, AgentBreeder's technical differentiation, market opportunity, growth strategy, business model, patent opportunities, and key risks.
 
@@ -148,7 +148,7 @@ AgentBreeder is positioned at the intersection of all three layers, providing th
 
 ### Innovation 1: Declarative `agent.yaml`
 
-**Description:** A single YAML file defines everything about an agent — identity, model, framework, tools, knowledge bases, prompts, guardrails, deployment target, scaling, access control, and secrets. One file, one command (`garden deploy`), one result (a live, governed agent).
+**Description:** A single YAML file defines everything about an agent — identity, model, framework, tools, knowledge bases, prompts, guardrails, deployment target, scaling, access control, and secrets. One file, one command (`agentbreeder deploy`), one result (a live, governed agent).
 
 **What makes it unique:** Unlike Terraform (infrastructure-only), Kubernetes manifests (container-only), or framework configs (build-only), `agent.yaml` is a **full-stack agent declaration** that spans from model selection to cloud deployment to governance policy.
 
@@ -174,7 +174,7 @@ AgentBreeder is positioned at the intersection of all three layers, providing th
 2. **Low Code:** YAML configuration (`agent.yaml`) in any IDE or dashboard editor — for ML engineers, DevOps
 3. **Full Code:** Python/TypeScript SDK with full programmatic control — for senior engineers, researchers
 
-**What makes it unique:** **Bidirectional ejection** — start in No Code, view the generated YAML (eject to Low Code), then eject to Full Code with `garden eject`. At every tier, the output is human-readable and maintainable. No vendor lock-in at any level.
+**What makes it unique:** **Bidirectional ejection** — start in No Code, view the generated YAML (eject to Low Code), then eject to Full Code with `agentbreeder eject`. At every tier, the output is human-readable and maintainable. No vendor lock-in at any level.
 
 **Competitive comparison:**
 - **Dify/n8n/Langflow:** Visual only. No YAML export. No code ejection. Once you outgrow the UI, you start over.
@@ -186,7 +186,7 @@ AgentBreeder is positioned at the intersection of all three layers, providing th
 
 ### Innovation 3: Governance-as-Side-Effect
 
-**Description:** Every `garden deploy` automatically enforces RBAC, writes an audit log entry, registers the agent in the org-wide registry, and attributes cost to the deploying team. There is no `--skip-governance` flag. Governance is architecturally non-bypassable.
+**Description:** Every `agentbreeder deploy` automatically enforces RBAC, writes an audit log entry, registers the agent in the org-wide registry, and attributes cost to the deploying team. There is no `--skip-governance` flag. Governance is architecturally non-bypassable.
 
 **What makes it unique:** In every competing platform, governance is an add-on that teams configure *after* deployment (if at all). In AgentBreeder, governance is a **side effect of the deploy pipeline itself** — it happens automatically because the pipeline cannot complete without it.
 
@@ -223,7 +223,7 @@ Parse YAML → [RBAC CHECK] → Resolve Deps → Build Container → Provision I
 
 **Description:** When an agent's `agent.yaml` references MCP server tools, AgentBreeder automatically packages each MCP server as a sidecar container and injects it alongside the agent container at deploy time. The agent communicates with its MCP servers over localhost — no external networking, no manual Docker configuration.
 
-**What makes it unique:** MCP servers typically require manual setup (install, configure, run). AG automates the entire lifecycle: discover (via `garden scan`), declare (in `agent.yaml`), package (as container), inject (as sidecar), and manage (health checks, restarts).
+**What makes it unique:** MCP servers typically require manual setup (install, configure, run). AG automates the entire lifecycle: discover (via `agentbreeder scan`), declare (in `agent.yaml`), package (as container), inject (as sidecar), and manage (health checks, restarts).
 
 **Competitive comparison:**
 - **MCP ecosystem:** Requires manual server setup and management
@@ -393,7 +393,7 @@ Agents → Prompts → Tools → MCP Servers → Models → Knowledge Bases → 
 | **A2A Protocol** | Yes (full implementation) | No | No | No | Partial | No | No | No |
 | **Shared Org Registry** | Yes (agents, prompts, tools, models, KBs) | Hub (prompts only) | No | No | Model Garden (models only) | Model catalog only | Model catalog only | No |
 | **Declarative Orchestration** | Yes (7 patterns in YAML) | LangGraph (code only) | YAML (2 patterns) | Visual (limited) | No | Step Functions | No | Visual (limited) |
-| **One-Command Local Dev** | `garden deploy --target local` | No | No | `docker compose up` | No | No | No | No |
+| **One-Command Local Dev** | `agentbreeder deploy --target local` | No | No | `docker compose up` | No | No | No | No |
 | **Automatic Cost Tracking** | Yes (per-agent, per-team, per-model) | LangSmith ($$) | No | No | GCP billing | AWS billing | Azure billing | Usage dashboard |
 | **Audit Trail** | Yes (automatic) | No | No | No | Cloud Audit | CloudTrail | Activity Log | No |
 | **Open Source** | Yes (open core) | Partial (framework open, platform closed) | Yes (framework) | Yes | No | No | No | No |
@@ -472,7 +472,7 @@ Getting an agent from "works on my laptop" to "running in production" requires e
 
 > *"I spent 3 weeks getting a LangGraph agent into production on AWS. The LangGraph part took 2 days. The other 19 days were Docker, ECS, IAM, secrets, load balancing, and monitoring."* — Senior ML Engineer, Series B startup (Reddit r/LangChain)
 
-**AgentBreeder's answer:** `garden deploy --target aws` — one command, zero infrastructure expertise required.
+**AgentBreeder's answer:** `agentbreeder deploy --target aws` — one command, zero infrastructure expertise required.
 
 ---
 
@@ -554,7 +554,7 @@ AI agents introduce novel security vectors that traditional security tools don't
 
 | # | Initiative | Description | Target Metric |
 |---|-----------|-------------|---------------|
-| 1 | **Open-Source Release Preparation** | Polish README, contributing guide, architecture docs, quickstart tutorial. Ensure `garden deploy --target local` works flawlessly in < 5 minutes. | Time-to-first-deploy < 5 min |
+| 1 | **Open-Source Release Preparation** | Polish README, contributing guide, architecture docs, quickstart tutorial. Ensure `agentbreeder deploy --target local` works flawlessly in < 5 minutes. | Time-to-first-deploy < 5 min |
 | 2 | **Example Agent Library** | Create 10+ example agents across all supported frameworks: LangGraph customer support, CrewAI research team, OpenAI coding assistant, Claude document analyzer, etc. | 10+ examples in `examples/` |
 | 3 | **Developer Documentation Site** | Launch docs.agentbreeder.dev with quickstart, tutorials, API reference, CLI reference, `agent.yaml` specification, and architecture guide. | 95%+ API coverage |
 | 4 | **Community Infrastructure** | Set up Discord server, GitHub Discussions, X/Twitter account, blog (blog.agentbreeder.dev). Seed with 5+ technical blog posts. | Infrastructure live |

@@ -198,8 +198,8 @@ pydantic>=2.0.0
 ### Step 5: Validate and deploy
 
 ```bash
-garden validate agent.yaml
-garden deploy agent.yaml --target local
+agentbreeder validate agent.yaml
+agentbreeder deploy agent.yaml --target local
 ```
 
 ### Step 6: Test
@@ -408,7 +408,7 @@ deploy:
 | Feature | AutoGen Only | AutoGen + AgentBreeder |
 |---------|-------------|----------------------|
 | Multi-agent chat | GroupChat | GroupChat + AG orchestration |
-| Deploy | Manual (`python agent.py`) | `garden deploy agent.yaml` |
+| Deploy | Manual (`python agent.py`) | `agentbreeder deploy agent.yaml` |
 | Multi-cloud | Not available | One-line change |
 | Code execution | Local Python | Sandboxed in container |
 | RBAC | Not available | Automatic |
@@ -618,5 +618,5 @@ access:
 **Deploy:**
 
 ```bash
-garden deploy agent.yaml
+agentbreeder deploy agent.yaml
 ```

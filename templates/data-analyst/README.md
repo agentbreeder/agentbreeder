@@ -18,12 +18,12 @@ SQL-powered data analysis agent that queries databases, performs statistical ana
 
 2. **Deploy locally:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Ask a question:**
    ```bash
-   garden chat data-analyst-agent --message "What were our top 10 products by revenue last quarter?"
+   agentbreeder chat data-analyst-agent --message "What were our top 10 products by revenue last quarter?"
    ```
 
 ## Architecture

@@ -135,7 +135,7 @@
 - [ ] Cap table clean (use Carta or Pulley)
 - [ ] Pitch deck (see PITCH_DECK.md)
 - [ ] Financial model (simple: 3-year revenue projections, unit economics)
-- [ ] Product demo (working `garden up` -> `garden deploy` flow)
+- [ ] Product demo (working `agentbreeder up` -> `agentbreeder deploy` flow)
 - [ ] GitHub repo public with README, contributing guide, license
 - [ ] Patent provisionals filed (shows IP awareness)
 - [ ] Data room (Google Drive/Notion): deck, financials, cap table, legal docs, technical architecture

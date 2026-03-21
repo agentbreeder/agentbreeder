@@ -1,4 +1,4 @@
-"""garden validate — validate an agent.yaml or orchestration.yaml without deploying."""
+"""agentbreeder validate — validate an agent.yaml or orchestration.yaml without deploying."""
 
 from __future__ import annotations
 

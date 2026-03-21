@@ -1,4 +1,4 @@
-"""garden status — show deploy status for agents."""
+"""agentbreeder status — show deploy status for agents."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from rich.table import Table
 
 console = Console()
 
-STATE_FILE = Path.home() / ".garden" / "state.json"
-REGISTRY_DIR = Path.home() / ".garden" / "registry"
+STATE_FILE = Path.home() / ".agentbreeder" / "state.json"
+REGISTRY_DIR = Path.home() / ".agentbreeder" / "registry"
 
 
 def _load_state() -> dict:
@@ -48,8 +48,8 @@ def status(
     """Show deploy status of agents.
 
     Examples:
-        garden status              # show all agents
-        garden status my-agent     # show one agent's detail
+        agentbreeder status              # show all agents
+        agentbreeder status my-agent     # show one agent's detail
     """
     state = _load_state()
     registry = _load_registry()
@@ -69,7 +69,7 @@ def _show_all_status(agents: dict, registry: dict, json_output: bool) -> None:
 
             sys.stdout.write("[]\n")
         else:
-            console.print("\n  [dim]No agents deployed yet. Run: garden deploy[/dim]\n")
+            console.print("\n  [dim]No agents deployed yet. Run: agentbreeder deploy[/dim]\n")
         return
 
     if json_output:
@@ -134,7 +134,7 @@ def _show_agent_status(
             if available:
                 msg += f"\n\n  Available agents: [cyan]{', '.join(available)}[/cyan]"
             else:
-                msg += "\n\n  No agents deployed. Run: [cyan]garden deploy[/cyan]"
+                msg += "\n\n  No agents deployed. Run: [cyan]agentbreeder deploy[/cyan]"
             console.print(Panel(msg, title="Error", border_style="red"))
             console.print()
         raise typer.Exit(code=1)
@@ -211,7 +211,7 @@ def _get_container_status(agent_name: str) -> str | None:
         import docker
 
         client = docker.from_env()
-        container = client.containers.get(f"garden-{agent_name}")
+        container = client.containers.get(f"agentbreeder-{agent_name}")
         return f"[green]{container.status}[/green]"
     except Exception:
         return None

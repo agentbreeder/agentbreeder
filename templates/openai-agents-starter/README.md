@@ -18,12 +18,12 @@ Minimal OpenAI Agents SDK agent with function tools and structured instructions.
 
 2. **Deploy locally:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Chat with the agent:**
    ```bash
-   garden chat openai-agents-starter --message "What's the weather in Tokyo?"
+   agentbreeder chat openai-agents-starter --message "What's the weather in Tokyo?"
    ```
 
 ## Architecture

@@ -64,7 +64,7 @@ tools:
 Or register it in the tool registry:
 
 ```bash
-garden register tool \
+agentbreeder register tool \
   --name example-tools \
   --type mcp_server \
   --config examples/mcp-server/mcp.yaml

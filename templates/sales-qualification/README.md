@@ -19,12 +19,12 @@ Lead qualification agent that integrates with your CRM, enriches company data, s
 
 2. **Deploy locally:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Qualify a lead:**
    ```bash
-   garden chat sales-qualification-agent --message "Qualify lead: jane@acmecorp.com"
+   agentbreeder chat sales-qualification-agent --message "Qualify lead: jane@acmecorp.com"
    ```
 
 ## Architecture

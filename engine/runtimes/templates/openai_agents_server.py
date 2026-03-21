@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("garden.agent")
+logger = logging.getLogger("agentbreeder.agent")
 
 app = FastAPI(
     title="AgentBreeder Agent",

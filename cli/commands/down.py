@@ -1,4 +1,4 @@
-"""garden down — stop the AgentBreeder platform."""
+"""agentbreeder down — stop the AgentBreeder platform."""
 
 from __future__ import annotations
 
@@ -84,5 +84,5 @@ def down(
         if clean:
             msg += "\n[dim]Volumes removed — database data has been deleted.[/dim]"
         else:
-            msg += "\n[dim]Data preserved. Run [bold]garden up[/bold] to start again.[/dim]"
+            msg += "\n[dim]Data preserved. Run [bold]agentbreeder up[/bold] to start again.[/dim]"
         console.print(Panel(msg, border_style="blue", padding=(1, 2)))

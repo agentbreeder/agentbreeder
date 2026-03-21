@@ -303,11 +303,11 @@ class TestFindSecretRefs:
         assert set(refs) == {"OPENAI_KEY", "ZENDESK_TOKEN"}
 
 
-# ── CLI integration (garden secret commands) ──────────────────────────────────
+# ── CLI integration (agentbreeder secret commands) ──────────────────────────────────
 
 
 class TestSecretCLI:
-    """Integration tests for the garden secret CLI using Typer's test client."""
+    """Integration tests for the agentbreeder secret CLI using Typer's test client."""
 
     @pytest.fixture
     def runner(self):

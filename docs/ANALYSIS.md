@@ -52,7 +52,7 @@ Missing for enterprise v1.0:
 
 What developers will love:
 - `agent.yaml` is simple and readable — no 500-line config files
-- CLI-first workflow: `garden init`, `garden deploy`, `garden test`
+- CLI-first workflow: `agentbreeder init`, `agentbreeder deploy`, `agentbreeder test`
 - Works in any editor (VS Code, Cursor, Claude Code) — YAML round-trip means no lock-in to the web UI
 - Ollama support for local development at zero cost
 - Playground for interactive testing before deploy

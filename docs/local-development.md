@@ -67,8 +67,8 @@ Dashboard is available at `http://localhost:5173`. It proxies API requests to po
 ### 6. Verify the CLI
 
 ```bash
-garden --help
-garden list agents
+agentbreeder --help
+agentbreeder list agents
 ```
 
 ## Full Stack (Docker Compose)
@@ -88,7 +88,7 @@ docker compose -f deploy/docker-compose.yml up -d
 | Redis | localhost:6379 |
 
 Default credentials for local dev:
-- **DB:** `garden` / `garden` / database `agentbreeder`
+- **DB:** `agentbreeder` / `agentbreeder` / database `agentbreeder`
 - **App login:** `admin@agentbreeder.local` / `plant`
 
 ## Running Tests
@@ -257,7 +257,7 @@ Key variables in `.env`:
 
 ```bash
 # Required
-DATABASE_URL=postgresql+asyncpg://garden:garden@localhost:5432/agentbreeder
+DATABASE_URL=postgresql+asyncpg://agentbreeder:agentbreeder@localhost:5432/agentbreeder
 REDIS_URL=redis://localhost:6379
 SECRET_KEY=dev-secret-key
 GARDEN_ENV=development

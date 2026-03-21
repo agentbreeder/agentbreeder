@@ -1,4 +1,4 @@
-"""garden deploy — the core command.
+"""agentbreeder deploy — the core command.
 
 Runs the full deploy pipeline with rich progress output.
 """

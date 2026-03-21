@@ -77,7 +77,7 @@ async def execute_in_docker(
     by default (--network=none).
     """
     execution_id = str(uuid.uuid4())
-    tmpdir = tempfile.mkdtemp(prefix="garden-sandbox-")
+    tmpdir = tempfile.mkdtemp(prefix="agentbreeder-sandbox-")
 
     try:
         # Write the wrapper script that imports and runs the tool code
@@ -176,7 +176,7 @@ async def execute_in_subprocess(
     WARNING: Less isolated than Docker. Use only for development/testing.
     """
     execution_id = str(uuid.uuid4())
-    tmpdir = tempfile.mkdtemp(prefix="garden-sandbox-")
+    tmpdir = tempfile.mkdtemp(prefix="agentbreeder-sandbox-")
 
     try:
         # Write the wrapper script

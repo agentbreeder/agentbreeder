@@ -27,7 +27,7 @@ _SKIP_KEYS = frozenset(
 
 
 def _find_env_file() -> Path:
-    """Locate the nearest .env file — cwd first, then home/.garden/.env."""
+    """Locate the nearest .env file — cwd first, then home/.agentbreeder/.env."""
     cwd_env = Path.cwd() / ".env"
     if cwd_env.exists():
         return cwd_env

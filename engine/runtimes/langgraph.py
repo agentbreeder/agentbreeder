@@ -68,7 +68,7 @@ class LangGraphRuntime(RuntimeBuilder):
     def build(self, agent_dir: Path, config: AgentConfig) -> ContainerImage:
         """Generate Dockerfile and prepare build context."""
         # Create a temp build context
-        build_dir = Path(tempfile.mkdtemp(prefix="garden-build-"))
+        build_dir = Path(tempfile.mkdtemp(prefix="agentbreeder-build-"))
 
         # Copy agent source code
         for item in agent_dir.iterdir():
@@ -98,7 +98,7 @@ class LangGraphRuntime(RuntimeBuilder):
         dockerfile = build_dir / "Dockerfile"
         dockerfile.write_text(DOCKERFILE_TEMPLATE)
 
-        tag = f"garden/{config.name}:{config.version}"
+        tag = f"agentbreeder/{config.name}:{config.version}"
 
         return ContainerImage(
             tag=tag,

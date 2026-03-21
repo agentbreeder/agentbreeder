@@ -17,7 +17,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Default repo root — can be overridden via GARDEN_GIT_REPO_ROOT env var
-_DEFAULT_REPO_ROOT = Path(os.environ.get("GARDEN_GIT_REPO_ROOT", "/var/lib/garden/registry"))
+_DEFAULT_REPO_ROOT = Path(os.environ.get("GARDEN_GIT_REPO_ROOT", "/var/lib/agentbreeder/registry"))
 
 # Valid resource types that map to top-level directories in the git repo
 RESOURCE_TYPES = frozenset({"agents", "prompts", "tools", "rag", "memory"})
@@ -102,7 +102,7 @@ class GitService:
         if not git_dir.exists():
             await self._run("init", "-b", "main", check=True)
             # Configure user identity for commits (needed in CI / temp repos)
-            await self._run("config", "user.email", "garden@agentbreeder.dev")
+            await self._run("config", "user.email", "agentbreeder@agentbreeder.dev")
             await self._run("config", "user.name", "AgentBreeder")
             # Create initial empty commit so main exists
             await self._run("commit", "--allow-empty", "-m", "Initial commit")

@@ -116,7 +116,7 @@ def _mock_runtime():
     runtime = MagicMock()
     runtime.validate.return_value = RuntimeValidationResult(valid=True, errors=[])
     runtime.build.return_value = ContainerImage(
-        tag="garden-test-agent:1.0.0",
+        tag="agentbreeder-test-agent:1.0.0",
         dockerfile_content="FROM python:3.11",
         context_dir=Path(tempfile.mkdtemp()),
     )

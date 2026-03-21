@@ -1,4 +1,4 @@
-"""Tests for the garden init command."""
+"""Tests for the agentbreeder init command."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _make_init_input(
 
 
 class TestInitCommand:
-    """Tests for garden init."""
+    """Tests for agentbreeder init."""
 
     def test_init_creates_all_files(self) -> None:
         """Init should create agent.yaml, agent.py, requirements.txt, .env.example, README.md."""
@@ -66,7 +66,7 @@ class TestInitCommand:
             )
             assert result.exit_code == 0, result.output
             assert "Next steps" in result.output
-            assert "garden deploy" in result.output
+            assert "agentbreeder deploy" in result.output
             assert "pip install" in result.output
 
     @pytest.mark.parametrize(

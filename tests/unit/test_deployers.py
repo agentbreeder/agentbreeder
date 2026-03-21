@@ -49,10 +49,10 @@ class TestDockerComposeDeployer:
     def deployer(self, tmp_path) -> DockerComposeDeployer:
         """Create a deployer with a temp state directory."""
         with (
-            patch("engine.deployers.docker_compose.GARDEN_DIR", tmp_path / ".garden"),
+            patch("engine.deployers.docker_compose.AGENTBREEDER_DIR", tmp_path / ".agentbreeder"),
             patch(
                 "engine.deployers.docker_compose.STATE_FILE",
-                tmp_path / ".garden" / "state.json",
+                tmp_path / ".agentbreeder" / "state.json",
             ),
         ):
             d = DockerComposeDeployer()

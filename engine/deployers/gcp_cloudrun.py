@@ -543,7 +543,7 @@ class GCPCloudRunDeployer(BaseDeployer):
         """Delete the Cloud Run service and clean up resources.
 
         Note: The container image in Artifact Registry is NOT deleted
-        to preserve rollback capability. Use `garden cleanup` for image pruning.
+        to preserve rollback capability. Use `agentbreeder cleanup` for image pruning.
         """
         if self._gcp_config is None:
             msg = (

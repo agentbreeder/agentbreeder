@@ -77,7 +77,7 @@ async def resolve_secret_refs(
                 raise ValueError(
                     f"Secret '{key}' referenced in config but not found in "
                     f"'{backend.backend_name}' backend. "
-                    f"Set it with: garden secret set {key}"
+                    f"Set it with: agentbreeder secret set {key}"
                 )
             return value
     return data

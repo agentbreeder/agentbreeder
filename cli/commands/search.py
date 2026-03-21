@@ -1,4 +1,4 @@
-"""garden search — search across all registry entities."""
+"""agentbreeder search — search across all registry entities."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from rich.table import Table
 
 console = Console()
 
-REGISTRY_DIR = Path.home() / ".garden" / "registry"
+REGISTRY_DIR = Path.home() / ".agentbreeder" / "registry"
 
 
 def search(

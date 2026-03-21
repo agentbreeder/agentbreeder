@@ -45,7 +45,7 @@ class VaultBackend(SecretsBackend):
         addr: str | None = None,
         token: str | None = None,
         mount: str = "secret",
-        prefix: str = "garden/",
+        prefix: str = "agentbreeder/",
     ) -> None:
         self._addr = addr or os.environ.get("VAULT_ADDR", "http://127.0.0.1:8200")
         self._token = token or os.environ.get("VAULT_TOKEN", "")

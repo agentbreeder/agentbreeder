@@ -5,9 +5,9 @@
 #   - Falls back to general-support if no keyword match
 #
 # Usage:
-#   garden orchestration validate ./orchestration.yaml
-#   garden orchestration deploy ./orchestration.yaml
-#   garden orchestration chat customer-support-router
+#   agentbreeder orchestration validate ./orchestration.yaml
+#   agentbreeder orchestration deploy ./orchestration.yaml
+#   agentbreeder orchestration chat customer-support-router
 
 name: customer-support-router
 version: 1.0.0

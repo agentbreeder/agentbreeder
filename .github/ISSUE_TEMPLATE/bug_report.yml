@@ -21,7 +21,7 @@ body:
       label: Steps to reproduce
       description: Steps to reproduce the behavior.
       placeholder: |
-        1. Run `garden deploy ...`
+        1. Run `agentbreeder deploy ...`
         2. See error in output
     validations:
       required: true
@@ -46,7 +46,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: "Output of `garden --version` or git commit hash"
+      description: "Output of `agentbreeder --version` or git commit hash"
       placeholder: "v0.1.0"
     validations:
       required: true

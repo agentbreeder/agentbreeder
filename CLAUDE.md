@@ -11,7 +11,7 @@ AgentBreeder is an **open-source platform** for building, deploying, and governi
 
 **Core tagline:** Define Once. Deploy Anywhere. Govern Automatically.
 
-**The one-sentence pitch:** A developer writes one `agent.yaml` file, runs `garden deploy`, and their agent is live on AWS or GCP — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and zero extra work.
+**The one-sentence pitch:** A developer writes one `agent.yaml` file, runs `agentbreeder deploy`, and their agent is live on AWS or GCP — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and zero extra work.
 
 **What makes it unique:**
 - Framework-agnostic (LangGraph, CrewAI, Claude SDK, OpenAI Agents, Google ADK, Custom)
@@ -70,26 +70,26 @@ agentbreeder/
 ├── cli/                        # CLI tool (built with Typer)
 │   ├── main.py                 # Command registration
 │   └── commands/
-│       ├── init_cmd.py         # garden init
-│       ├── deploy.py           # garden deploy (the core command)
-│       ├── validate.py         # garden validate
-│       ├── search.py           # garden search
-│       ├── list_cmd.py         # garden list
-│       ├── describe.py         # garden describe
-│       ├── scan.py             # garden scan (MCP/LiteLLM discovery)
-│       ├── logs.py             # garden logs
-│       ├── status.py           # garden status
-│       ├── teardown.py         # garden teardown
-│       ├── submit.py           # garden submit (create PR)
-│       ├── review.py           # garden review (PR review)
-│       ├── publish.py          # garden publish (merge PR)
-│       ├── chat.py             # garden chat
-│       ├── eval.py             # garden eval
-│       ├── eject.py            # garden eject (tier mobility)
-│       ├── orchestration.py    # garden orchestration
-│       ├── provider.py         # garden provider (subcommand)
-│       ├── secret.py           # garden secret (manage secrets across backends)
-│       └── template.py         # garden template (manage agent templates)
+│       ├── init_cmd.py         # agentbreeder init
+│       ├── deploy.py           # agentbreeder deploy (the core command)
+│       ├── validate.py         # agentbreeder validate
+│       ├── search.py           # agentbreeder search
+│       ├── list_cmd.py         # agentbreeder list
+│       ├── describe.py         # agentbreeder describe
+│       ├── scan.py             # agentbreeder scan (MCP/LiteLLM discovery)
+│       ├── logs.py             # agentbreeder logs
+│       ├── status.py           # agentbreeder status
+│       ├── teardown.py         # agentbreeder teardown
+│       ├── submit.py           # agentbreeder submit (create PR)
+│       ├── review.py           # agentbreeder review (PR review)
+│       ├── publish.py          # agentbreeder publish (merge PR)
+│       ├── chat.py             # agentbreeder chat
+│       ├── eval.py             # agentbreeder eval
+│       ├── eject.py            # agentbreeder eject (tier mobility)
+│       ├── orchestration.py    # agentbreeder orchestration
+│       ├── provider.py         # agentbreeder provider (subcommand)
+│       ├── secret.py           # agentbreeder secret (manage secrets across backends)
+│       └── template.py         # agentbreeder template (manage agent templates)
 ├── sdk/
 │   └── python/                 # pip install agentbreeder-sdk
 │       └── agenthub/           # SDK package (agent, deploy, model, tool, memory, mcp)
@@ -215,7 +215,7 @@ Parse & Validate YAML
 Every step is atomic. If any step fails, the entire deploy rolls back. Never skip registration.
 
 ### 2. Governance is Non-Negotiable
-Every `garden deploy` MUST:
+Every `agentbreeder deploy` MUST:
 - Validate RBAC before doing anything
 - Register the agent in the registry after success
 - Attribute cost to the deploying team
@@ -245,9 +245,9 @@ Never put framework-specific logic outside of `engine/runtimes/`. Never hard-cod
 
 ### 5. The Registry is Always Consistent
 Registry entries are created/updated only by:
-1. `garden deploy` (primary path)
+1. `agentbreeder deploy` (primary path)
 2. Connectors (secondary, passive ingestion)
-3. Manual `garden register` (operator override)
+3. Manual `agentbreeder register` (operator override)
 
 Never write directly to registry tables from application code. Always go through `registry/` services.
 
@@ -264,8 +264,8 @@ Full Code (SDK) ──→ agent.yaml + custom code  ──→ deploy pipeline
 - The deploy pipeline does NOT know which tier produced the config. Never add tier-specific logic to the engine.
 - No Code always generates valid, human-readable YAML. Never generate YAML that a human couldn't maintain.
 - The Full Code SDK generates `agent.yaml` + bundles code — it does NOT bypass the config parser.
-- Tier mobility is a first-class feature: No Code → Low Code (view YAML), Low Code → Full Code (`garden eject`).
-- Visual builder layout metadata (node positions, etc.) lives in `.garden/layout.json`, never in `agent.yaml`.
+- Tier mobility is a first-class feature: No Code → Low Code (view YAML), Low Code → Full Code (`agentbreeder eject`).
+- Visual builder layout metadata (node positions, etc.) lives in `.agentbreeder/layout.json`, never in `agent.yaml`.
 - Orchestration follows the same pattern: visual canvas → `orchestration.yaml` → SDK orchestration code.
 
 ---
@@ -286,9 +286,9 @@ uvicorn api.main:app --reload --port 8000
 
 # Run CLI locally
 python -m cli.main --help
-garden --help              # after pip install -e .
-garden validate            # validate agent.yaml
-garden deploy --target local  # deploy locally
+agentbreeder --help              # after pip install -e .
+agentbreeder validate            # validate agent.yaml
+agentbreeder deploy --target local  # deploy locally
 
 # Run tests
 pytest tests/unit/                    # Unit tests
@@ -425,7 +425,7 @@ AgentBreeder uses MCP servers for development tooling. These are configured in `
     },
     "postgres": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://garden:garden@localhost:5432/agentbreeder"],
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://agentbreeder:agentbreeder@localhost:5432/agentbreeder"],
       "description": "Query registry database directly during development"
     },
     "docker": {
@@ -561,7 +561,7 @@ async def test_deploy_validates_rbac_before_building():
 4. **Never put framework-specific logic in `engine/builder.py`** — it belongs in `engine/runtimes/`
 5. **Never commit secrets or credentials** — use `.env` and Secrets Manager references
 6. **Never use synchronous I/O in async FastAPI handlers** — always `await` or use `run_in_executor`
-7. **Never break the `garden deploy` happy path** — it is the product; protect it like an API contract
+7. **Never break the `agentbreeder deploy` happy path** — it is the product; protect it like an API contract
 8. **Never merge without tests** — CI blocks PRs with < 80% coverage on changed files
 
 ---
@@ -657,7 +657,7 @@ All responses follow:
 
 ```bash
 # Required
-DATABASE_URL=postgresql+asyncpg://garden:garden@localhost:5432/agentbreeder
+DATABASE_URL=postgresql+asyncpg://agentbreeder:agentbreeder@localhost:5432/agentbreeder
 REDIS_URL=redis://localhost:6379
 SECRET_KEY=<random-256-bit-key>
 GARDEN_ENV=development
@@ -689,7 +689,7 @@ When reviewing AI-generated code, always verify:
 - [ ] Does this change the `agent.yaml` schema? If yes, update JSON Schema + docs.
 - [ ] Does this change the registry schema? If yes, write a migration.
 - [ ] Does this add a new deployer or runtime? If yes, add it to the supported stack matrix in README.
-- [ ] Does this change a CLI command? If yes, update `garden --help` output in docs.
+- [ ] Does this change a CLI command? If yes, update `agentbreeder --help` output in docs.
 
 ---
 

@@ -19,7 +19,7 @@ test.describe("Tools Page", () => {
     expect(
       content?.includes("No tools") ||
       content?.includes("Failed to load") ||
-      content?.includes("garden scan")
+      content?.includes("agentbreeder scan")
     ).toBeTruthy();
   });
 });

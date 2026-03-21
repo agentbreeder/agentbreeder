@@ -284,8 +284,8 @@ pydantic>=2.0.0
 ### Step 6: Validate and deploy
 
 ```bash
-garden validate agent.yaml
-garden deploy agent.yaml --target local
+agentbreeder validate agent.yaml
+agentbreeder deploy agent.yaml --target local
 ```
 
 ### Step 7: Test
@@ -363,7 +363,7 @@ logger.info("Processing request", extra={"agent_name": "my-agent", "tokens": 150
 Access logs via:
 
 ```bash
-garden logs my-custom-agent
+agentbreeder logs my-custom-agent
 ```
 
 ---
@@ -596,7 +596,7 @@ async def invoke(request: InvokeRequest):
 | Agent logic | Your code | Your code (unchanged) |
 | HTTP server | You build it | Template provided |
 | Containerization | Manual | Automatic or custom Dockerfile |
-| Deploy | Manual | `garden deploy agent.yaml` |
+| Deploy | Manual | `agentbreeder deploy agent.yaml` |
 | Multi-cloud | Rewrite per cloud | One-line change |
 | RBAC | Not available | Automatic |
 | Cost tracking | Not available | Per-agent, per-model |
@@ -752,5 +752,5 @@ deploy:
 **Deploy:**
 
 ```bash
-garden deploy agent.yaml
+agentbreeder deploy agent.yaml
 ```

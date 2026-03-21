@@ -1,11 +1,11 @@
-"""garden review — review workflow for submitted resources.
+"""agentbreeder review — review workflow for submitted resources.
 
 Subcommands:
-    garden review list                      — list pending reviews
-    garden review show <pr-id>              — show PR detail with diff
-    garden review approve <pr-id>           — approve a PR
-    garden review reject <pr-id> -m "why"   — reject a PR
-    garden review comment <pr-id> -m "msg"  — add a comment
+    agentbreeder review list                      — list pending reviews
+    agentbreeder review show <pr-id>              — show PR detail with diff
+    agentbreeder review approve <pr-id>           — approve a PR
+    agentbreeder review reject <pr-id> -m "why"   — reject a PR
+    agentbreeder review comment <pr-id> -m "msg"  — add a comment
 """
 
 from __future__ import annotations
@@ -130,7 +130,7 @@ def _validate_pr_id(pr_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# garden review list
+# agentbreeder review list
 # ---------------------------------------------------------------------------
 
 
@@ -153,9 +153,9 @@ def review_list(
     """List pull requests pending review.
 
     Examples:
-        garden review list
-        garden review list --status all
-        garden review list --type agent
+        agentbreeder review list
+        agentbreeder review list --status all
+        agentbreeder review list --type agent
     """
     params: dict[str, str] = {}
     if status_filter and status_filter != "all":
@@ -217,13 +217,13 @@ def review_list(
     console.print(table)
     console.print()
     console.print(
-        f"  [dim]{len(prs)} result(s). View details: [bold]garden review show <pr-id>[/bold][/dim]"
+        f"  [dim]{len(prs)} result(s). View details: [bold]agentbreeder review show <pr-id>[/bold][/dim]"
     )
     console.print()
 
 
 # ---------------------------------------------------------------------------
-# garden review show <pr-id>
+# agentbreeder review show <pr-id>
 # ---------------------------------------------------------------------------
 
 
@@ -235,7 +235,7 @@ def review_show(
     """Show detailed pull request information including diff.
 
     Examples:
-        garden review show abc12345-...
+        agentbreeder review show abc12345-...
     """
     pr_id = _validate_pr_id(pr_id)
 
@@ -364,7 +364,7 @@ def review_show(
 
 
 # ---------------------------------------------------------------------------
-# garden review approve <pr-id>
+# agentbreeder review approve <pr-id>
 # ---------------------------------------------------------------------------
 
 
@@ -376,7 +376,7 @@ def review_approve(
     """Approve a submitted pull request.
 
     Examples:
-        garden review approve abc12345-...
+        agentbreeder review approve abc12345-...
     """
     pr_id = _validate_pr_id(pr_id)
     reviewer = _current_user()
@@ -409,7 +409,7 @@ def review_approve(
             f"  Title:    {pr.get('title', '')}\n"
             f"  Reviewer: {reviewer}\n"
             f"  Status:   {_status_badge(pr.get('status', ''))}\n\n"
-            f"  [dim]Next: [bold]garden publish {pr.get('resource_type', 'resource')} "
+            f"  [dim]Next: [bold]agentbreeder publish {pr.get('resource_type', 'resource')} "
             f"{pr.get('resource_name', 'name')}[/bold] to merge and tag[/dim]",
             title="Approved",
             border_style="green",
@@ -419,7 +419,7 @@ def review_approve(
 
 
 # ---------------------------------------------------------------------------
-# garden review reject <pr-id>
+# agentbreeder review reject <pr-id>
 # ---------------------------------------------------------------------------
 
 
@@ -437,7 +437,7 @@ def review_reject(
     """Reject a submitted pull request with a reason.
 
     Examples:
-        garden review reject abc12345-... -m "Missing test coverage"
+        agentbreeder review reject abc12345-... -m "Missing test coverage"
     """
     pr_id = _validate_pr_id(pr_id)
     reviewer = _current_user()
@@ -478,7 +478,7 @@ def review_reject(
 
 
 # ---------------------------------------------------------------------------
-# garden review comment <pr-id>
+# agentbreeder review comment <pr-id>
 # ---------------------------------------------------------------------------
 
 
@@ -496,7 +496,7 @@ def review_comment(
     """Add a comment to a pull request.
 
     Examples:
-        garden review comment abc12345-... -m "Looks good, minor nit on line 42"
+        agentbreeder review comment abc12345-... -m "Looks good, minor nit on line 42"
     """
     pr_id = _validate_pr_id(pr_id)
     author = _current_user()

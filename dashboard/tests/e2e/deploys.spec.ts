@@ -31,7 +31,7 @@ test.describe("Deploys Page", () => {
     expect(
       content?.includes("No deploy") ||
         content?.includes("Failed to load") ||
-        content?.includes("garden deploy")
+        content?.includes("agentbreeder deploy")
     ).toBeTruthy();
   });
 

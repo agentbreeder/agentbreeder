@@ -188,7 +188,7 @@ class Agent:
     # -----------------------------------------------------------------
 
     def deploy(self, target: str = "local") -> dict[str, Any]:
-        """Deploy this agent (wraps garden deploy).
+        """Deploy this agent (wraps agentbreeder deploy).
 
         Returns deploy info dict. Currently a placeholder that saves the
         YAML and returns metadata; the real implementation delegates to

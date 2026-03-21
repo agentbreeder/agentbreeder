@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _seed_default_admin() -> None:
-    """Create a default admin user (admin@garden.local / admin) if no users exist."""
+    """Create a default admin user (admin@agentbreeder.local / admin) if no users exist."""
     from api.database import async_session
     from api.models.enums import UserRole
     from api.services.auth import create_user, get_user_by_email

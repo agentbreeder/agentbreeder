@@ -1,4 +1,4 @@
-"""Tests for garden up and garden down CLI commands."""
+"""Tests for agentbreeder up and agentbreeder down CLI commands."""
 
 from __future__ import annotations
 
@@ -414,7 +414,7 @@ class TestGenerateEnv:
 
 
 class TestUpCommand:
-    """Tests for the full 'garden up' CLI command."""
+    """Tests for the full 'agentbreeder up' CLI command."""
 
     def test_docker_not_found_exits_1(self) -> None:
         """Should exit 1 when Docker is not installed."""
@@ -917,7 +917,7 @@ class TestWaitForHealth:
 
 
 class TestDownCommand:
-    """Tests for the 'garden down' CLI command."""
+    """Tests for the 'agentbreeder down' CLI command."""
 
     def test_compose_dir_not_found_exits_1(self) -> None:
         """Should exit 1 when compose dir is not found."""

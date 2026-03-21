@@ -1,12 +1,12 @@
-"""garden secret — manage secrets across backends.
+"""agentbreeder secret — manage secrets across backends.
 
 Subcommands:
-    garden secret list [--backend env|aws|gcp|vault]
-    garden secret set <name> [--value VAL] [--backend ...]
-    garden secret get <name> [--backend ...]
-    garden secret delete <name> [--backend ...]
-    garden secret rotate <name> [--backend ...]
-    garden secrets migrate --from env --to aws|gcp|vault [--prefix PREFIX] [--dry-run]
+    agentbreeder secret list [--backend env|aws|gcp|vault]
+    agentbreeder secret set <name> [--value VAL] [--backend ...]
+    agentbreeder secret get <name> [--backend ...]
+    agentbreeder secret delete <name> [--backend ...]
+    agentbreeder secret rotate <name> [--backend ...]
+    agentbreeder secrets migrate --from env --to aws|gcp|vault [--prefix PREFIX] [--dry-run]
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def _run(coro):  # type: ignore[return]
 def secret_list(
     backend: str = typer.Option("env", "--backend", "-b", help="Backend: env, aws, gcp, vault"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
-    prefix: str = typer.Option("garden/", "--prefix", help="Secret prefix (AWS/GCP/Vault)"),
+    prefix: str = typer.Option("agentbreeder/", "--prefix", help="Secret prefix (AWS/GCP/Vault)"),
 ) -> None:
     """List secrets in the configured backend (names only — values are masked)."""
     b = _get_backend(backend, prefix=prefix) if backend != "env" else _get_backend("env")
@@ -100,7 +100,7 @@ def secret_set(
     name: str = typer.Argument(..., help="Secret name (e.g. OPENAI_API_KEY)"),
     value: str | None = typer.Option(None, "--value", "-v", help="Value (prompted if omitted)"),
     backend: str = typer.Option("env", "--backend", "-b", help="Backend: env, aws, gcp, vault"),
-    prefix: str = typer.Option("garden/", "--prefix", help="Prefix (AWS/GCP/Vault)"),
+    prefix: str = typer.Option("agentbreeder/", "--prefix", help="Prefix (AWS/GCP/Vault)"),
     tag: list[str] = typer.Option([], "--tag", "-t", help="key=value tags (cloud backends)"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
@@ -135,7 +135,7 @@ def secret_set(
 def secret_get(
     name: str = typer.Argument(..., help="Secret name"),
     backend: str = typer.Option("env", "--backend", "-b", help="Backend: env, aws, gcp, vault"),
-    prefix: str = typer.Option("garden/", "--prefix", help="Secret prefix (AWS/GCP/Vault)"),
+    prefix: str = typer.Option("agentbreeder/", "--prefix", help="Secret prefix (AWS/GCP/Vault)"),
     reveal: bool = typer.Option(False, "--reveal", help="Print the actual value (use with care)"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
@@ -169,7 +169,7 @@ def secret_get(
 def secret_delete(
     name: str = typer.Argument(..., help="Secret name to delete"),
     backend: str = typer.Option("env", "--backend", "-b", help="Backend: env, aws, gcp, vault"),
-    prefix: str = typer.Option("garden/", "--prefix", help="Secret prefix (AWS/GCP/Vault)"),
+    prefix: str = typer.Option("agentbreeder/", "--prefix", help="Secret prefix (AWS/GCP/Vault)"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
@@ -206,7 +206,7 @@ def secret_rotate(
         None, "--value", "-v", help="New value (prompted if omitted)"
     ),  # noqa: E501
     backend: str = typer.Option("env", "--backend", "-b", help="Backend: env, aws, gcp, vault"),
-    prefix: str = typer.Option("garden/", "--prefix", help="Secret prefix (AWS/GCP/Vault)"),
+    prefix: str = typer.Option("agentbreeder/", "--prefix", help="Secret prefix (AWS/GCP/Vault)"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Rotate a secret to a new value.
@@ -243,7 +243,7 @@ def secret_rotate(
 def secret_migrate(
     from_backend: str = typer.Option(..., "--from", help="Source backend (env, aws, gcp, vault)"),
     to_backend: str = typer.Option(..., "--to", help="Target backend (aws, gcp, vault)"),
-    prefix: str = typer.Option("garden/", "--prefix", help="Prefix for secrets in cloud backend"),
+    prefix: str = typer.Option("agentbreeder/", "--prefix", help="Prefix for secrets in cloud backend"),
     include: list[str] = typer.Option([], "--include", "-i", help="Only migrate these keys"),
     exclude: list[str] = typer.Option([], "--exclude", "-e", help="Skip these keys"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview without writing"),
@@ -253,8 +253,8 @@ def secret_migrate(
 
     Example — move all .env API keys to AWS Secrets Manager:
 
-        garden secret migrate --from env --to aws --prefix garden/ --dry-run
-        garden secret migrate --from env --to aws --prefix garden/
+        agentbreeder secret migrate --from env --to aws --prefix agentbreeder/ --dry-run
+        agentbreeder secret migrate --from env --to aws --prefix agentbreeder/
 
     After migration, update agent.yaml to use secret:// references:
 

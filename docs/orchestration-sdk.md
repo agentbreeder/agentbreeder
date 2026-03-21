@@ -306,12 +306,12 @@ The deploy pipeline does not know which tier produced the config — governance,
 
 ```bash
 # Generate Python SDK from existing orchestration.yaml
-garden eject orchestration.yaml
+agentbreeder eject orchestration.yaml
 
 # Generate TypeScript SDK
-garden eject orchestration.yaml --sdk typescript
+agentbreeder eject orchestration.yaml --sdk typescript
 ```
 
 ---
 
-*See also: [orchestration.yaml reference](orchestration-yaml.md) · [CLI reference](cli-reference.md#garden-orchestration)*
+*See also: [orchestration.yaml reference](orchestration-yaml.md) · [CLI reference](cli-reference.md#agentbreeder-orchestration)*

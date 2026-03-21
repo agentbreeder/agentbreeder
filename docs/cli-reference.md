@@ -5,19 +5,19 @@ AgentBreeder's CLI is the primary interface for managing agents. All commands su
 ## Global Usage
 
 ```
-garden [COMMAND] [OPTIONS]
+agentbreeder [COMMAND] [OPTIONS]
 ```
 
 ---
 
 ## Commands
 
-### `garden init`
+### `agentbreeder init`
 
 Scaffold a new agent project with an interactive wizard.
 
 ```
-garden init [OUTPUT_DIR] [--json]
+agentbreeder init [OUTPUT_DIR] [--json]
 ```
 
 | Argument | Required | Description |
@@ -38,23 +38,23 @@ The wizard prompts for:
 4. Team name
 5. Owner email (auto-detected from git config)
 
-Automatically runs `garden validate` after scaffolding.
+Automatically runs `agentbreeder validate` after scaffolding.
 
 **Examples:**
 ```bash
-garden init                    # Interactive wizard, uses agent name as dir
-garden init my-agent           # Create in ./my-agent/
-garden init --json             # JSON output (for CI)
+agentbreeder init                    # Interactive wizard, uses agent name as dir
+agentbreeder init my-agent           # Create in ./my-agent/
+agentbreeder init --json             # JSON output (for CI)
 ```
 
 ---
 
-### `garden deploy`
+### `agentbreeder deploy`
 
 Deploy an agent from an `agent.yaml` configuration file.
 
 ```
-garden deploy CONFIG_PATH [--target TARGET] [--json]
+agentbreeder deploy CONFIG_PATH [--target TARGET] [--json]
 ```
 
 | Argument / Option | Required | Default | Description |
@@ -76,20 +76,20 @@ If any step fails, the entire deploy rolls back.
 
 **Examples:**
 ```bash
-garden deploy ./agent.yaml                    # Deploy locally
-garden deploy ./agent.yaml --target local     # Same as above
-garden deploy ./agent.yaml -t kubernetes      # Deploy to K8s
-garden deploy ./agent.yaml --json             # JSON output
+agentbreeder deploy ./agent.yaml                    # Deploy locally
+agentbreeder deploy ./agent.yaml --target local     # Same as above
+agentbreeder deploy ./agent.yaml -t kubernetes      # Deploy to K8s
+agentbreeder deploy ./agent.yaml --json             # JSON output
 ```
 
 ---
 
-### `garden validate`
+### `agentbreeder validate`
 
 Validate an `agent.yaml` without deploying.
 
 ```
-garden validate CONFIG_PATH [--json]
+agentbreeder validate CONFIG_PATH [--json]
 ```
 
 | Argument | Required | Description |
@@ -103,18 +103,18 @@ Checks:
 
 **Examples:**
 ```bash
-garden validate ./agent.yaml
-garden validate ./agent.yaml --json
+agentbreeder validate ./agent.yaml
+agentbreeder validate ./agent.yaml --json
 ```
 
 ---
 
-### `garden list`
+### `agentbreeder list`
 
 List entities from the registry.
 
 ```
-garden list [ENTITY_TYPE] [--team TEAM] [--json]
+agentbreeder list [ENTITY_TYPE] [--team TEAM] [--json]
 ```
 
 | Argument / Option | Required | Default | Description |
@@ -124,23 +124,23 @@ garden list [ENTITY_TYPE] [--team TEAM] [--json]
 
 **Examples:**
 ```bash
-garden list                           # List all agents
-garden list agents                    # Same as above
-garden list tools                     # List MCP servers and tools
-garden list models                    # List registered models
-garden list prompts                   # List prompt templates
-garden list agents --team platform    # Filter by team
-garden list --json                    # JSON output
+agentbreeder list                           # List all agents
+agentbreeder list agents                    # Same as above
+agentbreeder list tools                     # List MCP servers and tools
+agentbreeder list models                    # List registered models
+agentbreeder list prompts                   # List prompt templates
+agentbreeder list agents --team platform    # Filter by team
+agentbreeder list --json                    # JSON output
 ```
 
 ---
 
-### `garden describe`
+### `agentbreeder describe`
 
 Show full details for a registered agent.
 
 ```
-garden describe NAME [--json]
+agentbreeder describe NAME [--json]
 ```
 
 | Argument | Required | Description |
@@ -151,18 +151,18 @@ Shows: name, version, team, owner, framework, model config, tools, deploy target
 
 **Examples:**
 ```bash
-garden describe my-agent
-garden describe my-agent --json
+agentbreeder describe my-agent
+agentbreeder describe my-agent --json
 ```
 
 ---
 
-### `garden search`
+### `agentbreeder search`
 
 Search across all registered agents, tools, models, and prompts.
 
 ```
-garden search QUERY [--json]
+agentbreeder search QUERY [--json]
 ```
 
 | Argument | Required | Description |
@@ -173,19 +173,19 @@ Searches names, descriptions, tags, and teams across all entity types.
 
 **Examples:**
 ```bash
-garden search "customer support"
-garden search zendesk
-garden search --json "langgraph"
+agentbreeder search "customer support"
+agentbreeder search zendesk
+agentbreeder search --json "langgraph"
 ```
 
 ---
 
-### `garden scan`
+### `agentbreeder scan`
 
 Scan for MCP servers and LiteLLM models, register discoveries in the registry.
 
 ```
-garden scan [--json]
+agentbreeder scan [--json]
 ```
 
 Discovers:
@@ -196,18 +196,18 @@ Automatically registers discovered tools and models in the registry.
 
 **Examples:**
 ```bash
-garden scan
-garden scan --json
+agentbreeder scan
+agentbreeder scan --json
 ```
 
 ---
 
-### `garden logs`
+### `agentbreeder logs`
 
 Show logs from a deployed agent.
 
 ```
-garden logs AGENT_NAME [--lines N] [--follow] [--since DURATION] [--json]
+agentbreeder logs AGENT_NAME [--lines N] [--follow] [--since DURATION] [--json]
 ```
 
 | Argument / Option | Required | Default | Description |
@@ -219,21 +219,21 @@ garden logs AGENT_NAME [--lines N] [--follow] [--since DURATION] [--json]
 
 **Examples:**
 ```bash
-garden logs my-agent                  # Last 50 lines
-garden logs my-agent -n 100           # Last 100 lines
-garden logs my-agent --follow         # Stream logs
-garden logs my-agent --since 5m       # Logs from last 5 minutes
-garden logs my-agent -f --since 1h    # Stream from last hour
+agentbreeder logs my-agent                  # Last 50 lines
+agentbreeder logs my-agent -n 100           # Last 100 lines
+agentbreeder logs my-agent --follow         # Stream logs
+agentbreeder logs my-agent --since 5m       # Logs from last 5 minutes
+agentbreeder logs my-agent -f --since 1h    # Stream from last hour
 ```
 
 ---
 
-### `garden status`
+### `agentbreeder status`
 
 Show deploy status of agents.
 
 ```
-garden status [AGENT_NAME] [--json]
+agentbreeder status [AGENT_NAME] [--json]
 ```
 
 | Argument | Required | Description |
@@ -244,19 +244,19 @@ Without an agent name, shows a summary table of all deployed agents with their s
 
 **Examples:**
 ```bash
-garden status                  # All agents summary
-garden status my-agent         # Detailed status for one agent
-garden status --json           # JSON output
+agentbreeder status                  # All agents summary
+agentbreeder status my-agent         # Detailed status for one agent
+agentbreeder status --json           # JSON output
 ```
 
 ---
 
-### `garden teardown`
+### `agentbreeder teardown`
 
 Remove a deployed agent and clean up its resources.
 
 ```
-garden teardown AGENT_NAME [--force] [--json]
+agentbreeder teardown AGENT_NAME [--force] [--json]
 ```
 
 | Argument / Option | Required | Default | Description |
@@ -268,19 +268,19 @@ Removes the agent's containers, infrastructure, and registry entry. Prompts for 
 
 **Examples:**
 ```bash
-garden teardown my-agent              # Prompts for confirmation
-garden teardown my-agent --force      # No confirmation
-garden teardown my-agent --json       # JSON output
+agentbreeder teardown my-agent              # Prompts for confirmation
+agentbreeder teardown my-agent --force      # No confirmation
+agentbreeder teardown my-agent --json       # JSON output
 ```
 
 ---
 
-### `garden provider`
+### `agentbreeder provider`
 
 Manage LLM provider connections and API keys.
 
 ```
-garden provider [SUBCOMMAND] [OPTIONS]
+agentbreeder provider [SUBCOMMAND] [OPTIONS]
 ```
 
 #### Subcommands
@@ -297,30 +297,30 @@ garden provider [SUBCOMMAND] [OPTIONS]
 
 **Supported provider types:** `openai`, `anthropic`, `google`, `ollama`, `litellm`, `openrouter`
 
-API keys are stored in the project `.env` file (or `~/.garden/.env` if no project).
+API keys are stored in the project `.env` file (or `~/.agentbreeder/.env` if no project).
 
 **Examples:**
 ```bash
-garden provider list                              # List all providers
-garden provider add openai                        # Interactive setup
-garden provider add openai --api-key sk-proj-...  # Non-interactive
-garden provider add ollama                        # Auto-detect local Ollama
-garden provider test openai                       # Verify connection + latency
-garden provider models openai                     # List available models
-garden provider disable openai                    # Disable without removing
-garden provider enable openai                     # Re-enable
-garden provider remove openai                     # Remove provider + key
-garden provider list --json                       # JSON output
+agentbreeder provider list                              # List all providers
+agentbreeder provider add openai                        # Interactive setup
+agentbreeder provider add openai --api-key sk-proj-...  # Non-interactive
+agentbreeder provider add ollama                        # Auto-detect local Ollama
+agentbreeder provider test openai                       # Verify connection + latency
+agentbreeder provider models openai                     # List available models
+agentbreeder provider disable openai                    # Disable without removing
+agentbreeder provider enable openai                     # Re-enable
+agentbreeder provider remove openai                     # Remove provider + key
+agentbreeder provider list --json                       # JSON output
 ```
 
 ---
 
-### `garden chat`
+### `agentbreeder chat`
 
 Interactive chat with a deployed agent in the terminal.
 
 ```
-garden chat AGENT_NAME [--model MODEL] [--env ENV] [--verbose] [--json]
+agentbreeder chat AGENT_NAME [--model MODEL] [--env ENV] [--verbose] [--json]
 ```
 
 | Argument / Option | Required | Default | Description |
@@ -338,20 +338,20 @@ On exit, displays a session summary with turn count, total tokens, and cost.
 
 **Examples:**
 ```bash
-garden chat my-agent                     # Interactive chat
-garden chat my-agent --verbose           # Show tool calls + costs
-garden chat my-agent --model gpt-4o      # Override model
-echo "hello" | garden chat my-agent --json  # JSON stdin/stdout
+agentbreeder chat my-agent                     # Interactive chat
+agentbreeder chat my-agent --verbose           # Show tool calls + costs
+agentbreeder chat my-agent --model gpt-4o      # Override model
+echo "hello" | agentbreeder chat my-agent --json  # JSON stdin/stdout
 ```
 
 ---
 
-### `garden eject`
+### `agentbreeder eject`
 
 Generate a Full Code SDK scaffold from an existing `agent.yaml` or `orchestration.yaml` file. Enables tier mobility from Low Code (YAML) to Full Code (Python/TypeScript SDK) without losing any configuration.
 
 ```
-garden eject CONFIG_PATH [--sdk SDK] [--output PATH]
+agentbreeder eject CONFIG_PATH [--sdk SDK] [--output PATH]
 ```
 
 | Argument / Option | Required | Default | Description |
@@ -378,58 +378,58 @@ garden eject CONFIG_PATH [--sdk SDK] [--output PATH]
 **Examples:**
 ```bash
 # Agent ejection
-garden eject agent.yaml                          # Default: agents/<name>/agent_sdk.py
-garden eject agent.yaml --sdk python             # Explicit Python SDK
-garden eject agent.yaml --sdk typescript         # TypeScript SDK
-garden eject agent.yaml -o src/my_agent.py       # Custom output path
+agentbreeder eject agent.yaml                          # Default: agents/<name>/agent_sdk.py
+agentbreeder eject agent.yaml --sdk python             # Explicit Python SDK
+agentbreeder eject agent.yaml --sdk typescript         # TypeScript SDK
+agentbreeder eject agent.yaml -o src/my_agent.py       # Custom output path
 
 # Orchestration ejection
-garden eject orchestration.yaml                  # Default: orchestration_sdk.py
-garden eject orchestration.yaml --sdk typescript # TypeScript SDK
+agentbreeder eject orchestration.yaml                  # Default: orchestration_sdk.py
+agentbreeder eject orchestration.yaml --sdk typescript # TypeScript SDK
 ```
 
 ---
 
-### `garden orchestration`
+### `agentbreeder orchestration`
 
 Manage multi-agent orchestration pipelines defined in `orchestration.yaml` or built with the Full Code Orchestration SDK.
 
 ```
-garden orchestration SUBCOMMAND [OPTIONS]
+agentbreeder orchestration SUBCOMMAND [OPTIONS]
 ```
 
-#### `garden orchestration validate`
+#### `agentbreeder orchestration validate`
 
 Validate an `orchestration.yaml` file against the JSON Schema.
 
 ```
-garden orchestration validate PATH [--json]
+agentbreeder orchestration validate PATH [--json]
 ```
 
 ```bash
-garden orchestration validate orchestration.yaml
-garden orchestration validate pipelines/support.yaml --json
+agentbreeder orchestration validate orchestration.yaml
+agentbreeder orchestration validate pipelines/support.yaml --json
 ```
 
-#### `garden orchestration deploy`
+#### `agentbreeder orchestration deploy`
 
 Validate, register, and deploy an orchestration.
 
 ```
-garden orchestration deploy PATH [--json]
+agentbreeder orchestration deploy PATH [--json]
 ```
 
 ```bash
-garden orchestration deploy orchestration.yaml
-garden orchestration deploy pipelines/research.yaml --json
+agentbreeder orchestration deploy orchestration.yaml
+agentbreeder orchestration deploy pipelines/research.yaml --json
 ```
 
-#### `garden orchestration list`
+#### `agentbreeder orchestration list`
 
 List registered orchestrations.
 
 ```
-garden orchestration list [--team TEAM] [--status STATUS] [--json]
+agentbreeder orchestration list [--team TEAM] [--status STATUS] [--json]
 ```
 
 | Option | Description |
@@ -438,28 +438,28 @@ garden orchestration list [--team TEAM] [--status STATUS] [--json]
 | `--status` | Filter by status: `deployed`, `draft`, `error` |
 
 ```bash
-garden orchestration list
-garden orchestration list --team eng --json
+agentbreeder orchestration list
+agentbreeder orchestration list --team eng --json
 ```
 
-#### `garden orchestration status`
+#### `agentbreeder orchestration status`
 
 Show orchestration detail and agent graph.
 
 ```
-garden orchestration status NAME [--json]
+agentbreeder orchestration status NAME [--json]
 ```
 
 ```bash
-garden orchestration status support-pipeline
+agentbreeder orchestration status support-pipeline
 ```
 
-#### `garden orchestration chat`
+#### `agentbreeder orchestration chat`
 
 Send messages interactively to a deployed orchestration.
 
 ```
-garden orchestration chat NAME [--verbose] [--json]
+agentbreeder orchestration chat NAME [--verbose] [--json]
 ```
 
 | Option | Description |
@@ -468,19 +468,19 @@ garden orchestration chat NAME [--verbose] [--json]
 | `--json` | Read from stdin, write JSON per line (for CI) |
 
 ```bash
-garden orchestration chat support-pipeline
-garden orchestration chat support-pipeline --verbose
-echo '{"message": "billing question"}' | garden orchestration chat support-pipeline --json
+agentbreeder orchestration chat support-pipeline
+agentbreeder orchestration chat support-pipeline --verbose
+echo '{"message": "billing question"}' | agentbreeder orchestration chat support-pipeline --json
 ```
 
 ---
 
-### `garden submit`
+### `agentbreeder submit`
 
 Submit a resource for review by creating a pull request.
 
 ```
-garden submit RESOURCE_TYPE NAME [--message MSG] [--json]
+agentbreeder submit RESOURCE_TYPE NAME [--message MSG] [--json]
 ```
 
 | Argument / Option | Required | Description |
@@ -493,19 +493,19 @@ Creates a PR from the draft branch to main. Shows PR ID, status, and diff summar
 
 **Examples:**
 ```bash
-garden submit agent my-agent
-garden submit agent my-agent -m "Added Zendesk tool integration"
-garden submit prompt support-v3 --json
+agentbreeder submit agent my-agent
+agentbreeder submit agent my-agent -m "Added Zendesk tool integration"
+agentbreeder submit prompt support-v3 --json
 ```
 
 ---
 
-### `garden review`
+### `agentbreeder review`
 
 Review pull requests for resources.
 
 ```
-garden review [SUBCOMMAND] [OPTIONS]
+agentbreeder review [SUBCOMMAND] [OPTIONS]
 ```
 
 #### Subcommands
@@ -520,24 +520,24 @@ garden review [SUBCOMMAND] [OPTIONS]
 
 **Examples:**
 ```bash
-garden review list                           # Pending reviews
-garden review list --status approved         # Filter by status
-garden review list --type agent              # Filter by resource type
-garden review show pr-abc123                 # Show PR detail
-garden review approve pr-abc123              # Approve
-garden review reject pr-abc123 -m "Needs error handling"
-garden review comment pr-abc123 -m "LGTM"
-garden review list --json                    # JSON output
+agentbreeder review list                           # Pending reviews
+agentbreeder review list --status approved         # Filter by status
+agentbreeder review list --type agent              # Filter by resource type
+agentbreeder review show pr-abc123                 # Show PR detail
+agentbreeder review approve pr-abc123              # Approve
+agentbreeder review reject pr-abc123 -m "Needs error handling"
+agentbreeder review comment pr-abc123 -m "LGTM"
+agentbreeder review list --json                    # JSON output
 ```
 
 ---
 
-### `garden publish`
+### `agentbreeder publish`
 
 Merge an approved PR and publish the resource to the registry.
 
 ```
-garden publish RESOURCE_TYPE NAME [--version VERSION] [--json]
+agentbreeder publish RESOURCE_TYPE NAME [--version VERSION] [--json]
 ```
 
 | Argument / Option | Required | Description |
@@ -550,39 +550,39 @@ Finds the approved PR for the resource, merges to main, tags with semver, and pu
 
 **Examples:**
 ```bash
-garden publish agent my-agent                    # Auto-version
-garden publish agent my-agent --version 2.0.0    # Explicit version
-garden publish prompt support-v3 --json
+agentbreeder publish agent my-agent                    # Auto-version
+agentbreeder publish agent my-agent --version 2.0.0    # Explicit version
+agentbreeder publish prompt support-v3 --json
 ```
 
 ---
 
-### `garden secret`
+### `agentbreeder secret`
 
 Manage secrets across pluggable backends (env file, AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault).
 
 ```
-garden secret [SUBCOMMAND] [OPTIONS]
+agentbreeder secret [SUBCOMMAND] [OPTIONS]
 ```
 
-#### `garden secret list`
+#### `agentbreeder secret list`
 
 ```
-garden secret list [--backend BACKEND] [--prefix PREFIX] [--json]
+agentbreeder secret list [--backend BACKEND] [--prefix PREFIX] [--json]
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--backend`, `-b` | `env` | Backend: `env`, `aws`, `gcp`, `vault` |
-| `--prefix` | `garden/` | Secret prefix (AWS/GCP/Vault) |
+| `--prefix` | `agentbreeder/` | Secret prefix (AWS/GCP/Vault) |
 | `--json` | Off | Output as JSON |
 
 Lists secret names and masked values (actual values are never printed).
 
-#### `garden secret set`
+#### `agentbreeder secret set`
 
 ```
-garden secret set NAME [--value VALUE] [--backend BACKEND] [--prefix PREFIX] [--tag key=value] [--json]
+agentbreeder secret set NAME [--value VALUE] [--backend BACKEND] [--prefix PREFIX] [--tag key=value] [--json]
 ```
 
 | Argument / Option | Required | Description |
@@ -592,41 +592,41 @@ garden secret set NAME [--value VALUE] [--backend BACKEND] [--prefix PREFIX] [--
 | `--backend`, `-b` | No | Backend (`env`, `aws`, `gcp`, `vault`) |
 | `--tag`, `-t` | No | `key=value` tags (cloud backends only, repeatable) |
 
-#### `garden secret get`
+#### `agentbreeder secret get`
 
 ```
-garden secret get NAME [--backend BACKEND] [--reveal] [--json]
+agentbreeder secret get NAME [--backend BACKEND] [--reveal] [--json]
 ```
 
 Prints masked value by default. Use `--reveal` to print the actual value.
 
-#### `garden secret delete`
+#### `agentbreeder secret delete`
 
 ```
-garden secret delete NAME [--backend BACKEND] [--force] [--json]
+agentbreeder secret delete NAME [--backend BACKEND] [--force] [--json]
 ```
 
 Prompts for confirmation unless `--force` is passed.
 
-#### `garden secret rotate`
+#### `agentbreeder secret rotate`
 
 ```
-garden secret rotate NAME [--value NEW_VALUE] [--backend BACKEND] [--json]
+agentbreeder secret rotate NAME [--value NEW_VALUE] [--backend BACKEND] [--json]
 ```
 
 Prompts for the new value with confirmation if `--value` is omitted.
 
-#### `garden secret migrate`
+#### `agentbreeder secret migrate`
 
 ```
-garden secret migrate --from BACKEND --to BACKEND [--prefix PREFIX] [--include KEY] [--exclude KEY] [--dry-run] [--json]
+agentbreeder secret migrate --from BACKEND --to BACKEND [--prefix PREFIX] [--include KEY] [--exclude KEY] [--dry-run] [--json]
 ```
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--from` | Yes | Source backend (`env`, `aws`, `gcp`, `vault`) |
 | `--to` | Yes | Target backend (`aws`, `gcp`, `vault`) |
-| `--prefix` | No | Prefix for secrets in cloud backend (default: `garden/`) |
+| `--prefix` | No | Prefix for secrets in cloud backend (default: `agentbreeder/`) |
 | `--include`, `-i` | No | Only migrate these keys (repeatable) |
 | `--exclude`, `-e` | No | Skip these keys (repeatable) |
 | `--dry-run` | No | Preview without writing |
@@ -641,16 +641,16 @@ deploy:
 
 **Examples:**
 ```bash
-garden secret list                                    # List env secrets
-garden secret list --backend aws --json               # List AWS secrets as JSON
-garden secret set OPENAI_API_KEY                      # Prompt for value
-garden secret set OPENAI_API_KEY --value sk-...       # Provide value directly
-garden secret get OPENAI_API_KEY --reveal             # Print actual value
-garden secret delete OPENAI_API_KEY --force           # Delete without confirmation
-garden secret rotate OPENAI_API_KEY                   # Prompt for new value
-garden secret migrate --from env --to aws --dry-run   # Preview migration
-garden secret migrate --from env --to aws             # Migrate to AWS
-garden secret migrate --from env --to gcp --exclude DEBUG --exclude LOG_LEVEL
+agentbreeder secret list                                    # List env secrets
+agentbreeder secret list --backend aws --json               # List AWS secrets as JSON
+agentbreeder secret set OPENAI_API_KEY                      # Prompt for value
+agentbreeder secret set OPENAI_API_KEY --value sk-...       # Provide value directly
+agentbreeder secret get OPENAI_API_KEY --reveal             # Print actual value
+agentbreeder secret delete OPENAI_API_KEY --force           # Delete without confirmation
+agentbreeder secret rotate OPENAI_API_KEY                   # Prompt for new value
+agentbreeder secret migrate --from env --to aws --dry-run   # Preview migration
+agentbreeder secret migrate --from env --to aws             # Migrate to AWS
+agentbreeder secret migrate --from env --to gcp --exclude DEBUG --exclude LOG_LEVEL
 ```
 
 ---

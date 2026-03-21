@@ -336,7 +336,7 @@ export default function AgentsPage() {
             description={
               hasFilter
                 ? "Try adjusting your search or filters."
-                : "Deploy an agent with `garden deploy` and it will appear here automatically."
+                : "Deploy an agent with `agentbreeder deploy` and it will appear here automatically."
             }
           />
         ) : (

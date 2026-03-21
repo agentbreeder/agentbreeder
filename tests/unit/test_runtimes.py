@@ -101,7 +101,7 @@ class TestLangGraphRuntime:
         )
         config = _make_config()
         image = runtime.build(agent_dir, config)
-        assert image.tag == "garden/test-agent:1.0.0"
+        assert image.tag == "agentbreeder/test-agent:1.0.0"
         assert image.context_dir.exists()
         assert (image.context_dir / "Dockerfile").exists()
         assert (image.context_dir / "requirements.txt").exists()

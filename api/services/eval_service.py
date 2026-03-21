@@ -915,7 +915,7 @@ def _seed_demo_data(store: EvalStore) -> None:
                 "input": {"message": "My agent is stuck deploying"},
                 "expected_output": (
                     "Check the deployment logs with "
-                    "'garden logs <agent-name>'. Common causes "
+                    "'agentbreeder logs <agent-name>'. Common causes "
                     "include misconfigured secrets or "
                     "insufficient resources."
                 ),

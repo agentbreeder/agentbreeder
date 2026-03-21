@@ -106,13 +106,13 @@ deploy:
 ### Step 3: Validate
 
 ```bash
-garden validate agent.yaml
+agentbreeder validate agent.yaml
 ```
 
 ### Step 4: Deploy
 
 ```bash
-garden deploy agent.yaml --target local
+agentbreeder deploy agent.yaml --target local
 ```
 
 ### Step 5: Test
@@ -142,7 +142,7 @@ deploy:
 ```
 
 ```bash
-garden deploy agent.yaml --target aws
+agentbreeder deploy agent.yaml --target aws
 ```
 
 ---
@@ -347,7 +347,7 @@ knowledge_bases:
 | Agent definition | `Agent()` | Same (unchanged) |
 | Tool definition | `@function_tool` | Same (unchanged) |
 | Running agent | `Runner.run()` | Same locally; HTTP endpoint in production |
-| Deploy | Manual | `garden deploy agent.yaml` |
+| Deploy | Manual | `agentbreeder deploy agent.yaml` |
 | Multi-cloud | Manual | One-line change |
 | Model fallback | Not built-in | Declarative, cross-provider |
 | RBAC | Not available | Automatic |
@@ -399,7 +399,7 @@ deploy:
     - OPENAI_API_KEY
 ```
 
-For local deploy, set it in your environment before running `garden deploy`, or create a `.env` file in the agent directory.
+For local deploy, set it in your environment before running `agentbreeder deploy`, or create a `.env` file in the agent directory.
 
 ### Streaming responses
 
@@ -516,5 +516,5 @@ deploy:
 **Deploy:**
 
 ```bash
-garden deploy agent.yaml
+agentbreeder deploy agent.yaml
 ```

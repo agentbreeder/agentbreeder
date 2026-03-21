@@ -30,7 +30,7 @@ from engine.runtimes import get_runtime
 
 logger = logging.getLogger(__name__)
 
-REGISTRY_DIR = Path.home() / ".garden" / "registry"
+REGISTRY_DIR = Path.home() / ".agentbreeder" / "registry"
 
 
 class DeployError(Exception):

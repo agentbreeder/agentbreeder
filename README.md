@@ -26,9 +26,9 @@ Every team picks a different AI agent framework. Nobody knows what's already dep
 AgentBreeder supports three builder tiers — No Code, Low Code, and Full Code — for both **individual agents** and **multi-agent orchestration**. All three tiers compile down to the same internal representation and share the same deploy pipeline, governance, and observability.
 
 ```
-No Code (UI)  ──→  agent.yaml  ──→  garden deploy  ──→  running agent
-Low Code (YAML) ──→  agent.yaml  ──→  garden deploy  ──→  running agent
-Full Code (SDK) ──→  agent.yaml + code  ──→  garden deploy  ──→  running agent
+No Code (UI)  ──→  agent.yaml  ──→  agentbreeder deploy  ──→  running agent
+Low Code (YAML) ──→  agent.yaml  ──→  agentbreeder deploy  ──→  running agent
+Full Code (SDK) ──→  agent.yaml + code  ──→  agentbreeder deploy  ──→  running agent
 ```
 
 | Tier | Who it's for | Agent Development | Agent Orchestration |
@@ -42,7 +42,7 @@ Full Code (SDK) ──→  agent.yaml + code  ──→  garden deploy  ──�
 ## How AgentBreeder Works
 
 ```
-garden init  →  Write agent.yaml  →  garden deploy  →  Agent is live
+agentbreeder init  →  Write agent.yaml  →  agentbreeder deploy  →  Agent is live
 ```
 
 Define your agent in a single YAML file:
@@ -71,7 +71,7 @@ deploy:
     max: 10
 ```
 
-Run `garden deploy` and your agent is live on AWS or GCP — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and zero extra work.
+Run `agentbreeder deploy` and your agent is live on AWS or GCP — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and zero extra work.
 
 ---
 
@@ -93,7 +93,7 @@ Run `garden deploy` and your agent is live on AWS or GCP — with RBAC, cost tra
 ### What's New in v0.3
 
 - **Provider abstraction layer** -- OpenAI, Anthropic (Claude), Google (Gemini), Ollama, and OpenRouter providers with automatic fallback chains (`engine/providers/`, `connectors/openrouter/`)
-- **GCP Cloud Run deployer** -- `garden deploy --target cloud-run` for serverless container deployment
+- **GCP Cloud Run deployer** -- `agentbreeder deploy --target cloud-run` for serverless container deployment
 - **OpenAI Agents runtime** -- first-class support for the OpenAI Agents SDK (`engine/runtimes/openai_agents.py`)
 - **Deploy from Dashboard** -- 8-step deploy pipeline dialog, no CLI required
 - **Visual Agent Builder** -- ReactFlow canvas with 8 node types, drag-and-drop agent composition
@@ -166,10 +166,10 @@ cp .env.example .env
 docker compose up -d
 
 # Create your first agent
-garden init
+agentbreeder init
 
 # Deploy locally
-garden deploy ./agent.yaml --target local
+agentbreeder deploy ./agent.yaml --target local
 ```
 
 Your agent is now running at `http://localhost:8080/agents/{name}/invoke` with a registry entry automatically created.

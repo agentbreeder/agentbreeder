@@ -313,7 +313,7 @@ class Orchestration:
         """Deploy this orchestration (delegates to engine deploy pipeline).
 
         Returns a deploy info dict. The real implementation invokes the
-        same engine pipeline used by ``garden orchestration deploy``.
+        same engine pipeline used by ``agentbreeder orchestration deploy``.
         """
         deploy_target = target or self.config.deploy.target
         logger.info("Deploying orchestration '%s' to '%s'", self.config.name, deploy_target)

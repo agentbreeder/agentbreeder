@@ -18,12 +18,12 @@ Multi-step research pipeline that searches the web, verifies sources, cross-refe
 
 2. **Deploy locally:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Run a research query:**
    ```bash
-   garden chat research-agent --message "Research the current state of quantum computing in 2026"
+   agentbreeder chat research-agent --message "Research the current state of quantum computing in 2026"
    ```
 
 ## Architecture

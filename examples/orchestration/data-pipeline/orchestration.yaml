@@ -8,9 +8,9 @@
 # The output of each agent becomes the input of the next.
 #
 # Usage:
-#   garden orchestration validate ./orchestration.yaml
-#   garden orchestration deploy ./orchestration.yaml
-#   garden orchestration chat data-processing-pipeline
+#   agentbreeder orchestration validate ./orchestration.yaml
+#   agentbreeder orchestration deploy ./orchestration.yaml
+#   agentbreeder orchestration chat data-processing-pipeline
 
 name: data-processing-pipeline
 version: 1.0.0

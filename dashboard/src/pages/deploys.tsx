@@ -257,7 +257,7 @@ export default function DeploysPage() {
             description={
               statusFilter
                 ? "Try changing the status filter."
-                : "Deploy an agent with `garden deploy` to see deployment jobs here."
+                : "Deploy an agent with `agentbreeder deploy` to see deployment jobs here."
             }
           />
         ) : (

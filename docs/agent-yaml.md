@@ -359,11 +359,11 @@ Access control configuration. Optional — defaults to team's policy.
 
 ### CLI Deploy Targets
 
-The `--target` flag on `garden deploy` maps to cloud + runtime combinations:
+The `--target` flag on `agentbreeder deploy` maps to cloud + runtime combinations:
 
 ```bash
-garden deploy --target local         # docker-compose
-garden deploy --target cloud-run     # GCP Cloud Run
+agentbreeder deploy --target local         # docker-compose
+agentbreeder deploy --target cloud-run     # GCP Cloud Run
 ```
 
 ---
@@ -373,7 +373,7 @@ garden deploy --target cloud-run     # GCP Cloud Run
 Validate your config without deploying:
 
 ```bash
-garden validate ./agent.yaml
+agentbreeder validate ./agent.yaml
 ```
 
 The JSON Schema is at [`engine/schema/agent.schema.json`](../engine/schema/agent.schema.json).

@@ -3,14 +3,14 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: agentbreeder
-      POSTGRES_USER: garden
-      POSTGRES_PASSWORD: garden
+      POSTGRES_USER: agentbreeder
+      POSTGRES_PASSWORD: agentbreeder
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U garden -d agentbreeder"]
+      test: ["CMD-SHELL", "pg_isready -U agentbreeder -d agentbreeder"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,7 +32,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://garden:garden@postgres:5432/agentbreeder
+      DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@postgres:5432/agentbreeder
       REDIS_URL: redis://redis:6379
       GARDEN_ENV: development
       SECRET_KEY: docker-dev-secret-key-change-in-prod
@@ -55,7 +55,7 @@ services:
       dockerfile: Dockerfile
     command: ["alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://garden:garden@postgres:5432/agentbreeder
+      DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@postgres:5432/agentbreeder
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,7 +76,7 @@ services:
     ports:
       - "4000:4000"
     environment:
-      DATABASE_URL: postgresql://garden:garden@postgres:5432/agentbreeder
+      DATABASE_URL: postgresql://agentbreeder:agentbreeder@postgres:5432/agentbreeder
       STORE_MODEL_IN_DB: "True"
     depends_on:
       postgres:

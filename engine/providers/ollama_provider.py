@@ -169,7 +169,7 @@ class OllamaProvider(ProviderBase):
         """Check if an Ollama instance is running at the given URL.
 
         This is a static convenience method for auto-detection during
-        `garden dev` or provider setup.
+        `agentbreeder dev` or provider setup.
         """
         url = (base_url or DEFAULT_OLLAMA_BASE_URL).rstrip("/")
         try:

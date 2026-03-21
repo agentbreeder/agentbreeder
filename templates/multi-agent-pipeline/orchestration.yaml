@@ -5,9 +5,9 @@
 #   - QA agent verifies responses before delivery
 #
 # Usage:
-#   garden orchestration validate ./orchestration.yaml
-#   garden orchestration deploy ./orchestration.yaml
-#   garden orchestration chat multi-agent-support-pipeline
+#   agentbreeder orchestration validate ./orchestration.yaml
+#   agentbreeder orchestration deploy ./orchestration.yaml
+#   agentbreeder orchestration chat multi-agent-support-pipeline
 
 name: multi-agent-support-pipeline
 version: 1.0.0

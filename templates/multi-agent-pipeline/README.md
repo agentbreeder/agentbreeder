@@ -18,12 +18,12 @@ Production multi-agent orchestration with triage routing, specialist agents, and
 
 2. **Deploy the pipeline:**
    ```bash
-   garden validate && garden orchestration deploy ./orchestration.yaml
+   agentbreeder validate && agentbreeder orchestration deploy ./orchestration.yaml
    ```
 
 3. **Test the pipeline:**
    ```bash
-   garden orchestration chat multi-agent-support-pipeline \
+   agentbreeder orchestration chat multi-agent-support-pipeline \
      --message "I was double-charged on my last invoice"
    ```
 
@@ -71,7 +71,7 @@ env_vars:
 
 ### Add a new specialist
 
-1. Create the specialist agent with `garden init --template customer-support`
+1. Create the specialist agent with `agentbreeder init --template customer-support`
 2. Add it to `orchestration.yaml` under `agents:`
 3. Add routing conditions in the `triage` agent's `routes`
 

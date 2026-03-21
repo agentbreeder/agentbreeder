@@ -9,14 +9,14 @@ class Settings(BaseSettings):  # type: ignore[misc,unused-ignore]
     """AgentBreeder configuration loaded from environment variables."""
 
     # Database
-    database_url: str = "postgresql+asyncpg://garden:garden@localhost:5432/agentbreeder"
+    database_url: str = "postgresql+asyncpg://agentbreeder:agentbreeder@localhost:5432/agentbreeder"
 
     # Redis
     redis_url: str = "redis://localhost:6379"
 
     # Application
     secret_key: str = "change-me-to-a-random-256-bit-key"
-    garden_env: str = "development"
+    agentbreeder_env: str = "development"
 
     # Auth
     jwt_secret_key: str = "change-me"

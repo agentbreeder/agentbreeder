@@ -1,10 +1,10 @@
-"""garden eval — evaluation framework commands.
+"""agentbreeder eval — evaluation framework commands.
 
 Subcommands:
-    garden eval run <agent-name> --dataset <dataset-id>
-    garden eval datasets [--team <team>]
-    garden eval results <run-id>
-    garden eval compare <run-a> <run-b>
+    agentbreeder eval run <agent-name> --dataset <dataset-id>
+    agentbreeder eval datasets [--team <team>]
+    agentbreeder eval results <run-id>
+    agentbreeder eval compare <run-a> <run-b>
 """
 
 from __future__ import annotations

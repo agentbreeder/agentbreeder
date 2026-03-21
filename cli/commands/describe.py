@@ -1,4 +1,4 @@
-"""garden describe — show full detail for a registry entity."""
+"""agentbreeder describe — show full detail for a registry entity."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from rich.table import Table
 
 console = Console()
 
-REGISTRY_DIR = Path.home() / ".garden" / "registry"
+REGISTRY_DIR = Path.home() / ".agentbreeder" / "registry"
 
 
 def describe(

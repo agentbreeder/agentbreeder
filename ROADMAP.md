@@ -13,7 +13,7 @@
 | **v0.1** | Foundation | CLI + Registry + Basic Dashboard | M1–M5 | Done |
 | **v0.2** | Registry UI | Rich registry pages, YAML editor, prompt manager | M6–M7 | Done |
 | **v0.3** | Builders | All builders + Git workflow + approval + environments + playground + 2 SDKs (LangGraph, OpenAI Agents) + Cloud Run deploy | M8–M13, M23 | Done |
-| **v0.4** | Observability | Tracing, cost monitoring, RBAC & teams, audit trail, lineage + Full Code SDK (Python) + `garden eject` | M14–M17, M28 | Done |
+| **v0.4** | Observability | Tracing, cost monitoring, RBAC & teams, audit trail, lineage + Full Code SDK (Python) + `agentbreeder eject` | M14–M17, M28 | Done |
 | **v1.0** | GA | Eval framework, golden datasets, regression detection, CI gates, feedback loop + orchestration YAML | M18, M29 | Done |
 | **v1.1** | Connectivity | A2A protocol, MCP server hub, multi-agent orchestration + visual orchestration canvas + TS SDK | M19–M20, M30 | Done |
 | **v1.2** | Marketplace | Community templates, ratings, one-click deploy | M21–M22 | Done |
@@ -100,7 +100,7 @@ The deploy pipeline does NOT know which tier produced the config. This is intent
 ### Tier Mobility (Ejection)
 
 ```
-No Code ──"View YAML"──→ Low Code ──"garden eject"──→ Full Code
+No Code ──"View YAML"──→ Low Code ──"agentbreeder eject"──→ Full Code
    ↑                                                      │
    └──────── "Import YAML" ←───── (manual) ←─────────────┘
 ```
@@ -108,7 +108,7 @@ No Code ──"View YAML"──→ Low Code ──"garden eject"──→ Full C
 | Transition | How it works | Data preserved |
 |-----------|-------------|----------------|
 | **No Code → Low Code** | Visual builder shows "View YAML" tab. The generated YAML is valid, readable, and editable. | 100% — YAML is the source of truth |
-| **Low Code → Full Code** | CLI: `garden eject my-agent --sdk python`. Generates a Python project scaffold that recreates the YAML config as SDK code. | 100% — SDK generates equivalent agent.yaml |
+| **Low Code → Full Code** | CLI: `agentbreeder eject my-agent --sdk python`. Generates a Python project scaffold that recreates the YAML config as SDK code. | 100% — SDK generates equivalent agent.yaml |
 | **Full Code → Low Code** | Not automatic (code can express things YAML can't). But the SDK always generates a valid `agent.yaml` that can be imported. | Partial — custom code logic not representable in YAML |
 | **Low Code → No Code** | "Import YAML" in the visual builder opens the YAML and renders it as nodes on the canvas. | 100% if YAML uses standard patterns |
 
@@ -238,8 +238,8 @@ Two packages: a **CLI tool** (what developers install) and a **platform server**
 │                                                                   │
 │  Solo developer / getting started:                                │
 │    pip install agentbreeder        ← CLI + SDK                    │
-│    garden init my-project          ← scaffold project             │
-│    garden dev                      ← run locally (Ollama)         │
+│    agentbreeder init my-project          ← scaffold project             │
+│    agentbreeder dev                      ← run locally (Ollama)         │
 │                                                                   │
 │  Team / full platform:                                            │
 │    pip install agentbreeder        ← CLI + SDK (on each machine)  │
@@ -248,7 +248,7 @@ Two packages: a **CLI tool** (what developers install) and a **platform server**
 │                                                                   │
 │  CI/CD / automation:                                              │
 │    pip install agentbreeder        ← CLI only (no UI needed)      │
-│    garden deploy --env production  ← deploy from pipeline         │
+│    agentbreeder deploy --env production  ← deploy from pipeline         │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -256,7 +256,7 @@ Two packages: a **CLI tool** (what developers install) and a **platform server**
 
 | Package | Registry | Installs | Contains |
 |---------|----------|----------|----------|
-| `agentbreeder` | PyPI (`pip install agentbreeder`) | `garden` CLI command | CLI, SDK, engine, runtimes, config parser, provider abstraction |
+| `agentbreeder` | PyPI (`pip install agentbreeder`) | `agentbreeder` CLI command | CLI, SDK, engine, runtimes, config parser, provider abstraction |
 | `@agentbreeder/dashboard` | npm (`npm install @agentbreeder/dashboard`) | Dashboard dev server | React SPA (only needed for dashboard development/customization) |
 | `agentbreeder` | Docker Hub / GHCR | `docker pull agentbreeder/server` | Full platform: API + dashboard + workers (all-in-one image) |
 | `agentbreeder` | Helm chart | `helm install agentbreeder` | Kubernetes deployment (API + dashboard + PostgreSQL + Redis) |
@@ -266,9 +266,9 @@ Two packages: a **CLI tool** (what developers install) and a **platform server**
 ```bash
 # Path 1: Developer — build agents locally
 pip install agentbreeder
-garden init my-agent-project
+agentbreeder init my-agent-project
 cd my-agent-project
-garden dev                              # starts local sandbox
+agentbreeder dev                              # starts local sandbox
 
 # Path 2: Team — run the full platform
 git clone https://github.com/agentbreeder/agentbreeder
@@ -287,14 +287,14 @@ helm install agentbreeder deploy/helm/agentbreeder \
 
 ```
 agentbreeder (PyPI package)
-├── garden                  ← CLI binary (entry point)
-│   ├── garden init         ← scaffold new project
-│   ├── garden dev          ← local dev sandbox
-│   ├── garden deploy       ← deploy agent
-│   ├── garden provider     ← manage LLM providers
-│   ├── garden chat         ← playground chat
-│   ├── garden eval         ← run evaluations
-│   ├── garden submit       ← submit PR for review
+├── agentbreeder                  ← CLI binary (entry point)
+│   ├── agentbreeder init         ← scaffold new project
+│   ├── agentbreeder dev          ← local dev sandbox
+│   ├── agentbreeder deploy       ← deploy agent
+│   ├── agentbreeder provider     ← manage LLM providers
+│   ├── agentbreeder chat         ← playground chat
+│   ├── agentbreeder eval         ← run evaluations
+│   ├── agentbreeder submit       ← submit PR for review
 │   └── ...                 ← all other commands
 ├── agentbreeder.sdk        ← Python SDK for programmatic use
 │   ├── AgentBreederClient   ← API client
@@ -321,7 +321,7 @@ Two project types: **single-agent** (most common starting point) and **workspace
 
 #### Single-Agent Project
 
-Created by `garden init my-agent`:
+Created by `agentbreeder init my-agent`:
 
 ```
 my-agent/
@@ -337,8 +337,8 @@ my-agent/
 ├── requirements.txt        ← Python dependencies
 ├── .env                    ← API keys (gitignored)
 ├── .env.example            ← API key placeholders (committed)
-├── .gitignore              ← includes .env, __pycache__, .garden/
-├── .garden/                ← AgentBreeder metadata (gitignored)
+├── .gitignore              ← includes .env, __pycache__, .agentbreeder/
+├── .agentbreeder/                ← AgentBreeder metadata (gitignored)
 │   ├── state.json          ← local state (current branch, sandbox port, etc.)
 │   └── layout.json         ← visual builder node positions (UI-only metadata)
 └── README.md               ← auto-generated docs for this agent
@@ -379,11 +379,11 @@ deploy:
 
 #### Workspace (Multi-Agent Project)
 
-Created by `garden init my-workspace --workspace`, or naturally evolves when a team has multiple agents:
+Created by `agentbreeder init my-workspace --workspace`, or naturally evolves when a team has multiple agents:
 
 ```
 my-workspace/
-├── garden.yaml                 ← workspace config (lists all agents, shared settings)
+├── agentbreeder.yaml                 ← workspace config (lists all agents, shared settings)
 ├── agents/                     ← one subdirectory per agent
 │   ├── research-agent/
 │   │   ├── agent.yaml
@@ -437,7 +437,7 @@ my-workspace/
 └── README.md
 ```
 
-**`garden.yaml` (workspace root config):**
+**`agentbreeder.yaml` (workspace root config):**
 
 ```yaml
 workspace:
@@ -658,16 +658,16 @@ deploy:
    c. MCP (mcp://)       → connect to MCP server, verify tool exists
    d. Agent (agent://)   → resolve via A2A discovery, verify agent is deployed
 3. Validate all references resolved
-4. Lock versions: create a dependency lockfile (.garden/lock.yaml)
+4. Lock versions: create a dependency lockfile (.agentbreeder/lock.yaml)
    → pinning exact versions of all registry:// references
    → ensures reproducible deploys
 5. Proceed with build + deploy
 ```
 
-**Dependency lockfile (`.garden/lock.yaml`):**
+**Dependency lockfile (`.agentbreeder/lock.yaml`):**
 
 ```yaml
-# Auto-generated by garden deploy — do not edit
+# Auto-generated by agentbreeder deploy — do not edit
 # Records exact versions of all registry references at deploy time
 locked_at: "2026-03-11T14:30:00Z"
 agent: research-agent@v1.0.0
@@ -690,11 +690,11 @@ dependencies:
 **CLI commands for references:**
 
 ```bash
-garden deps                               # show all references and their resolved versions
-garden deps update                        # update all @latest refs to current latest
-garden deps update tools/web-search       # update one reference
-garden deps lock                          # regenerate lock file
-garden deps check                         # verify all references still resolve (nothing deleted/broken)
+agentbreeder deps                               # show all references and their resolved versions
+agentbreeder deps update                        # update all @latest refs to current latest
+agentbreeder deps update tools/web-search       # update one reference
+agentbreeder deps lock                          # regenerate lock file
+agentbreeder deps check                         # verify all references still resolve (nothing deleted/broken)
 ```
 
 **Dashboard UI for references:**
@@ -729,39 +729,39 @@ Agent Builder → any ref field shows a picker:
 
 ```bash
 # Create single-agent project
-garden init my-agent
-garden init my-agent --framework langgraph     # with framework preset
-garden init my-agent --framework google-adk    # another framework
+agentbreeder init my-agent
+agentbreeder init my-agent --framework langgraph     # with framework preset
+agentbreeder init my-agent --framework google-adk    # another framework
 
 # Create workspace
-garden init my-workspace --workspace
-garden init my-workspace --workspace --agents research,summarizer,reviewer
+agentbreeder init my-workspace --workspace
+agentbreeder init my-workspace --workspace --agents research,summarizer,reviewer
 
 # Add resources to existing project
-garden add agent customer-support              # creates agents/customer-support/
-garden add tool web-search                     # creates tools/web-search/
-garden add prompt safety-guardrail             # creates prompts/safety-guardrail/
-garden add rag product-docs                    # creates rag/product-docs/
-garden add memory shared-redis                 # creates memory/shared-redis.yaml
-garden add mcp-server internal-api             # creates mcp-servers/internal-api/
+agentbreeder add agent customer-support              # creates agents/customer-support/
+agentbreeder add tool web-search                     # creates tools/web-search/
+agentbreeder add prompt safety-guardrail             # creates prompts/safety-guardrail/
+agentbreeder add rag product-docs                    # creates rag/product-docs/
+agentbreeder add memory shared-redis                 # creates memory/shared-redis.yaml
+agentbreeder add mcp-server internal-api             # creates mcp-servers/internal-api/
 
 # Work with the project
-garden dev                                     # start all agents in dev mode
-garden dev research-agent                      # start one agent
-garden deploy research-agent --env staging     # deploy one agent
-garden deploy --all --env staging              # deploy all agents
+agentbreeder dev                                     # start all agents in dev mode
+agentbreeder dev research-agent                      # start one agent
+agentbreeder deploy research-agent --env staging     # deploy one agent
+agentbreeder deploy --all --env staging              # deploy all agents
 
 # Validate everything
-garden validate                                # validate all YAML files in workspace
-garden validate agents/research-agent          # validate one agent
+agentbreeder validate                                # validate all YAML files in workspace
+agentbreeder validate agents/research-agent          # validate one agent
 ```
 
-#### What `garden init` Generates
+#### What `agentbreeder init` Generates
 
-**Single agent (`garden init my-agent`):**
+**Single agent (`agentbreeder init my-agent`):**
 
 ```
-$ garden init my-agent
+$ agentbreeder init my-agent
 
   🌱 Creating new agent project: my-agent
 
@@ -784,22 +784,22 @@ $ garden init my-agent
     agent.py          — starter code (LangGraph)
     requirements.txt  — dependencies
     .env.example      — API key placeholders
-    .gitignore        — ignores .env, .garden/, __pycache__
+    .gitignore        — ignores .env, .agentbreeder/, __pycache__
     tests/            — test directory with sample eval
     README.md         — getting started guide
 
   Next steps:
     cd my-agent
     pip install -r requirements.txt
-    garden provider add ollama          # or: garden provider add openai
-    garden dev                          # start local sandbox
-    garden chat                         # chat with your agent
+    agentbreeder provider add ollama          # or: agentbreeder provider add openai
+    agentbreeder dev                          # start local sandbox
+    agentbreeder chat                         # chat with your agent
 ```
 
-**Workspace (`garden init my-workspace --workspace`):**
+**Workspace (`agentbreeder init my-workspace --workspace`):**
 
 ```
-$ garden init my-workspace --workspace
+$ agentbreeder init my-workspace --workspace
 
   🌱 Creating new workspace: my-workspace
 
@@ -814,7 +814,7 @@ $ garden init my-workspace --workspace
   ✅ Workspace created at ./my-workspace/
 
   Files created:
-    garden.yaml                       — workspace config
+    agentbreeder.yaml                       — workspace config
     agents/research-agent/agent.yaml  — agent 1
     agents/research-agent/prompt.md
     agents/summarizer-agent/agent.yaml — agent 2
@@ -827,8 +827,8 @@ $ garden init my-workspace --workspace
 
   Next steps:
     cd my-workspace
-    garden provider add ollama
-    garden dev                          # starts both agents
+    agentbreeder provider add ollama
+    agentbreeder dev                          # starts both agents
     open http://localhost:3000          # dashboard
 ```
 
@@ -844,9 +844,9 @@ $ garden init my-workspace --workspace
 - [x] `engine/resolver.py` — dependency resolution from registry
 - [x] `engine/builder.py` — container image builder
 - [x] `engine/governance.py` — RBAC validation stub at deploy time
-- [x] CLI commands: `garden init`, `validate`, `deploy`, `list`, `describe`, `search`, `logs`, `status`, `teardown`, `scan`
+- [x] CLI commands: `agentbreeder init`, `validate`, `deploy`, `list`, `describe`, `search`, `logs`, `status`, `teardown`, `scan`
 - [x] CLI UX: Rich progress bars, colored output, `--json` flag, meaningful errors
-- [x] `garden init` interactive wizard (framework + cloud selection, scaffold generation)
+- [x] `agentbreeder init` interactive wizard (framework + cloud selection, scaffold generation)
 
 ### Registry & Connectors (COMPLETE)
 
@@ -1104,18 +1104,18 @@ Step 4: Provider connected
 **CLI equivalents:**
 
 ```bash
-garden provider list                              # list configured providers
-garden provider add openai                        # interactive: paste API key, test, discover models
-garden provider add openai --api-key sk-proj-...  # non-interactive
-garden provider add ollama                        # auto-detect local Ollama
-garden provider add ollama --base-url http://remote:11434  # remote Ollama
-garden provider test openai                       # verify connection + latency
-garden provider models openai                     # list models from provider
-garden provider disable openai                    # disable without deleting key
-garden provider remove openai                     # remove provider + delete key
+agentbreeder provider list                              # list configured providers
+agentbreeder provider add openai                        # interactive: paste API key, test, discover models
+agentbreeder provider add openai --api-key sk-proj-...  # non-interactive
+agentbreeder provider add ollama                        # auto-detect local Ollama
+agentbreeder provider add ollama --base-url http://remote:11434  # remote Ollama
+agentbreeder provider test openai                       # verify connection + latency
+agentbreeder provider models openai                     # list models from provider
+agentbreeder provider disable openai                    # disable without deleting key
+agentbreeder provider remove openai                     # remove provider + delete key
 
-garden provider add litellm --base-url http://localhost:4000  # connect gateway
-garden provider add openrouter --api-key or-...               # connect OpenRouter
+agentbreeder provider add litellm --base-url http://localhost:4000  # connect gateway
+agentbreeder provider add openrouter --api-key or-...               # connect OpenRouter
 ```
 
 **API Key Storage Strategy — progressive:**
@@ -1130,7 +1130,7 @@ garden provider add openrouter --api-key or-...               # connect OpenRout
 
 ```
 CLI onboarding:
-$ garden provider add openai
+$ agentbreeder provider add openai
   Enter your OpenAI API key: sk-proj-•••••••
   ✅ Key verified. 6 models discovered.
 
@@ -1145,7 +1145,7 @@ UI onboarding:
 ```
 
 ```bash
-# .env file (created/updated by garden provider add)
+# .env file (created/updated by agentbreeder provider add)
 OPENAI_API_KEY=sk-proj-...
 ANTHROPIC_API_KEY=sk-ant-...
 GOOGLE_API_KEY=AIza...
@@ -1159,18 +1159,18 @@ OPENROUTER_API_KEY=or-...                       # if using OpenRouter
 
 ```bash
 # CLI — manage keys
-garden provider add openai                        # interactive: prompts for key, saves to .env
-garden provider add openai --api-key sk-proj-...  # non-interactive, saves to .env
-garden provider add anthropic                     # same flow
-garden provider add ollama                        # no key needed, just base_url
+agentbreeder provider add openai                        # interactive: prompts for key, saves to .env
+agentbreeder provider add openai --api-key sk-proj-...  # non-interactive, saves to .env
+agentbreeder provider add anthropic                     # same flow
+agentbreeder provider add ollama                        # no key needed, just base_url
 
-garden provider list                              # show providers + masked keys + status
-garden provider test openai                       # verify key still works
-garden provider remove openai                     # remove key from .env
+agentbreeder provider list                              # show providers + masked keys + status
+agentbreeder provider test openai                       # verify key still works
+agentbreeder provider remove openai                     # remove key from .env
 ```
 
 - [x] `.env` file as the key store for v0.2–v0.3 (simple, works everywhere) — providers use env vars
-- [x] `garden provider add` writes keys to `.env` file (creates if missing)
+- [x] `agentbreeder provider add` writes keys to `.env` file (creates if missing)
 - [ ] `.env` auto-added to `.gitignore` (warn if not) — deferred to v0.4
 - [ ] UI provider setup writes to server-side `.env` via API (`POST /api/v1/providers/{name}/configure`) — deferred to v0.4
 - [x] API never returns full keys — only masked suffix (`sk-••••1234`)
@@ -1195,7 +1195,7 @@ garden provider remove openai                     # remove key from .env
 - [ ] Provider cost display: month-to-date spend per provider (from cost tracking data) — deferred to v0.4
 - [ ] "Get API Key" links: direct links to each provider's API key page (platform.openai.com, console.anthropic.com, etc.) — deferred to v0.4
 - [x] First-run onboarding wizard: provider status endpoint for first-run detection
-- [x] CLI: `garden provider` subcommand with add/list/test/models/disable/remove
+- [x] CLI: `agentbreeder provider` subcommand with add/list/test/models/disable/remove
 
 ---
 
@@ -1236,8 +1236,8 @@ This applies to every builder: Agent, Prompt, Tool, RAG, Memory.
 - [x] **UI writes to YAML:** every save in the dashboard writes back to a valid YAML file — the file is the storage, not a database row (builders save back to valid YAML)
 - [x] **Comment preservation:** UI edits must preserve YAML comments (use `ruamel.yaml` round-trip parser, not `pyyaml`)
 - [x] **Key order preservation:** fields stay in the order the user wrote them (no alphabetical re-sorting)
-- [x] **No UI-only state in YAML:** visual builder layout info (node positions, etc.) stored separately in `.garden/` metadata, never in the YAML itself
-- [x] **CLI validation:** `garden validate <file>` validates any YAML file against the schema — same validation the UI uses
+- [x] **No UI-only state in YAML:** visual builder layout info (node positions, etc.) stored separately in `.agentbreeder/` metadata, never in the YAML itself
+- [x] **CLI validation:** `agentbreeder validate <file>` validates any YAML file against the schema — same validation the UI uses
 - [ ] **File watching:** dashboard detects external file changes (from git pull, editor saves) and reloads automatically — **deferred to v0.4**
 - [ ] **Conflict resolution:** if both UI and external editor change the same file, show a merge dialog (theirs vs. ours vs. manual merge) — **deferred to v0.4**
 - [x] **API contract:** `GET /api/v1/builders/{type}/{name}/yaml` returns raw YAML, `PUT` accepts raw YAML — the API speaks YAML, not a custom JSON format (builders.py: GET/PUT YAML endpoints)
@@ -1259,8 +1259,8 @@ Every resource goes through three environments. The registry is populated **afte
 │   NOT in registry        IN registry (pre-release) IN registry (stable)  │
 │   hot-reload enabled     eval runs automatically   eval gate required    │
 │                                                                          │
-│   CLI: garden dev        CLI: garden deploy         CLI: garden promote  │
-│        garden test            --env staging              --env production│
+│   CLI: agentbreeder dev        CLI: agentbreeder deploy         CLI: agentbreeder promote  │
+│        agentbreeder test            --env staging              --env production│
 │   UI:  "Run in Sandbox"  UI:  auto on merge        UI: "Promote" button │
 │                                                         (blocked until   │
 │                                                          eval passes)    │
@@ -1325,12 +1325,12 @@ environments:
 CLI environment commands:
 
 ```bash
-garden env list                           # show all environments
-garden env status                         # which version is in each env
-garden dev agent my-agent                 # start DEV sandbox for an agent
-garden deploy agent my-agent --env staging   # deploy to staging (usually auto)
-garden promote agent my-agent --env production  # promote to production
-garden promote agent my-agent --env production --skip-eval  # emergency hotfix
+agentbreeder env list                           # show all environments
+agentbreeder env status                         # which version is in each env
+agentbreeder dev agent my-agent                 # start DEV sandbox for an agent
+agentbreeder deploy agent my-agent --env staging   # deploy to staging (usually auto)
+agentbreeder promote agent my-agent --env production  # promote to production
+agentbreeder promote agent my-agent --env production --skip-eval  # emergency hotfix
 ```
 
 #### Agent Testing Interface
@@ -1342,9 +1342,9 @@ Three levels of testing, available in both CLI and UI:
 Test an agent by chatting with it directly — available for any resource in any environment.
 
 ```
-CLI:  garden chat agent my-agent                    # chat in terminal
-      garden chat agent my-agent --env staging      # chat with staging version
-      garden chat agent my-agent --verbose           # show tool calls, token counts
+CLI:  agentbreeder chat agent my-agent                    # chat in terminal
+      agentbreeder chat agent my-agent --env staging      # chat with staging version
+      agentbreeder chat agent my-agent --verbose           # show tool calls, token counts
 
 UI:   Agent detail → "Playground" tab
       → Chat interface with the agent
@@ -1360,17 +1360,17 @@ UI:   Agent detail → "Playground" tab
 - [x] Model override: temporarily swap the model to compare behavior
 - [x] Prompt override: edit the system prompt for this session only
 - [x] "Save as Eval Case": capture a conversation turn as a golden test case
-- [x] CLI: `garden chat` — interactive terminal chat with any agent
-- [x] CLI: `garden chat --verbose` — show tool calls, token counts, latency
+- [x] CLI: `agentbreeder chat` — interactive terminal chat with any agent
+- [x] CLI: `agentbreeder chat --verbose` — show tool calls, token counts, latency
 
 **Level 2: Evaluation (Automated Testing — see v1.0 for full spec)**
 
 Run golden test suites against an agent to measure quality systematically.
 
 ```
-CLI:  garden eval agent my-agent                    # run default eval suite
-      garden eval agent my-agent --dataset edge-cases  # specific dataset
-      garden eval agent my-agent --judge claude-sonnet  # specify judge model
+CLI:  agentbreeder eval agent my-agent                    # run default eval suite
+      agentbreeder eval agent my-agent --dataset edge-cases  # specific dataset
+      agentbreeder eval agent my-agent --judge claude-sonnet  # specify judge model
 
 UI:   Agent detail → "Evaluations" tab
       → Run eval, see results, compare against baseline
@@ -1450,7 +1450,7 @@ Training dataset (curated from production traces + feedback)
 - [ ] Fine-tune job tracking: status, cost, estimated completion time — **deferred to v1.3**
 - [ ] Auto-register model: on completion, register fine-tuned model in Model Registry — **deferred to v1.3**
 - [ ] Side-by-side eval: compare fine-tuned model vs. base model on same eval suite — **deferred to v1.3**
-- [ ] CLI: `garden fine-tune agent my-agent --provider openai --dataset my-dataset` — **deferred to v1.3**
+- [ ] CLI: `agentbreeder fine-tune agent my-agent --provider openai --dataset my-dataset` — **deferred to v1.3**
 
 **Tier 4: RLHF / Reinforcement Learning (future, post v1.3)**
 
@@ -1486,7 +1486,7 @@ main                            ← published resources (production)
 ```
 Step 1: CREATE — start a new resource
 ─────────────────────────────────────────────────────────
-CLI:  garden create agent my-agent
+CLI:  agentbreeder create agent my-agent
       → Creates agents/my-agent/agent.yaml from template
       → Creates Git branch: draft/{user}/agents/my-agent
       → First commit: "Create agent my-agent"
@@ -1499,8 +1499,8 @@ Step 2: EDIT — iterate on the resource
 ─────────────────────────────────────────────────────────
 CLI:  # Edit in any editor (Claude Code, Cursor, vim...)
       vim agents/my-agent/agent.yaml
-      garden save agent my-agent                # or: git add + git commit
-      garden save agent my-agent -m "add tools" # custom commit message
+      agentbreeder save agent my-agent                # or: git add + git commit
+      agentbreeder save agent my-agent -m "add tools" # custom commit message
 
 UI:   Edit in YAML editor / Visual builder / Prompt editor → Save
       → Each save = Git commit on the draft branch
@@ -1512,9 +1512,9 @@ Both: Multiple saves = multiple commits on the same branch
 
 Step 3: DIFF — review what changed
 ─────────────────────────────────────────────────────────
-CLI:  garden diff agent my-agent                # diff vs. main
-      garden diff agent my-agent --version v1.2 # diff vs. specific version
-      garden log agent my-agent                 # commit history
+CLI:  agentbreeder diff agent my-agent                # diff vs. main
+      agentbreeder diff agent my-agent --version v1.2 # diff vs. specific version
+      agentbreeder log agent my-agent                 # commit history
 
 UI:   "Changes" tab in builder → Monaco diff editor (side-by-side)
       "History" tab → commit log with expandable diffs
@@ -1522,8 +1522,8 @@ UI:   "Changes" tab in builder → Monaco diff editor (side-by-side)
 
 Step 4: SUBMIT — request review (creates a PR)
 ─────────────────────────────────────────────────────────
-CLI:  garden submit agent my-agent
-      garden submit agent my-agent -m "Ready for review: added Zendesk tool"
+CLI:  agentbreeder submit agent my-agent
+      agentbreeder submit agent my-agent -m "Ready for review: added Zendesk tool"
       → Creates a Pull Request (internal PR, or GitHub/GitLab PR if external repo)
       → PR contains: YAML diff, commit history, auto-generated summary
       → Status changes: draft → submitted
@@ -1535,11 +1535,11 @@ UI:   Click "Submit for Review" → add description → Submit
 
 Step 5: REVIEW — approve, reject, or comment
 ─────────────────────────────────────────────────────────
-CLI:  garden review list                        # see pending reviews
-      garden review show agent my-agent         # see PR diff + comments
-      garden review approve agent my-agent      # approve
-      garden review reject agent my-agent -m "needs X" # reject with comment
-      garden review comment agent my-agent -m "looks good, minor nit on line 12"
+CLI:  agentbreeder review list                        # see pending reviews
+      agentbreeder review show agent my-agent         # see PR diff + comments
+      agentbreeder review approve agent my-agent      # approve
+      agentbreeder review reject agent my-agent -m "needs X" # reject with comment
+      agentbreeder review comment agent my-agent -m "looks good, minor nit on line 12"
 
 UI:   Approvals page → click PR → Review UI:
         - Side-by-side YAML diff with line-level comments
@@ -1551,8 +1551,8 @@ UI:   Approvals page → click PR → Review UI:
 Step 6: MERGE — publish to registry
 ─────────────────────────────────────────────────────────
 CLI:  (automatic on approval, or manual:)
-      garden publish agent my-agent             # merge + tag + publish
-      garden publish agent my-agent --version 2.0.0  # explicit version bump
+      agentbreeder publish agent my-agent             # merge + tag + publish
+      agentbreeder publish agent my-agent --version 2.0.0  # explicit version bump
 
 UI:   (automatic on approval)
       → Branch merged to main
@@ -1568,7 +1568,7 @@ Auto-versioning:
 
 Step 7: ROLLBACK — revert to a previous version
 ─────────────────────────────────────────────────────────
-CLI:  garden rollback agent my-agent --version v1.0.0
+CLI:  agentbreeder rollback agent my-agent --version v1.0.0
       → Creates a new commit that reverts to v1.0.0 state
       → Goes through the same submit → review → merge flow
       → (or --force to skip review for emergencies)
@@ -1581,13 +1581,13 @@ UI:   Agent detail → Version History → click "Rollback to this version"
 **Additional CLI commands for Git workflow:**
 
 ```bash
-garden status                     # show all resources with uncommitted changes
-garden status agent my-agent      # show status of one resource (branch, commits ahead, review status)
-garden branches                   # list all draft branches
-garden branches --mine            # list only your draft branches
-garden discard agent my-agent     # delete draft branch, discard changes
-garden sync                       # pull latest from remote Git repo
-garden clone <repo-url>           # clone external Git repo into platform
+agentbreeder status                     # show all resources with uncommitted changes
+agentbreeder status agent my-agent      # show status of one resource (branch, commits ahead, review status)
+agentbreeder branches                   # list all draft branches
+agentbreeder branches --mine            # list only your draft branches
+agentbreeder discard agent my-agent     # delete draft branch, discard changes
+agentbreeder sync                       # pull latest from remote Git repo
+agentbreeder clone <repo-url>           # clone external Git repo into platform
 ```
 
 #### Git Integration — Backend Implementation
@@ -1608,7 +1608,7 @@ garden clone <repo-url>           # clone external Git repo into platform
 
 #### Approval Workflow
 - [x] Status state machine: `draft` → `submitted` → `in_review` → `approved` / `changes_requested` / `rejected` → `published`
-- [x] Submit for review: UI ("Submit for Review" button) + CLI `garden submit`
+- [x] Submit for review: UI ("Submit for Review" button) + CLI `agentbreeder submit`
 - [x] Approvals page in dashboard: pending reviews queue, grouped by resource type, filterable by team
 - [x] Review UI: side-by-side YAML diff, line-level comments, approve/reject/request-changes buttons
 - [x] Comment threads: threaded discussion per PR (persisted in `pull_requests.comments_json`)
@@ -1982,7 +1982,7 @@ Integrate with Langfuse (primary) and support MLflow as an alternative backend. 
 
 **SDK:** `sdk/python/agenthub/` — Agent, Tool, Model, Memory, DeployConfig classes with builder pattern + YAML round-trip.
 
-**CLI:** `garden eject` command — see `cli/commands/eject.py`.
+**CLI:** `agentbreeder eject` command — see `cli/commands/eject.py`.
 
 #### 28.1 — Core SDK
 - [x] `agentbreeder` Python package: `pip install agentbreeder` includes the SDK
@@ -1991,7 +1991,7 @@ Integrate with Langfuse (primary) and support MLflow as an alternative backend. 
 - [x] `Memory` class: configure memory backends programmatically
 - [x] `AgentConfig.to_yaml()`: serialize any SDK-defined agent to valid `agent.yaml`
 - [x] `AgentConfig.from_yaml()`: load an existing `agent.yaml` into SDK objects (round-trip fidelity)
-- [x] `agent.deploy(target="local")`: deploy directly from Python (wraps `garden deploy`)
+- [x] `agent.deploy(target="local")`: deploy directly from Python (wraps `agentbreeder deploy`)
 
 #### 28.2 — Advanced Agent Features (Code-Only)
 - [x] Dynamic tool selection: `agent.select_tools(message)` — choose tools at runtime based on input
@@ -2001,7 +2001,7 @@ Integrate with Langfuse (primary) and support MLflow as an alternative backend. 
 - [x] Hooks: `agent.on("tool_call", handler)` — event-driven hooks for lifecycle events
 
 #### 28.3 — SDK Developer Experience
-- [x] `garden eject my-agent --sdk python`: generate Python SDK scaffold from existing `agent.yaml`
+- [x] `agentbreeder eject my-agent --sdk python`: generate Python SDK scaffold from existing `agent.yaml`
 - [x] Auto-complete: SDK objects export type stubs for IDE autocomplete
 - [x] SDK documentation: hosted docs with examples, API reference, cookbook
 - [x] SDK examples: `examples/sdk-basic/`, `examples/sdk-advanced/`, `examples/sdk-custom-routing/`
@@ -2025,7 +2025,7 @@ Integrate with Langfuse (primary) and support MLflow as an alternative backend. 
 - [x] Backend: `eval_dataset_rows` table (dataset_id, input, expected_output, tags)
 
 #### 18.2 — Evaluation Runner
-- [x] CLI: `garden eval <agent-name> --dataset <dataset>` — run offline evaluation
+- [x] CLI: `agentbreeder eval <agent-name> --dataset <dataset>` — run offline evaluation
 - [x] API: `POST /api/v1/eval/run` — trigger evaluation run programmatically
 - [x] Run against any deployed agent or local agent (Docker)
 - [x] Parallel execution: run N test cases concurrently (configurable)
@@ -2068,7 +2068,7 @@ Integrate with Langfuse (primary) and support MLflow as an alternative backend. 
 - [x] Agent references: local (`./agents/billing`), registry (`registry://agents/billing@v1`), URL (already deployed)
 - [x] Routing rules: field-based routing (intent → agent), condition-based routing (if/else), fallback agents
 - [x] Shared state: configurable state backend (in-memory, Redis, PostgreSQL) shared across agents in the orchestration
-- [x] `garden validate orchestration.yaml` — validate orchestration config
+- [x] `agentbreeder validate orchestration.yaml` — validate orchestration config
 
 #### 29.2 — Orchestration Engine
 - [x] `engine/orchestrator.py`: orchestration runtime that executes the agent graph
@@ -2078,14 +2078,14 @@ Integrate with Langfuse (primary) and support MLflow as an alternative backend. 
 - [x] Hierarchical strategy: supervisor agent delegates to workers, aggregates results
 - [x] Shared state propagation: pass context between agents in the graph
 - [ ] Error handling: per-agent fallback, circuit breaker, retry with backoff
-- [x] Orchestration as a deployable unit: `garden deploy orchestration.yaml` deploys the entire graph
+- [x] Orchestration as a deployable unit: `agentbreeder deploy orchestration.yaml` deploys the entire graph
 
 #### 29.3 — Orchestration CLI
-- [ ] `garden init my-pipeline --orchestration` — scaffold orchestration project
-- [x] `garden deploy orchestration.yaml` — deploy multi-agent pipeline
-- [x] `garden chat orchestration.yaml` — test orchestration interactively
-- [x] `garden status my-pipeline` — show status of all agents in the orchestration
-- [ ] `garden logs my-pipeline` — aggregate logs across all agents
+- [ ] `agentbreeder init my-pipeline --orchestration` — scaffold orchestration project
+- [x] `agentbreeder deploy orchestration.yaml` — deploy multi-agent pipeline
+- [x] `agentbreeder chat orchestration.yaml` — test orchestration interactively
+- [x] `agentbreeder status my-pipeline` — show status of all agents in the orchestration
+- [ ] `agentbreeder logs my-pipeline` — aggregate logs across all agents
 
 ---
 
@@ -2161,8 +2161,8 @@ Elevate MCP from "tool connector" to a managed server hub with lifecycle managem
 - [x] `Tool` class: define tools as TypeScript functions with Zod schema generation
 - [x] `agent.toYaml()`: serialize to valid `agent.yaml`
 - [x] `Agent.fromYaml()`: load existing YAML into SDK objects
-- [x] `agent.deploy()`: deploy from TypeScript (wraps `garden deploy`)
-- [x] `garden eject my-agent --sdk typescript`: generate TS SDK scaffold from YAML
+- [x] `agent.deploy()`: deploy from TypeScript (wraps `agentbreeder deploy`)
+- [x] `agentbreeder eject my-agent --sdk typescript`: generate TS SDK scaffold from YAML
 - [x] Deno + Node.js runtime support
 
 ---
@@ -2201,7 +2201,7 @@ Elevate MCP from "tool connector" to a managed server hub with lifecycle managem
 - [x] **Local Docker** (full stack) — `docker compose up` runs everything: API, dashboard, PostgreSQL, Redis, agents, MCP servers (already exists)
 - [x] **Google Cloud Run** — primary cloud target: auto-scaling, scale-to-zero, Artifact Registry, Cloud Load Balancing, Workload Identity
 - [x] `engine/deployers/gcp_cloudrun.py` — Cloud Run deployer implementation
-- [x] `garden deploy --target cloud-run` CLI command
+- [x] `agentbreeder deploy --target cloud-run` CLI command
 - [x] Deploy target selector in dashboard UI (Local Docker, Google Cloud Run)
 - [ ] Cloud console deep links on deploy status page
 - [ ] Cloud Run deployment docs + quickstart guide
@@ -2266,17 +2266,17 @@ model:
 ```
 1. Install Ollama (ollama.com)
 2. ollama pull llama3.2                     # download a model
-3. garden dev agent my-agent                # start dev sandbox
+3. agentbreeder dev agent my-agent                # start dev sandbox
    → Agent runs locally against Ollama
    → No API keys, no cost, no internet needed
    → Iterate on prompts + tools with instant feedback
 
 4. When ready for production:
    → Change model.provider to anthropic/openai/google
-   → garden submit agent my-agent           # submit for review
+   → agentbreeder submit agent my-agent           # submit for review
 ```
 
-- [ ] `garden dev` auto-detects Ollama and uses it if no cloud API keys are configured
+- [ ] `agentbreeder dev` auto-detects Ollama and uses it if no cloud API keys are configured
 - [ ] Docker Compose includes optional Ollama service (GPU pass-through if available)
 - [ ] Ollama model suggestions: recommend small models for dev (llama3.2, phi3) vs. large for eval (llama3.1:70b)
 
@@ -2384,9 +2384,9 @@ model:
 #### Secrets Management (replaces .env for production)
 - [x] External secrets manager integration: AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault (`engine/secrets/` — pluggable `SecretsBackend` abstraction)
 - [x] Secret references in `agent.yaml`: `api_key: secret://openai-key` — resolved at deploy time via `resolve_secret_refs()` and `find_secret_refs()` in `engine/secrets/factory.py`
-- [x] Secret rotation: `garden secret rotate KEY` — agents pick up new value without redeploy
-- [x] CLI: `garden secret list/set/get/delete/rotate` — all backends, masked display, `--json` for CI (`cli/commands/secret.py`)
-- [x] Migration path: `garden secret migrate --from env --to aws|gcp|vault [--dry-run]` — bulk migrate `.env` to cloud secrets manager
+- [x] Secret rotation: `agentbreeder secret rotate KEY` — agents pick up new value without redeploy
+- [x] CLI: `agentbreeder secret list/set/get/delete/rotate` — all backends, masked display, `--json` for CI (`cli/commands/secret.py`)
+- [x] Migration path: `agentbreeder secret migrate --from env --to aws|gcp|vault [--dry-run]` — bulk migrate `.env` to cloud secrets manager
 - [ ] Secrets UI: Settings → Secrets page — list secrets (name + masked value), create/rotate/delete
 - [ ] Team-scoped secrets: each team manages their own API keys and secrets
 - [ ] Audit log: track who accessed/changed which secrets and when
@@ -2504,7 +2504,7 @@ These are intentionally deferred indefinitely:
 | Container build | Docker | Universal; BuildKit for multi-platform |
 | Auth | JWT + bcrypt | Simple, stateless; OAuth2 providers added in v1.3 |
 | Distribution | `pip install agentbreeder` (CLI+SDK), Docker image (platform), Helm chart (K8s) | pip for devs, Docker for teams, Helm for production |
-| Project structure | Single-agent (`agent.yaml` at root) or workspace (`garden.yaml` + `agents/`) | Scales from solo developer to multi-team |
+| Project structure | Single-agent (`agent.yaml` at root) or workspace (`agentbreeder.yaml` + `agents/`) | Scales from solo developer to multi-team |
 | Config format | YAML as source of truth (all resource types) | Human-readable; JSON Schema for validation; round-trip safe; IDE and UI interoperable |
 | Builder model | Three tiers: No Code (UI) → Low Code (YAML) → Full Code (SDK) | Matches how real teams work — PMs prototype in UI, engineers refine in YAML/code. Tier mobility prevents lock-in. All tiers compile to same internal format. |
 | Orchestration model | Same three tiers for multi-agent orchestration | Visual canvas, `orchestration.yaml`, and Python/TS SDK. Same compilation model — orchestration config + optional code → deploy pipeline. |

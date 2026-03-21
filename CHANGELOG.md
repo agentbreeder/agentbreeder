@@ -45,7 +45,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - Template registry service (`registry/templates.py`)
 - Template gallery page with category filters (`dashboard/src/pages/templates.tsx`)
 - Template detail page with parameter form and YAML generation (`dashboard/src/pages/template-detail.tsx`)
-- `garden template list|create|use` CLI commands (`cli/commands/template.py`)
+- `agentbreeder template list|create|use` CLI commands (`cli/commands/template.py`)
 - Built-in templates: Customer Support Bot, Data Analyzer, Code Reviewer, Research Assistant (`examples/templates/`)
 - Template versioning support
 
@@ -61,7 +61,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - Marketplace navigation section in dashboard sidebar
 
 #### Other
-- `garden eject --sdk typescript` support (`cli/commands/eject.py`)
+- `agentbreeder eject --sdk typescript` support (`cli/commands/eject.py`)
 - `subagents:` field in `agent.yaml` schema (`engine/schema/agent.schema.json`)
 - Orchestration schema updates for fan-out/fan-in and supervisor patterns
 - GitHub Actions CI/CD workflows: security scanning, integration tests, release automation
@@ -93,7 +93,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - Cost tracking and audit/lineage trail
 - Python SDK (`agentbreeder-sdk`)
 - Visual playground (No Code builder)
-- Git CLI workflow (`garden submit`, `garden review`, `garden publish`)
+- Git CLI workflow (`agentbreeder submit`, `agentbreeder review`, `agentbreeder publish`)
 - YAML schemas for `agent.yaml`, `orchestration.yaml`, `prompt.yaml`, `tool.yaml`, `rag.yaml`, `memory.yaml`
 - MCP server example and scanner connector
 - Builders API (Low Code and Full Code endpoints)

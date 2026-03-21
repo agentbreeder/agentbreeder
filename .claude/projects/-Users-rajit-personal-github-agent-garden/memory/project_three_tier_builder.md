@@ -17,5 +17,5 @@ All three tiers compile to the same internal format and share the same deploy pi
 - The deploy pipeline must NEVER contain tier-specific logic
 - No Code must always generate valid, human-readable YAML
 - Full Code SDK must NOT bypass the config parser — it generates agent.yaml + code
-- Visual builder layout metadata goes in `.garden/layout.json`, never in agent.yaml
+- Visual builder layout metadata goes in `.agentbreeder/layout.json`, never in agent.yaml
 - New milestones: M28 (Python SDK, v0.4), M29 (Orchestration YAML, v1.0), M30 (Visual Orchestration + TS SDK, v1.1), M31 (Full Code Orchestration SDK, v1.3)

@@ -33,7 +33,7 @@ def _make_image() -> ContainerImage:
     d = Path(tempfile.mkdtemp())
     (d / "Dockerfile").write_text("FROM python:3.11-slim")
     return ContainerImage(
-        tag="garden/test-agent:1.0.0",
+        tag="agentbreeder/test-agent:1.0.0",
         dockerfile_content="FROM python:3.11-slim",
         context_dir=d,
     )
@@ -42,11 +42,11 @@ def _make_image() -> ContainerImage:
 class TestDockerComposeDeployerState:
     def test_state_persists(self) -> None:
         tmp = Path(tempfile.mkdtemp())
-        garden_dir = tmp / ".garden"
-        state_file = garden_dir / "state.json"
+        agentbreeder_dir = tmp / ".agentbreeder"
+        state_file = agentbreeder_dir / "state.json"
 
         with (
-            patch("engine.deployers.docker_compose.GARDEN_DIR", garden_dir),
+            patch("engine.deployers.docker_compose.AGENTBREEDER_DIR", agentbreeder_dir),
             patch("engine.deployers.docker_compose.STATE_FILE", state_file),
         ):
             deployer = DockerComposeDeployer()
@@ -60,13 +60,13 @@ class TestDockerComposeDeployerState:
 
     def test_state_loads_existing(self) -> None:
         tmp = Path(tempfile.mkdtemp())
-        garden_dir = tmp / ".garden"
-        garden_dir.mkdir()
-        state_file = garden_dir / "state.json"
+        agentbreeder_dir = tmp / ".agentbreeder"
+        agentbreeder_dir.mkdir()
+        state_file = agentbreeder_dir / "state.json"
         state_file.write_text(json.dumps({"agents": {}, "next_port": 9000}))
 
         with (
-            patch("engine.deployers.docker_compose.GARDEN_DIR", garden_dir),
+            patch("engine.deployers.docker_compose.AGENTBREEDER_DIR", agentbreeder_dir),
             patch("engine.deployers.docker_compose.STATE_FILE", state_file),
         ):
             deployer = DockerComposeDeployer()
@@ -78,8 +78,8 @@ class TestDockerComposeDeployerDeploy:
     @pytest.mark.asyncio
     async def test_deploy_builds_and_runs_container(self) -> None:
         tmp = Path(tempfile.mkdtemp())
-        garden_dir = tmp / ".garden"
-        state_file = garden_dir / "state.json"
+        agentbreeder_dir = tmp / ".agentbreeder"
+        state_file = agentbreeder_dir / "state.json"
 
         mock_container = MagicMock()
         mock_container.id = "container123"
@@ -96,7 +96,7 @@ class TestDockerComposeDeployerDeploy:
         mock_client.containers.get.side_effect = mock_docker.errors.NotFound()
 
         with (
-            patch("engine.deployers.docker_compose.GARDEN_DIR", garden_dir),
+            patch("engine.deployers.docker_compose.AGENTBREEDER_DIR", agentbreeder_dir),
             patch("engine.deployers.docker_compose.STATE_FILE", state_file),
             patch.dict("sys.modules", {"docker": mock_docker}),
         ):
@@ -118,8 +118,8 @@ class TestDockerComposeDeployerDeploy:
     @pytest.mark.asyncio
     async def test_teardown_stops_container(self) -> None:
         tmp = Path(tempfile.mkdtemp())
-        garden_dir = tmp / ".garden"
-        state_file = garden_dir / "state.json"
+        agentbreeder_dir = tmp / ".agentbreeder"
+        state_file = agentbreeder_dir / "state.json"
 
         mock_container = MagicMock()
         mock_client = MagicMock()
@@ -131,7 +131,7 @@ class TestDockerComposeDeployerDeploy:
         mock_docker.errors.NotFound = type("NotFound", (Exception,), {})
 
         with (
-            patch("engine.deployers.docker_compose.GARDEN_DIR", garden_dir),
+            patch("engine.deployers.docker_compose.AGENTBREEDER_DIR", agentbreeder_dir),
             patch("engine.deployers.docker_compose.STATE_FILE", state_file),
             patch.dict("sys.modules", {"docker": mock_docker}),
         ):
@@ -144,8 +144,8 @@ class TestDockerComposeDeployerDeploy:
     @pytest.mark.asyncio
     async def test_teardown_handles_missing_container(self) -> None:
         tmp = Path(tempfile.mkdtemp())
-        garden_dir = tmp / ".garden"
-        state_file = garden_dir / "state.json"
+        agentbreeder_dir = tmp / ".agentbreeder"
+        state_file = agentbreeder_dir / "state.json"
 
         mock_docker = MagicMock()
         not_found = type("NotFound", (Exception,), {})
@@ -155,7 +155,7 @@ class TestDockerComposeDeployerDeploy:
         mock_docker.from_env.return_value = mock_client
 
         with (
-            patch("engine.deployers.docker_compose.GARDEN_DIR", garden_dir),
+            patch("engine.deployers.docker_compose.AGENTBREEDER_DIR", agentbreeder_dir),
             patch("engine.deployers.docker_compose.STATE_FILE", state_file),
             patch.dict("sys.modules", {"docker": mock_docker}),
         ):
@@ -166,8 +166,8 @@ class TestDockerComposeDeployerDeploy:
     @pytest.mark.asyncio
     async def test_get_logs(self) -> None:
         tmp = Path(tempfile.mkdtemp())
-        garden_dir = tmp / ".garden"
-        state_file = garden_dir / "state.json"
+        agentbreeder_dir = tmp / ".agentbreeder"
+        state_file = agentbreeder_dir / "state.json"
 
         mock_container = MagicMock()
         mock_container.logs.return_value = b"2024-01-01 Log line 1\n2024-01-01 Log line 2"
@@ -180,7 +180,7 @@ class TestDockerComposeDeployerDeploy:
         mock_docker.errors.NotFound = type("NotFound", (Exception,), {})
 
         with (
-            patch("engine.deployers.docker_compose.GARDEN_DIR", garden_dir),
+            patch("engine.deployers.docker_compose.AGENTBREEDER_DIR", agentbreeder_dir),
             patch("engine.deployers.docker_compose.STATE_FILE", state_file),
             patch.dict("sys.modules", {"docker": mock_docker}),
         ):
@@ -193,8 +193,8 @@ class TestDockerComposeDeployerDeploy:
     @pytest.mark.asyncio
     async def test_get_logs_container_not_found(self) -> None:
         tmp = Path(tempfile.mkdtemp())
-        garden_dir = tmp / ".garden"
-        state_file = garden_dir / "state.json"
+        agentbreeder_dir = tmp / ".agentbreeder"
+        state_file = agentbreeder_dir / "state.json"
 
         mock_docker = MagicMock()
         not_found = type("NotFound", (Exception,), {})
@@ -204,7 +204,7 @@ class TestDockerComposeDeployerDeploy:
         mock_docker.from_env.return_value = mock_client
 
         with (
-            patch("engine.deployers.docker_compose.GARDEN_DIR", garden_dir),
+            patch("engine.deployers.docker_compose.AGENTBREEDER_DIR", agentbreeder_dir),
             patch("engine.deployers.docker_compose.STATE_FILE", state_file),
             patch.dict("sys.modules", {"docker": mock_docker}),
         ):
@@ -217,11 +217,11 @@ class TestDockerComposeDeployerDeploy:
     @pytest.mark.asyncio
     async def test_health_check_succeeds(self) -> None:
         tmp = Path(tempfile.mkdtemp())
-        garden_dir = tmp / ".garden"
-        state_file = garden_dir / "state.json"
+        agentbreeder_dir = tmp / ".agentbreeder"
+        state_file = agentbreeder_dir / "state.json"
 
         with (
-            patch("engine.deployers.docker_compose.GARDEN_DIR", garden_dir),
+            patch("engine.deployers.docker_compose.AGENTBREEDER_DIR", agentbreeder_dir),
             patch("engine.deployers.docker_compose.STATE_FILE", state_file),
         ):
             deployer = DockerComposeDeployer()

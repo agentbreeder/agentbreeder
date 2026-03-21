@@ -13,4 +13,4 @@ python agent.py
 
 1. Defines a customer support agent using the fluent builder API
 2. Validates the configuration
-3. Exports to `agent.yaml` (which can be deployed with `garden deploy agent.yaml`)
+3. Exports to `agent.yaml` (which can be deployed with `agentbreeder deploy agent.yaml`)

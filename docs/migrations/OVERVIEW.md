@@ -11,7 +11,7 @@ You already built an agent. It works. But now you need:
 
 | Challenge | Without AgentBreeder | With AgentBreeder |
 |-----------|---------------------|-------------------|
-| **Deploy to production** | Write Dockerfiles, Terraform, CI/CD pipelines | `garden deploy agent.yaml` |
+| **Deploy to production** | Write Dockerfiles, Terraform, CI/CD pipelines | `agentbreeder deploy agent.yaml` |
 | **Multi-cloud** | Rewrite infra per cloud provider | Change one line: `cloud: aws` or `cloud: gcp` |
 | **RBAC & access control** | Build from scratch or skip it | Automatic -- every deploy checks permissions |
 | **Cost tracking** | Manual token counting, spreadsheets | Per-agent, per-team, per-model cost attribution |
@@ -34,7 +34,7 @@ You already built an agent. It works. But now you need:
 | **OpenAI Agents SDK** | ~15 minutes | Easy | [FROM_OPENAI_AGENTS.md](./FROM_OPENAI_AGENTS.md) |
 | **Microsoft AutoGen** | ~30 minutes | Moderate | [FROM_AUTOGEN.md](./FROM_AUTOGEN.md) |
 | **Custom Python agent** | ~20 minutes | Easy | [FROM_CUSTOM.md](./FROM_CUSTOM.md) |
-| **No existing agent** | ~5 minutes | Trivial | Use `garden init` to scaffold |
+| **No existing agent** | ~5 minutes | Trivial | Use `agentbreeder init` to scaffold |
 
 ---
 
@@ -70,7 +70,7 @@ deploy:
 
 ```bash
 pip install agentbreeder
-garden deploy agent.yaml
+agentbreeder deploy agent.yaml
 ```
 
 That is the entire migration. Everything else -- RBAC, registry, cost tracking, health checks -- happens automatically.
@@ -96,7 +96,7 @@ That is the entire migration. Everything else -- RBAC, registry, cost tracking, 
 | Multi-agent orchestration | LangGraph-native | CrewAI-native | Handoffs | GroupChat | Manual | `orchestration.yaml` (framework-agnostic) |
 | A2A protocol | -- | -- | -- | -- | -- | Built-in |
 | Visual builder (No Code) | -- | -- | -- | -- | -- | Dashboard UI |
-| CLI workflow | -- | -- | -- | -- | -- | `garden deploy/status/logs/teardown` |
+| CLI workflow | -- | -- | -- | -- | -- | `agentbreeder deploy/status/logs/teardown` |
 
 ---
 
@@ -127,7 +127,7 @@ What AG adds is a server wrapper (`server.py`) that exposes your agent as an HTT
                                               |
                                     +---------+---------+
                                     |                   |
-                              garden deploy        garden deploy
+                              agentbreeder deploy        agentbreeder deploy
                               --target local       --target aws
                                     |                   |
                               Docker Compose       ECS Fargate
@@ -145,7 +145,7 @@ What AG adds is a server wrapper (`server.py`) that exposes your agent as an HTT
 ## Common Questions
 
 **Q: Do I need to rewrite my agent?**
-No. Your agent code is unchanged. You add an `agent.yaml` file and run `garden deploy`.
+No. Your agent code is unchanged. You add an `agent.yaml` file and run `agentbreeder deploy`.
 
 **Q: Can I still run my agent without AgentBreeder?**
 Yes. Your `agent.py` still works standalone. AgentBreeder is additive.

@@ -107,7 +107,7 @@ export default function HomePage() {
           </div>
         ) : agents.length === 0 ? (
           <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-            No agents yet. Deploy one with <code className="rounded bg-muted px-1">garden deploy</code>
+            No agents yet. Deploy one with <code className="rounded bg-muted px-1">agentbreeder deploy</code>
           </div>
         ) : (
           <div className="divide-y divide-border/50">

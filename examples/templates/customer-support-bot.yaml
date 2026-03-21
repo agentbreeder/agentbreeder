@@ -83,4 +83,4 @@ readme: |
   ## Quick Start
   1. Fill in your agent name, team, and owner email
   2. Click "Use Template" to generate your agent.yaml
-  3. Run `garden deploy` to deploy locally
+  3. Run `agentbreeder deploy` to deploy locally

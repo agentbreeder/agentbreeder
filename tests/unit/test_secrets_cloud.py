@@ -67,7 +67,7 @@ def _make_boto3_client(secrets: dict[str, str] | None = None) -> MagicMock:
             {
                 "SecretList": [
                     {
-                        "Name": f"garden/{k}",
+                        "Name": f"agentbreeder/{k}",
                         "CreatedDate": datetime(2026, 1, 1, tzinfo=UTC),
                         "LastChangedDate": datetime(2026, 3, 1, tzinfo=UTC),
                         "Tags": [],
@@ -102,7 +102,7 @@ class TestAWSBackend:
         mock_client = _make_boto3_client(store)
 
         with patch("engine.secrets.aws_backend._client", return_value=mock_client):
-            backend = AWSSecretsManagerBackend(region="us-east-1", prefix="garden/")
+            backend = AWSSecretsManagerBackend(region="us-east-1", prefix="agentbreeder/")
             yield backend, store
 
     def test_backend_name(self):
@@ -114,8 +114,8 @@ class TestAWSBackend:
     def test_full_name_with_prefix(self):
         from engine.secrets.aws_backend import AWSSecretsManagerBackend
 
-        b = AWSSecretsManagerBackend(prefix="garden/")
-        assert b._full_name("MY_KEY") == "garden/MY_KEY"
+        b = AWSSecretsManagerBackend(prefix="agentbreeder/")
+        assert b._full_name("MY_KEY") == "agentbreeder/MY_KEY"
 
     def test_full_name_no_prefix(self):
         from engine.secrets.aws_backend import AWSSecretsManagerBackend
@@ -225,9 +225,9 @@ def _make_gcp_client(secrets: dict[str, str] | None = None) -> MagicMock:
     client = MagicMock()
 
     def access_secret_version(request):
-        path = request["name"]  # projects/proj/secrets/garden-KEY/versions/latest
+        path = request["name"]  # projects/proj/secrets/agentbreeder-KEY/versions/latest
         secret_id = path.split("/secrets/")[1].split("/versions")[0]
-        name = secret_id.removeprefix("garden-")
+        name = secret_id.removeprefix("agentbreeder-")
         if name not in secrets:
             raise Exception("NOT_FOUND: Secret not found")
         resp = MagicMock()
@@ -235,20 +235,20 @@ def _make_gcp_client(secrets: dict[str, str] | None = None) -> MagicMock:
         return resp
 
     def add_secret_version(request):
-        parent = request["parent"]  # projects/proj/secrets/garden-KEY
+        parent = request["parent"]  # projects/proj/secrets/agentbreeder-KEY
         secret_id = parent.split("/secrets/")[1]
-        name = secret_id.removeprefix("garden-")
+        name = secret_id.removeprefix("agentbreeder-")
         value = request["payload"]["data"].decode("utf-8")
         secrets[name] = value
 
     def create_secret(request):
-        secret_id = request["secret_id"].removeprefix("garden-")
+        secret_id = request["secret_id"].removeprefix("agentbreeder-")
         secrets.setdefault(secret_id, "")
 
     def delete_secret(request):
-        name_path = request["name"]  # projects/proj/secrets/garden-KEY
+        name_path = request["name"]  # projects/proj/secrets/agentbreeder-KEY
         secret_id = name_path.split("/secrets/")[1]
-        name = secret_id.removeprefix("garden-")
+        name = secret_id.removeprefix("agentbreeder-")
         if name not in secrets:
             raise Exception("NOT_FOUND: Secret not found")
         del secrets[name]
@@ -256,7 +256,7 @@ def _make_gcp_client(secrets: dict[str, str] | None = None) -> MagicMock:
     # list_secrets returns an iterable of mock objects
     class FakeSecret:
         def __init__(self, key):
-            self.name = f"projects/my-project/secrets/garden-{key}"
+            self.name = f"projects/my-project/secrets/agentbreeder-{key}"
             self.create_time = MagicMock(seconds=1741824000)
             self.labels = {}
 
@@ -277,7 +277,7 @@ class TestGCPBackend:
         mock_client, store = _make_gcp_client({"ANTHROPIC_KEY": "ant-xyz"})
 
         with patch("engine.secrets.gcp_backend._client", return_value=mock_client):
-            backend = GCPSecretManagerBackend(project_id="my-project", prefix="garden-")
+            backend = GCPSecretManagerBackend(project_id="my-project", prefix="agentbreeder-")
             yield backend, store, mock_client
 
     def test_backend_name(self):
@@ -388,23 +388,23 @@ def _make_hvac_client(secrets: dict[str, str] | None = None) -> MagicMock:
         __name__ = "InvalidPath"
 
     def read_secret_version(path, mount_point, raise_on_deleted_version):
-        name = path.removeprefix("garden/")
+        name = path.removeprefix("agentbreeder/")
         if name not in secrets:
             raise InvalidPathError(f"404 path not found: {path}")
         return {"data": {"data": {"value": secrets[name]}}}
 
     def create_or_update_secret(path, secret, mount_point):
-        name = path.removeprefix("garden/")
+        name = path.removeprefix("agentbreeder/")
         secrets[name] = secret["value"]
 
     def delete_metadata_and_all_versions(path, mount_point):
-        name = path.removeprefix("garden/")
+        name = path.removeprefix("agentbreeder/")
         if name not in secrets:
             raise InvalidPathError(f"404 path not found: {path}")
         del secrets[name]
 
     def list_secrets(path, mount_point):
-        return {"data": {"keys": [f"garden/{k}" for k in secrets]}}
+        return {"data": {"keys": [f"agentbreeder/{k}" for k in secrets]}}
 
     kv = client.secrets.kv.v2
     kv.read_secret_version.side_effect = read_secret_version
@@ -423,7 +423,7 @@ class TestVaultBackend:
         mock_client, store = _make_hvac_client({"VAULT_KEY": "vault-value"})
 
         with patch("engine.secrets.vault_backend._client", return_value=mock_client):
-            backend = VaultBackend(addr="http://vault:8200", token="root", prefix="garden/")
+            backend = VaultBackend(addr="http://vault:8200", token="root", prefix="agentbreeder/")
             yield backend, store
 
     def test_backend_name(self):
@@ -435,8 +435,8 @@ class TestVaultBackend:
     def test_path_with_prefix(self):
         from engine.secrets.vault_backend import VaultBackend
 
-        b = VaultBackend(addr="http://v:8200", token="t", prefix="garden/")
-        assert b._path("MY_KEY") == "garden/MY_KEY"
+        b = VaultBackend(addr="http://v:8200", token="t", prefix="agentbreeder/")
+        assert b._path("MY_KEY") == "agentbreeder/MY_KEY"
 
     def test_path_no_prefix(self):
         from engine.secrets.vault_backend import VaultBackend
@@ -489,10 +489,10 @@ class TestVaultBackend:
         mock_client, _ = _make_hvac_client({"REAL_KEY": "v", "subdir/": ""})
         # Override list_secrets to include a dir entry
         mock_client.secrets.kv.v2.list_secrets.return_value = {
-            "data": {"keys": ["garden/REAL_KEY", "garden/subdir/"]}
+            "data": {"keys": ["agentbreeder/REAL_KEY", "agentbreeder/subdir/"]}
         }
         with patch("engine.secrets.vault_backend._client", return_value=mock_client):
-            b = VaultBackend(addr="http://v:8200", token="t", prefix="garden/")
+            b = VaultBackend(addr="http://v:8200", token="t", prefix="agentbreeder/")
             entries = run(b.list())
         names = [e.name for e in entries]
         assert "REAL_KEY" in names
@@ -509,7 +509,7 @@ class TestVaultBackend:
         mock_client.secrets.kv.v2.list_secrets.side_effect = InvalidPathError("404")
 
         with patch("engine.secrets.vault_backend._client", return_value=mock_client):
-            b = VaultBackend(addr="http://v:8200", token="t", prefix="garden/")
+            b = VaultBackend(addr="http://v:8200", token="t", prefix="agentbreeder/")
             entries = run(b.list())
         assert entries == []
 
@@ -717,7 +717,7 @@ class TestAWSHelpers:
         mock_client.create_secret.side_effect = create_secret
 
         with patch("engine.secrets.aws_backend._client", return_value=mock_client):
-            backend = AWSSecretsManagerBackend(prefix="garden/")
+            backend = AWSSecretsManagerBackend(prefix="agentbreeder/")
             run(backend.set("NEW_KEY", "created-value"))
 
         assert store["NEW_KEY"] == "created-value"
@@ -738,7 +738,7 @@ class TestAWSHelpers:
         mock_client.create_secret.side_effect = create_secret
 
         with patch("engine.secrets.aws_backend._client", return_value=mock_client):
-            backend = AWSSecretsManagerBackend(prefix="garden/")
+            backend = AWSSecretsManagerBackend(prefix="agentbreeder/")
             run(backend.set("TAGGED", "val", tags={"env": "prod"}))
 
         assert "Tags" in created_kwargs

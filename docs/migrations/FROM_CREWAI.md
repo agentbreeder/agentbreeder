@@ -135,13 +135,13 @@ deploy:
 ### Step 3: Validate
 
 ```bash
-garden validate agent.yaml
+agentbreeder validate agent.yaml
 ```
 
 ### Step 4: Deploy
 
 ```bash
-garden deploy agent.yaml --target local
+agentbreeder deploy agent.yaml --target local
 ```
 
 ### Step 5: Test
@@ -285,7 +285,7 @@ With LiteLLM gateway, you get unified access to 100+ models with a single API fo
 | Feature | CrewAI Only | CrewAI + AgentBreeder |
 |---------|-------------|----------------------|
 | Multi-agent orchestration | Built-in (Crew) | Crew-level + AG-level orchestration |
-| Deploy | Manual | `garden deploy agent.yaml` |
+| Deploy | Manual | `agentbreeder deploy agent.yaml` |
 | Multi-cloud | Manual | One-line change |
 | Scaling | Manual | Declarative autoscaling |
 | RBAC | Not available | Automatic |
@@ -321,7 +321,7 @@ from my_crew import crew  # re-export
 CrewAI's `verbose=True` writes to stdout. In the container, this goes to Docker logs. Access via:
 
 ```bash
-garden logs research-crew
+agentbreeder logs research-crew
 ```
 
 ### Crew takes a long time to complete
@@ -449,5 +449,5 @@ access:
 **Deploy:**
 
 ```bash
-garden deploy agent.yaml
+agentbreeder deploy agent.yaml
 ```

@@ -20,7 +20,7 @@ Conversational Slack bot with channel-aware responses, thread management, knowle
 
 3. **Deploy:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 ## Architecture

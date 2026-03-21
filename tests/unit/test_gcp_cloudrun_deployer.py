@@ -58,7 +58,7 @@ def _make_image() -> ContainerImage:
     d = Path(tempfile.mkdtemp())
     (d / "Dockerfile").write_text("FROM python:3.11-slim")
     return ContainerImage(
-        tag="garden/test-agent:1.0.0",
+        tag="agentbreeder/test-agent:1.0.0",
         dockerfile_content="FROM python:3.11-slim",
         context_dir=d,
     )

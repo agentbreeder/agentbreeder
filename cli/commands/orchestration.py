@@ -1,11 +1,11 @@
-"""garden orchestration — multi-agent orchestration commands.
+"""agentbreeder orchestration — multi-agent orchestration commands.
 
 Usage:
-    garden orchestration validate <path>
-    garden orchestration deploy <path>
-    garden orchestration list
-    garden orchestration status <name>
-    garden orchestration chat <name>
+    agentbreeder orchestration validate <path>
+    agentbreeder orchestration deploy <path>
+    agentbreeder orchestration list
+    agentbreeder orchestration status <name>
+    agentbreeder orchestration chat <name>
 """
 
 from __future__ import annotations
@@ -364,9 +364,9 @@ def chat(
     Press Ctrl+C to end the session.
 
     Examples:
-        garden orchestration chat customer-support-pipeline
-        garden orchestration chat customer-support-pipeline --verbose
-        echo "help with billing" | garden orchestration chat my-orch --json
+        agentbreeder orchestration chat customer-support-pipeline
+        agentbreeder orchestration chat customer-support-pipeline --verbose
+        echo "help with billing" | agentbreeder orchestration chat my-orch --json
     """
     if json_output:
         _run_json_mode(name)

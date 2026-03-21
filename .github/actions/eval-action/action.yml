@@ -46,7 +46,7 @@ runs:
         GARDEN_API_URL: ${{ inputs.api_url }}
       run: |
         echo "Running evaluation: ${{ inputs.agent_name }} against dataset ${{ inputs.dataset_id }}"
-        EVAL_OUTPUT=$(garden eval run "${{ inputs.agent_name }}" --dataset "${{ inputs.dataset_id }}" --json 2>&1) || true
+        EVAL_OUTPUT=$(agentbreeder eval run "${{ inputs.agent_name }}" --dataset "${{ inputs.dataset_id }}" --json 2>&1) || true
         echo "eval_output<<EVAL_EOF" >> "$GITHUB_OUTPUT"
         echo "$EVAL_OUTPUT" >> "$GITHUB_OUTPUT"
         echo "EVAL_EOF" >> "$GITHUB_OUTPUT"

@@ -1,13 +1,13 @@
-"""garden provider — manage LLM provider connections and API keys.
+"""agentbreeder provider — manage LLM provider connections and API keys.
 
 Subcommands:
-    garden provider list                  — list configured providers
-    garden provider add <type>            — add a new provider (interactive)
-    garden provider test <name>           — test provider connection
-    garden provider models <name>         — list models from a provider
-    garden provider remove <name>         — remove a provider
-    garden provider disable <name>        — disable a provider without removing
-    garden provider enable <name>         — re-enable a disabled provider
+    agentbreeder provider list                  — list configured providers
+    agentbreeder provider add <type>            — add a new provider (interactive)
+    agentbreeder provider test <name>           — test provider connection
+    agentbreeder provider models <name>         — list models from a provider
+    agentbreeder provider remove <name>         — remove a provider
+    agentbreeder provider disable <name>        — disable a provider without removing
+    agentbreeder provider enable <name>         — re-enable a disabled provider
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from rich.table import Table
 
 console = Console()
 
-PROVIDERS_FILE = Path.home() / ".garden" / "providers.json"
+PROVIDERS_FILE = Path.home() / ".agentbreeder" / "providers.json"
 
 # ─── Provider metadata ─────────────────────────────────────────────
 
@@ -218,8 +218,8 @@ def provider_list(
             Panel(
                 "[dim]No providers configured yet.[/dim]\n\n"
                 "  Get started with:\n"
-                "  [bold cyan]garden provider add openai[/bold cyan]\n"
-                "  [bold cyan]garden provider add ollama[/bold cyan]",
+                "  [bold cyan]agentbreeder provider add openai[/bold cyan]\n"
+                "  [bold cyan]agentbreeder provider add ollama[/bold cyan]",
                 title="Providers",
                 border_style="blue",
                 padding=(1, 2),
@@ -388,7 +388,7 @@ def provider_test(
 
     if name not in providers:
         console.print(f"[red]Provider '{name}' is not configured.[/red]")
-        console.print(f"[dim]Add it with: garden provider add {name}[/dim]")
+        console.print(f"[dim]Add it with: agentbreeder provider add {name}[/dim]")
         raise typer.Exit(code=1)
 
     provider = providers[name]
@@ -429,7 +429,7 @@ def provider_models(
 
     if name not in providers:
         console.print(f"[red]Provider '{name}' is not configured.[/red]")
-        console.print(f"[dim]Add it with: garden provider add {name}[/dim]")
+        console.print(f"[dim]Add it with: agentbreeder provider add {name}[/dim]")
         raise typer.Exit(code=1)
 
     meta = PROVIDER_TYPES.get(name, {})
@@ -522,7 +522,7 @@ def provider_disable(
         return
 
     console.print(f"  [green]✓[/green] {providers[name]['name']} disabled")
-    console.print(f"  [dim]Re-enable with: garden provider enable {name}[/dim]")
+    console.print(f"  [dim]Re-enable with: agentbreeder provider enable {name}[/dim]")
     console.print()
 
 

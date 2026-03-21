@@ -18,12 +18,12 @@ Google Agent Development Kit (ADK) starter agent with function declarations, Gem
 
 2. **Deploy locally:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Chat with the agent:**
    ```bash
-   garden chat google-adk-starter --message "Search for recent AI developments"
+   agentbreeder chat google-adk-starter --message "Search for recent AI developments"
    ```
 
 ## Architecture

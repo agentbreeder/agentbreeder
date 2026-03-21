@@ -1,4 +1,4 @@
-"""Tests for the garden status command."""
+"""Tests for the agentbreeder status command."""
 
 from __future__ import annotations
 

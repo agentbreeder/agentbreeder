@@ -38,13 +38,13 @@ class GCPSecretManagerBackend(SecretsBackend):
         projects/{project}/secrets/{name}/versions/latest
 
     The logical name (e.g. "OPENAI_API_KEY") is stored as the GCP secret ID,
-    optionally prefixed (e.g. "garden-OPENAI_API_KEY").
+    optionally prefixed (e.g. "agentbreeder-OPENAI_API_KEY").
     """
 
     def __init__(
         self,
         project_id: str | None = None,
-        prefix: str = "garden-",
+        prefix: str = "agentbreeder-",
     ) -> None:
         self._project = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
         if not self._project:
@@ -132,7 +132,7 @@ class GCPSecretManagerBackend(SecretsBackend):
             request["filter"] = f"name:{self._prefix}"  # type: ignore[assignment]
 
         for secret in client.list_secrets(request=request):
-            raw_id = secret.name.split("/")[-1]  # e.g. "garden-OPENAI_API_KEY"
+            raw_id = secret.name.split("/")[-1]  # e.g. "agentbreeder-OPENAI_API_KEY"
             logical = raw_id.removeprefix(self._prefix) if self._prefix else raw_id
             created = secret.create_time
             entries.append(

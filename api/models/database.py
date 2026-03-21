@@ -60,7 +60,7 @@ class User(Base):
 
 
 class Agent(Base):
-    """An AI agent registered in the garden."""
+    """An AI agent registered in the agentbreeder registry."""
 
     __tablename__ = "agents"
 
@@ -139,7 +139,7 @@ class Tool(Base):
 
 
 class Model(Base):
-    """An LLM model registered in the garden."""
+    """An LLM model registered in the agentbreeder registry."""
 
     __tablename__ = "models"
 
@@ -232,7 +232,7 @@ class KnowledgeBase(Base):
 
 
 class McpServer(Base):
-    """An MCP server registered in the garden."""
+    """An MCP server registered in the agentbreeder registry."""
 
     __tablename__ = "mcp_servers"
 

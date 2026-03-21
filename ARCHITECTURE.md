@@ -1,6 +1,6 @@
 # Architecture
 
-> AgentBreeder is a deployment platform. A developer writes `agent.yaml`, runs `garden deploy`, and the platform handles container building, infrastructure provisioning, governance, and registry registration.
+> AgentBreeder is a deployment platform. A developer writes `agent.yaml`, runs `agentbreeder deploy`, and the platform handles container building, infrastructure provisioning, governance, and registry registration.
 
 ---
 
@@ -78,7 +78,7 @@ No Code ──"View YAML"──→ Low Code ──"Eject to SDK"──→ Full C
 ```
 
 - **No Code → Low Code**: The visual builder always shows a "View YAML" tab. The generated YAML is valid, readable, and editable. Switching to Low Code is just opening that YAML in an editor.
-- **Low Code → Full Code**: A CLI command (`garden eject my-agent --sdk python`) generates a Python project scaffold that recreates the YAML config as SDK code, ready for extension.
+- **Low Code → Full Code**: A CLI command (`agentbreeder eject my-agent --sdk python`) generates a Python project scaffold that recreates the YAML config as SDK code, ready for extension.
 - **Full Code → Low Code**: Not automatic (code can express things YAML can't), but the SDK always generates a valid `agent.yaml` that can be imported back.
 
 ---
@@ -102,7 +102,7 @@ agent.yaml  ──>  [ CLI ]  ──>  [ API Server ]  ──>  [ Engine ]  ─�
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| CLI | Python, Typer, Rich | Developer interface — `garden init`, `garden deploy`, `garden list` |
+| CLI | Python, Typer, Rich | Developer interface — `agentbreeder init`, `agentbreeder deploy`, `agentbreeder list` |
 | API Server | Python 3.11+, FastAPI | REST API — async, OpenAPI auto-docs |
 | Engine | Python | Core deploy pipeline — config parsing, container building, cloud provisioning |
 | Registry | PostgreSQL, SQLAlchemy | Catalog of all agents, tools, models, prompts, knowledge bases |
@@ -114,7 +114,7 @@ agent.yaml  ──>  [ CLI ]  ──>  [ API Server ]  ──>  [ Engine ]  ─�
 
 ## The Deploy Pipeline
 
-This is the core of AgentBreeder. Every `garden deploy` executes these steps in order. Each step is atomic — if any step fails, the entire deploy rolls back.
+This is the core of AgentBreeder. Every `agentbreeder deploy` executes these steps in order. Each step is atomic — if any step fails, the entire deploy rolls back.
 
 ```
 1. Parse & Validate YAML
@@ -206,9 +206,9 @@ The central catalog for all organizational AI assets:
 | Knowledge Bases | RAG data sources |
 
 Registry entries are only created/updated by:
-1. `garden deploy` (primary path)
+1. `agentbreeder deploy` (primary path)
 2. Connectors (passive ingestion from external tools)
-3. `garden register` (manual operator override)
+3. `agentbreeder register` (manual operator override)
 
 Never write directly to registry tables from application code.
 
@@ -388,7 +388,7 @@ agent = (
 
 Key classes: `Agent`, `Tool`, `Model`, `Memory`, `DeployConfig`. The SDK supports full YAML round-trip: `agent.to_yaml()` serializes to valid `agent.yaml`, and `Agent.from_yaml()` loads YAML back into SDK objects.
 
-The `garden eject` CLI command (`cli/commands/eject.py`) generates an SDK scaffold from any existing `agent.yaml`, enabling tier mobility from Low Code to Full Code without losing configuration.
+The `agentbreeder eject` CLI command (`cli/commands/eject.py`) generates an SDK scaffold from any existing `agent.yaml`, enabling tier mobility from Low Code to Full Code without losing configuration.
 
 ---
 
@@ -406,7 +406,7 @@ The `garden eject` CLI command (`cli/commands/eject.py`) generates an SDK scaffo
 
 6. **Three tiers, one pipeline** — No Code (UI), Low Code (YAML), and Full Code (SDK) all compile to the same internal format (`agent.yaml` + optional code). The deploy pipeline, governance, observability, and registry are tier-agnostic. This applies to both agent development and multi-agent orchestration.
 
-7. **Tier mobility** — users can move between tiers without losing work. No Code generates valid YAML (eject to Low Code). Low Code can be scaffolded into SDK code (`garden eject`). This prevents vendor lock-in at any abstraction level.
+7. **Tier mobility** — users can move between tiers without losing work. No Code generates valid YAML (eject to Low Code). Low Code can be scaffolded into SDK code (`agentbreeder eject`). This prevents vendor lock-in at any abstraction level.
 
 ---
 

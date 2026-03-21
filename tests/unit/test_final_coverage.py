@@ -1868,7 +1868,7 @@ class TestTeardownContainer:
                     "status": "running",
                     "endpoint_url": "http://localhost:8080",
                     "container_id": "abc123",
-                    "container_name": "garden-my-agent",
+                    "container_name": "agentbreeder-my-agent",
                 },
             },
         }

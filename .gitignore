@@ -41,7 +41,7 @@ Thumbs.db
 *.log
 
 # AgentBreeder local state
-.garden/
+.agentbreeder/
 
 # Node (dashboard)
 node_modules/

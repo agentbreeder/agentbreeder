@@ -280,7 +280,7 @@ Style guide (read cli/commands/deploy.py for the pattern):
 - Commands must work with --json flag for scripting/CI use
 - Exit codes: 0=success, 1=user error, 2=system error
 
-Command to implement: garden [COMMAND_NAME]
+Command to implement: agentbreeder [COMMAND_NAME]
 Purpose: [WHAT IT DOES]
 Arguments: [LIST OF ARGS]
 Options/flags: [LIST OF OPTIONS]
@@ -1023,7 +1023,7 @@ When any AI agent is working on AgentBreeder code:
 2. **Never modify the database schema** without reviewing the migration in `postgres` MCP first
 3. **Never change RBAC logic** without a security review (`test:security` skill)
 4. **Never commit credentials** — always use environment variables
-5. **Never merge a PR** that breaks the `garden deploy` happy path test
+5. **Never merge a PR** that breaks the `agentbreeder deploy` happy path test
 6. **Always run `pytest tests/unit/` before suggesting a PR** is ready
 7. **Always check ROADMAP.md** before adding a feature to ensure it's planned for the current milestone
 8. **Always run `workflow:launch`** before any release — tests, security audit, and clean commit are mandatory

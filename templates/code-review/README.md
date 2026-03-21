@@ -18,12 +18,12 @@ Automated PR review agent that integrates with GitHub to provide thorough, actio
 
 2. **Validate and deploy:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Trigger a review:**
    ```bash
-   garden review --repo your-org/your-repo --pr 123
+   agentbreeder review --repo your-org/your-repo --pr 123
    ```
 
 ## Architecture
@@ -55,7 +55,7 @@ Set up a GitHub webhook pointing to your deployed agent, or add to your CI pipel
 ```yaml
 # .github/workflows/review.yml
 - name: AI Code Review
-  run: garden review --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }}
+  run: agentbreeder review --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }}
 ```
 
 ### Adjust review strictness

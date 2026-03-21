@@ -18,12 +18,12 @@ Claude SDK agent with tool use and an async message handler. Use this as a start
 
 2. **Deploy locally:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Chat with the agent:**
    ```bash
-   garden chat claude-sdk-starter --message "What time is it in London?"
+   agentbreeder chat claude-sdk-starter --message "What time is it in London?"
    ```
 
 ## Architecture

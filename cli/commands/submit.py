@@ -1,8 +1,8 @@
-"""garden submit — submit a resource for review (creates a PR).
+"""agentbreeder submit — submit a resource for review (creates a PR).
 
 Usage:
-    garden submit agent my-agent -m "Updated system prompt for better tone"
-    garden submit prompt support-v3 --message "Fix hallucination guardrail"
+    agentbreeder submit agent my-agent -m "Updated system prompt for better tone"
+    agentbreeder submit prompt support-v3 --message "Fix hallucination guardrail"
 """
 
 from __future__ import annotations
@@ -58,8 +58,8 @@ def submit(
     it into the review pipeline.
 
     Examples:
-        garden submit agent my-agent -m "Improved error handling"
-        garden submit prompt support-v3 --message "Updated tone"
+        agentbreeder submit agent my-agent -m "Improved error handling"
+        agentbreeder submit prompt support-v3 --message "Updated tone"
     """
     user = _current_user()
     branch = f"draft/{user}/{resource_type}/{name}"
@@ -163,7 +163,7 @@ def submit(
     )
     console.print()
     console.print(
-        f"  [dim]Next steps: ask a reviewer to run [bold]garden review show {pr_id}[/bold][/dim]"
+        f"  [dim]Next steps: ask a reviewer to run [bold]agentbreeder review show {pr_id}[/bold][/dim]"
     )
     console.print()
 

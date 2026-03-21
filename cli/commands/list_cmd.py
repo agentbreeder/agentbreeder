@@ -1,4 +1,4 @@
-"""garden list — list agents and other registry entities."""
+"""agentbreeder list — list agents and other registry entities."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from rich.table import Table
 
 console = Console()
 
-REGISTRY_DIR = Path.home() / ".garden" / "registry"
+REGISTRY_DIR = Path.home() / ".agentbreeder" / "registry"
 
 
 def list_entities(
@@ -40,7 +40,7 @@ def _list_agents(team: str | None = None, json_output: bool = False) -> None:
         if json_output:
             console.print("[]")
         else:
-            console.print("[dim]No agents registered yet. Deploy one with: garden deploy[/dim]")
+            console.print("[dim]No agents registered yet. Deploy one with: agentbreeder deploy[/dim]")
         return
 
     registry = json.loads(registry_file.read_text())

@@ -18,12 +18,12 @@ Automated email processing agent that parses incoming emails, classifies them by
 
 2. **Deploy locally:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Process emails:**
    ```bash
-   garden chat email-triage-agent --message "Process the latest 10 unread emails"
+   agentbreeder chat email-triage-agent --message "Process the latest 10 unread emails"
    ```
 
 ## Architecture

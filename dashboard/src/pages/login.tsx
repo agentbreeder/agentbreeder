@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 type Mode = "login" | "register";
 
 /** Generates CSS for the organic cellular pattern on the branding panel. */
-function gardenPattern(): React.CSSProperties {
+function breederPattern(): React.CSSProperties {
   return {
     backgroundImage: [
       // Large cellular shapes — slow drift
@@ -110,7 +110,7 @@ export default function LoginPage() {
           "transition-opacity duration-1000",
           mounted ? "opacity-100" : "opacity-0",
         )}
-        style={gardenPattern()}
+        style={breederPattern()}
       >
         {/* Floating cells */}
         <FloatingCell delay={0} x={20} y={25} size={120} />

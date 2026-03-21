@@ -18,12 +18,12 @@ Minimal LangGraph agent with tool-calling nodes, conditional routing, and typed 
 
 2. **Run locally:**
    ```bash
-   garden validate && garden deploy --target local
+   agentbreeder validate && agentbreeder deploy --target local
    ```
 
 3. **Test the graph:**
    ```bash
-   garden chat langgraph-starter-agent --message "Search for quantum computing breakthroughs"
+   agentbreeder chat langgraph-starter-agent --message "Search for quantum computing breakthroughs"
    ```
 
 ## Architecture
@@ -72,7 +72,7 @@ def agent_node(state: AgentState) -> AgentState:
 ### Eject to full code
 
 ```bash
-garden eject --format python
+agentbreeder eject --format python
 ```
 
 This generates a standalone Python project with no AgentBreeder dependencies.

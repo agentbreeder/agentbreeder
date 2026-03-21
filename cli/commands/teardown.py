@@ -1,4 +1,4 @@
-"""garden teardown — remove a deployed agent."""
+"""agentbreeder teardown — remove a deployed agent."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from rich.panel import Panel
 
 console = Console()
 
-STATE_FILE = Path.home() / ".garden" / "state.json"
-REGISTRY_DIR = Path.home() / ".garden" / "registry"
+STATE_FILE = Path.home() / ".agentbreeder" / "state.json"
+REGISTRY_DIR = Path.home() / ".agentbreeder" / "registry"
 
 
 def _load_state() -> dict:
@@ -51,8 +51,8 @@ def teardown(
     """Remove a deployed agent and clean up its resources.
 
     Examples:
-        garden teardown my-agent
-        garden teardown my-agent --force
+        agentbreeder teardown my-agent
+        agentbreeder teardown my-agent --force
     """
     state = _load_state()
     agents = state.get("agents", {})
