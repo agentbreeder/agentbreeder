@@ -24,7 +24,7 @@
   "devDependencies": {
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vitest": "^4.1.0"
   },
   "keywords": ["agent", "ai", "agentbreeder", "a2a", "mcp"],
   "license": "Apache-2.0"
