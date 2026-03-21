@@ -1389,8 +1389,8 @@
 <a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>pydantic&gt;=2.0.0
 </code></pre></div>
 <h3 id="step-5-validate-and-deploy">Step 5: Validate and deploy<a class="headerlink" href="#step-5-validate-and-deploy" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>garden<span class="w"> </span>validate<span class="w"> </span>agent.yaml
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>agentbreeder<span class="w"> </span>validate<span class="w"> </span>agent.yaml
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
 </code></pre></div>
 <h3 id="step-6-test">Step 6: Test<a class="headerlink" href="#step-6-test" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/invoke<span class="w"> </span><span class="se">\</span>
@@ -1642,7 +1642,7 @@
 <tr>
 <td>Deploy</td>
 <td>Manual (<code>python agent.py</code>)</td>
-<td><code>garden deploy agent.yaml</code></td>
+<td><code>agentbreeder deploy agent.yaml</code></td>
 </tr>
 <tr>
 <td>Multi-cloud</td>
@@ -1852,7 +1852,7 @@
 <a id="__codelineno-24-29" name="__codelineno-24-29" href="#__codelineno-24-29"></a><span class="w">  </span><span class="nt">visibility</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">team</span>
 </code></pre></div>
 <p><strong>Deploy:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
 </code></pre></div>
 
 

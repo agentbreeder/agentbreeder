@@ -1484,7 +1484,7 @@
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aws</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">scaling</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> min</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="nt"> max</span><span class="p">:</span><span class="w"> </span><span class="nv">10</span><span class="w"> </span><span class="p p-Indicator">}</span>
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$<span class="w"> </span>garden<span class="w"> </span>deploy
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$<span class="w"> </span>agentbreeder<span class="w"> </span>deploy
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>Validating<span class="w"> </span>agent.yaml...<span class="w">          </span>OK
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>Checking<span class="w"> </span>RBAC<span class="w"> </span>permissions...<span class="w">      </span>OK
@@ -1568,14 +1568,14 @@
 <p><strong>Tier mobility is a first-class feature:</strong>
 - Start in the visual builder (No Code)
 - Click "View YAML" to see exactly what was generated (Low Code)
-- Run <code>garden eject</code> to get full SDK scaffolding (Full Code)
+- Run <code>agentbreeder eject</code> to get full SDK scaffolding (Full Code)
 - No lock-in at any level. Move freely between tiers.</p>
 <p>This is how you serve the entire organization --- from the PM who wants to prototype a support agent in 10 minutes to the ML engineer who needs custom routing logic.</p>
 <hr />
 <h2 id="slide-6-product-demo">Slide 6: Product Demo<a class="headerlink" href="#slide-6-product-demo" title="Permanent link">&para;</a></h2>
 <h3 id="from-zero-to-governed-deployed-agent-in-90-seconds">From zero to governed, deployed agent in 90 seconds<a class="headerlink" href="#from-zero-to-governed-deployed-agent-in-90-seconds" title="Permanent link">&para;</a></h3>
 <p><strong>Step 1:</strong> Start the entire platform locally</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>garden<span class="w"> </span>up
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>agentbreeder<span class="w"> </span>up
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Starting<span class="w"> </span>AgentBreeder...
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>PostgreSQL<span class="w">    </span>....<span class="w"> </span>running<span class="w"> </span><span class="o">(</span>port<span class="w"> </span><span class="m">5432</span><span class="o">)</span>
 <a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>Redis<span class="w">         </span>....<span class="w"> </span>running<span class="w"> </span><span class="o">(</span>port<span class="w"> </span><span class="m">6379</span><span class="o">)</span>
@@ -1585,14 +1585,14 @@
 <a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>AgentBreeder<span class="w"> </span>is<span class="w"> </span>ready<span class="w"> </span>at<span class="w"> </span>http://localhost:3000
 </code></pre></div>
 <p><strong>Step 2:</strong> Scaffold from a template</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>garden<span class="w"> </span>init<span class="w"> </span>--template<span class="w"> </span>customer-support
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>agentbreeder<span class="w"> </span>init<span class="w"> </span>--template<span class="w"> </span>customer-support
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>Created<span class="w"> </span>./customer-support-agent/
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>agent.yaml<span class="w">          </span><span class="c1"># Pre-configured for LangGraph + Claude</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>prompts/system.md<span class="w">   </span><span class="c1"># Battle-tested support prompt</span>
 <a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>tools/<span class="w">              </span><span class="c1"># Zendesk + order lookup MCP servers</span>
 </code></pre></div>
 <p><strong>Step 3:</strong> Deploy with full governance</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>garden<span class="w"> </span>deploy<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>Agent<span class="w"> </span>live<span class="w"> </span>at<span class="w"> </span>http://localhost:8080/customer-support-agent
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>Dashboard:<span class="w"> </span>http://localhost:3000/agents/customer-support-agent
 </code></pre></div>
@@ -1608,7 +1608,7 @@ MCP (Model Context Protocol) has <strong>97M+ npm downloads</strong> and is now 
 <p><strong>3. Enterprise urgency</strong>
 <strong>85% of organizations</strong> are already using AI agents in some capacity. <strong>40% plan to embed agents in customer-facing applications by end of 2026</strong> (Gartner). But governance tools do not exist. Every enterprise is building this internally, poorly, from scratch.</p>
 <p><strong>4. Framework fatigue</strong>
-15+ agent frameworks, zero deployment solutions. Developers are exhausted from re-inventing deployment for every framework. They want a <code>garden deploy</code> that just works.</p>
+15+ agent frameworks, zero deployment solutions. Developers are exhausted from re-inventing deployment for every framework. They want a <code>agentbreeder deploy</code> that just works.</p>
 <p><strong>5. The "Kubernetes moment" for AI agents</strong>
 Just as Kubernetes standardized container orchestration (and created a $7B+ ecosystem), the AI agent deployment layer needs a standard. AgentBreeder is that standard.</p>
 <hr />
@@ -1741,7 +1741,7 @@ Just as Kubernetes standardized container orchestration (and created a $7B+ ecos
 </tr>
 <tr>
 <td><strong>One-command deploy</strong></td>
-<td><code>garden deploy</code></td>
+<td><code>agentbreeder deploy</code></td>
 <td>No</td>
 <td>No</td>
 <td>No</td>
@@ -1878,7 +1878,7 @@ Just as Kubernetes standardized container orchestration (and created a $7B+ ecos
 </ul>
 <p><strong>Phase 2: Cloud Platform (Months 4-6)</strong></p>
 <ul>
-<li>Launch AgentBreeder Cloud: <code>garden deploy --target cloud</code></li>
+<li>Launch AgentBreeder Cloud: <code>agentbreeder deploy --target cloud</code></li>
 <li>Free tier (3 agents), Pro ($49/agent/mo), Team ($29/seat/mo)</li>
 <li>Target YC companies, Techstars, and startup accelerators</li>
 <li>Partnership with LLM providers (Anthropic, OpenAI) for co-marketing</li>
@@ -1903,7 +1903,7 @@ Just as Kubernetes standardized container orchestration (and created a $7B+ ecos
 <li>[x] <strong>Three-tier builder</strong>: visual canvas, YAML editor, Python/TS SDK --- all compiling to the same pipeline</li>
 <li>[x] <strong>Governance built-in</strong>: RBAC, audit trail, cost tracking, team management</li>
 <li>[x] <strong>Comprehensive test suite</strong>: 2,427 tests, 94% code coverage</li>
-<li>[x] <strong>One-command startup</strong>: <code>garden up</code> launches the entire platform locally</li>
+<li>[x] <strong>One-command startup</strong>: <code>agentbreeder up</code> launches the entire platform locally</li>
 <li>[x] <strong>Secrets management</strong>: pluggable backends (env, AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault)</li>
 </ul>
 <h3 id="what-is-next">What is next<a class="headerlink" href="#what-is-next" title="Permanent link">&para;</a></h3>

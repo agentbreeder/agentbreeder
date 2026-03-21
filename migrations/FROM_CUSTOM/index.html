@@ -1492,8 +1492,8 @@
 <a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>pydantic&gt;=2.0.0
 </code></pre></div>
 <h3 id="step-6-validate-and-deploy">Step 6: Validate and deploy<a class="headerlink" href="#step-6-validate-and-deploy" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>garden<span class="w"> </span>validate<span class="w"> </span>agent.yaml
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>agentbreeder<span class="w"> </span>validate<span class="w"> </span>agent.yaml
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
 </code></pre></div>
 <h3 id="step-7-test">Step 7: Test<a class="headerlink" href="#step-7-test" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/invoke<span class="w"> </span><span class="se">\</span>
@@ -1555,7 +1555,7 @@
 <a id="__codelineno-14-26" name="__codelineno-14-26" href="#__codelineno-14-26"></a><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Processing request&quot;</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;agent_name&quot;</span><span class="p">:</span> <span class="s2">&quot;my-agent&quot;</span><span class="p">,</span> <span class="s2">&quot;tokens&quot;</span><span class="p">:</span> <span class="mi">150</span><span class="p">})</span>
 </code></pre></div>
 <p>Access logs via:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>garden<span class="w"> </span>logs<span class="w"> </span>my-custom-agent
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>agentbreeder<span class="w"> </span>logs<span class="w"> </span>my-custom-agent
 </code></pre></div>
 <hr />
 <h2 id="adding-opentelemetry-tracing">Adding OpenTelemetry Tracing<a class="headerlink" href="#adding-opentelemetry-tracing" title="Permanent link">&para;</a></h2>
@@ -1767,7 +1767,7 @@
 <tr>
 <td>Deploy</td>
 <td>Manual</td>
-<td><code>garden deploy agent.yaml</code></td>
+<td><code>agentbreeder deploy agent.yaml</code></td>
 </tr>
 <tr>
 <td>Multi-cloud</td>
@@ -1931,7 +1931,7 @@
 <a id="__codelineno-33-16" name="__codelineno-33-16" href="#__codelineno-33-16"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OPENAI_API_KEY</span>
 </code></pre></div>
 <p><strong>Deploy:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
 </code></pre></div>
 
 

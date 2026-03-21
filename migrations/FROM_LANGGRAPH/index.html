@@ -1237,7 +1237,7 @@
 <hr />
 <h2 id="the-big-picture">The Big Picture<a class="headerlink" href="#the-big-picture" title="Permanent link">&para;</a></h2>
 <p><strong>Before:</strong> You write LangGraph code, figure out how to containerize it, manually deploy it, and hope someone documents where it lives.</p>
-<p><strong>After:</strong> You write the same LangGraph code, add a 10-line YAML file, run <code>garden deploy</code>, and get a production-ready container with RBAC, cost tracking, health checks, and registry entry -- automatically.</p>
+<p><strong>After:</strong> You write the same LangGraph code, add a 10-line YAML file, run <code>agentbreeder deploy</code>, and get a production-ready container with RBAC, cost tracking, health checks, and registry entry -- automatically.</p>
 <p>Your LangGraph graph, state, nodes, edges, and tools are unchanged. AgentBreeder wraps your graph in a FastAPI server and handles everything else.</p>
 <hr />
 <h2 id="before-after">Before &amp; After<a class="headerlink" href="#before-after" title="Permanent link">&para;</a></h2>
@@ -1267,7 +1267,7 @@
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  requirements.txt        # UNCHANGED
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  agent.yaml              # NEW -- 10 lines
 </code></pre></div>
-<p>You run <code>garden deploy agent.yaml</code> and get all of the above for free.</p>
+<p>You run <code>agentbreeder deploy agent.yaml</code> and get all of the above for free.</p>
 <hr />
 <h2 id="step-by-step-migration">Step-by-Step Migration<a class="headerlink" href="#step-by-step-migration" title="Permanent link">&para;</a></h2>
 <h3 id="step-1-verify-your-langgraph-agent-structure">Step 1: Verify your LangGraph agent structure<a class="headerlink" href="#step-1-verify-your-langgraph-agent-structure" title="Permanent link">&para;</a></h3>
@@ -1325,11 +1325,11 @@
 </code></pre></div>
 <p>That is the minimal config. Every field maps to something AgentBreeder handles automatically.</p>
 <h3 id="step-4-validate">Step 4: Validate<a class="headerlink" href="#step-4-validate" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>garden<span class="w"> </span>validate<span class="w"> </span>agent.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>agentbreeder<span class="w"> </span>validate<span class="w"> </span>agent.yaml
 </code></pre></div>
 <p>This checks your YAML against the JSON Schema and verifies that your <code>agent.py</code> exists with the expected exports. Fix any errors before proceeding.</p>
 <h3 id="step-5-deploy-locally">Step 5: Deploy locally<a class="headerlink" href="#step-5-deploy-locally" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
 </code></pre></div>
 <p>AgentBreeder will:
 1. Parse and validate your <code>agent.yaml</code>
@@ -1385,7 +1385,7 @@
 <a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">  </span><span class="nt">secrets</span><span class="p">:</span>
 <a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OPENAI_API_KEY</span>
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span>aws
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span>aws
 </code></pre></div>
 <p>Or for GCP:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">deploy</span><span class="p">:</span>
@@ -1393,7 +1393,7 @@
 <a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="nt">runtime</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cloud-run</span>
 <a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span><span class="nt">region</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">us-central1</span>
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span>gcp
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span>gcp
 </code></pre></div>
 <hr />
 <h2 id="concept-mapping-langgraph-to-agentbreeder">Concept Mapping: LangGraph to AgentBreeder<a class="headerlink" href="#concept-mapping-langgraph-to-agentbreeder" title="Permanent link">&para;</a></h2>
@@ -1448,7 +1448,7 @@
 </tr>
 <tr>
 <td><code>langgraph serve</code></td>
-<td><code>garden deploy</code></td>
+<td><code>agentbreeder deploy</code></td>
 <td>AG replaces LangGraph's own serve command</td>
 </tr>
 <tr>
@@ -1519,7 +1519,7 @@
 <tr>
 <td>Deploy</td>
 <td>Manual Docker + Terraform</td>
-<td><code>garden deploy agent.yaml</code></td>
+<td><code>agentbreeder deploy agent.yaml</code></td>
 </tr>
 <tr>
 <td>Multi-cloud</td>
@@ -1544,7 +1544,7 @@
 <tr>
 <td>Agent registry</td>
 <td>Not available</td>
-<td><code>garden search</code> finds any agent</td>
+<td><code>agentbreeder search</code> finds any agent</td>
 </tr>
 <tr>
 <td>Health checks</td>
@@ -1663,7 +1663,7 @@
 <a id="__codelineno-24-14" name="__codelineno-24-14" href="#__codelineno-24-14"></a><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
 </code></pre></div>
 <p><strong>Deploy:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
 </code></pre></div>
 <p>That is it. Your LangGraph agent is now deployed with governance, health checks, and registry entry.</p>
 

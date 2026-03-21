@@ -1023,7 +1023,7 @@ Your framework code stays the same. AgentBreeder wraps it with governance, multi
 <tr>
 <td><strong>Deploy to production</strong></td>
 <td>Write Dockerfiles, Terraform, CI/CD pipelines</td>
-<td><code>garden deploy agent.yaml</code></td>
+<td><code>agentbreeder deploy agent.yaml</code></td>
 </tr>
 <tr>
 <td><strong>Multi-cloud</strong></td>
@@ -1114,7 +1114,7 @@ Your framework code stays the same. AgentBreeder wraps it with governance, multi
 <td><strong>No existing agent</strong></td>
 <td>~5 minutes</td>
 <td>Trivial</td>
-<td>Use <code>garden init</code> to scaffold</td>
+<td>Use <code>agentbreeder init</code> to scaffold</td>
 </tr>
 </tbody>
 </table>
@@ -1141,7 +1141,7 @@ Your framework code stays the same. AgentBreeder wraps it with governance, multi
 </code></pre></div>
 <h3 id="step-3-deploy">Step 3: Deploy<a class="headerlink" href="#step-3-deploy" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pip<span class="w"> </span>install<span class="w"> </span>agentbreeder
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
 </code></pre></div>
 <p>That is the entire migration. Everything else -- RBAC, registry, cost tracking, health checks -- happens automatically.</p>
 <hr />
@@ -1301,7 +1301,7 @@ Your framework code stays the same. AgentBreeder wraps it with governance, multi
 <td>--</td>
 <td>--</td>
 <td>--</td>
-<td><code>garden deploy/status/logs/teardown</code></td>
+<td><code>agentbreeder deploy/status/logs/teardown</code></td>
 </tr>
 </tbody>
 </table>
@@ -1328,7 +1328,7 @@ Your framework code stays the same. AgentBreeder wraps it with governance, multi
 <a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>                                              |
 <a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>                                    +---------+---------+
 <a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>                                    |                   |
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>                              garden deploy        garden deploy
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>                              agentbreeder deploy        agentbreeder deploy
 <a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>                              --target local       --target aws
 <a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>                                    |                   |
 <a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>                              Docker Compose       ECS Fargate
@@ -1343,7 +1343,7 @@ Your framework code stays the same. AgentBreeder wraps it with governance, multi
 <hr />
 <h2 id="common-questions">Common Questions<a class="headerlink" href="#common-questions" title="Permanent link">&para;</a></h2>
 <p><strong>Q: Do I need to rewrite my agent?</strong>
-No. Your agent code is unchanged. You add an <code>agent.yaml</code> file and run <code>garden deploy</code>.</p>
+No. Your agent code is unchanged. You add an <code>agent.yaml</code> file and run <code>agentbreeder deploy</code>.</p>
 <p><strong>Q: Can I still run my agent without AgentBreeder?</strong>
 Yes. Your <code>agent.py</code> still works standalone. AgentBreeder is additive.</p>
 <p><strong>Q: What if my framework isn't listed?</strong>

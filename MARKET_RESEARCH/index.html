@@ -1717,7 +1717,7 @@ Keep in private repo only. Remove before making repo public.</p>
 <li><strong>Developer Demand:</strong> "AI agent deployment" search volume grew <strong>890% YoY</strong> on Stack Overflow; "agent governance" grew <strong>1,230%</strong> (Stack Overflow Trends, Feb 2026)</li>
 </ul>
 <p><strong>The core insight:</strong> The market has dozens of tools to <em>build</em> agents and a handful of cloud platforms to <em>run</em> them — but <strong>no product that combines framework-agnostic deployment, automatic governance, multi-cloud support, a shared organizational registry, and three-tier builder accessibility</strong> into a single open-source platform.</p>
-<p>AgentBreeder occupies this gap. Our thesis: <strong>governance should be a side effect of deploying, not extra configuration.</strong> A developer writes one <code>agent.yaml</code>, runs <code>garden deploy</code>, and their agent is live — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and requiring zero extra work.</p>
+<p>AgentBreeder occupies this gap. Our thesis: <strong>governance should be a side effect of deploying, not extra configuration.</strong> A developer writes one <code>agent.yaml</code>, runs <code>agentbreeder deploy</code>, and their agent is live — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and requiring zero extra work.</p>
 <p>This document provides a comprehensive analysis of the competitive landscape, AgentBreeder's technical differentiation, market opportunity, growth strategy, business model, patent opportunities, and key risks.</p>
 <hr />
 <h2 id="1-competitive-landscape">1. Competitive Landscape<a class="headerlink" href="#1-competitive-landscape" title="Permanent link">&para;</a></h2>
@@ -2149,7 +2149,7 @@ Keep in private repo only. Remove before making repo public.</p>
 <hr />
 <h2 id="2-agentbreeders-12-technical-innovations">2. AgentBreeder's 12 Technical Innovations<a class="headerlink" href="#2-agentbreeders-12-technical-innovations" title="Permanent link">&para;</a></h2>
 <h3 id="innovation-1-declarative-agentyaml">Innovation 1: Declarative <code>agent.yaml</code><a class="headerlink" href="#innovation-1-declarative-agentyaml" title="Permanent link">&para;</a></h3>
-<p><strong>Description:</strong> A single YAML file defines everything about an agent — identity, model, framework, tools, knowledge bases, prompts, guardrails, deployment target, scaling, access control, and secrets. One file, one command (<code>garden deploy</code>), one result (a live, governed agent).</p>
+<p><strong>Description:</strong> A single YAML file defines everything about an agent — identity, model, framework, tools, knowledge bases, prompts, guardrails, deployment target, scaling, access control, and secrets. One file, one command (<code>agentbreeder deploy</code>), one result (a live, governed agent).</p>
 <p><strong>What makes it unique:</strong> Unlike Terraform (infrastructure-only), Kubernetes manifests (container-only), or framework configs (build-only), <code>agent.yaml</code> is a <strong>full-stack agent declaration</strong> that spans from model selection to cloud deployment to governance policy.</p>
 <p><strong>Competitive comparison:</strong>
 | Aspect | agent.yaml | Kubernetes YAML | Terraform HCL | LangGraph Config | CrewAI YAML |
@@ -2170,7 +2170,7 @@ Keep in private repo only. Remove before making repo public.</p>
 <li><strong>Low Code:</strong> YAML configuration (<code>agent.yaml</code>) in any IDE or dashboard editor — for ML engineers, DevOps</li>
 <li><strong>Full Code:</strong> Python/TypeScript SDK with full programmatic control — for senior engineers, researchers</li>
 </ol>
-<p><strong>What makes it unique:</strong> <strong>Bidirectional ejection</strong> — start in No Code, view the generated YAML (eject to Low Code), then eject to Full Code with <code>garden eject</code>. At every tier, the output is human-readable and maintainable. No vendor lock-in at any level.</p>
+<p><strong>What makes it unique:</strong> <strong>Bidirectional ejection</strong> — start in No Code, view the generated YAML (eject to Low Code), then eject to Full Code with <code>agentbreeder eject</code>. At every tier, the output is human-readable and maintainable. No vendor lock-in at any level.</p>
 <p><strong>Competitive comparison:</strong>
 - <strong>Dify/n8n/Langflow:</strong> Visual only. No YAML export. No code ejection. Once you outgrow the UI, you start over.
 - <strong>LangGraph/CrewAI:</strong> Code only. No visual builder. Inaccessible to non-developers.
@@ -2178,7 +2178,7 @@ Keep in private repo only. Remove before making repo public.</p>
 - <strong>AgentBreeder:</strong> All three tiers with lossless transitions between them. The deploy pipeline is tier-unaware.</p>
 <hr />
 <h3 id="innovation-3-governance-as-side-effect">Innovation 3: Governance-as-Side-Effect<a class="headerlink" href="#innovation-3-governance-as-side-effect" title="Permanent link">&para;</a></h3>
-<p><strong>Description:</strong> Every <code>garden deploy</code> automatically enforces RBAC, writes an audit log entry, registers the agent in the org-wide registry, and attributes cost to the deploying team. There is no <code>--skip-governance</code> flag. Governance is architecturally non-bypassable.</p>
+<p><strong>Description:</strong> Every <code>agentbreeder deploy</code> automatically enforces RBAC, writes an audit log entry, registers the agent in the org-wide registry, and attributes cost to the deploying team. There is no <code>--skip-governance</code> flag. Governance is architecturally non-bypassable.</p>
 <p><strong>What makes it unique:</strong> In every competing platform, governance is an add-on that teams configure <em>after</em> deployment (if at all). In AgentBreeder, governance is a <strong>side effect of the deploy pipeline itself</strong> — it happens automatically because the pipeline cannot complete without it.</p>
 <p><strong>The deploy pipeline enforces governance at four points:</strong>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Parse YAML → [RBAC CHECK] → Resolve Deps → Build Container → Provision Infra
@@ -2202,7 +2202,7 @@ Keep in private repo only. Remove before making repo public.</p>
 <hr />
 <h3 id="innovation-5-mcp-sidecar-injection">Innovation 5: MCP Sidecar Injection<a class="headerlink" href="#innovation-5-mcp-sidecar-injection" title="Permanent link">&para;</a></h3>
 <p><strong>Description:</strong> When an agent's <code>agent.yaml</code> references MCP server tools, AgentBreeder automatically packages each MCP server as a sidecar container and injects it alongside the agent container at deploy time. The agent communicates with its MCP servers over localhost — no external networking, no manual Docker configuration.</p>
-<p><strong>What makes it unique:</strong> MCP servers typically require manual setup (install, configure, run). AG automates the entire lifecycle: discover (via <code>garden scan</code>), declare (in <code>agent.yaml</code>), package (as container), inject (as sidecar), and manage (health checks, restarts).</p>
+<p><strong>What makes it unique:</strong> MCP servers typically require manual setup (install, configure, run). AG automates the entire lifecycle: discover (via <code>agentbreeder scan</code>), declare (in <code>agent.yaml</code>), package (as container), inject (as sidecar), and manage (health checks, restarts).</p>
 <p><strong>Competitive comparison:</strong>
 - <strong>MCP ecosystem:</strong> Requires manual server setup and management
 - <strong>Kubernetes sidecars:</strong> Generic container injection, not MCP-aware
@@ -2482,7 +2482,7 @@ Keep in private repo only. Remove before making repo public.</p>
 </tr>
 <tr>
 <td><strong>One-Command Local Dev</strong></td>
-<td><code>garden deploy --target local</code></td>
+<td><code>agentbreeder deploy --target local</code></td>
 <td>No</td>
 <td>No</td>
 <td><code>docker compose up</code></td>
@@ -2705,7 +2705,7 @@ Keep in private repo only. Remove before making repo public.</p>
 <blockquote>
 <p><em>"I spent 3 weeks getting a LangGraph agent into production on AWS. The LangGraph part took 2 days. The other 19 days were Docker, ECS, IAM, secrets, load balancing, and monitoring."</em> — Senior ML Engineer, Series B startup (Reddit r/LangChain)</p>
 </blockquote>
-<p><strong>AgentBreeder's answer:</strong> <code>garden deploy --target aws</code> — one command, zero infrastructure expertise required.</p>
+<p><strong>AgentBreeder's answer:</strong> <code>agentbreeder deploy --target aws</code> — one command, zero infrastructure expertise required.</p>
 <hr />
 <h3 id="pain-point-2-cost-opacity">Pain Point 2: Cost Opacity<a class="headerlink" href="#pain-point-2-cost-opacity" title="Permanent link">&para;</a></h3>
 <p><strong>Severity: High</strong> | <strong>Frequency: 73% of teams report cost surprises</strong></p>
@@ -2828,7 +2828,7 @@ Keep in private repo only. Remove before making repo public.</p>
 <tr>
 <td>1</td>
 <td><strong>Open-Source Release Preparation</strong></td>
-<td>Polish README, contributing guide, architecture docs, quickstart tutorial. Ensure <code>garden deploy --target local</code> works flawlessly in &lt; 5 minutes.</td>
+<td>Polish README, contributing guide, architecture docs, quickstart tutorial. Ensure <code>agentbreeder deploy --target local</code> works flawlessly in &lt; 5 minutes.</td>
 <td>Time-to-first-deploy &lt; 5 min</td>
 </tr>
 <tr>

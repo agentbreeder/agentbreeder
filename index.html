@@ -1061,7 +1061,7 @@
 
 <h1 id="agentbreeder">AgentBreeder<a class="headerlink" href="#agentbreeder" title="Permanent link">&para;</a></h1>
 <p><strong>Define Once. Deploy Anywhere. Govern Automatically.</strong></p>
-<p>AgentBreeder is an open-source platform for building, deploying, and governing enterprise AI agents. Write one <code>agent.yaml</code>, run <code>garden deploy</code>, and your agent is live on AWS or GCP — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic.</p>
+<p>AgentBreeder is an open-source platform for building, deploying, and governing enterprise AI agents. Write one <code>agent.yaml</code>, run <code>agentbreeder deploy</code>, and your agent is live on AWS or GCP — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic.</p>
 <hr />
 <h2 id="why-agentbreeder">Why AgentBreeder?<a class="headerlink" href="#why-agentbreeder" title="Permanent link">&para;</a></h2>
 <table>
@@ -1143,7 +1143,7 @@
 <ul>
 <li><strong>Framework-agnostic</strong> — LangGraph, CrewAI, Claude SDK, OpenAI Agents, Google ADK, Custom</li>
 <li><strong>Multi-cloud first</strong> — AWS ECS/Fargate/EKS and GCP Cloud Run as equal first-class targets</li>
-<li><strong>Governance as a side effect</strong> — RBAC, cost attribution, audit trail, and registry registration happen automatically on every <code>garden deploy</code></li>
+<li><strong>Governance as a side effect</strong> — RBAC, cost attribution, audit trail, and registry registration happen automatically on every <code>agentbreeder deploy</code></li>
 <li><strong>Shared org registry</strong> — agents, prompts, tools/MCP servers, models, knowledge bases all in one place</li>
 <li><strong>Tier mobility</strong> — start No Code, eject to YAML, eject to SDK — no lock-in at any level</li>
 <li><strong>Multi-agent orchestration</strong> — 6 strategies (router, sequential, parallel, supervisor, hierarchical, fan-out/fan-in) via YAML or SDK</li>
@@ -1154,16 +1154,16 @@
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>pip<span class="w"> </span>install<span class="w"> </span>agentbreeder
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Create an agent</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>garden<span class="w"> </span>init
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>agentbreeder<span class="w"> </span>init
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
 <a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Validate the config</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>garden<span class="w"> </span>validate
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>agentbreeder<span class="w"> </span>validate
 <a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
 <a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="c1"># Deploy locally</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>garden<span class="w"> </span>deploy<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
 <a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
 <a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="c1"># Chat with your agent</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>garden<span class="w"> </span>chat<span class="w"> </span>my-agent
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>agentbreeder<span class="w"> </span>chat<span class="w"> </span>my-agent
 </code></pre></div>
 <p>See the <a href="quickstart/">Quickstart guide</a> for the full setup.</p>
 <hr />
@@ -1218,7 +1218,7 @@
 </tr>
 <tr>
 <td><a href="cli-reference/">CLI Reference</a></td>
-<td>All <code>garden</code> commands</td>
+<td>All <code>agentbreeder</code> commands</td>
 </tr>
 <tr>
 <td><a href="agent-yaml/">agent.yaml</a></td>

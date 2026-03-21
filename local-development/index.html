@@ -1654,8 +1654,8 @@
 </code></pre></div>
 <p>Dashboard is available at <code>http://localhost:5173</code>. It proxies API requests to port 8000 via Vite config.</p>
 <h3 id="6-verify-the-cli">6. Verify the CLI<a class="headerlink" href="#6-verify-the-cli" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>garden<span class="w"> </span>--help
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>garden<span class="w"> </span>list<span class="w"> </span>agents
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>agentbreeder<span class="w"> </span>--help
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>agentbreeder<span class="w"> </span>list<span class="w"> </span>agents
 </code></pre></div>
 <h2 id="full-stack-docker-compose">Full Stack (Docker Compose)<a class="headerlink" href="#full-stack-docker-compose" title="Permanent link">&para;</a></h2>
 <p>To run everything in Docker (API + Dashboard + Postgres + Redis + migrations):</p>
@@ -1692,7 +1692,7 @@
 </tbody>
 </table>
 <p>Default credentials for local dev:
-- <strong>DB:</strong> <code>garden</code> / <code>garden</code> / database <code>agentbreeder</code>
+- <strong>DB:</strong> <code>agentbreeder</code> / <code>agentbreeder</code> / database <code>agentbreeder</code>
 - <strong>App login:</strong> <code>admin@agentbreeder.local</code> / <code>plant</code></p>
 <h2 id="running-tests">Running Tests<a class="headerlink" href="#running-tests" title="Permanent link">&para;</a></h2>
 <h3 id="python-unit-tests">Python unit tests<a class="headerlink" href="#python-unit-tests" title="Permanent link">&para;</a></h3>
@@ -1935,7 +1935,7 @@
 <h2 id="environment-variables">Environment Variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
 <p>Key variables in <code>.env</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Required</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="nv">DATABASE_URL</span><span class="o">=</span>postgresql+asyncpg://garden:garden@localhost:5432/agentbreeder
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="nv">DATABASE_URL</span><span class="o">=</span>postgresql+asyncpg://agentbreeder:agentbreeder@localhost:5432/agentbreeder
 <a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="nv">REDIS_URL</span><span class="o">=</span>redis://localhost:6379
 <a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="nv">SECRET_KEY</span><span class="o">=</span>dev-secret-key
 <a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="nv">GARDEN_ENV</span><span class="o">=</span>development

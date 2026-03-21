@@ -1349,10 +1349,10 @@
 <a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OPENAI_API_KEY</span>
 </code></pre></div>
 <h3 id="step-3-validate">Step 3: Validate<a class="headerlink" href="#step-3-validate" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>garden<span class="w"> </span>validate<span class="w"> </span>agent.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>agentbreeder<span class="w"> </span>validate<span class="w"> </span>agent.yaml
 </code></pre></div>
 <h3 id="step-4-deploy">Step 4: Deploy<a class="headerlink" href="#step-4-deploy" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
 </code></pre></div>
 <h3 id="step-5-test">Step 5: Test<a class="headerlink" href="#step-5-test" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/invoke<span class="w"> </span><span class="se">\</span>
@@ -1549,7 +1549,7 @@
 <tr>
 <td>Deploy</td>
 <td>Manual</td>
-<td><code>garden deploy agent.yaml</code></td>
+<td><code>agentbreeder deploy agent.yaml</code></td>
 </tr>
 <tr>
 <td>Multi-cloud</td>
@@ -1610,7 +1610,7 @@
 </code></pre></div>
 <h3 id="crewai-verbose-output-in-container-logs">CrewAI verbose output in container logs<a class="headerlink" href="#crewai-verbose-output-in-container-logs" title="Permanent link">&para;</a></h3>
 <p>CrewAI's <code>verbose=True</code> writes to stdout. In the container, this goes to Docker logs. Access via:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>garden<span class="w"> </span>logs<span class="w"> </span>research-crew
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>agentbreeder<span class="w"> </span>logs<span class="w"> </span>research-crew
 </code></pre></div>
 <h3 id="crew-takes-a-long-time-to-complete">Crew takes a long time to complete<a class="headerlink" href="#crew-takes-a-long-time-to-complete" title="Permanent link">&para;</a></h3>
 <p>CrewAI crews with many agents and tasks can take minutes. The default health check timeout is 5 seconds, but that only checks if the server is responding -- it does not wait for task completion. Long-running crew kickoffs are handled asynchronously by the server wrapper.</p>
@@ -1714,7 +1714,7 @@
 <a id="__codelineno-19-36" name="__codelineno-19-36" href="#__codelineno-19-36"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">team:marketing</span>
 </code></pre></div>
 <p><strong>Deploy:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
 </code></pre></div>
 
 

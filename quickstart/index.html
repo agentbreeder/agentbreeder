@@ -1252,7 +1252,7 @@
 <p><strong>Change the default password</strong> in production. This account is for local development only.</p>
 </blockquote>
 <h2 id="4-create-your-first-agent">4. Create Your First Agent<a class="headerlink" href="#4-create-your-first-agent" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>garden<span class="w"> </span>init
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>agentbreeder<span class="w"> </span>init
 </code></pre></div>
 <p>Follow the interactive wizard to scaffold a new agent project. It will create:
 - <code>agent.yaml</code> — agent configuration
@@ -1261,13 +1261,13 @@
 - <code>.env.example</code> — environment template</p>
 <h2 id="5-validate-deploy">5. Validate &amp; Deploy<a class="headerlink" href="#5-validate-deploy" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Validate the config</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>garden<span class="w"> </span>validate
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>agentbreeder<span class="w"> </span>validate
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
 <a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Deploy locally</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>garden<span class="w"> </span>deploy<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># Deploy to GCP Cloud Run</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>garden<span class="w"> </span>deploy<span class="w"> </span>--target<span class="w"> </span>cloud-run<span class="w"> </span>--region<span class="w"> </span>us-central1
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>--target<span class="w"> </span>cloud-run<span class="w"> </span>--region<span class="w"> </span>us-central1
 </code></pre></div>
 <h3 id="local-models-with-ollama">Local models with Ollama<a class="headerlink" href="#local-models-with-ollama" title="Permanent link">&para;</a></h3>
 <p>For local development without cloud API keys, AgentBreeder supports <a href="https://ollama.com">Ollama</a> via the provider abstraction layer. Set your model to an Ollama-hosted model and the engine routes requests locally:</p>
@@ -1278,14 +1278,14 @@
 <p>Start Ollama before deploying:
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ollama<span class="w"> </span>serve<span class="w"> </span><span class="p">&amp;</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>ollama<span class="w"> </span>pull<span class="w"> </span>llama3
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>garden<span class="w"> </span>deploy<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
 </code></pre></div></p>
 <h2 id="6-verify">6. Verify<a class="headerlink" href="#6-verify" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Check status</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>garden<span class="w"> </span>status
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>agentbreeder<span class="w"> </span>status
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
 <a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># View logs</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>garden<span class="w"> </span>logs<span class="w"> </span>&lt;agent-name&gt;<span class="w"> </span>--follow
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>agentbreeder<span class="w"> </span>logs<span class="w"> </span>&lt;agent-name&gt;<span class="w"> </span>--follow
 <a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
 <a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># Browse the dashboard</span>
 <a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>open<span class="w"> </span>http://localhost:3001
@@ -1301,63 +1301,63 @@
 </thead>
 <tbody>
 <tr>
-<td><code>garden init</code></td>
+<td><code>agentbreeder init</code></td>
 <td>Scaffold a new agent project</td>
 </tr>
 <tr>
-<td><code>garden validate</code></td>
+<td><code>agentbreeder validate</code></td>
 <td>Validate agent.yaml without deploying</td>
 </tr>
 <tr>
-<td><code>garden deploy</code></td>
+<td><code>agentbreeder deploy</code></td>
 <td>Deploy an agent</td>
 </tr>
 <tr>
-<td><code>garden list</code></td>
+<td><code>agentbreeder list</code></td>
 <td>List agents/tools/models/prompts</td>
 </tr>
 <tr>
-<td><code>garden describe</code></td>
+<td><code>agentbreeder describe</code></td>
 <td>Show detail for a registry entity</td>
 </tr>
 <tr>
-<td><code>garden search</code></td>
+<td><code>agentbreeder search</code></td>
 <td>Search across the registry</td>
 </tr>
 <tr>
-<td><code>garden logs</code></td>
+<td><code>agentbreeder logs</code></td>
 <td>Tail logs from a deployed agent</td>
 </tr>
 <tr>
-<td><code>garden status</code></td>
+<td><code>agentbreeder status</code></td>
 <td>Show deploy status</td>
 </tr>
 <tr>
-<td><code>garden teardown</code></td>
+<td><code>agentbreeder teardown</code></td>
 <td>Remove a deployed agent</td>
 </tr>
 <tr>
-<td><code>garden scan</code></td>
+<td><code>agentbreeder scan</code></td>
 <td>Discover MCP servers and LiteLLM models</td>
 </tr>
 <tr>
-<td><code>garden chat</code></td>
+<td><code>agentbreeder chat</code></td>
 <td>Interactive chat with a deployed agent</td>
 </tr>
 <tr>
-<td><code>garden submit</code></td>
+<td><code>agentbreeder submit</code></td>
 <td>Submit a resource for review (create PR)</td>
 </tr>
 <tr>
-<td><code>garden review</code></td>
+<td><code>agentbreeder review</code></td>
 <td>Review, approve, or reject pull requests</td>
 </tr>
 <tr>
-<td><code>garden publish</code></td>
+<td><code>agentbreeder publish</code></td>
 <td>Merge approved PR and publish to registry</td>
 </tr>
 <tr>
-<td><code>garden provider</code></td>
+<td><code>agentbreeder provider</code></td>
 <td>Manage LLM provider connections</td>
 </tr>
 </tbody>

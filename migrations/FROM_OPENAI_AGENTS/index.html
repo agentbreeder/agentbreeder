@@ -1350,10 +1350,10 @@
 <a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OPENAI_API_KEY</span>
 </code></pre></div>
 <h3 id="step-3-validate">Step 3: Validate<a class="headerlink" href="#step-3-validate" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>garden<span class="w"> </span>validate<span class="w"> </span>agent.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>agentbreeder<span class="w"> </span>validate<span class="w"> </span>agent.yaml
 </code></pre></div>
 <h3 id="step-4-deploy">Step 4: Deploy<a class="headerlink" href="#step-4-deploy" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span><span class="nb">local</span>
 </code></pre></div>
 <h3 id="step-5-test">Step 5: Test<a class="headerlink" href="#step-5-test" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/invoke<span class="w"> </span><span class="se">\</span>
@@ -1375,7 +1375,7 @@
 <a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">  </span><span class="nt">secrets</span><span class="p">:</span>
 <a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OPENAI_API_KEY</span>
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span>aws
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml<span class="w"> </span>--target<span class="w"> </span>aws
 </code></pre></div>
 <hr />
 <h2 id="concept-mapping-openai-agents-sdk-to-agentbreeder">Concept Mapping: OpenAI Agents SDK to AgentBreeder<a class="headerlink" href="#concept-mapping-openai-agents-sdk-to-agentbreeder" title="Permanent link">&para;</a></h2>
@@ -1601,7 +1601,7 @@
 <tr>
 <td>Deploy</td>
 <td>Manual</td>
-<td><code>garden deploy agent.yaml</code></td>
+<td><code>agentbreeder deploy agent.yaml</code></td>
 </tr>
 <tr>
 <td>Multi-cloud</td>
@@ -1681,7 +1681,7 @@
 <a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">  </span><span class="nt">secrets</span><span class="p">:</span>
 <a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OPENAI_API_KEY</span>
 </code></pre></div>
-<p>For local deploy, set it in your environment before running <code>garden deploy</code>, or create a <code>.env</code> file in the agent directory.</p>
+<p>For local deploy, set it in your environment before running <code>agentbreeder deploy</code>, or create a <code>.env</code> file in the agent directory.</p>
 <h3 id="streaming-responses">Streaming responses<a class="headerlink" href="#streaming-responses" title="Permanent link">&para;</a></h3>
 <p>The AG server wrapper supports streaming via Server-Sent Events. The <code>/stream</code> endpoint uses <code>Runner.run_streamed()</code> under the hood.</p>
 <h3 id="multiple-agents-in-one-file">Multiple agents in one file<a class="headerlink" href="#multiple-agents-in-one-file" title="Permanent link">&para;</a></h3>
@@ -1775,7 +1775,7 @@
 <a id="__codelineno-26-24" name="__codelineno-26-24" href="#__codelineno-26-24"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OPENAI_API_KEY</span>
 </code></pre></div>
 <p><strong>Deploy:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>garden<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>agentbreeder<span class="w"> </span>deploy<span class="w"> </span>agent.yaml
 </code></pre></div>
 
 
