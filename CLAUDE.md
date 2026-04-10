@@ -270,6 +270,60 @@ Full Code (SDK) ──→ agent.yaml + custom code  ──→ deploy pipeline
 
 ---
 
+## 📦 Package Distribution Architecture
+
+AgentBreeder is distributed through three channels for maximum reach.
+
+### Two PyPI Packages
+
+| Package | Contents | Install |
+|---------|----------|---------|
+| `agentbreeder` | CLI + API server + engine + registry + connectors | `pip install agentbreeder` |
+| `agentbreeder-sdk` | Lightweight SDK (`from agenthub import Agent, deploy`) | `pip install agentbreeder-sdk` |
+
+`agentbreeder` depends on `agentbreeder-sdk`. The SDK has minimal deps (httpx, pydantic, ruamel.yaml).
+
+**SDK pyproject.toml:** `sdk/python/pyproject.toml`
+**CLI pyproject.toml:** root `pyproject.toml`
+
+### Three Docker Hub Images
+
+| Image | Purpose | Dockerfile |
+|-------|---------|-----------|
+| `agentbreeder/api` | API server | `Dockerfile` |
+| `agentbreeder/dashboard` | React frontend | `dashboard/Dockerfile` |
+| `agentbreeder/cli` | Lightweight CLI for CI/CD pipelines | `Dockerfile.cli` |
+
+All images tagged with version + `latest`, built for linux/amd64 and linux/arm64.
+
+### Homebrew Tap
+
+```bash
+brew tap open-agent-garden/agentbreeder
+brew install agentbreeder
+```
+
+Tap repo: `open-agent-garden/homebrew-agentbreeder`. Auto-updated on each release.
+Plan to migrate to Homebrew core once the project has sufficient traction.
+
+### Namespace Alignment
+
+| System | Namespace |
+|--------|-----------|
+| GitHub | `open-agent-garden/agentbreeder` |
+| PyPI | `agentbreeder`, `agentbreeder-sdk` |
+| Docker Hub | `agentbreeder/api`, `agentbreeder/dashboard`, `agentbreeder/cli` |
+| Homebrew | `open-agent-garden/homebrew-agentbreeder` |
+
+### Release Flow
+
+1. Create GitHub Release with tag `vX.Y.Z`
+2. CI automatically publishes to all three channels
+3. Uses PyPI trusted publishers (OIDC) — no API tokens
+4. See `.github/workflows/release.yml` for details
+
+---
+
 ## 💻 Development Commands
 
 ```bash
