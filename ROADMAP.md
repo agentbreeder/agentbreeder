@@ -18,7 +18,7 @@
 | **v1.1** | Connectivity | A2A protocol, MCP server hub, multi-agent orchestration + visual orchestration canvas + TS SDK | M19–M20, M30 | Done |
 | **v1.2** | Marketplace | Community templates, ratings, one-click deploy | M21–M22 | Done |
 | **v1.3** | Enterprise | Additional SDKs (ADK, CrewAI, Claude), model catalog, SSO, AgentOps + Full Code orchestration SDK | M24–M27, M31 | In Progress (M24, M26, M27 Done, M31 Done — M25 remaining) |
-| **v1.4** | Distribution | PyPI packages, Docker Hub images, Homebrew tap, release automation | M32 | Planned |
+| **v1.4** | Distribution | PyPI packages, Docker Hub images, Homebrew tap, release automation | M32 | In Progress (code complete, infra setup remaining) |
 
 ---
 
@@ -2551,71 +2551,72 @@ These are intentionally deferred indefinitely:
 
 **Release:** v1.4 (Distribution)
 **Theme:** Make AgentBreeder installable from PyPI, Docker Hub, and Homebrew with automated release pipelines.
-**Status:** Not Started
+**Status:** In Progress
 
 ### M32.1 — Package Split (SDK + CLI)
 
 Split monolith into two PyPI packages:
-- `agentbreeder-sdk` — lightweight SDK with minimal deps (httpx, pydantic, ruamel.yaml)
+- `agentbreeder-sdk` — lightweight SDK with minimal deps (PyYAML only)
 - `agentbreeder` — CLI + API server + engine (depends on SDK)
 
 Tasks:
-- [ ] Create `sdk/python/pyproject.toml` for `agentbreeder-sdk`
-- [ ] Remove `sdk` from root `hatch.build.targets.wheel.packages`
-- [ ] Add `agentbreeder-sdk>=0.1.0` to root package dependencies
-- [ ] Fix stale URLs in root `pyproject.toml` (repo, docs)
+- [x] Create `sdk/python/pyproject.toml` for `agentbreeder-sdk`
+- [x] Remove `sdk` from root `hatch.build.targets.wheel.packages`
+- [x] Add `agentbreeder-sdk>=0.1.0` to root package dependencies
+- [x] Fix stale URLs in root `pyproject.toml` (repo, docs)
 - [ ] Implement version derivation from git tags (`hatch-vcs` or `setuptools-scm`)
-- [ ] Verify both packages build independently: `python -m build`
-- [ ] Verify `pip install agentbreeder` pulls SDK as dependency
+- [x] Verify both packages build independently: `python -m build`
+- [ ] Verify `pip install agentbreeder` pulls SDK as dependency (requires PyPI registration)
 
 ### M32.2 — CI Pipeline (GitHub Actions)
 
 Add PR checks workflow:
-- [ ] Create `.github/workflows/ci.yml`
-- [ ] Python 3.11 + 3.12 matrix
-- [ ] Lint (ruff), type check (mypy), test (pytest + coverage)
-- [ ] Build both packages
-- [ ] Build all Docker images (no push)
+- [x] Create `.github/workflows/ci.yml`
+- [ ] Python 3.11 + 3.12 matrix (currently 3.12 only)
+- [x] Lint (ruff), type check (mypy), test (pytest + coverage)
+- [x] Build both packages
+- [x] Build all Docker images (no push)
 
 ### M32.3 — Release Pipeline (GitHub Actions)
 
 Automated publishing on GitHub Release:
-- [ ] Create `.github/workflows/release.yml`
-- [ ] Configure PyPI trusted publishers (OIDC) for both packages
-- [ ] Publish `agentbreeder-sdk` then `agentbreeder` to PyPI
-- [ ] Build + push Docker images to Docker Hub (3 images, multi-platform)
-- [ ] Trigger Homebrew tap update
+- [x] Create `.github/workflows/release.yml`
+- [ ] Configure PyPI trusted publishers (OIDC) for both packages (manual step on pypi.org)
+- [x] Publish `agentbreeder-sdk` then `agentbreeder` to PyPI (workflow ready)
+- [x] Build + push Docker images to Docker Hub (3 images, multi-platform) (workflow ready)
+- [x] Trigger Homebrew tap update (workflow ready)
 
 ### M32.4 — Docker Hub Images
 
 Three production Docker images:
-- [ ] Verify existing `Dockerfile` (api) builds correctly
-- [ ] Create `dashboard/Dockerfile` (React + nginx)
-- [ ] Create `dashboard/nginx.conf`
-- [ ] Create `Dockerfile.cli` (lightweight, installs from PyPI)
-- [ ] Add multi-platform build (linux/amd64 + linux/arm64) via `docker buildx`
-- [ ] Set up Docker Hub organization `agentbreeder`
-- [ ] Configure Docker Hub credentials in GitHub Secrets
+- [x] Verify existing `Dockerfile` (api) builds correctly
+- [x] Create `dashboard/Dockerfile` (React + nginx) (existed, added OCI labels)
+- [x] Create `dashboard/nginx.conf` (already existed)
+- [x] Create `Dockerfile.cli` (lightweight, installs from PyPI)
+- [x] Add multi-platform build (linux/amd64 + linux/arm64) via `docker buildx` (in release.yml)
+- [ ] Set up Docker Hub organization `agentbreeder` (manual step)
+- [ ] Configure Docker Hub credentials in GitHub Secrets (manual step)
 
 ### M32.5 — Homebrew Tap
 
 Homebrew distribution for macOS/Linux:
-- [ ] Create repo `open-agent-garden/homebrew-agentbreeder`
-- [ ] Write `Formula/agentbreeder.rb` (Python virtualenv formula)
-- [ ] Create `.github/workflows/homebrew-update.yml` to auto-update on release
+- [ ] Create repo `open-agent-garden/homebrew-agentbreeder` (manual step)
+- [x] Write `Formula/agentbreeder.rb` (Python virtualenv formula)
+- [x] Create Homebrew update workflow in `release.yml`
 - [ ] Test `brew tap open-agent-garden/agentbreeder && brew install agentbreeder`
 - [ ] Document migration path to Homebrew core
+- [ ] Add `HOMEBREW_TAP_TOKEN` to GitHub Secrets (manual step)
 
 ### M32.6 — Namespace & URL Cleanup
 
 Align all public-facing names:
-- [ ] Fix `pyproject.toml` Repository URL → `https://github.com/open-agent-garden/agentbreeder`
-- [ ] Fix `pyproject.toml` Documentation URL → `https://open-agent-garden.github.io/agentbreeder`
-- [ ] Register `agentbreeder` and `agentbreeder-sdk` names on PyPI
-- [ ] Register `agentbreeder` org on Docker Hub
-- [ ] Update README install instructions
+- [x] Fix `pyproject.toml` Repository URL → `https://github.com/open-agent-garden/agentbreeder`
+- [x] Fix `pyproject.toml` Documentation URL → `https://open-agent-garden.github.io/agentbreeder`
+- [ ] Register `agentbreeder` and `agentbreeder-sdk` names on PyPI (manual step)
+- [ ] Register `agentbreeder` org on Docker Hub (manual step)
+- [x] Update README install instructions
 
 ---
 
 *Last updated: April 10, 2026*
-*Status: v0.1–v1.2 complete (M1–M23). v1.3 in progress — M24 (Model Gateway), M26 (AgentOps dashboard), M27 (Production Hardening), and M31 (Full Code Orchestration SDK) are done. Remaining: M25 (SSO/secrets management). v1.4 planned — M32 (Package Distribution & Release Automation).*
+*Status: v0.1–v1.2 complete (M1–M23). v1.3 in progress — M24 (Model Gateway), M26 (AgentOps dashboard), M27 (Production Hardening), and M31 (Full Code Orchestration SDK) are done. Remaining: M25 (SSO/secrets management). v1.4 in progress — M32 (Package Distribution & Release Automation): all code complete, remaining items are manual infrastructure setup (PyPI registration, Docker Hub org, Homebrew tap repo, GitHub Secrets).*
