@@ -439,20 +439,105 @@ agentbreeder/
 
 ---
 
-## Compared to Alternatives
+## "How is this different from LangGraph / CrewAI / Mastra / OpenAI Agents?"
 
-| | AgentBreeder | DIY Deploy Scripts | LangServe | Vertex AI Agent Builder |
-|---|---|---|---|---|
-| Framework-agnostic | ✅ 6 frameworks | ❌ Your stack only | ❌ LangChain only | ❌ Google only |
-| Multi-cloud | ✅ AWS + GCP + Local | ❌ Manual | ❌ No | ❌ GCP only |
-| Governance built-in | ✅ Automatic | ❌ None | ❌ None | ⚠️ Partial |
-| RBAC | ✅ | ❌ | ❌ | ✅ |
-| Cost tracking | ✅ Per team/agent/model | ❌ | ❌ | ⚠️ Project-level |
-| Org registry | ✅ | ❌ | ❌ | ❌ |
-| Multi-agent orchestration | ✅ 6 strategies | ❌ | ❌ | ⚠️ Limited |
-| MCP native | ✅ | ❌ | ❌ | ❌ |
-| Open source | ✅ Apache 2.0 | ✅ | ✅ | ❌ |
-| Vendor lock-in | None | N/A | LangChain | Google Cloud |
+**It's not the same category.**
+
+Agent SDKs help you **build** an agent. AgentBreeder helps you **ship, govern, and operate** it. You use them together — not instead of each other.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        What you do today                            │
+│                                                                     │
+│   LangGraph / CrewAI / Mastra / OpenAI Agents / Claude SDK          │
+│   ──────────────────────────────────────────────────────────         │
+│   Build the agent            ✅  Great at this                      │
+│   Deploy it somewhere        🤷  You figure it out                  │
+│   Track who deployed what    🤷  You figure it out                  │
+│   Control who can deploy     🤷  You figure it out                  │
+│   Track costs per team       🤷  You figure it out                  │
+│   Audit every deploy         🤷  You figure it out                  │
+│   Discover agents across org 🤷  You figure it out                  │
+│   Multi-cloud portability    🤷  You figure it out                  │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                     What changes with AgentBreeder                  │
+│                                                                     │
+│   LangGraph / CrewAI / Mastra / OpenAI Agents / Claude SDK          │
+│                          +                                          │
+│                    AgentBreeder                                     │
+│   ──────────────────────────────────────────────────────────         │
+│   Build the agent            ✅  Your SDK does this (unchanged)     │
+│   Deploy it somewhere        ✅  `agentbreeder deploy` — any cloud  │
+│   Track who deployed what    ✅  Automatic audit trail              │
+│   Control who can deploy     ✅  RBAC validated before build starts │
+│   Track costs per team       ✅  Per team / agent / model           │
+│   Audit every deploy         ✅  Every deploy logged                │
+│   Discover agents across org ✅  Org-wide searchable registry      │
+│   Multi-cloud portability    ✅  Same YAML → AWS, GCP, or local    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Think of it this way:**
+
+| Analogy | Build tool | Ship/Operate tool |
+|---------|-----------|-------------------|
+| Code | You write Python | Docker + Kubernetes deploys it |
+| Infrastructure | Terraform defines it | CI/CD ships it |
+| **Agents** | **LangGraph / CrewAI / Mastra builds it** | **AgentBreeder ships and governs it** |
+
+AgentBreeder is to agents what **Docker + Kubernetes is to microservices** — the deployment, orchestration, and operations layer. Your agent framework is the application; AgentBreeder is the platform.
+
+### The real comparison
+
+| | Agent SDKs | Agent Platforms | AgentBreeder |
+|---|---|---|---|
+| | LangGraph, CrewAI, Mastra, OpenAI Agents, Claude SDK, Google ADK | Vertex AI Agent Builder, Amazon Bedrock Agents, Azure AI Agent Service | |
+| **Purpose** | Build agents | Build + deploy (their way) | Ship + govern + operate (any agent, any cloud) |
+| **Framework lock-in** | ✅ You're locked in | ✅ You're locked in | ❌ Bring any framework |
+| **Cloud lock-in** | N/A | ✅ Their cloud only | ❌ AWS, GCP, local, K8s |
+| **Works with your existing agents** | N/A | ❌ Rewrite required | ✅ Wrap in `agent.yaml`, deploy |
+| **Governance** | ❌ Not their problem | ⚠️ Partial, platform-specific | ✅ RBAC, audit, cost — automatic |
+| **Org-wide registry** | ❌ | ❌ | ✅ Every deploy auto-registered |
+| **Cost attribution** | ❌ | ⚠️ Project-level | ✅ Per team / agent / model |
+| **Multi-agent orchestration** | ⚠️ Framework-specific | ⚠️ Limited | ✅ 6 strategies, cross-framework |
+| **MCP native** | ⚠️ Varies | ❌ | ✅ Hub + sidecar injection |
+| **Open source** | ✅ Most are | ❌ All proprietary | ✅ Apache 2.0 |
+| **Vendor lock-in** | Framework | Cloud vendor | **None** |
+
+### vs. Managed Agent Platforms (detailed)
+
+Every cloud vendor now has an agent platform. They all share the same tradeoff: **convenience in exchange for lock-in.** AgentBreeder gives you the convenience without the lock-in.
+
+| | AWS Bedrock Agents | Vertex AI Agent Builder | Azure AI Agent Service | Databricks AgentBricks | Claude Managed Agents | AgentBreeder |
+|---|---|---|---|---|---|---|
+| **Cloud** | AWS only | GCP only | Azure only | Databricks only | Anthropic only | Any cloud + local |
+| **Frameworks** | Bedrock SDK | Vertex SDK / ADK | Azure SDK | Mosaic Agent Framework | Claude SDK | LangGraph, CrewAI, OpenAI, Claude, ADK, custom |
+| **Bring your own agent code** | ❌ Rewrite in their SDK | ❌ Rewrite in their SDK | ❌ Rewrite in their SDK | ❌ Rewrite in their SDK | ❌ Claude only | ✅ Any framework, wrap in YAML |
+| **Multi-cloud deploy** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ Same config → any target |
+| **Migrate away** | Painful (SDK lock-in) | Painful (SDK lock-in) | Painful (SDK lock-in) | Painful (platform lock-in) | Painful (API lock-in) | Trivial (it's your code + YAML) |
+| **RBAC** | IAM (AWS-specific) | IAM (GCP-specific) | RBAC (Azure-specific) | Unity Catalog | API keys | Framework-agnostic RBAC |
+| **Cost tracking** | CloudWatch + Cost Explorer | GCP Billing | Azure Cost Management | DBU tracking | Usage dashboard | Built-in: per team / agent / model |
+| **Org-wide registry** | ❌ | ❌ | ❌ | Unity Catalog (models) | ❌ | ✅ Agents, tools, prompts, models |
+| **Multi-agent orchestration** | Step Functions (manual) | Limited | Limited | Limited | Tool use (single agent) | 6 strategies (router, sequential, parallel, hierarchical, supervisor, fan-out) |
+| **MCP support** | ❌ | ❌ | ❌ | ❌ | ✅ Native | ✅ Hub + sidecar injection |
+| **Open source** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ Apache 2.0 |
+| **Data residency** | Their cloud | Their cloud | Their cloud | Their platform | Their API | **Your infrastructure** |
+| **Pricing** | Pay per invocation + hosting | Pay per invocation + hosting | Pay per invocation + hosting | DBU consumption | Pay per token | Free (you pay your own cloud costs) |
+
+**The pattern:** Every managed platform wants you to rewrite your agent in their SDK, deploy to their cloud, and pay their markup. When you want to switch, you rewrite everything.
+
+**AgentBreeder's position:** Your agent code stays yours. Your cloud stays yours. Your data stays yours. AgentBreeder is the deploy + governance layer that works across all of them.
+
+### What AgentBreeder is NOT
+
+- **Not a replacement for LangGraph.** Use LangGraph to build your agent's logic. Use AgentBreeder to deploy, govern, and operate it.
+- **Not a replacement for CrewAI.** Build your crew in CrewAI. Ship it with AgentBreeder.
+- **Not a replacement for Mastra.** Build your TypeScript agent in Mastra. Wrap it in `agent.yaml`. Deploy it anywhere.
+- **Not competing with Bedrock / Vertex / Azure.** They're managed services. AgentBreeder is open-source infrastructure. Different model, different tradeoffs.
+- **Not another agent framework.** We don't have opinions about how you build agents. We have opinions about how you ship them responsibly.
+- **Not a managed service.** It's open-source infrastructure you run. No vendor lock-in. No data leaves your cloud.
 
 ---
 
