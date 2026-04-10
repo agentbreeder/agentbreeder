@@ -60,6 +60,30 @@ jobs:
           JWT_SECRET_KEY: test-jwt-secret-for-ci
         run: pytest tests/unit/ -v
 
+  # ── Build SDK package ───────────────────────────────────────────────────────
+  build-sdk:
+    name: Build SDK Package
+    runs-on: ubuntu-latest
+    needs: pre-release-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build SDK wheel and sdist
+        run: |
+          pip install build
+          cd sdk/python && python -m build
+      - name: Verify SDK package
+        run: |
+          pip install twine
+          twine check sdk/python/dist/*
+      - name: Upload SDK build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-dist
+          path: sdk/python/dist/
+
   # ── Build Python package ─────────────────────────────────────────────────────
   build-python:
     name: Build Python Package
@@ -103,6 +127,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -119,6 +149,8 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/api:${{ steps.version.outputs.version }}
             ghcr.io/${{ github.repository }}/api:latest
+            agentbreeder/api:${{ steps.version.outputs.version }}
+            agentbreeder/api:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -131,6 +163,20 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/dashboard:${{ steps.version.outputs.version }}
             ghcr.io/${{ github.repository }}/dashboard:latest
+            agentbreeder/dashboard:${{ steps.version.outputs.version }}
+            agentbreeder/dashboard:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push CLI image
+        uses: docker/build-push-action@v6
+        with:
+          file: ./Dockerfile.cli
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            agentbreeder/cli:${{ steps.version.outputs.version }}
+            agentbreeder/cli:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -138,7 +184,7 @@ jobs:
   github-release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-python, build-images]
+    needs: [build-python, build-sdk, build-images]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -175,11 +221,30 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
 
+  # ── Publish SDK to PyPI ─────────────────────────────────────────────────────
+  publish-sdk-pypi:
+    name: Publish SDK to PyPI
+    runs-on: ubuntu-latest
+    needs: github-release
+    environment:
+      name: pypi
+      url: https://pypi.org/project/agentbreeder-sdk/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download SDK dist
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-dist
+          path: dist/
+      - name: Publish SDK to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
   # ── Publish to PyPI ──────────────────────────────────────────────────────────
   publish-pypi:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    needs: github-release
+    needs: [github-release, publish-sdk-pypi]
     environment:
       name: pypi
       url: https://pypi.org/project/agentbreeder/
@@ -194,3 +259,19 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  # ── Update Homebrew tap ──────────────────────────────────────────────────────
+  update-homebrew:
+    name: Update Homebrew Tap
+    runs-on: ubuntu-latest
+    needs: publish-pypi
+    steps:
+      - name: Wait for PyPI propagation
+        run: sleep 30
+      - name: Update Homebrew formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: agentbreeder
+          homebrew-tap: open-agent-garden/homebrew-agentbreeder
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
