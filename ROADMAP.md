@@ -19,6 +19,8 @@
 | **v1.2** | Marketplace | Community templates, ratings, one-click deploy | M21–M22 | Done |
 | **v1.3** | Enterprise | Additional SDKs (ADK, CrewAI, Claude), model catalog, SSO, AgentOps + Full Code orchestration SDK | M24–M27, M31 | In Progress (M24, M26, M27 Done, M31 Done — M25 remaining) |
 | **v1.4** | Distribution | PyPI packages, Docker Hub images, Homebrew tap, release automation | M32 | In Progress (code complete, infra setup remaining) |
+| **v1.5** | Multi-Cloud | AWS ECS Fargate, Azure Container Apps, and general Kubernetes deployers | M33 | Planned |
+| **v1.6** | Framework Depth | Complete all 4 missing runtime builders + LangGraph/OpenAI Agents feature depth + runtime tracing | M34 | Planned |
 
 ---
 
@@ -1865,23 +1867,35 @@ Each example is a complete, working agent with `agent.yaml`, source code, `requi
 | **LangGraph / DeepAgent** | `examples/langgraph-agent/` (exists) | `engine/runtimes/langgraph.py` (exists) | P0 (v0.3) | Largest community, complex graph model proves runtime abstraction |
 | **OpenAI Agents SDK** | `examples/openai-agents-agent/` | `engine/runtimes/openai_agents.py` | P0 (v0.3) | Largest enterprise footprint, simple model contrasts LangGraph |
 
-#### Next SDKs (v1.3)
+#### Next SDKs (v1.3 → M25, tracked in #35–#38)
 
-| SDK | Example | Runtime Builder | Priority | Notes |
-|-----|---------|----------------|----------|-------|
-| **Google ADK** | `examples/google-adk-agent/` | `engine/runtimes/google_adk.py` | P1 | Strong contender, growing fast with Gemini adoption |
-| **CrewAI** | `examples/crewai-agent/` | `engine/runtimes/crewai.py` | P2 | Popular for multi-agent, but narrower use case |
-| **Claude SDK** | `examples/claude-sdk-agent/` | `engine/runtimes/claude_sdk.py` | P2 | Excellent SDK, smaller market share currently |
+| SDK | Example | Runtime Builder | Priority | Issue | Notes |
+|-----|---------|----------------|----------|-------|-------|
+| **CrewAI** | `examples/crewai-agent/` | `engine/runtimes/crewai.py` | **P1** | [#35](https://github.com/open-agent-garden/agentbreeder/issues/35) | 25k+ stars; sequential + hierarchical crews |
+| **Claude SDK** | `examples/claude-sdk-agent/` | `engine/runtimes/claude_sdk.py` | **P1** | [#36](https://github.com/open-agent-garden/agentbreeder/issues/36) | Anthropic-native; streaming + tool use required |
+| **Google ADK** | `examples/google-adk-agent/` | `engine/runtimes/google_adk.py` | **P1** | [#37](https://github.com/open-agent-garden/agentbreeder/issues/37) | Gemini-native; natural pairing with GCP Cloud Run |
+| **Custom (BYOF)** | via init scaffold | `engine/runtimes/custom.py` | **P2** | [#38](https://github.com/open-agent-garden/agentbreeder/issues/38) | BYO Dockerfile or thin wrapper; bridge for unsupported frameworks |
 
-#### Later SDKs (post v1.3)
+#### Feature Depth Gaps — Existing Runtimes (v1.6 → M34)
 
-| SDK | Notes |
-|-----|-------|
-| Pydantic AI | When adoption grows |
-| Mastra (TypeScript) | Requires TS runtime builder |
-| Strands | AWS-native agent framework |
-| AutoGen | Microsoft multi-agent |
-| Custom | Any Python agent with HTTP interface |
+| Gap | Runtime | Priority | Issue | Notes |
+|-----|---------|----------|-------|-------|
+| Subgraphs, HITL breakpoints, persistence checkpointers | LangGraph | **P1** | [#39](https://github.com/open-agent-garden/agentbreeder/issues/39) | Core LangGraph production features; `PostgresSaver` for stateful agents |
+| Agent handoffs, nested agent patterns | OpenAI Agents | **P1** | [#40](https://github.com/open-agent-garden/agentbreeder/issues/40) | Primary value prop of OAI Agents SDK; `HandoffOutputItem` handling |
+| Per-framework OTel tracing (LLM calls, tool use, agent steps) | All runtimes | **P1** | [#41](https://github.com/open-agent-garden/agentbreeder/issues/41) | Required for AgentOps dashboard and cost attribution to work at runtime |
+
+#### Later SDKs (post v1.6)
+
+| SDK | Priority | Notes |
+|-----|----------|-------|
+| **AutoGen v0.4** | P1 | Microsoft; async-first multi-agent; huge enterprise footprint |
+| **Pydantic AI** | P1 | Type-safe; fastest growing; natural fit for FastAPI stack |
+| **Strands** | P2 | AWS-native; natural pairing with M33 AWS ECS deployer |
+| **Smolagents** | P2 | Hugging Face code agents; popular for OSS/research |
+| **Haystack** | P3 | deepset; production RAG + agent pipelines |
+| **Semantic Kernel** | P3 | Microsoft; primary SDK for .NET enterprise shops |
+| **LlamaIndex Workflows** | P3 | Event-driven agent architecture; distinct from their RAG layer |
+| **Mastra (TypeScript)** | P3 | Requires TS runtime builder |
 
 #### 13.1 — Examples (v0.3 — ship with 2 SDKs)
 - [x] `examples/langgraph-agent/` — LangGraph / DeepAgent (polish existing)
@@ -1892,13 +1906,20 @@ Each example is a complete, working agent with `agent.yaml`, source code, `requi
 - [x] Each runtime: Dockerfile generation, dependency resolution, entrypoint config
 - [x] Integration test per runtime: build container, start, verify `/health` responds
 
-#### 13.3 — Additional SDKs (v1.3)
-- [ ] `examples/google-adk-agent/` — Google Agent Development Kit
-- [ ] `examples/crewai-agent/` — CrewAI multi-agent crew
-- [ ] `examples/claude-sdk-agent/` — Anthropic Claude SDK (tool use)
-- [ ] `engine/runtimes/google_adk.py` — Google ADK runtime builder
-- [ ] `engine/runtimes/crewai.py` — CrewAI runtime builder
-- [ ] `engine/runtimes/claude_sdk.py` — Claude SDK runtime builder
+#### 13.3 — Additional SDKs (M25 — v1.3 remaining work)
+- [ ] `engine/runtimes/crewai.py` — CrewAI runtime builder ([#35](https://github.com/open-agent-garden/agentbreeder/issues/35))
+- [ ] `engine/runtimes/templates/crewai_server.py` — CrewAI FastAPI server template
+- [ ] `engine/runtimes/claude_sdk.py` — Claude SDK runtime builder ([#36](https://github.com/open-agent-garden/agentbreeder/issues/36))
+- [ ] `engine/runtimes/templates/claude_sdk_server.py` — Claude SDK server template (streaming + tool use)
+- [ ] `engine/runtimes/google_adk.py` — Google ADK runtime builder ([#37](https://github.com/open-agent-garden/agentbreeder/issues/37))
+- [ ] `engine/runtimes/templates/google_adk_server.py` — Google ADK server template (ADC auth)
+- [ ] `engine/runtimes/custom.py` — Custom (BYOF) runtime builder ([#38](https://github.com/open-agent-garden/agentbreeder/issues/38))
+- [ ] `engine/runtimes/templates/custom_server.py` — thin wrapper for BYO agents
+- [ ] `examples/crewai-agent/` — CrewAI multi-agent crew example
+- [ ] `examples/claude-sdk-agent/` — Anthropic Claude SDK example (tool use + streaming)
+- [ ] `examples/google-adk-agent/` — Google Agent Development Kit example
+- [ ] Unit tests for all 4 new runtimes (≥95% coverage on changed files)
+- [ ] Integration test stubs for all 4 new runtimes
 
 ---
 
@@ -2209,15 +2230,18 @@ Elevate MCP from "tool connector" to a managed server hub with lifecycle managem
 
 #### Deployer Priority (post v1.3, in order)
 
-| Priority | Target | Notes |
-|----------|--------|-------|
-| **P1** | Databricks Apps / Lakebase | Deploy agents as Databricks Apps; Lakebase for state/vector storage |
-| **P1** | AI Gateway (LiteLLM/Portkey) | Centralized model routing, cost tracking, fallback chains |
-| **P2** | AWS ECS Fargate | Task def, ECS service, ALB, IAM, auto-scaling |
-| **P2** | AWS Lambda | Lightweight/event-driven agents, API Gateway |
-| **P3** | AWS EKS | Helm chart, IRSA, HPA + KEDA |
-| **P3** | Google GKE | GKE Autopilot, Workload Identity |
-| **P4** | Oracle OKE | Oracle Kubernetes Engine |
+| Priority | Target | Milestone | Notes |
+|----------|--------|-----------|-------|
+| **P1** | Databricks Apps / Lakebase | Post v1.5 | Deploy agents as Databricks Apps; Lakebase for state/vector storage |
+| **P1** | AI Gateway (LiteLLM/Portkey) | Post v1.5 | Centralized model routing, cost tracking, fallback chains |
+| **P1** | AWS ECS Fargate | **M33** | Task def, ECS service, ALB, IAM, auto-scaling — tracked in #34 |
+| **P1** | Azure Container Apps | **M33** | Azure-native serverless containers, ACR, Managed Identity — tracked in #34 |
+| **P1** | Kubernetes (general) | **M33** | Works across EKS, GKE, AKS, k3s; `Deployment` + `Service` + `HPA` — tracked in #34 |
+| **P2** | AWS Lambda | Post v1.5 | Lightweight/event-driven agents, API Gateway |
+| **P3** | AWS EKS | M33 (via K8s deployer) | Routed via `--target eks` to the Kubernetes deployer |
+| **P3** | Google GKE | M33 (via K8s deployer) | Routed via `--target gke` to the Kubernetes deployer |
+| **P3** | Azure AKS | M33 (via K8s deployer) | Routed via `--target aks` to the Kubernetes deployer |
+| **P4** | Oracle OKE | Post v1.5 | Oracle Kubernetes Engine |
 
 ### M24: Model Gateway & Model Support
 
@@ -2487,7 +2511,7 @@ These are intentionally deferred indefinitely:
 - Custom model hosting / serving (use vLLM, TrueFoundry, etc.)
 - Full RLHF/PPO training pipelines (post v1.3 — see Tier 4 in Builder spec)
 - Mobile app
-- Azure deployer (community contribution welcome post-v1.3)
+- ~~Azure deployer (community contribution welcome post-v1.3)~~ → **now planned in M33 (v1.5)**
 - Chat interface for end-users (we build the platform, not the consumer UI)
 
 ---
@@ -2618,5 +2642,171 @@ Align all public-facing names:
 
 ---
 
+## Milestone M33 — Multi-Cloud Deployers
+
+**Release:** v1.5 (Multi-Cloud)
+**Theme:** Make AgentBreeder genuinely multi-cloud by implementing AWS ECS Fargate, Azure Container Apps, and general Kubernetes deployers.
+**Status:** Planned
+**GitHub Issue:** [#34](https://github.com/open-agent-garden/agentbreeder/issues/34)
+
+### Background
+
+AgentBreeder's core promise is "Multi-cloud first — AWS and GCP as equal first-class targets." Currently only GCP Cloud Run is implemented. `cloud: aws` crashes at runtime with a `KeyError`. `cloud: azure` fails YAML validation. `cloud: kubernetes` silently deploys to local Docker instead of a real cluster.
+
+### M33.1 — AWS ECS Fargate Deployer
+
+- [ ] `engine/deployers/aws_ecs.py` — `AWSECSDeployer(BaseDeployer)`
+- [ ] `provision()`: create ECR repo if absent; resolve ECS cluster; return expected ALB URL
+- [ ] `deploy()`: build + push image to ECR; register ECS task definition; create/update ECS service; wait for service stability
+- [ ] `health_check()`: poll `/health` on ALB endpoint with readiness backoff
+- [ ] `teardown()`: delete ECS service + deregister task definitions
+- [ ] `get_logs()`: CloudWatch Logs via `boto3.client("logs").filter_log_events()`
+- [ ] Config from `deploy.env_vars`: `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_ECS_CLUSTER`, `AWS_EXECUTION_ROLE_ARN`, `AWS_VPC_SUBNETS`, `AWS_SECURITY_GROUPS`
+- [ ] Lazy import: `ImportError` with `pip install agentbreeder[aws]` hint if `boto3` missing
+- [ ] `--target ecs-fargate` and `--target aws` both route to this deployer
+
+### M33.2 — Azure Container Apps Deployer
+
+- [ ] Add `azure = "azure"` to `CloudType` enum in `engine/config_parser.py`
+- [ ] `engine/deployers/azure_container_apps.py` — `AzureContainerAppsDeployer(BaseDeployer)`
+- [ ] `provision()`: create ACR if absent; create Container Apps environment if absent
+- [ ] `deploy()`: push image to ACR; create/update Container App revision
+- [ ] `health_check()`: poll `/health` on Container App FQDN
+- [ ] `teardown()`: delete Container App; optionally purge ACR image
+- [ ] `get_logs()`: Log Analytics workspace query via `azure-monitor-query`
+- [ ] Config: `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_LOCATION`, `AZURE_CONTAINER_APPS_ENV`, `AZURE_REGISTRY_SERVER`
+- [ ] Lazy import: `ImportError` with `pip install agentbreeder[azure]` hint
+- [ ] `--target azure` and `--target container-apps` both route to this deployer
+
+### M33.3 — General Kubernetes Deployer
+
+- [ ] `engine/deployers/kubernetes.py` — `KubernetesDeployer(BaseDeployer)`
+- [ ] `provision()`: resolve kubeconfig; create `agentbreeder` namespace if absent
+- [ ] `deploy()`: apply `Deployment` manifest; apply `Service`; apply `HPA` if `deploy.scaling` is set; wait for rollout
+- [ ] `health_check()`: port-forward to `/health` or check via Service ClusterIP
+- [ ] `teardown()`: delete `Deployment`, `Service`, `HPA`, `ConfigMap`
+- [ ] `get_logs()`: `CoreV1Api.read_namespaced_pod_log()`
+- [ ] Config: `K8S_NAMESPACE` (default: `agentbreeder`), `K8S_CONTEXT`, `K8S_IMAGE_PULL_SECRET`
+- [ ] Lazy import: `ImportError` with `pip install agentbreeder[kubernetes]` hint
+- [ ] `--target kubernetes`, `--target eks`, `--target gke`, `--target aks` all route to this deployer
+- [ ] Works across EKS, GKE, AKS, k3s, kind, and self-managed clusters
+
+### M33.4 — Wiring + Optional Deps
+
+- [ ] Register new deployers in `engine/deployers/__init__.py` DEPLOYERS + RUNTIME_DEPLOYERS dicts
+- [ ] Add `[aws]`, `[azure]`, `[kubernetes]`, `[all-clouds]` optional dep groups to `pyproject.toml`
+- [ ] Update `engine/schema/agent.schema.json` cloud enum to include `"azure"`
+- [ ] Update `--target` help text in `cli/commands/deploy.py` to accurately list all supported values
+
+### M33.5 — Tests
+
+- [ ] `tests/unit/test_deployers_aws.py` — mock boto3; cover provision, deploy, health_check, teardown, get_logs, ImportError, missing config validation
+- [ ] `tests/unit/test_deployers_azure.py` — mock azure-sdk; same coverage pattern
+- [ ] `tests/unit/test_deployers_kubernetes.py` — mock kubernetes client; namespace creation, deployment apply, rollout wait, teardown
+- [ ] `tests/unit/test_config_parser.py` — add `azure` to valid CloudType values test
+- [ ] `tests/unit/test_deploy_engine.py` — add routing tests: aws → AWSECSDeployer, azure → AzureContainerAppsDeployer, kubernetes → KubernetesDeployer
+- [ ] `tests/integration/test_deploy_pipeline.py` — pipeline integration stubs with mocked cloud SDKs for all three new targets
+
+### M33 Acceptance Criteria
+
+- [ ] `agentbreeder deploy agent.yaml --target aws` completes end-to-end against a real AWS account
+- [ ] `agentbreeder deploy agent.yaml --target azure` completes end-to-end against a real Azure subscription
+- [ ] `agentbreeder deploy agent.yaml --target kubernetes` deploys to the active kubeconfig context
+- [ ] `agentbreeder validate agent.yaml` accepts `cloud: azure` without errors
+- [ ] Missing cloud SDK raises a clear `ImportError` with the correct `pip install` hint
+- [ ] All new deployers have unit test coverage ≥95% on changed files
+- [ ] Gate workflow passes: lint, typecheck, tests, security scan all clean
+
+---
+
+## Milestone M34 — Framework Depth & Runtime Tracing
+
+**Release:** v1.6 (Framework Depth)
+**Theme:** Close all feature gaps in existing runtimes and wire up per-agent observability so the AgentOps dashboard and cost tracking work end-to-end for deployed agents.
+**Status:** Planned
+**GitHub Issues:** [#39](https://github.com/open-agent-garden/agentbreeder/issues/39) [#40](https://github.com/open-agent-garden/agentbreeder/issues/40) [#41](https://github.com/open-agent-garden/agentbreeder/issues/41)
+
+### Background
+
+LangGraph and OpenAI Agents SDK are the two fully implemented runtimes. Both deploy and run agents, but both are missing the features that make them production-grade: LangGraph's HITL and persistence, OpenAI Agents SDK's handoffs, and runtime-side OTel tracing for all frameworks. Without the tracing work specifically, the AgentOps dashboard and cost tracking produce no data for running agents.
+
+### M34.1 — LangGraph: Subgraphs, HITL, and Persistence
+
+**Issue:** [#39](https://github.com/open-agent-garden/agentbreeder/issues/39) | **Priority: P1**
+
+- [ ] **Checkpointer auto-selection** in `langgraph_server.py`:
+  - `MemorySaver` when `DATABASE_URL` is not set (dev/local)
+  - `AsyncPostgresSaver` when `DATABASE_URL` is set (production)
+  - `checkpointer.setup()` called on startup to create LangGraph's checkpoint tables
+- [ ] **Thread ID support**: accept `config.thread_id` in `/invoke` request; generate and return one if not provided
+- [ ] **HITL interrupt detection**: return `{"status": "interrupted", "thread_id": "...", "awaiting": "..."}` instead of hanging when graph hits `interrupt_before`
+- [ ] **`/resume` endpoint**: accept `thread_id` + `human_input`; resume graph via `Command(resume=...)`
+- [ ] **Subgraph support**: validated natively by LangGraph compiled graphs; add validation warning if user's `agent.py` returns an uncompiled `StateGraph`
+- [ ] Add `langgraph-checkpoint-postgres` to requirements when `DATABASE_URL` is set
+- [ ] Update `agent.yaml` spec docs: `DATABASE_URL` in `deploy.env_vars` enables stateful agents
+- [ ] Unit tests: checkpointer selection, `/resume` endpoint, thread_id in response, HITL interrupt status
+- [ ] Integration test: stateful LangGraph agent with `MemorySaver`
+
+### M34.2 — OpenAI Agents SDK: Handoffs and Nested Agents
+
+**Issue:** [#40](https://github.com/open-agent-garden/agentbreeder/issues/40) | **Priority: P1**
+
+- [ ] **`HandoffOutputItem` extraction** in `openai_agents_server.py`: unwrap `RunResult.new_items` to find the final agent's text output
+- [ ] **Response schema update**: `/invoke` returns `{"output": "...", "agent": "<name>", "handoffs": [...]}`  — additive, backwards compatible
+- [ ] **Explicit API key init**: call `set_default_openai_key(os.environ["OPENAI_API_KEY"])` on startup to prevent nested runner context loss
+- [ ] **`/stream` SSE endpoint**: `Runner.run_streamed()` emitting `AgentUpdatedStreamEvent` on handoffs
+- [ ] **Nested agent support**: document `.as_tool()` pattern works after explicit key init; validation warning for ambiguous entry points
+- [ ] Unit tests: HandoffOutputItem extraction, last_agent in response, handoffs list, set_default_openai_key on startup
+- [ ] Integration test: handoff from triage agent to specialist agent
+
+### M34.3 — Per-Framework Runtime Tracing
+
+**Issue:** [#41](https://github.com/open-agent-garden/agentbreeder/issues/41) | **Priority: P1**
+
+- [ ] `engine/runtimes/templates/_tracing.py` — shared OTel init utility:
+  - `MemorySaver` / no-op tracer when `OPENTELEMETRY_ENDPOINT` not set (zero breakage for existing deploys)
+  - `BatchSpanProcessor` + `OTLPSpanExporter` when endpoint is set
+- [ ] **LangGraph server**: wrap `/invoke` in root span; extract token counts from LangChain callback; emit `agent.name`, `agent.version`, `llm.model`, `llm.token_count.input`, `llm.token_count.output` span attributes
+- [ ] **OpenAI Agents server**: wire `agents.tracing` to OTel exporter; emit same standard span attributes
+- [ ] **Deployers**: inject `OPENTELEMETRY_ENDPOINT` into every agent container as a platform default (not requiring user config in `agent.yaml`)
+  - `engine/deployers/docker_compose.py` — inject from platform config
+  - `engine/deployers/gcp_cloudrun.py` — inject as Cloud Run env var
+- [ ] **Trace ID propagation**: pass `trace_id` through A2A calls so distributed traces span multiple agents
+- [ ] **Cost attribution**: forward `llm.token_count.*` span attributes to cost tracking service
+- [ ] Unit tests: OTel init with/without endpoint, span attributes correctness, OPENTELEMETRY_ENDPOINT in container env
+- [ ] Update `.env.example` with `OPENTELEMETRY_ENDPOINT` and clear documentation comment
+
+### M34 Acceptance Criteria
+
+- [ ] Stateful LangGraph agent retains conversation history across calls via `thread_id`
+- [ ] `MemorySaver` used without `DATABASE_URL`; `PostgresSaver` used with it
+- [ ] Agent with `interrupt_before` returns `{"status": "interrupted"}` instead of hanging
+- [ ] `/resume` endpoint correctly resumes a paused LangGraph graph
+- [ ] OpenAI Agents handoff routes to specialist agent and surfaces it in `/invoke` response
+- [ ] Nested agents using `.as_tool()` work without auth errors
+- [ ] LangGraph and OpenAI Agents deploys emit OTel spans visible in `GET /api/v1/tracing`
+- [ ] Each span includes `agent.name`, `agent.version`, `llm.model`, `llm.token_count.*`
+- [ ] `OPENTELEMETRY_ENDPOINT` not set → agents still deploy and run (no regression)
+- [ ] Gate workflow passes for all changes
+
+---
+
+## Execution Plan — Next 3 Releases
+
+| Release | Milestone | Theme | Key Work | Issues | Est. |
+|---------|-----------|-------|----------|--------|------|
+| **v1.3** | M25 | Complete Enterprise SDK support | CrewAI, Claude SDK, Google ADK, Custom runtime builders | [#35](https://github.com/open-agent-garden/agentbreeder/issues/35) [#36](https://github.com/open-agent-garden/agentbreeder/issues/36) [#37](https://github.com/open-agent-garden/agentbreeder/issues/37) [#38](https://github.com/open-agent-garden/agentbreeder/issues/38) | ~3d |
+| **v1.4** | M32 | Distribution | PyPI/Docker Hub/Homebrew infra setup (code done) | — | ~1d |
+| **v1.5** | M33 | Multi-Cloud | AWS ECS, Azure Container Apps, Kubernetes deployers | [#34](https://github.com/open-agent-garden/agentbreeder/issues/34) | ~5d |
+| **v1.6** | M34 | Framework Depth | LangGraph HITL+persistence, OAI Agents handoffs, runtime OTel tracing | [#39](https://github.com/open-agent-garden/agentbreeder/issues/39) [#40](https://github.com/open-agent-garden/agentbreeder/issues/40) [#41](https://github.com/open-agent-garden/agentbreeder/issues/41) | ~5d |
+
+**Recommended sequencing rationale:**
+- M25 first — unblocks users who picked CrewAI/Claude SDK/ADK in the init wizard today
+- M32 finishes in parallel (manual infra tasks, no coding)
+- M33 next — multi-cloud is the #1 product differentiator gap
+- M34 last — improves depth of existing runtimes; high value but not a blocker to new users
+
+---
+
 *Last updated: April 10, 2026*
-*Status: v0.1–v1.2 complete (M1–M23). v1.3 in progress — M24 (Model Gateway), M26 (AgentOps dashboard), M27 (Production Hardening), and M31 (Full Code Orchestration SDK) are done. Remaining: M25 (SSO/secrets management). v1.4 in progress — M32 (Package Distribution & Release Automation): all code complete, remaining items are manual infrastructure setup (PyPI registration, Docker Hub org, Homebrew tap repo, GitHub Secrets).*
+*Status: v0.1–v1.2 complete (M1–M23). v1.3 in progress — M24 (Model Gateway), M26 (AgentOps dashboard), M27 (Production Hardening), M31 (Full Code Orchestration SDK) done; M25 (additional SDK runtime builders) remaining — tracked in #35–#38. v1.4 in progress — M32 (Package Distribution): code complete, manual infra setup remaining. v1.5 planned — M33 (Multi-Cloud Deployers: AWS ECS, Azure Container Apps, Kubernetes) tracked in #34. v1.6 planned — M34 (Framework Depth: LangGraph HITL+persistence, OAI Agents handoffs, runtime OTel tracing) tracked in #39–#41.*
