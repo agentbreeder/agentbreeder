@@ -194,7 +194,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build API image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
@@ -203,7 +203,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build Dashboard image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./dashboard
           push: false
@@ -212,7 +212,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build CLI image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           file: ./Dockerfile.cli
           push: false

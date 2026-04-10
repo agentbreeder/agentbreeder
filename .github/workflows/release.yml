@@ -141,7 +141,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -155,7 +155,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Dashboard image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./dashboard
           push: true
@@ -169,7 +169,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push CLI image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           file: ./Dockerfile.cli
           push: true
