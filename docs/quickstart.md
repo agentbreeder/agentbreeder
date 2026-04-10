@@ -1,141 +1,201 @@
 # Quickstart Guide
 
-Get AgentBreeder running locally in under 10 minutes.
+Get AgentBreeder running in under 10 minutes.
 
 ---
 
-## Prerequisites
+## Install
 
-- Python 3.11+
-- Node.js 22+
-- Docker & Docker Compose
-- Git
+Choose one:
 
----
+=== "PyPI (recommended)"
 
-## 1. Clone & Install
+    ```bash
+    pip install agentbreeder
+    ```
+
+=== "Homebrew"
+
+    ```bash
+    brew tap open-agent-garden/agentbreeder
+    brew install agentbreeder
+    ```
+
+=== "Docker"
+
+    ```bash
+    docker pull rajits/agentbreeder-cli
+    ```
+
+=== "From source"
+
+    ```bash
+    git clone https://github.com/open-agent-garden/agentbreeder.git
+    cd agentbreeder
+    python -m venv venv && source venv/bin/activate
+    pip install -e ".[dev]"
+    ```
+
+Verify:
 
 ```bash
-git clone git@github.com:open-agent-garden/agentbreeder.git
+agentbreeder --help
+```
+
+---
+
+## Create Your First Agent
+
+```bash
+agentbreeder init
+```
+
+The interactive wizard asks 5 questions:
+
+1. **Framework** — LangGraph, OpenAI Agents, Claude SDK, CrewAI, Google ADK, or Custom
+2. **Cloud target** — Local, AWS, GCP, or Kubernetes
+3. **Agent name** — lowercase with hyphens (e.g., `support-agent`)
+4. **Team** — your team name
+5. **Owner email** — who is responsible
+
+It generates a ready-to-run project:
+
+```
+my-agent/
+├── agent.yaml          # Configuration — the only file AgentBreeder needs
+├── agent.py            # Working agent code for your chosen framework
+├── requirements.txt    # Python dependencies
+├── .env.example        # Environment variable template
+└── README.md           # Getting started guide
+```
+
+---
+
+## Validate
+
+```bash
+cd my-agent
+agentbreeder validate agent.yaml
+```
+
+This runs three checks:
+
+1. **YAML syntax** — is the file valid YAML?
+2. **JSON Schema** — do all fields match the [agent.yaml spec](agent-yaml.md)?
+3. **Semantic validation** — is the framework supported? Is the team valid?
+
+---
+
+## Deploy Locally
+
+```bash
+agentbreeder deploy agent.yaml --target local
+```
+
+This triggers the 8-step atomic pipeline:
+
+```
+✅  YAML parsed & validated
+✅  RBAC check passed
+✅  Dependencies resolved
+✅  Container built (langgraph runtime)
+✅  Deployed to Docker Compose
+✅  Health check passed
+✅  Registered in org registry
+✅  Endpoint returned
+```
+
+If any step fails, the entire deploy rolls back. No partial deploys.
+
+---
+
+## Verify It's Running
+
+```bash
+# Check deploy status
+agentbreeder status
+
+# Tail the logs
+agentbreeder logs my-agent --follow
+
+# Chat with your agent
+agentbreeder chat my-agent
+```
+
+---
+
+## Deploy to the Cloud
+
+```bash
+# GCP Cloud Run
+agentbreeder deploy agent.yaml --target cloud-run --region us-central1
+
+# AWS ECS (coming soon)
+agentbreeder deploy agent.yaml --target aws --region us-east-1
+```
+
+---
+
+## Run the Full Platform Locally
+
+If you want the dashboard, registry, and API server running locally:
+
+```bash
+git clone https://github.com/open-agent-garden/agentbreeder.git
 cd agentbreeder
 
-# Python
 python -m venv venv && source venv/bin/activate
 pip install -e ".[dev]"
+cp .env.example .env
 
-# Dashboard
-cd dashboard && npm install && cd ..
-```
-
-## 2. Start the Stack
-
-```bash
+# Start postgres + redis + API + dashboard
 docker compose -f deploy/docker-compose.yml up -d
 ```
-
-This starts PostgreSQL, Redis, the API server, and the dashboard.
 
 | Service   | URL                        |
 |-----------|----------------------------|
 | Dashboard | http://localhost:3001       |
 | API       | http://localhost:8000       |
 | API Docs  | http://localhost:8000/docs  |
-| Health    | http://localhost:8000/health|
 
-## 3. Login
-
-A default admin account is created on first startup:
+Default login:
 
 | Field    | Value                        |
 |----------|------------------------------|
 | Email    | `admin@agentbreeder.local`   |
-| Password | `changeme`                   |
+| Password | `plant`                      |
 | Role     | Admin                        |
-| Team     | AgentBreeder Platform        |
 
-> **Change the default password** before exposing this to a network. This account is for local development only.
+!!! warning
+    Change the default password before exposing this to a network.
 
-## 4. Create Your First Agent
+---
 
-```bash
-agentbreeder init
-```
+## Use Local Models with Ollama
 
-Follow the interactive wizard to scaffold a new agent project. It will create:
-- `agent.yaml` — agent configuration
-- `agent.py` — working example agent
-- `requirements.txt` — Python dependencies
-- `.env.example` — environment template
-
-## 5. Validate & Deploy
-
-```bash
-# Validate the config
-agentbreeder validate
-
-# Deploy locally
-agentbreeder deploy --target local
-
-# Deploy to GCP Cloud Run
-agentbreeder deploy --target cloud-run --region us-central1
-```
-
-### Local models with Ollama
-
-For local development without cloud API keys, AgentBreeder supports [Ollama](https://ollama.com) via the provider abstraction layer. Set your model to an Ollama-hosted model and the engine routes requests locally:
+No cloud API keys? Use [Ollama](https://ollama.com) for fully local development:
 
 ```yaml
+# agent.yaml
 model:
   primary: ollama/llama3
   gateway: ollama
 ```
 
-Start Ollama before deploying:
 ```bash
 ollama serve &
 ollama pull llama3
-agentbreeder deploy --target local
+agentbreeder deploy agent.yaml --target local
 ```
-
-## 6. Verify
-
-```bash
-# Check status
-agentbreeder status
-
-# View logs
-agentbreeder logs <agent-name> --follow
-
-# Browse the dashboard
-open http://localhost:3001
-```
-
----
-
-## CLI Commands
-
-| Command            | Description                              |
-|--------------------|------------------------------------------|
-| `agentbreeder init`      | Scaffold a new agent project             |
-| `agentbreeder validate`  | Validate agent.yaml without deploying    |
-| `agentbreeder deploy`    | Deploy an agent                          |
-| `agentbreeder list`      | List agents/tools/models/prompts         |
-| `agentbreeder describe`  | Show detail for a registry entity        |
-| `agentbreeder search`    | Search across the registry               |
-| `agentbreeder logs`      | Tail logs from a deployed agent          |
-| `agentbreeder status`    | Show deploy status                       |
-| `agentbreeder teardown`  | Remove a deployed agent                  |
-| `agentbreeder scan`      | Discover MCP servers and LiteLLM models  |
-| `agentbreeder chat`      | Interactive chat with a deployed agent    |
-| `agentbreeder submit`    | Submit a resource for review (create PR)  |
-| `agentbreeder review`    | Review, approve, or reject pull requests  |
-| `agentbreeder publish`   | Merge approved PR and publish to registry |
-| `agentbreeder provider`  | Manage LLM provider connections           |
 
 ---
 
 ## Next Steps
 
-- Browse the [CLI Reference](cli-reference.md)
-- Read the [agent.yaml spec](agent-yaml.md)
-- Check the [ROADMAP](../ROADMAP.md) for what's coming
+| What | Where |
+|------|-------|
+| All CLI commands | [CLI Reference](cli-reference.md) |
+| Every agent.yaml field | [agent.yaml Reference](agent-yaml.md) |
+| Multi-agent pipelines | [Orchestration Guide](how-to.md#orchestrate-multiple-agents) |
+| Common workflows | [How-To Guide](how-to.md) |
+| Migrate from another framework | [Migration Guides](migrations/OVERVIEW.md) |

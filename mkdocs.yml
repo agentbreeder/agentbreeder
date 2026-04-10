@@ -68,6 +68,7 @@ nav:
   - Home: index.md
   - Getting Started:
       - Quickstart: quickstart.md
+      - How-To Guide: how-to.md
       - Local Development: local-development.md
   - Reference:
       - CLI Reference: cli-reference.md
