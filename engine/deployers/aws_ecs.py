@@ -230,6 +230,7 @@ class AWSECSDeployer(BaseDeployer):
             msg = "Docker SDK not installed. Run: pip install docker"
             raise ImportError(msg) from e
 
+        assert self._aws_config is not None, "provision() must be called before _push_image()"
         aws = self._aws_config
         ecr = self._get_boto3_client("ecr")
 
@@ -319,7 +320,9 @@ class AWSECSDeployer(BaseDeployer):
                 "logDriver": "awslogs",
                 "options": {
                     "awslogs-group": f"/agentbreeder/{config.name}",
-                    "awslogs-region": self._aws_config.region,
+                    "awslogs-region": (
+                        self._aws_config.region if self._aws_config else DEFAULT_REGION
+                    ),
                     "awslogs-stream-prefix": "ecs",
                     "awslogs-create-group": "true",
                 },
@@ -336,6 +339,9 @@ class AWSECSDeployer(BaseDeployer):
     async def _register_task_definition(self, config: AgentConfig, image_uri: str) -> str:
         """Register an ECS task definition and return its ARN."""
         ecs = self._get_boto3_client("ecs")
+        assert self._aws_config is not None, (
+            "provision() must be called before _register_task_definition()"
+        )
         aws = self._aws_config
 
         resources = config.deploy.resources
@@ -375,6 +381,9 @@ class AWSECSDeployer(BaseDeployer):
     async def _create_or_update_service(self, config: AgentConfig, task_def_arn: str) -> None:
         """Create a new ECS service or update an existing one."""
         ecs = self._get_boto3_client("ecs")
+        assert self._aws_config is not None, (
+            "provision() must be called before _create_or_update_service()"
+        )
         aws = self._aws_config
 
         network_config = {

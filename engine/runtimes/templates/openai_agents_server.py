@@ -157,7 +157,9 @@ async def _run_agent(input_text: str, config: dict[str, Any]) -> InvokeResponse:
 async def stream(request: InvokeRequest) -> StreamingResponse:
     """Stream agent output using SSE. Emits events on agent updates and handoffs."""
 
-    async def event_stream():
+    from collections.abc import AsyncIterator
+
+    async def event_stream() -> AsyncIterator[str]:
         from agents import Runner
 
         result = Runner.run_streamed(_agent, request.input)

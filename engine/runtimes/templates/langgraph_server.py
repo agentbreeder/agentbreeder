@@ -60,7 +60,7 @@ def _get_checkpointer() -> Any:
     if database_url:
         try:
             from langgraph.checkpoint.postgres.aio import (
-                AsyncPostgresSaver,  # type: ignore[import]
+                AsyncPostgresSaver,
             )
 
             checkpointer = AsyncPostgresSaver.from_conn_string(database_url)
@@ -72,7 +72,7 @@ def _get_checkpointer() -> Any:
                 "Falling back to MemorySaver."
             )
 
-    from langgraph.checkpoint.memory import MemorySaver  # type: ignore[import]
+    from langgraph.checkpoint.memory import MemorySaver
 
     logger.info("Using MemorySaver checkpointer (no DATABASE_URL)")
     return MemorySaver()
@@ -95,7 +95,7 @@ def _load_agent() -> Any:
             # Warn if an uncompiled StateGraph is exported — AgentBreeder will compile it
             # but the user may lose custom compilation options.
             try:
-                from langgraph.graph import StateGraph  # type: ignore[import]
+                from langgraph.graph import StateGraph
 
                 if isinstance(obj, StateGraph):
                     logger.warning(
@@ -146,7 +146,7 @@ async def startup() -> None:
     # Compile the graph with the checkpointer only when it is still a StateGraph.
     # If agent.py already exported a compiled graph, compile() won't be present.
     try:
-        from langgraph.graph import StateGraph  # type: ignore[import]
+        from langgraph.graph import StateGraph
 
         if isinstance(raw_agent, StateGraph):
             logger.info("Compiling StateGraph with checkpointer...")
@@ -216,7 +216,7 @@ async def resume(request: ResumeRequest) -> InvokeResponse:
 
     config = {"configurable": {"thread_id": request.thread_id}}
     try:
-        from langgraph.types import Command  # type: ignore[import]
+        from langgraph.types import Command
 
         result = await _agent.ainvoke(Command(resume=request.human_input), config=config)
         return InvokeResponse(output=result, thread_id=request.thread_id)
