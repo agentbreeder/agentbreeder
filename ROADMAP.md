@@ -17,10 +17,10 @@
 | **v1.0** | GA | Eval framework, golden datasets, regression detection, CI gates, feedback loop + orchestration YAML | M18, M29 | Done |
 | **v1.1** | Connectivity | A2A protocol, MCP server hub, multi-agent orchestration + visual orchestration canvas + TS SDK | M19–M20, M30 | Done |
 | **v1.2** | Marketplace | Community templates, ratings, one-click deploy | M21–M22 | Done |
-| **v1.3** | Enterprise | Additional SDKs (ADK, CrewAI, Claude), model catalog, SSO, AgentOps + Full Code orchestration SDK | M24–M27, M31 | In Progress (M24, M26, M27 Done, M31 Done — M25 remaining) |
+| **v1.3** | Enterprise | Additional SDKs (ADK, CrewAI, Claude), model catalog, SSO, AgentOps + Full Code orchestration SDK | M24–M27, M31 | Done |
 | **v1.4** | Distribution | PyPI packages, Docker Hub images, Homebrew tap, release automation | M32 | In Progress (code complete, infra setup remaining) |
-| **v1.5** | Multi-Cloud | AWS ECS Fargate, Azure Container Apps, and general Kubernetes deployers | M33 | Planned |
-| **v1.6** | Framework Depth | Complete all 4 missing runtime builders + LangGraph/OpenAI Agents feature depth + runtime tracing | M34 | Planned |
+| **v1.5** | Multi-Cloud | AWS ECS Fargate, Azure Container Apps, and general Kubernetes deployers | M33 | Done |
+| **v1.6** | Framework Depth | Complete all 4 missing runtime builders + LangGraph/OpenAI Agents feature depth + runtime tracing | M34 | Done |
 
 ---
 
