@@ -122,17 +122,16 @@ jobs:
         run: |
           coverage report --fail-under=75
 
-  test-e2e:
-    name: E2E Tests
+  # ── Mocked E2E (fast, no backend needed) ────────────────────────────────────
+  test-e2e-mocked:
+    name: E2E Tests (Mocked)
     runs-on: ubuntu-latest
     needs: [lint-python, lint-frontend]
+    defaults:
+      run:
+        working-directory: dashboard
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
 
       - uses: actions/setup-node@v4
         with:
@@ -140,8 +139,81 @@ jobs:
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
 
-      - name: Install Python dependencies
-        run: pip install -e ".[dev]"
+      - run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run mocked E2E tests
+        run: npx playwright test --config=playwright.config.ts
+        env:
+          CI: "true"
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-mocked-report
+          path: dashboard/playwright-report/
+          retention-days: 7
+
+  # ── Docker E2E (real stack) ──────────────────────────────────────────────────
+  test-e2e-docker:
+    name: E2E Tests (Docker)
+    runs-on: ubuntu-latest
+    needs: [test-python]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        run: |
+          docker build -t agentbreeder-api:e2e . 2>&1 | tail -5
+
+      - name: Build Dashboard image
+        run: |
+          docker build -t agentbreeder-dashboard:e2e ./dashboard 2>&1 | tail -5
+
+      - name: Start full stack
+        run: |
+          IMAGE_API=agentbreeder-api:e2e \
+          IMAGE_DASHBOARD=agentbreeder-dashboard:e2e \
+          docker compose \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.e2e.yml \
+            -p e2e \
+            up -d --wait \
+            postgres redis migrate api dashboard
+        timeout-minutes: 5
+
+      - name: Wait for API health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health; then
+              echo "API is healthy"
+              break
+            fi
+            echo "Attempt $i/30 — waiting..."
+            sleep 5
+          done
+          curl -sf http://localhost:8000/health || (echo "API never became healthy" && exit 1)
+
+      - name: Wait for dashboard
+        run: |
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:3001 > /dev/null; then
+              echo "Dashboard is up"
+              break
+            fi
+            sleep 3
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: dashboard
@@ -151,28 +223,38 @@ jobs:
         working-directory: dashboard
         run: npx playwright install --with-deps chromium
 
-      - name: Build frontend
+      - name: Run Docker E2E tests
         working-directory: dashboard
-        run: npm run build
-
-      - name: Run E2E tests
-        working-directory: dashboard
+        run: npx playwright test --config=playwright.docker.config.ts
         env:
-          GARDEN_ENV: test
-        run: npx playwright test
+          PLAYWRIGHT_DOCKER_BASE_URL: http://localhost:3001
 
-      - name: Upload test artifacts
+      - name: Show docker logs on failure
         if: failure()
+        run: |
+          docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.e2e.yml -p e2e logs --tail=100
+
+      - name: Upload Playwright report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-docker-report
           path: dashboard/playwright-report/
           retention-days: 7
+
+      - name: Tear down stack
+        if: always()
+        run: |
+          docker compose \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.e2e.yml \
+            -p e2e \
+            down -v --remove-orphans
 
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [test-python]
+    needs: [test-python, test-e2e-mocked]
     steps:
       - uses: actions/checkout@v4
 
