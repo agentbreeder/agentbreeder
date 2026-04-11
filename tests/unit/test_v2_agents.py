@@ -237,15 +237,13 @@ class TestBatchRegisterAgentsV2:
 
         call_count = [0]
 
-        async def mock_create(agent_create, created_by):
+        async def mock_register(db, config, endpoint_url=""):
             call_count[0] += 1
             if call_count[0] == 1:
                 return created_agent
             raise ValueError("Name already taken")
 
-        with patch("registry.agents.AgentRegistry") as MockRegistry:
-            instance = MockRegistry.return_value
-            instance.create = mock_create
+        with patch("registry.agents.AgentRegistry.register", side_effect=mock_register):
             mock_db.commit = AsyncMock()
 
             payload = [
