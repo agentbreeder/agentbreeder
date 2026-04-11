@@ -23,7 +23,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install ruff mypy types-redis types-PyYAML pydantic
+        run: pip install ruff mypy types-redis types-PyYAML pydantic fastapi starlette
 
       - name: Ruff check
         run: ruff check .
@@ -173,7 +173,7 @@ jobs:
         run: |
           docker build -t agentbreeder-dashboard:e2e ./dashboard 2>&1 | tail -5
 
-      - name: Start full stack
+      - name: Start DB and cache
         run: |
           IMAGE_API=agentbreeder-api:e2e \
           IMAGE_DASHBOARD=agentbreeder-dashboard:e2e \
@@ -182,8 +182,30 @@ jobs:
             -f deploy/docker-compose.e2e.yml \
             -p e2e \
             up -d --wait \
-            postgres redis migrate api dashboard
-        timeout-minutes: 5
+            postgres redis
+        timeout-minutes: 3
+
+      - name: Run migrations
+        run: |
+          IMAGE_API=agentbreeder-api:e2e \
+          docker compose \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.e2e.yml \
+            -p e2e \
+            run --rm migrate
+        timeout-minutes: 2
+
+      - name: Start API and dashboard
+        run: |
+          IMAGE_API=agentbreeder-api:e2e \
+          IMAGE_DASHBOARD=agentbreeder-dashboard:e2e \
+          docker compose \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.e2e.yml \
+            -p e2e \
+            up -d --wait \
+            api dashboard
+        timeout-minutes: 3
 
       - name: Wait for API health
         run: |
