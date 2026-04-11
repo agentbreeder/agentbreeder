@@ -145,8 +145,6 @@ jobs:
 
       - name: Run mocked E2E tests
         run: npx playwright test --config=playwright.config.ts
-        env:
-          CI: "true"
 
       - name: Upload test artifacts
         if: failure()
