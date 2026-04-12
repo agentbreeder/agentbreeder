@@ -67,7 +67,7 @@ AgentBreeder supports three ways to build agents and orchestrations. All three c
 
 ## Key Features
 
-- **Framework-agnostic** — LangGraph and OpenAI Agents implemented; CrewAI, Claude SDK, Google ADK planned
+- **Framework-agnostic** — LangGraph, OpenAI Agents, CrewAI, Claude SDK, Google ADK, and Custom frameworks supported
 - **Multi-cloud** — GCP Cloud Run and local Docker Compose implemented; AWS ECS and Kubernetes planned
 - **Governance as a side effect** — RBAC, cost attribution, audit trail, and registry registration happen automatically on every `agentbreeder deploy`
 - **Shared org registry** — agents, prompts, tools/MCP servers, models, knowledge bases all in one place
@@ -78,21 +78,31 @@ AgentBreeder supports three ways to build agents and orchestrations. All three c
 
 ## Quick Start
 
+**Python (CLI + full platform):**
+
 ```bash
-# Install
 pip install agentbreeder
-
-# Create an agent
 agentbreeder init
-
-# Validate the config
 agentbreeder validate
-
-# Deploy locally
 agentbreeder deploy --target local
-
-# Chat with your agent
 agentbreeder chat my-agent
+```
+
+**TypeScript / JavaScript (SDK only):**
+
+```bash
+npm install @agentbreeder/sdk
+```
+
+```typescript
+import { Agent } from "@agentbreeder/sdk";
+
+const agent = new Agent("customer-support", { version: "1.0.0", team: "eng" })
+  .withModel({ primary: "claude-sonnet-4", fallback: "gpt-4o" })
+  .withTool({ ref: "tools/zendesk-mcp" })
+  .withDeploy({ cloud: "aws", region: "us-east-1" });
+
+agent.toYaml("agent.yaml");
 ```
 
 See the [Quickstart guide](quickstart.md) for the full setup.
@@ -103,10 +113,11 @@ See the [Quickstart guide](quickstart.md) for the full setup.
 
 | Layer | Implemented | Planned |
 |-------|-------------|---------|
-| Frameworks | LangGraph, OpenAI Agents SDK | CrewAI, Claude SDK, Google ADK, Custom |
+| Frameworks | LangGraph, OpenAI Agents, CrewAI, Claude SDK, Google ADK, Custom | — |
 | Cloud targets | GCP Cloud Run, Local Docker Compose | AWS ECS Fargate, Kubernetes |
 | LLM providers | Anthropic, OpenAI, Google, Ollama, LiteLLM, OpenRouter | — |
 | Secrets backends | env, AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault | — |
+| SDKs | Python (`agentbreeder-sdk`), TypeScript (`@agentbreeder/sdk`) | — |
 | Auth | JWT + OAuth2, RBAC | SSO / SAML |
 | Observability | OpenTelemetry, distributed tracing, cost monitoring | — |
 
@@ -123,5 +134,6 @@ See the [Quickstart guide](quickstart.md) for the full setup.
 | [agent.yaml](agent-yaml.md) | Full agent configuration reference |
 | [orchestration.yaml](orchestration-yaml.md) | Multi-agent pipeline configuration |
 | [Orchestration SDK](orchestration-sdk.md) | Python/TypeScript SDK for complex workflows |
+| [TypeScript SDK](https://www.npmjs.com/package/@agentbreeder/sdk) | `npm install @agentbreeder/sdk` — JS/TS agent definitions |
 | [Migration Guides](migrations/OVERVIEW.md) | Migrate from LangGraph, CrewAI, OpenAI Agents, AutoGen |
 | [API Stability](api-stability.md) | API versioning and deprecation policy |

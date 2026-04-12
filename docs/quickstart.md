@@ -27,6 +27,22 @@ Choose one:
     docker pull rajits/agentbreeder-cli
     ```
 
+=== "npm (TypeScript / JavaScript)"
+
+    ```bash
+    npm install @agentbreeder/sdk
+    ```
+
+    ```typescript
+    import { Agent } from "@agentbreeder/sdk";
+
+    const agent = new Agent("my-agent", { version: "1.0.0", team: "eng" })
+      .withModel({ primary: "claude-sonnet-4", fallback: "gpt-4o" })
+      .withDeploy({ cloud: "aws", region: "us-east-1" });
+
+    agent.toYaml("agent.yaml");
+    ```
+
 === "From source"
 
     ```bash

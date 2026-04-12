@@ -321,8 +321,18 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           npm version "$VERSION" --no-git-tag-version
 
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
       - name: Publish to npm
-        run: npm publish --access public
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if npm view "@agentbreeder/sdk@${VERSION}" version 2>/dev/null; then
+            echo "Version ${VERSION} already published on npm, skipping."
+          else
+            npm publish --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
