@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -420,8 +421,12 @@ class TestInitTracing:
         # Simulate the file standalone (it's a template — not in a package)
         import os
 
-        spec_path = (
-            "/Users/rajit/personal-github/agentbreeder/engine/runtimes/templates/_tracing.py"
+        spec_path = str(
+            Path(__file__).resolve().parent.parent.parent
+            / "engine"
+            / "runtimes"
+            / "templates"
+            / "_tracing.py"
         )
         import importlib.util
 
@@ -439,8 +444,12 @@ class TestInitTracing:
         import importlib.util
         import os
 
-        spec_path = (
-            "/Users/rajit/personal-github/agentbreeder/engine/runtimes/templates/_tracing.py"
+        spec_path = str(
+            Path(__file__).resolve().parent.parent.parent
+            / "engine"
+            / "runtimes"
+            / "templates"
+            / "_tracing.py"
         )
         spec = importlib.util.spec_from_file_location("_tracing2", spec_path)
         mod = importlib.util.module_from_spec(spec)
@@ -456,8 +465,12 @@ class TestInitTracing:
         import importlib.util
         import os
 
-        spec_path = (
-            "/Users/rajit/personal-github/agentbreeder/engine/runtimes/templates/_tracing.py"
+        spec_path = str(
+            Path(__file__).resolve().parent.parent.parent
+            / "engine"
+            / "runtimes"
+            / "templates"
+            / "_tracing.py"
         )
         spec = importlib.util.spec_from_file_location("_tracing3", spec_path)
         mod = importlib.util.module_from_spec(spec)
@@ -494,8 +507,12 @@ class TestInitTracing:
     def test_noop_span_protocol(self):
         import importlib.util
 
-        spec_path = (
-            "/Users/rajit/personal-github/agentbreeder/engine/runtimes/templates/_tracing.py"
+        spec_path = str(
+            Path(__file__).resolve().parent.parent.parent
+            / "engine"
+            / "runtimes"
+            / "templates"
+            / "_tracing.py"
         )
         spec = importlib.util.spec_from_file_location("_tracing4", spec_path)
         mod = importlib.util.module_from_spec(spec)
@@ -511,8 +528,12 @@ class TestInitTracing:
     def test_noop_tracer_methods(self):
         import importlib.util
 
-        spec_path = (
-            "/Users/rajit/personal-github/agentbreeder/engine/runtimes/templates/_tracing.py"
+        spec_path = str(
+            Path(__file__).resolve().parent.parent.parent
+            / "engine"
+            / "runtimes"
+            / "templates"
+            / "_tracing.py"
         )
         spec = importlib.util.spec_from_file_location("_tracing5", spec_path)
         mod = importlib.util.module_from_spec(spec)
