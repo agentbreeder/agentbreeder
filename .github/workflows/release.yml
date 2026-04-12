@@ -53,7 +53,7 @@ jobs:
 
       - name: Run unit tests
         env:
-          DATABASE_URL: postgresql://agentbreeder:agentbreeder@localhost:5432/agentbreeder_test
+          DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@localhost:5432/agentbreeder_test
           REDIS_URL: redis://localhost:6379
           SECRET_KEY: test-secret-key-for-ci
           GARDEN_ENV: test
