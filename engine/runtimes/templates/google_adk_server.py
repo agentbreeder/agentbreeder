@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -21,29 +22,10 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("agentbreeder.agent")
 
-app = FastAPI(
-    title="AgentBreeder Agent",
-    description="Deployed by AgentBreeder",
-    version=os.getenv("AGENT_VERSION", "0.1.0"),
-)
-
-
-class InvokeRequest(BaseModel):
-    input: str
-    session_id: Optional[str] = None  # pass to maintain conversation history
-    config: Optional[dict[str, Any]] = None
-
-
-class InvokeResponse(BaseModel):
-    output: Any
-    session_id: str  # echo back so caller can continue conversation
-    metadata: Optional[dict[str, Any]] = None
-
-
-class HealthResponse(BaseModel):
-    status: str
-    agent_name: str
-    version: str
+# Module-level singletons — initialized once at startup, reused for all requests
+_agent = None
+_runner = None
+_session_service = None
 
 
 def _load_agent() -> Any:
@@ -66,14 +48,9 @@ def _load_agent() -> Any:
     raise AttributeError(msg)
 
 
-# Module-level singletons — initialized once at startup, reused for all requests
-_agent = None
-_runner = None
-_session_service = None
-
-
-@app.on_event("startup")
-async def startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # noqa: ARG001
+    """FastAPI lifespan context manager for startup and shutdown."""
     global _agent, _runner, _session_service  # noqa: PLW0603
     logger.info("Loading Google ADK agent...")
     _agent = _load_agent()
@@ -115,6 +92,35 @@ async def startup() -> None:
         session_service=_session_service,
     )
     logger.info("Google ADK agent loaded successfully (app_name=%s)", app_name)
+
+    yield
+    # shutdown code (if needed in the future)
+
+
+app = FastAPI(
+    title="AgentBreeder Agent",
+    description="Deployed by AgentBreeder",
+    version=os.getenv("AGENT_VERSION", "0.1.0"),
+    lifespan=lifespan,
+)
+
+
+class InvokeRequest(BaseModel):
+    input: str
+    session_id: Optional[str] = None  # pass to maintain conversation history
+    config: Optional[dict[str, Any]] = None
+
+
+class InvokeResponse(BaseModel):
+    output: Any
+    session_id: str  # echo back so caller can continue conversation
+    metadata: Optional[dict[str, Any]] = None
+
+
+class HealthResponse(BaseModel):
+    status: str
+    agent_name: str
+    version: str
 
 
 @app.get("/health", response_model=HealthResponse)
