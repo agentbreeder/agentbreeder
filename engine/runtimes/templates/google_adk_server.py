@@ -135,7 +135,6 @@ def _build_memory_service(cfg: dict) -> Any:  # type: ignore[type-arg]
         logger.info("Using VertexAiRagMemoryService (corpus=%s)", rag_corpus)
         return VertexAiRagMemoryService(rag_corpus=rag_corpus)
     else:
-        from google.adk.sessions import InMemorySessionService as _Dummy  # noqa: F401
         # Return None — Runner accepts None for optional memory_service
         logger.info("Using default (no) MemoryService")
         return None
