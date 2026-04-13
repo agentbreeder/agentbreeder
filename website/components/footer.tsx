@@ -50,7 +50,8 @@ export function Footer() {
                   href={href}
                   className="mb-2 block text-[13px] no-underline transition-colors"
                   style={{ color: 'var(--text-muted)' }}
-                  {...(href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                  target={href.startsWith('http') ? '_blank' : undefined}
+                  rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
                 >
                   {label}
                 </Link>

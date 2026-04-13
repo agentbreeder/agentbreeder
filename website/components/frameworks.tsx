@@ -8,7 +8,7 @@ export function Frameworks() {
     >
       <span
         className="flex-shrink-0 text-xs tracking-wide"
-        style={{ color: 'var(--text-dim)', letterSpacing: '0.3px' }}
+        style={{ color: 'var(--text-dim)' }}
       >
         Works with every major framework
       </span>
