@@ -43,8 +43,34 @@ class HealthResponse(BaseModel):
     version: str
 
 
+def _detect_mode(agent_module: Any) -> tuple[str, Any]:
+    """Return (mode, object) for the agent module.
+
+    Prefers `flow` over `crew` when both are present.
+    Raises RuntimeError if neither attribute is found.
+    """
+    if hasattr(agent_module, "flow"):
+        return "flow", agent_module.flow
+    if hasattr(agent_module, "crew"):
+        return "crew", agent_module.crew
+    raise RuntimeError(
+        "Agent module exposes neither 'flow' nor 'crew' attribute. "
+        "Define one of: flow = MyFlow(), crew = Crew(...)"
+    )
+
+
+async def _dispatch(obj: Any, mode: str, input_data: dict[str, Any]) -> str:
+    """Dispatch an invocation to either a Flow or a Crew."""
+    if mode == "flow":
+        result = await obj.kickoff_async(inputs=input_data)
+        return str(result)
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, lambda: obj.kickoff(inputs=input_data))
+    return str(result)
+
+
 def _load_agent() -> Any:
-    """Dynamically load the CrewAI crew from crew.py or agent.py."""
+    """Dynamically load the CrewAI crew or flow from crew.py or agent.py."""
     sys.path.insert(0, "/app")
 
     # Try crew.py first, then agent.py
@@ -54,9 +80,21 @@ def _load_agent() -> Any:
         except ImportError:
             continue
 
-        # Look for crew attr first, then agent, then app
+        # Try flow/crew detection first
+        try:
+            _mode_val, obj = _detect_mode(module)
+            # Also set module-level _mode and _agent_obj
+            globals()["_mode"] = _mode_val
+            globals()["_agent_obj"] = obj
+            return obj
+        except RuntimeError:
+            pass
+
+        # Fallback: look for crew attr first, then agent, then app
         for attr_name in ("crew", "agent", "app"):
             if hasattr(module, attr_name):
+                globals()["_mode"] = "crew"
+                globals()["_agent_obj"] = getattr(module, attr_name)
                 return getattr(module, attr_name)
 
     msg = (
@@ -69,6 +107,9 @@ def _load_agent() -> Any:
 # Load crew at startup
 _crew = None
 _crewai_tools: list = []
+_mode: str = "crew"
+_agent_obj: Any = None
+_output_schema: dict[str, Any] | None = None
 
 
 async def startup() -> None:
