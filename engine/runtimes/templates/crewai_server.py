@@ -156,6 +156,7 @@ async def stream(request: InvokeRequest) -> StreamingResponse:
 async def _stream_crew(input_data: dict[str, Any]) -> Any:
     """Async generator that yields SSE-formatted strings for each CrewAI step."""
     queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
 
     def _step_callback(step_output: Any) -> None:
         payload: dict[str, Any] = {}
@@ -163,7 +164,7 @@ async def _stream_crew(input_data: dict[str, Any]) -> Any:
             payload["task"] = step_output.task.description
         if hasattr(step_output, "result"):
             payload["result"] = str(step_output.result)
-        queue.put_nowait(("step", payload))
+        loop.call_soon_threadsafe(queue.put_nowait, ("step", payload))
 
     _DONE = object()
 
@@ -192,8 +193,9 @@ async def _stream_crew(input_data: dict[str, Any]) -> Any:
             yield f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
         yield "data: [DONE]\n\n"
     finally:
-        task.cancel()
+        if not task.done():
+            task.cancel()
         try:
             await task
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, Exception):
             pass

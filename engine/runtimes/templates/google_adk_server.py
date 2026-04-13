@@ -156,7 +156,7 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
 @app.post("/stream")
 async def stream(request: InvokeRequest) -> StreamingResponse:
     """Stream Google ADK execution as Server-Sent Events."""
-    if _agent is None or _runner is None:
+    if _agent is None or _runner is None or _session_service is None:
         raise HTTPException(status_code=503, detail="Agent not loaded yet")
     return StreamingResponse(
         _stream_agent_sse(request.input, request.session_id, request.config or {}),

@@ -118,5 +118,28 @@ class TestCrewAIStreamEndpoint:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/stream", json={"input": {"q": "test"}})
         assert response.status_code == 200
+        assert "event: result" in response.text
         assert "data: [DONE]" in response.text
+        srv._crew = None
+
+    @pytest.mark.asyncio
+    async def test_stream_emits_error_event_on_exception(self):
+        """If akickoff raises, /stream must emit an error event then [DONE]."""
+        srv = _import_server()
+
+        async def fail_akickoff(inputs, callbacks=None, step_callback=None, **kwargs):
+            raise RuntimeError("crew exploded")
+
+        mock_crew = MagicMock()
+        mock_crew.akickoff = fail_akickoff
+        srv._crew = mock_crew
+
+        transport = ASGITransport(app=srv.app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/stream", json={"input": {}})
+
+        body = response.text
+        assert "event: error" in body
+        assert "crew exploded" in body
+        assert "data: [DONE]" in body
         srv._crew = None

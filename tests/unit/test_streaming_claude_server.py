@@ -156,6 +156,37 @@ class TestClaudeStreamEndpoint:
         srv._agent = None
 
     @pytest.mark.asyncio
+    async def test_stream_emits_error_event_on_exception(self):
+        """If messages.stream() raises, /stream must emit an error event then [DONE]."""
+        import anthropic as _anthropic_mod
+
+        srv = _import_server()
+        mock_client = MagicMock(spec=_anthropic_mod.AsyncAnthropic)
+
+        class _FailStream:
+            async def __aenter__(self):
+                raise RuntimeError("anthropic exploded")
+            async def __aexit__(self, *args):
+                pass
+            def __aiter__(self):
+                return self
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        mock_client.messages = MagicMock()
+        mock_client.messages.stream = MagicMock(return_value=_FailStream())
+        srv._agent = mock_client
+
+        transport = ASGITransport(app=srv.app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/stream", json={"input": "hello"})
+
+        body = response.text
+        assert "error" in body
+        assert "data: [DONE]" in body
+        srv._agent = None
+
+    @pytest.mark.asyncio
     async def test_stream_respects_agent_max_tokens_env(self, monkeypatch):
         srv = _import_server()
         monkeypatch.setenv("AGENT_MAX_TOKENS", "4096")

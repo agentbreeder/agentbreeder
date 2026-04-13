@@ -155,3 +155,35 @@ class TestADKStreamEndpoint:
                     json.loads(payload)
         srv._agent = None
         srv._runner = None
+
+    @pytest.mark.asyncio
+    async def test_stream_emits_error_event_on_exception(self):
+        """If run_async raises, /stream must emit an error event then [DONE]."""
+        srv = _import_server()
+        mock_agent = MagicMock()
+        mock_runner = MagicMock()
+
+        async def failing_run_async(*args, **kwargs):
+            raise RuntimeError("adk exploded")
+            yield  # make it an async generator
+
+        mock_runner.run_async = failing_run_async
+        srv._agent = mock_agent
+        srv._runner = mock_runner
+
+        mock_ss = MagicMock()
+        mock_ss.get_session = AsyncMock(return_value=None)
+        mock_ss.create_session = AsyncMock(return_value=MagicMock(id="err-session"))
+        srv._session_service = mock_ss
+
+        transport = ASGITransport(app=srv.app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/stream", json={"input": "fail me"})
+
+        body = response.text
+        assert "error" in body
+        assert "data: [DONE]" in body
+
+        srv._agent = None
+        srv._runner = None
+        srv._session_service = None
