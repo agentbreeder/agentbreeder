@@ -420,6 +420,65 @@
           "description": "Streaming mode for RunConfig"
         }
       }
+    },
+    "claude_sdk": {
+      "type": "object",
+      "description": "Claude SDK advanced configuration (only applies when framework: claude_sdk)",
+      "additionalProperties": false,
+      "properties": {
+        "thinking": {
+          "type": "object",
+          "description": "Adaptive thinking configuration (Opus 4.6 / Sonnet 4.6)",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable adaptive thinking"
+            },
+            "effort": {
+              "type": "string",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "default": "high",
+              "description": "Thinking effort level"
+            }
+          }
+        },
+        "prompt_caching": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-inject cache_control on long system prompts"
+        },
+        "routing": {
+          "type": "object",
+          "description": "Provider routing (Anthropic direct, Vertex AI, or AWS Bedrock)",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "anthropic",
+                "vertex_ai",
+                "bedrock"
+              ],
+              "default": "anthropic",
+              "description": "Which provider endpoint to route to"
+            },
+            "project_id": {
+              "type": "string",
+              "description": "GCP project ID (required for vertex_ai)"
+            },
+            "region": {
+              "type": "string",
+              "description": "Cloud region (required for vertex_ai and bedrock)"
+            }
+          }
+        }
+      }
     }
   }
 }

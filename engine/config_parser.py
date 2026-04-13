@@ -120,6 +120,23 @@ class GuardrailConfig(BaseModel):
     endpoint: str | None = None
 
 
+class ClaudeSDKThinkingConfig(BaseModel):
+    enabled: bool = False
+    effort: str = "high"  # "high" | "medium" | "low"  (adaptive mode for Opus 4.6 / Sonnet 4.6)
+
+
+class ClaudeSDKRoutingConfig(BaseModel):
+    provider: str = "anthropic"  # "anthropic" | "vertex_ai" | "bedrock"
+    project_id: str | None = None   # GCP project ID (required for vertex_ai)
+    region: str | None = None       # Cloud region (required for vertex_ai / bedrock)
+
+
+class ClaudeSDKConfig(BaseModel):
+    thinking: ClaudeSDKThinkingConfig = Field(default_factory=ClaudeSDKThinkingConfig)
+    prompt_caching: bool = False
+    routing: ClaudeSDKRoutingConfig = Field(default_factory=ClaudeSDKRoutingConfig)
+
+
 class CrewAIConfig(BaseModel):
     """Optional CrewAI-specific configuration block."""
 
@@ -212,6 +229,7 @@ class AgentConfig(BaseModel):
     access: AccessConfig = Field(default_factory=AccessConfig)
     crewai: CrewAIConfig | None = None
     google_adk: GoogleADKConfig | None = None
+    claude_sdk: ClaudeSDKConfig = Field(default_factory=ClaudeSDKConfig)
 
     @field_validator("name")
     @classmethod

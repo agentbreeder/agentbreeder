@@ -138,7 +138,7 @@ class ClaudeSDKRuntime(RuntimeBuilder):
 
     def get_requirements(self, config: AgentConfig) -> list[str]:
         return [
-            "anthropic>=0.40.0",
+            "anthropic>=0.50.0",
             "fastapi>=0.110.0",
             "uvicorn[standard]>=0.27.0",
             "httpx>=0.27.0",
