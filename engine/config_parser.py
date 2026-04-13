@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import jsonschema
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from ruamel.yaml import YAML
 
 SCHEMA_PATH = Path(__file__).parent / "schema" / "agent.schema.json"
@@ -144,6 +144,52 @@ class CrewAIConfig(BaseModel):
         return v
 
 
+class ADKSessionBackend(enum.StrEnum):
+    memory = "memory"
+    database = "database"
+    vertex_ai = "vertex_ai"
+
+
+class ADKMemoryService(enum.StrEnum):
+    memory = "memory"
+    vertex_ai_bank = "vertex_ai_bank"
+    vertex_ai_rag = "vertex_ai_rag"
+
+
+class ADKArtifactService(enum.StrEnum):
+    memory = "memory"
+    gcs = "gcs"
+
+
+class ADKStreamingMode(enum.StrEnum):
+    none = "none"
+    sse = "sse"
+    bidi = "bidi"
+
+
+class GoogleADKConfig(BaseModel):
+    """Framework-specific configuration for Google ADK agents."""
+
+    session_backend: ADKSessionBackend = ADKSessionBackend.memory
+    session_db_url: str | None = None  # required when session_backend=database
+    memory_service: ADKMemoryService = ADKMemoryService.memory
+    artifact_service: ADKArtifactService = ADKArtifactService.memory
+    gcs_bucket: str | None = None  # required when artifact_service=gcs
+    streaming: ADKStreamingMode = ADKStreamingMode.none
+
+    @model_validator(mode="after")
+    def check_backend_deps(self) -> "GoogleADKConfig":
+        if self.session_backend == ADKSessionBackend.database and not self.session_db_url:
+            raise ValueError(
+                "session_db_url is required when session_backend=database"
+            )
+        if self.artifact_service == ADKArtifactService.gcs and not self.gcs_bucket:
+            raise ValueError(
+                "gcs_bucket is required when artifact_service=gcs"
+            )
+        return self
+
+
 class AgentConfig(BaseModel):
     """The complete agent configuration parsed from agent.yaml."""
 
@@ -165,6 +211,7 @@ class AgentConfig(BaseModel):
     deploy: DeployConfig
     access: AccessConfig = Field(default_factory=AccessConfig)
     crewai: CrewAIConfig | None = None
+    google_adk: GoogleADKConfig | None = None
 
     @field_validator("name")
     @classmethod

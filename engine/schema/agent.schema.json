@@ -1,14 +1,24 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "AgentBreeder Agent Configuration",
-  "description": "Schema for agent.yaml — the agent definition file for AgentBreeder",
+  "description": "Schema for agent.yaml \u2014 the agent definition file for AgentBreeder",
   "type": "object",
-  "required": ["name", "version", "team", "owner", "framework", "model", "deploy"],
+  "required": [
+    "name",
+    "version",
+    "team",
+    "owner",
+    "framework",
+    "model",
+    "deploy"
+  ],
   "additionalProperties": false,
   "properties": {
     "spec_version": {
       "type": "string",
-      "enum": ["v1"],
+      "enum": [
+        "v1"
+      ],
       "default": "v1",
       "description": "Schema version"
     },
@@ -40,17 +50,28 @@
     },
     "tags": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Tags for discovery"
     },
     "framework": {
       "type": "string",
-      "enum": ["langgraph", "crewai", "claude_sdk", "openai_agents", "google_adk", "custom"],
+      "enum": [
+        "langgraph",
+        "crewai",
+        "claude_sdk",
+        "openai_agents",
+        "google_adk",
+        "custom"
+      ],
       "description": "Agent framework"
     },
     "model": {
       "type": "object",
-      "required": ["primary"],
+      "required": [
+        "primary"
+      ],
       "additionalProperties": false,
       "properties": {
         "primary": {
@@ -83,11 +104,25 @@
       "items": {
         "type": "object",
         "properties": {
-          "ref": { "type": "string", "description": "Registry reference" },
-          "name": { "type": "string" },
-          "type": { "type": "string", "enum": ["function"] },
-          "description": { "type": "string" },
-          "schema": { "type": "object" }
+          "ref": {
+            "type": "string",
+            "description": "Registry reference"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "function"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "object"
+          }
         }
       },
       "description": "Tools and MCP servers"
@@ -96,9 +131,13 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["ref"],
+        "required": [
+          "ref"
+        ],
         "properties": {
-          "ref": { "type": "string" }
+          "ref": {
+            "type": "string"
+          }
         }
       },
       "description": "Knowledge base references"
@@ -106,7 +145,10 @@
     "prompts": {
       "type": "object",
       "properties": {
-        "system": { "type": "string", "description": "System prompt (ref or inline)" }
+        "system": {
+          "type": "string",
+          "description": "System prompt (ref or inline)"
+        }
       },
       "description": "Prompt configuration"
     },
@@ -114,13 +156,22 @@
       "type": "array",
       "items": {
         "oneOf": [
-          { "type": "string" },
+          {
+            "type": "string"
+          },
           {
             "type": "object",
-            "required": ["name"],
+            "required": [
+              "name"
+            ],
             "properties": {
-              "name": { "type": "string" },
-              "endpoint": { "type": "string", "format": "uri" }
+              "name": {
+                "type": "string"
+              },
+              "endpoint": {
+                "type": "string",
+                "format": "uri"
+              }
             }
           }
         ]
@@ -129,12 +180,20 @@
     },
     "deploy": {
       "type": "object",
-      "required": ["cloud"],
+      "required": [
+        "cloud"
+      ],
       "additionalProperties": false,
       "properties": {
         "cloud": {
           "type": "string",
-          "enum": ["aws", "azure", "gcp", "kubernetes", "local"],
+          "enum": [
+            "aws",
+            "azure",
+            "gcp",
+            "kubernetes",
+            "local"
+          ],
           "description": "Target cloud platform"
         },
         "runtime": {
@@ -149,27 +208,50 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "min": { "type": "integer", "minimum": 0, "default": 1 },
-            "max": { "type": "integer", "minimum": 1, "default": 10 },
-            "target_cpu": { "type": "integer", "minimum": 1, "maximum": 100, "default": 70 }
+            "min": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 1
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 10
+            },
+            "target_cpu": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 70
+            }
           }
         },
         "resources": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "cpu": { "type": "string", "default": "0.5" },
-            "memory": { "type": "string", "default": "1Gi" }
+            "cpu": {
+              "type": "string",
+              "default": "0.5"
+            },
+            "memory": {
+              "type": "string",
+              "default": "1Gi"
+            }
           }
         },
         "env_vars": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "Non-secret environment variables"
         },
         "secrets": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Secret references"
         }
       }
@@ -178,7 +260,9 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["ref"],
+        "required": [
+          "ref"
+        ],
         "additionalProperties": false,
         "properties": {
           "ref": {
@@ -195,13 +279,15 @@
           }
         }
       },
-      "description": "Subagent references — auto-generates call_{name} tools"
+      "description": "Subagent references \u2014 auto-generates call_{name} tools"
     },
     "mcp_servers": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["ref"],
+        "required": [
+          "ref"
+        ],
         "additionalProperties": false,
         "properties": {
           "ref": {
@@ -210,7 +296,11 @@
           },
           "transport": {
             "type": "string",
-            "enum": ["stdio", "sse", "streamable_http"],
+            "enum": [
+              "stdio",
+              "sse",
+              "streamable_http"
+            ],
             "default": "stdio",
             "description": "Transport protocol"
           }
@@ -224,12 +314,18 @@
       "properties": {
         "visibility": {
           "type": "string",
-          "enum": ["public", "team", "private"],
+          "enum": [
+            "public",
+            "team",
+            "private"
+          ],
           "default": "team"
         },
         "allowed_callers": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "require_approval": {
           "type": "boolean",
@@ -243,7 +339,11 @@
       "properties": {
         "process": {
           "type": "string",
-          "enum": ["sequential", "hierarchical", "parallel"],
+          "enum": [
+            "sequential",
+            "hierarchical",
+            "parallel"
+          ],
           "default": "sequential",
           "description": "Crew execution process type."
         },
@@ -266,6 +366,60 @@
         }
       },
       "additionalProperties": false
+    },
+    "google_adk": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Google ADK framework-specific configuration",
+      "properties": {
+        "session_backend": {
+          "type": "string",
+          "enum": [
+            "memory",
+            "database",
+            "vertex_ai"
+          ],
+          "default": "memory",
+          "description": "Session persistence backend"
+        },
+        "session_db_url": {
+          "type": "string",
+          "description": "SQLAlchemy database URL (required when session_backend=database)"
+        },
+        "memory_service": {
+          "type": "string",
+          "enum": [
+            "memory",
+            "vertex_ai_bank",
+            "vertex_ai_rag"
+          ],
+          "default": "memory",
+          "description": "Long-term memory service"
+        },
+        "artifact_service": {
+          "type": "string",
+          "enum": [
+            "memory",
+            "gcs"
+          ],
+          "default": "memory",
+          "description": "Artifact storage backend"
+        },
+        "gcs_bucket": {
+          "type": "string",
+          "description": "GCS bucket name (required when artifact_service=gcs)"
+        },
+        "streaming": {
+          "type": "string",
+          "enum": [
+            "none",
+            "sse",
+            "bidi"
+          ],
+          "default": "none",
+          "description": "Streaming mode for RunConfig"
+        }
+      }
     }
   }
 }
