@@ -143,7 +143,8 @@ class ClaudeSDKRuntime(RuntimeBuilder):
         """Build Dockerfile ENV directives from AgentConfig.
 
         Writes:
-        - Core agent identity (AGENT_NAME, AGENT_VERSION, AGENT_MODEL, AGENT_MAX_TOKENS)
+        - Core agent identity (AGENT_NAME, AGENT_VERSION, AGENT_MODEL, AGENT_MAX_TOKENS,
+                               AGENT_FRAMEWORK, AGENT_SYSTEM_PROMPT)
         - deploy.env_vars (non-secret environment variables)
         - claude_sdk thinking config (AGENT_THINKING_ENABLED, AGENT_THINKING_EFFORT)
         - claude_sdk caching config (AGENT_PROMPT_CACHING)
@@ -156,12 +157,16 @@ class ClaudeSDKRuntime(RuntimeBuilder):
         safe_name = config.name.replace('"', '\\"')
         lines.append(f'ENV AGENT_NAME="{safe_name}"')
         lines.append(f'ENV AGENT_VERSION="{config.version}"')
+        lines.append('ENV AGENT_FRAMEWORK="claude_sdk"')
         safe_model = config.model.primary.replace("\n", " ").replace("\r", " ").replace('"', '\\"')
         lines.append(f'ENV AGENT_MODEL="{safe_model}"')
         if config.model.max_tokens is not None:
             lines.append(f"ENV AGENT_MAX_TOKENS={config.model.max_tokens}")
         if config.model.temperature is not None:
             lines.append(f"ENV AGENT_TEMPERATURE={config.model.temperature}")
+        if config.prompts.system:
+            safe_sys = config.prompts.system.replace("\n", " ").replace("\r", " ").replace('"', '\\"')
+            lines.append(f'ENV AGENT_SYSTEM_PROMPT="{safe_sys}"')
 
         # deploy.env_vars (non-secret, safe to bake into image layer)
         for key, value in config.deploy.env_vars.items():

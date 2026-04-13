@@ -324,9 +324,11 @@ async def _run_agent(input_data: str) -> str:
     if isinstance(_agent, anthropic.AsyncAnthropic):
         return await _call_client(_client, model, system_prompt, messages)
 
-    # anthropic.Anthropic (sync) client — run in thread to avoid blocking
+    # anthropic.Anthropic (sync) client — run in thread to avoid blocking.
+    # Applies the same thinking/caching/tools kwargs as the async _call_client path.
     if isinstance(_agent, anthropic.Anthropic):
         max_tokens = int(os.getenv("AGENT_MAX_TOKENS", "4096"))
+        temperature_str = os.getenv("AGENT_TEMPERATURE")
         sync_kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
@@ -335,6 +337,14 @@ async def _run_agent(input_data: str) -> str:
         system = _build_system_param(system_prompt, model)
         if system:
             sync_kwargs["system"] = system
+        if temperature_str and not _thinking_config:
+            sync_kwargs["temperature"] = float(temperature_str)
+        if _thinking_config:
+            sync_kwargs["thinking"] = {"type": _thinking_config["type"]}
+            sync_kwargs["output_config"] = {"effort": _thinking_config.get("_effort", "high")}
+            sync_kwargs["betas"] = ["interleaved-thinking-2025-05-14"]
+        if _tools:
+            sync_kwargs["tools"] = _tools
         response = await asyncio.to_thread(_agent.messages.create, **sync_kwargs)
         return _extract_text(response)
 
