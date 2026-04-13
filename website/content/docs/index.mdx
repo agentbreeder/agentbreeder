@@ -1,0 +1,30 @@
+---
+title: Overview
+description: Open-source platform for building, deploying, and governing enterprise AI agents.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+# AgentBreeder
+
+**Define Once. Deploy Anywhere. Govern Automatically.**
+
+AgentBreeder is an open-source platform for building, deploying, and governing enterprise AI agents.
+Write one `agent.yaml`, run `agentbreeder deploy`, and your agent is live on AWS or GCP — with RBAC,
+cost tracking, audit trail, and org-wide discoverability automatic.
+
+<Callout title="Core promise">
+  Governance is a **side effect** of deploying, not extra configuration. Every `agentbreeder deploy`
+  validates RBAC, registers the agent, attributes costs, and writes an audit log — automatically.
+</Callout>
+
+## Three Builder Tiers
+
+AgentBreeder supports three ways to build agents. All three compile to the same internal format
+and share the same deploy pipeline.
+
+| Tier | Method | Who |
+|---|---|---|
+| No Code | Visual drag-and-drop UI | PMs, analysts, citizen builders |
+| Low Code | `agent.yaml` in any IDE | ML engineers, DevOps |
+| Full Code | Python/TS SDK | Senior engineers, researchers |

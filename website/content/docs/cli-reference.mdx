@@ -1,0 +1,678 @@
+---
+title: CLI Reference
+description: Complete reference for all agentbreeder CLI commands.
+---
+
+# CLI Reference
+
+AgentBreeder's CLI is the primary interface for managing agents. All commands support `--json` output for scripting and CI.
+
+## Global Usage
+
+```
+agentbreeder [COMMAND] [OPTIONS]
+```
+
+---
+
+## Commands
+
+### `agentbreeder init`
+
+Scaffold a new agent project with an interactive wizard.
+
+```
+agentbreeder init [OUTPUT_DIR] [--json]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `OUTPUT_DIR` | No | Directory to create (defaults to agent name) |
+
+**What it creates:**
+- `agent.yaml` — configuration file
+- `agent.py` — working example agent code
+- `requirements.txt` — Python dependencies
+- `.env.example` — environment variable template
+- `README.md` — getting started guide
+
+The wizard prompts for:
+1. Agent name (slug-friendly, validated)
+2. Framework (LangGraph, CrewAI, Claude SDK, OpenAI, ADK, Custom)
+3. Cloud target (Local, AWS, GCP, Kubernetes)
+4. Team name
+5. Owner email (auto-detected from git config)
+
+Automatically runs `agentbreeder validate` after scaffolding.
+
+**Examples:**
+```bash
+agentbreeder init                    # Interactive wizard, uses agent name as dir
+agentbreeder init my-agent           # Create in ./my-agent/
+agentbreeder init --json             # JSON output (for CI)
+```
+
+---
+
+### `agentbreeder deploy`
+
+Deploy an agent from an `agent.yaml` configuration file.
+
+```
+agentbreeder deploy CONFIG_PATH [--target TARGET] [--json]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `CONFIG_PATH` | Yes | — | Path to `agent.yaml` |
+| `--target`, `-t` | No | `local` | Deploy target: `local`, `cloud-run` |
+
+The deploy pipeline executes 8 atomic steps:
+1. Parse & validate YAML
+2. RBAC check
+3. Dependency resolution
+4. Container build
+5. Infrastructure provision
+6. Deploy & health check
+7. Auto-register in registry
+8. Return endpoint URL
+
+If any step fails, the entire deploy rolls back.
+
+**Examples:**
+```bash
+agentbreeder deploy ./agent.yaml                          # Deploy locally
+agentbreeder deploy ./agent.yaml --target local           # Same as above
+agentbreeder deploy ./agent.yaml --target cloud-run       # Deploy to GCP Cloud Run
+agentbreeder deploy ./agent.yaml --json                   # JSON output
+```
+
+---
+
+### `agentbreeder validate`
+
+Validate an `agent.yaml` without deploying.
+
+```
+agentbreeder validate CONFIG_PATH [--json]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CONFIG_PATH` | Yes | Path to `agent.yaml` |
+
+Checks:
+- YAML syntax
+- JSON Schema validation (all required fields, correct types, valid enums)
+- Semantic validation (name format, version format, email format)
+
+**Examples:**
+```bash
+agentbreeder validate ./agent.yaml
+agentbreeder validate ./agent.yaml --json
+```
+
+---
+
+### `agentbreeder list`
+
+List entities from the registry.
+
+```
+agentbreeder list [ENTITY_TYPE] [--team TEAM] [--json]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `ENTITY_TYPE` | No | `agents` | One of: `agents`, `tools`, `models`, `prompts` |
+| `--team` | No | — | Filter by team name |
+
+**Examples:**
+```bash
+agentbreeder list                           # List all agents
+agentbreeder list agents                    # Same as above
+agentbreeder list tools                     # List MCP servers and tools
+agentbreeder list models                    # List registered models
+agentbreeder list prompts                   # List prompt templates
+agentbreeder list agents --team platform    # Filter by team
+agentbreeder list --json                    # JSON output
+```
+
+---
+
+### `agentbreeder describe`
+
+Show full details for a registered agent.
+
+```
+agentbreeder describe NAME [--json]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `NAME` | Yes | Agent name |
+
+Shows: name, version, team, owner, framework, model config, tools, deploy target, status, endpoint URL, and metadata.
+
+**Examples:**
+```bash
+agentbreeder describe my-agent
+agentbreeder describe my-agent --json
+```
+
+---
+
+### `agentbreeder search`
+
+Search across all registered agents, tools, models, and prompts.
+
+```
+agentbreeder search QUERY [--json]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `QUERY` | Yes | Search query (keyword match) |
+
+Searches names, descriptions, tags, and teams across all entity types.
+
+**Examples:**
+```bash
+agentbreeder search "customer support"
+agentbreeder search zendesk
+agentbreeder search --json "langgraph"
+```
+
+---
+
+### `agentbreeder scan`
+
+Scan for MCP servers and LiteLLM models, register discoveries in the registry.
+
+```
+agentbreeder scan [--json]
+```
+
+Discovers:
+- Local MCP servers (reads schemas via MCP protocol)
+- LiteLLM models (connects to LiteLLM gateway)
+
+Automatically registers discovered tools and models in the registry.
+
+**Examples:**
+```bash
+agentbreeder scan
+agentbreeder scan --json
+```
+
+---
+
+### `agentbreeder logs`
+
+Show logs from a deployed agent.
+
+```
+agentbreeder logs AGENT_NAME [--lines N] [--follow] [--since DURATION] [--json]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `AGENT_NAME` | Yes | — | Name of the deployed agent |
+| `--lines`, `-n` | No | `50` | Number of recent lines to show |
+| `--follow`, `-f` | No | `false` | Stream logs in real time |
+| `--since` | No | — | Show logs since duration (e.g., `5m`, `1h`, `2d`) |
+
+**Examples:**
+```bash
+agentbreeder logs my-agent                  # Last 50 lines
+agentbreeder logs my-agent -n 100           # Last 100 lines
+agentbreeder logs my-agent --follow         # Stream logs
+agentbreeder logs my-agent --since 5m       # Logs from last 5 minutes
+agentbreeder logs my-agent -f --since 1h    # Stream from last hour
+```
+
+---
+
+### `agentbreeder status`
+
+Show deploy status of agents.
+
+```
+agentbreeder status [AGENT_NAME] [--json]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `AGENT_NAME` | No | Agent name (omit for all agents summary) |
+
+Without an agent name, shows a summary table of all deployed agents with their status. With an agent name, shows detailed status including deploy pipeline progress.
+
+**Examples:**
+```bash
+agentbreeder status                  # All agents summary
+agentbreeder status my-agent         # Detailed status for one agent
+agentbreeder status --json           # JSON output
+```
+
+---
+
+### `agentbreeder teardown`
+
+Remove a deployed agent and clean up its resources.
+
+```
+agentbreeder teardown AGENT_NAME [--force] [--json]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `AGENT_NAME` | Yes | — | Name of the agent to remove |
+| `--force`, `-f` | No | `false` | Skip confirmation prompt |
+
+Removes the agent's containers, infrastructure, and registry entry. Prompts for confirmation unless `--force` is used.
+
+**Examples:**
+```bash
+agentbreeder teardown my-agent              # Prompts for confirmation
+agentbreeder teardown my-agent --force      # No confirmation
+agentbreeder teardown my-agent --json       # JSON output
+```
+
+---
+
+### `agentbreeder provider`
+
+Manage LLM provider connections and API keys.
+
+```
+agentbreeder provider [SUBCOMMAND] [OPTIONS]
+```
+
+#### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List all configured providers with status |
+| `add TYPE` | Add a new provider (interactive or with `--api-key`) |
+| `test NAME` | Test a provider connection |
+| `models NAME` | List available models from a provider |
+| `remove NAME` | Remove a provider and its API key |
+| `disable NAME` | Disable a provider without removing |
+| `enable NAME` | Re-enable a disabled provider |
+
+**Supported provider types:** `openai`, `anthropic`, `google`, `ollama`, `litellm`, `openrouter`
+
+API keys are stored in the project `.env` file (or `~/.agentbreeder/.env` if no project).
+
+**Examples:**
+```bash
+agentbreeder provider list                              # List all providers
+agentbreeder provider add openai                        # Interactive setup
+agentbreeder provider add openai --api-key sk-proj-...  # Non-interactive
+agentbreeder provider add ollama                        # Auto-detect local Ollama
+agentbreeder provider test openai                       # Verify connection + latency
+agentbreeder provider models openai                     # List available models
+agentbreeder provider disable openai                    # Disable without removing
+agentbreeder provider enable openai                     # Re-enable
+agentbreeder provider remove openai                     # Remove provider + key
+agentbreeder provider list --json                       # JSON output
+```
+
+---
+
+### `agentbreeder chat`
+
+Interactive chat with a deployed agent in the terminal.
+
+```
+agentbreeder chat AGENT_NAME [--model MODEL] [--env ENV] [--verbose] [--json]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `AGENT_NAME` | Yes | — | Name of the agent to chat with |
+| `--model`, `-m` | No | — | Override the agent's configured model |
+| `--env`, `-e` | No | `dev` | Environment (`dev`, `staging`, `production`) |
+| `--verbose`, `-v` | No | `false` | Show tool calls, token counts, latency |
+
+**In-chat commands:** `/help`, `/clear`, `/quit` (or `/exit`, `/q`)
+
+On exit, displays a session summary with turn count, total tokens, and cost.
+
+**JSON mode** (`--json`) reads messages from stdin (one per line) and writes JSON responses to stdout — useful for scripting and CI.
+
+**Examples:**
+```bash
+agentbreeder chat my-agent                     # Interactive chat
+agentbreeder chat my-agent --verbose           # Show tool calls + costs
+agentbreeder chat my-agent --model gpt-4o      # Override model
+echo "hello" | agentbreeder chat my-agent --json  # JSON stdin/stdout
+```
+
+---
+
+### `agentbreeder eject`
+
+Generate a Full Code SDK scaffold from an existing `agent.yaml` or `orchestration.yaml` file. Enables tier mobility from Low Code (YAML) to Full Code (Python/TypeScript SDK) without losing any configuration.
+
+```
+agentbreeder eject CONFIG_PATH [--sdk SDK] [--output PATH]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `CONFIG_PATH` | Yes | — | Path to `agent.yaml` or `orchestration.yaml` |
+| `--sdk` | No | `python` | Target SDK language: `python` or `typescript` |
+| `--output`, `-o` | No | auto | Output file path |
+
+**Agent ejection** recreates the YAML as a builder-pattern `Agent(...)` chain using `Agent`, `Tool`, `Model`, and `Memory` from `agenthub`. Includes commented scaffolding for middleware, event hooks, and custom routing.
+
+**Orchestration ejection** recreates `orchestration.yaml` as the appropriate SDK class (`Orchestration`, `Pipeline`, `FanOut`, or `Supervisor`) with all agents, routes, shared state, and deploy config preserved.
+
+**What it generates (agents):**
+- `Agent(...)` builder chain matching every field in the YAML
+- Model, prompt, tools, memory, guardrails, deploy, and tags
+- Commented middleware and hook examples
+- `__main__` block that validates and prints YAML round-trip
+
+**What it generates (orchestrations):**
+- Correct subclass (`Pipeline`, `FanOut`, `Supervisor`, or `Orchestration`)
+- All agents, routing rules, fallbacks, shared state, supervisor config
+- Commented custom `Router` subclass scaffold for advanced routing logic
+
+**Examples:**
+```bash
+# Agent ejection
+agentbreeder eject agent.yaml                          # Default: agents/<name>/agent_sdk.py
+agentbreeder eject agent.yaml --sdk python             # Explicit Python SDK
+agentbreeder eject agent.yaml --sdk typescript         # TypeScript SDK
+agentbreeder eject agent.yaml -o src/my_agent.py       # Custom output path
+
+# Orchestration ejection
+agentbreeder eject orchestration.yaml                  # Default: orchestration_sdk.py
+agentbreeder eject orchestration.yaml --sdk typescript # TypeScript SDK
+```
+
+---
+
+### `agentbreeder orchestration`
+
+Manage multi-agent orchestration pipelines defined in `orchestration.yaml` or built with the Full Code Orchestration SDK.
+
+```
+agentbreeder orchestration SUBCOMMAND [OPTIONS]
+```
+
+#### `agentbreeder orchestration validate`
+
+Validate an `orchestration.yaml` file against the JSON Schema.
+
+```
+agentbreeder orchestration validate PATH [--json]
+```
+
+```bash
+agentbreeder orchestration validate orchestration.yaml
+agentbreeder orchestration validate pipelines/support.yaml --json
+```
+
+#### `agentbreeder orchestration deploy`
+
+Validate, register, and deploy an orchestration.
+
+```
+agentbreeder orchestration deploy PATH [--json]
+```
+
+```bash
+agentbreeder orchestration deploy orchestration.yaml
+agentbreeder orchestration deploy pipelines/research.yaml --json
+```
+
+#### `agentbreeder orchestration list`
+
+List registered orchestrations.
+
+```
+agentbreeder orchestration list [--team TEAM] [--status STATUS] [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--team` | Filter by team name |
+| `--status` | Filter by status: `deployed`, `draft`, `error` |
+
+```bash
+agentbreeder orchestration list
+agentbreeder orchestration list --team eng --json
+```
+
+#### `agentbreeder orchestration status`
+
+Show orchestration detail and agent graph.
+
+```
+agentbreeder orchestration status NAME [--json]
+```
+
+```bash
+agentbreeder orchestration status support-pipeline
+```
+
+#### `agentbreeder orchestration chat`
+
+Send messages interactively to a deployed orchestration.
+
+```
+agentbreeder orchestration chat NAME [--verbose] [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--verbose` | Show per-agent trace, token counts, latency |
+| `--json` | Read from stdin, write JSON per line (for CI) |
+
+```bash
+agentbreeder orchestration chat support-pipeline
+agentbreeder orchestration chat support-pipeline --verbose
+echo '{"message": "billing question"}' | agentbreeder orchestration chat support-pipeline --json
+```
+
+---
+
+### `agentbreeder submit`
+
+Submit a resource for review by creating a pull request.
+
+```
+agentbreeder submit RESOURCE_TYPE NAME [--message MSG] [--json]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `RESOURCE_TYPE` | Yes | One of: `agent`, `prompt`, `tool`, `rag`, `memory` |
+| `NAME` | Yes | Resource name |
+| `--message`, `-m` | No | PR description |
+
+Creates a PR from the draft branch to main. Shows PR ID, status, and diff summary.
+
+**Examples:**
+```bash
+agentbreeder submit agent my-agent
+agentbreeder submit agent my-agent -m "Added Zendesk tool integration"
+agentbreeder submit prompt support-v3 --json
+```
+
+---
+
+### `agentbreeder review`
+
+Review pull requests for resources.
+
+```
+agentbreeder review [SUBCOMMAND] [OPTIONS]
+```
+
+#### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List pending reviews (filterable by `--status`, `--type`) |
+| `show PR_ID` | Show PR detail: diff, commits, comments |
+| `approve PR_ID` | Approve a PR |
+| `reject PR_ID -m "reason"` | Reject a PR (message required) |
+| `comment PR_ID -m "text"` | Add a comment to a PR |
+
+**Examples:**
+```bash
+agentbreeder review list                           # Pending reviews
+agentbreeder review list --status approved         # Filter by status
+agentbreeder review list --type agent              # Filter by resource type
+agentbreeder review show pr-abc123                 # Show PR detail
+agentbreeder review approve pr-abc123              # Approve
+agentbreeder review reject pr-abc123 -m "Needs error handling"
+agentbreeder review comment pr-abc123 -m "LGTM"
+agentbreeder review list --json                    # JSON output
+```
+
+---
+
+### `agentbreeder publish`
+
+Merge an approved PR and publish the resource to the registry.
+
+```
+agentbreeder publish RESOURCE_TYPE NAME [--version VERSION] [--json]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `RESOURCE_TYPE` | Yes | One of: `agent`, `prompt`, `tool`, `rag`, `memory` |
+| `NAME` | Yes | Resource name |
+| `--version`, `-v` | No | Explicit semver tag (e.g., `2.0.0`) |
+
+Finds the approved PR for the resource, merges to main, tags with semver, and publishes to the registry.
+
+**Examples:**
+```bash
+agentbreeder publish agent my-agent                    # Auto-version
+agentbreeder publish agent my-agent --version 2.0.0    # Explicit version
+agentbreeder publish prompt support-v3 --json
+```
+
+---
+
+### `agentbreeder secret`
+
+Manage secrets across pluggable backends (env file, AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault).
+
+```
+agentbreeder secret [SUBCOMMAND] [OPTIONS]
+```
+
+#### `agentbreeder secret list`
+
+```
+agentbreeder secret list [--backend BACKEND] [--prefix PREFIX] [--json]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--backend`, `-b` | `env` | Backend: `env`, `aws`, `gcp`, `vault` |
+| `--prefix` | `agentbreeder/` | Secret prefix (AWS/GCP/Vault) |
+| `--json` | Off | Output as JSON |
+
+Lists secret names and masked values (actual values are never printed).
+
+#### `agentbreeder secret set`
+
+```
+agentbreeder secret set NAME [--value VALUE] [--backend BACKEND] [--prefix PREFIX] [--tag key=value] [--json]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `NAME` | Yes | Secret name (e.g., `OPENAI_API_KEY`) |
+| `--value`, `-v` | No | Value (prompted securely if omitted) |
+| `--backend`, `-b` | No | Backend (`env`, `aws`, `gcp`, `vault`) |
+| `--tag`, `-t` | No | `key=value` tags (cloud backends only, repeatable) |
+
+#### `agentbreeder secret get`
+
+```
+agentbreeder secret get NAME [--backend BACKEND] [--reveal] [--json]
+```
+
+Prints masked value by default. Use `--reveal` to print the actual value.
+
+#### `agentbreeder secret delete`
+
+```
+agentbreeder secret delete NAME [--backend BACKEND] [--force] [--json]
+```
+
+Prompts for confirmation unless `--force` is passed.
+
+#### `agentbreeder secret rotate`
+
+```
+agentbreeder secret rotate NAME [--value NEW_VALUE] [--backend BACKEND] [--json]
+```
+
+Prompts for the new value with confirmation if `--value` is omitted.
+
+#### `agentbreeder secret migrate`
+
+```
+agentbreeder secret migrate --from BACKEND --to BACKEND [--prefix PREFIX] [--include KEY] [--exclude KEY] [--dry-run] [--json]
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--from` | Yes | Source backend (`env`, `aws`, `gcp`, `vault`) |
+| `--to` | Yes | Target backend (`aws`, `gcp`, `vault`) |
+| `--prefix` | No | Prefix for secrets in cloud backend (default: `agentbreeder/`) |
+| `--include`, `-i` | No | Only migrate these keys (repeatable) |
+| `--exclude`, `-e` | No | Skip these keys (repeatable) |
+| `--dry-run` | No | Preview without writing |
+
+Migrates secrets from one backend to another. After migration, update `agent.yaml` to use `secret://` references:
+
+```yaml
+deploy:
+  secrets:
+    - OPENAI_API_KEY     # resolved from secret://OPENAI_API_KEY at deploy time
+```
+
+**Examples:**
+```bash
+agentbreeder secret list                                    # List env secrets
+agentbreeder secret list --backend aws --json               # List AWS secrets as JSON
+agentbreeder secret set OPENAI_API_KEY                      # Prompt for value
+agentbreeder secret set OPENAI_API_KEY --value sk-...       # Provide value directly
+agentbreeder secret get OPENAI_API_KEY --reveal             # Print actual value
+agentbreeder secret delete OPENAI_API_KEY --force           # Delete without confirmation
+agentbreeder secret rotate OPENAI_API_KEY                   # Prompt for new value
+agentbreeder secret migrate --from env --to aws --dry-run   # Preview migration
+agentbreeder secret migrate --from env --to aws             # Migrate to AWS
+agentbreeder secret migrate --from env --to gcp --exclude DEBUG --exclude LOG_LEVEL
+```
+
+---
+
+## Global Options
+
+All commands support:
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output as JSON (for CI/scripting) |
+| `--help` | Show help with examples |
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | General error |
+| `2` | Invalid arguments |
