@@ -190,18 +190,18 @@ class TestCrewAIRuntimeBuildEnvVars:
 
     def test_build_sequential_process_written_as_env(self) -> None:
         dockerfile = self._build_and_read_dockerfile({"process": "sequential"})
-        assert "ENV AGENT_CREWAI_PROCESS=sequential" in dockerfile
+        assert 'ENV AGENT_CREWAI_PROCESS="sequential"' in dockerfile
 
     def test_build_hierarchical_process_written_as_env(self) -> None:
         dockerfile = self._build_and_read_dockerfile(
             {"process": "hierarchical", "manager_llm": "claude-opus-4"}
         )
-        assert "ENV AGENT_CREWAI_PROCESS=hierarchical" in dockerfile
-        assert "ENV AGENT_CREWAI_MANAGER_LLM=claude-opus-4" in dockerfile
+        assert 'ENV AGENT_CREWAI_PROCESS="hierarchical"' in dockerfile
+        assert 'ENV AGENT_CREWAI_MANAGER_LLM="claude-opus-4"' in dockerfile
 
     def test_build_parallel_process_written_as_env(self) -> None:
         dockerfile = self._build_and_read_dockerfile({"process": "parallel"})
-        assert "ENV AGENT_CREWAI_PROCESS=parallel" in dockerfile
+        assert 'ENV AGENT_CREWAI_PROCESS="parallel"' in dockerfile
 
     def test_build_verbose_true_written_as_env(self) -> None:
         dockerfile = self._build_and_read_dockerfile({"verbose": True})
@@ -414,8 +414,8 @@ crewai:
         (agent_dir / "requirements.txt").write_text("crewai\n")
         image = CrewAIRuntime().build(agent_dir, config)
         dockerfile = (image.context_dir / "Dockerfile").read_text()
-        assert "ENV AGENT_CREWAI_PROCESS=hierarchical" in dockerfile
-        assert "ENV AGENT_CREWAI_MANAGER_LLM=claude-opus-4" in dockerfile
+        assert 'ENV AGENT_CREWAI_PROCESS="hierarchical"' in dockerfile
+        assert 'ENV AGENT_CREWAI_MANAGER_LLM="claude-opus-4"' in dockerfile
         assert "ENV AGENT_CREWAI_VERBOSE=true" in dockerfile
         assert "ENV AGENT_CREWAI_MEMORY=true" in dockerfile
 

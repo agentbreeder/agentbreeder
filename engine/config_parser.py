@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import enum
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -168,8 +169,6 @@ class AgentConfig(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, v: str) -> str:
-        import re
-
         if not re.match(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$", v) and len(v) >= 2:
             msg = (
                 f"Agent name '{v}' must be lowercase alphanumeric with hyphens, "
@@ -181,8 +180,6 @@ class AgentConfig(BaseModel):
     @field_validator("version")
     @classmethod
     def validate_version(cls, v: str) -> str:
-        import re
-
         if not re.match(r"^\d+\.\d+\.\d+$", v):
             msg = f"Version '{v}' must be semantic versioning (e.g., '1.0.0')"
             raise ValueError(msg)

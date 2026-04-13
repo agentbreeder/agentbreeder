@@ -240,19 +240,10 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-async def _run_crew(input_data: dict[str, Any]) -> str:
-    """Run the CrewAI crew, wrapping the synchronous kickoff in a thread."""
-    if hasattr(_crew, "kickoff"):
-        return await asyncio.to_thread(_crew.kickoff, inputs=input_data)
-    else:
-        msg = "Crew object does not have a kickoff method"
-        raise TypeError(msg)
-
-
 @app.post("/stream")
 async def stream(request: InvokeRequest) -> StreamingResponse:
     """Stream CrewAI execution as Server-Sent Events."""
-    if _crew is None:
+    if _agent_obj is None and _crew is None:
         raise HTTPException(status_code=503, detail="Crew not loaded yet")
     return StreamingResponse(
         _stream_crew(request.input),
@@ -263,6 +254,21 @@ async def stream(request: InvokeRequest) -> StreamingResponse:
 
 async def _stream_crew(input_data: dict[str, Any]) -> Any:
     """Async generator that yields SSE-formatted strings for each CrewAI step."""
+    # Flow mode: no step callbacks, just stream the final result
+    if _mode == "flow" and _agent_obj is not None:
+        try:
+            result = await _agent_obj.kickoff_async(inputs=input_data)
+            yield f"event: result\ndata: {json.dumps({'output': str(result)})}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    # Crew mode: use akickoff() with step_callback for streaming
+    crew = _crew or _agent_obj
+    if crew is None:
+        return
+
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
@@ -278,10 +284,10 @@ async def _stream_crew(input_data: dict[str, Any]) -> Any:
 
     async def _run() -> None:
         try:
-            if hasattr(_crew, "akickoff"):
-                result = await _crew.akickoff(inputs=input_data, step_callback=_step_callback)
-            elif hasattr(_crew, "kickoff"):
-                result = await asyncio.to_thread(_crew.kickoff, inputs=input_data)
+            if hasattr(crew, "akickoff"):
+                result = await crew.akickoff(inputs=input_data, step_callback=_step_callback)
+            elif hasattr(crew, "kickoff"):
+                result = await asyncio.to_thread(crew.kickoff, inputs=input_data)
             else:
                 raise TypeError("Crew object does not have akickoff or kickoff method")
             final_raw = getattr(result, "raw", str(result))
