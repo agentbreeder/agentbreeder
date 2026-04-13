@@ -34,7 +34,9 @@ class InvokeRequest(BaseModel):
 
 class InvokeResponse(BaseModel):
     output: Any
+    mode: str = "crew"
     metadata: dict[str, Any] | None = None
+    output_schema_errors: list[str] | None = None
 
 
 class HealthResponse(BaseModel):
@@ -112,13 +114,41 @@ _agent_obj: Any = None
 _output_schema: dict[str, Any] | None = None
 
 
+def _validate_output(
+    output: str, schema: dict[str, Any] | None
+) -> list[str] | None:
+    """Validate output against a JSON Schema dict. Returns None if valid or no schema."""
+    if schema is None:
+        return None
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError as exc:
+        return [f"Output is not valid JSON: {exc}"]
+    try:
+        import jsonschema
+        validator = jsonschema.Draft7Validator(schema)
+        errors = sorted(validator.iter_errors(data), key=lambda e: list(e.path))
+        if not errors:
+            return None
+        return [f"{'.'.join(str(p) for p in e.path) or '(root)'}: {e.message}" for e in errors]
+    except Exception as exc:
+        return [f"Schema validation error: {exc}"]
+
+
 async def startup() -> None:
     """Wire tool bridge into the loaded crew.
 
     This is called by the lifespan after _load_agent(), and can also be
     called directly in tests (with _crew pre-set) to exercise the wiring.
     """
-    global _crewai_tools  # noqa: PLW0603
+    global _crewai_tools, _output_schema  # noqa: PLW0603
+    # Load output schema if provided
+    output_schema_env = os.getenv("AGENT_OUTPUT_SCHEMA")
+    if output_schema_env:
+        try:
+            _output_schema = json.loads(output_schema_env)
+        except json.JSONDecodeError:
+            logger.warning("AGENT_OUTPUT_SCHEMA is not valid JSON — output validation disabled")
     tools_json = os.getenv("AGENT_TOOLS_JSON", "[]")
     try:
         raw_tools = json.loads(tools_json)
@@ -202,7 +232,8 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
 
     try:
         result = await _run_crew(request.input)
-        return InvokeResponse(output=result)
+        schema_errors = _validate_output(str(result), _output_schema)
+        return InvokeResponse(output=result, mode=_mode, output_schema_errors=schema_errors)
     except Exception as e:
         logger.exception("Crew invocation failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
