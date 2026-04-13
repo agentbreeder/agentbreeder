@@ -119,6 +119,30 @@ class GuardrailConfig(BaseModel):
     endpoint: str | None = None
 
 
+class CrewAIConfig(BaseModel):
+    """Optional CrewAI-specific configuration block."""
+
+    process: str = Field(
+        default="sequential",
+        description="Crew execution process. One of: sequential, hierarchical, parallel.",
+    )
+    manager_llm: str | None = Field(
+        default=None,
+        description="Model ref for the manager agent. Required when process=hierarchical.",
+    )
+    verbose: bool = False
+    memory: bool = False
+    memory_config: dict[str, Any] | None = None
+
+    @field_validator("process")
+    @classmethod
+    def validate_process(cls, v: str) -> str:
+        allowed = {"sequential", "hierarchical", "parallel"}
+        if v not in allowed:
+            raise ValueError(f"crewai.process must be one of {sorted(allowed)}, got {v!r}")
+        return v
+
+
 class AgentConfig(BaseModel):
     """The complete agent configuration parsed from agent.yaml."""
 
@@ -139,6 +163,7 @@ class AgentConfig(BaseModel):
     mcp_servers: list[McpServerRef] = Field(default_factory=list)
     deploy: DeployConfig
     access: AccessConfig = Field(default_factory=AccessConfig)
+    crewai: CrewAIConfig | None = None
 
     @field_validator("name")
     @classmethod

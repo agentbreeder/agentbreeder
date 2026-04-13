@@ -236,6 +236,36 @@
           "default": false
         }
       }
+    },
+    "crewai": {
+      "type": "object",
+      "description": "CrewAI-specific configuration. Only relevant when framework is crewai.",
+      "properties": {
+        "process": {
+          "type": "string",
+          "enum": ["sequential", "hierarchical", "parallel"],
+          "default": "sequential",
+          "description": "Crew execution process type."
+        },
+        "manager_llm": {
+          "type": "string",
+          "description": "Model ref for the manager agent. Required when process=hierarchical."
+        },
+        "verbose": {
+          "type": "boolean",
+          "default": false
+        },
+        "memory": {
+          "type": "boolean",
+          "default": false
+        },
+        "memory_config": {
+          "type": "object",
+          "description": "Advanced memory provider config passed directly to Crew(memory_config=...).",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
     }
   }
 }
