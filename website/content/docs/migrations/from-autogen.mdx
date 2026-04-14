@@ -1,0 +1,627 @@
+---
+title: From AutoGen
+description: Migrate an existing AutoGen project to AgentBreeder.
+---
+
+# Migrate from Microsoft AutoGen to AgentBreeder
+
+> **Time to migrate:** ~30 minutes
+> **Difficulty:** Moderate
+> **What changes:** You add an `agent.yaml` file and restructure your entry point slightly. Your AutoGen agent logic stays the same.
+
+---
+
+## Before You Start
+
+- [ ] You have an existing AutoGen agent or multi-agent system
+- [ ] Your agent code uses `autogen-agentchat` (v0.2+) or `pyautogen`
+- [ ] Python 3.11+ is installed
+- [ ] Docker is installed and running
+- [ ] You have installed AgentBreeder: `pip install agentbreeder`
+
+---
+
+## The Big Picture
+
+AutoGen is designed around conversable agents and group chat patterns. AgentBreeder does not replace AutoGen's conversation engine. It wraps your AutoGen code in a production container and adds governance, multi-cloud deploy, and org-wide discoverability.
+
+The main migration effort is structuring your AutoGen code so AgentBreeder's server wrapper can call it. This usually means wrapping your `GroupChat` or `ConversableAgent` in a callable function.
+
+---
+
+## Before & After
+
+### Before: Raw AutoGen
+
+```
+my-autogen-agents/
+  agent.py            # GroupChat + agents
+  config_list.json    # OAI config
+  requirements.txt
+  # No deploy infrastructure -- you run it locally with python agent.py
+```
+
+### After: AutoGen + AgentBreeder
+
+```
+my-autogen-agents/
+  agent.py            # MODIFIED (minor: add a callable entry point)
+  requirements.txt    # UNCHANGED
+  agent.yaml          # NEW
+```
+
+---
+
+## Step-by-Step Migration
+
+### Step 1: Understand the entry point contract
+
+AgentBreeder's server wrapper expects to call your agent with an input message and get a response. For AutoGen, this means wrapping your conversation flow in a function.
+
+**Before (typical AutoGen pattern):**
+
+```python
+# agent.py -- runs as a script
+import autogen
+
+config_list = [{"model": "gpt-4o", "api_key": os.environ["OPENAI_API_KEY"]}]
+
+assistant = autogen.AssistantAgent(
+    name="assistant",
+    llm_config={"config_list": config_list},
+)
+
+user_proxy = autogen.UserProxyAgent(
+    name="user_proxy",
+    human_input_mode="NEVER",
+    max_consecutive_auto_reply=10,
+    code_execution_config={"work_dir": "coding", "use_docker": False},
+)
+
+# This blocks -- runs a conversation
+user_proxy.initiate_chat(assistant, message="Write a Python function to sort a list")
+```
+
+**After (AG-compatible):**
+
+```python
+# agent.py -- export an 'agent' callable
+import os
+import autogen
+
+config_list = [{"model": "gpt-4o", "api_key": os.environ.get("OPENAI_API_KEY", "")}]
+
+assistant = autogen.AssistantAgent(
+    name="assistant",
+    llm_config={"config_list": config_list},
+)
+
+user_proxy = autogen.UserProxyAgent(
+    name="user_proxy",
+    human_input_mode="NEVER",
+    max_consecutive_auto_reply=10,
+    code_execution_config={"work_dir": "/tmp/coding", "use_docker": False},
+)
+
+
+class AutoGenAgent:
+    """Wrapper that makes AutoGen compatible with AgentBreeder's server."""
+
+    def __init__(self):
+        self.assistant = assistant
+        self.user_proxy = user_proxy
+
+    async def invoke(self, message: str) -> str:
+        """Run a conversation and return the final response."""
+        chat_result = self.user_proxy.initiate_chat(
+            self.assistant,
+            message=message,
+        )
+        # Extract the last assistant message
+        if chat_result and hasattr(chat_result, "chat_history"):
+            for msg in reversed(chat_result.chat_history):
+                if msg.get("role") == "assistant" or msg.get("name") == "assistant":
+                    return msg.get("content", "")
+        return "No response generated."
+
+
+# Export for AgentBreeder
+agent = AutoGenAgent()
+```
+
+### Step 2: Create agent.yaml
+
+```yaml
+name: autogen-coder
+version: 1.0.0
+description: "Code generation agent using AutoGen"
+team: engineering
+owner: you@company.com
+tags: [autogen, coding, code-gen]
+
+framework: custom
+
+model:
+  primary: gpt-4o
+  fallback: gpt-4o-mini
+
+deploy:
+  cloud: local
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  secrets:
+    - OPENAI_API_KEY
+```
+
+Note: Use `framework: custom` for AutoGen since AgentBreeder does not have a dedicated AutoGen runtime (yet). The custom framework works with any Python agent that exposes an `invoke` method or a callable.
+
+### Step 3: Create a simple server wrapper
+
+Since we are using `framework: custom`, create a `server.py` that wraps your agent:
+
+```python
+# server.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from agent import agent
+
+app = FastAPI()
+
+
+class InvokeRequest(BaseModel):
+    input: dict
+
+
+class InvokeResponse(BaseModel):
+    output: str
+
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+
+@app.post("/invoke")
+async def invoke(request: InvokeRequest):
+    message = request.input.get("message", "")
+    result = await agent.invoke(message)
+    return InvokeResponse(output=result)
+```
+
+### Step 4: Update requirements.txt
+
+```
+pyautogen>=0.2.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+httpx>=0.27.0
+pydantic>=2.0.0
+```
+
+### Step 5: Validate and deploy
+
+```bash
+agentbreeder validate agent.yaml
+agentbreeder deploy agent.yaml --target local
+```
+
+### Step 6: Test
+
+```bash
+curl -X POST http://localhost:8080/invoke \
+  -d '{"input": {"message": "Write a Python function to sort a list using quicksort"}}' \
+  -H 'Content-Type: application/json'
+```
+
+---
+
+## Concept Mapping: AutoGen to AgentBreeder
+
+| AutoGen Concept | AgentBreeder Equivalent | Notes |
+|----------------|------------------------|-------|
+| `AssistantAgent` | Individual agent in `agent.yaml` | Wrapped in a custom callable |
+| `UserProxyAgent` | Server wrapper handles the "user" role | AG server sends messages as the user |
+| `GroupChat` | `orchestration.yaml` with `strategy: supervisor` or `parallel` | AG can orchestrate at platform level |
+| `GroupChatManager` | Supervisor agent in `orchestration.yaml` | AG supervisor handles delegation |
+| `ConversableAgent` | Base agent class in your code (unchanged) | AG wraps it |
+| `config_list` | `model.primary` + `deploy.secrets` | Declarative model config + secret refs |
+| `code_execution_config` | `deploy.env_vars` + custom Dockerfile | Sandboxed execution in container |
+| `human_input_mode` | `access.require_approval` | Deploy-level human-in-the-loop |
+| AutoGen Studio | AgentBreeder Dashboard | Visual builder for agents |
+
+---
+
+## Mapping GroupChat to AG Orchestration
+
+AutoGen's `GroupChat` is its multi-agent coordination primitive. Here is how to map it to AgentBreeder orchestration:
+
+### AutoGen GroupChat (Before)
+
+```python
+import autogen
+
+config_list = [{"model": "gpt-4o", "api_key": os.environ["OPENAI_API_KEY"]}]
+
+researcher = autogen.AssistantAgent(
+    name="researcher",
+    system_message="You research topics thoroughly.",
+    llm_config={"config_list": config_list},
+)
+
+critic = autogen.AssistantAgent(
+    name="critic",
+    system_message="You critically evaluate research quality.",
+    llm_config={"config_list": config_list},
+)
+
+writer = autogen.AssistantAgent(
+    name="writer",
+    system_message="You write clear, engaging content.",
+    llm_config={"config_list": config_list},
+)
+
+user_proxy = autogen.UserProxyAgent(
+    name="admin",
+    human_input_mode="NEVER",
+)
+
+groupchat = autogen.GroupChat(
+    agents=[user_proxy, researcher, critic, writer],
+    messages=[],
+    max_round=12,
+)
+
+manager = autogen.GroupChatManager(
+    groupchat=groupchat,
+    llm_config={"config_list": config_list},
+)
+```
+
+### AgentBreeder Orchestration (After)
+
+**Option A: Keep GroupChat inside one agent (simple)**
+
+Deploy the entire GroupChat as a single AG agent with `framework: custom`. This is the fastest migration:
+
+```yaml
+# agent.yaml
+name: research-group
+framework: custom
+model:
+  primary: gpt-4o
+deploy:
+  cloud: local
+  secrets:
+    - OPENAI_API_KEY
+```
+
+**Option B: Split into AG orchestration (advanced)**
+
+Deploy each AutoGen agent independently and use AG to coordinate:
+
+```yaml
+# orchestration.yaml
+name: research-team
+version: 1.0.0
+team: research
+owner: you@company.com
+strategy: supervisor
+
+supervisor_config:
+  supervisor_agent: manager
+  max_iterations: 4
+
+agents:
+  manager:
+    ref: agents/research-manager
+  researcher:
+    ref: agents/researcher
+    fallback: general-researcher
+  critic:
+    ref: agents/critic
+  writer:
+    ref: agents/writer
+
+deploy:
+  target: local
+  resources:
+    cpu: "2"
+    memory: "4Gi"
+```
+
+### GroupChat pattern to AG strategy mapping
+
+| AutoGen Pattern | AG Strategy | When to use |
+|----------------|-------------|-------------|
+| `GroupChat` with `GroupChatManager` | `strategy: supervisor` | Manager decides who speaks next |
+| Sequential agent calls | `strategy: sequential` | Fixed chain: A then B then C |
+| All agents answer, pick best | `strategy: parallel` + custom merge | Competitive evaluation |
+| Nested chats | `strategy: hierarchical` | Multi-level delegation |
+| Two-agent chat | `strategy: sequential` (2 agents) | Simple back-and-forth |
+
+---
+
+## Handling AutoGen-Specific Features
+
+### Code Execution
+
+AutoGen's `code_execution_config` lets agents execute code. In the container, set up a writable directory:
+
+```yaml
+deploy:
+  env_vars:
+    AUTOGEN_WORK_DIR: "/tmp/coding"
+```
+
+In your agent code:
+
+```python
+user_proxy = autogen.UserProxyAgent(
+    name="user_proxy",
+    human_input_mode="NEVER",
+    code_execution_config={
+        "work_dir": os.environ.get("AUTOGEN_WORK_DIR", "/tmp/coding"),
+        "use_docker": False,  # already in a container
+    },
+)
+```
+
+### OAI Config Lists
+
+Replace `config_list.json` with environment-based configuration:
+
+```python
+# Before
+config_list = autogen.config_list_from_json("OAI_CONFIG_LIST")
+
+# After
+config_list = [
+    {
+        "model": os.environ.get("PRIMARY_MODEL", "gpt-4o"),
+        "api_key": os.environ.get("OPENAI_API_KEY"),
+    }
+]
+```
+
+```yaml
+deploy:
+  env_vars:
+    PRIMARY_MODEL: gpt-4o
+  secrets:
+    - OPENAI_API_KEY
+```
+
+### Teachable Agents
+
+AutoGen's `TeachableAgent` stores learnings in a local database. For persistence in AG:
+
+```yaml
+knowledge_bases:
+  - ref: kb/agent-learnings
+
+deploy:
+  resources:
+    memory: "4Gi"  # teachable agents need more memory
+```
+
+---
+
+## What You Gain
+
+| Feature | AutoGen Only | AutoGen + AgentBreeder |
+|---------|-------------|----------------------|
+| Multi-agent chat | GroupChat | GroupChat + AG orchestration |
+| Deploy | Manual (`python agent.py`) | `agentbreeder deploy agent.yaml` |
+| Multi-cloud | Not available | One-line change |
+| Code execution | Local Python | Sandboxed in container |
+| RBAC | Not available | Automatic |
+| Cost tracking | Not built-in | Per-agent, per-model |
+| Agent registry | AutoGen Studio | Org-wide registry |
+| Health checks | Not available | Automatic |
+| Model fallback | Manual config_list | Declarative + automatic |
+| Guardrails | Not built-in | Declarative |
+
+## What Stays the Same
+
+- Your `AssistantAgent` and `UserProxyAgent` definitions
+- Your `GroupChat` and `GroupChatManager` configuration
+- Your `ConversableAgent` subclasses
+- Your code execution capabilities
+- Your tool/function registrations
+
+---
+
+## Troubleshooting
+
+### AutoGen's synchronous API in async container
+
+AutoGen's `initiate_chat()` is synchronous. In the async server wrapper, use `asyncio.to_thread`:
+
+```python
+import asyncio
+
+class AutoGenAgent:
+    async def invoke(self, message: str) -> str:
+        result = await asyncio.to_thread(
+            self.user_proxy.initiate_chat,
+            self.assistant,
+            message=message,
+        )
+        return self._extract_response(result)
+```
+
+### Long-running conversations
+
+AutoGen GroupChats can run for many rounds. Set appropriate timeouts:
+
+```yaml
+deploy:
+  env_vars:
+    AUTOGEN_MAX_ROUNDS: "12"
+  resources:
+    cpu: "2"
+    memory: "4Gi"
+```
+
+### Missing config_list.json
+
+Do not bundle `config_list.json` (it contains API keys). Use environment variables instead:
+
+```yaml
+deploy:
+  secrets:
+    - OPENAI_API_KEY
+    - AZURE_OPENAI_API_KEY
+```
+
+### Container runs out of disk space
+
+AutoGen code execution creates files. Mount a tmp volume or increase container resources:
+
+```yaml
+deploy:
+  resources:
+    memory: "4Gi"
+  env_vars:
+    AUTOGEN_WORK_DIR: "/tmp/coding"
+```
+
+---
+
+## Full Example
+
+**agent.py:**
+
+```python
+import asyncio
+import os
+import autogen
+
+config_list = [
+    {
+        "model": os.environ.get("PRIMARY_MODEL", "gpt-4o"),
+        "api_key": os.environ.get("OPENAI_API_KEY", ""),
+    }
+]
+
+assistant = autogen.AssistantAgent(
+    name="assistant",
+    system_message=(
+        "You are a helpful coding assistant. Write clean, well-documented "
+        "Python code. Always include type hints and docstrings."
+    ),
+    llm_config={"config_list": config_list},
+)
+
+user_proxy = autogen.UserProxyAgent(
+    name="user_proxy",
+    human_input_mode="NEVER",
+    max_consecutive_auto_reply=5,
+    code_execution_config={
+        "work_dir": os.environ.get("AUTOGEN_WORK_DIR", "/tmp/coding"),
+        "use_docker": False,
+    },
+)
+
+
+class AutoGenAgent:
+    """Wrapper for AgentBreeder compatibility."""
+
+    def __init__(self):
+        self.assistant = assistant
+        self.user_proxy = user_proxy
+
+    async def invoke(self, message: str) -> str:
+        result = await asyncio.to_thread(
+            self.user_proxy.initiate_chat,
+            self.assistant,
+            message=message,
+        )
+        if result and hasattr(result, "chat_history"):
+            for msg in reversed(result.chat_history):
+                if msg.get("name") == "assistant":
+                    return msg.get("content", "")
+        return "No response generated."
+
+
+agent = AutoGenAgent()
+```
+
+**requirements.txt:**
+
+```
+pyautogen>=0.2.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+httpx>=0.27.0
+pydantic>=2.0.0
+```
+
+**server.py:**
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from agent import agent
+
+app = FastAPI()
+
+
+class InvokeRequest(BaseModel):
+    input: dict
+
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+
+@app.post("/invoke")
+async def invoke(request: InvokeRequest):
+    message = request.input.get("message", "")
+    result = await agent.invoke(message)
+    return {"output": result}
+```
+
+**agent.yaml:**
+
+```yaml
+name: autogen-coder
+version: 1.0.0
+description: "Code generation assistant using AutoGen"
+team: engineering
+owner: dev@company.com
+tags: [autogen, coding, custom]
+
+framework: custom
+
+model:
+  primary: gpt-4o
+  fallback: gpt-4o-mini
+
+guardrails:
+  - content_filter
+
+deploy:
+  cloud: local
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  env_vars:
+    AUTOGEN_WORK_DIR: "/tmp/coding"
+    PRIMARY_MODEL: "gpt-4o"
+  secrets:
+    - OPENAI_API_KEY
+
+access:
+  visibility: team
+```
+
+**Deploy:**
+
+```bash
+agentbreeder deploy agent.yaml
+```

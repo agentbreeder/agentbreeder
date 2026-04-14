@@ -1,0 +1,761 @@
+---
+title: From Custom
+description: Migrate a custom agent implementation to AgentBreeder.
+---
+
+# Bring Your Own Agent (Custom Framework)
+
+> **Time to migrate:** ~20 minutes
+> **Difficulty:** Easy
+> **What changes:** You write a thin server wrapper and an `agent.yaml`. Your agent code stays the same.
+
+---
+
+## Before You Start
+
+- [ ] You have a Python agent (any framework, any structure)
+- [ ] Your agent can accept a text input and return a text output
+- [ ] Python 3.11+ is installed
+- [ ] Docker is installed and running
+- [ ] You have installed AgentBreeder: `pip install agentbreeder`
+
+---
+
+## The Big Picture
+
+AgentBreeder supports `framework: custom` for any Python agent that does not fit the built-in framework categories (LangGraph, CrewAI, OpenAI Agents, Claude SDK, Google ADK). This is the "bring your own agent" path.
+
+**The contract is simple:** provide an `agent.py` that exports an `agent` object with an `invoke` method (or a callable), and a `server.py` that wraps it in a FastAPI app. AgentBreeder handles the rest.
+
+---
+
+## Before & After
+
+### Before: Your Custom Agent
+
+```
+my-agent/
+  agent.py            # Your agent logic
+  utils.py            # Helper functions
+  requirements.txt
+  # Deployed however you currently deploy it
+```
+
+### After: Your Custom Agent + AgentBreeder
+
+```
+my-agent/
+  agent.py            # UNCHANGED (or minor wrapper addition)
+  utils.py            # UNCHANGED
+  requirements.txt    # Add fastapi, uvicorn if missing
+  server.py           # NEW -- thin HTTP wrapper
+  agent.yaml          # NEW -- AG config
+```
+
+---
+
+## Step-by-Step Migration
+
+### Step 1: Assess your agent's interface
+
+Your agent needs to accept a string input and return a string output. Here are common patterns and how to wrap them:
+
+**Pattern A: Function-based agent**
+
+```python
+# agent.py (your existing code)
+def run_agent(message: str) -> str:
+    """Process a message and return a response."""
+    # your logic here
+    return response
+```
+
+**Pattern B: Class-based agent**
+
+```python
+# agent.py (your existing code)
+class MyAgent:
+    def __init__(self):
+        self.model = load_model()
+
+    def run(self, message: str) -> str:
+        return self.model.generate(message)
+
+agent = MyAgent()
+```
+
+**Pattern C: Async agent**
+
+```python
+# agent.py (your existing code)
+class MyAsyncAgent:
+    async def invoke(self, message: str) -> str:
+        result = await self.llm.generate(message)
+        return result
+
+agent = MyAsyncAgent()
+```
+
+All three work. The server wrapper adapts to whichever pattern you use.
+
+### Step 2: Create server.py
+
+This is the HTTP wrapper that AgentBreeder's container will run. Adapt it to your agent's interface:
+
+**For function-based agents:**
+
+```python
+# server.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from agent import run_agent
+
+app = FastAPI(title="AgentBreeder Custom Agent")
+
+
+class InvokeRequest(BaseModel):
+    input: dict
+
+
+class InvokeResponse(BaseModel):
+    output: str
+    metadata: dict = {}
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint -- required by AgentBreeder."""
+    return {"status": "healthy"}
+
+
+@app.post("/invoke")
+async def invoke(request: InvokeRequest):
+    """Invoke the agent with a message."""
+    message = request.input.get("message", "")
+    result = run_agent(message)
+    return InvokeResponse(output=result)
+```
+
+**For class-based agents:**
+
+```python
+# server.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from agent import agent
+
+app = FastAPI(title="AgentBreeder Custom Agent")
+
+
+class InvokeRequest(BaseModel):
+    input: dict
+
+
+class InvokeResponse(BaseModel):
+    output: str
+    metadata: dict = {}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+
+@app.post("/invoke")
+async def invoke(request: InvokeRequest):
+    message = request.input.get("message", "")
+    # Adapt to your agent's method name
+    if hasattr(agent, "invoke"):
+        result = await agent.invoke(message)
+    elif hasattr(agent, "run"):
+        result = agent.run(message)
+    elif callable(agent):
+        result = agent(message)
+    else:
+        result = "Agent has no callable interface"
+    return InvokeResponse(output=str(result))
+```
+
+**For async agents:**
+
+```python
+# server.py
+import asyncio
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from agent import agent
+
+app = FastAPI(title="AgentBreeder Custom Agent")
+
+
+class InvokeRequest(BaseModel):
+    input: dict
+
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+
+@app.post("/invoke")
+async def invoke(request: InvokeRequest):
+    message = request.input.get("message", "")
+    if asyncio.iscoroutinefunction(getattr(agent, "invoke", None)):
+        result = await agent.invoke(message)
+    else:
+        result = await asyncio.to_thread(agent.invoke, message)
+    return {"output": str(result)}
+```
+
+### Step 3: Create agent.yaml
+
+```yaml
+name: my-custom-agent
+version: 1.0.0
+description: "Description of what your agent does"
+team: my-team
+owner: you@company.com
+tags: [custom, my-domain]
+
+framework: custom
+
+model:
+  primary: gpt-4o
+
+deploy:
+  cloud: local
+  resources:
+    cpu: "0.5"
+    memory: "1Gi"
+  secrets:
+    - OPENAI_API_KEY
+```
+
+### Step 4: Create or update Dockerfile (optional)
+
+For `framework: custom`, AgentBreeder generates a basic Dockerfile. If you need custom system dependencies, create your own:
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies (if needed)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy agent code
+COPY . .
+
+# Non-root user
+RUN useradd -m -r agent && chown -R agent:agent /app
+USER agent
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
+    CMD python -c "import httpx; httpx.get('http://localhost:8080/health').raise_for_status()"
+
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+```
+
+If you provide your own `Dockerfile`, AgentBreeder uses it instead of generating one.
+
+### Step 5: Update requirements.txt
+
+Add the server dependencies if they are not already there:
+
+```
+# Your existing deps
+openai>=1.60.0
+numpy>=1.24.0
+# ... whatever your agent needs
+
+# AG server deps (add these)
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+httpx>=0.27.0
+pydantic>=2.0.0
+```
+
+### Step 6: Validate and deploy
+
+```bash
+agentbreeder validate agent.yaml
+agentbreeder deploy agent.yaml --target local
+```
+
+### Step 7: Test
+
+```bash
+curl -X POST http://localhost:8080/invoke \
+  -d '{"input": {"message": "Hello, agent!"}}' \
+  -H 'Content-Type: application/json'
+```
+
+---
+
+## Adding Health Checks
+
+The `/health` endpoint is required. AgentBreeder pings it to verify your container is running. You can add more sophisticated checks:
+
+```python
+@app.get("/health")
+async def health():
+    checks = {}
+
+    # Check model is loaded
+    checks["model_loaded"] = hasattr(agent, "model") and agent.model is not None
+
+    # Check external service connectivity
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get("https://api.openai.com/v1/models", timeout=2.0)
+            checks["openai_reachable"] = r.status_code == 200
+    except Exception:
+        checks["openai_reachable"] = False
+
+    healthy = all(checks.values())
+    return {
+        "status": "healthy" if healthy else "degraded",
+        "checks": checks,
+    }
+```
+
+---
+
+## Adding Logging Hooks
+
+AgentBreeder collects logs from your container's stdout/stderr. Use structured logging for best results:
+
+```python
+import logging
+import json
+
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_data = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "module": record.module,
+        }
+        if hasattr(record, "agent_name"):
+            log_data["agent_name"] = record.agent_name
+        if hasattr(record, "tokens"):
+            log_data["tokens"] = record.tokens
+        return json.dumps(log_data)
+
+# Set up logging
+handler = logging.StreamHandler()
+handler.setFormatter(JSONFormatter())
+logger = logging.getLogger("agent")
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
+# Use in your agent
+logger.info("Processing request", extra={"agent_name": "my-agent", "tokens": 150})
+```
+
+Access logs via:
+
+```bash
+agentbreeder logs my-custom-agent
+```
+
+---
+
+## Adding OpenTelemetry Tracing
+
+For distributed tracing integration with AgentBreeder's observability:
+
+```python
+# Add to server.py
+from opentelemetry import trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+tracer = trace.get_tracer("my-custom-agent")
+
+# Instrument FastAPI
+FastAPIInstrumentor.instrument_app(app)
+
+@app.post("/invoke")
+async def invoke(request: InvokeRequest):
+    with tracer.start_as_current_span("agent.invoke") as span:
+        message = request.input.get("message", "")
+        span.set_attribute("input.length", len(message))
+
+        result = await agent.invoke(message)
+
+        span.set_attribute("output.length", len(result))
+        return {"output": result}
+```
+
+Add to requirements.txt:
+
+```
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+opentelemetry-instrumentation-fastapi>=0.41b0
+```
+
+---
+
+## Dockerfile Customization
+
+### Installing system packages
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \          # for audio processing
+    poppler-utils \   # for PDF parsing
+    tesseract-ocr \   # for OCR
+    && rm -rf /var/lib/apt/lists/*
+```
+
+### Using GPU
+
+```dockerfile
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+
+# Install Python
+RUN apt-get update && apt-get install -y python3.11 python3-pip
+```
+
+```yaml
+# agent.yaml
+deploy:
+  resources:
+    cpu: "4"
+    memory: "16Gi"
+  env_vars:
+    CUDA_VISIBLE_DEVICES: "0"
+```
+
+### Multi-stage builds
+
+```dockerfile
+# Build stage
+FROM python:3.11-slim AS builder
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# Runtime stage
+FROM python:3.11-slim
+WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY . .
+RUN useradd -m -r agent && chown -R agent:agent /app
+USER agent
+EXPOSE 8080
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+```
+
+### Pre-loading large models
+
+```dockerfile
+# Download model weights at build time (not runtime)
+RUN python -c "from transformers import AutoModel; AutoModel.from_pretrained('bert-base-uncased')"
+```
+
+---
+
+## Common Agent Patterns
+
+### RAG Agent
+
+```python
+# agent.py
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+
+class RAGAgent:
+    def __init__(self):
+        self.embeddings = OpenAIEmbeddings()
+        self.vectorstore = FAISS.load_local("./index", self.embeddings)
+        self.llm = ChatOpenAI(model="gpt-4o")
+
+    async def invoke(self, message: str) -> str:
+        docs = self.vectorstore.similarity_search(message, k=3)
+        context = "\n".join(d.page_content for d in docs)
+        response = await self.llm.ainvoke(
+            f"Context:\n{context}\n\nQuestion: {message}"
+        )
+        return response.content
+
+agent = RAGAgent()
+```
+
+```yaml
+# agent.yaml
+name: rag-agent
+framework: custom
+model:
+  primary: gpt-4o
+knowledge_bases:
+  - ref: kb/product-docs
+deploy:
+  cloud: local
+  secrets:
+    - OPENAI_API_KEY
+```
+
+### Tool-Using Agent
+
+```python
+# agent.py
+import json
+from openai import OpenAI
+
+client = OpenAI()
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get weather for a city",
+            "parameters": {
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+            },
+        },
+    }
+]
+
+
+def get_weather(city: str) -> str:
+    return f"72F and sunny in {city}"
+
+
+TOOL_MAP = {"get_weather": get_weather}
+
+
+class ToolAgent:
+    async def invoke(self, message: str) -> str:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": message}],
+            tools=TOOLS,
+        )
+        msg = response.choices[0].message
+        if msg.tool_calls:
+            for call in msg.tool_calls:
+                fn = TOOL_MAP[call.function.name]
+                result = fn(**json.loads(call.function.arguments))
+                return result
+        return msg.content or ""
+
+
+agent = ToolAgent()
+```
+
+### Stateful Conversational Agent
+
+```python
+# agent.py
+from collections import defaultdict
+
+class ConversationAgent:
+    def __init__(self):
+        self.histories = defaultdict(list)
+
+    async def invoke(self, message: str, session_id: str = "default") -> str:
+        self.histories[session_id].append({"role": "user", "content": message})
+
+        response = await self.llm.chat(messages=self.histories[session_id])
+
+        self.histories[session_id].append({"role": "assistant", "content": response})
+        return response
+
+agent = ConversationAgent()
+```
+
+For stateful agents, update the server wrapper to pass session IDs:
+
+```python
+@app.post("/invoke")
+async def invoke(request: InvokeRequest):
+    message = request.input.get("message", "")
+    session_id = request.input.get("session_id", "default")
+    result = await agent.invoke(message, session_id=session_id)
+    return {"output": result}
+```
+
+---
+
+## What You Gain
+
+| Feature | Custom Agent Alone | + AgentBreeder |
+|---------|-------------------|----------------|
+| Agent logic | Your code | Your code (unchanged) |
+| HTTP server | You build it | Template provided |
+| Containerization | Manual | Automatic or custom Dockerfile |
+| Deploy | Manual | `agentbreeder deploy agent.yaml` |
+| Multi-cloud | Rewrite per cloud | One-line change |
+| RBAC | Not available | Automatic |
+| Cost tracking | Not available | Per-agent, per-model |
+| Agent registry | Not available | Org-wide discovery |
+| Health checks | Manual | Automatic |
+| Autoscaling | Manual | Declarative |
+| Guardrails | Build your own | Declarative + custom |
+| Logging | stdout | Structured, collected by AG |
+| Tracing | Manual | OpenTelemetry integration |
+
+---
+
+## Troubleshooting
+
+### Container exits immediately
+
+Check that your `server.py` and `agent.py` import correctly. The most common cause is a missing dependency:
+
+```bash
+# Test locally first
+uvicorn server:app --host 0.0.0.0 --port 8080
+```
+
+### Health check fails
+
+Make sure `/health` returns a 200 status code. If your agent takes time to initialize, add a startup check:
+
+```python
+_ready = False
+
+@app.on_event("startup")
+async def startup():
+    global _ready
+    # Do heavy initialization here
+    agent.initialize()
+    _ready = True
+
+@app.get("/health")
+async def health():
+    if not _ready:
+        return JSONResponse(status_code=503, content={"status": "starting"})
+    return {"status": "healthy"}
+```
+
+### Agent works locally but not in container
+
+Check for:
+1. **Hardcoded file paths:** Use relative paths or environment variables
+2. **Missing environment variables:** Add to `deploy.secrets` or `deploy.env_vars`
+3. **Network access:** Container has internet access by default, but check firewall rules
+4. **File permissions:** Container runs as non-root user `agent`
+
+### Large model files
+
+Do not include large model files in the Docker build context. Either:
+- Download at build time in the Dockerfile (`RUN python -c "..."`)
+- Use a volume mount for local dev
+- Store in a cloud storage bucket and download at startup
+
+---
+
+## Full Example: Simple Q&A Agent
+
+**agent.py:**
+
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+
+class QAAgent:
+    """Simple question-answering agent."""
+
+    def __init__(self, model: str = "gpt-4o-mini"):
+        self.model = model
+        self.system_prompt = (
+            "You are a helpful assistant. Answer questions clearly and concisely."
+        )
+
+    def invoke(self, message: str) -> str:
+        response = client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": message},
+            ],
+        )
+        return response.choices[0].message.content or ""
+
+
+agent = QAAgent()
+```
+
+**server.py:**
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+from agent import agent
+
+app = FastAPI()
+
+
+class InvokeRequest(BaseModel):
+    input: dict
+
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+
+@app.post("/invoke")
+async def invoke(request: InvokeRequest):
+    message = request.input.get("message", "")
+    result = agent.invoke(message)
+    return {"output": result}
+```
+
+**requirements.txt:**
+
+```
+openai>=1.60.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+httpx>=0.27.0
+pydantic>=2.0.0
+```
+
+**agent.yaml:**
+
+```yaml
+name: qa-agent
+version: 1.0.0
+description: "Simple Q&A agent using OpenAI"
+team: examples
+owner: dev@company.com
+tags: [custom, qa, simple]
+
+framework: custom
+
+model:
+  primary: gpt-4o-mini
+
+deploy:
+  cloud: local
+  secrets:
+    - OPENAI_API_KEY
+```
+
+**Deploy:**
+
+```bash
+agentbreeder deploy agent.yaml
+```

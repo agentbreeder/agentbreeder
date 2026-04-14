@@ -432,6 +432,7 @@ agentbreeder/
 │   └── mcp/                   # MCP server packaging
 ├── registry/           # Catalog services — agents, tools, models, prompts, templates
 ├── sdk/python/         # Python SDK (pip install agentbreeder-sdk)
+├── sdk/typescript/     # TypeScript SDK (npm install @agentbreeder/sdk)
 ├── connectors/         # LiteLLM, OpenRouter, MCP scanner
 ├── dashboard/          # React + TypeScript + Tailwind
 ├── tests/              # 2,378 unit tests + Playwright E2E

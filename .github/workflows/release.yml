@@ -321,8 +321,22 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           npm version "$VERSION" --no-git-tag-version
 
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
       - name: Publish to npm
-        run: npm publish --access public
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          npm publish --access public 2>&1 | tee /tmp/npm-publish.log; publish_exit=${PIPESTATUS[0]}
+          if [ $publish_exit -ne 0 ]; then
+            if grep -q "You cannot publish over" /tmp/npm-publish.log; then
+              echo "Version ${VERSION} already published on npm, skipping."
+            else
+              cat /tmp/npm-publish.log
+              exit $publish_exit
+            fi
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -333,11 +347,67 @@ jobs:
     needs: publish-pypi
     steps:
       - name: Wait for PyPI propagation
-        run: sleep 30
-      - name: Update Homebrew formula
-        uses: mislav/bump-homebrew-formula-action@v3
+        run: sleep 60
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Checkout homebrew tap
+        uses: actions/checkout@v4
         with:
-          formula-name: agentbreeder
-          homebrew-tap: rajitsaha/homebrew-agentbreeder
+          repository: rajitsaha/homebrew-agentbreeder
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update formula from PyPI
         env:
-          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 << 'PYEOF'
+          import os, re, json, urllib.request
+
+          version = os.environ["VERSION"]
+
+          def pypi_sdist(pkg, ver):
+              url = f"https://pypi.org/pypi/{pkg}/{ver}/json"
+              with urllib.request.urlopen(url) as r:
+                  data = json.loads(r.read())
+              for f in data["urls"]:
+                  if f["packagetype"] == "sdist":
+                      return f["url"], f["digests"]["sha256"]
+              raise ValueError(f"no sdist found for {pkg} {ver}")
+
+          ab_url,  ab_sha  = pypi_sdist("agentbreeder",     version)
+          sdk_url, sdk_sha = pypi_sdist("agentbreeder-sdk", version)
+
+          formula_path = "homebrew-tap/Formula/agentbreeder.rb"
+          with open(formula_path) as f:
+              text = f.read()
+
+          # Update main package url + sha256 (2-space indent, first block)
+          text = re.sub(
+              r'(  url )"https://files\.pythonhosted\.org/[^"]+agentbreeder-\d[^"]*\.tar\.gz"(\n  sha256 )"[a-f0-9]{64}"',
+              rf'\1"{ab_url}"\2"{ab_sha}"', text)
+
+          # Update SDK resource url + sha256 (4-space indent, inside resource block)
+          text = re.sub(
+              r'(    url )"https://files\.pythonhosted\.org/[^"]+agentbreeder[_-]sdk[^"]*\.tar\.gz"(\n    sha256 )"[a-f0-9]{64}"',
+              rf'\1"{sdk_url}"\2"{sdk_sha}"', text)
+
+          with open(formula_path, "w") as f:
+              f.write(text)
+
+          print(f"Updated formula to v{version}")
+          print(f"  agentbreeder:     {ab_url}")
+          print(f"  agentbreeder-sdk: {sdk_url}")
+          PYEOF
+
+      - name: Commit and push
+        run: |
+          cd homebrew-tap
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add Formula/agentbreeder.rb
+          git diff --cached --quiet && echo "No changes to commit" || \
+            git commit -m "agentbreeder ${{ steps.version.outputs.version }}" && git push

@@ -1,0 +1,18 @@
+{
+  "title": "AgentBreeder Docs",
+  "pages": [
+    "index",
+    "quickstart",
+    "how-to",
+    "local-development",
+    "---Core Concepts---",
+    "agent-yaml",
+    "registry-guide",
+    "api-stability",
+    "---Reference---",
+    "cli-reference",
+    "orchestration-sdk",
+    "---Migrations---",
+    "migrations"
+  ]
+}

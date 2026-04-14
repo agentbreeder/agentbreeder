@@ -121,8 +121,8 @@ The result: a governed, deduplicated, cost-visible AI estate from the first week
 ## Further Reading
 
 - [Quickstart Guide](./quickstart.md) — up and running in 10 minutes
-- [Architecture](../ARCHITECTURE.md) — deep-dive into the deploy pipeline and system design
+- [Architecture](https://github.com/rajitsaha/agentbreeder/blob/main/ARCHITECTURE.md) — deep-dive into the deploy pipeline and system design
 - [agent.yaml Reference](./agent-yaml.md) — complete configuration specification
 - [CLI Reference](./cli-reference.md) — all commands documented
 - [Migration Guides](./migrations/OVERVIEW.md) — move from LangGraph, CrewAI, OpenAI Agents, AutoGen, or custom Python
-- [Roadmap](../ROADMAP.md) — 30-milestone release plan
+- [Roadmap](https://github.com/rajitsaha/agentbreeder/blob/main/ROADMAP.md) — 30-milestone release plan
