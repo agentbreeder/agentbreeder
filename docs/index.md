@@ -23,7 +23,7 @@ AgentBreeder is an open-source platform for building, deploying, and governing e
 Not sure which framework, model, or RAG setup is right for your use case?
 Run `/agent-build` in [Claude Code](https://claude.ai/code) — it interviews you, recommends the full stack, and scaffolds a production-ready project in one conversation.
 
-<div class="ab-demo" aria-label="Demo: /agent-build advisory flow" role="img">
+<div class="ab-demo" aria-label="Demo: /agent-build advisory flow" role="region">
 <style>
 .ab-demo{font-family:Inter,system-ui,sans-serif;margin:24px 0}
 .ab-wrap{border:1px solid #30363d;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.4);background:#0d1117}
@@ -33,8 +33,8 @@ Run `/agent-build` in [Claude Code](https://claude.ai/code) — it interviews yo
 .ab-prog{height:2px;background:#21262d}
 .ab-fill{height:100%;background:linear-gradient(90deg,#3fb950,#58a6ff);width:0%;transition:width .3s linear}
 .ab-split{display:grid;grid-template-columns:1fr 1fr;min-height:300px}
-.ab-left{background:#0d1117;border-right:1px solid #30363d;padding:20px;font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;line-height:1.7;overflow:hidden}
-.ab-right{background:#0d1117;padding:20px;font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;line-height:1.7}
+.ab-left{background:#0d1117;border-right:1px solid #30363d;padding:20px;font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;line-height:1.7;overflow-y:auto;max-height:300px}
+.ab-right{background:#0d1117;padding:20px;font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;line-height:1.7;overflow-y:auto;max-height:300px}
 .ab-ph{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#484f58;margin-bottom:12px;border-bottom:1px solid #21262d;padding-bottom:8px}
 .ab-ln{opacity:0;transform:translateY(4px);transition:opacity .25s ease,transform .25s ease}
 .ab-ln.ab-show{opacity:1;transform:translateY(0)}
@@ -47,7 +47,7 @@ Run `/agent-build` in [Claude Code](https://claude.ai/code) — it interviews yo
 .ab-sl{font-size:11px;color:#8b949e}
 @media(max-width:600px){.ab-split{grid-template-columns:1fr}.ab-right{display:none}}
 </style>
-<noscript>Demo: /agent-build advisory flow — interview → recommendations → scaffold → agentbreeder deploy</noscript>
+<noscript>Demo: /agent-build advisory flow — invoke → interview → recommendations → scaffold → agentbreeder deploy</noscript>
 <div class="ab-wrap">
   <div class="ab-bar">
     <div class="ab-dot" style="background:#ff5f56"></div>
@@ -73,11 +73,12 @@ Run `/agent-build` in [Claude Code](https://claude.ai/code) — it interviews yo
       <div class="ab-sd" id="ab-s4"></div>
     </div>
     <div class="ab-sl">Step</div>
-    <div class="ab-sn" id="ab-sn">Starting...</div>
+    <div class="ab-sn" id="ab-sn" aria-live="polite">Starting...</div>
   </div>
 </div>
 <script>
 (function(){
+var cancelled=false;
 var L=document.getElementById('ab-left'),
     R=document.getElementById('ab-right'),
     P=document.getElementById('ab-prog'),
@@ -105,29 +106,46 @@ function step(i,name){
   }
 }
 async function run(){
+  if(cancelled)return;
   L.textContent='';R.textContent='';prog(0);
   step(0,'Invoke /agent-build');
   add(L,ln(sp('$ ',C.p),sp('/agent-build',C.c)));prog(4);await w(700);
+  if(cancelled)return;
   add(L,ln());add(L,ln(sp('Know your stack, or should I recommend?',C.q)));await w(500);
+  if(cancelled)return;
   add(L,ln(sp('(a) I know my stack',C.d)));add(L,ln(sp('(b) Recommend for me',C.d)));await w(700);
+  if(cancelled)return;
   add(L,ln(sp('> b',C.a)));prog(10);await w(800);
+  if(cancelled)return;
   step(1,'Advisory Interview');
   add(L,ln());add(L,ln(sp('What problem does this agent solve?',C.q)));await w(500);
+  if(cancelled)return;
   add(L,ln(sp('> Reduce tier-1 support tickets',C.a)));prog(22);await w(700);
+  if(cancelled)return;
   add(L,ln());add(L,ln(sp('Describe the workflow step by step.',C.q)));await w(500);
+  if(cancelled)return;
   add(L,ln(sp('> Search KB \u2192 lookup order \u2192 escalate',C.a)));prog(34);await w(700);
+  if(cancelled)return;
   add(L,ln());add(L,ln(sp('State complexity? (loops/HITL/parallel)',C.q)));await w(500);
+  if(cancelled)return;
   add(L,ln(sp('> a, c  (loops + human-in-the-loop)',C.a)));prog(44);await w(600);
+  if(cancelled)return;
   add(L,ln());add(L,ln(sp('... 3 more questions ...',C.d)));prog(50);await w(900);
+  if(cancelled)return;
   step(2,'Recommendations');
   add(L,ln());add(L,ln(sp('\u2500\u2500 Recommendations \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500',C.rh)));await w(300);
+  if(cancelled)return;
   var recs=[['Framework','LangGraph \u2014 Full Code'],['Model','claude-sonnet-4-6'],['RAG','Vector (pgvector)'],['Memory','Short-term (Redis)'],['MCP','MCP servers'],['Deploy','ECS Fargate'],['Evals','deflection-rate, CSAT']];
   for(var i=0;i<recs.length;i++){
+    if(cancelled)return;
     add(L,ln(sp('  '+recs[i][0].padEnd(10),C.rc),sp(recs[i][1],C.q)));
     prog(50+i*2.5);await w(220);
   }
+  if(cancelled)return;
   prog(68);await w(500);
+  if(cancelled)return;
   add(L,ln());add(L,ln(sp('Override anything, or proceed? ',C.q),sp('> proceed',C.a)));await w(600);
+  if(cancelled)return;
   step(3,'Scaffolding Files');
   var files=[
     [0,'support-agent/',true],[1,'agent.yaml',false],[1,'agent.py',false],
@@ -136,8 +154,9 @@ async function run(){
     [1,'tests/',true],[2,'eval_deflect.py',false],[1,'ARCHITECT_NOTES.md',false],
     [1,'CLAUDE.md',false],[1,'.cursorrules',false],[1,'README.md',false]
   ];
-  var delays=[250,200,180,160,160,160,200,140,200,140,200,140,180,160,160,160];
+  var delays=[250,200,180,160,160,160,200,140,200,140,200,140,180,160,160];
   for(var i=0;i<files.length;i++){
+    if(cancelled)return;
     var f=files[i],pre='  '.repeat(f[0]),parts=[];
     if(pre) parts.push(document.createTextNode(pre));
     if(!f[2]) parts.push(sp('+ ',C.p));
@@ -145,15 +164,24 @@ async function run(){
     add(R,ln.apply(null,parts));
     prog(68+(i+1)/files.length*24);await w(delays[i]||160);
   }
+  if(cancelled)return;
   prog(93);await w(600);
+  if(cancelled)return;
   step(4,'Deploy');
   add(L,ln());add(L,ln(sp('\u2713 ',C.p),sp('16 files generated in support-agent/',C.q)));await w(400);
+  if(cancelled)return;
   add(L,ln());add(L,ln(sp('$ ',C.p),sp('agentbreeder deploy',C.dp)));await w(700);
+  if(cancelled)return;
   add(L,ln(sp('\u2713 ',C.p),sp('Deployed to ECS Fargate',C.q)));await w(400);
+  if(cancelled)return;
   add(L,ln(sp('\u2713 ',C.p),sp('https://support-agent.company.com',C.d)));
   prog(100);await w(3000);
-  run();
+  if(!cancelled) run();
 }
+var _obs=new MutationObserver(function(){
+  if(!document.getElementById('ab-prog')){cancelled=true;_obs.disconnect();}
+});
+_obs.observe(document.body,{childList:true,subtree:true});
 run();
 })();
 </script>
