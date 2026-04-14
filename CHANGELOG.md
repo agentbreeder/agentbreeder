@@ -8,6 +8,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+---
+
+## [1.5.0] — 2026-04-13
+
 ### Added
 
 #### Framework Parity (CrewAI, Claude SDK, Google ADK)
@@ -148,6 +152,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ---
 
-[Unreleased]: https://github.com/rajitsaha/agentbreeder/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/rajitsaha/agentbreeder/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/rajitsaha/agentbreeder/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/rajitsaha/agentbreeder/compare/v1.0.0...v1.4.0
 [1.0.0]: https://github.com/rajitsaha/agentbreeder/releases/tag/v1.0.0
