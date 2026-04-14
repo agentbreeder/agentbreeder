@@ -3,6 +3,7 @@
 Validates that the skill file contains all required sections
 for both fast path and advisory path flows.
 """
+
 from pathlib import Path
 
 SKILL_FILE = Path(__file__).parents[2] / ".claude/commands/agent-build.md"
