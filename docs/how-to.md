@@ -83,6 +83,17 @@ pip install -e ".[dev]"
 
 ## Build Your First Agent
 
+The fastest way to scaffold a new agent project is the **AI Agent Architect**:
+
+```bash
+# Run this in Claude Code
+/agent-build
+```
+
+It asks you 6 questions (or recommends the best stack for your use case) and generates a complete, production-ready project. See the [full walkthrough below](#use-the-agent-architect-agent-build).
+
+Prefer to scaffold manually? The steps below walk through each file.
+
 ### Step 1: Scaffold
 
 ```bash
@@ -183,6 +194,147 @@ agentbreeder status
 
 # View logs
 agentbreeder logs support-agent --follow
+```
+
+---
+
+## Use the Agent Architect (/agent-build)
+
+`/agent-build` is a Claude Code skill that acts as an AI Agent Architect. Run it inside Claude Code at the root of any directory where you want to scaffold a new agent project.
+
+It supports two paths:
+
+- **Fast Path** — you know your stack. Six quick questions, then scaffold.
+- **Advisory Path** — you describe your use case. It recommends the best framework, model, RAG, memory, MCP/A2A, deployment, and eval setup — with reasoning — before scaffolding begins.
+
+### Fast Path
+
+```
+$ /agent-build
+
+Do you already know your stack, or would you like me to recommend?
+(a) I know my stack — I'll ask 6 quick questions and scaffold your project
+(b) Recommend for me — ...
+
+> a
+
+What should we call this agent?
+> support-agent
+
+What will this agent do?
+> Handle tier-1 customer support tickets
+
+Which framework?
+1. LangGraph  2. CrewAI  3. Claude SDK  4. OpenAI Agents  5. Google ADK  6. Custom
+> 1
+
+Where will it run?
+1. Local  2. AWS  3. GCP  4. Kubernetes (planned)
+> 2
+
+What tools should this agent have?
+> zendesk lookup, knowledge base search
+
+Team name and owner email? [engineering / you@company.com]
+> (enter)
+
+┌─────────────────────────────────────┐
+│  Framework   LangGraph              │
+│  Cloud       AWS (ECS Fargate)      │
+│  Model       gpt-4o                 │
+│  Tools       zendesk, kb-search     │
+│  Team        engineering            │
+└─────────────────────────────────────┘
+Look good? I'll generate your project. > yes
+
+✓ 10 files generated in support-agent/
+```
+
+### Advisory Path
+
+```
+$ /agent-build
+
+> b
+
+What problem does this agent solve, and for whom?
+> Reduce tier-1 support tickets for our SaaS by deflecting common questions
+
+What does the agent need to do, step by step?
+> User sends ticket → search knowledge base → look up order status →
+  respond if found, escalate to human if not
+
+Does your agent need: (a) loops/retries (b) checkpoints (c) human-in-the-loop
+(d) parallel branches (e) none
+> a, c
+
+Primary cloud provider? (a) AWS (b) GCP (c) Azure (d) Local
+Language preference?    (a) Python (b) TypeScript (c) No preference
+> a  a
+
+What data does this agent work with?
+(a) Unstructured docs  (b) Structured DB  (c) Knowledge graph
+(d) Live APIs          (e) None
+> a, d
+
+Traffic pattern?
+(a) Real-time interactive  (b) Async batch
+(c) Event-driven           (d) Internal/low-volume
+> a
+
+── Recommendations ───────────────────────────────
+  Framework   LangGraph — Full Code
+  Model       claude-sonnet-4-6
+  RAG         Vector (pgvector)
+  Memory      Short-term (Redis)
+  MCP         MCP servers
+  Deploy      ECS Fargate
+  Evals       deflection-rate, CSAT, escalation-rate
+
+Override anything, or proceed? > proceed
+
+✓ 19 files generated in support-agent/
+```
+
+### What gets generated
+
+| File / Directory | Purpose | Path |
+|-----------------|---------|------|
+| `agent.yaml` | AgentBreeder config — framework, model, deploy, tools, guardrails | Both paths |
+| `agent.py` | Framework entrypoint (LangGraph graph / CrewAI crew / etc.) | Both paths |
+| `tools/` | Tool stub files, one per tool named in the interview | Both paths |
+| `requirements.txt` | Framework + provider dependencies | Both paths |
+| `.env.example` | Required API keys and env vars | Both paths |
+| `Dockerfile` | Multi-stage container image | Both paths |
+| `deploy/` | `docker-compose.yml` or cloud deploy config | Both paths |
+| `criteria.md` | Eval criteria | Both paths |
+| `README.md` | Project overview + quick-start | Both paths |
+| `memory/` | Redis / PostgreSQL setup | Advisory (if recommended) |
+| `rag/` | Vector or Graph RAG index + ingestion scripts | Advisory (if recommended) |
+| `mcp/servers.yaml` | MCP server references | Advisory (if recommended) |
+| `tests/evals/` | Eval harness + use-case criteria | Advisory |
+| `ARCHITECT_NOTES.md` | Reasoning behind every recommendation | Advisory |
+| `CLAUDE.md` | Agent-specific Claude Code context | Advisory |
+| `AGENTS.md` | AI skill roster for iterating on this agent | Advisory |
+| `.cursorrules` | Framework-specific Cursor IDE rules | Advisory |
+| `.antigravity.md` | Hard constraints for this agent | Advisory |
+
+### Next steps after scaffolding
+
+```bash
+cd support-agent/
+
+# Validate the generated agent.yaml
+agentbreeder validate
+
+# Deploy locally first
+agentbreeder deploy --target local
+
+# Chat with your agent
+agentbreeder chat
+
+# When ready, deploy to cloud
+agentbreeder deploy
 ```
 
 ---
