@@ -653,6 +653,7 @@ async def test_deploy_validates_rbac_before_building():
 5. **Update the JSON Schema** — if you changed `agent.yaml` fields
 6. **Update the docs** — if you changed a public API or CLI command
 7. **Add an example** — if you added a new framework or deployer, add it to `examples/`
+8. **Scaffold with `/agent-build`** — when starting a new agent project, run `/agent-build` in Claude Code. The Advisory Path generates IDE config files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `.antigravity.md`) tailored to the chosen framework, model, and deployment target. These files give Claude and Cursor context-aware guidance for the specific agent being built.
 
 ---
 
@@ -771,4 +772,4 @@ When reviewing AI-generated code, always verify:
 
 ---
 
-*Last updated: March 2026 — AgentBreeder v0.3*
+*Last updated: April 2026 — AgentBreeder v1.7*

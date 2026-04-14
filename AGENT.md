@@ -357,6 +357,50 @@ Provide:
 
 ---
 
+### `build:agent-scaffold`
+**Purpose:** Scaffold a complete, tier-interoperable agent project via the `/agent-build` skill — either by collecting known stack choices (Fast Path) or by running an advisory interview that recommends the best framework, model, RAG, memory, MCP/A2A, deployment target, and eval dimensions for the use case.
+
+**Trigger:** "I want to scaffold a new agent project" or `/agent-build`
+
+**Skill Prompt:**
+```
+Invoke the /agent-build Claude Code skill.
+
+The skill runs in two modes:
+- Fast Path — user knows their stack (framework, cloud, model). Asks 6 questions and
+  scaffolds the project immediately.
+- Advisory Path — user wants recommendations. Runs a 6-question interview covering
+  business goal, technical use case, state complexity, team context, data access, and
+  scale profile. Produces a Recommendations Summary with reasoning per dimension before
+  scaffolding begins. User can override any recommendation.
+
+Scaffold outputs (both paths):
+  agent.yaml           — AgentBreeder config (framework, model, deploy, tools, guardrails)
+  agent.py / crew.py   — Framework entrypoint (framework-specific)
+  tools/               — Tool stub files matching tools list
+  requirements.txt     — Framework + provider dependencies
+  .env.example         — Required environment variables
+  Dockerfile           — Multi-stage container image
+  deploy/              — docker-compose.yml or cloud deploy config
+  criteria.md          — Eval criteria (advisory path adds use-case dimensions)
+  README.md            — Project overview + quick-start
+
+Advisory path also adds:
+  memory/              — Redis/PostgreSQL memory setup (if recommended)
+  rag/                 — Vector or Graph RAG index + ingestion (if recommended)
+  mcp/servers.yaml     — MCP server references (if recommended)
+  tests/evals/         — Framework-specific eval harness + criteria
+  ARCHITECT_NOTES.md   — Reasoning behind every recommendation
+  CLAUDE.md            — Agent-specific Claude Code context
+  AGENTS.md            — AI skill roster for iterating on this agent
+  .cursorrules         — Framework-specific Cursor IDE rules
+  .antigravity.md      — Hard constraints (what NOT to do)
+```
+
+**MCP Tools:** `filesystem` (read git config for defaults), `sequential-thinking`
+
+---
+
 ## 🧪 TEST Skills
 
 ### `test:unit`

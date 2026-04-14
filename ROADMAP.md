@@ -2824,8 +2824,8 @@ Full spec: `docs/superpowers/specs/2026-04-14-agent-architect-skill-design.md`
 
 ### M35.4 — AgentBreeder Repo Updates
 
-- [ ] Add `build:agent-scaffold` skill entry to `AGENT.md` Build category
-- [ ] Append IDE config generation note to `CLAUDE.md`
+- [x] Add `build:agent-scaffold` skill entry to `AGENT.md` Build category
+- [x] Append IDE config generation note to `CLAUDE.md`
 
 ### M35 Acceptance Criteria
 
