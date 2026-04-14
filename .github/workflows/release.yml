@@ -71,11 +71,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Build SDK wheel and sdist
-        env:
-          HATCH_VCS_PRETEND_VERSION: ${{ github.ref_name }}
         run: |
-          # github.ref_name is "v1.5.0"; strip the leading "v" for the PEP 440 version
-          export HATCH_VCS_PRETEND_VERSION="${HATCH_VCS_PRETEND_VERSION#v}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Stamp version directly — hatch-vcs won't be invoked when 'version' is static
+          sed -i "s/dynamic = \[[\"']version[\"']\]/version = \"${VERSION}\"/" sdk/python/pyproject.toml
           pip install build
           cd sdk/python && python -m build
       - name: Verify SDK package
@@ -272,8 +271,6 @@ jobs:
           path: dist/
       - name: Publish SDK to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          skip-existing: true
 
   # ── Publish to PyPI ──────────────────────────────────────────────────────────
   publish-pypi:
