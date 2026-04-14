@@ -2791,7 +2791,54 @@ LangGraph and OpenAI Agents SDK are the two fully implemented runtimes. Both dep
 
 ---
 
-## Execution Plan — Next 3 Releases
+## Milestone M35 — Agent Architect Skill
+
+### Background
+
+The existing `/agent-build` skill collects framework/cloud/tools from the user but offers no guidance on *which* choices are right for their use case. Developers new to agentic systems need an advisor, not a transcriber. M35 evolves `/agent-build` into an AI Agent Architect that combines a structured advisory interview with full project scaffolding.
+
+Full spec: `docs/superpowers/specs/2026-04-14-agent-architect-skill-design.md`
+
+### M35.1 — Advisory Interview + Recommendation Engine
+
+- [ ] Update `.claude/commands/agent-build.md` with opt-in fork question
+- [ ] Implement 6-question advisory interview (business goal, use case, state complexity, team/org, data access, scale profile)
+- [ ] Build deterministic recommendation logic: framework+mode, model, RAG, memory, MCP/A2A, deploy, eval dimensions
+- [ ] Render Recommendations Summary with per-item reasoning
+- [ ] Support per-item user overrides before scaffolding
+
+### M35.2 — Expanded Scaffold Outputs
+
+- [ ] Generate `memory/` (Redis/PostgreSQL config) when memory recommended
+- [ ] Generate `rag/` (Vector or Graph RAG index + ingest) when RAG recommended
+- [ ] Generate `mcp/servers.yaml` when MCP recommended
+- [ ] Generate `tests/evals/` with framework-specific harness (LangSmith / Inspect AI / PromptFoo) + use-case criteria
+- [ ] Generate `ARCHITECT_NOTES.md` explaining every recommendation decision
+
+### M35.3 — IDE Config Files (Agent Project)
+
+- [ ] Generate `CLAUDE.md` — agent-specific Claude Code context (stack, rules, patterns)
+- [ ] Generate `AGENTS.md` — AI skill roster for iterating on this agent
+- [ ] Generate `.cursorrules` — framework-specific Cursor IDE rules
+- [ ] Generate `.antigravity.md` — hard constraints (what NOT to do)
+
+### M35.4 — AgentBreeder Repo Updates
+
+- [ ] Add `build:agent-scaffold` skill entry to `AGENT.md` Build category
+- [ ] Append IDE config generation note to `CLAUDE.md`
+
+### M35 Acceptance Criteria
+
+- Fast path (know your stack) is byte-for-byte unchanged
+- Advisory path asks all 6 questions one at a time
+- Recommendations Summary shows reasoning per item
+- User can override any recommendation before scaffolding proceeds
+- All new scaffold outputs generated correctly per framework
+- Existing `/agent-build` tests pass unchanged
+
+---
+
+## Execution Plan — Next 4 Releases
 
 | Release | Milestone | Theme | Key Work | Issues | Est. |
 |---------|-----------|-------|----------|--------|------|
@@ -2799,14 +2846,16 @@ LangGraph and OpenAI Agents SDK are the two fully implemented runtimes. Both dep
 | **v1.4** | M32 | Distribution | PyPI/Docker Hub/Homebrew infra setup (code done) | — | ~1d |
 | **v1.5** | M33 | Multi-Cloud | AWS ECS, Azure Container Apps, Kubernetes deployers | [#34](https://github.com/rajitsaha/agentbreeder/issues/34) | ~5d |
 | **v1.6** | M34 | Framework Depth | LangGraph HITL+persistence, OAI Agents handoffs, runtime OTel tracing | [#39](https://github.com/rajitsaha/agentbreeder/issues/39) [#40](https://github.com/rajitsaha/agentbreeder/issues/40) [#41](https://github.com/rajitsaha/agentbreeder/issues/41) | ~5d |
+| **v1.7** | M35 | Agent Architect Skill | /agent-build advisory mode: framework, model, RAG, memory, MCP/A2A, deploy, eval recommendations + IDE config file generation | [#49](https://github.com/rajitsaha/agentbreeder/issues/49) | ~3d |
 
 **Recommended sequencing rationale:**
 - M25 first — unblocks users who picked CrewAI/Claude SDK/ADK in the init wizard today
 - M32 finishes in parallel (manual infra tasks, no coding)
 - M33 next — multi-cloud is the #1 product differentiator gap
-- M34 last — improves depth of existing runtimes; high value but not a blocker to new users
+- M34 next — improves depth of existing runtimes; high value but not a blocker to new users
+- M35 last in this batch — highest DX impact; builds on top of all runtime and deploy work being stable
 
 ---
 
-*Last updated: April 10, 2026*
-*Status: v0.1–v1.2 complete (M1–M23). v1.3 in progress — M24 (Model Gateway), M26 (AgentOps dashboard), M27 (Production Hardening), M31 (Full Code Orchestration SDK) done; M25 (additional SDK runtime builders) remaining — tracked in #35–#38. v1.4 in progress — M32 (Package Distribution): code complete, manual infra setup remaining. v1.5 planned — M33 (Multi-Cloud Deployers: AWS ECS, Azure Container Apps, Kubernetes) tracked in #34. v1.6 planned — M34 (Framework Depth: LangGraph HITL+persistence, OAI Agents handoffs, runtime OTel tracing) tracked in #39–#41.*
+*Last updated: April 14, 2026*
+*Status: v0.1–v1.2 complete (M1–M23). v1.3 in progress — M24 (Model Gateway), M26 (AgentOps dashboard), M27 (Production Hardening), M31 (Full Code Orchestration SDK) done; M25 (additional SDK runtime builders) remaining — tracked in #35–#38. v1.4 in progress — M32 (Package Distribution): code complete, manual infra setup remaining. v1.5 planned — M33 (Multi-Cloud Deployers: AWS ECS, Azure Container Apps, Kubernetes) tracked in #34. v1.6 planned — M34 (Framework Depth: LangGraph HITL+persistence, OAI Agents handoffs, runtime OTel tracing) tracked in #39–#41. v1.7 planned — M35 (Agent Architect Skill: /agent-build advisory mode + IDE config generation) tracked in #49.*
