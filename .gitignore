@@ -52,3 +52,4 @@ dashboard/dist/
 dashboard/.env
 dashboard/test-results/
 site/
+.superpowers/

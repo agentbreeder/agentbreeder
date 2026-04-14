@@ -21,6 +21,7 @@
 | **v1.4** | Distribution | PyPI packages, Docker Hub images, Homebrew tap, release automation | M32 | In Progress (code complete, infra setup remaining) |
 | **v1.5** | Multi-Cloud | AWS ECS Fargate, Azure Container Apps, and general Kubernetes deployers | M33 | Done |
 | **v1.6** | Framework Depth | Complete all 4 missing runtime builders + LangGraph/OpenAI Agents feature depth + runtime tracing | M34 | Done |
+| **v1.7** | Agent Architect Skill | `/agent-build` advisory mode: framework, model, RAG, memory, MCP/A2A, deploy, eval recommendations + IDE config generation | M35 | Done |
 
 ---
 
@@ -2801,26 +2802,26 @@ Full spec: `docs/superpowers/specs/2026-04-14-agent-architect-skill-design.md`
 
 ### M35.1 — Advisory Interview + Recommendation Engine
 
-- [ ] Update `.claude/commands/agent-build.md` with opt-in fork question
-- [ ] Implement 6-question advisory interview (business goal, use case, state complexity, team/org, data access, scale profile)
-- [ ] Build deterministic recommendation logic: framework+mode, model, RAG, memory, MCP/A2A, deploy, eval dimensions
-- [ ] Render Recommendations Summary with per-item reasoning
-- [ ] Support per-item user overrides before scaffolding
+- [x] Update `.claude/commands/agent-build.md` with opt-in fork question
+- [x] Implement 6-question advisory interview (business goal, use case, state complexity, team/org, data access, scale profile)
+- [x] Build deterministic recommendation logic: framework+mode, model, RAG, memory, MCP/A2A, deploy, eval dimensions
+- [x] Render Recommendations Summary with per-item reasoning
+- [x] Support per-item user overrides before scaffolding
 
 ### M35.2 — Expanded Scaffold Outputs
 
-- [ ] Generate `memory/` (Redis/PostgreSQL config) when memory recommended
-- [ ] Generate `rag/` (Vector or Graph RAG index + ingest) when RAG recommended
-- [ ] Generate `mcp/servers.yaml` when MCP recommended
-- [ ] Generate `tests/evals/` with framework-specific harness (LangSmith / Inspect AI / PromptFoo) + use-case criteria
-- [ ] Generate `ARCHITECT_NOTES.md` explaining every recommendation decision
+- [x] Generate `memory/` (Redis/PostgreSQL config) when memory recommended
+- [x] Generate `rag/` (Vector or Graph RAG index + ingest) when RAG recommended
+- [x] Generate `mcp/servers.yaml` when MCP recommended
+- [x] Generate `tests/evals/` with framework-specific harness (LangSmith / Inspect AI / PromptFoo) + use-case criteria
+- [x] Generate `ARCHITECT_NOTES.md` explaining every recommendation decision
 
 ### M35.3 — IDE Config Files (Agent Project)
 
-- [ ] Generate `CLAUDE.md` — agent-specific Claude Code context (stack, rules, patterns)
-- [ ] Generate `AGENTS.md` — AI skill roster for iterating on this agent
-- [ ] Generate `.cursorrules` — framework-specific Cursor IDE rules
-- [ ] Generate `.antigravity.md` — hard constraints (what NOT to do)
+- [x] Generate `CLAUDE.md` — agent-specific Claude Code context (stack, rules, patterns)
+- [x] Generate `AGENTS.md` — AI skill roster for iterating on this agent
+- [x] Generate `.cursorrules` — framework-specific Cursor IDE rules
+- [x] Generate `.antigravity.md` — hard constraints (what NOT to do)
 
 ### M35.4 — AgentBreeder Repo Updates
 
@@ -2846,7 +2847,7 @@ Full spec: `docs/superpowers/specs/2026-04-14-agent-architect-skill-design.md`
 | **v1.4** | M32 | Distribution | PyPI/Docker Hub/Homebrew infra setup (code done) | — | ~1d |
 | **v1.5** | M33 | Multi-Cloud | AWS ECS, Azure Container Apps, Kubernetes deployers | [#34](https://github.com/rajitsaha/agentbreeder/issues/34) | ~5d |
 | **v1.6** | M34 | Framework Depth | LangGraph HITL+persistence, OAI Agents handoffs, runtime OTel tracing | [#39](https://github.com/rajitsaha/agentbreeder/issues/39) [#40](https://github.com/rajitsaha/agentbreeder/issues/40) [#41](https://github.com/rajitsaha/agentbreeder/issues/41) | ~5d |
-| **v1.7** | M35 | Agent Architect Skill | /agent-build advisory mode: framework, model, RAG, memory, MCP/A2A, deploy, eval recommendations + IDE config file generation | [#49](https://github.com/rajitsaha/agentbreeder/issues/49) | ~3d |
+| **v1.7** | M35 | Agent Architect Skill | /agent-build advisory mode: framework, model, RAG, memory, MCP/A2A, deploy, eval recommendations + IDE config file generation | [#49](https://github.com/rajitsaha/agentbreeder/issues/49) | ✅ Done |
 
 **Recommended sequencing rationale:**
 - M25 first — unblocks users who picked CrewAI/Claude SDK/ADK in the init wizard today
@@ -2858,4 +2859,4 @@ Full spec: `docs/superpowers/specs/2026-04-14-agent-architect-skill-design.md`
 ---
 
 *Last updated: April 14, 2026*
-*Status: v0.1–v1.2 complete (M1–M23). v1.3 in progress — M24 (Model Gateway), M26 (AgentOps dashboard), M27 (Production Hardening), M31 (Full Code Orchestration SDK) done; M25 (additional SDK runtime builders) remaining — tracked in #35–#38. v1.4 in progress — M32 (Package Distribution): code complete, manual infra setup remaining. v1.5 planned — M33 (Multi-Cloud Deployers: AWS ECS, Azure Container Apps, Kubernetes) tracked in #34. v1.6 planned — M34 (Framework Depth: LangGraph HITL+persistence, OAI Agents handoffs, runtime OTel tracing) tracked in #39–#41. v1.7 planned — M35 (Agent Architect Skill: /agent-build advisory mode + IDE config generation) tracked in #49.*
+*Status: v0.1–v1.2 complete (M1–M23). v1.3 in progress — M24 (Model Gateway), M26 (AgentOps dashboard), M27 (Production Hardening), M31 (Full Code Orchestration SDK) done; M25 (additional SDK runtime builders) remaining — tracked in #35–#38. v1.4 in progress — M32 (Package Distribution): code complete, manual infra setup remaining. v1.5 planned — M33 (Multi-Cloud Deployers: AWS ECS, Azure Container Apps, Kubernetes) tracked in #34. v1.6 planned — M34 (Framework Depth: LangGraph HITL+persistence, OAI Agents handoffs, runtime OTel tracing) tracked in #39–#41. v1.7 done — M35 (Agent Architect Skill: /agent-build advisory mode + IDE config generation) shipped in #50.*
