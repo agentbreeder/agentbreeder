@@ -429,12 +429,14 @@ guardrails:
 
 # Deployment Configuration
 deploy:
-  cloud: aws                          # Required. One of: aws | gcp | local
-                                      #   (kubernetes support is planned, not yet implemented)
+  cloud: aws                          # Required. One of: aws | gcp | azure | kubernetes | local | claude-managed
   runtime: ecs-fargate                # Optional. Defaults per cloud:
-                                      #   aws → ecs-fargate
+                                      #   aws → ecs-fargate  (also: app-runner)
                                       #   gcp → cloud-run
+                                      #   azure → container-apps
+                                      #   kubernetes → deployment
                                       #   local → docker-compose
+                                      #   claude-managed → (no container; Anthropic manages runtime)
   region: us-east-1                   # Optional. Cloud-specific.
   scaling:
     min: 1
@@ -477,6 +479,14 @@ google_adk:
   memory_service: memory              # "memory" | "vertex_ai_bank" | "vertex_ai_rag"
   artifact_service: memory            # "memory" | "gcs"
   gcs_bucket: ""                      # Required if artifact_service is "gcs"
+
+# Claude Managed Agents — only read when deploy.cloud == "claude-managed"
+# No container is built. Anthropic manages the runtime.
+claude_managed:
+  environment:
+    networking: unrestricted          # "unrestricted" | "restricted"
+  tools:
+    - type: agent_toolset_20260401    # Full built-in toolset (default)
 ```
 
 ---

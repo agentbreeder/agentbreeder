@@ -60,13 +60,25 @@ agentbreeder deploy CONFIG_PATH [--target TARGET] [--json]
 | Argument / Option | Required | Default | Description |
 |-------------------|----------|---------|-------------|
 | `CONFIG_PATH` | Yes | — | Path to `agent.yaml` |
-| `--target`, `-t` | No | `local` | Deploy target: `local`, `cloud-run` |
+| `--target`, `-t` | No | `local` | Deploy target. See supported values below. |
+
+**Supported `--target` values:**
+
+| Value | Cloud | Runtime | Notes |
+|-------|-------|---------|-------|
+| `local` | `local` | `docker-compose` | Default. Requires Docker. |
+| `cloud-run` | `gcp` | `cloud-run` | GCP Cloud Run. |
+| `ecs-fargate` | `aws` | `ecs-fargate` | AWS ECS Fargate. |
+| `app-runner` | `aws` | `app-runner` | AWS App Runner (no VPC/ALB). |
+| `container-apps` | `azure` | `container-apps` | Azure Container Apps. |
+| `kubernetes` | `kubernetes` | `deployment` | Generic Kubernetes. |
+| `claude-managed` | `claude-managed` | *(n/a)* | Anthropic managed runtime — no container built. |
 
 The deploy pipeline executes 8 atomic steps:
 1. Parse & validate YAML
 2. RBAC check
 3. Dependency resolution
-4. Container build
+4. Container build *(skipped for `claude-managed`)*
 5. Infrastructure provision
 6. Deploy & health check
 7. Auto-register in registry
@@ -76,10 +88,13 @@ If any step fails, the entire deploy rolls back.
 
 **Examples:**
 ```bash
-agentbreeder deploy ./agent.yaml                          # Deploy locally
-agentbreeder deploy ./agent.yaml --target local           # Same as above
-agentbreeder deploy ./agent.yaml --target cloud-run       # Deploy to GCP Cloud Run
-agentbreeder deploy ./agent.yaml --json                   # JSON output
+agentbreeder deploy ./agent.yaml                              # Deploy locally
+agentbreeder deploy ./agent.yaml --target local               # Same as above
+agentbreeder deploy ./agent.yaml --target cloud-run           # GCP Cloud Run
+agentbreeder deploy ./agent.yaml --target ecs-fargate         # AWS ECS Fargate
+agentbreeder deploy ./agent.yaml --target app-runner          # AWS App Runner
+agentbreeder deploy ./agent.yaml --target claude-managed      # Anthropic Claude Managed
+agentbreeder deploy ./agent.yaml --json                       # JSON output
 ```
 
 ---

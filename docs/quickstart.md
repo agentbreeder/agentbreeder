@@ -146,8 +146,43 @@ agentbreeder chat my-agent
 # GCP Cloud Run
 agentbreeder deploy agent.yaml --target cloud-run --region us-central1
 
-# AWS ECS (coming soon)
-agentbreeder deploy agent.yaml --target aws --region us-east-1
+# AWS ECS Fargate
+agentbreeder deploy agent.yaml --target ecs-fargate --region us-east-1
+
+# AWS App Runner (serverless — no VPC or ALB needed)
+agentbreeder deploy agent.yaml --target app-runner --region us-east-1
+
+# Azure Container Apps
+agentbreeder deploy agent.yaml --target container-apps
+
+# Anthropic Claude Managed Agents (no container build)
+agentbreeder deploy agent.yaml --target claude-managed
+```
+
+For `cloud: aws` targets, set the following in `deploy.env_vars`:
+
+```yaml
+deploy:
+  cloud: aws
+  runtime: app-runner      # or: ecs-fargate
+  env_vars:
+    AWS_ACCOUNT_ID: "123456789012"
+    AWS_REGION: us-east-1
+```
+
+For `cloud: claude-managed`, add an `ANTHROPIC_API_KEY` secret and an optional `claude_managed:` block:
+
+```yaml
+deploy:
+  cloud: claude-managed
+  secrets:
+    - ANTHROPIC_API_KEY
+
+claude_managed:
+  environment:
+    networking: unrestricted
+  tools:
+    - type: agent_toolset_20260401
 ```
 
 ---

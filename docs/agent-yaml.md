@@ -71,8 +71,8 @@ mcp_servers:
     transport: sse
 
 deploy:
-  cloud: gcp             # local | gcp (AWS and Kubernetes support planned)
-  target: cloud-run
+  cloud: gcp             # local | gcp | aws | azure | kubernetes | claude-managed
+  runtime: cloud-run
   region: us-central1
   scaling:
     min: 1
@@ -309,22 +309,24 @@ Deployment configuration.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `cloud` | string | **Yes** | — | Target platform: `local`, `kubernetes`, `aws`, `gcp`. |
+| `cloud` | string | **Yes** | — | Target platform: `local`, `aws`, `gcp`, `azure`, `kubernetes`, `claude-managed`. |
 | `runtime` | string | No | Per cloud | Deployment runtime. See defaults below. |
-| `region` | string | No | — | Cloud region (e.g., `us-east-1`). |
-| `scaling` | object | No | See below | Auto-scaling configuration. |
-| `resources` | object | No | See below | CPU and memory allocation. |
+| `region` | string | No | — | Cloud region (e.g., `us-east-1`). Not used for `claude-managed`. |
+| `scaling` | object | No | See below | Auto-scaling configuration. Not used for `claude-managed`. |
+| `resources` | object | No | See below | CPU and memory allocation. Not used for `claude-managed`. |
 | `env_vars` | map | No | — | Non-secret environment variables. |
 | `secrets` | string[] | No | — | Secret references (from cloud secret managers). |
 
-**Default runtimes by cloud:**
+**Supported runtimes by cloud:**
 
-| Cloud | Default Runtime |
-|-------|----------------|
-| `local` | `docker-compose` |
-| `kubernetes` | `deployment` |
-| `aws` | `ecs-fargate` |
-| `gcp` | `cloud-run` |
+| Cloud | Default Runtime | Other Runtimes | Notes |
+|-------|----------------|----------------|-------|
+| `local` | `docker-compose` | — | Requires Docker |
+| `aws` | `ecs-fargate` | `app-runner` | App Runner = no VPC/ALB required |
+| `gcp` | `cloud-run` | — | Scales to zero by default |
+| `azure` | `container-apps` | — | |
+| `kubernetes` | `deployment` | `eks`, `gke`, `aks` | Bring your own cluster |
+| `claude-managed` | *(n/a)* | — | No container built; Anthropic manages the runtime |
 
 #### `deploy.scaling`
 
@@ -357,13 +359,55 @@ Access control configuration. Optional — defaults to team's policy.
 
 ---
 
+### `claude_managed`
+
+Optional block read only when `deploy.cloud: claude-managed`. No container is built — Anthropic manages the runtime.
+
+```yaml
+claude_managed:
+  environment:
+    networking: unrestricted    # unrestricted | restricted
+  tools:
+    - type: agent_toolset_20260401   # full built-in toolset (default)
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `environment.networking` | string | `unrestricted` | Network access for the managed environment. |
+| `tools` | object[] | See default | List of tool definitions passed to the Anthropic Agent API. |
+
+**Mapping from `agent.yaml` to the Anthropic Agent API:**
+
+| `agent.yaml` field | Anthropic API field |
+|-------------------|---------------------|
+| `model.primary` | `model` |
+| `prompts.system` | `system` |
+| `claude_managed.tools` | `tools` |
+| `name` | `name` |
+
+**How `agentbreeder chat` works with Claude Managed Agents:**
+
+When the registered endpoint starts with `anthropic://`, `agentbreeder chat` creates an Anthropic session and streams events instead of calling the playground API:
+
+```
+agentbreeder chat my-agent
+→ detects anthropic://agents/{id}?env={id}
+→ POST /v1/sessions → stream SSE events
+```
+
+---
+
 ### CLI Deploy Targets
 
 The `--target` flag on `agentbreeder deploy` maps to cloud + runtime combinations:
 
 ```bash
-agentbreeder deploy --target local         # docker-compose
-agentbreeder deploy --target cloud-run     # GCP Cloud Run
+agentbreeder deploy --target local           # Docker Compose (local)
+agentbreeder deploy --target cloud-run       # GCP Cloud Run
+agentbreeder deploy --target ecs-fargate     # AWS ECS Fargate
+agentbreeder deploy --target app-runner      # AWS App Runner (no VPC/ALB)
+agentbreeder deploy --target container-apps  # Azure Container Apps
+agentbreeder deploy --target claude-managed  # Anthropic Claude Managed Agents
 ```
 
 ---

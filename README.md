@@ -152,12 +152,15 @@ agent.deploy()
 
 ### Cloud Targets
 
-| Target | Status | Deployer |
-|--------|--------|----------|
-| Local (Docker Compose) | ✅ | `engine/deployers/docker_compose.py` |
-| GCP Cloud Run | ✅ | `engine/deployers/gcp_cloudrun.py` |
-| AWS ECS Fargate | 🔲 Planned | |
-| Kubernetes | 🔲 Planned | |
+| Target | `cloud` value | Default `runtime` | Status | Deployer |
+|--------|--------------|-------------------|--------|----------|
+| Local (Docker Compose) | `local` | `docker-compose` | ✅ | `engine/deployers/docker_compose.py` |
+| GCP Cloud Run | `gcp` | `cloud-run` | ✅ | `engine/deployers/gcp_cloudrun.py` |
+| AWS ECS Fargate | `aws` | `ecs-fargate` | ✅ | `engine/deployers/aws_ecs.py` |
+| AWS App Runner | `aws` | `app-runner` | ✅ | `engine/deployers/aws_app_runner.py` |
+| Kubernetes | `kubernetes` | `deployment` | ✅ | `engine/deployers/kubernetes.py` |
+| Azure Container Apps | `azure` | `container-apps` | ✅ | `engine/deployers/azure_container_apps.py` |
+| Claude Managed Agents | `claude-managed` | *(n/a — no container)* | ✅ | `engine/deployers/claude_managed.py` |
 
 ### LLM Providers (6 providers + fallback chains)
 
@@ -426,7 +429,7 @@ agentbreeder/
 │   ├── orchestrator.py        # Multi-agent orchestration engine
 │   ├── providers/             # LLM providers (Anthropic, OpenAI, Google, Ollama)
 │   ├── runtimes/              # Framework builders (LangGraph, OpenAI Agents)
-│   ├── deployers/             # Cloud deployers (Docker Compose, GCP Cloud Run)
+│   ├── deployers/             # Cloud deployers (Docker Compose, GCP Cloud Run, AWS ECS/App Runner, Kubernetes, Azure, Claude Managed)
 │   ├── secrets/               # Secrets backends (env, AWS, GCP, Vault)
 │   ├── a2a/                   # Agent-to-Agent protocol
 │   └── mcp/                   # MCP server packaging
@@ -564,10 +567,9 @@ Every cloud vendor now has an agent platform. They all share the same tradeoff: 
 
 High-impact areas where contributions are especially welcome:
 
-- **AWS ECS deployer** — `engine/deployers/aws_ecs.py` — most requested cloud target
-- **Framework runtimes** — additional frameworks beyond the six currently supported
 - **Agent templates** — starter templates for common use cases
 - **Connectors** — Datadog, Grafana, and other observability integrations
+- **Framework runtimes** — additional frameworks beyond the six currently supported
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and guidelines.
 
