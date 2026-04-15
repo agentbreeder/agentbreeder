@@ -119,7 +119,7 @@ async function runNoCode(
   append(screenEl, cb2);
   await wait(350); if (signal.cancelled) return;
 
-  const f3 = makeField('Deploy to', 'AWS App Runner  ▾', '#fb923c');
+  const f3 = makeField('Deploy to', 'GCP Cloud Run  ▾', '#4285f4');
   append(screenEl, f3);
   await wait(500); if (signal.cancelled) return;
 
@@ -145,7 +145,7 @@ async function runNoCode(
     'font-family:"JetBrains Mono",monospace;color:#3fb950;' +
     'border:1px solid rgba(34,197,94,0.25);border-radius:5px;padding:6px 10px;' +
     'background:rgba(34,197,94,0.07);';
-  ok.textContent = '✓  Agent deployed  ·  abc.us-east-1.awsapprunner.com';
+  ok.textContent = '✓  Agent deployed  ·  agent-abc.a.run.app';
   screenEl.appendChild(ok);
   requestAnimationFrame(() => requestAnimationFrame(() => { ok.style.opacity = '1'; }));
   await wait(3800); if (signal.cancelled) return;
@@ -168,9 +168,9 @@ const YAML_LINES: [string, string][] = [
   ['  - ref: tools/order-lookup','#3fb950'],
   ['',                          ''],
   ['deploy:',                   '#79c0ff'],
-  ['  cloud: aws',              '#e6edf3'],
-  ['  runtime: app-runner',     '#e6edf3'],
-  ['  region: us-east-1',       '#e6edf3'],
+  ['  cloud: gcp',              '#e6edf3'],
+  ['  runtime: cloud-run',      '#e6edf3'],
+  ['  region: us-central1',     '#e6edf3'],
 ];
 
 async function runLowCode(
@@ -206,7 +206,7 @@ async function runLowCode(
   append(screenEl, makeLine('$ agentbreeder deploy agent.yaml', '#ffa657'));
   await wait(600); if (signal.cancelled) return;
 
-  append(screenEl, makeLine('  ✓  Live  ·  abc.us-east-1.awsapprunner.com', '#3fb950'));
+  append(screenEl, makeLine('  ✓  Live  ·  agent-abc.a.run.app', '#3fb950'));
   await wait(3500); if (signal.cancelled) return;
 }
 
@@ -228,8 +228,8 @@ const SDK_LINES: [string, string][] = [
   ['      "tools/order-lookup",',        '#3fb950'],
   ['    ])',                              '#d2a8ff'],
   ['    .with_deploy(',                   '#d2a8ff'],
-  ['      cloud="aws",',                  '#3fb950'],
-  ['      runtime="app-runner",',         '#3fb950'],
+  ['      cloud="gcp",',                  '#3fb950'],
+  ['      runtime="cloud-run",',          '#3fb950'],
   ['    )',                               '#d2a8ff'],
   [')',                                   '#e6edf3'],
   ['',                                    ''],
@@ -264,7 +264,7 @@ async function runFullCode(
   append(screenEl, makeLine('# Running deploy pipeline…', '#484f58'));
   await wait(700); if (signal.cancelled) return;
 
-  append(screenEl, makeLine('https://abc.us-east-1.awsapprunner.com', '#3fb950'));
+  append(screenEl, makeLine('https://agent-abc.a.run.app', '#3fb950'));
   await wait(3500); if (signal.cancelled) return;
 }
 
@@ -308,12 +308,8 @@ async function runLoop(
 const FRAMEWORKS = ['LangGraph', 'OpenAI Agents', 'Claude SDK', 'CrewAI', 'Google ADK', 'Custom'];
 
 const CLOUDS = [
-  { label: 'Local',          color: '#22c55e' },
-  { label: 'App Runner',     color: '#ff9900' },
-  { label: 'ECS Fargate',    color: '#ff9900' },
-  { label: 'Cloud Run',      color: '#4285f4' },
-  { label: 'Container Apps', color: '#50b0f0' },
-  { label: 'Claude Managed', color: '#a78bfa' },
+  { label: 'Local',      color: '#22c55e' },
+  { label: 'Cloud Run',  color: '#4285f4' },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────

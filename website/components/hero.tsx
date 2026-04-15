@@ -33,7 +33,7 @@ function YamlLine({ line }: { line: string }) {
   const kv = line.match(/^(\s*)([a-z_]+)(:)(\s*)(.*)$/);
   if (kv) {
     const [, indent, key, colon, space, value] = kv;
-    const isKeyword = ['langgraph', 'crewai', 'claude_sdk', 'google_adk', 'gcp', 'aws', 'local', 'cloud-run', 'ecs-fargate'].includes(value);
+    const isKeyword = ['langgraph', 'crewai', 'claude_sdk', 'google_adk', 'gcp', 'local', 'cloud-run'].includes(value);
     const isNumber = /^\d+(\.\d+)?$/.test(value);
     return (
       <span>

@@ -13,7 +13,7 @@ const FEATURES: Feature[] = [
   {
     icon: '☁️',
     title: 'Multi-Cloud',
-    desc: 'GCP Cloud Run and local Docker Compose today. AWS ECS planned. Same command, any cloud.',
+    desc: 'GCP Cloud Run and local Docker Compose supported. Same command, either target.',
   },
   {
     icon: '🔒',

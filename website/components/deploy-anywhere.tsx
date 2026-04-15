@@ -7,12 +7,8 @@ function wait(ms: number) {
 }
 
 const TARGETS = [
-  { label: 'Local',           detail: 'Docker Compose',     color: '#22c55e', endpoint: 'localhost:8080' },
-  { label: 'App Runner',      detail: 'AWS · Serverless',   color: '#ff9900', endpoint: 'abc.us-east-1.awsapprunner.com' },
-  { label: 'ECS Fargate',     detail: 'AWS · Container',    color: '#ff9900', endpoint: 'agent.company.internal' },
-  { label: 'Cloud Run',       detail: 'GCP · Serverless',   color: '#4285f4', endpoint: 'agent-abc.a.run.app' },
-  { label: 'Container Apps',  detail: 'Azure · Serverless', color: '#50b0f0', endpoint: 'agent.azurecontainerapps.io' },
-  { label: 'Claude Managed',  detail: 'Anthropic',          color: '#a78bfa', endpoint: 'anthropic://agt_01…' },
+  { label: 'Local',      detail: 'Docker Compose',   color: '#22c55e', endpoint: 'localhost:8080' },
+  { label: 'Cloud Run',  detail: 'GCP · Serverless', color: '#4285f4', endpoint: 'agent-abc.a.run.app' },
 ] as const;
 
 const PIPELINE = [
@@ -221,8 +217,7 @@ export function DeployAnywhere() {
           >
             agentbreeder deploy
           </code>{' '}
-          runs the same 8-step atomic pipeline regardless of target — Local Docker, AWS App Runner,
-          ECS Fargate, GCP Cloud Run, Azure Container Apps, or Anthropic Claude Managed Agents.
+          runs the same 8-step atomic pipeline regardless of target — Local Docker Compose or GCP Cloud Run.
         </p>
 
         {/* Terminal window */}

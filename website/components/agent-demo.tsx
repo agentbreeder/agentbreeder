@@ -113,7 +113,7 @@ async function runLoop(
       ['RAG',       'Vector (pgvector)'],
       ['Memory',    'Short-term (Redis)'],
       ['MCP',       'MCP servers'],
-      ['Deploy',    'ECS Fargate'],
+      ['Deploy',    'GCP Cloud Run'],
       ['Evals',     'deflection-rate, CSAT'],
     ];
     for (let i = 0; i < recs.length; i++) {
@@ -185,7 +185,7 @@ async function runLoop(
     await wait(700); if (signal.cancelled) return;
     add(leftEl, makeLine(
       { text: '\u2713 ', color: COLORS.p },
-      { text: 'Deployed to ECS Fargate', color: COLORS.q },
+      { text: 'Deployed to GCP Cloud Run', color: COLORS.q },
     ));
     await wait(400); if (signal.cancelled) return;
     add(leftEl, makeLine(
