@@ -27,8 +27,8 @@ from engine.runtimes.base import ContainerImage
 logger = logging.getLogger(__name__)
 
 DEFAULT_REGION = "us-east-1"
-DEFAULT_CPU = "1 vCPU"    # App Runner CPU spec
-DEFAULT_MEMORY = "2 GB"   # App Runner memory spec
+DEFAULT_CPU = "1 vCPU"  # App Runner CPU spec
+DEFAULT_MEMORY = "2 GB"  # App Runner memory spec
 HEALTH_CHECK_TIMEOUT = 300
 HEALTH_CHECK_INTERVAL = 10
 WAITER_DELAY = 15
@@ -144,9 +144,7 @@ class AWSAppRunnerDeployer(BaseDeployer):
 
         # App Runner service URL is not known until after create_service,
         # so return a placeholder that will be updated in deploy().
-        placeholder_url = (
-            f"https://{config.name}.{ar.region}.awsapprunner.com"
-        )
+        placeholder_url = f"https://{config.name}.{ar.region}.awsapprunner.com"
 
         return InfraResult(
             endpoint_url=placeholder_url,
@@ -229,9 +227,7 @@ class AWSAppRunnerDeployer(BaseDeployer):
 
         logger.info("Image pushed successfully: %s", image_uri)
 
-    def _build_service_config(
-        self, config: AgentConfig, image_uri: str
-    ) -> dict[str, Any]:
+    def _build_service_config(self, config: AgentConfig, image_uri: str) -> dict[str, Any]:
         """Build the App Runner create_service / update_service configuration."""
         assert self._ar_config is not None
         ar = self._ar_config
@@ -262,9 +258,7 @@ class AWSAppRunnerDeployer(BaseDeployer):
         }
 
         if ar.access_role_arn:
-            image_config["AuthenticationConfiguration"] = {
-                "AccessRoleArn": ar.access_role_arn
-            }
+            image_config["AuthenticationConfiguration"] = {"AccessRoleArn": ar.access_role_arn}
 
         return {
             "ServiceName": config.name,
@@ -307,9 +301,7 @@ class AWSAppRunnerDeployer(BaseDeployer):
         except ar_client.exceptions.ResourceNotFoundException:
             logger.info("Creating App Runner service '%s'", service_name)
             # Remove None values before passing to create_service
-            clean_config = {
-                k: v for k, v in service_config.items() if v is not None
-            }
+            clean_config = {k: v for k, v in service_config.items() if v is not None}
             response = ar_client.create_service(**clean_config)
             service_arn = response["Service"]["ServiceArn"]
 
@@ -325,9 +317,7 @@ class AWSAppRunnerDeployer(BaseDeployer):
             version=config.version,
         )
 
-    async def _wait_for_service_running(
-        self, ar_client: Any, service_name: str
-    ) -> str:
+    async def _wait_for_service_running(self, ar_client: Any, service_name: str) -> str:
         """Poll until the App Runner service is RUNNING and return its URL."""
         for attempt in range(WAITER_MAX_ATTEMPTS):
             response = ar_client.describe_service(ServiceName=service_name)
@@ -393,9 +383,7 @@ class AWSAppRunnerDeployer(BaseDeployer):
         ar_client.delete_service(ServiceArn=service_arn)
         logger.info("App Runner service '%s' deleted", agent_name)
 
-    async def get_logs(
-        self, agent_name: str, since: datetime | None = None
-    ) -> list[str]:
+    async def get_logs(self, agent_name: str, since: datetime | None = None) -> list[str]:
         """Retrieve logs from CloudWatch Logs for the App Runner service."""
         if self._ar_config is None:
             return [f"Cannot get logs: App Runner config not initialized for '{agent_name}'"]

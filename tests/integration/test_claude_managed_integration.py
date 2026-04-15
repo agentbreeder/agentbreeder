@@ -13,9 +13,7 @@ import os
 
 import pytest
 
-SKIP_REASON = (
-    "Set RUN_CLAUDE_MANAGED_INTEGRATION_TESTS=1 to run Claude Managed Agents tests"
-)
+SKIP_REASON = "Set RUN_CLAUDE_MANAGED_INTEGRATION_TESTS=1 to run Claude Managed Agents tests"
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_CLAUDE_MANAGED_INTEGRATION_TESTS") != "1",
     reason=SKIP_REASON,
@@ -48,9 +46,7 @@ async def test_claude_managed_full_deploy_chat_teardown() -> None:
         model=ModelConfig(primary="claude-haiku-4-5-20251001"),
         deploy=DeployConfig(cloud=CloudType.claude_managed),
         access=AccessConfig(),
-        prompts=PromptsConfig(
-            system="You are a helpful test assistant. Be very brief."
-        ),
+        prompts=PromptsConfig(system="You are a helpful test assistant. Be very brief."),
         claude_managed=ClaudeManagedConfig(),
     )
 

@@ -88,9 +88,7 @@ class ClaudeManagedDeployer(BaseDeployer):
             if cm_config
             else [{"type": "agent_toolset_20260401"}]
         )
-        networking_type = (
-            cm_config.environment.networking if cm_config else "unrestricted"
-        )
+        networking_type = cm_config.environment.networking if cm_config else "unrestricted"
         system_prompt = self._resolve_system_prompt(config)
 
         logger.info(
@@ -106,9 +104,7 @@ class ClaudeManagedDeployer(BaseDeployer):
             tools=tools,
         )
         self._agent_id = agent.id
-        logger.info(
-            "Created Anthropic Agent: %s (version %s)", agent.id, agent.version
-        )
+        logger.info("Created Anthropic Agent: %s (version %s)", agent.id, agent.version)
 
         environment = await client.beta.environments.create(
             name=f"{config.name}-env",
@@ -145,9 +141,7 @@ class ClaudeManagedDeployer(BaseDeployer):
 
         endpoint_url = _build_anthropic_endpoint(self._agent_id, self._environment_id)
 
-        logger.info(
-            "Claude Managed Agent deployed: %s → %s", config.name, endpoint_url
-        )
+        logger.info("Claude Managed Agent deployed: %s → %s", config.name, endpoint_url)
 
         return DeployResult(
             endpoint_url=endpoint_url,
@@ -186,9 +180,7 @@ class ClaudeManagedDeployer(BaseDeployer):
             await client.beta.environments.delete(self._environment_id)
             logger.info("Deleted Anthropic Environment: %s", self._environment_id)
 
-    async def get_logs(
-        self, agent_name: str, since: datetime | None = None
-    ) -> list[str]:
+    async def get_logs(self, agent_name: str, since: datetime | None = None) -> list[str]:
         """Logs for Claude Managed Agents live inside individual sessions.
 
         Use `agentbreeder chat` to start a session and view its event stream.

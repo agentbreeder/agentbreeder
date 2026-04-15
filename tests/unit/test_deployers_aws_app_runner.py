@@ -291,9 +291,7 @@ class TestDeploy:
         from engine.deployers.aws_app_runner import _extract_app_runner_config
 
         deployer._ar_config = _extract_app_runner_config(config)
-        deployer._image_uri = (
-            "123456789012.dkr.ecr.us-east-1.amazonaws.com/agentbreeder:1.0.0"
-        )
+        deployer._image_uri = "123456789012.dkr.ecr.us-east-1.amazonaws.com/agentbreeder:1.0.0"
 
         ar_mock = MagicMock()
         ar_mock.exceptions = MagicMock()
@@ -336,9 +334,7 @@ class TestDeploy:
         from engine.deployers.aws_app_runner import _extract_app_runner_config
 
         deployer._ar_config = _extract_app_runner_config(config)
-        deployer._image_uri = (
-            "123456789012.dkr.ecr.us-east-1.amazonaws.com/agentbreeder:1.0.0"
-        )
+        deployer._image_uri = "123456789012.dkr.ecr.us-east-1.amazonaws.com/agentbreeder:1.0.0"
 
         ar_mock = MagicMock()
         ar_mock.describe_service.return_value = {
@@ -349,9 +345,7 @@ class TestDeploy:
             }
         }
         ar_mock.update_service.return_value = {
-            "Service": {
-                "ServiceArn": "arn:aws:apprunner:us-east-1:123:service/my-agent/abc"
-            }
+            "Service": {"ServiceArn": "arn:aws:apprunner:us-east-1:123:service/my-agent/abc"}
         }
 
         with (
@@ -387,9 +381,7 @@ class TestDeploy:
         from engine.deployers.aws_app_runner import _extract_app_runner_config
 
         deployer._ar_config = _extract_app_runner_config(config)
-        deployer._image_uri = (
-            "123456789012.dkr.ecr.us-east-1.amazonaws.com/agentbreeder:1.0.0"
-        )
+        deployer._image_uri = "123456789012.dkr.ecr.us-east-1.amazonaws.com/agentbreeder:1.0.0"
 
         ar_mock = MagicMock()
         ar_mock.exceptions = MagicMock()
@@ -439,9 +431,7 @@ class TestTeardown:
 
         ar_mock = MagicMock()
         ar_mock.describe_service.return_value = {
-            "Service": {
-                "ServiceArn": "arn:aws:apprunner:us-east-1:123:service/my-agent/abc"
-            }
+            "Service": {"ServiceArn": "arn:aws:apprunner:us-east-1:123:service/my-agent/abc"}
         }
         ar_mock.delete_service.return_value = {}
 

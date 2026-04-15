@@ -44,7 +44,7 @@ def _parse_managed_endpoint(endpoint_url: str) -> tuple[str, str]:
     agent_id = parsed.netloc + parsed.path  # "agents/agent_abc123"
     # Strip leading "agents/" if present
     if agent_id.startswith("agents/"):
-        agent_id = agent_id[len("agents/"):]
+        agent_id = agent_id[len("agents/") :]
     env_id = parse_qs(parsed.query).get("env", [""])[0]
     return agent_id, env_id
 
@@ -75,9 +75,7 @@ async def _chat_via_managed_agent(
     try:
         from anthropic import Anthropic
     except ImportError as exc:
-        raise RuntimeError(
-            "anthropic SDK not installed. Run: pip install anthropic"
-        ) from exc
+        raise RuntimeError("anthropic SDK not installed. Run: pip install anthropic") from exc
 
     client = Anthropic()
 
@@ -247,9 +245,7 @@ def _run_interactive(
                 import asyncio
 
                 assistant_msg = asyncio.run(
-                    _chat_via_managed_agent(
-                        managed_agent_id, managed_env_id, user_input, verbose
-                    )
+                    _chat_via_managed_agent(managed_agent_id, managed_env_id, user_input, verbose)
                 )
             except RuntimeError as exc:
                 console.print(f"\n  [red]Managed Agent error: {exc}[/red]\n")
