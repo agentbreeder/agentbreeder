@@ -1,0 +1,324 @@
+---
+title: Tools — Lifecycle & Registry
+description: Define, register, sandbox-test, and wire custom tools into agents. Includes inline and registry-based tool definitions.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+# Tools — Lifecycle & Registry
+
+Tools are functions agents can call during a conversation. AgentBreeder supports two kinds:
+
+| Kind | When to use |
+|------|-------------|
+| **Custom function tool** | A Python function you write — registered with a JSON Schema |
+| **MCP server tool** | An MCP server exposing tools over stdio or HTTP — see [MCP Servers →](mcp-servers) |
+
+Both kinds are stored in the shared org tool registry and referenced the same way in `agent.yaml`.
+
+---
+
+## Concepts
+
+| Concept | Meaning |
+|---------|---------|
+| **Registry tool** | Tool stored by `name` — retrieved by ref at deploy time |
+| **Inline tool** | Tool defined directly in `agent.yaml` — no registry entry needed |
+| **JSON Schema** | Defines the input (and optionally output) shape of the tool |
+| **Sandbox** | Isolated Docker container for testing tool code before wiring to an agent |
+| **Usage graph** | Which agents in the org reference this tool — visible in dashboard and API |
+
+---
+
+## Step 1 — Define
+
+Write a Python function. The function signature becomes the tool's input schema.
+
+```python
+# tools/order_lookup.py
+
+def order_lookup(order_id: str, include_tracking: bool = False) -> dict:
+    """
+    Look up an order by ID.
+
+    Args:
+        order_id: The order ID (format: ORD-XXXXXX)
+        include_tracking: Whether to include shipping tracking info
+
+    Returns:
+        dict with order status, items, and optionally tracking
+    """
+    # Your implementation here
+    return {
+        "order_id": order_id,
+        "status": "shipped",
+        "items": ["Widget A", "Widget B"],
+        "tracking": "1Z999AA10123456784" if include_tracking else None,
+    }
+```
+
+Define the JSON Schema for the tool's inputs:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "order_id": {
+      "type": "string",
+      "description": "The order ID in format ORD-XXXXXX"
+    },
+    "include_tracking": {
+      "type": "boolean",
+      "description": "Whether to include shipping tracking info",
+      "default": false
+    }
+  },
+  "required": ["order_id"]
+}
+```
+
+---
+
+## Step 2 — Register
+
+<Tabs items={['Dashboard', 'API', 'Python SDK']}>
+  <Tab value="Dashboard">
+Go to **Registry → Tools → New Tool**. Fill in:
+- **Name** — slug-friendly (e.g., `order-lookup`)
+- **Type** — `function`, `mcp`, or `api`
+- **Description** — shown in the registry and to agents
+- **Schema** — paste your JSON Schema
+- **Endpoint** — URL if the tool is hosted (optional for function tools)
+
+Click **Register**. The tool is now available as `tools/order-lookup`.
+  </Tab>
+  <Tab value="API">
+```bash
+curl -X POST http://localhost:8000/api/v1/registry/tools \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "order-lookup",
+    "description": "Look up an order by ID, with optional tracking info",
+    "tool_type": "function",
+    "schema_definition": {
+      "type": "object",
+      "properties": {
+        "order_id": { "type": "string", "description": "Order ID (ORD-XXXXXX)" },
+        "include_tracking": { "type": "boolean", "default": false }
+      },
+      "required": ["order_id"]
+    },
+    "source": "manual"
+  }'
+```
+
+Response:
+```json
+{
+  "data": {
+    "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "name": "order-lookup",
+    "description": "Look up an order by ID...",
+    "tool_type": "function",
+    "status": "active",
+    "source": "manual",
+    "created_at": "2026-04-14T00:00:00Z"
+  }
+}
+```
+  </Tab>
+  <Tab value="Python SDK">
+```python
+from agenthub import Agent
+
+agent = (
+    Agent("support-agent")
+        .with_framework("langgraph")
+        .with_tools([
+            "tools/order-lookup",       # registry reference
+            "tools/zendesk-mcp",
+        ])
+        .with_deploy(cloud="aws", runtime="app-runner")
+)
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Step 3 — Sandbox Test
+
+Before wiring a tool into a live agent, test it in an isolated Docker sandbox. The sandbox runs your Python code with 256MB memory, no network access by default, and a 30-second timeout.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/tools/sandbox/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "def run(input):\n    return {\"order_id\": input[\"order_id\"], \"status\": \"shipped\"}",
+    "input_json": { "order_id": "ORD-123456" },
+    "timeout_seconds": 15,
+    "network_enabled": false,
+    "tool_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  }'
+```
+
+Response:
+```json
+{
+  "data": {
+    "execution_id": "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
+    "output": "{\"order_id\": \"ORD-123456\", \"status\": \"shipped\"}",
+    "stdout": "{\"order_id\": \"ORD-123456\", \"status\": \"shipped\"}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "duration_ms": 142,
+    "timed_out": false,
+    "error": null
+  }
+}
+```
+
+<Callout type="info" title="Sandbox in the dashboard">
+  Open any tool in the registry, click **Test in Sandbox**, paste your input JSON, and click **Run**. Output, stdout, stderr, and duration are shown inline.
+</Callout>
+
+<Callout type="warning" title="Network access">
+  Set `network_enabled: true` only if your tool code calls external services. Keep it false during unit testing to avoid flaky results and accidental side effects.
+</Callout>
+
+---
+
+## Step 4 — Use in agent.yaml
+
+<Tabs items={['Registry reference', 'Inline definition', 'Mix both']}>
+  <Tab value="Registry reference">
+```yaml
+name: support-agent
+framework: langgraph
+
+tools:
+  - ref: tools/order-lookup       # ← resolves from registry at deploy time
+  - ref: tools/zendesk-mcp
+  - ref: mcp-servers/slack        # MCP server also referenced as a tool
+```
+  </Tab>
+  <Tab value="Inline definition">
+```yaml
+name: support-agent
+framework: langgraph
+
+tools:
+  - name: get_current_time
+    type: function
+    description: "Return the current UTC time as ISO 8601"
+    schema:
+      type: object
+      properties: {}
+      required: []
+```
+  </Tab>
+  <Tab value="Mix both">
+```yaml
+name: support-agent
+framework: langgraph
+
+tools:
+  - ref: tools/order-lookup       # from registry
+  - name: get_current_time        # inline, no registry entry needed
+    type: function
+    description: "Return the current UTC time"
+    schema:
+      type: object
+      properties: {}
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Step 5 — Discover Tool Usage
+
+Find every agent in your org that uses a specific tool — useful before removing or updating a tool.
+
+```bash
+GET /api/v1/registry/tools/{tool_id}/usage
+```
+
+Response:
+```json
+{
+  "data": [
+    { "agent_id": "abc...", "agent_name": "support-agent", "agent_status": "deployed" },
+    { "agent_id": "def...", "agent_name": "triage-agent",  "agent_status": "deployed" }
+  ]
+}
+```
+
+---
+
+## Tool YAML Schema
+
+Tools can also be defined in a standalone `tool.yaml` file and registered via CLI:
+
+```yaml
+spec_version: v1
+name: order-lookup
+version: 1.0.0
+description: Look up an order by ID with optional tracking
+team: customer-success
+owner: alice@company.com
+tags: [orders, ecommerce]
+
+type: function   # function | mcp | api
+
+input_schema:
+  type: object
+  properties:
+    order_id:
+      type: string
+      description: Order ID in format ORD-XXXXXX
+    include_tracking:
+      type: boolean
+      default: false
+  required: [order_id]
+
+output_schema:
+  type: object
+  properties:
+    order_id: { type: string }
+    status:   { type: string }
+    tracking: { type: string, nullable: true }
+
+implementation:
+  language: python
+  entrypoint: tools/order_lookup.py:order_lookup
+  dependencies:
+    - requests==2.31.0
+
+timeout_seconds: 30
+network_access: false
+```
+
+---
+
+## API Reference
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/registry/tools` | Register a tool |
+| `GET` | `/api/v1/registry/tools` | List tools (filter by `tool_type`, `source`) |
+| `GET` | `/api/v1/registry/tools/{id}` | Get tool with full schema |
+| `GET` | `/api/v1/registry/tools/{id}/usage` | List agents using this tool |
+| `POST` | `/api/v1/tools/sandbox/execute` | Execute tool code in isolated sandbox |
+
+---
+
+## Next Steps
+
+| What | Where |
+|------|-------|
+| Add MCP servers as tools | [MCP Servers →](mcp-servers) |
+| Build a knowledge base | [Knowledge Bases →](rag) |
+| Register system prompts | [Prompts →](prompts) |
+| Full agent.yaml fields | [agent.yaml Reference →](agent-yaml) |

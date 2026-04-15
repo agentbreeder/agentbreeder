@@ -1,0 +1,303 @@
+---
+title: Knowledge Bases — Lifecycle & Registry
+description: Create indexes, ingest documents, run hybrid search, and wire knowledge bases into agents.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+# Knowledge Bases — Lifecycle & Registry
+
+Knowledge bases (RAG indexes) let agents retrieve context from your documents before answering.
+AgentBreeder handles chunking, embedding, and hybrid search — you just upload files and reference the index in `agent.yaml`.
+
+---
+
+## How It Works
+
+```
+Your documents (PDF, MD, CSV, JSON)
+        ↓
+   Chunking (fixed-size or recursive)
+        ↓
+   Embedding (text-embedding-3-small by default)
+        ↓
+   Vector store (in-memory or pgvector)
+        ↓
+   Hybrid search (vector + full-text, 70/30 default)
+        ↓
+   Agent receives top-k chunks as context
+```
+
+---
+
+## Step 1 — Create an Index
+
+<Tabs items={['Dashboard', 'API']}>
+  <Tab value="Dashboard">
+Go to **Registry → Knowledge Bases → New Index**. Configure:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| Name | required | Slug-friendly (e.g., `product-docs`) |
+| Embedding model | `openai/text-embedding-3-small` | Model used to embed chunks |
+| Chunk strategy | `recursive` | `fixed_size` or `recursive` (splits on semantic boundaries) |
+| Chunk size | 512 tokens | Number of tokens per chunk |
+| Chunk overlap | 64 tokens | Overlap between adjacent chunks |
+
+Click **Create Index**.
+  </Tab>
+  <Tab value="API">
+```bash
+curl -X POST http://localhost:8000/api/v1/rag/indexes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "product-docs",
+    "description": "Product documentation and FAQs",
+    "embedding_model": "openai/text-embedding-3-small",
+    "chunk_strategy": "recursive",
+    "chunk_size": 512,
+    "chunk_overlap": 64,
+    "source": "manual"
+  }'
+```
+
+Response:
+```json
+{
+  "data": {
+    "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "name": "product-docs",
+    "description": "Product documentation and FAQs",
+    "embedding_model": "openai/text-embedding-3-small",
+    "chunk_strategy": "recursive",
+    "chunk_size": 512,
+    "chunk_overlap": 64,
+    "document_count": 0,
+    "chunk_count": 0,
+    "status": "active",
+    "created_at": "2026-04-14T00:00:00Z"
+  }
+}
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Step 2 — Ingest Documents
+
+Upload files to the index. Supported formats: `.pdf`, `.txt`, `.md`, `.csv`, `.json`.
+
+<Tabs items={['Dashboard', 'API']}>
+  <Tab value="Dashboard">
+Open the index → click **Upload Documents** → drag and drop files.
+
+The dashboard shows a live ingestion progress bar:
+```
+✅ Chunking...   14 chunks from docs/product-guide.pdf
+✅ Embedding...  14 chunks embedded
+✅ Stored        14 chunks indexed
+```
+  </Tab>
+  <Tab value="API">
+```bash
+# Upload one or more files
+curl -X POST http://localhost:8000/api/v1/rag/indexes/{index_id}/ingest \
+  -F "files=@docs/product-guide.pdf" \
+  -F "files=@docs/faq.md" \
+  -F "files=@data/pricing.csv"
+```
+
+Response (ingestion job):
+```json
+{
+  "data": {
+    "id": "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
+    "index_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "status": "processing",
+    "total_files": 3,
+    "processed_files": 0,
+    "total_chunks": 0,
+    "error": null,
+    "started_at": "2026-04-14T00:00:00Z",
+    "completed_at": null
+  }
+}
+```
+
+Poll for completion:
+```bash
+GET /api/v1/rag/indexes/{index_id}/ingest/{job_id}
+# status: "pending" | "processing" | "completed" | "failed"
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Step 3 — Search the Index
+
+Test retrieval before wiring the index to an agent.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/rag/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "index_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "query": "What is the refund policy for annual subscriptions?",
+    "top_k": 5,
+    "vector_weight": 0.7,
+    "text_weight": 0.3
+  }'
+```
+
+Response:
+```json
+{
+  "data": {
+    "index_id": "xxxxxxxx-...",
+    "query": "What is the refund policy for annual subscriptions?",
+    "top_k": 5,
+    "results": [
+      {
+        "chunk_id": "chunk-001",
+        "text": "Annual subscribers are eligible for a full refund within 30 days...",
+        "metadata": { "source": "faq.md", "chunk_index": 12 },
+        "score": 0.94,
+        "similarity": 0.91
+      }
+    ],
+    "total": 5
+  }
+}
+```
+
+**Score** is the combined hybrid score (vector similarity × `vector_weight` + text score × `text_weight`).
+
+---
+
+## Step 4 — Use in agent.yaml
+
+```yaml
+name: support-agent
+version: 1.0.0
+framework: claude_sdk
+
+knowledge_bases:
+  - ref: kb/product-docs         # ← resolves from registry at deploy time
+  - ref: kb/return-policy
+
+# At runtime, the agent automatically queries all attached
+# knowledge bases and includes the top-k chunks as context
+# before sending the user's message to the model.
+```
+
+<Callout type="info" title="Multiple knowledge bases">
+  You can attach multiple knowledge bases to one agent. Each base is queried independently and the top-k results from all bases are merged and ranked before being included in the agent's context window.
+</Callout>
+
+---
+
+## Chunking Strategies
+
+| Strategy | How it works | Best for |
+|----------|-------------|----------|
+| `fixed_size` | Split every N tokens with O-token overlap | Structured data, code, tables |
+| `recursive` | Split on `\n\n`, `\n`, `.`, ` ` in order — keeps paragraphs intact | Prose, documentation, FAQs |
+
+Choosing the wrong strategy can hurt retrieval quality — `recursive` is the better default for most text.
+
+---
+
+## Embedding Models
+
+The `embedding_model` field accepts any `provider/model-id` string:
+
+| Value | Dimensions | Notes |
+|-------|-----------|-------|
+| `openai/text-embedding-3-small` | 1536 | Default — best cost/quality balance |
+| `openai/text-embedding-3-large` | 3072 | Higher quality, higher cost |
+| `ollama/nomic-embed-text` | 768 | Local, no API key needed |
+| `ollama/mxbai-embed-large` | 1024 | Larger local model |
+
+<Callout type="warning" title="Changing the embedding model">
+  If you change `embedding_model` after ingesting documents, you must re-ingest all files. Vectors from different models are not compatible.
+</Callout>
+
+---
+
+## RAG YAML Schema (standalone `rag.yaml`)
+
+You can define knowledge bases as standalone YAML files in version control:
+
+```yaml
+spec_version: v1
+name: product-docs
+version: 1.0.0
+description: Product documentation and FAQs
+team: customer-success
+owner: alice@company.com
+
+backend: in_memory           # in_memory | pgvector
+
+embedding_model:
+  provider: openai
+  name: text-embedding-3-small
+  dimensions: 1536
+
+chunking:
+  strategy: recursive        # fixed_size | recursive
+  chunk_size: 512
+  chunk_overlap: 64
+
+sources:
+  - type: file
+    path: "docs/**/*.md"     # glob pattern
+  - type: file
+    path: "docs/**/*.pdf"
+
+search:
+  hybrid: true
+  vector_weight: 0.7
+  text_weight: 0.3
+  default_top_k: 5
+```
+
+---
+
+## API Reference
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/rag/indexes` | Create a new vector index |
+| `GET` | `/api/v1/rag/indexes` | List all indexes (paginated) |
+| `GET` | `/api/v1/rag/indexes/{id}` | Get index metadata |
+| `DELETE` | `/api/v1/rag/indexes/{id}` | Delete index and all its chunks |
+| `POST` | `/api/v1/rag/indexes/{id}/ingest` | Upload files and start ingestion |
+| `GET` | `/api/v1/rag/indexes/{id}/ingest/{job_id}` | Poll ingestion job status |
+| `POST` | `/api/v1/rag/search` | Hybrid search (vector + full-text) |
+
+---
+
+## agent.yaml `knowledge_bases` field
+
+```yaml
+knowledge_bases:
+  - ref: string    # required — registry reference (kb/name)
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ref` | string | Yes | Registry reference in format `kb/{name}` |
+
+---
+
+## Next Steps
+
+| What | Where |
+|------|-------|
+| Add tools to your agent | [Tools →](tools) |
+| Connect MCP servers | [MCP Servers →](mcp-servers) |
+| Register system prompts | [Prompts →](prompts) |
+| Full agent.yaml fields | [agent.yaml Reference →](agent-yaml) |

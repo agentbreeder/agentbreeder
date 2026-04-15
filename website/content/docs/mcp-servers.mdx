@@ -1,0 +1,373 @@
+---
+title: MCP Servers — Lifecycle & Registry
+description: Build, scan, register, test, and wire MCP servers into agents. Supports stdio, SSE, and streamable HTTP transports.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+# MCP Servers — Lifecycle & Registry
+
+MCP (Model Context Protocol) servers expose tools to agents over a standard JSON-RPC protocol.
+AgentBreeder auto-discovers MCP servers from your environment, registers them in the org tool registry, and injects them as sidecars at deploy time.
+
+---
+
+## Concepts
+
+| Concept | Meaning |
+|---------|---------|
+| **MCP server** | A process exposing tools via the MCP protocol (stdio, SSE, or HTTP) |
+| **Transport** | How the agent communicates: `stdio` (subprocess), `sse` (HTTP stream), `streamable_http` |
+| **Scan** | Auto-discovery that reads `.mcp.json` config files and probes local ports |
+| **Sidecar** | A container injected alongside the agent container at deploy time |
+| **Discover** | JSON-RPC `tools/list` call — enumerates all tools the server exposes |
+
+---
+
+## Step 1 — Build an MCP Server
+
+Use `FastMCP` (Python) to build a server in minutes.
+
+```python
+# server.py
+from mcp import FastMCP
+
+mcp = FastMCP("zendesk-tools")
+
+@mcp.tool()
+def search_tickets(query: str, status: str = "open") -> list[dict]:
+    """Search Zendesk tickets by query string."""
+    # Your Zendesk API calls here
+    return [{"id": "12345", "subject": "Billing issue", "status": status}]
+
+@mcp.tool()
+def create_ticket(subject: str, description: str, priority: str = "normal") -> dict:
+    """Create a new support ticket."""
+    return {"id": "12346", "subject": subject, "status": "new"}
+
+@mcp.tool()
+def get_ticket(ticket_id: str) -> dict:
+    """Fetch a ticket by ID."""
+    return {"id": ticket_id, "subject": "...", "status": "open"}
+
+if __name__ == "__main__":
+    mcp.run()  # stdio by default
+```
+
+<Tabs items={['stdio (default)', 'SSE / HTTP']}>
+  <Tab value="stdio (default)">
+Run as a subprocess — the agent communicates via stdin/stdout:
+
+```bash
+python server.py
+```
+
+In `.mcp.json`, configure it with `command` + `args`:
+```json
+{
+  "mcpServers": {
+    "zendesk": {
+      "command": "python",
+      "args": ["server.py"],
+      "description": "Zendesk support tools"
+    }
+  }
+}
+```
+  </Tab>
+  <Tab value="SSE / HTTP">
+Run as an HTTP server for multi-client access:
+
+```python
+mcp.run(transport="sse", host="0.0.0.0", port=3000)
+```
+
+In `.mcp.json`, configure it with an `endpoint`:
+```json
+{
+  "mcpServers": {
+    "zendesk": {
+      "endpoint": "http://localhost:3000",
+      "transport": "sse",
+      "description": "Zendesk support tools"
+    }
+  }
+}
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Step 2 — Scan (Auto-Discovery)
+
+AgentBreeder discovers MCP servers automatically from two sources:
+
+**1. `.mcp.json` files** — checked at `./mcp.json` and `~/.mcp.json`:
+```bash
+agentbreeder scan
+```
+
+**2. Running port probes** — probes ports 3000–3005 for MCP HTTP endpoints.
+
+Output:
+```
+Scanning for MCP servers and models...
+
+Found MCP servers:
+  zendesk    stdio  ./.mcp.json
+  slack      stdio  ./.mcp.json
+  docs       sse    http://localhost:3001
+
+Found models:
+  claude-sonnet-4     anthropic
+  gpt-4o              openai
+  llama3:8b           ollama (local)
+
+Saved to ~/.agentbreeder/registry/tools.json
+```
+
+Discovered servers are auto-registered in the tool registry with `source: "mcp_scanner"`.
+
+<Callout type="info" title="Scan with provider filters">
+```bash
+agentbreeder scan --provider ollama       # Only Ollama models
+agentbreeder scan --provider openrouter   # OpenRouter models
+agentbreeder scan --json                  # JSON output for scripting
+```
+</Callout>
+
+---
+
+## Step 3 — Register Manually
+
+If auto-scan doesn't reach your server, register it directly.
+
+<Tabs items={['Dashboard', 'API']}>
+  <Tab value="Dashboard">
+Go to **Registry → MCP Servers → Register Server**. Fill in:
+- **Name** — slug-friendly (e.g., `zendesk`)
+- **Endpoint** — URL for SSE/HTTP, or leave blank for stdio
+- **Transport** — `stdio`, `sse`, or `streamable_http`
+
+Click **Register**. The server is now available as `mcp-servers/zendesk`.
+  </Tab>
+  <Tab value="API">
+```bash
+curl -X POST http://localhost:8000/api/v1/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "zendesk",
+    "endpoint": "http://zendesk-mcp.internal:3000",
+    "transport": "sse"
+  }'
+```
+
+Response:
+```json
+{
+  "data": {
+    "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "name": "zendesk",
+    "endpoint": "http://zendesk-mcp.internal:3000",
+    "transport": "sse",
+    "status": "active",
+    "tool_count": 0,
+    "last_ping_at": null,
+    "created_at": "2026-04-14T00:00:00Z"
+  }
+}
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Step 4 — Test the Server
+
+After registering, test connectivity and enumerate the tools the server exposes.
+
+<Tabs items={['Test connectivity', 'Discover tools', 'Execute a tool']}>
+  <Tab value="Test connectivity">
+```bash
+curl -X POST http://localhost:8000/api/v1/mcp-servers/{id}/test
+```
+
+Response:
+```json
+{
+  "data": {
+    "success": true,
+    "latency_ms": 23,
+    "error": null
+  }
+}
+```
+  </Tab>
+  <Tab value="Discover tools">
+```bash
+curl -X POST http://localhost:8000/api/v1/mcp-servers/{id}/discover
+```
+
+Response:
+```json
+{
+  "data": {
+    "tools": [
+      {
+        "name": "search_tickets",
+        "description": "Search Zendesk tickets by query string.",
+        "schema_definition": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string" },
+            "status": { "type": "string", "default": "open" }
+          },
+          "required": ["query"]
+        }
+      },
+      { "name": "create_ticket", "description": "Create a new support ticket.", "schema_definition": {} },
+      { "name": "get_ticket",    "description": "Fetch a ticket by ID.",         "schema_definition": {} }
+    ],
+    "total": 3
+  }
+}
+```
+  </Tab>
+  <Tab value="Execute a tool">
+```bash
+curl -X POST "http://localhost:8000/api/v1/mcp-servers/{id}/execute?tool_name=search_tickets" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "billing", "status": "open"}'
+```
+
+Response:
+```json
+{
+  "data": {
+    "success": true,
+    "result": [
+      { "id": "12345", "subject": "Billing issue", "status": "open" }
+    ]
+  }
+}
+```
+  </Tab>
+</Tabs>
+
+<Callout type="info" title="Dashboard test panel">
+  In the dashboard, open **Registry → MCP Servers** and click a server name. The Test tab shows connectivity, the Discover tab lists tools, and the Execute tab lets you call any tool with custom arguments.
+</Callout>
+
+---
+
+## Step 5 — Use in agent.yaml
+
+MCP servers are referenced exactly like tool registry entries — via a `ref:` in the `tools` list.
+
+```yaml
+name: support-agent
+version: 1.0.0
+framework: langgraph
+
+tools:
+  - ref: mcp-servers/zendesk     # ← MCP server from registry
+  - ref: mcp-servers/slack
+  - ref: tools/order-lookup      # regular function tool alongside MCP
+
+deploy:
+  cloud: aws
+  runtime: app-runner
+  region: us-east-1
+```
+
+At deploy time, AgentBreeder:
+1. Resolves each `mcp-servers/` ref from the registry
+2. Packages the MCP server as a sidecar container
+3. Injects the sidecar alongside the agent container
+4. Configures the agent to communicate with the sidecar via the configured transport
+
+---
+
+## Update a Registered Server
+
+```bash
+# Update endpoint or transport
+curl -X PUT http://localhost:8000/api/v1/mcp-servers/{id} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "endpoint": "http://new-host.internal:3000",
+    "transport": "streamable_http"
+  }'
+
+# Deregister (soft delete)
+curl -X DELETE http://localhost:8000/api/v1/mcp-servers/{id}
+```
+
+---
+
+## Transports
+
+| Transport | When to use | Discovery method |
+|-----------|-------------|-----------------|
+| `stdio` | Local development, subprocess-managed servers | `.mcp.json` command config |
+| `sse` | Shared servers accessible by multiple agents | HTTP endpoint + `/health` probe |
+| `streamable_http` | Production deployments with streaming responses | HTTP endpoint |
+
+---
+
+## Deploy MCP Servers as Docker Images
+
+For production, package your MCP server as a container:
+
+```bash
+# AgentBreeder generates a Dockerfile for you
+agentbreeder mcp package --name zendesk --transport sse
+
+# Produces:
+# FROM node:20-slim
+# ENV MCP_TRANSPORT=sse
+# ...
+# Image tag: agentbreeder/mcp-zendesk:1.0.0
+```
+
+The generated sidecar config:
+```yaml
+# Injected alongside agent container automatically
+services:
+  zendesk-mcp:
+    image: agentbreeder/mcp-zendesk:1.0.0
+    environment:
+      MCP_TRANSPORT: sse
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+```
+
+---
+
+## API Reference
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/mcp-servers` | Register an MCP server |
+| `GET` | `/api/v1/mcp-servers` | List all MCP servers (paginated) |
+| `GET` | `/api/v1/mcp-servers/{id}` | Get server details |
+| `PUT` | `/api/v1/mcp-servers/{id}` | Update name, endpoint, or transport |
+| `DELETE` | `/api/v1/mcp-servers/{id}` | Deregister server |
+| `POST` | `/api/v1/mcp-servers/{id}/test` | Test connectivity + measure latency |
+| `POST` | `/api/v1/mcp-servers/{id}/discover` | List tools exposed by the server |
+| `POST` | `/api/v1/mcp-servers/{id}/execute` | Execute a tool with arguments |
+
+---
+
+## Next Steps
+
+| What | Where |
+|------|-------|
+| Register custom function tools | [Tools →](tools) |
+| Build a knowledge base | [Knowledge Bases →](rag) |
+| Register system prompts | [Prompts →](prompts) |
+| Full agent.yaml fields | [agent.yaml Reference →](agent-yaml) |
