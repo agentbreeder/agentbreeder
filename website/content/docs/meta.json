@@ -3,6 +3,11 @@
   "pages": [
     "index",
     "quickstart",
+    "---Builder Tiers---",
+    "no-code",
+    "low-code",
+    "full-code",
+    "---Guides---",
     "how-to",
     "local-development",
     "---Core Concepts---",

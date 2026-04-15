@@ -1,0 +1,283 @@
+---
+title: Low Code — agent.yaml + CLI
+description: Configure agents in YAML and deploy with one command. No infrastructure expertise needed.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+# Low Code — agent.yaml + CLI
+
+Write one `agent.yaml` file, run `agentbreeder deploy`. That's it.
+
+**Who this is for:** ML engineers, DevOps engineers, platform engineers, and architects who are comfortable editing YAML and running terminal commands — but don't want to write boilerplate infrastructure code.
+
+---
+
+## Supported Frameworks
+
+Set `framework:` to any of the 6 supported values. AgentBreeder picks the right runtime container, installs the correct dependencies, and injects the framework's server adapter automatically.
+
+| Value | Framework |
+|-------|-----------|
+| `langgraph` | LangGraph (LangChain) |
+| `openai_agents` | OpenAI Agents SDK |
+| `claude_sdk` | Anthropic Claude SDK |
+| `crewai` | CrewAI |
+| `google_adk` | Google Agent Development Kit |
+| `custom` | Bring your own entrypoint |
+
+---
+
+## Supported Deployment Targets
+
+Set `deploy.cloud` and optionally `deploy.runtime`. Every combination works.
+
+| `cloud` | `runtime` (default) | Also supports |
+|---------|--------------------|-|
+| `local` | `docker-compose` | — |
+| `aws` | `ecs-fargate` | `app-runner` |
+| `gcp` | `cloud-run` | — |
+| `azure` | `container-apps` | — |
+| `kubernetes` | `deployment` | — |
+| `claude-managed` | *(no container)* | — |
+
+---
+
+## Getting Started
+
+### 1. Install
+
+```bash
+pip install agentbreeder
+```
+
+### 2. Initialize a project
+
+```bash
+agentbreeder init
+```
+
+The wizard asks 5 questions and generates a ready-to-run project:
+
+```
+my-agent/
+├── agent.yaml        # ← the only file AgentBreeder needs
+├── agent.py          # working agent code for your chosen framework
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+### 3. Edit agent.yaml
+
+```yaml
+name: support-agent
+version: 1.0.0
+team: customer-success
+owner: alice@company.com
+framework: langgraph             # langgraph | openai_agents | claude_sdk | crewai | google_adk | custom
+
+model:
+  primary: claude-sonnet-4       # any model in your registry
+  fallback: gpt-4o               # used if primary is unavailable
+  temperature: 0.7
+
+tools:
+  - ref: tools/zendesk-mcp       # from your org's tool registry
+  - ref: tools/order-lookup
+
+deploy:
+  cloud: aws                     # aws | gcp | azure | kubernetes | local | claude-managed
+  runtime: app-runner            # default for aws: ecs-fargate; also: app-runner
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 10
+  secrets:
+    - ZENDESK_API_KEY
+    - OPENAI_API_KEY
+```
+
+### 4. Validate
+
+```bash
+agentbreeder validate agent.yaml
+```
+
+Runs three checks: YAML syntax, JSON Schema, and semantic validation (framework supported, team exists).
+
+### 5. Deploy
+
+<Tabs items={['Local', 'AWS App Runner', 'AWS ECS Fargate', 'GCP Cloud Run', 'Azure Container Apps', 'Claude Managed']}>
+  <Tab value="Local">
+```bash
+agentbreeder deploy agent.yaml --target local
+```
+  </Tab>
+  <Tab value="AWS App Runner">
+```bash
+agentbreeder deploy agent.yaml --target app-runner --region us-east-1
+```
+
+Required in `deploy.env_vars`:
+```yaml
+deploy:
+  cloud: aws
+  runtime: app-runner
+  env_vars:
+    AWS_ACCOUNT_ID: "123456789012"
+    AWS_REGION: us-east-1
+```
+  </Tab>
+  <Tab value="AWS ECS Fargate">
+```bash
+agentbreeder deploy agent.yaml --target ecs-fargate --region us-east-1
+```
+
+Required in `deploy.env_vars`:
+```yaml
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  env_vars:
+    AWS_ACCOUNT_ID: "123456789012"
+    AWS_REGION: us-east-1
+```
+  </Tab>
+  <Tab value="GCP Cloud Run">
+```bash
+agentbreeder deploy agent.yaml --target cloud-run --region us-central1
+```
+
+Set `GOOGLE_APPLICATION_CREDENTIALS` and `GOOGLE_CLOUD_PROJECT` in your environment.
+  </Tab>
+  <Tab value="Azure Container Apps">
+```bash
+agentbreeder deploy agent.yaml --target container-apps
+```
+  </Tab>
+  <Tab value="Claude Managed">
+```bash
+agentbreeder deploy agent.yaml --target claude-managed
+```
+
+No container is built. Add `ANTHROPIC_API_KEY` to secrets:
+```yaml
+deploy:
+  cloud: claude-managed
+  secrets:
+    - ANTHROPIC_API_KEY
+
+claude_managed:
+  environment:
+    networking: unrestricted
+  tools:
+    - type: agent_toolset_20260401
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Framework-Specific Configuration
+
+Some frameworks support extra config blocks in `agent.yaml`. These are optional — AgentBreeder picks sensible defaults.
+
+### Claude SDK
+
+```yaml
+claude_sdk:
+  thinking:
+    type: adaptive          # "adaptive" (default) | "enabled"
+    effort: high            # "low" | "medium" | "high"
+  prompt_caching: true      # cache system prompt for latency + cost savings
+```
+
+### Google ADK
+
+```yaml
+google_adk:
+  session_backend: memory           # "memory" | "database" | "vertex_ai"
+  memory_service: memory            # "memory" | "vertex_ai_bank" | "vertex_ai_rag"
+  artifact_service: memory          # "memory" | "gcs"
+```
+
+### Claude Managed
+
+```yaml
+claude_managed:
+  environment:
+    networking: unrestricted        # "unrestricted" | "restricted"
+  tools:
+    - type: agent_toolset_20260401  # full built-in toolset
+```
+
+---
+
+## Common Workflows
+
+### Check status after deploy
+
+```bash
+agentbreeder status
+agentbreeder logs my-agent --follow
+agentbreeder chat my-agent
+```
+
+### Roll back
+
+```bash
+agentbreeder deploy agent.yaml --version 1.0.0
+```
+
+### Tear down
+
+```bash
+agentbreeder teardown my-agent
+```
+
+### Scan for available models and MCP servers
+
+```bash
+agentbreeder scan                    # discovers all local MCP servers + models
+agentbreeder scan --provider ollama  # Ollama models
+agentbreeder scan --provider openrouter
+```
+
+---
+
+## Eject to Full Code
+
+When you need custom routing, state machines, or programmatic control:
+
+```bash
+agentbreeder eject --to sdk
+```
+
+This generates a Python or TypeScript SDK project from your `agent.yaml`. Your YAML is preserved as the source of truth — the SDK wraps it with full programmatic access. See [Full Code →](full-code).
+
+---
+
+## All Frameworks × All Deployment Targets
+
+| | Local | App Runner | ECS Fargate | Cloud Run | Container Apps | Claude Managed |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **LangGraph** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **OpenAI Agents** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Claude SDK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **CrewAI** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Google ADK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Custom** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+---
+
+## Next Steps
+
+| What | Where |
+|------|-------|
+| All `agent.yaml` fields | [agent.yaml Reference →](agent-yaml) |
+| All CLI commands | [CLI Reference →](cli-reference) |
+| Multi-agent orchestration | [Orchestration SDK →](orchestration-sdk) |
+| Full Python/TypeScript SDK | [Full Code →](full-code) |
+| No-code dashboard UI | [No Code →](no-code) |

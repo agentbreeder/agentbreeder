@@ -1,0 +1,355 @@
+---
+title: Full Code — Python & TypeScript SDK
+description: Full programmatic control over agent definition, deployment, and orchestration.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+# Full Code — Python & TypeScript SDK
+
+Build agents entirely in code with the AgentBreeder SDK. Full type safety, custom routing logic, state machines, and programmatic deploy pipelines.
+
+**Who this is for:** Senior engineers, AI researchers, ML scientists, and teams building production systems that need custom orchestration, complex evals, or CI/CD-driven deploys.
+
+---
+
+## Install
+
+<Tabs items={['Python', 'TypeScript']}>
+  <Tab value="Python">
+```bash
+pip install agentbreeder-sdk
+```
+  </Tab>
+  <Tab value="TypeScript">
+```bash
+npm install @agentbreeder/sdk
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Supported Frameworks
+
+The SDK supports all 6 frameworks. Pass the framework name as a string — AgentBreeder resolves the right runtime.
+
+| Value | Framework |
+|-------|-----------|
+| `"langgraph"` | LangGraph (LangChain) |
+| `"openai_agents"` | OpenAI Agents SDK |
+| `"claude_sdk"` | Anthropic Claude SDK |
+| `"crewai"` | CrewAI |
+| `"google_adk"` | Google Agent Development Kit |
+| `"custom"` | Bring your own entrypoint |
+
+---
+
+## Supported Deployment Targets
+
+All 6 deployment targets available via `.with_deploy()`:
+
+| `cloud` | Default `runtime` | Also supports |
+|---------|------------------|---------------|
+| `"local"` | `"docker-compose"` | — |
+| `"aws"` | `"ecs-fargate"` | `"app-runner"` |
+| `"gcp"` | `"cloud-run"` | — |
+| `"azure"` | `"container-apps"` | — |
+| `"kubernetes"` | `"deployment"` | — |
+| `"claude-managed"` | *(no container)* | — |
+
+---
+
+## Python SDK
+
+### Install and basic deploy
+
+```python
+from agenthub import Agent
+
+agent = (
+    Agent("support-agent")
+        .with_version("1.0.0")
+        .with_team("customer-success")
+        .with_owner("alice@company.com")
+        .with_framework("langgraph")
+        .with_model(
+            primary="claude-sonnet-4",
+            fallback="gpt-4o",
+            temperature=0.7,
+        )
+        .with_tools([
+            "tools/zendesk-mcp",
+            "tools/order-lookup",
+        ])
+        .with_deploy(
+            cloud="aws",
+            runtime="app-runner",   # or: ecs-fargate, cloud-run, container-apps, claude-managed
+            region="us-east-1",
+            secrets=["ZENDESK_API_KEY", "OPENAI_API_KEY"],
+        )
+)
+
+result = agent.deploy()
+print(result.endpoint)
+```
+
+### Framework-specific config
+
+<Tabs items={['LangGraph', 'Claude SDK', 'CrewAI', 'Google ADK', 'OpenAI Agents', 'Custom']}>
+  <Tab value="LangGraph">
+```python
+from agenthub import Agent
+
+agent = (
+    Agent("research-agent")
+        .with_framework("langgraph")
+        .with_model(primary="claude-sonnet-4")
+        .with_tools(["tools/web-search", "tools/arxiv"])
+        .with_deploy(cloud="gcp", runtime="cloud-run")
+)
+```
+  </Tab>
+  <Tab value="Claude SDK">
+```python
+from agenthub import Agent
+from agenthub.config import ClaudeSDKConfig
+
+agent = (
+    Agent("reasoning-agent")
+        .with_framework("claude_sdk")
+        .with_model(primary="claude-opus-4")
+        .with_framework_config(ClaudeSDKConfig(
+            thinking={"type": "adaptive", "effort": "high"},
+            prompt_caching=True,
+        ))
+        .with_deploy(cloud="aws", runtime="app-runner")
+)
+```
+  </Tab>
+  <Tab value="CrewAI">
+```python
+from agenthub import Agent
+
+agent = (
+    Agent("research-crew")
+        .with_framework("crewai")
+        .with_model(primary="gpt-4o")
+        .with_tools(["tools/web-search", "tools/wikipedia"])
+        .with_deploy(cloud="local")
+)
+```
+  </Tab>
+  <Tab value="Google ADK">
+```python
+from agenthub import Agent
+from agenthub.config import GoogleADKConfig
+
+agent = (
+    Agent("workspace-agent")
+        .with_framework("google_adk")
+        .with_model(primary="gemini-2.0-flash")
+        .with_framework_config(GoogleADKConfig(
+            session_backend="database",
+            memory_service="vertex_ai_bank",
+        ))
+        .with_deploy(cloud="gcp", runtime="cloud-run")
+)
+```
+  </Tab>
+  <Tab value="OpenAI Agents">
+```python
+from agenthub import Agent
+
+agent = (
+    Agent("triage-agent")
+        .with_framework("openai_agents")
+        .with_model(primary="gpt-4o-mini", fallback="gpt-4o")
+        .with_tools(["tools/zendesk-mcp"])
+        .with_deploy(cloud="azure", runtime="container-apps")
+)
+```
+  </Tab>
+  <Tab value="Custom">
+```python
+from agenthub import Agent
+
+agent = (
+    Agent("legacy-wrapper")
+        .with_framework("custom")
+        .with_model(primary="claude-sonnet-4")
+        .with_entrypoint("server:app")          # your ASGI/WSGI app
+        .with_deploy(cloud="kubernetes")
+)
+```
+  </Tab>
+</Tabs>
+
+### Deploy to Claude Managed Agents
+
+```python
+from agenthub import Agent
+from agenthub.config import ClaudeManagedConfig
+
+agent = (
+    Agent("managed-support")
+        .with_framework("claude_sdk")
+        .with_model(primary="claude-sonnet-4")
+        .with_deploy(
+            cloud="claude-managed",
+            secrets=["ANTHROPIC_API_KEY"],
+        )
+        .with_claude_managed(ClaudeManagedConfig(
+            environment={"networking": "unrestricted"},
+            tools=[{"type": "agent_toolset_20260401"}],
+        ))
+)
+
+result = agent.deploy()
+# result.endpoint = "anthropic://agents/agt_01...?env=env_01..."
+print(result.endpoint)
+```
+
+### Generate agent.yaml from SDK
+
+```python
+agent.to_yaml("agent.yaml")       # export for YAML-based workflows
+agent.validate()                   # validate without deploying
+```
+
+---
+
+## TypeScript SDK
+
+```typescript
+import { Agent } from "@agentbreeder/sdk";
+
+const agent = new Agent("support-agent", {
+  version: "1.0.0",
+  team: "customer-success",
+  owner: "alice@company.com",
+})
+  .withFramework("langgraph")
+  .withModel({
+    primary: "claude-sonnet-4",
+    fallback: "gpt-4o",
+    temperature: 0.7,
+  })
+  .withTools(["tools/zendesk-mcp", "tools/order-lookup"])
+  .withDeploy({
+    cloud: "aws",
+    runtime: "app-runner",
+    region: "us-east-1",
+    secrets: ["ZENDESK_API_KEY"],
+  });
+
+const result = await agent.deploy();
+console.log(result.endpoint);
+```
+
+Export as YAML:
+
+```typescript
+agent.toYaml("agent.yaml");
+```
+
+---
+
+## Multi-Agent Orchestration (Full Code)
+
+The Full Code tier unlocks the Orchestration SDK — define pipelines of agents with custom routing, state, and execution strategies.
+
+```python
+from agenthub.orchestration import Pipeline, Agent
+
+pipeline = (
+    Pipeline("support-pipeline")
+        .add_agent("triage",     Agent("triage-agent").with_model("claude-haiku-4-5"))
+        .add_agent("specialist", Agent("specialist-agent").with_model("claude-sonnet-4"))
+        .add_agent("escalation", Agent("escalation-agent").with_model("claude-opus-4"))
+        .with_strategy("router")          # router | sequential | parallel | supervisor
+        .with_routing(lambda ctx: (
+            "specialist" if ctx.intent in ("billing", "technical")
+            else "escalation" if ctx.priority == "urgent"
+            else "triage"
+        ))
+        .with_deploy(cloud="aws", runtime="app-runner")
+)
+
+result = pipeline.deploy()
+```
+
+Supported strategies:
+
+| Strategy | Description |
+|----------|-------------|
+| `router` | Classifies the request and routes to the right agent |
+| `sequential` | Runs agents in order, passing output as input |
+| `parallel` | Runs all agents simultaneously, merges results |
+| `supervisor` | One agent manages sub-agents dynamically |
+| `hierarchical` | Tree of supervisors and workers |
+| `fan-out` | One input split across N agents, results aggregated |
+
+---
+
+## CI/CD Integration
+
+```python
+# deploy.py — run in GitHub Actions / GitLab CI
+import os
+from agenthub import Agent
+
+agent = (
+    Agent("support-agent")
+        .with_version(os.environ["AGENT_VERSION"])
+        .with_framework("langgraph")
+        .with_model(primary="claude-sonnet-4")
+        .with_deploy(
+            cloud="aws",
+            runtime="app-runner",
+            region=os.environ["AWS_REGION"],
+        )
+)
+
+result = agent.deploy()
+print(f"Deployed: {result.endpoint}")
+```
+
+Or use the CLI in CI:
+
+```bash
+agentbreeder deploy agent.yaml \
+  --target app-runner \
+  --region us-east-1 \
+  --version ${{ github.sha }}
+```
+
+---
+
+## All Frameworks × All Deployment Targets
+
+| | Local | App Runner | ECS Fargate | Cloud Run | Container Apps | Claude Managed |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **LangGraph** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **OpenAI Agents** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Claude SDK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **CrewAI** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Google ADK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Custom** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+<Callout type="info" title="Claude Managed + any framework">
+  The `claude-managed` deployment target works with every framework. When framework is set to anything other than `claude_sdk`, AgentBreeder wraps your agent in a Claude-managed container adapter automatically.
+</Callout>
+
+---
+
+## Next Steps
+
+| What | Where |
+|------|-------|
+| Orchestration strategies | [Orchestration SDK →](orchestration-sdk) |
+| All `agent.yaml` fields | [agent.yaml Reference →](agent-yaml) |
+| All CLI commands | [CLI Reference →](cli-reference) |
+| Start with the dashboard | [No Code →](no-code) |
+| Write plain YAML | [Low Code →](low-code) |

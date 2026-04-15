@@ -1,0 +1,172 @@
+---
+title: No Code — Dashboard UI
+description: Build and deploy agents with drag-and-drop. No YAML or code required.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+# No Code — Dashboard UI
+
+Build, configure, and deploy production agents entirely from the AgentBreeder dashboard.
+No YAML. No code. No DevOps knowledge required.
+
+**Who this is for:** Product managers, analysts, business users, executives, and anyone who wants to ship agents without touching a terminal.
+
+---
+
+## Supported Frameworks
+
+Every framework works in the dashboard. Pick the one that fits your use case from a dropdown — AgentBreeder handles the runtime scaffolding automatically.
+
+| Framework | Best for |
+|-----------|----------|
+| **LangGraph** | Multi-step agents with loops, human-in-the-loop, complex state |
+| **OpenAI Agents** | Simple, fast agents with handoffs between specialists |
+| **Claude SDK** | Reasoning-heavy tasks, extended thinking, document analysis |
+| **CrewAI** | Role-based teams of agents working toward a shared goal |
+| **Google ADK** | Agents that live in Google Workspace and use Gemini natively |
+| **Custom** | Bring your own agent code — wrap any Python or TypeScript agent |
+
+---
+
+## Supported Deployment Targets
+
+All deployment targets are available from the "Deploy to" dropdown. No cloud credentials to configure manually — connect your cloud account once in Settings, then deploy anywhere.
+
+| Target | What it runs on | Best for |
+|--------|----------------|----------|
+| **Local** | Docker Compose on your machine | Development, testing |
+| **AWS App Runner** | Serverless containers on AWS | Low-ops production, auto-scaling |
+| **AWS ECS Fargate** | Container orchestration on AWS | High-traffic, VPC-controlled |
+| **GCP Cloud Run** | Serverless containers on Google Cloud | Google Workspace integrations |
+| **Azure Container Apps** | Serverless containers on Azure | Microsoft ecosystem teams |
+| **Claude Managed** | Anthropic-managed runtime | Zero infrastructure — Anthropic handles everything |
+
+---
+
+## Getting Started
+
+### 1. Open the dashboard
+
+```
+http://localhost:3001        # local dev stack
+```
+
+Or log in to your org's hosted AgentBreeder instance.
+
+Default local credentials:
+
+| Field | Value |
+|-------|-------|
+| Email | `admin@agentbreeder.local` |
+| Password | `plant` |
+
+### 2. Create a new agent
+
+Click **New Agent** in the top-right corner. The visual builder opens.
+
+### 3. Configure in the form
+
+The builder asks you for:
+
+| Field | What to set |
+|-------|-------------|
+| **Name** | Slug-friendly name (e.g. `support-agent`) |
+| **Framework** | Choose from the 6 supported frameworks |
+| **Model** | Primary model + optional fallback |
+| **Tools** | Search and add MCP servers or built-in tools from the registry |
+| **Knowledge Bases** | Optional — attach RAG indexes |
+| **Prompts** | Select a versioned system prompt from the registry, or write inline |
+| **Deploy to** | Target cloud and region |
+| **Team** | Assigns RBAC and cost attribution automatically |
+
+### 4. Deploy
+
+Click **Deploy Agent**. The dashboard runs the 8-step pipeline and shows live progress:
+
+```
+✅  YAML parsed & validated
+✅  RBAC check passed
+✅  Dependencies resolved
+✅  Container built
+✅  Deployed
+✅  Health check passed
+✅  Registered in org registry
+✅  Endpoint returned
+```
+
+If any step fails, the deploy rolls back automatically.
+
+### 5. Your agent is live
+
+The endpoint URL appears in the dashboard. You can immediately:
+- **Chat** with the agent from the playground tab
+- **View logs** in real time
+- **Monitor costs** per token, per day, per team
+- **Share** the endpoint URL with your team
+
+---
+
+## Editing an Agent
+
+Open an agent from the registry → click **Edit** → change any field → **Redeploy**.
+
+Every redeploy is versioned. You can roll back to any previous version from the **History** tab.
+
+---
+
+## Eject to Low Code (View the YAML)
+
+At any point, click **View YAML** to see the `agent.yaml` that the dashboard generated. This is human-readable and version-controllable.
+
+To take full ownership of the YAML:
+
+1. Click **Export agent.yaml**
+2. Run `agentbreeder deploy agent.yaml` from your terminal
+3. You are now in Low Code mode — see [Low Code →](low-code)
+
+The exported YAML is identical to what the dashboard used. Nothing is hidden.
+
+---
+
+## Tier Mobility
+
+```
+No Code (Dashboard)
+  └─▶  View YAML          → copy into your IDE → Low Code
+  └─▶  agentbreeder eject → full SDK scaffold  → Full Code
+```
+
+You can always go deeper — you never lose what you built. See [Full Code →](full-code).
+
+---
+
+## All Frameworks × All Deployment Targets
+
+Every combination works. This matrix applies to No Code, Low Code, and Full Code equally.
+
+| | Local | App Runner | ECS Fargate | Cloud Run | Container Apps | Claude Managed |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **LangGraph** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **OpenAI Agents** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Claude SDK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **CrewAI** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Google ADK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Custom** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+<Callout type="info" title="Claude Managed note">
+  When deploying to `claude-managed`, no container is built — Anthropic manages the runtime. The framework field is still required and controls how the agent logic is structured inside the managed environment.
+</Callout>
+
+---
+
+## Next Steps
+
+| What | Where |
+|------|-------|
+| Write YAML yourself | [Low Code →](low-code) |
+| Use the Python or TypeScript SDK | [Full Code →](full-code) |
+| All `agent.yaml` fields | [agent.yaml Reference →](agent-yaml) |
+| Deploy from the CLI | [Quickstart →](quickstart) |
+| All CLI commands | [CLI Reference →](cli-reference) |
