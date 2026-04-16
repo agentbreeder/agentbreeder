@@ -14,6 +14,7 @@ import re
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 
+import feedparser
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -137,3 +138,41 @@ def fetch_arxiv(limit: int = 5) -> list[dict]:
             "source": "arxiv",
         })
     return items
+
+
+# ---------------------------------------------------------------------------
+# Tool 3: fetch_rss
+# ---------------------------------------------------------------------------
+
+def fetch_rss(limit: int = 5) -> list[dict]:
+    """Fetch AI industry news from TechCrunch, Wired, and VentureBeat RSS feeds.
+
+    Args:
+        limit: Maximum total items to return (spread across feeds).
+
+    Returns:
+        List of dicts with keys: title, url, summary, source.
+        Deduplicates by URL. Skips feeds that fail -- never raises.
+    """
+    seen_urls: set[str] = set()
+    items: list[dict] = []
+
+    for feed_url in _RSS_FEEDS:
+        try:
+            parsed = feedparser.parse(feed_url)
+            for entry in parsed.entries:
+                url = getattr(entry, "link", "")
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                raw_summary = getattr(entry, "summary", "")
+                items.append({
+                    "title": getattr(entry, "title", ""),
+                    "url": url,
+                    "summary": _strip_html(raw_summary)[:300],
+                    "source": "rss",
+                })
+        except Exception as exc:
+            logger.warning("RSS feed %s failed: %s", feed_url, exc)
+
+    return items[:limit]

@@ -130,3 +130,78 @@ def test_fetch_arxiv_timeout_returns_empty():
         result = fetch_arxiv(limit=5)
 
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# fetch_rss
+# ---------------------------------------------------------------------------
+
+def _make_feed(entries: list[dict]) -> MagicMock:
+    """Build a mock feedparser result."""
+    feed = MagicMock()
+    feed.entries = [MagicMock(**e) for e in entries]
+    return feed
+
+
+def test_fetch_rss_merges_multiple_feeds():
+    feeds = [
+        _make_feed([{"title": "TechCrunch story", "link": "https://tc.com/1", "summary": "TC news"}]),
+        _make_feed([{"title": "Wired story", "link": "https://wired.com/1", "summary": "Wired news"}]),
+        _make_feed([{"title": "VB story", "link": "https://vb.com/1", "summary": "VB news"}]),
+    ]
+
+    with patch("feedparser.parse", side_effect=feeds):
+        from tools.impl import fetch_rss
+        result = fetch_rss(limit=3)
+
+    assert len(result) == 3
+    sources = {r["url"] for r in result}
+    assert "https://tc.com/1" in sources
+    assert "https://wired.com/1" in sources
+
+
+def test_fetch_rss_deduplicates_by_url():
+    duplicate_entry = {"title": "Dupe", "link": "https://same.com/1", "summary": "x"}
+    feeds = [
+        _make_feed([duplicate_entry]),
+        _make_feed([duplicate_entry]),
+        _make_feed([]),
+    ]
+
+    with patch("feedparser.parse", side_effect=feeds):
+        from tools.impl import fetch_rss
+        result = fetch_rss(limit=5)
+
+    urls = [r["url"] for r in result]
+    assert urls.count("https://same.com/1") == 1
+
+
+def test_fetch_rss_respects_limit():
+    many_entries = [
+        {"title": f"Story {i}", "link": f"https://tc.com/{i}", "summary": "x"}
+        for i in range(10)
+    ]
+    feeds = [
+        _make_feed(many_entries),
+        _make_feed([]),
+        _make_feed([]),
+    ]
+
+    with patch("feedparser.parse", side_effect=feeds):
+        from tools.impl import fetch_rss
+        result = fetch_rss(limit=3)
+
+    assert len(result) <= 3
+
+
+def test_fetch_rss_continues_if_one_feed_fails():
+    def side_effect(url: str):
+        if "techcrunch" in url:
+            raise Exception("connection refused")
+        return _make_feed([{"title": "Wired story", "link": "https://wired.com/1", "summary": "x"}])
+
+    with patch("feedparser.parse", side_effect=side_effect):
+        from tools.impl import fetch_rss
+        result = fetch_rss(limit=5)
+
+    assert any(r["url"] == "https://wired.com/1" for r in result)
