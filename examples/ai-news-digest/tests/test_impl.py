@@ -38,11 +38,10 @@ def test_fetch_hackernews_correct_api_url():
         from tools.impl import fetch_hackernews
 
         fetch_hackernews(limit=3)
-
-    call_url = mock_get.call_args[0][0]
-    call_params = mock_get.call_args[1].get("params", {})
-    assert "hn.algolia.com" in call_url
-    assert "AI" in call_params.get("query", "") or "query" in str(call_params)
+        call_url = mock_get.call_args[0][0]
+        call_params = mock_get.call_args[1].get("params", {})
+        assert "hn.algolia.com" in call_url
+        assert "AI" in call_params.get("query", "") or "query" in str(call_params)
 
 
 def test_fetch_hackernews_fallback_url_for_ask_hn():
