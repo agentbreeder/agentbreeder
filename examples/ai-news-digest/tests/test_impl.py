@@ -1,6 +1,7 @@
 """Unit tests for tool implementations in tools/impl.py."""
 from __future__ import annotations
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
@@ -205,3 +206,47 @@ def test_fetch_rss_continues_if_one_feed_fails():
         result = fetch_rss(limit=5)
 
     assert any(r["url"] == "https://wired.com/1" for r in result)
+
+
+# ---------------------------------------------------------------------------
+# send_email
+# ---------------------------------------------------------------------------
+
+def test_send_email_calls_smtp_correctly():
+    with (
+        patch.dict("os.environ", {
+            "SMTP_USER": "sender@gmail.com",
+            "SMTP_PASSWORD": "app-password",
+            "SMTP_HOST": "smtp.gmail.com",
+            "SMTP_PORT": "587",
+            "RECIPIENT_EMAILS": "a@example.com,b@example.com",
+        }),
+        patch("smtplib.SMTP") as mock_smtp_cls,
+    ):
+        mock_smtp = MagicMock()
+        mock_smtp_cls.return_value.__enter__ = MagicMock(return_value=mock_smtp)
+        mock_smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        from tools.impl import send_email
+        result = send_email(subject="Test digest", body="Hello world")
+
+    mock_smtp.starttls.assert_called_once()
+    mock_smtp.login.assert_called_once_with("sender@gmail.com", "app-password")
+    mock_smtp.sendmail.assert_called_once()
+    assert result["sent_to"] == 2
+
+
+def test_send_email_raises_if_recipient_emails_not_set():
+    import os
+    with patch.dict("os.environ", {"SMTP_USER": "sender@gmail.com", "SMTP_PASSWORD": "pw"}, clear=False):
+        os.environ.pop("RECIPIENT_EMAILS", None)
+        from tools.impl import send_email
+        with pytest.raises(ValueError, match="RECIPIENT_EMAILS"):
+            send_email(subject="x", body="y")
+
+
+def test_send_email_raises_if_smtp_user_not_set():
+    with patch.dict("os.environ", {}, clear=True):
+        from tools.impl import send_email
+        with pytest.raises(ValueError, match="SMTP_USER"):
+            send_email(subject="x", body="y")
