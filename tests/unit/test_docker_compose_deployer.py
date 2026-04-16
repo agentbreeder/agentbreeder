@@ -376,7 +376,6 @@ class TestDockerComposeDeployerDeploy:
 
         # Only one containers.run call — for the agent, not a new Ollama sidecar
         ollama_start_calls = [
-            c for c in mock_client.containers.run.call_args_list
-            if "ollama/ollama" in str(c)
+            c for c in mock_client.containers.run.call_args_list if "ollama/ollama" in str(c)
         ]
         assert len(ollama_start_calls) == 0, "Ollama sidecar was restarted when already running"

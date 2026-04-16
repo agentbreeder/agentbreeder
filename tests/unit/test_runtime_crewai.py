@@ -346,8 +346,7 @@ class TestCrewAIServerModelConfig:
     def test_server_template_sets_ollama_base_url(self) -> None:
         """CrewAI server template must set agent.llm.base_url for ollama/ models."""
         template = (
-            Path(__file__).parent.parent.parent
-            / "engine/runtimes/templates/crewai_server.py"
+            Path(__file__).parent.parent.parent / "engine/runtimes/templates/crewai_server.py"
         ).read_text()
         assert "OLLAMA_BASE_URL" in template
         assert "base_url" in template
