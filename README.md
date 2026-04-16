@@ -302,16 +302,20 @@ brew install agentbreeder
 
 ### Docker
 
+**Full platform — no repo clone required:**
+
 ```bash
-# API server
-docker pull rajits/agentbreeder-api
-docker run -p 8000:8000 rajits/agentbreeder-api
+curl -O https://raw.githubusercontent.com/rajitsaha/agentbreeder/main/deploy/docker-compose.standalone.yml
+docker compose -f docker-compose.standalone.yml up -d
+```
 
-# Dashboard
-docker pull rajits/agentbreeder-dashboard
-docker run -p 3001:3001 rajits/agentbreeder-dashboard
+Dashboard: `http://localhost:3001` · API: `http://localhost:8000` · API Docs: `http://localhost:8000/docs`
 
-# CLI (for CI/CD pipelines)
+This pulls pre-built images from Docker Hub (`rajits/agentbreeder-api`, `rajits/agentbreeder-dashboard`), runs database migrations automatically, and wires everything together.
+
+**CLI image (for CI/CD pipelines):**
+
+```bash
 docker pull rajits/agentbreeder-cli
 docker run rajits/agentbreeder-cli deploy agent.yaml --target gcp
 ```
@@ -333,7 +337,7 @@ agentbreeder validate agent.yaml
 agentbreeder deploy agent.yaml --target local
 ```
 
-**Or run the full platform locally:**
+**Or run from source (contributors):**
 
 ```bash
 git clone https://github.com/rajitsaha/agentbreeder.git
@@ -343,7 +347,7 @@ python -m venv venv && source venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
 
-# Start postgres + redis + API + dashboard
+# Start postgres + redis + API + dashboard (builds from local source)
 docker compose -f deploy/docker-compose.yml up -d
 ```
 

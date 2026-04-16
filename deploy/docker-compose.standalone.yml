@@ -1,0 +1,80 @@
+# Standalone docker-compose — no repo clone required.
+# Uses pre-built Docker Hub images so you can run the full AgentBreeder
+# platform with a single curl + docker compose command.
+#
+# Usage:
+#   curl -O https://raw.githubusercontent.com/rajitsaha/agentbreeder/main/deploy/docker-compose.standalone.yml
+#   docker compose -f docker-compose.standalone.yml up -d
+#
+# Dashboard: http://localhost:3001
+# API:       http://localhost:8000
+# API Docs:  http://localhost:8000/docs
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: agentbreeder
+      POSTGRES_USER: agentbreeder
+      POSTGRES_PASSWORD: agentbreeder
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentbreeder -d agentbreeder"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: rajits/agentbreeder-api:latest
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@postgres:5432/agentbreeder
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: rajits/agentbreeder-api:latest
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@postgres:5432/agentbreeder
+      REDIS_URL: redis://redis:6379
+      GARDEN_ENV: development
+      # Change these values before exposing to any network
+      SECRET_KEY: change-me-in-production
+      JWT_SECRET_KEY: change-me-in-production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  dashboard:
+    image: rajits/agentbreeder-dashboard:latest
+    ports:
+      - "3001:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
