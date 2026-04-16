@@ -56,6 +56,17 @@ class ClaudeSDKRuntime(RuntimeBuilder):
     def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
         errors: list[str] = []
 
+        # Reject non-Claude models early
+        if config.model.primary.startswith("ollama/"):
+            errors.append(
+                f"Claude SDK only supports Claude (Anthropic) models. "
+                f"Received: '{config.model.primary}'. "
+                "Switch to a Claude model (e.g. 'claude-sonnet-4') or use a different "
+                "framework (langgraph, crewai, openai_agents, google_adk, or custom) "
+                "for local Ollama models."
+            )
+            return RuntimeValidationResult(valid=False, errors=errors)
+
         # Check for agent source file
         agent_file = agent_dir / "agent.py"
         if not agent_file.exists():

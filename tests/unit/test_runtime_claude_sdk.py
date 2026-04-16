@@ -98,6 +98,20 @@ class TestClaudeSDKRuntimeValidate:
         assert result.valid is True
         assert result.errors == []
 
+    def test_validate_rejects_ollama_model(self) -> None:
+        """Claude SDK only supports Claude models — ollama/ must be rejected."""
+        runtime = ClaudeSDKRuntime()
+        agent_dir = _make_agent_dir(
+            {
+                "agent.py": "root_agent = None",
+                "requirements.txt": "anthropic-ai-sdk>=0.1.0\n",
+            }
+        )
+        config = _make_config(model={"primary": "ollama/gemma3:27b"})
+        result = runtime.validate(agent_dir, config)
+        assert not result.valid
+        assert any("ollama" in e.lower() or "Claude" in e for e in result.errors)
+
 
 class TestClaudeSDKRuntimeBuild:
     def test_build_creates_container_image(self, tmp_path: Path) -> None:
