@@ -1,0 +1,7 @@
+google-adk>=1.29.0
+litellm[ollama]>=1.40.0
+schedule>=1.2.0
+httpx>=0.27.0
+feedparser>=6.0.0
+fastmcp>=1.0.0
+pytest>=8.0.0
