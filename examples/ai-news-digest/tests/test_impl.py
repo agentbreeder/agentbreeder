@@ -1,11 +1,7 @@
 """Unit tests for tool implementations in tools/impl.py."""
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # fetch_hackernews
@@ -25,7 +21,7 @@ def test_fetch_hackernews_returns_correct_count():
     mock_response.json.return_value = HN_API_RESPONSE
     mock_response.raise_for_status = MagicMock()
 
-    with patch("httpx.get", return_value=mock_response) as mock_get:
+    with patch("httpx.get", return_value=mock_response):
         from tools.impl import fetch_hackernews
 
         result = fetch_hackernews(limit=2)
