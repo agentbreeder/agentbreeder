@@ -223,3 +223,18 @@ class TestOpenAIAgentsRuntimeRequirements:
         assert isinstance(reqs, list)
         assert len(reqs) > 0
         assert all(isinstance(r, str) for r in reqs)
+
+    def test_get_requirements_adds_litellm_for_ollama_model(self) -> None:
+        runtime = OpenAIAgentsRuntime()
+        config = _make_config(model={"primary": "ollama/gemma3:27b"})
+        reqs = runtime.get_requirements(config)
+        assert any("litellm" in r for r in reqs)
+
+    def test_build_injects_ollama_base_url(self, tmp_path: Path) -> None:
+        (tmp_path / "agent.py").write_text("agent = None")
+        (tmp_path / "requirements.txt").write_text("")
+        runtime = OpenAIAgentsRuntime()
+        config = _make_config(model={"primary": "ollama/gemma3:27b"})
+        image = runtime.build(tmp_path, config)
+        dockerfile = (image.context_dir / "Dockerfile").read_text()
+        assert "OLLAMA_BASE_URL" in dockerfile

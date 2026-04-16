@@ -11,7 +11,12 @@ import tempfile
 from pathlib import Path
 
 from engine.config_parser import AgentConfig
-from engine.runtimes.base import ContainerImage, RuntimeBuilder, RuntimeValidationResult
+from engine.runtimes.base import (
+    ContainerImage,
+    RuntimeBuilder,
+    RuntimeValidationResult,
+    build_env_block,
+)
 
 OPENAI_AGENTS_SERVER_TEMPLATE = Path(__file__).parent / "templates" / "openai_agents_server.py"
 
@@ -98,13 +103,24 @@ class OpenAIAgentsRuntime(RuntimeBuilder):
 
         # Write Dockerfile
         dockerfile = build_dir / "Dockerfile"
-        dockerfile.write_text(DOCKERFILE_TEMPLATE)
+        env_block = build_env_block(config, "openai_agents")
+        ollama_extra = ""
+        if config.model.primary.startswith("ollama/"):
+            ollama_extra = '\nENV OLLAMA_BASE_URL="http://agentbreeder-ollama:11434"'
+        dockerfile_content = (
+            DOCKERFILE_TEMPLATE.rstrip()
+            + "\n\n# Agent configuration\n"
+            + env_block
+            + ollama_extra
+            + "\n"
+        )
+        dockerfile.write_text(dockerfile_content)
 
         tag = f"agentbreeder/{config.name}:{config.version}"
 
         return ContainerImage(
             tag=tag,
-            dockerfile_content=DOCKERFILE_TEMPLATE,
+            dockerfile_content=dockerfile_content,
             context_dir=build_dir,
         )
 
@@ -112,7 +128,7 @@ class OpenAIAgentsRuntime(RuntimeBuilder):
         return "uvicorn server:app --host 0.0.0.0 --port 8080"
 
     def get_requirements(self, config: AgentConfig) -> list[str]:
-        return [
+        deps = [
             "openai-agents>=0.1.0",
             "openai>=1.60.0",
             "fastapi>=0.110.0",
@@ -120,3 +136,6 @@ class OpenAIAgentsRuntime(RuntimeBuilder):
             "httpx>=0.27.0",
             "pydantic>=2.0.0",
         ]
+        if config.model.primary.startswith("ollama/"):
+            deps.append("litellm>=1.40.0")
+        return deps

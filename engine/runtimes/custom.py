@@ -13,7 +13,12 @@ import tempfile
 from pathlib import Path
 
 from engine.config_parser import AgentConfig
-from engine.runtimes.base import ContainerImage, RuntimeBuilder, RuntimeValidationResult
+from engine.runtimes.base import (
+    ContainerImage,
+    RuntimeBuilder,
+    RuntimeValidationResult,
+    build_env_block,
+)
 
 CUSTOM_SERVER_TEMPLATE = Path(__file__).parent / "templates" / "custom_server.py"
 
@@ -128,7 +133,17 @@ class CustomRuntime(RuntimeBuilder):
                 shutil.copy2(CUSTOM_SERVER_TEMPLATE, build_dir / "server.py")
 
             # Write fallback Dockerfile
-            dockerfile_content = FALLBACK_DOCKERFILE
+            env_block = build_env_block(config, "custom")
+            ollama_extra = ""
+            if config.model.primary.startswith("ollama/"):
+                ollama_extra = '\nENV OLLAMA_BASE_URL="http://agentbreeder-ollama:11434"'
+            dockerfile_content = (
+                FALLBACK_DOCKERFILE.rstrip()
+                + "\n\n# Agent configuration\n"
+                + env_block
+                + ollama_extra
+                + "\n"
+            )
             (build_dir / "Dockerfile").write_text(dockerfile_content)
 
         tag = f"agentbreeder/{config.name}:{config.version}"
@@ -145,9 +160,12 @@ class CustomRuntime(RuntimeBuilder):
 
     def get_requirements(self, config: AgentConfig) -> list[str]:
         # Minimal set — users add their own framework deps via requirements.txt
-        return [
+        deps = [
             "fastapi>=0.110.0",
             "uvicorn[standard]>=0.27.0",
             "httpx>=0.27.0",
             "pydantic>=2.0.0",
         ]
+        if config.model.primary.startswith("ollama/"):
+            deps.append("litellm>=1.40.0")
+        return deps

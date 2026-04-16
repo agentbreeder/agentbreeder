@@ -184,3 +184,27 @@ class TestLangGraphRuntime:
         assert any("langgraph" in r for r in reqs)
         assert any("fastapi" in r for r in reqs)
         assert any("uvicorn" in r for r in reqs)
+
+    def test_get_requirements_adds_litellm_for_ollama_model(self) -> None:
+        runtime = LangGraphRuntime()
+        config = _make_config(model={"primary": "ollama/gemma3:27b"})
+        reqs = runtime.get_requirements(config)
+        assert any("litellm" in r for r in reqs)
+
+    def test_build_injects_ollama_base_url_for_ollama_model(self, tmp_path: Path) -> None:
+        (tmp_path / "agent.py").write_text("graph = None")
+        (tmp_path / "requirements.txt").write_text("")
+        runtime = LangGraphRuntime()
+        config = _make_config(model={"primary": "ollama/gemma3:27b"})
+        image = runtime.build(tmp_path, config)
+        dockerfile = (image.context_dir / "Dockerfile").read_text()
+        assert "OLLAMA_BASE_URL" in dockerfile
+
+    def test_build_does_not_inject_ollama_url_for_non_ollama_model(self, tmp_path: Path) -> None:
+        (tmp_path / "agent.py").write_text("graph = None")
+        (tmp_path / "requirements.txt").write_text("")
+        runtime = LangGraphRuntime()
+        config = _make_config(model={"primary": "gpt-4o"})
+        image = runtime.build(tmp_path, config)
+        dockerfile = (image.context_dir / "Dockerfile").read_text()
+        assert "OLLAMA_BASE_URL" not in dockerfile
