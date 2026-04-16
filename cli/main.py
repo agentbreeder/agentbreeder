@@ -30,6 +30,7 @@ from cli.commands import (
     submit,
     teardown,
     template,
+    ui,
     up,
     validate,
 )
@@ -44,6 +45,7 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
+app.command(name="ui")(ui.ui)
 app.command(name="up")(up.up)
 app.command(name="down")(down.down)
 app.command(name="init")(init_cmd.init)

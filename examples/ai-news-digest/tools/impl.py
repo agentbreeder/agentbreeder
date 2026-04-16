@@ -10,15 +10,8 @@ Return type is list[dict] throughout — JSON-serialisable, ADK-compatible.
 from __future__ import annotations
 
 import logging
-import os
-import smtplib
-import xml.etree.ElementTree as ET
-from datetime import UTC, datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from html.parser import HTMLParser
 
-import feedparser
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -36,6 +29,7 @@ _RSS_FEEDS = [
 # ---------------------------------------------------------------------------
 # HTML stripping helper
 # ---------------------------------------------------------------------------
+
 
 class _StripHTML(HTMLParser):
     def __init__(self) -> None:
@@ -58,6 +52,7 @@ def _strip_html(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Tool 1: fetch_hackernews
 # ---------------------------------------------------------------------------
+
 
 def fetch_hackernews(limit: int = 5) -> list[dict]:
     """Fetch top AI stories from Hacker News via the Algolia API.
@@ -88,10 +83,12 @@ def fetch_hackernews(limit: int = 5) -> list[dict]:
     items = []
     for hit in hits[:limit]:
         url = hit.get("url") or f"https://news.ycombinator.com/item?id={hit.get('objectID', '')}"
-        items.append({
-            "title": hit.get("title", ""),
-            "url": url,
-            "points": hit.get("points", 0),
-            "source": "hackernews",
-        })
+        items.append(
+            {
+                "title": hit.get("title", ""),
+                "url": url,
+                "points": hit.get("points", 0),
+                "source": "hackernews",
+            }
+        )
     return items
