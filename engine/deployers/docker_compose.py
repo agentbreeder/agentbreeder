@@ -53,9 +53,9 @@ class DockerComposeDeployer(BaseDeployer):
         import docker
 
         try:
-            client.networks.get(OLLAMA_NETWORK_NAME)  # type: ignore[union-attr]
+            client.networks.get(OLLAMA_NETWORK_NAME)  # type: ignore[attr-defined]
         except docker.errors.NotFound:
-            client.networks.create(OLLAMA_NETWORK_NAME, driver="bridge")  # type: ignore[union-attr]
+            client.networks.create(OLLAMA_NETWORK_NAME, driver="bridge")  # type: ignore[attr-defined]
             logger.info("Created Docker network: %s", OLLAMA_NETWORK_NAME)
 
     async def _ensure_ollama_sidecar(self, client: object) -> None:
@@ -63,7 +63,7 @@ class DockerComposeDeployer(BaseDeployer):
         import docker
 
         try:
-            container = client.containers.get(OLLAMA_CONTAINER_NAME)  # type: ignore[union-attr]
+            container = client.containers.get(OLLAMA_CONTAINER_NAME)  # type: ignore[attr-defined]
             if container.status == "running":
                 logger.info("Ollama sidecar already running: %s", OLLAMA_CONTAINER_NAME)
                 return
@@ -71,7 +71,7 @@ class DockerComposeDeployer(BaseDeployer):
             container.start()
         except docker.errors.NotFound:
             logger.info("Starting Ollama sidecar container...")
-            client.containers.run(  # type: ignore[union-attr]
+            client.containers.run(  # type: ignore[attr-defined]
                 "ollama/ollama",
                 name=OLLAMA_CONTAINER_NAME,
                 ports={"11434/tcp": 11434},
@@ -85,7 +85,7 @@ class DockerComposeDeployer(BaseDeployer):
     async def _pull_ollama_model(self, client: object, model_tag: str) -> None:
         """Pull the Ollama model inside the sidecar via docker exec."""
         logger.info("Pulling Ollama model: %s (this may take several minutes)", model_tag)
-        container = client.containers.get(OLLAMA_CONTAINER_NAME)  # type: ignore[union-attr]
+        container = client.containers.get(OLLAMA_CONTAINER_NAME)  # type: ignore[attr-defined]
         for _ in range(30):
             exit_code, _ = container.exec_run(["ollama", "list"])
             if exit_code == 0:
