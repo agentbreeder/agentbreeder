@@ -5,7 +5,7 @@ import { api, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const STATUS_COLORS: Record<string, string> = {
-  running: "text-emerald-500",
+  running: "text-primary",
   deploying: "text-amber-500 animate-pulse",
   stopped: "text-muted-foreground",
   failed: "text-destructive",
@@ -25,7 +25,7 @@ function StatCard({
   return (
     <Link
       to={to}
-      className="group flex items-center gap-4 rounded-lg border border-border p-4 transition-colors hover:bg-muted/30"
+      className="ab-card-glow group flex items-center gap-4 rounded-lg border border-border p-4 transition-colors hover:bg-muted/30"
     >
       <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
         <Icon className="size-4.5 text-muted-foreground" />
@@ -71,8 +71,8 @@ export default function HomePage() {
   const running = agents.filter((a) => a.status === "running").length;
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
-      <div className="mb-8">
+    <div className="ab-radial-glow mx-auto max-w-5xl p-6">
+      <div className="relative z-10 mb-8">
         <h1 className="text-lg font-semibold tracking-tight">Overview</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
           AgentBreeder registry at a glance
@@ -80,14 +80,14 @@ export default function HomePage() {
       </div>
 
       {/* Stats */}
-      <div className="mb-8 grid gap-3 sm:grid-cols-3">
+      <div className="relative z-10 mb-8 grid gap-3 sm:grid-cols-3">
         <StatCard icon={Bot} label="Agents" value={totalAgents} to="/agents" />
         <StatCard icon={Wrench} label="Tools" value={totalTools} to="/tools" />
         <StatCard icon={Activity} label="Running" value={running} to="/agents?status=running" />
       </div>
 
       {/* Recent agents */}
-      <div className="rounded-lg border border-border">
+      <div className="ab-card-glow relative z-10 rounded-lg border border-border">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Recent Agents

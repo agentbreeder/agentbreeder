@@ -417,7 +417,7 @@ function SidebarNavItem({
             ? "flex size-8 items-center justify-center rounded-md transition-colors mx-auto relative"
             : "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
           isActive
-            ? "bg-accent font-medium text-accent-foreground"
+            ? "bg-primary/10 font-medium text-primary"
             : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
         )
       }
@@ -596,11 +596,11 @@ function ShellInner() {
 
           {/* Logo */}
           <div className="flex h-14 items-center gap-2.5 overflow-hidden px-3">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-foreground">
-              <Bot className="size-4 text-background" />
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary">
+              <Bot className="size-4 text-primary-foreground" />
             </div>
             {!collapsed && (
-              <span className="truncate text-sm font-semibold tracking-tight">
+              <span className="gradient-text truncate text-sm font-semibold tracking-tight">
                 AgentBreeder
               </span>
             )}
