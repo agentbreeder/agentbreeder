@@ -76,7 +76,8 @@ agentbreeder/
 │       ├── search.py           # agentbreeder search
 │       ├── list_cmd.py         # agentbreeder list
 │       ├── describe.py         # agentbreeder describe
-│       ├── scan.py             # agentbreeder scan (MCP/LiteLLM discovery)
+│       ├── scan.py             # agentbreeder scan (MCP/LiteLLM/Ollama/OpenRouter discovery)
+│       ├── schedule.py         # agentbreeder schedule (cron-based agent runs)
 │       ├── logs.py             # agentbreeder logs
 │       ├── status.py           # agentbreeder status
 │       ├── teardown.py         # agentbreeder teardown
@@ -147,7 +148,14 @@ agentbreeder/
 │   ├── base.py
 │   ├── litellm/                # LiteLLM gateway connector
 │   ├── mcp_scanner/            # MCP server scanner
-│   └── openrouter/             # OpenRouter model gateway connector
+│   ├── openrouter/             # OpenRouter model gateway connector
+│   ├── email/
+│   │   └── smtp.py             # SMTP email connector (send/send_async)
+│   └── news/
+│       ├── base.py             # NewsItem dataclass
+│       ├── hackernews.py       # HackerNews via Algolia API
+│       ├── arxiv.py            # ArXiv Atom feed connector
+│       └── rss.py              # Generic RSS/Atom via feedparser (optional)
 ├── registry/                   # Catalog service
 │   ├── agents.py
 │   ├── prompts.py
@@ -782,4 +790,4 @@ When reviewing AI-generated code, always verify:
 
 ---
 
-*Last updated: April 2026 — AgentBreeder v1.7*
+*Last updated: April 2026 — AgentBreeder v1.9*

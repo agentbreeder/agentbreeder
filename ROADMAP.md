@@ -22,6 +22,8 @@
 | **v1.5** | Multi-Cloud | AWS ECS Fargate, Azure Container Apps, and general Kubernetes deployers | M33 | Done |
 | **v1.6** | Framework Depth | Complete all 4 missing runtime builders + LangGraph/OpenAI Agents feature depth + runtime tracing | M34 | Done |
 | **v1.7** | Agent Architect Skill | `/agent-build` advisory mode: framework, model, RAG, memory, MCP/A2A, deploy, eval recommendations + IDE config generation | M35 | Done |
+| **v1.8** | Connectors & Scheduling | SMTP email connector, HackerNews/ArXiv/RSS news connectors, `agentbreeder schedule` cron command, Ollama + OpenRouter wired into `scan` and `init` | M37 | Done |
+| **v1.9** | TypeScript SDK Parity | memory.ts, mcp.ts, validation.ts; 10 missing Agent methods; Tool.fromFunction; TS examples + full README | M36 | Planned |
 
 ---
 
@@ -2956,4 +2958,4 @@ Eight methods present in Python `Agent` are absent in TypeScript `Agent`:
 ---
 
 *Last updated: April 17, 2026*
-*Status: v0.1–v1.2 complete (M1–M23). v1.3 in progress — M24 (Model Gateway), M26 (AgentOps dashboard), M27 (Production Hardening), M31 (Full Code Orchestration SDK) done; M25 (additional SDK runtime builders) remaining — tracked in #35–#38. v1.4 in progress — M32 (Package Distribution): code complete, manual infra setup remaining. v1.5 done — M33 (Multi-Cloud Deployers: AWS App Runner + Claude Managed Agents) shipped in #52. v1.6 planned — M34 (Framework Depth: LangGraph HITL+persistence, OAI Agents handoffs, runtime OTel tracing) tracked in #39–#41. v1.7 done — M35 (Agent Architect Skill: /agent-build advisory mode + IDE config generation) shipped in #50. v1.8 planned — M36 (TypeScript SDK Parity: memory/mcp/validation modules, 10 missing Agent methods, Tool.fromFunction, TS examples + README) tracked in #55. Open issues: 8 | Closed: 24. v1.8 done — Ollama/LiteLLM support across all runtimes (#63-#66), DockerCompose Ollama sidecar auto-management, CLI image version pinning fix, ai-news-digest example.*
+*Status: v0.1–v1.2 complete (M1–M23). v1.3–v1.7 done — model gateway, AgentOps, production hardening, multi-cloud, framework depth, agent architect skill (/agent-build) all shipped. v1.8 done — SMTP + news connectors (HackerNews, ArXiv, RSS), agentbreeder schedule cron command, Ollama + OpenRouter wired into scan/init, 3000 unit tests at 95% coverage. v1.9 planned — M36 (TypeScript SDK Parity: memory/mcp/validation modules, 10 missing Agent methods, Tool.fromFunction) tracked in #55. Open issues: 11 | Closed: 27.*

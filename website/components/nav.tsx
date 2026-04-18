@@ -4,6 +4,7 @@ import { Logo } from './logo';
 const NAV_LINKS = [
   { href: '/docs', label: 'Docs' },
   { href: '/docs/quickstart', label: 'Examples' },
+  { href: '#cloud', label: 'Cloud ⚡', highlight: true },
   { href: '/blog', label: 'Blog' },
 ];
 
@@ -28,12 +29,15 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
       <div className="flex items-center justify-center">
         {!docsSearch && (
           <ul className="flex list-none gap-1 m-0 p-0">
-            {NAV_LINKS.map(({ href, label }) => (
+            {NAV_LINKS.map(({ href, label, highlight }) => (
               <li key={href}>
                 <Link
                   href={href}
                   className="rounded-md px-3 py-1.5 text-sm no-underline transition-colors hover:text-white"
-                  style={{ color: 'var(--text-muted)' }}
+                  style={highlight
+                    ? { color: '#c084fc', fontWeight: 600 }
+                    : { color: 'var(--text-muted)' }
+                  }
                 >
                   {label}
                 </Link>
