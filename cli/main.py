@@ -24,6 +24,7 @@ from cli.commands import (
     publish,
     review,
     scan,
+    schedule,
     search,
     secret,
     status,
@@ -55,6 +56,7 @@ app.command(name="list")(list_cmd.list_entities)
 app.command(name="describe")(describe.describe)
 app.command(name="search")(search.search)
 app.command(name="scan")(scan.scan)
+app.command(name="schedule")(schedule.schedule)
 app.command(name="logs")(logs.logs)
 app.command(name="status")(status.status)
 app.command(name="teardown")(teardown.teardown)

@@ -66,6 +66,9 @@ azure = [
 kubernetes = [
     "kubernetes>=29.0.0",
 ]
+schedule = [
+    "apscheduler>=3.10.0",
+]
 news = [
     "feedparser>=6.0.0",
 ]
