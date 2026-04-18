@@ -57,4 +57,7 @@ site/
 # Generated / local-only files
 .cache/
 .playwright-mcp/
-.claude/scheduled_tasks.lock
+
+# Claude Code internal tooling (settings, skills, memory — not for contributors)
+.claude/
+.remember/
