@@ -162,16 +162,16 @@ agent.deploy()
 | Azure Container Apps | `azure` | `container-apps` | ✅ | `engine/deployers/azure_container_apps.py` |
 | Claude Managed Agents | `claude-managed` | *(n/a — no container)* | ✅ | `engine/deployers/claude_managed.py` |
 
-### LLM Providers (6 providers + fallback chains)
+### LLM Providers & Gateways
 
-| Provider | Status |
-|----------|--------|
-| Anthropic (Claude) | ✅ |
-| OpenAI (GPT-4o, o1, etc.) | ✅ |
-| Google (Gemini) | ✅ |
-| Ollama (local models) | ✅ |
-| LiteLLM gateway (100+ models) | ✅ |
-| OpenRouter | ✅ |
+| Provider / Gateway | Type | Status |
+|---|---|---|
+| Anthropic (Claude) | Native provider | ✅ |
+| OpenAI (GPT-4o, o1, etc.) | Native provider | ✅ |
+| Google (Gemini) | Native provider | ✅ |
+| Ollama (local models) | Native provider | ✅ |
+| LiteLLM (100+ models) | Gateway connector | ✅ |
+| OpenRouter (200+ models) | Gateway connector | ✅ |
 
 ### Secrets Backends
 

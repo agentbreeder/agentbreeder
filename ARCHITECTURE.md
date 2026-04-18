@@ -1,16 +1,16 @@
 # Architecture
 
-> AgentBreeder is a deployment platform. A developer writes `agent.yaml`, runs `agentbreeder deploy`, and the platform handles container building, infrastructure provisioning, governance, and registry registration.
+> AgentBreeder is a deployment platform. A developer writes `agent.yaml`, runs `agentbreeder deploy`, and the platform handles container building, infrastructure provisioning, governance, and registry registration — automatically, regardless of which framework or cloud target is used.
 
 ---
 
 ## Three-Tier Builder Model
 
-AgentBreeder supports three ways to build agents and orchestrations. All three tiers compile down to the same internal representation (`agent.yaml` + optional code) and share the same deploy pipeline, governance, and observability.
+AgentBreeder supports three ways to build agents and orchestrations. All three tiers compile to the same internal format and share the same deploy pipeline, governance, and observability.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                     THREE BUILDER TIERS                                  │
+│                        THREE BUILDER TIERS                              │
 │                                                                         │
 │  No Code (UI)          Low Code (YAML)         Full Code (SDK)          │
 │  ─────────────         ───────────────          ──────────────          │
@@ -20,7 +20,6 @@ AgentBreeder supports three ways to build agents and orchestrations. All three t
 │                                                                         │
 │         │                     │                        │                │
 │         └─────────────────────┼────────────────────────┘                │
-│                               │                                         │
 │                               ▼                                         │
 │                    ┌──────────────────────┐                              │
 │                    │  agent.yaml + code   │  ← Unified internal format  │
@@ -39,19 +38,19 @@ AgentBreeder supports three ways to build agents and orchestrations. All three t
 ### Tier Details
 
 | Tier | Agent Development | Agent Orchestration | Eject Path |
-|------|-------------------|---------------------|------------|
-| **No Code** | Visual builder: pick model, tools, prompt, guardrails from registry. Generates `agent.yaml`. | Visual canvas: wire agents as nodes, define routing/handoff rules. Generates `orchestration.yaml`. | "View YAML" → opens in Low Code editor |
-| **Low Code** | Write `agent.yaml` in any IDE (Cursor, Claude Code, VS Code, vim) or the dashboard YAML editor | Write `orchestration.yaml` defining agent graph, routing strategy, shared state | "Eject to SDK" → generates Python/TS scaffold |
-| **Full Code** | Python/TS SDK: `from agentbreeder import Agent, Tool, Memory` — full programmatic control, custom logic, dynamic tool selection | Python/TS SDK: define orchestration graphs, custom routing functions, state machines, human-in-the-loop breakpoints | N/A (maximum control) |
+|------|---|---|---|
+| **No Code** | Visual builder: pick model, tools, prompt, guardrails from registry. Generates `agent.yaml`. | Visual canvas: wire agents as nodes, define routing rules. Generates `orchestration.yaml`. | "View YAML" → opens in Low Code editor |
+| **Low Code** | Write `agent.yaml` in any IDE or the dashboard YAML editor | Write `orchestration.yaml` defining agent graph, routing strategy, shared state | `agentbreeder eject` → generates Python/TS scaffold |
+| **Full Code** | Python/TS SDK with full programmatic control, custom logic, dynamic tool selection | SDK orchestration graphs, custom routing functions, state machines | N/A (maximum control) |
 
 ### Compilation Model
 
-The key architectural insight: all three tiers produce the same artifact that the deploy pipeline consumes.
+All three tiers produce the same artifact consumed by the deploy pipeline:
 
 ```python
-# No Code UI → generates this YAML internally
-# Low Code   → developer writes this YAML directly
-# Full Code  → SDK wraps this YAML + bundles custom code
+# No Code UI  → generates YAML internally
+# Low Code    → developer writes YAML directly
+# Full Code   → SDK generates YAML + bundles custom code
 
 agent.yaml + optional code directory
     │
@@ -61,25 +60,17 @@ agent.yaml + optional code directory
     └── engine/governance.py       # validates RBAC (same for all tiers)
 ```
 
-**No Code** generates pure YAML — no custom code. The platform provides all logic via built-in components.
-
-**Low Code** is pure YAML — the developer writes it directly. They may include simple inline tool definitions or prompt text.
-
-**Full Code** produces YAML + a code directory. The SDK generates a valid `agent.yaml` from programmatic definitions and bundles the custom code (routing functions, state management, custom tools) alongside it. The runtime builder packages both into the container.
-
 ### Tier Mobility (Ejection)
 
-Users can move between tiers without losing work:
-
 ```
-No Code ──"View YAML"──→ Low Code ──"Eject to SDK"──→ Full Code
-                                                         │
-   ← "Import YAML" ←──────────────── ← (manual) ←──────┘
+No Code ──"View YAML"──→ Low Code ──agentbreeder eject──→ Full Code
+                                                              │
+   ← "Import YAML" ←──────────────────── ← (manual) ←───────┘
 ```
 
-- **No Code → Low Code**: The visual builder always shows a "View YAML" tab. The generated YAML is valid, readable, and editable. Switching to Low Code is just opening that YAML in an editor.
-- **Low Code → Full Code**: A CLI command (`agentbreeder eject my-agent --sdk python`) generates a Python project scaffold that recreates the YAML config as SDK code, ready for extension.
-- **Full Code → Low Code**: Not automatic (code can express things YAML can't), but the SDK always generates a valid `agent.yaml` that can be imported back.
+- **No Code → Low Code**: The visual builder always shows a "View YAML" tab. Generated YAML is valid, readable, and editable.
+- **Low Code → Full Code**: `agentbreeder eject my-agent --sdk python` generates a Python project scaffold that recreates the YAML config as SDK code.
+- **Full Code → Low Code**: Not automatic (code can express things YAML cannot), but the SDK always generates a valid `agent.yaml` that can be imported back.
 
 ---
 
@@ -88,33 +79,34 @@ No Code ──"View YAML"──→ Low Code ──"Eject to SDK"──→ Full C
 ```
 Developer                    AgentBreeder Platform                     Cloud
 
-agent.yaml  ──>  [ CLI ]  ──>  [ API Server ]  ──>  [ Engine ]  ──>  [ AWS / GCP / K8s ]
-                                      |                  |
-                                      v                  v
+agent.yaml  ──>  [ CLI ]  ──>  [ API Server ]  ──>  [ Engine ]  ──>  [ AWS / GCP / K8s / Azure ]
+                                      │                  │
+                                      ▼                  ▼
                                 [ PostgreSQL ]    [ Container Registry ]
-                                  (Registry)             |
-                                      |                  v
-                                  [ Redis ]       [ Agent + Sidecar ]
-                                  (Queue)
+                                  (Registry)             │
+                                      │                  ▼
+                                  [ Redis ]       [ Agent Container ]
+                                  (Queue)         [ MCP Sidecar ]
 ```
 
 ### Components
 
 | Component | Technology | Purpose |
-|-----------|-----------|---------|
-| CLI | Python, Typer, Rich | Developer interface — `agentbreeder init`, `agentbreeder deploy`, `agentbreeder list` |
-| API Server | Python 3.11+, FastAPI | REST API — async, OpenAPI auto-docs |
+|---|---|---|
+| CLI | Python, Typer, Rich | Developer interface — `agentbreeder init`, `deploy`, `eval`, `eject`, `chat` |
+| API Server | Python 3.11+, FastAPI | REST API — async, 201 endpoints, OpenAPI auto-docs |
 | Engine | Python | Core deploy pipeline — config parsing, container building, cloud provisioning |
-| Registry | PostgreSQL, SQLAlchemy | Catalog of all agents, tools, models, prompts, knowledge bases |
-| Queue | Redis | Task queue for async deploy jobs + rate limiting |
-| Dashboard | React 18, TypeScript, Tailwind, Vite | Web UI for browsing and managing the registry |
-| SDKs | Python + TypeScript | Programmatic access to the platform |
+| Registry | PostgreSQL, SQLAlchemy | Catalog of all agents, tools, models, prompts, MCP servers, templates |
+| Queue | Redis | Task queue for async deploy jobs, shared state for multi-agent orchestrations |
+| Dashboard | React 18, TypeScript, Tailwind, Vite | 46-page web UI — visual builders, analytics, fleet management |
+| Python SDK | Python 3.11+ | `pip install agentbreeder-sdk` — builder pattern API |
+| TypeScript SDK | TypeScript 5.0+ | `npm install @agentbreeder/sdk` — equivalent API surface |
 
 ---
 
 ## The Deploy Pipeline
 
-This is the core of AgentBreeder. Every `agentbreeder deploy` executes these steps in order. Each step is atomic — if any step fails, the entire deploy rolls back.
+Every `agentbreeder deploy` executes these 8 steps in order. Each step is atomic — if any step fails, the entire deploy rolls back.
 
 ```
 1. Parse & Validate YAML
@@ -137,25 +129,25 @@ This is the core of AgentBreeder. Every `agentbreeder deploy` executes these ste
 ### Step Details
 
 **1. Parse & Validate** (`engine/config_parser.py`)
-Reads the `agent.yaml` file, validates against the JSON Schema, and returns a typed `AgentConfig` object. Validation errors point to the exact line and suggest fixes.
+Reads `agent.yaml`, validates against the JSON Schema at `engine/schema/agent.schema.json`, and returns a typed `AgentConfig`. Errors point to the exact field and suggest fixes.
 
 **2. RBAC Check** (`engine/governance.py`)
-Validates that the deploying user has permission to deploy for the specified team. This always runs — there is no "quick deploy" mode that skips governance.
+Validates that the deploying user has permission for the specified team. Always runs — there is no "quick deploy" mode that skips governance.
 
 **3. Dependency Resolution** (`engine/resolver.py`)
-Resolves all registry references (`ref: tools/zendesk-mcp`, `ref: prompts/support-system-v3`) into concrete artifacts. Fails if any reference is missing.
+Resolves all registry refs (`ref: tools/zendesk-mcp`, `ref: prompts/support-system-v3`) into concrete artifacts. Fails if any reference is missing or the version is unavailable.
 
 **4. Container Build** (`engine/builder.py` → `engine/runtimes/`)
-Delegates to the framework-specific runtime builder (e.g., `LangGraphRuntime`). Generates a Dockerfile, injects the observability sidecar, and builds the container image.
+Delegates to the framework-specific runtime builder. Generates a Dockerfile, installs dependencies, and builds the container image.
 
 **5. Infrastructure Provision** (`engine/deployers/`)
-Delegates to the cloud-specific deployer (e.g., `AWSECSDeployer`). Uses Pulumi to provision cloud resources (load balancer, service, IAM roles, etc.).
+Delegates to the cloud-specific deployer. Uses Pulumi to provision cloud resources (load balancer, service definition, IAM roles, networking).
 
 **6. Deploy & Health Check**
-Pushes the container image, starts the service, and polls the `/health` endpoint until it responds.
+Pushes the container image, starts the service, and polls `/health` until it responds.
 
-**7. Auto-Register**
-Creates or updates the agent's entry in the registry with full metadata — endpoint URL, framework, model, tools, deploy timestamp, team ownership.
+**7. Auto-Register** (`registry/`)
+Creates or updates the agent's registry entry — endpoint URL, framework, model, tools, deploy timestamp, team ownership.
 
 **8. Return Endpoint**
 Returns the agent's invoke URL (e.g., `https://agents.company.com/customer-support/invoke`).
@@ -166,7 +158,7 @@ Returns the agent's invoke URL (e.g., `https://agents.company.com/customer-suppo
 
 ### RuntimeBuilder (`engine/runtimes/base.py`)
 
-Abstracts all framework differences. Every supported framework implements this interface:
+Abstracts all framework differences. Every supported framework implements this interface. Framework-specific logic must never appear outside `engine/runtimes/`.
 
 ```python
 class RuntimeBuilder(ABC):
@@ -176,11 +168,11 @@ class RuntimeBuilder(ABC):
     def get_requirements(self, config: AgentConfig) -> list[str]
 ```
 
-Framework-specific logic must never appear outside of `engine/runtimes/`. Never hard-code framework names in the engine or API layers.
+**Supported runtimes:** `langgraph.py`, `crewai.py`, `claude_sdk.py`, `openai_agents.py`, `google_adk.py`, `custom.py`
 
 ### BaseDeployer (`engine/deployers/base.py`)
 
-Abstracts all cloud differences. Every cloud target implements:
+Abstracts all cloud differences. Cloud-specific logic must never appear outside `engine/deployers/`.
 
 ```python
 class BaseDeployer(ABC):
@@ -191,69 +183,276 @@ class BaseDeployer(ABC):
     async def get_logs(self, agent_id: str, since: datetime) -> list[LogEntry]
 ```
 
-Cloud-specific logic must never appear outside of `engine/deployers/`.
+**Supported deployers:** `docker_compose.py`, `gcp_cloudrun.py`, `aws_ecs.py`, `aws_app_runner.py`, `kubernetes.py`, `azure_container_apps.py`, `claude_managed.py`
+
+**MCP sidecar:** `mcp_sidecar.py` injects MCP server containers alongside the agent container at deploy time, exposing MCP tools via a local socket.
 
 ### Registry (`registry/`)
 
-The central catalog for all organizational AI assets:
-
-| Entity | Description |
-|--------|-------------|
-| Agents | Deployed agent instances with metadata |
-| Tools | MCP servers and function tools |
-| Models | Approved LLM models (via LiteLLM or direct) |
-| Prompts | Versioned prompt templates |
-| Knowledge Bases | RAG data sources |
-
-Registry entries are only created/updated by:
+The central catalog for all organizational AI assets. Entries are only created or updated by:
 1. `agentbreeder deploy` (primary path)
 2. Connectors (passive ingestion from external tools)
 3. `agentbreeder register` (manual operator override)
 
-Never write directly to registry tables from application code.
+Never write directly to registry tables from application code — always go through registry service classes.
 
-### Sidecar (`engine/sidecar/`)
+**10 tracked entity types:**
 
-Every deployed agent gets a sidecar container injected automatically. The sidecar provides:
-
-- **OpenTelemetry traces** for every LLM call, tool use, and agent step
-- **Token counting** and cost attribution
-- **Guardrail enforcement** (PII detection, content filtering)
-- **Health check endpoint** (`/health`)
-
-The sidecar requires zero changes to agent code. It is injected at the container build step.
+| Entity | Registry File | Description |
+|---|---|---|
+| Agents | `registry/agents.py` | Deployed agent instances with metadata and versions |
+| A2A Agents | `registry/a2a_agents.py` | Agents exposed as callable JSON-RPC services |
+| Tools | `registry/tools.py` | MCP servers and function tool definitions |
+| Models | `registry/models.py` | Approved LLM models with provider mappings |
+| Prompts | `registry/prompts.py` | Versioned prompt templates |
+| Providers | `registry/providers.py` | LLM provider configurations |
+| MCP Servers | `registry/mcp_servers.py` | Available MCP server integrations |
+| Templates | `registry/templates.py` | Agent/orchestration starter templates |
+| Deploys | `registry/deploys.py` | Deployment job history and status |
+| Marketplace | (via marketplace routes) | Published community agents and tools |
 
 ### Connectors (`connectors/`)
 
-Plugin system for integrating external tools. Each connector implements `BaseConnector` and ingests data into the registry:
+Plugin system for ingesting external resources into the registry. Each connector implements `BaseConnector`:
 
-| Connector | Type | Purpose |
-|-----------|------|---------|
-| LiteLLM | Gateway | Registers available models, captures cost data |
-| LangSmith | Observability | Pulls eval scores and traces |
-| MCP Scanner | Discovery | Auto-discovers local MCP servers |
-| OpenTelemetry | Observability | Receives traces from sidecars |
+```python
+class BaseConnector(ABC):
+    def scan(self) -> list[RegistryEntry]
+    def is_available(self) -> bool
+```
+
+| Connector | Path | Purpose |
+|---|---|---|
+| LiteLLM | `connectors/litellm/` | Discover models from a LiteLLM proxy; register with cost metadata |
+| OpenRouter | `connectors/openrouter/` | Discover 200+ models via OpenRouter API |
+| MCP Scanner | `connectors/mcp_scanner/` | Auto-discover MCP servers running on the local system |
+
+### MCP Sidecar (`engine/deployers/mcp_sidecar.py`)
+
+When an agent's `agent.yaml` references MCP servers from the registry, the MCP sidecar deployer injects the MCP server as a companion container at deploy time. The agent container connects to MCP tools via a local socket — no code changes required in the agent itself.
+
+This is distinct from the planned observability sidecar (see Roadmap section below).
+
+### LLM Providers (`engine/providers/`)
+
+Four native providers with a unified interface:
+
+| Provider | File | Key Features |
+|---|---|---|
+| Anthropic | `anthropic_provider.py` | Tool use, extended thinking, prompt caching, batch API |
+| OpenAI | `openai_provider.py` | Function calling, vision, code interpreter |
+| Google | `google_provider.py` | Gemini models, Vertex AI, tool calling |
+| Ollama | `ollama_provider.py` | Local inference, auto-detection, custom models |
+
+The provider registry (`engine/providers/registry.py`) manages fallback chains: if the primary provider is unavailable or rate-limited, the engine automatically retries with the configured fallback.
+
+### Secrets Backends (`engine/secrets/`)
+
+Four pluggable backends with a unified interface:
+
+| Backend | File | Use Case |
+|---|---|---|
+| Environment / `.env` | `env_backend.py` | Local development |
+| AWS Secrets Manager | `aws_backend.py` | AWS-deployed agents |
+| GCP Secret Manager | `gcp_backend.py` | GCP-deployed agents |
+| HashiCorp Vault | `vault_backend.py` | Enterprise multi-cloud |
+
+---
+
+## Multi-Agent Orchestration
+
+The orchestration engine (`engine/orchestrator.py`) coordinates multiple agents according to a strategy defined in `orchestration.yaml` or the Python/TS SDK.
+
+**6 execution strategies:**
+
+| Strategy | Description |
+|---|---|
+| `sequential` | Agents run in order; output of each is input to the next |
+| `parallel` | All agents run concurrently; results are merged |
+| `router` | An LLM or rule-based classifier routes each request to the right agent |
+| `hierarchical` | A supervisor agent delegates to and synthesizes from sub-agents |
+| `supervisor` | Supervisor pattern with explicit approval at each step |
+| `fan_out_fan_in` | Request fans out to N agents; results are aggregated before responding |
+
+Orchestration config is parsed by `engine/orchestration_parser.py` and shares the same deploy pipeline as individual agents. Orchestrations appear in the registry like any other deployable entity.
+
+**Shared state** between agents in an orchestration is backed by Redis, scoped to the orchestration session.
+
+---
+
+## Agent-to-Agent (A2A) Protocol
+
+The A2A system (`engine/a2a/`) implements a JSON-RPC 2.0 protocol for inter-agent communication.
+
+| Component | File | Purpose |
+|---|---|---|
+| Protocol | `engine/a2a/protocol.py` | JSON-RPC 2.0 message format and routing |
+| Client | `engine/a2a/client.py` | Call remote agents from within an agent |
+| Server | `engine/a2a/server.py` | Expose an agent as a callable A2A service |
+| Auth | `engine/a2a/auth.py` | Agent cards and mutual authentication |
+
+Agents registered as A2A services appear in the registry under `registry/a2a_agents.py` and can be discovered by other agents. The platform auto-generates typed client tool definitions so any agent can call any registered A2A agent as if it were a local function.
+
+---
+
+## Evaluation Framework
+
+The evaluation system (`api/routes/evals.py`, `api/services/eval_service.py`) provides a complete CI/CD-ready eval pipeline.
+
+**Core concepts:**
+- **Datasets** — versioned collections of `(input, expected_output)` pairs
+- **Runs** — execution of a dataset against a specific agent version
+- **Scorers** — pluggable functions that score each output
+- **Promotion Gates** — CI/CD step that blocks deploys if eval scores drop
+
+**Built-in scorers:**
+
+| Scorer | Type | Description |
+|---|---|---|
+| Correctness | Exact / fuzzy match | String match against expected output |
+| Relevance | Semantic similarity | Embedding distance to expected output |
+| Latency | Threshold-based | Pass/fail based on response time |
+| Cost | Token-based | Flag responses above cost threshold |
+| Judge | LLM-as-judge | Uses a separate model to rate response quality |
+
+**CLI integration:**
+```bash
+agentbreeder eval run --dataset golden-v2 --agent customer-support
+agentbreeder eval compare --run-a run-123 --run-b run-124
+agentbreeder eval gate --min-score 0.85  # fails CI if below threshold
+```
+
+---
+
+## Observability
+
+### Tracing (`api/routes/tracing.py`)
+
+Every LLM call, tool invocation, and agent step is captured as a **trace** containing one or more **spans**. Agents (or their sidecars, when deployed) POST traces to the platform REST API.
+
+- **Filtering** — by agent, status, date range, duration, cost, or full-text over inputs/outputs
+- **Agent metrics** — aggregated P50/P95 latency, token usage, error rate over a configurable window
+- **Cleanup** — bulk-delete traces older than a given date
+
+### Cost Tracking (`api/routes/costs.py`)
+
+Cost events are recorded per LLM call with token counts, model, provider, and dollar cost:
+
+- **Summary / breakdown** — aggregate spend by team, agent, model, or provider
+- **Trend** — time-series daily cost data
+- **Forecasting** — ML-based spend prediction
+- **Anomaly detection** — flag unusual spending patterns
+- **Budgets** — per-team monthly limits with configurable alert thresholds (default 80%)
+- **Chargeback** — allocate costs to departments or cost centers
+
+### Audit & Lineage (`api/routes/audit.py`)
+
+An immutable audit log records every deploy, config change, delete, and access change with actor, action, resource, team, and timestamp.
+
+The lineage system tracks dependencies between resources:
+- **Dependency graph** — for any resource, retrieve its full dependency tree
+- **Impact analysis** — "if I change this prompt, which agents are affected?"
+- **Dependency sync** — automatically extract dependencies from an agent's config
+
+### AgentOps Fleet Dashboard (`api/routes/agentops.py`)
+
+Fleet-level visibility across all deployed agents:
+- Fleet overview and performance heatmap
+- Top-agent leaderboard by cost, latency, or error rate
+- Real-time telemetry ingest via event streaming
+- Team-vs-team performance comparison
+- Incident management (create, update, track, resolve)
+- Canary deployment tracking with automatic rollback triggers
+- Compliance status and audit report generation
+
+### Planned: Observability Sidecar
+
+Every deployed agent will eventually get an auto-injected observability sidecar that provides OpenTelemetry traces, token counting, guardrail enforcement (PII detection, content filtering), and a `/health` endpoint — with zero changes to agent code.
+
+**Status: Not yet implemented.** Observability is currently handled via the tracing API (`api/routes/tracing.py`) and agent-side instrumentation.
+
+---
+
+## Memory & RAG
+
+### Memory (`api/routes/memory.py`)
+
+Four pluggable backends for conversation state:
+
+| Backend | Use Case |
+|---|---|
+| In-memory | Ephemeral, single-session agents |
+| SQLite | Local development, single-instance |
+| PostgreSQL | Shared state, production multi-instance |
+| Vector DB | Semantic search over conversation history |
+
+The memory service supports message storage, retrieval, semantic search, and automatic conversation summarization for long sessions.
+
+### RAG (`api/routes/rag.py`)
+
+Knowledge base indexing with multiple chunking strategies:
+
+| Chunker | Strategy |
+|---|---|
+| Fixed-size | Uniform chunks with configurable overlap |
+| Recursive | Semantic boundary detection |
+| Token-aware | LLM-aware chunking based on token budget |
+
+Hybrid search (vector + full-text) over indexed documents. Supported document types: PDF, TXT, MD, JSON. Ingestion runs as async background jobs with status polling.
+
+---
+
+## Git Workflow & Approvals
+
+The git workflow (`api/routes/git.py`) provides a PR-based change management flow for agent configuration:
+
+```
+agentbreeder submit    # Create a PR for a config change
+agentbreeder review    # Review pending PRs (list, show, comment)
+agentbreeder publish   # Merge an approved PR and deploy
+```
+
+The API supports full branch management, commit diffs, PR create/approve/reject/merge, and conflict detection. This is the governance layer for teams that require peer review before a config change goes to production.
+
+---
+
+## Marketplace & Templates
+
+The marketplace (`api/routes/marketplace.py`) is a community catalog for sharing agents, tools, and orchestrations:
+
+- **Browse and search** — discover published resources by tag, framework, or use case
+- **Listings CRUD** — submit, update, and manage published resources
+- **Ratings and reviews** — community quality signal
+- **One-click install** — pull a marketplace template into your registry
+
+Agent templates (`registry/templates.py`) are pre-configured `agent.yaml` starting points for common use cases. The `agentbreeder template use` command instantiates a template into a new project.
 
 ---
 
 ## Data Model
 
 ```
-Agent ──references──> Tool (many-to-many)
-  │                   Model (many-to-one primary, optional fallback)
-  │                   Prompt (many-to-many)
+Agent ──references──> Tool          (many-to-many)
+  │                   Model         (many-to-one primary, optional fallback)
+  │                   Prompt        (many-to-many)
   │                   KnowledgeBase (many-to-many)
+  │                   MCP Server    (many-to-many)
   │
+  ├── belongs to ──> Team
+  ├── deployed as ──> Deploy (job history)
+  └── exposed as ──> A2AAgent (optional)
+
+Orchestration ──references──> Agent (many-to-many)
   └── belongs to ──> Team
 ```
 
-Storage: PostgreSQL with SQLAlchemy ORM. Migrations via Alembic.
+Storage: PostgreSQL with SQLAlchemy ORM. Migrations via Alembic (`alembic/`).
 
 ---
 
 ## API Layer
 
-FastAPI with async handlers. All responses follow a consistent shape:
+FastAPI with async handlers throughout. All responses follow a consistent envelope:
 
 ```json
 {
@@ -263,115 +462,44 @@ FastAPI with async handlers. All responses follow a consistent shape:
 }
 ```
 
-Key routes:
+**Route modules (25 total):**
 
 ```
-POST   /api/v1/deploy                 # Trigger deployment
-GET    /api/v1/deploy/{job_id}        # Poll deploy status
-
-GET    /api/v1/agents                 # List agents
-GET    /api/v1/agents/{id}            # Agent detail
-POST   /api/v1/agents                 # Register agent
-
-GET    /api/v1/registry/tools         # List tools/MCP servers
-GET    /api/v1/registry/prompts       # List prompt templates
-GET    /api/v1/registry/models        # List approved models
-
-# Tracing (M14)
-GET    /api/v1/traces                 # List traces (filterable by agent, status, date, cost)
-POST   /api/v1/traces                 # Ingest a new trace
-GET    /api/v1/traces/{trace_id}      # Get trace with all spans
-GET    /api/v1/traces/metrics/{agent} # Aggregated metrics for an agent
-POST   /api/v1/traces/{trace_id}/spans  # Add a span to a trace
-DELETE /api/v1/traces                 # Bulk delete traces before a date
-
-# Teams & RBAC (M15)
-GET    /api/v1/teams                  # List teams
-POST   /api/v1/teams                  # Create team
-GET    /api/v1/teams/{id}             # Team detail with members
-PUT    /api/v1/teams/{id}             # Update team
-DELETE /api/v1/teams/{id}             # Delete team
-POST   /api/v1/teams/{id}/members     # Add member
-PUT    /api/v1/teams/{id}/members/{uid}  # Update member role
-DELETE /api/v1/teams/{id}/members/{uid}  # Remove member
-GET    /api/v1/teams/{id}/api-keys    # List API keys (hints only)
-POST   /api/v1/teams/{id}/api-keys    # Set API key for a provider
-DELETE /api/v1/teams/{id}/api-keys/{kid} # Delete API key
-POST   /api/v1/teams/{id}/api-keys/{kid}/test  # Test API key
-
-# Cost Tracking (M16)
-POST   /api/v1/costs/events           # Record a cost event
-GET    /api/v1/costs/summary          # Aggregated cost summary
-GET    /api/v1/costs/breakdown        # Cost breakdown by agent/model/team
-GET    /api/v1/costs/trend            # Daily cost trend
-GET    /api/v1/costs/top-spenders     # Top N agents by cost
-POST   /api/v1/costs/compare          # Compare model costs
-GET    /api/v1/budgets                # List team budgets
-POST   /api/v1/budgets                # Create/update budget
-GET    /api/v1/budgets/{team}         # Get team budget
-PUT    /api/v1/budgets/{team}         # Update team budget
-
-# Audit & Lineage (M17)
-GET    /api/v1/audit                  # List audit events (filterable)
-POST   /api/v1/audit                  # Record audit event
-GET    /api/v1/audit/resource/{type}/{id}  # Events for a resource
-GET    /api/v1/lineage/{type}/{id}    # Dependency graph for a resource
-GET    /api/v1/lineage/impact/{type}/{name}  # Impact analysis
-POST   /api/v1/lineage/dependencies   # Register a dependency
-POST   /api/v1/lineage/sync/{agent}   # Sync agent dependencies from config
+api/routes/
+├── agents.py          # Agent CRUD, clone, validate, search
+├── a2a.py             # A2A agent registry, invocation, agent cards
+├── orchestrations.py  # Orchestration CRUD, deploy, execute
+├── deploys.py         # Deploy jobs, logs, rollback
+├── evals.py           # Datasets, runs, scorers, comparison, promotion gates
+├── providers.py       # Provider CRUD, health check, model discovery
+├── gateway.py         # Model gateway status, cost comparison, proxy logs
+├── costs.py           # Cost events, analytics, budgets, forecasting
+├── agentops.py        # Fleet dashboard, incidents, canary, compliance
+├── tracing.py         # Span ingestion, metrics, trace search
+├── audit.py           # Audit log, lineage, impact analysis
+├── teams.py           # Team CRUD, membership, API keys
+├── prompts.py         # Prompt CRUD, versioning, test panel
+├── rag.py             # RAG indexes, ingestion, hybrid search
+├── memory.py          # Memory configs, conversation storage
+├── mcp_servers.py     # MCP server registry
+├── templates.py       # Agent template management
+├── marketplace.py     # Community marketplace, listings, reviews
+├── git.py             # Branch management, PRs, diffs, merge
+├── builders.py        # YAML import/export/edit
+├── sandbox.py         # Isolated Python tool execution
+├── playground.py      # Interactive agent chat, eval case capture
+├── registry.py        # Cross-entity registry search
+├── auth.py            # Login, register, JWT
+└── v2/agents.py       # API v2 agents (enhanced filtering, preview)
 ```
 
----
-
-## Observability Layer (v0.4)
-
-AgentBreeder provides built-in observability across three dimensions: tracing, cost tracking, and audit. These services are implemented as FastAPI route modules backed by dedicated service classes.
-
-### Tracing (`api/routes/tracing.py`, `api/services/tracing_service.py`)
-
-Every LLM call, tool invocation, and agent step is captured as a **trace** containing one or more **spans**. The tracing store supports:
-
-- **Trace ingestion** — sidecars and SDKs POST traces and spans via the REST API.
-- **Filtering and search** — list traces by agent, status, date range, duration, or cost; full-text search over inputs/outputs.
-- **Agent metrics** — aggregated summaries (request count, error rate, P50/P95 latency, token usage) over a configurable time window.
-- **Bulk cleanup** — delete traces older than a given date to manage storage.
-
-The tracing backend is pluggable: Langfuse (default), MLflow, or raw OpenTelemetry export. Configured via `TRACING_BACKEND` env var.
-
-### Cost Tracking (`api/routes/costs.py`, `api/services/cost_service.py`)
-
-Cost events are recorded per LLM call with token counts, model name, provider, and dollar cost. The cost service provides:
-
-- **Summary and breakdown** — aggregate spend by team, agent, or model over any time window.
-- **Daily trend** — time-series cost data for charting.
-- **Top spenders** — ranked list of agents by cost.
-- **Model comparison** — estimate cost differences between two models for a given token volume.
-- **Budgets** — per-team monthly spending limits with configurable alert thresholds (default 80%).
-
-### Audit & Lineage (`api/routes/audit.py`, `api/services/audit_service.py`)
-
-An immutable audit log records every significant action (deploy, config change, delete, access change) with actor, action, resource, team, and timestamp. The lineage system tracks resource dependencies:
-
-- **Dependency graph** — for any resource (agent, tool, prompt, model), retrieve its full dependency tree as nodes and edges.
-- **Impact analysis** — answer "if I change this prompt/tool, which agents are affected?" before making changes.
-- **Dependency sync** — automatically extract and register dependencies from an agent's config snapshot.
+**API versioning** (`api/versioning.py`): v1 is stable. v2 routes are in preview and may change. Deprecation headers are added automatically when a v1 endpoint has a v2 equivalent.
 
 ---
 
-## RBAC & Teams (v0.4)
+## Full Code SDK
 
-Team management is implemented in `api/routes/teams.py` and `api/services/team_service.py`. Every agent, tool, prompt, and model belongs to a team. Key capabilities:
-
-- **Team CRUD** — create, update, delete teams with display name and description.
-- **Membership** — add/remove members, assign roles (Viewer, Deployer, Admin).
-- **Team-scoped API keys** — each team manages its own provider keys (Anthropic, OpenAI, etc.), stored encrypted. Keys can be tested before activation.
-- **Permission checks** — all CRUD operations validate the caller's team role before proceeding.
-
----
-
-## Full Code SDK (v0.4)
-
-The Python SDK (`sdk/python/agenthub/`) provides the Full Code tier for agent development. It exposes a builder-pattern API:
+The Python SDK (`sdk/python/agenthub/`) exposes a builder-pattern API for the Full Code tier:
 
 ```python
 from agenthub import Agent, Tool, Model, Memory
@@ -384,30 +512,35 @@ agent = (
     .with_guardrail("pii_detection")
     .with_deploy(cloud="aws", runtime="ecs-fargate")
 )
+
+result = agent.deploy()
 ```
 
-Key classes: `Agent`, `Tool`, `Model`, `Memory`, `DeployConfig`. The SDK supports full YAML round-trip: `agent.to_yaml()` serializes to valid `agent.yaml`, and `Agent.from_yaml()` loads YAML back into SDK objects.
+Key classes: `Agent`, `Tool`, `Model`, `Memory`, `DeployConfig`, `Orchestration`.
 
-The `agentbreeder eject` CLI command (`cli/commands/eject.py`) generates an SDK scaffold from any existing `agent.yaml`, enabling tier mobility from Low Code to Full Code without losing configuration.
+The SDK supports full YAML round-trip: `agent.to_yaml()` serializes to valid `agent.yaml`; `Agent.from_yaml()` loads YAML back into SDK objects.
+
+The TypeScript SDK (`sdk/typescript/`) exposes an equivalent API surface for Node.js and browser-based tooling.
 
 ---
 
 ## Design Principles
 
-1. **Governance is a side effect** — deploying through AgentBreeder automatically creates RBAC records, cost attribution, audit entries, and registry listings. There is no separate governance setup.
+1. **Governance is a side effect** — deploying through AgentBreeder automatically creates RBAC records, cost attribution, audit entries, and registry listings. No separate governance setup.
 
 2. **Framework-agnostic** — no framework-specific logic outside `engine/runtimes/`. The rest of the system treats all frameworks identically.
 
-3. **Multi-cloud** — no cloud-specific logic outside `engine/deployers/`. AWS and GCP are equal first-class citizens.
+3. **Multi-cloud** — no cloud-specific logic outside `engine/deployers/`. AWS, GCP, Azure, and Kubernetes are equal first-class targets.
 
 4. **Registry consistency** — all writes go through registry service classes. No direct database access from application code.
 
 5. **The deploy pipeline is sacred** — the 8-step flow is the product. Protect it like an API contract. Never skip a step. Never break atomicity.
 
-6. **Three tiers, one pipeline** — No Code (UI), Low Code (YAML), and Full Code (SDK) all compile to the same internal format (`agent.yaml` + optional code). The deploy pipeline, governance, observability, and registry are tier-agnostic. This applies to both agent development and multi-agent orchestration.
+6. **Three tiers, one pipeline** — No Code, Low Code, and Full Code all compile to the same internal format. The deploy pipeline, governance, observability, and registry are tier-agnostic. This applies to both agent development and multi-agent orchestration.
 
-7. **Tier mobility** — users can move between tiers without losing work. No Code generates valid YAML (eject to Low Code). Low Code can be scaffolded into SDK code (`agentbreeder eject`). This prevents vendor lock-in at any abstraction level.
+7. **Tier mobility** — users can move between tiers without losing work. No Code generates valid YAML. Low Code can be scaffolded to SDK code (`agentbreeder eject`). This prevents lock-in at any abstraction level.
 
 ---
 
-*See [CLAUDE.md](CLAUDE.md) for complete coding standards, the full `agent.yaml` specification, and development commands.*
+*See [CLAUDE.md](CLAUDE.md) for coding standards, the full `agent.yaml` specification, and development commands.*
+*See [ROADMAP.md](ROADMAP.md) for the release plan and milestone status.*
