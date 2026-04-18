@@ -12,7 +12,7 @@ from connectors.news.base import NewsItem
 logger = logging.getLogger(__name__)
 
 try:
-    import feedparser  # type: ignore[import-untyped]
+    import feedparser
 
     _FEEDPARSER_AVAILABLE = True
 except ImportError:
