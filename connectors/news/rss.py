@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import struct_time
 
 from connectors.base import BaseConnector
@@ -30,13 +30,13 @@ def _require_feedparser() -> None:
 def _parse_struct_time(t: struct_time | None) -> datetime:
     """Convert a feedparser time tuple to a timezone-aware datetime."""
     if t is None:
-        return datetime.now(tz=timezone.utc)
+        return datetime.now(tz=UTC)
     try:
         import calendar
 
-        return datetime.fromtimestamp(calendar.timegm(t), tz=timezone.utc)
+        return datetime.fromtimestamp(calendar.timegm(t), tz=UTC)
     except (TypeError, ValueError, OverflowError):
-        return datetime.now(tz=timezone.utc)
+        return datetime.now(tz=UTC)
 
 
 class RSSConnector(BaseConnector):

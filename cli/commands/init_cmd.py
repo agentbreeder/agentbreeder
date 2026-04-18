@@ -543,9 +543,7 @@ def _gather_model_suggestions() -> list[str]:
     try:
         ollama_available = asyncio.run(OllamaProvider.detect())
         if ollama_available and len(suggestions) < 5:
-            provider = OllamaProvider(
-                ProviderConfig(provider_type=ProviderType.ollama)
-            )
+            provider = OllamaProvider(ProviderConfig(provider_type=ProviderType.ollama))
             ollama_models = asyncio.run(provider.list_models())
             asyncio.run(provider.close())
             for m in ollama_models[: 5 - len(suggestions)]:
@@ -561,9 +559,7 @@ def _gather_model_suggestions() -> list[str]:
                 import json
 
                 registry: dict = json.loads(registry_path.read_text())
-                or_entries = [
-                    v for v in registry.values() if v.get("source") == "openrouter"
-                ]
+                or_entries = [v for v in registry.values() if v.get("source") == "openrouter"]
                 for entry in or_entries[: 5 - len(suggestions)]:
                     model_id: str = entry.get("name", "")
                     if model_id:

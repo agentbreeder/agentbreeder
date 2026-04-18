@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -23,12 +22,14 @@ def schedule(
         dir_okay=True,
         resolve_path=True,
     ),
-    cron: Optional[str] = typer.Option(
+    cron: str | None = typer.Option(
         None,
         "--cron",
         help='Standard cron expression, e.g. "0 8 * * *" (daily at 8am). Required unless --once.',
     ),
-    once: bool = typer.Option(False, "--once/--no-once", help="Run immediately once and exit (ignores --cron)."),
+    once: bool = typer.Option(
+        False, "--once/--no-once", help="Run immediately once and exit (ignores --cron)."
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run/--no-dry-run", help="Print next 5 fire times and exit without running."
     ),
@@ -40,9 +41,9 @@ def schedule(
     except ImportError:
         console.print(
             "[red]APScheduler is required for the schedule command.[/red]\n"
-            "Install it with: [bold]pip install 'agentbreeder[schedule]'[/bold]"
+            r"Install it with: [bold]pip install 'agentbreeder\[schedule]'[/bold]"
         )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
 
     # Validate arguments
     if not once and not cron and not dry_run:
@@ -62,10 +63,10 @@ def schedule(
         agent_name = config.name
     except Exception as exc:
         console.print(f"[red]Error parsing agent.yaml:[/red] {exc}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     def run_agent() -> None:
-        now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
         console.print(f"[bold]Running {agent_name}[/bold] at {now}")
         console.print("Agent run triggered (chat integration pending)")
 
@@ -80,14 +81,14 @@ def schedule(
         trigger = CronTrigger.from_crontab(cron, timezone="UTC")
     except Exception as exc:
         console.print(f"[red]Invalid cron expression '{cron}':[/red] {exc}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     # --dry-run: show next 5 fire times and exit
     if dry_run:
         console.print(f"\n  Scheduled: {cron}\n")
         console.print("  Next 5 fire times:")
-        now_dt = datetime.now(tz=timezone.utc)
-        fire_time: Optional[datetime] = now_dt
+        now_dt = datetime.now(tz=UTC)
+        fire_time: datetime | None = now_dt
         for i in range(1, 6):
             fire_time = trigger.get_next_fire_time(fire_time, now_dt)
             if fire_time is None:

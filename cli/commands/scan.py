@@ -6,7 +6,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
@@ -84,7 +84,7 @@ async def _run_scan(json_output: bool = False) -> None:
         or_models = await openrouter.scan()
         for m in or_models:
             m["gateway_prefix"] = "openrouter"
-            m["scanned_at"] = datetime.now(timezone.utc).isoformat()
+            m["scanned_at"] = datetime.now(UTC).isoformat()
         all_results["models"].extend(or_models)
         _save_models(or_models)
         if not json_output:

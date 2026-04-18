@@ -35,18 +35,32 @@ logger = logging.getLogger(__name__)
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
 # Models known to support function calling in Ollama
-_TOOL_CAPABLE_MODELS = frozenset({
-    "llama3.1", "llama3.2", "llama3.3", "llama4",
-    "qwen2.5", "qwen2.5-coder", "qwen3",
-    "deepseek-r1", "deepseek-v3", "deepseek-coder-v2",
-    "mistral", "mistral-nemo", "mixtral",
-    "command-r", "command-r-plus",
-    "gemma2", "gemma3",
-    "phi3", "phi4",
-    "kimi-k2.5",
-    "firefunction-v2",
-    "glm-5",
-})
+_TOOL_CAPABLE_MODELS = frozenset(
+    {
+        "llama3.1",
+        "llama3.2",
+        "llama3.3",
+        "llama4",
+        "qwen2.5",
+        "qwen2.5-coder",
+        "qwen3",
+        "deepseek-r1",
+        "deepseek-v3",
+        "deepseek-coder-v2",
+        "mistral",
+        "mistral-nemo",
+        "mixtral",
+        "command-r",
+        "command-r-plus",
+        "gemma2",
+        "gemma3",
+        "phi3",
+        "phi4",
+        "kimi-k2.5",
+        "firefunction-v2",
+        "glm-5",
+    }
+)
 
 
 class OllamaProvider(ProviderBase):

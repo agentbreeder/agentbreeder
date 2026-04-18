@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -37,7 +37,9 @@ class ArxivConnector(BaseConnector):
     async def is_available(self) -> bool:
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.get(_ARXIV_API_URL, params={"search_query": "cat:cs.AI", "max_results": 1})
+                resp = await client.get(
+                    _ARXIV_API_URL, params={"search_query": "cat:cs.AI", "max_results": 1}
+                )
                 return resp.status_code == 200
         except httpx.HTTPError:
             return False
@@ -72,7 +74,7 @@ class ArxivConnector(BaseConnector):
             return []
 
         try:
-            root = ET.fromstring(xml_text)
+            root = ET.fromstring(xml_text)  # noqa: S314
         except ET.ParseError as e:
             logger.warning("ArXiv XML parse error: %s", e)
             return []
@@ -90,7 +92,7 @@ class ArxivConnector(BaseConnector):
             title = title_el.text.strip() if title_el is not None and title_el.text else ""
             summary = summary_el.text.strip() if summary_el is not None and summary_el.text else ""
 
-            published_at = datetime.now(tz=timezone.utc)
+            published_at = datetime.now(tz=UTC)
             if published_el is not None and published_el.text:
                 try:
                     published_at = datetime.fromisoformat(

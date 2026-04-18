@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -66,12 +66,11 @@ class HackerNewsConnector(BaseConnector):
 
         items: list[NewsItem] = []
         for hit in data.get("hits", []):
-            url = hit.get("url") or f"https://news.ycombinator.com/item?id={hit.get('objectID', '')}"
+            object_id = hit.get("objectID", "")
+            url = hit.get("url") or f"https://news.ycombinator.com/item?id={object_id}"
             raw_ts = hit.get("created_at_i")
             published_at = (
-                datetime.fromtimestamp(raw_ts, tz=timezone.utc)
-                if raw_ts
-                else datetime.now(tz=timezone.utc)
+                datetime.fromtimestamp(raw_ts, tz=UTC) if raw_ts else datetime.now(tz=UTC)
             )
             items.append(
                 NewsItem(

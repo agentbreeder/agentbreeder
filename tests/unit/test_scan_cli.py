@@ -16,9 +16,11 @@ runner = CliRunner()
 
 class TestScanCommand:
     @patch("cli.commands.scan.REGISTRY_DIR", Path(tempfile.mkdtemp()))
+    @patch("cli.commands.scan.OpenRouterConnector")
+    @patch("cli.commands.scan.OllamaProvider")
     @patch("cli.commands.scan.LiteLLMConnector")
     @patch("cli.commands.scan.MCPScanner")
-    def test_scan_discovers_tools(self, MockMCP, MockLiteLLM) -> None:
+    def test_scan_discovers_tools(self, MockMCP, MockLiteLLM, MockOllama, MockOR) -> None:
         mock_mcp = MockMCP.return_value
         mock_mcp.is_available = AsyncMock(return_value=True)
         mock_mcp.scan = AsyncMock(
@@ -26,52 +28,53 @@ class TestScanCommand:
                 {"name": "fs-server", "tool_type": "mcp_server", "source": "mcp_scanner"},
             ]
         )
-
         mock_litellm = MockLiteLLM.return_value
         mock_litellm.is_available = AsyncMock(return_value=False)
+        MockOllama.detect = AsyncMock(return_value=False)
+        MockOR.return_value.is_available = AsyncMock(return_value=False)
 
         result = runner.invoke(app, ["scan"])
         assert result.exit_code == 0
         assert "1 tool(s)" in result.output
 
     @patch("cli.commands.scan.REGISTRY_DIR", Path(tempfile.mkdtemp()))
+    @patch("cli.commands.scan.OpenRouterConnector")
+    @patch("cli.commands.scan.OllamaProvider")
     @patch("cli.commands.scan.LiteLLMConnector")
     @patch("cli.commands.scan.MCPScanner")
-    def test_scan_discovers_models(self, MockMCP, MockLiteLLM) -> None:
+    def test_scan_discovers_models(self, MockMCP, MockLiteLLM, MockOllama, MockOR) -> None:
         mock_mcp = MockMCP.return_value
         mock_mcp.is_available = AsyncMock(return_value=False)
-
         mock_litellm = MockLiteLLM.return_value
         mock_litellm.is_available = AsyncMock(return_value=True)
         mock_litellm.scan = AsyncMock(
-            return_value=[
-                {"name": "gpt-4o", "provider": "openai", "source": "litellm"},
-            ]
+            return_value=[{"name": "gpt-4o", "provider": "openai", "source": "litellm"}]
         )
+        MockOllama.detect = AsyncMock(return_value=False)
+        MockOR.return_value.is_available = AsyncMock(return_value=False)
 
         result = runner.invoke(app, ["scan"])
         assert result.exit_code == 0
         assert "1 model(s)" in result.output
 
     @patch("cli.commands.scan.REGISTRY_DIR", Path(tempfile.mkdtemp()))
+    @patch("cli.commands.scan.OpenRouterConnector")
+    @patch("cli.commands.scan.OllamaProvider")
     @patch("cli.commands.scan.LiteLLMConnector")
     @patch("cli.commands.scan.MCPScanner")
-    def test_scan_json_output(self, MockMCP, MockLiteLLM) -> None:
+    def test_scan_json_output(self, MockMCP, MockLiteLLM, MockOllama, MockOR) -> None:
         mock_mcp = MockMCP.return_value
         mock_mcp.is_available = AsyncMock(return_value=True)
         mock_mcp.scan = AsyncMock(
-            return_value=[
-                {"name": "fs", "tool_type": "mcp_server", "source": "mcp_scanner"},
-            ]
+            return_value=[{"name": "fs", "tool_type": "mcp_server", "source": "mcp_scanner"}]
         )
-
         mock_litellm = MockLiteLLM.return_value
         mock_litellm.is_available = AsyncMock(return_value=True)
         mock_litellm.scan = AsyncMock(
-            return_value=[
-                {"name": "gpt-4o", "provider": "openai", "source": "litellm"},
-            ]
+            return_value=[{"name": "gpt-4o", "provider": "openai", "source": "litellm"}]
         )
+        MockOllama.detect = AsyncMock(return_value=False)
+        MockOR.return_value.is_available = AsyncMock(return_value=False)
 
         result = runner.invoke(app, ["scan", "--json"])
         assert result.exit_code == 0
@@ -80,17 +83,142 @@ class TestScanCommand:
         assert len(output["models"]) == 1
 
     @patch("cli.commands.scan.REGISTRY_DIR", Path(tempfile.mkdtemp()))
+    @patch("cli.commands.scan.OpenRouterConnector")
+    @patch("cli.commands.scan.OllamaProvider")
     @patch("cli.commands.scan.LiteLLMConnector")
     @patch("cli.commands.scan.MCPScanner")
-    def test_scan_nothing_available(self, MockMCP, MockLiteLLM) -> None:
+    def test_scan_nothing_available(self, MockMCP, MockLiteLLM, MockOllama, MockOR) -> None:
+        mock_mcp = MockMCP.return_value
+        mock_mcp.is_available = AsyncMock(return_value=False)
+        mock_litellm = MockLiteLLM.return_value
+        mock_litellm.is_available = AsyncMock(return_value=False)
+        MockOllama.detect = AsyncMock(return_value=False)
+        MockOR.return_value.is_available = AsyncMock(return_value=False)
+
+        result = runner.invoke(app, ["scan"])
+        assert result.exit_code == 0
+        assert "0 resource(s)" in result.output
+
+    @patch("cli.commands.scan.REGISTRY_DIR", Path(tempfile.mkdtemp()))
+    @patch("cli.commands.scan.OpenRouterConnector")
+    @patch("cli.commands.scan.OllamaProvider")
+    @patch("cli.commands.scan.LiteLLMConnector")
+    @patch("cli.commands.scan.MCPScanner")
+    def test_scan_ollama_available(self, MockMCP, MockLiteLLM, MockOllama, MockOR) -> None:
+        mock_mcp = MockMCP.return_value
+        mock_mcp.is_available = AsyncMock(return_value=False)
+        mock_litellm = MockLiteLLM.return_value
+        mock_litellm.is_available = AsyncMock(return_value=False)
+        MockOR.return_value.is_available = AsyncMock(return_value=False)
+
+        from unittest.mock import MagicMock
+
+        from engine.providers.models import ModelInfo
+
+        MockOllama.detect = AsyncMock(return_value=True)
+        mock_ollama_instance = MagicMock()
+        mock_ollama_instance.list_models = AsyncMock(
+            return_value=[
+                ModelInfo(
+                    id="llama3.3",
+                    name="llama3.3",
+                    provider="ollama",
+                    supports_tools=True,
+                    supports_streaming=True,
+                    is_local=True,
+                )
+            ]
+        )
+        mock_ollama_instance.close = AsyncMock()
+        MockOllama.return_value = mock_ollama_instance
+
+        result = runner.invoke(app, ["scan"])
+        assert result.exit_code == 0
+        assert "Ollama" in result.output
+        assert "1 model(s)" in result.output
+
+    @patch("cli.commands.scan.REGISTRY_DIR", Path(tempfile.mkdtemp()))
+    @patch("cli.commands.scan.OpenRouterConnector")
+    @patch("cli.commands.scan.OllamaProvider")
+    @patch("cli.commands.scan.LiteLLMConnector")
+    @patch("cli.commands.scan.MCPScanner")
+    def test_scan_openrouter_available(self, MockMCP, MockLiteLLM, MockOllama, MockOR) -> None:
+        mock_mcp = MockMCP.return_value
+        mock_mcp.is_available = AsyncMock(return_value=False)
+        mock_litellm = MockLiteLLM.return_value
+        mock_litellm.is_available = AsyncMock(return_value=False)
+        MockOllama.detect = AsyncMock(return_value=False)
+
+        mock_or = MockOR.return_value
+        mock_or.is_available = AsyncMock(return_value=True)
+        mock_or.scan = AsyncMock(
+            return_value=[
+                {
+                    "name": "anthropic/claude-opus-4-6",
+                    "provider": "anthropic",
+                    "source": "openrouter",
+                },
+                {"name": "deepseek/deepseek-r1", "provider": "deepseek", "source": "openrouter"},
+            ]
+        )
+
+        result = runner.invoke(app, ["scan"])
+        assert result.exit_code == 0
+        assert "OpenRouter" in result.output
+        assert "2 model(s)" in result.output
+
+    @patch("cli.commands.scan.REGISTRY_DIR", Path(tempfile.mkdtemp()))
+    @patch("cli.commands.scan.OpenRouterConnector")
+    @patch("cli.commands.scan.OllamaProvider")
+    @patch("cli.commands.scan.LiteLLMConnector")
+    @patch("cli.commands.scan.MCPScanner")
+    def test_scan_json_includes_ollama_and_openrouter(
+        self, MockMCP, MockLiteLLM, MockOllama, MockOR
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        from engine.providers.models import ModelInfo
+
         mock_mcp = MockMCP.return_value
         mock_mcp.is_available = AsyncMock(return_value=False)
         mock_litellm = MockLiteLLM.return_value
         mock_litellm.is_available = AsyncMock(return_value=False)
 
-        result = runner.invoke(app, ["scan"])
+        MockOllama.detect = AsyncMock(return_value=True)
+        mock_ollama_instance = MagicMock()
+        mock_ollama_instance.list_models = AsyncMock(
+            return_value=[
+                ModelInfo(
+                    id="llama3.3",
+                    name="llama3.3",
+                    provider="ollama",
+                    supports_tools=True,
+                    supports_streaming=True,
+                    is_local=True,
+                )
+            ]
+        )
+        mock_ollama_instance.close = AsyncMock()
+        MockOllama.return_value = mock_ollama_instance
+
+        mock_or = MockOR.return_value
+        mock_or.is_available = AsyncMock(return_value=True)
+        mock_or.scan = AsyncMock(
+            return_value=[
+                {
+                    "name": "anthropic/claude-opus-4-6",
+                    "provider": "anthropic",
+                    "source": "openrouter",
+                }
+            ]
+        )
+
+        result = runner.invoke(app, ["scan", "--json"])
         assert result.exit_code == 0
-        assert "0 resource(s)" in result.output
+        output = json.loads(result.output)
+        model_names = [m.get("name") or m.get("id") for m in output["models"]]
+        assert any("llama" in str(n) for n in model_names)
+        assert any("claude" in str(n) for n in model_names)
 
 
 class TestListToolsCommand:
