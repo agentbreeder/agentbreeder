@@ -1,3 +1,69 @@
+'use client';
+
+import { useState } from 'react';
+
+function WaitlistForm() {
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email) return;
+    const subject = encodeURIComponent('AgentBreeder Cloud Waitlist');
+    const body = encodeURIComponent(
+      `Hi,\n\nPlease add me to the AgentBreeder Cloud waitlist.\n\nEmail: ${email}\n\nThanks!`,
+    );
+    window.location.href = `mailto:hello@agent-breeder.com?subject=${subject}&body=${body}`;
+    setSent(true);
+  }
+
+  return (
+    <div>
+      {sent ? (
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold"
+            style={{ background: 'rgba(167,139,250,0.12)', color: '#c084fc', border: '1px solid rgba(167,139,250,0.25)' }}
+          >
+            ✓ Your email client should have opened — send that email to lock your spot!
+          </span>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="flex items-center gap-3">
+          <input
+            type="email"
+            required
+            placeholder="you@company.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="rounded-xl border px-4 py-3 text-sm outline-none transition-all focus:border-[#a78bfa]"
+            style={{
+              background: 'var(--bg-surface)',
+              borderColor: 'var(--border)',
+              color: 'var(--text)',
+              width: 260,
+            }}
+          />
+          <button
+            type="submit"
+            className="inline-flex cursor-pointer items-center gap-2 rounded-xl border-0 px-7 py-3 text-sm font-bold transition-all hover:scale-[1.02] hover:opacity-90"
+            style={{
+              background: 'linear-gradient(135deg, #a78bfa 0%, #f472b6 100%)',
+              color: '#fff',
+              boxShadow: '0 0 40px rgba(167,139,250,0.30)',
+            }}
+          >
+            ⚡ Join the waitlist
+          </button>
+        </form>
+      )}
+      <p className="mt-3 text-xs" style={{ color: 'var(--text-dim)' }}>
+        Early access opens Q3 2026 · No credit card required
+      </p>
+    </div>
+  );
+}
+
 const CLOUD_FEATURES = [
   {
     icon: '⚡',
@@ -186,22 +252,7 @@ export function CloudComing() {
         </div>
 
         {/* Waitlist CTA */}
-        <div className="flex items-center gap-4">
-          <a
-            href="mailto:hello@agent-breeder.com?subject=AgentBreeder Cloud Waitlist"
-            className="inline-flex items-center gap-2 rounded-xl px-7 py-3.5 text-sm font-bold no-underline transition-all hover:opacity-90 hover:scale-[1.02]"
-            style={{
-              background: 'linear-gradient(135deg, #a78bfa 0%, #f472b6 100%)',
-              color: '#fff',
-              boxShadow: '0 0 40px rgba(167,139,250,0.30)',
-            }}
-          >
-            ⚡ Join the waitlist
-          </a>
-          <span className="text-sm" style={{ color: 'var(--text-dim)' }}>
-            Early access opens Q3 2026. No credit card required.
-          </span>
-        </div>
+        <WaitlistForm />
       </div>
     </section>
   );
