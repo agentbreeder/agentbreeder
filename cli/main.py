@@ -13,6 +13,7 @@ import typer
 
 from cli.commands import (
     chat,
+    compliance,
     deploy,
     describe,
     down,
@@ -69,6 +70,7 @@ app.add_typer(eval_cmd.eval_app, name="eval")
 app.add_typer(orchestration.orchestration_app, name="orchestration")
 app.add_typer(template.template_app, name="template")
 app.add_typer(secret.secret_app, name="secret")
+app.add_typer(compliance.compliance_app, name="compliance")
 
 
 if __name__ == "__main__":

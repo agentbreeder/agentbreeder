@@ -16,6 +16,7 @@ from api.routes import (
     audit,
     auth,
     builders,
+    compliance,
     costs,
     deploys,
     evals,
@@ -120,6 +121,7 @@ app.include_router(templates.router)
 app.include_router(marketplace.router)
 app.include_router(agentops.router)
 app.include_router(gateway.router)
+app.include_router(compliance.router)
 
 # v2 routes (preview)
 app.include_router(agents_v2.router)
