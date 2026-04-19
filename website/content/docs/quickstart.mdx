@@ -4,10 +4,11 @@ description: Deploy your first agent in under 5 minutes.
 ---
 
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+import { Callout } from 'fumadocs-ui/components/callout';
 
 # Quickstart Guide
 
-Get AgentBreeder running in under 10 minutes.
+Get AgentBreeder running in under 5 minutes.
 
 ---
 
@@ -72,7 +73,7 @@ agentbreeder init
 The interactive wizard asks 5 questions:
 
 1. **Framework** — LangGraph, OpenAI Agents, Claude SDK, CrewAI, Google ADK, or Custom
-2. **Cloud target** — Local, AWS, GCP, or Kubernetes
+2. **Cloud target** — Local, AWS, GCP, Azure, or Kubernetes
 3. **Agent name** — lowercase with hyphens (e.g., `support-agent`)
 4. **Team** — your team name
 5. **Owner email** — who is responsible
@@ -145,8 +146,10 @@ agentbreeder chat my-agent
 
 ## Deploy to the Cloud
 
+All cloud targets use the same `agent.yaml`. Only the `--target` flag changes.
+
 ```bash
-# GCP Cloud Run
+# GCP Cloud Run (serverless)
 agentbreeder deploy agent.yaml --target cloud-run --region us-central1
 
 # AWS ECS Fargate
@@ -158,11 +161,14 @@ agentbreeder deploy agent.yaml --target app-runner --region us-east-1
 # Azure Container Apps
 agentbreeder deploy agent.yaml --target container-apps
 
+# Kubernetes (EKS / GKE / AKS / self-hosted)
+agentbreeder deploy agent.yaml --target kubernetes
+
 # Anthropic Claude Managed Agents (no container build)
 agentbreeder deploy agent.yaml --target claude-managed
 ```
 
-For `cloud: aws` targets, set the following in `deploy.env_vars`:
+For `cloud: aws` targets, set the following in `deploy`:
 
 ```yaml
 deploy:
@@ -186,6 +192,91 @@ claude_managed:
     networking: unrestricted
   tools:
     - type: agent_toolset_20260401
+```
+
+---
+
+## Add MCP Servers
+
+AgentBreeder has first-class support for [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers. Discover available servers on your machine:
+
+```bash
+agentbreeder scan
+```
+
+Then wire them into your agent:
+
+```yaml
+# agent.yaml
+tools:
+  - ref: tools/zendesk-mcp       # from org registry
+  - ref: tools/order-lookup
+```
+
+Every MCP server is deployed as a sidecar alongside your agent — no extra config required.
+
+---
+
+## Add RAG / Knowledge Bases
+
+Connect vector or graph knowledge bases in one line:
+
+```yaml
+# agent.yaml
+knowledge_bases:
+  - ref: kb/product-docs
+  - ref: kb/return-policy
+```
+
+AgentBreeder supports vector search, graph search, and hybrid search. See [RAG Guide](how-to.md#rag) for indexing your own data.
+
+---
+
+## Version Your Prompts
+
+Reference versioned prompts from the org registry instead of hardcoding strings:
+
+```yaml
+# agent.yaml
+prompts:
+  system: prompts/support-system-v3
+```
+
+This enables prompt caching, A/B testing, and rollback without redeploying the agent.
+
+---
+
+## Connect Agents (A2A)
+
+Agents can call each other using the built-in Agent-to-Agent (A2A) protocol over JSON-RPC:
+
+```yaml
+# agent.yaml — declare which agents this one is allowed to call
+access:
+  allowed_callers:
+    - team:engineering
+    - team:customer-success
+```
+
+Use `agentbreeder list` to see all A2A-enabled agents in your org registry.
+
+---
+
+## Three Ways to Build
+
+AgentBreeder supports three builder tiers — all compile to the same `agent.yaml` and share the same deploy pipeline:
+
+| Tier | Who | How |
+|------|-----|-----|
+| **No Code** | PMs, analysts, citizen builders | Visual drag-and-drop canvas in the dashboard |
+| **Low Code** | ML engineers, DevOps | Edit `agent.yaml` directly in any IDE |
+| **Full Code** | Senior engineers, researchers | Python/TS SDK with full programmatic control |
+
+You can start in No Code and eject to YAML or full code at any time:
+
+```bash
+agentbreeder eject my-agent --to yaml      # No Code → Low Code
+agentbreeder eject my-agent --to code      # Low Code → Full Code
 ```
 
 ---
@@ -220,8 +311,6 @@ Default login:
 | Password | `plant`                      |
 | Role     | Admin                        |
 
-import { Callout } from 'fumadocs-ui/components/callout';
-
 <Callout type="warn" title="Warning">
   Change the default password before exposing this to a network.
 </Callout>
@@ -235,15 +324,17 @@ No cloud API keys? Use [Ollama](https://ollama.com) for fully local development:
 ```yaml
 # agent.yaml
 model:
-  primary: ollama/llama3
+  primary: ollama/gemma4
   gateway: ollama
 ```
 
 ```bash
 ollama serve &
-ollama pull llama3
+ollama pull gemma4
 agentbreeder deploy agent.yaml --target local
 ```
+
+Other models supported: `ollama/llama3`, `ollama/mistral`, `ollama/phi4`, and any model available in the Ollama registry.
 
 ---
 
@@ -253,6 +344,13 @@ agentbreeder deploy agent.yaml --target local
 |------|-------|
 | All CLI commands | [CLI Reference](cli-reference.md) |
 | Every agent.yaml field | [agent.yaml Reference](agent-yaml.md) |
+| MCP server setup | [MCP Guide](how-to.md#mcp-servers) |
+| RAG & knowledge bases | [RAG Guide](how-to.md#rag) |
+| Versioned prompts | [Prompts Guide](how-to.md#prompts) |
+| Agent-to-agent calls | [A2A Guide](how-to.md#a2a) |
 | Multi-agent pipelines | [Orchestration Guide](how-to.md#orchestrate-multiple-agents) |
+| Governance, RBAC, cost tracking | [Governance Guide](how-to.md#governance) |
+| Scheduled agent runs | [Scheduling Guide](how-to.md#scheduling) |
+| Evaluating agents | [Eval Guide](how-to.md#evals) |
 | Common workflows | [How-To Guide](how-to.md) |
 | Migrate from another framework | [Migration Guides](migrations/OVERVIEW.md) |
