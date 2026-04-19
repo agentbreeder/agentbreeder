@@ -74,10 +74,8 @@ export function BuiltBy() {
             </p>
             <p className="mb-4 text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
               Spent 20 years making data platforms bigger and faster. Then decided smarter was more interesting.
-              At Udemy, shipped AI agents that actually do things in production — one saved{' '}
-              <span className="font-semibold text-white">$1M+ in infrastructure costs</span>, another gave every
-              employee natural-language access to the entire data catalog. AgentBreeder is the tool I kept wishing
-              existed while building them.
+              At Udemy, shipped AI agents that actually do things in production.
+              AgentBreeder is the tool I kept wishing existed while building them.
             </p>
             <p className="text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
               The pattern across 8 companies: architect it, build the MVP personally, hand it to a great team
