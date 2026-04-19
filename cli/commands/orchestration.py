@@ -33,7 +33,7 @@ orchestration_app = typer.Typer(
     no_args_is_help=True,
 )
 
-API_BASE = os.environ.get("GARDEN_API_URL", "http://localhost:8000")
+API_BASE = os.environ.get("AGENTBREEDER_API_URL", "http://localhost:8000")
 
 
 def _get_client() -> httpx.Client:

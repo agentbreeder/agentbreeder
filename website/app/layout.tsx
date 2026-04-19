@@ -11,11 +11,11 @@ export const metadata: Metadata = {
   },
   description:
     'Open-source platform for building, deploying, and governing enterprise AI agents. Write one agent.yaml, deploy to any cloud.',
-  metadataBase: new URL('https://agent-breeder.com'),
+  metadataBase: new URL('https://www.agentbreeder.io'),
   openGraph: {
     siteName: 'AgentBreeder',
     type: 'website',
-    url: 'https://agent-breeder.com',
+    url: 'https://www.agentbreeder.io',
     images: [{ url: '/og.png', width: 1280, height: 640 }],
   },
   twitter: {

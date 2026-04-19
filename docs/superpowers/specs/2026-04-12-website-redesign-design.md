@@ -2,13 +2,13 @@
 
 **Date:** 2026-04-12  
 **Status:** Approved  
-**Domain:** agent-breeder.com
+**Domain:** agentbreeder.io
 
 ---
 
 ## Overview
 
-Replace the current MkDocs static site with a professional Next.js website using Fumadocs — the same stack powering mastra.ai. The site combines a marketing landing page at `/` with full documentation at `/docs`, deployed to Vercel with the custom domain `agent-breeder.com`.
+Replace the current MkDocs static site with a professional Next.js website using Fumadocs — the same stack powering mastra.ai. The site combines a marketing landing page at `/` with full documentation at `/docs`, deployed to Vercel with the custom domain `agentbreeder.io`.
 
 ---
 
@@ -30,11 +30,11 @@ agentbreeder/
 └── website/                        ← new Next.js 14 app (App Router)
     ├── app/
     │   ├── layout.tsx              ← root layout, Geist font, dark theme
-    │   ├── page.tsx                ← landing page (agent-breeder.com)
+    │   ├── page.tsx                ← landing page (agentbreeder.io)
     │   ├── globals.css
     │   └── docs/
     │       └── [[...slug]]/
-    │           └── page.tsx        ← all doc pages (agent-breeder.com/docs/*)
+    │           └── page.tsx        ← all doc pages (agentbreeder.io/docs/*)
     ├── components/
     │   ├── nav.tsx                 ← top navigation bar
     │   ├── hero.tsx                ← landing hero section
@@ -281,8 +281,8 @@ jobs:
 ### Domain cutover
 
 1. Deploy to Vercel (gets `agentbreeder-website.vercel.app`)
-2. Add `agent-breeder.com` custom domain in Vercel dashboard
-3. Update DNS: CNAME `agent-breeder.com` → `cname.vercel-dns.com`
+2. Add `agentbreeder.io` custom domain in Vercel dashboard
+3. Update DNS: CNAME `agentbreeder.io` → `cname.vercel-dns.com`
 4. Once live, disable old `deploy-docs.yml` GitHub Pages workflow
 
 ---
@@ -299,8 +299,8 @@ jobs:
 
 ## Success criteria
 
-- [ ] `agent-breeder.com` loads the landing page
-- [ ] `agent-breeder.com/docs` loads the docs with full sidebar
+- [ ] `agentbreeder.io` loads the landing page
+- [ ] `agentbreeder.io/docs` loads the docs with full sidebar
 - [ ] All existing doc pages accessible at new URLs
 - [ ] `⌘K` search works across all docs
 - [ ] Deploys automatically on push to `main`

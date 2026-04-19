@@ -18,7 +18,7 @@ from rich.panel import Panel
 
 console = Console()
 
-API_BASE = os.environ.get("GARDEN_API_URL", "http://localhost:8000")
+API_BASE = os.environ.get("AGENTBREEDER_API_URL", "http://localhost:8000")
 
 
 def _get_client() -> httpx.Client:

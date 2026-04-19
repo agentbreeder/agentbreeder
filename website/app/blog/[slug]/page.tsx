@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const post = getBlogPost(slug);
   if (!post) notFound();
 
-  const url = `https://agent-breeder.com/blog/${slug}`;
+  const url = `https://www.agentbreeder.io/blog/${slug}`;
   return {
     title: post.title,
     description: post.description,

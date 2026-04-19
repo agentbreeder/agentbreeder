@@ -2639,7 +2639,7 @@ Homebrew distribution for macOS/Linux:
 
 Align all public-facing names:
 - [x] Fix `pyproject.toml` Repository URL → `https://github.com/agentbreeder/agentbreeder`
-- [x] Fix `pyproject.toml` Documentation URL → `https://agent-breeder.com`
+- [x] Fix `pyproject.toml` Documentation URL → `https://www.agentbreeder.io`
 - [ ] Register `agentbreeder` and `agentbreeder-sdk` names on PyPI (manual step)
 - [ ] Register `agentbreeder` org on Docker Hub (manual step)
 - [x] Update README install instructions

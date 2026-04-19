@@ -106,7 +106,7 @@ mcp = ["mcp>=1.0.0"]
 [project.urls]
 Homepage = "https://github.com/agentbreeder/agentbreeder"
 Repository = "https://github.com/agentbreeder/agentbreeder"
-Documentation = "https://agent-breeder.com"
+Documentation = "https://www.agentbreeder.io"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agenthub"]
@@ -143,7 +143,7 @@ agent.save("agent.yaml")
 
 ## Full Documentation
 
-See the [AgentBreeder docs](https://agent-breeder.com).
+See the [AgentBreeder docs](https://www.agentbreeder.io).
 ```
 
 - [ ] **Step 4: Verify the SDK builds independently**

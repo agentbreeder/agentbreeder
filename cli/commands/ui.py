@@ -69,7 +69,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@postgres:5432/agentbreeder
       REDIS_URL: redis://redis:6379
-      GARDEN_ENV: development
+      AGENTBREEDER_ENV: development
       SECRET_KEY: change-me-in-production
       JWT_SECRET_KEY: change-me-in-production
     volumes:

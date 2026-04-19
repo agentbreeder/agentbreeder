@@ -5,7 +5,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ── Brand design tokens (match agent-breeder.com) ─────────────────────────── */
+/* ── Brand design tokens (match agentbreeder.io) ─────────────────────────── */
 :root {
     /* Light mode — map to neutral palette, green accent */
     --background: oklch(0.98 0 0);
@@ -42,7 +42,7 @@
     --sidebar-ring: oklch(0.723 0.219 142.5);
 }
 
-/* ── Dark mode — exact match to agent-breeder.com palette ──────────────────── */
+/* ── Dark mode — exact match to agentbreeder.io palette ──────────────────── */
 .dark {
     /* #09090b — zinc-950, the website's true background */
     --background: oklch(0.085 0 0);
@@ -142,7 +142,7 @@
     }
 }
 
-/* ── Brand animations (from agent-breeder.com) ─────────────────────────────── */
+/* ── Brand animations (from agentbreeder.io) ─────────────────────────────── */
 @keyframes ab-pulse {
     0%, 100% { opacity: 0.7; }
     50%       { opacity: 0.15; }

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     title: 'AgentBreeder Blog',
     description:
       'Thoughts on enterprise AI agents, platform engineering, and open-source from the AgentBreeder team.',
-    url: 'https://agent-breeder.com/blog',
+    url: 'https://www.agentbreeder.io/blog',
   },
 };
 

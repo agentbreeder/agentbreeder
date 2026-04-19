@@ -24,7 +24,7 @@ from rich.table import Table
 
 console = Console()
 
-API_BASE = os.environ.get("GARDEN_API_URL", "http://localhost:8000")
+API_BASE = os.environ.get("AGENTBREEDER_API_URL", "http://localhost:8000")
 
 review_app = typer.Typer(
     name="review",
@@ -46,7 +46,7 @@ def _get_client() -> httpx.Client:
 
 def _current_user() -> str:
     """Best-effort guess at the current user identity."""
-    return os.environ.get("GARDEN_USER", os.environ.get("USER", "anonymous"))
+    return os.environ.get("AGENTBREEDER_USER", os.environ.get("USER", "anonymous"))
 
 
 def _status_badge(status: str) -> str:

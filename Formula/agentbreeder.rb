@@ -2,7 +2,7 @@ class Agentbreeder < Formula
   include Language::Python::Virtualenv
 
   desc "Define Once. Deploy Anywhere. Govern Automatically — CLI for AgentBreeder"
-  homepage "https://agent-breeder.com"
+  homepage "https://agentbreeder.io"
   url "https://files.pythonhosted.org/packages/a8/ed/ed49ee730035fe26fa1c31931ed1b97a53b80f84f0203291bf6422cba475/agentbreeder-0.1.0.tar.gz"
   sha256 "6d59b0dad0306123552625beb79f6711cfc0a3362844e4d2aa2df4a8e1780737"
   license "Apache-2.0"

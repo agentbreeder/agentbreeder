@@ -86,7 +86,7 @@ See [`sdk/typescript/`](../../sdk/typescript/README.md) for full documentation.
 
 ## Links
 
-- [Documentation](https://agent-breeder.com)
+- [Documentation](https://www.agentbreeder.io)
 - [GitHub](https://github.com/agentbreeder/agentbreeder)
-- [agent.yaml reference](https://agent-breeder.com/agent-yaml)
+- [agent.yaml reference](https://www.agentbreeder.io/agent-yaml)
 - [TypeScript SDK on npm](https://www.npmjs.com/package/@agentbreeder/sdk)

@@ -676,7 +676,7 @@ AgentBreeder ships across **three repositories** that must stay in sync at all t
 |------|------|------|
 | `agentbreeder` (this repo) | `/Users/rajit/personal-github/agentbreeder` | OSS CLI + engine + connectors — source of truth |
 | `agentbreeder-cloud` | `/Users/rajit/personal-github/agentbreeder-cloud` | SaaS managed platform — deploys on top of agentbreeder packages |
-| `website` | `website/` subdirectory | agent-breeder.com marketing + docs site |
+| `website` | `website/` subdirectory | agentbreeder.io marketing + docs site |
 
 **Rules — before closing any PR:**
 - **Schema change** (`agent.yaml`, API shape, CLI flags): grep `agentbreeder-cloud` for affected fields and update them
@@ -784,7 +784,7 @@ All responses follow:
 DATABASE_URL=postgresql+asyncpg://agentbreeder:agentbreeder@localhost:5432/agentbreeder
 REDIS_URL=redis://localhost:6379
 SECRET_KEY=<random-256-bit-key>
-GARDEN_ENV=development
+AGENTBREEDER_ENV=development
 
 # Optional — Cloud credentials (set per environment)
 AWS_ACCESS_KEY_ID=

@@ -19,7 +19,7 @@ _SKIP_KEYS = frozenset(
         "TERM",
         "LANG",
         "PWD",
-        "GARDEN_ENV",
+        "AGENTBREEDER_ENV",
         "DATABASE_URL",
         "REDIS_URL",
     }

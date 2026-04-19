@@ -489,7 +489,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@postgres:5432/agentbreeder
       REDIS_URL: redis://redis:6379
-      GARDEN_ENV: test
+      AGENTBREEDER_ENV: test
       SECRET_KEY: e2e-test-secret-key-not-for-prod
       JWT_SECRET_KEY: e2e-test-jwt-key-not-for-prod
       ACCESS_TOKEN_EXPIRE_MINUTES: "1440"

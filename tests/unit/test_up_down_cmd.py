@@ -336,7 +336,7 @@ class TestGenerateEnv:
             "JWT_SECRET_KEY",
             "JWT_ALGORITHM",
             "ACCESS_TOKEN_EXPIRE_MINUTES",
-            "GARDEN_ENV",
+            "AGENTBREEDER_ENV",
             "LITELLM_BASE_URL",
             "LITELLM_MASTER_KEY",
             "OPENAI_API_KEY",

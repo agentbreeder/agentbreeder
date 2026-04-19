@@ -13,7 +13,7 @@ function WaitlistForm() {
     const body = encodeURIComponent(
       `Hi,\n\nPlease add me to the AgentBreeder Cloud waitlist.\n\nEmail: ${email}\n\nThanks!`,
     );
-    window.location.href = `mailto:hello@agent-breeder.com?subject=${subject}&body=${body}`;
+    window.location.href = `mailto:hello@agentbreeder.io?subject=${subject}&body=${body}`;
     setSent(true);
   }
 

@@ -90,7 +90,7 @@ When a v1 endpoint is scheduled for removal:
   "error": "endpoint_removed",
   "message": "This endpoint was removed on 2027-06-01. Use /api/v2/agents instead.",
   "successor": "/api/v2/agents",
-  "docs": "https://agent-breeder.com/api-stability/"
+  "docs": "https://www.agentbreeder.io/api-stability/"
 }
 ```
 

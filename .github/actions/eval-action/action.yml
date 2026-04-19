@@ -43,7 +43,7 @@ runs:
       id: eval-run
       shell: bash
       env:
-        GARDEN_API_URL: ${{ inputs.api_url }}
+        AGENTBREEDER_API_URL: ${{ inputs.api_url }}
       run: |
         echo "Running evaluation: ${{ inputs.agent_name }} against dataset ${{ inputs.dataset_id }}"
         EVAL_OUTPUT=$(agentbreeder eval run "${{ inputs.agent_name }}" --dataset "${{ inputs.dataset_id }}" --json 2>&1) || true

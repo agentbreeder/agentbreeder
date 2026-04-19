@@ -488,7 +488,7 @@ Working agent code for the chosen framework. Wire tool stubs matching described 
 - google_adk: `GOOGLE_API_KEY=AIza...`
 - If Vector RAG: `DATABASE_URL=postgresql://localhost:5432/agentdb`
 - If Redis: `REDIS_URL=redis://localhost:6379`
-- Always: `GARDEN_ENV=development`
+- Always: `AGENTBREEDER_ENV=development`
 
 ### 2e. `Dockerfile`
 ```dockerfile

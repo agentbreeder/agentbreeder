@@ -84,9 +84,9 @@ all-clouds = [
 agentbreeder = "cli.main:app"
 
 [project.urls]
-Homepage = "https://agent-breeder.com"
+Homepage = "https://www.agentbreeder.io"
 Repository = "https://github.com/agentbreeder/agentbreeder"
-Documentation = "https://agent-breeder.com"
+Documentation = "https://www.agentbreeder.io"
 
 [tool.hatch.version]
 source = "vcs"

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a Next.js 14 + Fumadocs website at `agent-breeder.com` with a marketing landing page and full documentation — replacing the current MkDocs site.
+**Goal:** Build a Next.js 14 + Fumadocs website at `agentbreeder.io` with a marketing landing page and full documentation — replacing the current MkDocs site.
 
 **Architecture:** Next.js App Router in `website/` subdirectory. Landing page at `/`, Fumadocs-powered docs at `/docs`. Shared nav, design tokens, and logo across both. Deployed to Vercel via GitHub Actions.
 
@@ -234,11 +234,11 @@ export const metadata: Metadata = {
   },
   description:
     'Open-source platform for building, deploying, and governing enterprise AI agents. Write one agent.yaml, deploy to any cloud.',
-  metadataBase: new URL('https://agent-breeder.com'),
+  metadataBase: new URL('https://www.agentbreeder.io'),
   openGraph: {
     siteName: 'AgentBreeder',
     type: 'website',
-    url: 'https://agent-breeder.com',
+    url: 'https://www.agentbreeder.io',
   },
   twitter: {
     card: 'summary_large_image',
@@ -1474,7 +1474,7 @@ Update `website/app/layout.tsx` metadata object to add:
 openGraph: {
   siteName: 'AgentBreeder',
   type: 'website',
-  url: 'https://agent-breeder.com',
+  url: 'https://www.agentbreeder.io',
   images: [{ url: '/og.png', width: 1200, height: 630 }],
 },
 ```
@@ -1578,10 +1578,10 @@ jobs:
 - [ ] **Step 3: Add custom domain in Vercel (manual step)**
 
 1. Go to https://vercel.com → your project → Settings → Domains
-2. Add `agent-breeder.com`
+2. Add `agentbreeder.io`
 3. Vercel shows DNS instructions — update your registrar:
    - `A` record: `76.76.21.21`
-   - or `CNAME`: `agent-breeder.com` → `cname.vercel-dns.com`
+   - or `CNAME`: `agentbreeder.io` → `cname.vercel-dns.com`
 
 - [ ] **Step 4: Verify the workflow triggers**
 
@@ -1599,8 +1599,8 @@ Expected: Deploy job completes and Vercel deployment URL is live.
 
 ## Task 12: Final verification checklist
 
-- [ ] `https://agent-breeder.com` loads landing page
-- [ ] `https://agent-breeder.com/docs` loads docs overview
+- [ ] `https://www.agentbreeder.io` loads landing page
+- [ ] `https://www.agentbreeder.io/docs` loads docs overview
 - [ ] All sidebar pages load without 404
 - [ ] `⌘K` search returns results
 - [ ] Copy buttons work on code blocks
@@ -1610,7 +1610,7 @@ Expected: Deploy job completes and Vercel deployment URL is live.
 - [ ] Run Lighthouse audit (target ≥ 90 performance):
 
 ```bash
-npx lighthouse https://agent-breeder.com --only-categories=performance,accessibility,seo --output=json | jq '.categories | {perf: .performance.score, a11y: .accessibility.score, seo: .seo.score}'
+npx lighthouse https://www.agentbreeder.io --only-categories=performance,accessibility,seo --output=json | jq '.categories | {perf: .performance.score, a11y: .accessibility.score, seo: .seo.score}'
 ```
 
 - [ ] Commit `.vercel/project.json` to repo (safe — contains only project IDs, not secrets):

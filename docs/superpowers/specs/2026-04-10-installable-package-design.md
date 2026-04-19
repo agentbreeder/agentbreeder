@@ -248,11 +248,11 @@ Setup:
 | Docker Hub | `agentbreeder/api`, `agentbreeder/dashboard`, `agentbreeder/cli` |
 | Homebrew | `agentbreeder/homebrew-agentbreeder` |
 | Homepage | `agentbreeder.com` |
-| Docs | `agent-breeder.com` |
+| Docs | `agentbreeder.io` |
 
 Fix stale URLs in `pyproject.toml`:
 - Repository: `https://github.com/agentbreeder/agentbreeder`
-- Documentation: `https://agent-breeder.com`
+- Documentation: `https://www.agentbreeder.io`
 
 ## 8. New Files Summary
 

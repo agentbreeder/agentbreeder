@@ -112,7 +112,7 @@ def _env_example(framework: str) -> str:
         "# Environment variables for your agent",
         "# Copy this to .env and fill in your values",
         "",
-        "GARDEN_ENV=development",
+        "AGENTBREEDER_ENV=development",
     ]
 
     if framework in ("langgraph", "openai_agents"):

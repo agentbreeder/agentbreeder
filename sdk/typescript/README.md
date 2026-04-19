@@ -1,6 +1,6 @@
 # @agentbreeder/sdk
 
-TypeScript SDK for [AgentBreeder](https://agent-breeder.com) — Define Once. Deploy Anywhere.
+TypeScript SDK for [AgentBreeder](https://www.agentbreeder.io) — Define Once. Deploy Anywhere.
 
 Build, configure, and deploy AI agents to AWS, GCP, or any supported cloud with a fluent TypeScript API.
 

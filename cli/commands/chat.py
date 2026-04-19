@@ -23,7 +23,7 @@ from rich.table import Table
 
 console = Console()
 
-API_BASE = os.environ.get("GARDEN_API_URL", "http://localhost:8000")
+API_BASE = os.environ.get("AGENTBREEDER_API_URL", "http://localhost:8000")
 
 
 # ---------------------------------------------------------------------------
