@@ -2,7 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 const CAREER_HIGHLIGHTS = [
-  { label: '20+ years', desc: 'architecting enterprise data platforms' },
+  { label: '23+ years', desc: 'architecting enterprise data platforms' },
   { label: '8 companies', desc: 'Oracle · IBM · Yahoo · Teradata · VMware · LendingClub · Experian · Udemy' },
 ];
 
@@ -76,9 +76,9 @@ export function BuiltBy() {
               AgentBreeder is the tool I kept wishing existed while building them.
             </p>
             <p className="text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
-              The pattern across 8 companies: architect it, build the MVP personally, hand it to a great team
-              to scale. Passive data warehouses had a good run. Active, agent-driven systems are what comes next —
-              and that's what I'm building now.
+              The pattern across 8 companies and 23 years: architect it, build the MVP personally, hand it to a
+              great team to scale. Passive data warehouses had a good run. Active, agent-driven systems are what
+              comes next — and that's what I'm building now.
             </p>
 
             {/* Stats row */}
