@@ -568,7 +568,7 @@ class TestRunInteractiveSpecialCommands:
         with (
             patch(
                 "cli.commands.chat._get_agent_endpoint",
-                return_value="anthropic://agents/agent_abc123",
+                return_value="anthropic://agents/agent_abc123?env=env_xyz",
             ),
             patch(
                 "cli.commands.chat._chat_via_managed_agent",
