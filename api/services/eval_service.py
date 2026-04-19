@@ -118,7 +118,7 @@ def score_with_judge_model(
     )
 
     try:
-        import httpx  # type: ignore[import-not-found]
+        import httpx
 
         scores_raw: dict[str, float] | None = None
 
