@@ -93,7 +93,7 @@ export const test = base.extend<LiveFixtures>({
     await ctx.close();
   },
 
-  api: async ({}, use) => {
+  api: async (_fixtures, use) => {
     const state = readState();
     const clients: Record<Role, ApiClient> = {
       admin: makeApiClient(state.adminToken),
@@ -103,7 +103,7 @@ export const test = base.extend<LiveFixtures>({
     await use((role: Role) => clients[role]);
   },
 
-  state: async ({}, use) => {
+  state: async (_fixtures, use) => {
     await use(readState());
   },
 });

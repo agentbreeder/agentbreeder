@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { waitForToast, navTo, pollUntil } from './helpers';
+import { waitForToast, pollUntil } from './helpers';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
