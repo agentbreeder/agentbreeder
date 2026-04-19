@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Live e2e auth state and shared state
+.auth/
+.e2e-state.json
+playwright-report-live/
