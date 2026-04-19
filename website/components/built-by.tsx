@@ -2,8 +2,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 const CAREER_HIGHLIGHTS = [
-  { label: '$1M+', desc: 'infra savings via AI agent at Udemy' },
-  { label: '75-person', desc: 'global eng org led at Experian' },
   { label: '20+ years', desc: 'architecting enterprise data platforms' },
   { label: '8 companies', desc: 'Oracle · IBM · Yahoo · Teradata · VMware · LendingClub · Experian · Udemy' },
 ];
@@ -84,7 +82,7 @@ export function BuiltBy() {
             </p>
 
             {/* Stats row */}
-            <div className="mt-8 grid grid-cols-4 gap-4">
+            <div className="mt-8 grid grid-cols-2 gap-4">
               {CAREER_HIGHLIGHTS.map(({ label, desc }) => (
                 <div
                   key={label}
