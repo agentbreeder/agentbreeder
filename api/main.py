@@ -13,6 +13,7 @@ from api.routes import (
     a2a,
     agentops,
     agents,
+    approvals,
     audit,
     auth,
     builders,
@@ -122,6 +123,7 @@ app.include_router(marketplace.router)
 app.include_router(agentops.router)
 app.include_router(gateway.router)
 app.include_router(compliance.router)
+app.include_router(approvals.router)
 
 # v2 routes (preview)
 app.include_router(agents_v2.router)
