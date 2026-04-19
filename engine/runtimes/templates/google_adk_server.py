@@ -120,7 +120,7 @@ def _build_session_service(cfg: dict) -> Any:  # type: ignore[type-arg]
         from google.adk.sessions import InMemorySessionService
 
         logger.info("Using InMemorySessionService")
-        return InMemorySessionService()
+        return InMemorySessionService()  # type: ignore[no-untyped-call]
 
 
 def _build_memory_service(cfg: dict) -> Any:  # type: ignore[type-arg]

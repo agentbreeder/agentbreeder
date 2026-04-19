@@ -25,8 +25,12 @@ class Settings(BaseSettings):  # type: ignore[misc,unused-ignore]
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
 
-    # CORS — restrict in production via CORS_ORIGINS env var (comma-separated)
-    cors_origins: list[str] = ["*"]
+    # CORS — defaults to localhost dev ports; set CORS_ORIGINS=https://yourdomain.com in production
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:5173",
+    ]
 
     # Integrations
     litellm_base_url: str = "http://localhost:4000"

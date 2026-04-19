@@ -7,6 +7,7 @@ buffer strategies.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -18,9 +19,9 @@ class MemoryConfig:
     max_messages: int = 100
     namespace_pattern: str = "{agent_id}:{session_id}"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for YAML output."""
-        d: dict = {"backend": self.backend, "memory_type": self.memory_type}
+        d: dict[str, Any] = {"backend": self.backend, "memory_type": self.memory_type}
         if self.max_messages != 100:
             d["max_messages"] = self.max_messages
         if self.namespace_pattern != "{agent_id}:{session_id}":
@@ -35,7 +36,7 @@ class Memory:
         self.config = config or MemoryConfig()
 
     @staticmethod
-    def buffer_window(max_messages: int = 100, **kwargs) -> Memory:
+    def buffer_window(max_messages: int = 100, **kwargs: Any) -> Memory:
         """Create a buffer-window memory (sliding window of recent messages)."""
         return Memory(
             MemoryConfig(
@@ -46,12 +47,12 @@ class Memory:
         )
 
     @staticmethod
-    def buffer(**kwargs) -> Memory:
+    def buffer(**kwargs: Any) -> Memory:
         """Create an unbounded buffer memory."""
         return Memory(MemoryConfig(memory_type="buffer", **kwargs))
 
     @staticmethod
-    def postgresql(**kwargs) -> Memory:
+    def postgresql(**kwargs: Any) -> Memory:
         """Create a PostgreSQL-backed memory."""
         return Memory(MemoryConfig(backend="postgresql", **kwargs))
 
@@ -59,6 +60,6 @@ class Memory:
         """Return the underlying MemoryConfig."""
         return self.config
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for YAML output."""
         return self.config.to_dict()

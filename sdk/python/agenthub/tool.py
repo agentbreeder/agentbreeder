@@ -64,11 +64,11 @@ class ToolConfig:
     output_schema: dict[str, Any] = field(default_factory=dict)
     ref: str | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for YAML output."""
         if self.ref:
             return {"ref": self.ref}
-        d: dict = {"name": self.name}
+        d: dict[str, Any] = {"name": self.name}
         if self.description:
             d["description"] = self.description
             d["type"] = "function"
@@ -127,6 +127,6 @@ class Tool:
             ref=self.ref,
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for YAML output."""
         return self.to_config().to_dict()

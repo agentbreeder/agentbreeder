@@ -7,6 +7,7 @@ popular model providers.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -19,9 +20,9 @@ class ModelConfig:
     temperature: float = 0.7
     max_tokens: int = 4096
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for YAML output."""
-        d: dict = {"primary": self.primary}
+        d: dict[str, Any] = {"primary": self.primary}
         if self.fallback is not None:
             d["fallback"] = self.fallback
         if self.gateway is not None:
@@ -37,21 +38,21 @@ class Model:
     """Model configuration helpers with factory methods for popular models."""
 
     @staticmethod
-    def claude_sonnet(**kwargs) -> ModelConfig:
+    def claude_sonnet(**kwargs: Any) -> ModelConfig:
         """Create a config for Claude Sonnet 4."""
         return ModelConfig(primary="claude-sonnet-4", **kwargs)
 
     @staticmethod
-    def claude_opus(**kwargs) -> ModelConfig:
+    def claude_opus(**kwargs: Any) -> ModelConfig:
         """Create a config for Claude Opus 4."""
         return ModelConfig(primary="claude-opus-4", **kwargs)
 
     @staticmethod
-    def gpt4o(**kwargs) -> ModelConfig:
+    def gpt4o(**kwargs: Any) -> ModelConfig:
         """Create a config for GPT-4o."""
         return ModelConfig(primary="gpt-4o", **kwargs)
 
     @staticmethod
-    def ollama(model_name: str, **kwargs) -> ModelConfig:
+    def ollama(model_name: str, **kwargs: Any) -> ModelConfig:
         """Create a config for a local Ollama model."""
         return ModelConfig(primary=f"ollama/{model_name}", gateway="ollama", **kwargs)

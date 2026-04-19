@@ -18,9 +18,9 @@ class DeployConfig:
     env_vars: dict[str, str] = field(default_factory=dict)
     secrets: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for YAML output."""
-        d: dict = {"cloud": self.cloud}
+        d: dict[str, Any] = {"cloud": self.cloud}
         if self.runtime is not None:
             d["runtime"] = self.runtime
         if self.region is not None:
@@ -42,6 +42,6 @@ class PromptConfig:
 
     system: str
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for YAML output."""
         return {"system": self.system}
