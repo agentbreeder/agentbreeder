@@ -227,7 +227,7 @@ jobs:
           echo "$EOF" >> $GITHUB_OUTPUT
 
       - name: Download Python dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-dist
           path: dist/
@@ -253,7 +253,7 @@ jobs:
       id-token: write
     steps:
       - name: Download SDK dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sdk-dist
           path: dist/
@@ -272,7 +272,7 @@ jobs:
       id-token: write   # OIDC trusted publishing — no API key needed
     steps:
       - name: Download Python dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-dist
           path: dist/
