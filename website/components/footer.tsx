@@ -16,6 +16,10 @@ const LINKS = {
     { label: 'npm ↗', href: 'https://www.npmjs.com/package/@agentbreeder/sdk' },
     { label: 'Homebrew ↗', href: 'https://github.com/rajitsaha/homebrew-agentbreeder' },
   ],
+  Blog: [
+    { label: 'Why I Built AgentBreeder', href: '/blog/why-i-built-agentbreeder' },
+    { label: 'All Posts', href: '/blog' },
+  ],
   Community: [
     { label: 'Twitter ↗', href: 'https://twitter.com' },
     { label: 'LinkedIn ↗', href: 'https://www.linkedin.com/in/rajsaha/' },

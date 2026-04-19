@@ -59,3 +59,96 @@ body {
   0%, 100% { opacity: 0.7; }
   50%       { opacity: 0.15; }
 }
+
+/* Blog article prose */
+.prose-blog {
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.8;
+}
+.prose-blog h2 {
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+.prose-blog h3 {
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #fff;
+}
+.prose-blog p { margin-bottom: 1.25rem; }
+.prose-blog ul, .prose-blog ol {
+  margin-bottom: 1.25rem;
+  padding-left: 1.5rem;
+}
+.prose-blog li { margin-bottom: 0.4rem; }
+.prose-blog strong { color: #fff; font-weight: 600; }
+.prose-blog em { color: var(--text-muted); font-style: italic; }
+.prose-blog code {
+  font-family: var(--font-geist-mono);
+  font-size: 0.85em;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-hover);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+  color: var(--accent);
+}
+.prose-blog pre {
+  margin-bottom: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+}
+.prose-blog pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+.prose-blog hr {
+  margin: 2.5rem 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+.prose-blog a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.prose-blog a:hover { opacity: 0.85; }
+.prose-blog blockquote {
+  margin: 1.5rem 0;
+  padding: 0.75rem 1.25rem;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-surface);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.prose-blog table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+  font-size: 14px;
+}
+.prose-blog th {
+  text-align: left;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border-hover);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.prose-blog td {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.prose-blog tr:last-child td { border-bottom: none; }
