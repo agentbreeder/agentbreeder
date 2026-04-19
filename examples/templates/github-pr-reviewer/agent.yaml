@@ -1,0 +1,115 @@
+name: github-pr-reviewer-agent
+version: 1.0.0
+description: "Automated PR code reviewer that analyzes diffs for bugs, security issues, performance problems, and style violations, then posts structured inline review comments."
+team: engineering
+owner: devops@company.com
+tags: [developer-tooling, code-review, github, ci-cd, automation]
+
+model:
+  primary: claude-opus-4-7
+  temperature: 0.2
+  max_tokens: 8192
+
+framework: claude_sdk
+
+claude_sdk:
+  thinking:
+    type: adaptive
+    effort: high
+  prompt_caching: true
+
+tools:
+  - ref: tools/github-mcp
+  - name: analyze_diff
+    type: function
+    description: "Analyze a code diff and produce structured review findings"
+    schema:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: "Path of the file being reviewed"
+        diff_content:
+          type: string
+          description: "Unified diff content for the file"
+        language:
+          type: string
+          description: "Programming language detected"
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              line_number:
+                type: integer
+              severity:
+                type: string
+                enum: [critical, warning, suggestion, nitpick]
+              category:
+                type: string
+                enum: [bug, security, performance, style, logic, test_coverage, documentation]
+              comment:
+                type: string
+                description: "Review comment text"
+              suggestion:
+                type: string
+                description: "Optional suggested fix or improvement"
+            required: [line_number, severity, category, comment]
+      required: [file_path, findings]
+  - name: post_review
+    type: function
+    description: "Post a GitHub pull request review with inline comments"
+    schema:
+      type: object
+      properties:
+        repo:
+          type: string
+          description: "GitHub repository in owner/repo format"
+        pr_number:
+          type: integer
+          description: "Pull request number"
+        review_body:
+          type: string
+          description: "Top-level review summary"
+        verdict:
+          type: string
+          enum: [APPROVE, REQUEST_CHANGES, COMMENT]
+          description: "Review verdict"
+        inline_comments:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              line:
+                type: integer
+              body:
+                type: string
+            required: [path, line, body]
+      required: [repo, pr_number, review_body, verdict]
+
+prompts:
+  system: prompts/pr-reviewer-v1
+
+guardrails:
+  - hallucination_check
+
+deploy:
+  cloud: local
+  runtime: docker-compose
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    REVIEW_LANGUAGES: "python,typescript,go,java,rust"
+    MIN_SEVERITY_TO_BLOCK: "critical"
+    MAX_FILES_PER_PR: "50"
+  secrets:
+    - GITHUB_TOKEN
+    - ANTHROPIC_API_KEY
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:engineering
+  require_approval: false

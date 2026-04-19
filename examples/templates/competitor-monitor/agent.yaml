@@ -1,0 +1,131 @@
+name: competitor-monitor-agent
+version: 1.0.0
+description: "Monitors competitor websites, news, product changelogs, and pricing pages for changes, then synthesizes a weekly competitive intelligence digest posted to Slack."
+team: marketing
+owner: product-marketing@company.com
+tags: [marketing, competitive-intel, monitoring, research, slack, production]
+
+model:
+  primary: claude-sonnet-4-6
+  temperature: 0.4
+  max_tokens: 4096
+
+framework: claude_sdk
+
+claude_sdk:
+  thinking:
+    type: adaptive
+    effort: medium
+  prompt_caching: true
+
+tools:
+  - ref: tools/web-search
+  - ref: tools/rss-reader
+  - ref: tools/slack-mcp
+  - name: scan_competitor
+    type: function
+    description: "Scan a competitor's web presence for recent changes and news"
+    schema:
+      type: object
+      properties:
+        competitor_name:
+          type: string
+          description: "Name of the competitor"
+        competitor_domain:
+          type: string
+          description: "Competitor's primary domain (e.g., competitor.com)"
+        scan_areas:
+          type: array
+          items:
+            type: string
+            enum: [pricing, product_features, hiring, press_releases, blog, github, social]
+          description: "Areas to scan for this competitor"
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              area:
+                type: string
+              change_type:
+                type: string
+                enum: [new_feature, pricing_change, new_hire, funding, partnership, marketing_campaign, product_launch, other]
+              summary:
+                type: string
+                description: "Summary of what changed"
+              source_url:
+                type: string
+              date_detected:
+                type: string
+                format: date
+              significance:
+                type: string
+                enum: [high, medium, low]
+            required: [area, change_type, summary, significance]
+      required: [competitor_name, findings]
+  - name: post_digest
+    type: function
+    description: "Post the weekly competitive intelligence digest to Slack"
+    schema:
+      type: object
+      properties:
+        week_ending:
+          type: string
+          format: date
+          description: "Week end date for the digest"
+        competitors_covered:
+          type: array
+          items:
+            type: string
+        key_insights:
+          type: array
+          items:
+            type: string
+          description: "Top 3-5 strategic insights for leadership"
+        digest_markdown:
+          type: string
+          description: "Full markdown-formatted digest content"
+        alert_items:
+          type: array
+          items:
+            type: string
+          description: "High-significance items that need immediate team attention"
+        channel:
+          type: string
+          description: "Slack channel to post to"
+      required: [week_ending, competitors_covered, digest_markdown, channel]
+
+knowledge_bases:
+  - ref: kb/competitors
+  - ref: kb/our-positioning
+
+prompts:
+  system: prompts/competitor-monitor-v1
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 0
+    max: 2
+    target_cpu: 70
+  resources:
+    cpu: "0.5"
+    memory: "1Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    SCAN_SCHEDULE: "0 7 * * 1"
+    SLACK_CHANNEL: "#competitive-intel"
+    COMPETITORS: "competitor-a.com,competitor-b.com,competitor-c.com"
+  secrets:
+    - ANTHROPIC_API_KEY
+    - SLACK_BOT_TOKEN
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:marketing
+    - team:product
+  require_approval: false

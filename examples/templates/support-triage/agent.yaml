@@ -1,0 +1,101 @@
+name: support-triage-agent
+version: 1.0.0
+description: "Classifies and routes tier-1 customer support tickets using Zendesk and a knowledge base. Automatically assigns priority, category, and the right team queue."
+team: customer-success
+owner: support-eng@company.com
+tags: [support, zendesk, triage, routing, production]
+
+model:
+  primary: claude-sonnet-4-6
+  fallback: gpt-4o
+  temperature: 0.3
+  max_tokens: 2048
+
+framework: langgraph
+
+tools:
+  - ref: tools/zendesk-mcp
+  - ref: tools/knowledge-base-search
+  - name: classify_ticket
+    type: function
+    description: "Classify a support ticket into a category and priority level"
+    schema:
+      type: object
+      properties:
+        ticket_id:
+          type: string
+          description: "Zendesk ticket ID"
+        category:
+          type: string
+          enum: [billing, technical, account, shipping, general]
+          description: "Primary category for routing"
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+          description: "Ticket priority level"
+        suggested_queue:
+          type: string
+          description: "Suggested agent queue to route the ticket to"
+        reasoning:
+          type: string
+          description: "Brief explanation of the classification decision"
+      required: [ticket_id, category, priority, suggested_queue]
+  - name: update_ticket
+    type: function
+    description: "Update a Zendesk ticket with classification metadata and route to queue"
+    schema:
+      type: object
+      properties:
+        ticket_id:
+          type: string
+          description: "Zendesk ticket ID"
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Tags to apply to the ticket"
+        assignee_group:
+          type: string
+          description: "Zendesk group to assign the ticket to"
+        internal_note:
+          type: string
+          description: "Internal note summarizing triage decision"
+      required: [ticket_id, tags, assignee_group]
+
+knowledge_bases:
+  - ref: kb/product-docs
+  - ref: kb/support-playbooks
+  - ref: kb/billing-faq
+
+prompts:
+  system: prompts/support-triage-v1
+
+guardrails:
+  - pii_detection
+  - content_filter
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 5
+    target_cpu: 70
+  resources:
+    cpu: "0.5"
+    memory: "1Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    ZENDESK_SUBDOMAIN: your-company
+  secrets:
+    - ZENDESK_API_KEY
+    - OPENAI_API_KEY
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:customer-success
+    - team:engineering
+  require_approval: false

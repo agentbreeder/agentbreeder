@@ -1,0 +1,158 @@
+name: meeting-summarizer-agent
+version: 1.0.0
+description: "Transcribes meeting recordings, generates structured summaries with action items and owners, creates follow-up tasks in Notion, and sends recaps to attendees via Slack."
+team: operations
+owner: ops@company.com
+tags: [operations, meetings, productivity, notion, slack, calendar, production]
+
+model:
+  primary: claude-sonnet-4-6
+  temperature: 0.3
+  max_tokens: 6144
+
+framework: claude_sdk
+
+claude_sdk:
+  thinking:
+    type: adaptive
+    effort: medium
+  prompt_caching: true
+
+tools:
+  - ref: tools/calendar-mcp
+  - ref: tools/notion-mcp
+  - ref: tools/slack-mcp
+  - name: transcribe_meeting
+    type: function
+    description: "Transcribe a meeting recording and identify speakers"
+    schema:
+      type: object
+      properties:
+        meeting_id:
+          type: string
+          description: "Calendar event ID or meeting recording ID"
+        recording_url:
+          type: string
+          description: "URL to the meeting recording (Zoom, Google Meet, etc.)"
+        attendees:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              email:
+                type: string
+        transcript:
+          type: string
+          description: "Full meeting transcript with speaker labels"
+        duration_minutes:
+          type: integer
+          description: "Meeting duration in minutes"
+      required: [meeting_id, transcript, duration_minutes]
+  - name: extract_summary
+    type: function
+    description: "Extract structured summary, decisions, and action items from a transcript"
+    schema:
+      type: object
+      properties:
+        meeting_id:
+          type: string
+        title:
+          type: string
+          description: "Meeting title"
+        one_line_summary:
+          type: string
+          description: "One-sentence summary of the meeting"
+        key_decisions:
+          type: array
+          items:
+            type: string
+          description: "Decisions made during the meeting"
+        action_items:
+          type: array
+          items:
+            type: object
+            properties:
+              task:
+                type: string
+                description: "Action item description"
+              owner:
+                type: string
+                description: "Person responsible (name or email)"
+              due_date:
+                type: string
+                format: date
+                description: "Due date if mentioned, otherwise null"
+              priority:
+                type: string
+                enum: [high, medium, low]
+            required: [task, owner, priority]
+        discussion_topics:
+          type: array
+          items:
+            type: string
+          description: "Main topics discussed"
+        follow_up_meetings:
+          type: array
+          items:
+            type: string
+          description: "Any follow-up meetings mentioned"
+      required: [meeting_id, title, one_line_summary, key_decisions, action_items]
+  - name: create_notion_page
+    type: function
+    description: "Create a meeting notes page in Notion with summary and action items"
+    schema:
+      type: object
+      properties:
+        database_id:
+          type: string
+          description: "Notion database ID for meeting notes"
+        meeting_title:
+          type: string
+        meeting_date:
+          type: string
+          format: date
+        summary:
+          type: object
+          description: "Structured summary from extract_summary"
+        attendees:
+          type: array
+          items:
+            type: string
+      required: [database_id, meeting_title, meeting_date, summary]
+
+guardrails:
+  - pii_detection
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 4
+    target_cpu: 70
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    NOTION_MEETINGS_DATABASE_ID: your-notion-db-id
+    SEND_SLACK_RECAP: "true"
+    SLACK_RECAP_CHANNEL: "#meeting-recaps"
+    AUTO_CREATE_TASKS: "true"
+  secrets:
+    - ANTHROPIC_API_KEY
+    - NOTION_API_KEY
+    - SLACK_BOT_TOKEN
+    - CALENDAR_SERVICE_ACCOUNT
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:operations
+    - team:engineering
+    - team:product
+  require_approval: false

@@ -1,0 +1,116 @@
+name: returns-processor-agent
+version: 1.0.0
+description: "Autonomously handles customer return and refund requests end-to-end: validates eligibility, processes refunds, and updates tickets — with PII protection throughout."
+team: customer-success
+owner: returns-eng@company.com
+tags: [support, returns, refunds, automation, production]
+
+model:
+  primary: claude-sonnet-4-6
+  temperature: 0.2
+  max_tokens: 4096
+
+framework: claude_sdk
+
+claude_sdk:
+  thinking:
+    type: adaptive
+    effort: medium
+  prompt_caching: true
+
+tools:
+  - ref: tools/order-lookup
+  - ref: tools/payment-mcp
+  - ref: tools/zendesk-mcp
+  - name: check_return_eligibility
+    type: function
+    description: "Check whether an order is eligible for return based on return policy rules"
+    schema:
+      type: object
+      properties:
+        order_id:
+          type: string
+          description: "Order ID to check"
+        reason:
+          type: string
+          enum: [damaged, wrong_item, changed_mind, defective, other]
+          description: "Reason for return request"
+        days_since_purchase:
+          type: integer
+          description: "Number of days since the original purchase"
+      required: [order_id, reason, days_since_purchase]
+  - name: initiate_refund
+    type: function
+    description: "Initiate a refund for an eligible return"
+    schema:
+      type: object
+      properties:
+        order_id:
+          type: string
+          description: "Order ID to refund"
+        refund_amount:
+          type: number
+          description: "Amount to refund in USD"
+        refund_method:
+          type: string
+          enum: [original_payment, store_credit, check]
+          description: "Refund method"
+        reason_code:
+          type: string
+          description: "Internal reason code for accounting"
+      required: [order_id, refund_amount, refund_method, reason_code]
+  - name: send_return_label
+    type: function
+    description: "Generate and email a prepaid return shipping label to the customer"
+    schema:
+      type: object
+      properties:
+        order_id:
+          type: string
+        customer_email:
+          type: string
+          description: "Email address to send label to (will be masked in logs)"
+        carrier:
+          type: string
+          enum: [ups, fedex, usps]
+          default: ups
+      required: [order_id, customer_email]
+
+knowledge_bases:
+  - ref: kb/return-policy
+  - ref: kb/shipping-carriers
+
+prompts:
+  system: prompts/returns-processor-v1
+
+guardrails:
+  - pii_detection
+  - hallucination_check
+  - content_filter
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 8
+    target_cpu: 65
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    RETURN_WINDOW_DAYS: "30"
+    MAX_REFUND_AUTO_APPROVE: "500"
+  secrets:
+    - STRIPE_SECRET_KEY
+    - ZENDESK_API_KEY
+    - SHIPPO_API_KEY
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:customer-success
+  require_approval: false

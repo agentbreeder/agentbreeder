@@ -1,0 +1,116 @@
+name: lead-qualifier-agent
+version: 1.0.0
+description: "Qualifies inbound leads from HubSpot CRM by enriching them with Clearbit company data and web research, then scores and categorizes each lead for the sales team."
+team: sales
+owner: sales-ops@company.com
+tags: [sales, crm, lead-qualification, hubspot, enrichment, production]
+
+model:
+  primary: gpt-4o
+  temperature: 0.3
+  max_tokens: 3072
+
+framework: openai_agents
+
+tools:
+  - ref: tools/hubspot-mcp
+  - ref: tools/clearbit-mcp
+  - ref: tools/web-search
+  - name: score_lead
+    type: function
+    description: "Score a lead based on ICP fit, intent signals, and enriched data"
+    schema:
+      type: object
+      properties:
+        lead_id:
+          type: string
+          description: "HubSpot contact/lead ID"
+        fit_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: "Ideal customer profile fit score (0-100)"
+        intent_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: "Buying intent signal score (0-100)"
+        qualification_tier:
+          type: string
+          enum: [hot, warm, cold, disqualified]
+          description: "Lead qualification tier for sales routing"
+        icp_signals:
+          type: array
+          items:
+            type: string
+          description: "ICP match signals found (e.g., 'Series B+', '200-1000 employees', 'SaaS company')"
+        disqualification_reasons:
+          type: array
+          items:
+            type: string
+          description: "Reasons for disqualification if tier is disqualified"
+        recommended_action:
+          type: string
+          enum: [immediate_outreach, sequence_enrollment, nurture_campaign, disqualify]
+          description: "Recommended next action for the sales team"
+        summary:
+          type: string
+          description: "2-3 sentence qualification summary for the sales rep"
+      required: [lead_id, fit_score, intent_score, qualification_tier, recommended_action, summary]
+  - name: update_crm
+    type: function
+    description: "Update HubSpot contact with qualification data and route to sales owner"
+    schema:
+      type: object
+      properties:
+        lead_id:
+          type: string
+        properties:
+          type: object
+          description: "HubSpot properties to update (qualification_tier, fit_score, etc.)"
+        owner_id:
+          type: string
+          description: "HubSpot user ID of the sales rep to assign this lead to"
+        sequence_id:
+          type: string
+          description: "HubSpot sequence to enroll the lead in (if applicable)"
+        internal_note:
+          type: string
+          description: "Note to add to the contact activity timeline"
+      required: [lead_id, properties]
+
+knowledge_bases:
+  - ref: kb/ideal-customer-profile
+  - ref: kb/qualification-criteria
+
+prompts:
+  system: prompts/lead-qualifier-v1
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 6
+    target_cpu: 65
+  resources:
+    cpu: "0.5"
+    memory: "1Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    MIN_EMPLOYEE_COUNT: "50"
+    TARGET_INDUSTRIES: "saas,fintech,healthtech,ecommerce"
+    HOT_LEAD_THRESHOLD: "75"
+  secrets:
+    - OPENAI_API_KEY
+    - HUBSPOT_API_KEY
+    - CLEARBIT_API_KEY
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:sales
+    - team:marketing
+  require_approval: false

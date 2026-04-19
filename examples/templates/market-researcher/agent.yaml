@@ -1,0 +1,166 @@
+name: market-researcher-agent
+version: 1.0.0
+description: "Synthesizes deep market research reports from web sources, academic papers (ArXiv), industry news, and analyst feeds — producing structured reports with citations, trends, and strategic implications."
+team: product
+owner: product-strategy@company.com
+tags: [research, market-intelligence, competitive-analysis, strategy, production]
+
+model:
+  primary: claude-opus-4-7
+  temperature: 0.5
+  max_tokens: 8192
+
+framework: crewai
+
+tools:
+  - ref: tools/web-search
+  - ref: tools/arxiv-search
+  - ref: tools/news-mcp
+  - name: collect_sources
+    type: function
+    description: "Collect and deduplicate sources for a research topic from multiple search channels"
+    schema:
+      type: object
+      properties:
+        topic:
+          type: string
+          description: "Research topic or question"
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              url:
+                type: string
+              source_type:
+                type: string
+                enum: [web, arxiv, news, analyst_report, blog]
+              published_date:
+                type: string
+                format: date
+              relevance_score:
+                type: number
+                minimum: 0
+                maximum: 1
+              key_excerpt:
+                type: string
+                description: "Most relevant excerpt (< 300 chars)"
+            required: [title, url, source_type, relevance_score, key_excerpt]
+        total_sources_reviewed:
+          type: integer
+          description: "Total number of sources reviewed before deduplication"
+      required: [topic, sources, total_sources_reviewed]
+  - name: synthesize_research
+    type: function
+    description: "Synthesize collected sources into a structured market research report"
+    schema:
+      type: object
+      properties:
+        topic:
+          type: string
+        executive_summary:
+          type: string
+          description: "3-5 sentence executive summary"
+        market_size_estimate:
+          type: string
+          description: "TAM/SAM estimate with source citations if available"
+        key_trends:
+          type: array
+          items:
+            type: object
+            properties:
+              trend:
+                type: string
+              evidence:
+                type: string
+                description: "Evidence and sources supporting this trend"
+              time_horizon:
+                type: string
+                enum: [near_term_1y, medium_term_3y, long_term_5y_plus]
+            required: [trend, evidence, time_horizon]
+        key_players:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              role:
+                type: string
+                enum: [incumbent, challenger, enabler, disruptor]
+              notable_moves:
+                type: string
+            required: [name, role]
+        strategic_implications:
+          type: array
+          items:
+            type: string
+          description: "Strategic implications for the business (3-5 items)"
+        gaps_and_limitations:
+          type: string
+          description: "Acknowledged gaps in the research or areas needing deeper investigation"
+        sources_cited:
+          type: integer
+          description: "Number of sources cited in the report"
+      required: [topic, executive_summary, key_trends, strategic_implications, sources_cited]
+  - name: format_report
+    type: function
+    description: "Format the research synthesis into a publishable report with full citations"
+    schema:
+      type: object
+      properties:
+        report_title:
+          type: string
+        date:
+          type: string
+          format: date
+        synthesis:
+          type: object
+          description: "Output from synthesize_research"
+        output_format:
+          type: string
+          enum: [markdown, notion, google_docs, pdf]
+          default: markdown
+        include_toc:
+          type: boolean
+          default: true
+      required: [report_title, date, synthesis]
+
+knowledge_bases:
+  - ref: kb/market-context
+  - ref: kb/previous-research
+
+prompts:
+  system: prompts/market-researcher-v1
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 0
+    max: 3
+    target_cpu: 70
+  resources:
+    cpu: "2"
+    memory: "4Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    MAX_SOURCES_PER_TOPIC: "50"
+    ARXIV_LOOKBACK_MONTHS: "6"
+    NEWS_LOOKBACK_DAYS: "90"
+    DEFAULT_OUTPUT_FORMAT: "markdown"
+  secrets:
+    - ANTHROPIC_API_KEY
+    - NEWS_API_KEY
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:product
+    - team:strategy
+    - team:marketing
+  require_approval: false

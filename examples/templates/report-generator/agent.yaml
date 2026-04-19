@@ -1,0 +1,127 @@
+name: report-generator-agent
+version: 1.0.0
+description: "Generates daily business intelligence digests by pulling metrics from BigQuery and Snowflake, synthesizing trends, and posting formatted summaries to configured Slack channels."
+team: data
+owner: analytics@company.com
+tags: [analytics, reporting, slack, bigquery, snowflake, automation, daily-digest]
+
+model:
+  primary: gpt-4o
+  temperature: 0.4
+  max_tokens: 4096
+
+framework: crewai
+
+tools:
+  - ref: tools/slack-mcp
+  - ref: tools/bigquery-mcp
+  - ref: tools/snowflake-mcp
+  - name: fetch_metrics
+    type: function
+    description: "Fetch a set of business metrics for a given date range"
+    schema:
+      type: object
+      properties:
+        metric_names:
+          type: array
+          items:
+            type: string
+          description: "List of metric names to fetch (must be in the metrics registry)"
+        start_date:
+          type: string
+          format: date
+          description: "Start date in YYYY-MM-DD format"
+        end_date:
+          type: string
+          format: date
+          description: "End date in YYYY-MM-DD format"
+        compare_to_period:
+          type: string
+          enum: [previous_day, previous_week, previous_month, previous_quarter]
+          description: "Comparison period for trend analysis"
+      required: [metric_names, start_date, end_date]
+  - name: generate_digest
+    type: function
+    description: "Generate a formatted Slack digest message from collected metrics"
+    schema:
+      type: object
+      properties:
+        report_title:
+          type: string
+          description: "Report title (e.g., 'Daily Business Digest — Apr 19, 2026')"
+        sections:
+          type: array
+          items:
+            type: object
+            properties:
+              section_title:
+                type: string
+              metrics:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    value:
+                      type: string
+                    change:
+                      type: string
+                      description: "Change vs comparison period (e.g., '+12%')"
+                    trend:
+                      type: string
+                      enum: [up, down, flat]
+              summary:
+                type: string
+                description: "1-2 sentence narrative summary of the section"
+            required: [section_title, metrics, summary]
+          description: "Report sections (e.g., Revenue, Signups, Support)"
+        key_highlights:
+          type: array
+          items:
+            type: string
+          description: "Top 3 highlights to call out prominently"
+        anomalies:
+          type: array
+          items:
+            type: string
+          description: "Any anomalies or metrics significantly off from expected range"
+      required: [report_title, sections]
+
+knowledge_bases:
+  - ref: kb/metrics-definitions
+  - ref: kb/reporting-config
+
+prompts:
+  system: prompts/report-generator-v1
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 0
+    max: 2
+    target_cpu: 80
+  resources:
+    cpu: "0.5"
+    memory: "1Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    REPORT_SCHEDULE: "0 8 * * 1-5"
+    SLACK_CHANNEL_EXEC: "#exec-digest"
+    SLACK_CHANNEL_DATA: "#data-team"
+    COMPARISON_PERIOD: "previous_week"
+  secrets:
+    - OPENAI_API_KEY
+    - SLACK_BOT_TOKEN
+    - BIGQUERY_CREDENTIALS
+    - SNOWFLAKE_CONNECTION_STRING
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:data
+    - team:analytics
+  require_approval: false

@@ -1,0 +1,127 @@
+name: sql-analyst-agent
+version: 1.0.0
+description: "Translates natural language questions into SQL queries, executes them against your data warehouse, and returns results with plain-language explanations and visualisation suggestions."
+team: data
+owner: data-eng@company.com
+tags: [data, analytics, sql, natural-language, bigquery, postgres, production]
+
+model:
+  primary: claude-sonnet-4-6
+  temperature: 0.2
+  max_tokens: 4096
+
+framework: langgraph
+
+claude_sdk:
+  prompt_caching: true
+
+tools:
+  - ref: tools/database-mcp
+  - name: generate_sql
+    type: function
+    description: "Generate a SQL query from a natural language question and schema context"
+    schema:
+      type: object
+      properties:
+        question:
+          type: string
+          description: "Natural language question from the user"
+        sql_query:
+          type: string
+          description: "Generated SQL query"
+        explanation:
+          type: string
+          description: "Plain-language explanation of what the query does"
+        tables_used:
+          type: array
+          items:
+            type: string
+          description: "List of tables referenced in the query"
+        estimated_row_scan:
+          type: string
+          enum: [small, medium, large, very_large]
+          description: "Estimated data scan size for cost awareness"
+      required: [question, sql_query, explanation, tables_used]
+  - name: execute_query
+    type: function
+    description: "Execute a SQL query and return results with row count"
+    schema:
+      type: object
+      properties:
+        sql_query:
+          type: string
+          description: "SQL query to execute"
+        max_rows:
+          type: integer
+          default: 1000
+          description: "Maximum rows to return"
+        timeout_seconds:
+          type: integer
+          default: 30
+          description: "Query timeout in seconds"
+      required: [sql_query]
+  - name: suggest_visualization
+    type: function
+    description: "Suggest the best chart type for the query results"
+    schema:
+      type: object
+      properties:
+        result_shape:
+          type: string
+          description: "Description of result columns and types"
+        chart_type:
+          type: string
+          enum: [bar, line, pie, scatter, table, number_card, heatmap]
+          description: "Recommended chart type"
+        x_axis:
+          type: string
+          description: "Recommended x-axis column"
+        y_axis:
+          type: string
+          description: "Recommended y-axis column"
+        reasoning:
+          type: string
+          description: "Why this chart type was chosen"
+      required: [result_shape, chart_type, reasoning]
+
+knowledge_bases:
+  - ref: kb/data-dictionary
+  - ref: kb/schema-docs
+  - ref: kb/sql-examples
+
+prompts:
+  system: prompts/sql-analyst-v1
+
+guardrails:
+  - content_filter
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 6
+    target_cpu: 70
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    DEFAULT_DATABASE: bigquery
+    MAX_QUERY_ROWS: "1000"
+    QUERY_TIMEOUT_SECONDS: "30"
+    ALLOW_WRITE_QUERIES: "false"
+  secrets:
+    - BIGQUERY_CREDENTIALS
+    - DATABASE_URL
+    - ANTHROPIC_API_KEY
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:data
+    - team:analytics
+    - team:product
+  require_approval: false

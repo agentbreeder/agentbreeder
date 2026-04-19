@@ -1,0 +1,97 @@
+name: escalation-classifier-agent
+version: 1.0.0
+description: "Binary classifier that determines whether a support ticket requires immediate human escalation based on sentiment, complexity, VIP status, and legal/compliance signals."
+team: customer-success
+owner: support-eng@company.com
+tags: [support, escalation, classifier, triage, production]
+
+model:
+  primary: gpt-4o
+  fallback: claude-sonnet-4-6
+  temperature: 0.1
+  max_tokens: 1024
+
+framework: openai_agents
+
+tools:
+  - ref: tools/zendesk-mcp
+  - name: classify_escalation
+    type: function
+    description: "Classify whether a ticket needs human escalation and provide a confidence score with reasoning"
+    schema:
+      type: object
+      properties:
+        ticket_id:
+          type: string
+          description: "Zendesk ticket ID"
+        escalate:
+          type: boolean
+          description: "True if the ticket should be escalated to a human agent immediately"
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: "Confidence score (0-1) for the escalation decision"
+        signals:
+          type: array
+          items:
+            type: string
+            enum: [high_sentiment_anger, vip_customer, legal_threat, billing_dispute_large, repeat_contact, safety_concern, media_mention, complexity_high]
+          description: "Escalation signals detected in the ticket"
+        reasoning:
+          type: string
+          description: "One-sentence explanation of the escalation decision"
+        priority_override:
+          type: string
+          enum: [urgent, high, normal, null]
+          description: "Override the ticket priority if needed"
+      required: [ticket_id, escalate, confidence, signals, reasoning]
+  - name: flag_ticket
+    type: function
+    description: "Add escalation flag and metadata to a Zendesk ticket"
+    schema:
+      type: object
+      properties:
+        ticket_id:
+          type: string
+        escalation_tag:
+          type: string
+          enum: [needs-human, auto-handled, monitor]
+        internal_note:
+          type: string
+          description: "Internal note with escalation reasoning for the human agent"
+        priority:
+          type: string
+          enum: [urgent, high, normal, low]
+      required: [ticket_id, escalation_tag]
+
+prompts:
+  system: prompts/escalation-classifier-v1
+
+guardrails:
+  - content_filter
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 2
+    max: 10
+    target_cpu: 60
+  resources:
+    cpu: "0.25"
+    memory: "512Mi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    ESCALATION_CONFIDENCE_THRESHOLD: "0.7"
+  secrets:
+    - ZENDESK_API_KEY
+    - OPENAI_API_KEY
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:customer-success
+  require_approval: false

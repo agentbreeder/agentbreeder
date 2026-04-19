@@ -1,0 +1,127 @@
+name: incident-responder-agent
+version: 1.0.0
+description: "On-call incident response agent that queries runbooks, coordinates Slack war room communication, creates PagerDuty incidents, and drafts status page updates during outages."
+team: engineering
+owner: oncall@company.com
+tags: [incident-response, oncall, devops, slack, pagerduty, production]
+
+model:
+  primary: claude-sonnet-4-6
+  temperature: 0.2
+  max_tokens: 4096
+
+framework: langgraph
+
+tools:
+  - ref: tools/slack-mcp
+  - ref: tools/pagerduty-mcp
+  - ref: tools/runbook-search
+  - name: create_incident
+    type: function
+    description: "Create a structured incident record and open a PagerDuty incident"
+    schema:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Short incident title (< 80 chars)"
+        severity:
+          type: string
+          enum: [SEV1, SEV2, SEV3, SEV4]
+          description: "Incident severity level"
+        affected_services:
+          type: array
+          items:
+            type: string
+          description: "List of affected services or components"
+        summary:
+          type: string
+          description: "Brief description of what is happening and known impact"
+        pagerduty_service_id:
+          type: string
+          description: "PagerDuty service ID to create the incident under"
+        oncall_policy_id:
+          type: string
+          description: "PagerDuty escalation policy ID to notify"
+      required: [title, severity, affected_services, summary]
+  - name: create_war_room
+    type: function
+    description: "Create a Slack incident channel and invite relevant responders"
+    schema:
+      type: object
+      properties:
+        incident_id:
+          type: string
+          description: "Incident identifier for channel naming (e.g., INC-2024-001)"
+        channel_name:
+          type: string
+          description: "Slack channel name (e.g., inc-2024-001-api-outage)"
+        responder_groups:
+          type: array
+          items:
+            type: string
+          description: "Slack user groups to invite (e.g., @backend-oncall)"
+        initial_message:
+          type: string
+          description: "Initial incident summary message to post in the channel"
+      required: [incident_id, channel_name, initial_message]
+  - name: draft_status_update
+    type: function
+    description: "Draft a customer-facing status page update for the incident"
+    schema:
+      type: object
+      properties:
+        incident_id:
+          type: string
+        status:
+          type: string
+          enum: [investigating, identified, monitoring, resolved]
+        customer_message:
+          type: string
+          description: "Customer-facing message (no internal jargon)"
+        affected_components:
+          type: array
+          items:
+            type: string
+      required: [incident_id, status, customer_message, affected_components]
+
+knowledge_bases:
+  - ref: kb/runbooks
+  - ref: kb/service-catalog
+  - ref: kb/incident-playbooks
+
+prompts:
+  system: prompts/incident-responder-v1
+
+guardrails:
+  - content_filter
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 2
+    max: 4
+    target_cpu: 70
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    SLACK_WORKSPACE: your-company
+    DEFAULT_WAR_ROOM_PREFIX: "inc"
+    STATUS_PAGE_AUTO_UPDATE: "true"
+  secrets:
+    - SLACK_BOT_TOKEN
+    - PAGERDUTY_API_KEY
+    - ANTHROPIC_API_KEY
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:engineering
+    - team:devops
+    - team:sre
+  require_approval: false

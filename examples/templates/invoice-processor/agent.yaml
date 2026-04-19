@@ -1,0 +1,173 @@
+name: invoice-processor-agent
+version: 1.0.0
+description: "Processes inbound vendor invoices: extracts structured data from PDFs, validates against POs and contracts, routes for approval based on amount thresholds, and posts to the accounting system."
+team: finance
+owner: finance-ops@company.com
+tags: [finance, invoices, ap-automation, accounting, operations, production]
+
+model:
+  primary: claude-sonnet-4-6
+  temperature: 0.1
+  max_tokens: 4096
+
+framework: langgraph
+
+claude_sdk:
+  prompt_caching: true
+
+tools:
+  - ref: tools/email-mcp
+  - ref: tools/accounting-mcp
+  - name: extract_invoice_data
+    type: function
+    description: "Extract structured data from an invoice PDF or email attachment"
+    schema:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          description: "Internal invoice tracking ID"
+        vendor_name:
+          type: string
+          description: "Vendor or supplier name"
+        vendor_tax_id:
+          type: string
+          description: "Vendor EIN/Tax ID if present"
+        invoice_number:
+          type: string
+          description: "Vendor's invoice number"
+        invoice_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        line_items:
+          type: array
+          items:
+            type: object
+            properties:
+              description:
+                type: string
+              quantity:
+                type: number
+              unit_price:
+                type: number
+              amount:
+                type: number
+              gl_code:
+                type: string
+                description: "Suggested general ledger code"
+            required: [description, amount]
+        subtotal:
+          type: number
+        tax_amount:
+          type: number
+        total_amount:
+          type: number
+        currency:
+          type: string
+          default: "USD"
+        payment_terms:
+          type: string
+          description: "e.g., Net 30, Net 60"
+        po_number:
+          type: string
+          description: "Purchase order number if referenced"
+        extraction_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: "Confidence score for the extraction (flag low confidence for manual review)"
+      required: [vendor_name, invoice_number, invoice_date, total_amount, currency, extraction_confidence]
+  - name: validate_invoice
+    type: function
+    description: "Validate an extracted invoice against POs, contracts, and business rules"
+    schema:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+        validation_status:
+          type: string
+          enum: [valid, needs_review, rejected]
+        validation_issues:
+          type: array
+          items:
+            type: object
+            properties:
+              issue_type:
+                type: string
+                enum: [po_mismatch, duplicate_invoice, amount_variance, missing_po, unknown_vendor, tax_discrepancy]
+              description:
+                type: string
+              severity:
+                type: string
+                enum: [blocking, warning]
+            required: [issue_type, description, severity]
+        po_match_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: "Confidence that this invoice matches the referenced PO"
+        approval_tier:
+          type: string
+          enum: [auto_approve, manager_approval, director_approval, cfo_approval]
+          description: "Approval tier based on amount and policy"
+      required: [invoice_id, validation_status, approval_tier]
+  - name: route_for_approval
+    type: function
+    description: "Route an invoice to the appropriate approver based on amount and department"
+    schema:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+        approver_email:
+          type: string
+          description: "Email of the approver to notify"
+        approval_tier:
+          type: string
+          enum: [auto_approve, manager_approval, director_approval, cfo_approval]
+        approval_deadline:
+          type: string
+          format: date
+          description: "Deadline for approval based on invoice due date"
+        context_summary:
+          type: string
+          description: "Brief summary for the approver"
+      required: [invoice_id, approver_email, approval_tier, context_summary]
+
+guardrails:
+  - pii_detection
+  - hallucination_check
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 4
+    target_cpu: 60
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    AUTO_APPROVE_THRESHOLD: "500"
+    MANAGER_APPROVAL_THRESHOLD: "5000"
+    DIRECTOR_APPROVAL_THRESHOLD: "25000"
+    LOW_CONFIDENCE_THRESHOLD: "0.85"
+    AP_EMAIL: "ap@company.com"
+  secrets:
+    - ANTHROPIC_API_KEY
+    - EMAIL_SERVICE_API_KEY
+    - ACCOUNTING_API_KEY
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:finance
+  require_approval: false
