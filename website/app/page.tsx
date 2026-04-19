@@ -9,6 +9,7 @@ import { RegistryLifecycle } from '@/components/registry-lifecycle';
 import { Features } from '@/components/features';
 import { HowItWorks } from '@/components/how-it-works';
 import { CloudComing } from '@/components/cloud-coming';
+import { BuiltBy } from '@/components/built-by';
 import { Footer } from '@/components/footer';
 
 export default function HomePage() {
@@ -25,6 +26,7 @@ export default function HomePage() {
         <RegistryLifecycle />
         <Features />
         <HowItWorks />
+        <BuiltBy />
         <div className="border-t" style={{ borderColor: 'var(--border)' }} />
         <CloudComing />
       </main>
