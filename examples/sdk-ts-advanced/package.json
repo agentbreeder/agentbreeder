@@ -1,0 +1,8 @@
+{
+  "name": "sdk-ts-advanced",
+  "version": "1.0.0",
+  "description": "Advanced TypeScript SDK example showing memory, middleware, and events",
+  "scripts": { "start": "npx ts-node agent.ts" },
+  "dependencies": { "@agentbreeder/sdk": "*" },
+  "devDependencies": { "typescript": "^5.0.0", "ts-node": "^10.0.0" }
+}

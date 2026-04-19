@@ -2,6 +2,8 @@
 
 import { Model } from "./model";
 import { Tool } from "./tool";
+import { Memory } from "./memory";
+import type { MemoryConfig } from "./memory";
 import type {
   AgentConfig,
   CloudType,
@@ -39,6 +41,10 @@ export class Agent {
   private _guardrails: string[] = [];
   private _deploy: DeployConfig | null = null;
   private _knowledgeBases: Array<{ ref: string }> = [];
+  private _memory: Memory | null = null;
+  private _middlewares: Array<(msg: string, ctx: Record<string, unknown>) => Record<string, unknown>> = [];
+  private _handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+  private _state: Record<string, unknown> = {};
 
   constructor(name: string, opts: AgentOptions = {}) {
     this._name = name;
@@ -89,16 +95,47 @@ export class Agent {
     return this;
   }
 
+  withMemory(backend: string, opts?: Partial<MemoryConfig>): this {
+    this._memory = Memory.fromConfig({ backend, ...opts });
+    return this;
+  }
+
   tag(...tags: string[]): this {
     this._tags.push(...tags);
     return this;
+  }
+
+  use(middleware: (msg: string, ctx: Record<string, unknown>) => Record<string, unknown>): this {
+    this._middlewares.push(middleware);
+    return this;
+  }
+
+  on(
+    event: "tool_call" | "turn_start" | "turn_end" | "error",
+    handler: (...args: unknown[]) => void
+  ): this {
+    if (!this._handlers[event]) this._handlers[event] = [];
+    this._handlers[event].push(handler);
+    return this;
+  }
+
+  get state(): Record<string, unknown> {
+    return { ...this._state };
+  }
+
+  route(_message: string, _context: Record<string, unknown>): string | null {
+    return null;
+  }
+
+  selectTools(_message: string): Tool[] {
+    return [];
   }
 
   toConfig(): AgentConfig {
     if (!this._model) throw new Error("Model is required — call .withModel()");
     if (!this._deploy) throw new Error("Deploy config is required — call .withDeploy()");
 
-    return {
+    const config: AgentConfig = {
       name: this._name,
       version: this._version,
       description: this._description,
@@ -115,6 +152,12 @@ export class Agent {
       guardrails: this._guardrails,
       deploy: this._deploy,
     };
+
+    if (this._memory) {
+      config.memory = this._memory.toConfig();
+    }
+
+    return config;
   }
 
   toYaml(): string {
@@ -128,5 +171,64 @@ export class Agent {
     if (!this._deploy) errors.push("deploy config is required — call .withDeploy()");
     if (!this._team) errors.push("team is required");
     return errors;
+  }
+
+  static fromYaml(yaml: string): Agent {
+    // Parse minimal YAML by extracting key: value pairs
+    // For production use, a proper YAML parser should be used
+    const lines = yaml.split("\n");
+    const getValue = (key: string): string | undefined => {
+      const line = lines.find((l) => l.trimStart().startsWith(`${key}:`));
+      if (!line) return undefined;
+      const val = line.slice(line.indexOf(":") + 1).trim();
+      return val.replace(/^["']|["']$/g, "");
+    };
+
+    const name = getValue("name") ?? "unnamed-agent";
+    const version = getValue("version");
+    const description = getValue("description");
+    const team = getValue("team");
+    const owner = getValue("owner");
+    const framework = getValue("framework") as FrameworkType | undefined;
+
+    const agent = new Agent(name, {
+      version: version ?? "1.0.0",
+      description,
+      team: team ?? "default",
+      owner: owner ?? "",
+      framework: framework ?? "custom",
+    });
+
+    // Parse model section
+    const primary = getValue("primary");
+    const fallback = getValue("fallback");
+    if (primary) {
+      agent.withModel(primary, fallback ? { fallback } : undefined);
+    }
+
+    // Parse deploy section
+    const cloud = getValue("cloud") as CloudType | undefined;
+    const runtime = getValue("runtime");
+    if (cloud) {
+      agent.withDeploy(cloud, runtime ? { runtime } : undefined);
+    }
+
+    return agent;
+  }
+
+  static async fromFile(path: string): Promise<Agent> {
+    const { readFile } = await import("fs/promises");
+    const content = await readFile(path, "utf-8");
+    return Agent.fromYaml(content);
+  }
+
+  async save(path: string): Promise<void> {
+    const { writeFile } = await import("fs/promises");
+    await writeFile(path, this.toYaml(), "utf-8");
+  }
+
+  async deploy(target?: string): Promise<import("./deploy").DeployResult> {
+    const { deploy: deployFn } = await import("./deploy");
+    return deployFn(this.toConfig(), target);
   }
 }

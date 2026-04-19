@@ -1,5 +1,7 @@
 /** Core types for AgentBreeder TypeScript SDK. */
 
+import type { MemoryConfig } from "./memory";
+
 export type FrameworkType =
   | "langgraph"
   | "crewai"
@@ -87,7 +89,10 @@ export interface AgentConfig {
   guardrails?: string[];
   deploy: DeployConfig;
   access?: AccessConfig;
+  memory?: MemoryConfig;
 }
+
+export type { MemoryConfig };
 
 export interface OrchestrationStrategy {
   type: "router" | "sequential" | "parallel" | "hierarchical" | "supervisor" | "fan_out_fan_in";

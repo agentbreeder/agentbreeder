@@ -1,258 +1,300 @@
 # @agentbreeder/sdk
 
-[![npm](https://img.shields.io/npm/v/@agentbreeder/sdk)](https://www.npmjs.com/package/@agentbreeder/sdk)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![CI](https://github.com/rajitsaha/agentbreeder/actions/workflows/ci.yml/badge.svg)](https://github.com/rajitsaha/agentbreeder/actions)
+TypeScript SDK for [AgentBreeder](https://agent-breeder.com) — Define Once. Deploy Anywhere.
 
-TypeScript SDK for [AgentBreeder](https://agent-breeder.com) — Define Once. Deploy Anywhere. Govern Automatically.
+Build, configure, and deploy AI agents to AWS, GCP, or any supported cloud with a fluent TypeScript API.
 
----
-
-## What is this?
-
-`@agentbreeder/sdk` is the **Full Code tier** of AgentBreeder. You define agents programmatically in TypeScript using a fluent builder API; the SDK serializes your config to `agent.yaml` and hands it off to the AgentBreeder deploy pipeline — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic.
-
-The same deploy pipeline powers the No Code (UI drag-and-drop) and Low Code (handwritten YAML) tiers. All three compile to the same format. There is no SDK-only fast path that skips governance.
-
----
-
-## Install
+## Installation
 
 ```bash
 npm install @agentbreeder/sdk
 ```
 
-Requires Node.js 18+. Ships as both ESM and CJS.
-
----
-
 ## Quick Start
 
 ```typescript
-import { Agent, Tool, deploy } from "@agentbreeder/sdk";
+import { Agent, Tool, validateAgent } from "@agentbreeder/sdk";
 
-const agent = new Agent("customer-support", {
+const searchTool = new Tool("web_search")
+  .description("Search the web for information")
+  .schema({ query: { type: "string", description: "Search query" } });
+
+const agent = new Agent("research-assistant", {
   version: "1.0.0",
-  team: "customer-success",
-  owner: "alice@company.com",
-  framework: "langgraph",
+  description: "A helpful research assistant",
+  team: "engineering",
+  owner: "team@company.com",
+  framework: "claude_sdk",
 })
-  .withModel("claude-sonnet-4", { fallback: "gpt-4o", temperature: 0.7 })
-  .withPrompt("You are a helpful customer support agent.")
-  .withTool(Tool.fromRef("tools/zendesk-mcp"))
-  .withTool(Tool.fromRef("tools/order-lookup"))
+  .withModel("claude-sonnet-4-6", { temperature: 0.7 })
+  .withTool(searchTool)
   .withGuardrail("pii_detection")
-  .withDeploy("aws", { region: "us-east-1" })
-  .tag("support", "zendesk", "production");
+  .withDeploy("aws", { runtime: "ecs-fargate" });
 
-// Validate before committing
-const errors = agent.validate();
+// Validate before deploying
+const errors = validateAgent(agent.toConfig());
 if (errors.length > 0) {
   console.error("Validation errors:", errors);
   process.exit(1);
 }
 
-// Write agent.yaml
-import { writeFileSync } from "fs";
-writeFileSync("agent.yaml", agent.toYaml());
+// Serialize to agent.yaml
+console.log(agent.toYaml());
 
-// Or deploy directly
-const result = await deploy(agent.toConfig(), "aws");
-console.log("Live at:", result.endpoint);
+// Deploy
+const result = await agent.deploy("aws");
+console.log("Deployed:", result);
 ```
 
----
+## API Reference
 
-## Multi-Agent Orchestration
+### `Agent`
 
-The SDK provides four orchestration patterns via purpose-built classes. All patterns serialize to `orchestration.yaml` and share the same deploy pipeline.
-
-### Pipeline — sequential chain
+The main builder class for defining an agent.
 
 ```typescript
-import { Pipeline } from "@agentbreeder/sdk";
-
-const pipeline = new Pipeline("triage-and-resolve", {
-  version: "1.0.0",
-  team: "customer-success",
-})
-  .step("triage", "agents/triage-agent")
-  .step("resolver", "agents/resolver-agent")
-  .step("summarizer", "agents/summary-agent")
-  .withDeploy("aws");
-
-writeFileSync("orchestration.yaml", pipeline.toYaml());
+const agent = new Agent(name: string, opts?: AgentOptions)
 ```
 
-### FanOut — parallel workers with merge
+**AgentOptions:**
 
-```typescript
-import { FanOut } from "@agentbreeder/sdk";
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `version` | `string` | `"1.0.0"` | SemVer version |
+| `description` | `string` | `""` | Human-readable description |
+| `team` | `string` | `"default"` | Team owning this agent |
+| `owner` | `string` | `""` | Owner email |
+| `framework` | `FrameworkType` | `"custom"` | Runtime framework |
+| `tags` | `string[]` | `[]` | Discovery tags |
 
-const fanout = new FanOut("multi-region-analysis", {
-  version: "1.0.0",
-  team: "data",
-})
-  .worker("us-analyst", "agents/regional-analyst")
-  .worker("eu-analyst", "agents/regional-analyst")
-  .worker("apac-analyst", "agents/regional-analyst")
-  .merge("agents/report-merger")
-  .withMergeStrategy("aggregate")
-  .withDeploy("gcp");
-```
-
-### Supervisor — hierarchical delegation
-
-```typescript
-import { Supervisor } from "@agentbreeder/sdk";
-
-const supervisor = new Supervisor("research-team", {
-  version: "1.0.0",
-  team: "research",
-})
-  .withSupervisorAgent("planner", "agents/research-planner")
-  .worker("web-researcher", "agents/web-search-agent")
-  .worker("doc-analyst", "agents/document-analyst")
-  .worker("writer", "agents/report-writer")
-  .withMaxIterations(5)
-  .withDeploy("aws");
-```
-
-### Orchestration with routing
-
-```typescript
-import { Orchestration } from "@agentbreeder/sdk";
-
-const router = new Orchestration("support-router", "router", {
-  version: "1.0.0",
-  team: "customer-success",
-})
-  .addAgent("billing", "agents/billing-agent")
-  .addAgent("technical", "agents/technical-agent")
-  .addAgent("returns", "agents/returns-agent")
-  .withRoute("billing", "intent == 'billing'", "billing")
-  .withRoute("technical", "intent == 'technical'", "technical")
-  .withSharedState("redis", "redis://cache:6379")
-  .withDeploy("aws");
-```
-
----
-
-## Key Classes
-
-| Class / Function | Description |
-|---|---|
-| `Agent` | Fluent builder for a single agent. Produces `AgentConfig` / `agent.yaml`. |
-| `Model` | Standalone model config builder with chained `.fallback()`, `.temperature()`, `.maxTokens()`, `.gateway()`. |
-| `Tool` | Wraps a registry ref (`Tool.fromRef("tools/...")`) or an inline tool definition with `.withSchema()`. |
-| `Pipeline` | Sequential orchestration — each step receives the previous step's output. |
-| `FanOut` | Fan-out to parallel workers, merge results with a configurable `MergeStrategy`. |
-| `Supervisor` | Hierarchical orchestration with a supervisor agent that delegates to workers. |
-| `Orchestration` | Base class for custom routing, shared state, and any strategy not covered by the helpers. |
-| `KeywordRouter` | Routes messages to agents by keyword match. |
-| `IntentRouter` | Routes based on a pre-classified `context["intent"]` value. |
-| `RoundRobinRouter` | Distributes messages across agents in round-robin order. |
-| `deploy(config, target?)` | Async function that submits an `AgentConfig` to the AgentBreeder deploy pipeline. |
-| `agentToYaml(config)` | Serialize a plain `AgentConfig` object to a YAML string. |
-| `orchestrationToYaml(config)` | Serialize a plain `OrchestrationConfig` object to a YAML string. |
-
-### `Agent` builder methods
+**Builder methods (all return `this` for chaining):**
 
 | Method | Description |
-|---|---|
-| `.withModel(primary, opts?)` | Set primary model, optional `fallback`, `temperature`, `maxTokens`. |
-| `.withPrompt(system)` | Set the system prompt (inline string or registry ref). |
-| `.withTool(tool)` | Add a `Tool` instance. |
-| `.withSubagent(ref, opts?)` | Reference another agent as a callable subagent. |
-| `.withMcpServer(ref, transport?)` | Attach an MCP server (`stdio`, `sse`, or `streamable_http`). |
-| `.withGuardrail(name)` | Add a guardrail by name (`pii_detection`, `content_filter`, `hallucination_check`, or a custom endpoint). |
-| `.withDeploy(cloud, opts?)` | Set the deployment target and optional region, scaling, resources, env vars, secrets. |
-| `.tag(...tags)` | Add discovery tags. |
-| `.validate()` | Returns an array of validation error strings (empty = valid). |
-| `.toYaml()` | Returns the `agent.yaml` content as a string. |
-| `.toConfig()` | Returns the raw `AgentConfig` object. |
+|--------|-------------|
+| `.withModel(primary, opts?)` | Set primary model and optional fallback/temperature/maxTokens |
+| `.withTool(tool)` | Add a Tool to the agent |
+| `.withSubagent(ref, opts?)` | Reference another agent as a subagent |
+| `.withMcpServer(ref, transport?)` | Add an MCP server reference |
+| `.withPrompt(system)` | Set the system prompt |
+| `.withGuardrail(name)` | Add a guardrail (e.g. `"pii_detection"`) |
+| `.withDeploy(cloud, opts?)` | Set deployment target and options |
+| `.withMemory(backend, opts?)` | Configure conversation memory |
+| `.tag(...tags)` | Add discovery tags |
+| `.use(middleware)` | Register a middleware function |
+| `.on(event, handler)` | Register an event handler |
+
+**Other methods:**
+
+| Method | Description |
+|--------|-------------|
+| `.toConfig()` | Returns the `AgentConfig` object |
+| `.toYaml()` | Serializes to `agent.yaml` string |
+| `.validate()` | Returns array of validation error strings |
+| `.route(message, context)` | Custom routing logic (returns `null` by default — override in subclass) |
+| `.selectTools(message)` | Select tools for a message (returns `[]` by default — override in subclass) |
+| `.save(path)` | Write `agent.yaml` to disk |
+| `.deploy(target?)` | Deploy the agent via the AgentBreeder CLI/API |
+| `Agent.fromYaml(yaml)` | Parse an agent from a YAML string |
+| `Agent.fromFile(path)` | Load an agent from a YAML file (async) |
+
+**Events registered via `.on()`:**
+
+| Event | Args | Description |
+|-------|------|-------------|
+| `"tool_call"` | `(toolName, args)` | Fired when a tool is invoked |
+| `"turn_start"` | `(message)` | Fired at the start of a turn |
+| `"turn_end"` | `(result)` | Fired at the end of a turn |
+| `"error"` | `(error)` | Fired on errors |
+
+**Memory backends (used with `.withMemory()`):**
+
+| Backend | Description |
+|---------|-------------|
+| `"buffer_window"` | Fixed-size sliding window of recent messages |
+| `"buffer"` | Unbounded in-memory buffer |
+| `"postgresql"` | Persistent PostgreSQL-backed memory |
 
 ---
 
-## Model builder
+### `Tool`
 
-Use `Model` for reusable model configurations shared across agents:
+Defines a tool that the agent can call.
 
 ```typescript
-import { Model, Agent } from "@agentbreeder/sdk";
+// From a registry reference
+const tool = Tool.fromRef("tools/zendesk-mcp");
 
-const model = new Model("claude-sonnet-4")
-  .fallback("gpt-4o")
-  .temperature(0.3)
-  .maxTokens(8192)
-  .gateway("litellm");
+// From a string name (fluent builder)
+const tool = new Tool("web_search")
+  .description("Search the web")
+  .schema({ query: { type: "string" } });
 
-const agentA = new Agent("agent-a", { team: "eng" })
-  .withModel(model.toConfig().primary, {
-    fallback: model.toConfig().fallback,
-    temperature: model.toConfig().temperature,
-  });
+// From a TypeScript function
+function mySearch(args: { query: string }) { return fetch(`/search?q=${args.query}`); }
+const tool = Tool.fromFunction(mySearch, {
+  description: "Search the web",
+  query: { type: "string" },
+});
 ```
 
 ---
 
-## Tier Mobility
+### `Memory`
 
-AgentBreeder supports moving between builder tiers at any time — no lock-in.
-
-**Start in the SDK, view or share as YAML:**
+Configure conversation memory backends.
 
 ```typescript
-import { writeFileSync } from "fs";
-writeFileSync("agent.yaml", agent.toYaml());
+import { Memory } from "@agentbreeder/sdk";
+
+// Sliding window — keeps last N messages (default: 10)
+const mem = Memory.bufferWindow(20);
+
+// Unbounded in-memory buffer
+const mem = Memory.buffer();
+
+// PostgreSQL-backed persistent memory
+const mem = Memory.postgresql({ connectionString: "postgresql://localhost/mydb" });
+
+// Inspect config
+mem.toConfig(); // { backend: "buffer_window", maxMessages: 20 }
 ```
 
-The exported YAML is fully human-readable and can be edited directly or committed to your repo as a Low Code artifact.
+Use with an Agent via `.withMemory()`:
 
-**Start from YAML, eject to SDK:**
+```typescript
+agent.withMemory("buffer_window", { maxMessages: 20 });
+```
+
+---
+
+### `MCPServe`
+
+Build and run an MCP (Model Context Protocol) server from TypeScript functions.
+
+Requires the optional peer dependency:
 
 ```bash
-agentbreeder eject agent.yaml --target typescript
+npm install @modelcontextprotocol/sdk
 ```
 
-This generates a TypeScript file that recreates the same agent using the SDK, which you can then extend programmatically.
+```typescript
+import { MCPServe } from "@agentbreeder/sdk";
 
-**The invariant:** every tier compiles to the same `agent.yaml` schema. The deploy pipeline does not know or care which tier produced it.
+const server = new MCPServe("my-tools-server");
+
+server
+  .tool(
+    function search(args) { return fetchResults(args.query); },
+    { description: "Search for information", parameters: { query: { type: "string" } } }
+  )
+  .tool(
+    function sum(args) { return Number(args.a) + Number(args.b); },
+    { description: "Add two numbers", parameters: { a: { type: "number" }, b: { type: "number" } } }
+  );
+
+console.log(server.toolNames); // ["search", "sum"]
+
+// Starts a stdio MCP server — connect via Claude Desktop or any MCP client
+await server.run();
+```
 
 ---
 
-## TypeScript types
+### `validateAgent`
 
-All types are exported from the top-level package:
+Validate an `AgentConfig` before deploying.
+
+```typescript
+import { validateAgent } from "@agentbreeder/sdk";
+
+const errors = validateAgent(agent.toConfig());
+// Returns string[] — empty array if valid
+
+if (errors.length > 0) {
+  console.error("Invalid agent config:", errors);
+  process.exit(1);
+}
+```
+
+**Checks performed:**
+- `name` is required
+- `version` is required and must be semver (e.g. `1.0.0`)
+- `team` is required
+- `framework` is required
+- `model.primary` is required
+- `deploy.cloud` is required
+
+---
+
+### Types
+
+All public types are re-exported from the package root:
 
 ```typescript
 import type {
   AgentConfig,
-  CloudType,        // "aws" | "gcp" | "kubernetes" | "local"
+  CloudType,       // "aws" | "gcp" | "kubernetes" | "local"
   DeployConfig,
-  FrameworkType,    // "langgraph" | "crewai" | "claude_sdk" | "openai_agents" | "google_adk" | "custom"
-  McpServerRef,
+  FrameworkType,   // "langgraph" | "crewai" | "claude_sdk" | "openai_agents" | "google_adk" | "custom"
+  MemoryConfig,
+  McpToolSchema,
   ModelConfig,
-  OrchestrationConfig,
-  PromptConfig,
-  SubagentRef,
   ToolConfig,
-  Visibility,       // "public" | "team" | "private"
+  Visibility,      // "public" | "team" | "private"
 } from "@agentbreeder/sdk";
 ```
 
 ---
 
-## Links
+## Advanced Usage
 
-- Documentation: [https://agent-breeder.com/docs](https://agent-breeder.com/docs)
-- GitHub: [https://github.com/rajitsaha/agentbreeder](https://github.com/rajitsaha/agentbreeder)
-- npm: [https://www.npmjs.com/package/@agentbreeder/sdk](https://www.npmjs.com/package/@agentbreeder/sdk)
-- Python SDK: [`agentbreeder-sdk`](https://pypi.org/project/agentbreeder-sdk/) on PyPI
-- Issues: [https://github.com/rajitsaha/agentbreeder/issues](https://github.com/rajitsaha/agentbreeder/issues)
+### Middleware
+
+Middleware functions run before each agent turn, allowing you to enrich context:
+
+```typescript
+agent
+  .use((message, ctx) => ({ ...ctx, userId: getCurrentUser() }))
+  .use((message, ctx) => ({ ...ctx, timestamp: Date.now() }));
+```
+
+### Event Handlers
+
+```typescript
+agent
+  .on("tool_call", (toolName, args) => {
+    metrics.increment("tool.call", { tool: String(toolName) });
+  })
+  .on("error", (err) => {
+    logger.error("Agent error", { error: err });
+  });
+```
+
+### Load from YAML
+
+```typescript
+// From a string
+const agent = Agent.fromYaml(yamlString);
+
+// From a file
+const agent = await Agent.fromFile("./agent.yaml");
+```
+
+### Save to YAML
+
+```typescript
+await agent.save("./agent.yaml");
+```
+
+---
+
+## Examples
+
+- [Basic example](../../examples/sdk-ts-basic/) — simple agent with a tool, deployed to AWS
+- [Advanced example](../../examples/sdk-ts-advanced/) — memory, middleware, event handlers, validation
 
 ---
 
 ## License
 
-Apache 2.0 — see [LICENSE](../../LICENSE).
+Apache-2.0

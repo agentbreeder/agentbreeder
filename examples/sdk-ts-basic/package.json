@@ -1,0 +1,8 @@
+{
+  "name": "sdk-ts-basic",
+  "version": "1.0.0",
+  "description": "Basic TypeScript SDK example",
+  "scripts": { "start": "npx ts-node agent.ts" },
+  "dependencies": { "@agentbreeder/sdk": "*" },
+  "devDependencies": { "typescript": "^5.0.0", "ts-node": "^10.0.0" }
+}

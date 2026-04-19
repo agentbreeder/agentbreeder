@@ -29,6 +29,11 @@ export type {
 export { deploy } from "./deploy";
 export type { DeployResult } from "./deploy";
 export { agentToYaml } from "./yaml";
+export { Memory } from "./memory";
+export type { MemoryConfig } from "./memory";
+export { MCPServe } from "./mcp";
+export type { McpToolSchema } from "./mcp";
+export { validateAgent } from "./validation";
 export type {
   AgentConfig,
   CloudType,
