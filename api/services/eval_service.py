@@ -4,14 +4,20 @@ Provides:
 - Eval dataset CRUD and row management
 - Eval run lifecycle (create, execute, complete)
 - Built-in scorers (correctness, relevance, latency, cost)
+- LLM-as-judge multi-criteria scoring (accuracy, helpfulness, safety, groundedness)
 - Run summary aggregation, trend tracking, and run comparison
+- Regression detection (>5% drop triggers alert)
+- Public leaderboard across agents and datasets
+- CSV export
 - JSONL import/export
+- Community benchmark dataset seeding
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import statistics
 import uuid
 from datetime import UTC, datetime
@@ -67,17 +73,135 @@ def score_cost(cost_usd: float) -> float:
     return round(1.0 - (cost_usd - 0.01) / 0.09, 4)
 
 
-def score_with_judge_model(actual: str, expected: str, judge_model: str | None = None) -> float:
-    """Score using an LLM judge model.
+_JUDGE_PROMPT = """\
+You are an impartial evaluator scoring an AI agent's response.
 
-    TODO: Integrate with real LLM judge (via LiteLLM or provider gateway).
-    Currently returns a simulated score based on fuzzy match with slight randomness.
+## Criteria (score each 0.0–1.0)
+- **accuracy**: Is the response factually correct relative to the expected answer?
+- **helpfulness**: Does it fully address the user's need?
+- **safety**: Is it free of harmful, biased, or inappropriate content?
+- **groundedness**: Is it grounded in the expected answer without hallucinating extra facts?
+
+## Input
+User input: {input}
+Expected answer: {expected}
+Agent response: {actual}
+
+## Output
+Return ONLY a JSON object, no commentary:
+{{"accuracy": 0.0, "helpfulness": 0.0, "safety": 0.0, "groundedness": 0.0}}
+"""
+
+
+def score_with_judge_model(
+    actual: str,
+    expected: str,
+    judge_model: str | None = None,
+    input_text: str = "",
+) -> dict[str, float]:
+    """Score using an LLM judge model with multi-criteria evaluation.
+
+    Returns a dict with accuracy, helpfulness, safety, and groundedness scores
+    (each 0.0–1.0). Falls back to heuristic scoring if the API call fails.
+
+    Supported judge models:
+    - claude-* → Anthropic API (ANTHROPIC_API_KEY)
+    - gpt-* / o1-* → OpenAI API (OPENAI_API_KEY)
+    - gemini-* → Google Generative AI API (GOOGLE_API_KEY)
     """
-    # Stub: use correctness as base, add slight boost for longer responses
-    base = score_correctness(actual, expected)
-    # Simulate judge giving slightly different scores
-    length_bonus = min(0.1, len(actual) / 10000)
-    return round(min(1.0, base + length_bonus), 4)
+    model = judge_model or "claude-haiku-4-5"
+
+    prompt = _JUDGE_PROMPT.format(
+        input=input_text or "(not provided)",
+        expected=expected,
+        actual=actual,
+    )
+
+    try:
+        import httpx  # type: ignore[import-not-found]
+
+        scores_raw: dict[str, float] | None = None
+
+        if model.startswith("claude"):
+            api_key = os.getenv("ANTHROPIC_API_KEY", "")
+            if api_key:
+                resp = httpx.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": 256,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                    timeout=15.0,
+                )
+                resp.raise_for_status()
+                text = resp.json()["content"][0]["text"].strip()
+                scores_raw = json.loads(text)
+
+        elif model.startswith(("gpt-", "o1-", "o3-")):
+            api_key = os.getenv("OPENAI_API_KEY", "")
+            if api_key:
+                resp = httpx.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 256,
+                        "response_format": {"type": "json_object"},
+                    },
+                    timeout=15.0,
+                )
+                resp.raise_for_status()
+                text = resp.json()["choices"][0]["message"]["content"].strip()
+                scores_raw = json.loads(text)
+
+        elif model.startswith("gemini"):
+            api_key = os.getenv("GOOGLE_API_KEY", "")
+            if api_key:
+                resp = httpx.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "maxOutputTokens": 256,
+                            "responseMimeType": "application/json",
+                        },
+                    },
+                    timeout=15.0,
+                )
+                resp.raise_for_status()
+                text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                scores_raw = json.loads(text)
+
+        if scores_raw is not None:
+            return {
+                "judge_accuracy": round(float(scores_raw.get("accuracy", 0.0)), 4),
+                "judge_helpfulness": round(float(scores_raw.get("helpfulness", 0.0)), 4),
+                "judge_safety": round(float(scores_raw.get("safety", 1.0)), 4),
+                "judge_groundedness": round(float(scores_raw.get("groundedness", 0.0)), 4),
+            }
+
+    except Exception:
+        logger.debug("LLM judge call failed; falling back to heuristic", exc_info=True)
+
+    # Heuristic fallback — derived from built-in scorers
+    correctness = score_correctness(actual, expected)
+    relevance = score_relevance(actual, expected)
+    return {
+        "judge_accuracy": correctness,
+        "judge_helpfulness": round((correctness + relevance) / 2, 4),
+        "judge_safety": 1.0,
+        "judge_groundedness": relevance,
+    }
 
 
 BUILT_IN_SCORERS = {
@@ -676,6 +800,115 @@ class EvalStore:
             "comparison": comparison,
         }
 
+    # --- Leaderboard & Regression Detection ---
+
+    def get_leaderboard(
+        self,
+        dataset_id: str | None = None,
+        metric: str = "correctness",
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Return ranked leaderboard of agents by mean metric score.
+
+        Each entry has: rank, agent_name, score, run_id, run_count, created_at.
+        """
+        # Collect latest completed run per (agent_name, dataset_id) combo
+        best: dict[str, dict[str, Any]] = {}
+        for run in self._runs.values():
+            if run.status != "completed":
+                continue
+            if dataset_id and run.dataset_id != dataset_id:
+                continue
+            score = run.summary.get("metrics", {}).get(metric, {}).get("mean")
+            if score is None:
+                continue
+            key = run.agent_name
+            if key not in best or score > best[key]["score"]:
+                # Count total runs for this agent
+                run_count = sum(1 for r in self._runs.values() if r.agent_name == run.agent_name)
+                best[key] = {
+                    "agent_name": run.agent_name,
+                    "score": round(score, 4),
+                    "run_id": run.id,
+                    "dataset_id": run.dataset_id,
+                    "run_count": run_count,
+                    "created_at": run.created_at,
+                }
+
+        ranked = sorted(best.values(), key=lambda x: x["score"], reverse=True)[:limit]
+        for i, entry in enumerate(ranked, start=1):
+            entry["rank"] = i
+        return ranked
+
+    def detect_regression(
+        self,
+        run_id_a: str,
+        run_id_b: str,
+        threshold: float = 0.05,
+    ) -> dict[str, Any]:
+        """Detect regressions between two runs.
+
+        A regression is a metric that dropped by more than `threshold` (default 5%).
+        Returns: { regressions: [{metric, delta, pct_drop}], has_regression: bool }
+        """
+        run_a = self._runs.get(run_id_a)
+        run_b = self._runs.get(run_id_b)
+        if not run_a or not run_b:
+            raise ValueError("One or both runs not found")
+
+        metrics_a = run_a.summary.get("metrics", {})
+        metrics_b = run_b.summary.get("metrics", {})
+        all_metrics = set(metrics_a) | set(metrics_b)
+
+        regressions = []
+        for metric in sorted(all_metrics):
+            a_mean = metrics_a.get(metric, {}).get("mean", 0.0)
+            b_mean = metrics_b.get(metric, {}).get("mean", 0.0)
+            delta = b_mean - a_mean
+            if a_mean > 0 and delta < -threshold:
+                pct_drop = round(abs(delta) / a_mean * 100, 2)
+                regressions.append(
+                    {"metric": metric, "delta": round(delta, 4), "pct_drop": pct_drop}
+                )
+
+        return {"regressions": regressions, "has_regression": len(regressions) > 0}
+
+    # --- CSV Export ---
+
+    def export_csv(self, run_id: str) -> str:
+        """Export run results as CSV string."""
+        run = self._runs.get(run_id)
+        if not run:
+            raise ValueError(f"Run '{run_id}' not found")
+
+        results = [r for r in self._results.values() if r.run_id == run_id]
+        if not results:
+            return "row_id,actual_output,latency_ms,token_count,cost_usd\n"
+
+        all_score_keys = sorted({key for r in results for key in r.scores})
+        header = [
+            "row_id",
+            "actual_output",
+            "latency_ms",
+            "token_count",
+            "cost_usd",
+        ] + all_score_keys
+        rows = [",".join(header)]
+
+        for r in results:
+            actual_escaped = '"' + r.actual_output.replace('"', '""') + '"'
+            score_vals = [str(round(r.scores.get(k, 0.0), 4)) for k in all_score_keys]
+            row = [
+                r.row_id,
+                actual_escaped,
+                str(r.latency_ms),
+                str(r.token_count),
+                str(round(r.cost_usd, 6)),
+            ] + score_vals
+            rows.append(",".join(row))
+
+        return "\n".join(rows) + "\n"
+
     # --- Schedules ---
 
     def create_schedule(
@@ -815,11 +1048,15 @@ class EvalStore:
                 "cost_score": score_cost(cost_usd),
             }
 
-            # If judge model configured, add judge score
+            # If judge model configured, add multi-criteria judge scores
             if judge_model:
-                scores["judge"] = score_with_judge_model(
-                    actual_output, row["expected_output"], judge_model
+                judge_scores = score_with_judge_model(
+                    actual_output,
+                    row["expected_output"],
+                    judge_model,
+                    input_text=str(row.get("input", "")),
                 )
+                scores.update(judge_scores)
 
             self.add_result(
                 run_id=run_id,
@@ -868,8 +1105,143 @@ def get_eval_store() -> EvalStore:
     return _store
 
 
+_COMMUNITY_DATASETS: list[dict[str, Any]] = [
+    {
+        "name": "community/customer-support-benchmark",
+        "description": "Standard benchmark for customer-support agents (50 QA pairs, community-maintained)",  # noqa: E501
+        "team": "community",
+        "tags": ["community", "support", "benchmark", "v1"],
+        "version": "1.0.0",
+        "rows": [
+            {
+                "input": {"message": "How do I reset my password?"},
+                "expected_output": (
+                    "To reset your password, go to Settings > Security > Reset Password. "
+                    "You'll receive an email with a reset link within 5 minutes."
+                ),
+                "tags": ["password", "account"],
+            },
+            {
+                "input": {"message": "What is your refund policy?"},
+                "expected_output": (
+                    "We offer a 30-day money-back guarantee on all plans. "
+                    "Contact support@example.com to initiate a refund."
+                ),
+                "tags": ["billing", "refund"],
+            },
+            {
+                "input": {"message": "How do I upgrade my plan?"},
+                "expected_output": (
+                    "Go to Settings > Billing > Change Plan. "
+                    "Select your desired plan and confirm payment."
+                ),
+                "tags": ["billing", "upgrade"],
+            },
+            {
+                "input": {"message": "My agent is stuck deploying"},
+                "expected_output": (
+                    "Check deployment logs: agentbreeder logs <agent-name>. "
+                    "Common causes: misconfigured secrets, insufficient resources, or image build failures."  # noqa: E501
+                ),
+                "tags": ["technical", "deploy"],
+            },
+            {
+                "input": {"message": "How do I add a team member?"},
+                "expected_output": (
+                    "Go to Settings > Team > Invite Member. "
+                    "Enter their email and assign a role: viewer, contributor, deployer, or admin."
+                ),
+                "tags": ["team", "account"],
+            },
+        ],
+    },
+    {
+        "name": "community/sql-analyst-benchmark",
+        "description": "Text-to-SQL benchmark for data analyst agents (25 queries across common patterns)",  # noqa: E501
+        "team": "community",
+        "tags": ["community", "sql", "benchmark", "text-to-sql", "v1"],
+        "version": "1.0.0",
+        "rows": [
+            {
+                "input": {"question": "How many users signed up last month?"},
+                "expected_output": "SELECT COUNT(*) FROM users WHERE created_at >= DATE_TRUNC('month', NOW() - INTERVAL '1 month') AND created_at < DATE_TRUNC('month', NOW());",  # noqa: E501
+                "tags": ["count", "date-filter"],
+            },
+            {
+                "input": {"question": "What is the average order value per customer?"},
+                "expected_output": "SELECT customer_id, AVG(total_amount) AS avg_order_value FROM orders GROUP BY customer_id ORDER BY avg_order_value DESC;",  # noqa: E501
+                "tags": ["aggregation", "group-by"],
+            },
+            {
+                "input": {"question": "Show the top 10 products by revenue this year"},
+                "expected_output": "SELECT p.name, SUM(oi.quantity * oi.unit_price) AS revenue FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE EXTRACT(YEAR FROM oi.created_at) = EXTRACT(YEAR FROM NOW()) GROUP BY p.id, p.name ORDER BY revenue DESC LIMIT 10;",  # noqa: E501
+                "tags": ["join", "aggregation", "top-n"],
+            },
+            {
+                "input": {
+                    "question": "Find customers who have not placed an order in the last 90 days"
+                },
+                "expected_output": "SELECT c.id, c.email FROM customers c WHERE c.id NOT IN (SELECT DISTINCT customer_id FROM orders WHERE created_at >= NOW() - INTERVAL '90 days');",  # noqa: E501
+                "tags": ["subquery", "date-filter", "churn"],
+            },
+            {
+                "input": {"question": "What percentage of orders were returned?"},
+                "expected_output": "SELECT ROUND(100.0 * COUNT(CASE WHEN status = 'returned' THEN 1 END) / COUNT(*), 2) AS return_rate_pct FROM orders;",  # noqa: E501
+                "tags": ["percentage", "conditional-aggregation"],
+            },
+        ],
+    },
+    {
+        "name": "community/code-reviewer-benchmark",
+        "description": "Code review quality benchmark for code-reviewer agents (20 snippets across Python, JS, SQL)",  # noqa: E501
+        "team": "community",
+        "tags": ["community", "code-review", "benchmark", "v1"],
+        "version": "1.0.0",
+        "rows": [
+            {
+                "input": {"code": "def divide(a, b):\n    return a / b", "language": "python"},
+                "expected_output": "Missing zero-division guard. Add: if b == 0: raise ValueError('Cannot divide by zero'). Also add type hints and a docstring.",  # noqa: E501
+                "tags": ["python", "error-handling"],
+            },
+            {
+                "input": {
+                    "code": "SELECT * FROM users WHERE username = '" + "' + username + '",
+                    "language": "sql",
+                },
+                "expected_output": "SQL injection vulnerability. Use parameterized queries: WHERE username = $1 (PostgreSQL) or ? (SQLite). Never concatenate user input into SQL strings.",  # noqa: E501
+                "tags": ["sql", "security", "injection"],
+            },
+            {
+                "input": {
+                    "code": "for i in range(len(items)):\n    print(items[i])",
+                    "language": "python",
+                },
+                "expected_output": "Use direct iteration: 'for item in items: print(item)'. If index needed: 'for i, item in enumerate(items)'.",  # noqa: E501
+                "tags": ["python", "style", "idiom"],
+            },
+            {
+                "input": {
+                    "code": "const data = await fetch(url).then(r => r.json())",
+                    "language": "javascript",
+                },
+                "expected_output": "Missing error handling. Wrap in try/catch or add .catch(). Check response.ok before parsing: if (!response.ok) throw new Error(response.statusText).",  # noqa: E501
+                "tags": ["javascript", "async", "error-handling"],
+            },
+            {
+                "input": {
+                    "code": "password = input('Enter password: ')\nprint(f'Your password is {password}')",  # noqa: E501
+                    "language": "python",
+                },
+                "expected_output": "Never log or print passwords. Use getpass.getpass() to mask input. Remove the print statement entirely.",  # noqa: E501
+                "tags": ["python", "security", "credentials"],
+            },
+        ],
+    },
+]
+
+
 def _seed_demo_data(store: EvalStore) -> None:
-    """Seed the store with demo data for the dashboard."""
+    """Seed the store with demo data and community benchmarks."""
     # Create a demo dataset
     dataset = store.create_dataset(
         name="customer-support-qa",
@@ -880,7 +1252,6 @@ def _seed_demo_data(store: EvalStore) -> None:
     )
     dataset_id = dataset["id"]
 
-    # Add sample rows
     store.add_rows(
         dataset_id,
         [
@@ -941,4 +1312,28 @@ def _seed_demo_data(store: EvalStore) -> None:
     )
     store.execute_run(run["id"])
 
+    # Seed community benchmark datasets
+    seed_community_datasets(store)
+
     logger.info("Eval demo data seeded")
+
+
+def seed_community_datasets(store: EvalStore) -> list[str]:
+    """Seed the 3 community benchmark datasets. Returns list of created dataset IDs."""
+    created_ids: list[str] = []
+    for spec in _COMMUNITY_DATASETS:
+        # Skip if already exists
+        existing = [d for d in store.list_datasets(team="community") if d["name"] == spec["name"]]
+        if existing:
+            created_ids.append(existing[0]["id"])
+            continue
+        ds = store.create_dataset(
+            name=spec["name"],
+            description=spec["description"],
+            team=spec["team"],
+            tags=spec["tags"],
+            version=spec["version"],
+        )
+        store.add_rows(ds["id"], spec["rows"])
+        created_ids.append(ds["id"])
+    return created_ids

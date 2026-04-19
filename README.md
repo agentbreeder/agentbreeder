@@ -193,7 +193,7 @@ agent.deploy()
 | Visual orchestration canvas | ✅ |
 | A2A (Agent-to-Agent) protocol | ✅ |
 | MCP server hub + sidecar injection | ✅ |
-| Agent evaluation framework | ✅ |
+| Agent evaluation framework with LLM-as-judge | ✅ |
 | Cost tracking (per team / agent / model) | ✅ |
 | RBAC + team management | ✅ |
 | Full audit trail | ✅ |
@@ -375,7 +375,9 @@ agentbreeder list              # List agents / tools / models / prompts
 agentbreeder describe <name>   # Show detail for a registry entity
 agentbreeder search <query>    # Search across the entire registry
 agentbreeder chat <name>       # Interactive chat with a deployed agent
-agentbreeder eval              # Run evaluations against golden datasets
+agentbreeder eval run          # Run evaluations (--scorer exact|semantic|judge, --judge-model claude-*)
+agentbreeder eval compare      # Compare two runs with regression detection
+agentbreeder eval datasets     # List datasets including community benchmarks
 agentbreeder eject             # Eject from YAML to Full Code SDK
 agentbreeder submit            # Create a PR for review
 agentbreeder review            # Review / approve / reject a submission

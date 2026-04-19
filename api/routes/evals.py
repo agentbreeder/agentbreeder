@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse, Response
 
 from api.models.schemas import ApiMeta, ApiResponse
-from api.services.eval_service import get_eval_store
+from api.services.eval_service import get_eval_store, seed_community_datasets
 
 logger = logging.getLogger(__name__)
 
@@ -385,6 +385,73 @@ async def delete_schedule(schedule_id: str) -> ApiResponse[dict]:
 # ---------------------------------------------------------------------------
 # Promotion Gate
 # ---------------------------------------------------------------------------
+
+
+@router.get("/leaderboard")
+async def get_leaderboard(
+    dataset_id: str | None = Query(None),
+    metric: str = Query("correctness"),
+    limit: int = Query(20, ge=1, le=100),
+) -> ApiResponse[list]:
+    """Return ranked leaderboard of agents by mean metric score.
+
+    Ranks all agents with completed runs by their best mean score on the given metric.
+    Filter by dataset_id to get a dataset-specific leaderboard.
+    """
+    store = get_eval_store()
+    leaderboard = store.get_leaderboard(dataset_id=dataset_id, metric=metric, limit=limit)
+    return ApiResponse(data=leaderboard, meta=ApiMeta(total=len(leaderboard)))
+
+
+@router.get("/reports/{run_id}")
+async def get_public_report(run_id: str) -> ApiResponse[dict]:
+    """Get a public shareable eval report for a completed run."""
+    store = get_eval_store()
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    results = store.get_results(run_id)
+    return ApiResponse(
+        data={
+            "run": run,
+            "results": results,
+            "total_results": len(results),
+            "public_url": f"/api/v1/eval/reports/{run_id}",
+        }
+    )
+
+
+@router.get("/runs/{run_id}/export/csv")
+async def export_run_csv(run_id: str) -> Response:
+    """Export run results as a CSV file."""
+    store = get_eval_store()
+    try:
+        csv_content = store.export_csv(run_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=eval-run-{run_id[:8]}.csv"},
+    )
+
+
+@router.post("/datasets/seed-community", status_code=201)
+async def seed_community_benchmark_datasets() -> ApiResponse[dict]:
+    """Seed the 3 community benchmark datasets (customer support, SQL analyst, code reviewer).
+
+    Safe to call multiple times — skips datasets that already exist.
+    """
+    store = get_eval_store()
+    created_ids = seed_community_datasets(store)
+    return ApiResponse(
+        data={
+            "seeded": len(created_ids),
+            "dataset_ids": created_ids,
+        }
+    )
 
 
 @router.post("/promote-check")

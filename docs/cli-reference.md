@@ -670,6 +670,87 @@ agentbreeder secret migrate --from env --to gcp --exclude DEBUG --exclude LOG_LE
 
 ---
 
+### `agentbreeder eval`
+
+Run evaluations, compare runs, and view the agent leaderboard.
+
+```
+agentbreeder eval SUBCOMMAND [OPTIONS]
+```
+
+#### `agentbreeder eval run`
+
+Run an evaluation of an agent against a dataset.
+
+```
+agentbreeder eval run AGENT_NAME --dataset DATASET_ID [OPTIONS]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--dataset`, `-d` | required | Dataset ID to run against |
+| `--scorer` | `exact` | Scoring strategy: `exact` (fuzzy match), `semantic` (keyword overlap), `judge` (LLM-as-judge) |
+| `--judge`, `--judge-model` | — | LLM model for judge scoring (`claude-*`, `gpt-*`, `gemini-*`) |
+| `--model`, `-m` | — | Model override for the run |
+| `--temperature`, `-T` | — | Temperature override |
+| `--json` | — | Output as JSON |
+
+**Examples:**
+```bash
+agentbreeder eval run my-agent --dataset ds-abc123          # Exact/fuzzy scoring
+agentbreeder eval run my-agent --dataset ds-abc123 --scorer judge --judge-model claude-haiku-4-5
+agentbreeder eval run my-agent --dataset ds-abc123 --scorer semantic --json
+```
+
+#### `agentbreeder eval compare`
+
+Compare two eval runs side-by-side with regression detection. Returns exit code 1 if any metric drops by more than the threshold.
+
+```
+agentbreeder eval compare RUN_A RUN_B [--regression-threshold 0.05]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--regression-threshold`, `-r` | `0.05` | Metric drop > this fraction triggers regression alert |
+| `--json` | — | Output as JSON (exits 1 on regression) |
+
+**Examples:**
+```bash
+agentbreeder eval compare run-abc123 run-def456             # Compare with 5% threshold
+agentbreeder eval compare run-abc123 run-def456 -r 0.02    # Stricter 2% threshold
+agentbreeder eval compare run-abc123 run-def456 --json     # CI-friendly output
+```
+
+#### `agentbreeder eval datasets`
+
+List evaluation datasets, including community benchmarks.
+
+```bash
+agentbreeder eval datasets                                  # All datasets
+agentbreeder eval datasets --team community                 # Community benchmarks only
+agentbreeder eval datasets --json                           # JSON output
+```
+
+#### `agentbreeder eval results`
+
+View detailed results for an eval run.
+
+```bash
+agentbreeder eval results RUN_ID
+agentbreeder eval results RUN_ID --json
+```
+
+#### `agentbreeder eval gate`
+
+CI quality gate — returns exit code 0 if all metrics meet the threshold, exit code 1 otherwise.
+
+```bash
+agentbreeder eval gate RUN_ID --threshold 0.8 --metrics correctness,relevance
+```
+
+---
+
 ## Global Options
 
 All commands support:

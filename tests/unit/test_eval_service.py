@@ -498,8 +498,11 @@ class TestBuiltInScorers:
         assert 0.4 < score < 0.7
 
     def test_judge_model_returns_score(self) -> None:
-        score = score_with_judge_model("answer", "answer")
-        assert 0.0 <= score <= 1.0
+        scores = score_with_judge_model("answer", "answer")
+        assert isinstance(scores, dict)
+        for key in ("judge_accuracy", "judge_helpfulness", "judge_safety", "judge_groundedness"):
+            assert key in scores
+            assert 0.0 <= scores[key] <= 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -890,7 +893,7 @@ class TestEdgeCaseCoverage:
         result = store.execute_run(run["id"])
         assert result["status"] == "completed"
         results = store.get_results(run["id"])
-        assert "judge" in results[0]["scores"]
+        assert any(k.startswith("judge_") for k in results[0]["scores"])
 
     def test_export_jsonl_with_tool_calls_and_metadata(self, store: EvalStore) -> None:
         ds = store.create_dataset(name="export-ds")
@@ -941,3 +944,172 @@ class TestEdgeCaseCoverage:
         # Now cascade-delete the dataset
         assert store.delete_dataset(ds["id"]) is True
         assert len(store._results) == 0
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard, Regression Detection, CSV Export, Community Datasets (Issue #70)
+# ---------------------------------------------------------------------------
+
+
+class TestLeaderboard:
+    def test_get_leaderboard_empty(self, store: EvalStore) -> None:
+        leaderboard = store.get_leaderboard()
+        assert isinstance(leaderboard, list)
+
+    def test_get_leaderboard_ranks_agents(self, store: EvalStore) -> None:
+        for agent, score in [("agent-alpha", 1.0), ("agent-beta", 0.5), ("agent-gamma", 0.8)]:
+            ds = store.create_dataset(name=f"ds-{agent}")
+            store.add_rows(ds["id"], [{"input": {"q": "x"}, "expected_output": "y"}])
+            run = store.create_run(agent_name=agent, dataset_id=ds["id"])
+            store.execute_run(run["id"])
+            # Manually set summary score for determinism
+            store._runs[run["id"]].summary = {"metrics": {"correctness": {"mean": score}}}
+
+        leaderboard = store.get_leaderboard(metric="correctness")
+        assert len(leaderboard) >= 3
+        scores = [e["score"] for e in leaderboard]
+        assert scores == sorted(scores, reverse=True)
+        assert leaderboard[0]["rank"] == 1
+
+    def test_get_leaderboard_filter_by_dataset(self, store: EvalStore) -> None:
+        ds = store.create_dataset(name="lb-ds-filter")
+        store.add_rows(ds["id"], [{"input": {"q": "x"}, "expected_output": "y"}])
+        run = store.create_run(agent_name="filtered-agent", dataset_id=ds["id"])
+        store.execute_run(run["id"])
+
+        leaderboard = store.get_leaderboard(dataset_id=ds["id"])
+        assert all(e["dataset_id"] == ds["id"] for e in leaderboard)
+
+
+class TestRegressionDetection:
+    def test_no_regression_when_scores_improve(self, store: EvalStore) -> None:
+        ds = store.create_dataset(name="reg-ds-improve")
+        store.add_rows(ds["id"], [{"input": {"q": "x"}, "expected_output": "y"}])
+        run_a = store.create_run(agent_name="agent", dataset_id=ds["id"])
+        run_b = store.create_run(agent_name="agent", dataset_id=ds["id"])
+        store.execute_run(run_a["id"])
+        store.execute_run(run_b["id"])
+        store._runs[run_a["id"]].summary = {"metrics": {"correctness": {"mean": 0.7}}}
+        store._runs[run_b["id"]].summary = {"metrics": {"correctness": {"mean": 0.9}}}
+
+        result = store.detect_regression(run_a["id"], run_b["id"])
+        assert result["has_regression"] is False
+        assert result["regressions"] == []
+
+    def test_regression_detected_on_drop(self, store: EvalStore) -> None:
+        ds = store.create_dataset(name="reg-ds-drop")
+        store.add_rows(ds["id"], [{"input": {"q": "x"}, "expected_output": "y"}])
+        run_a = store.create_run(agent_name="agent", dataset_id=ds["id"])
+        run_b = store.create_run(agent_name="agent", dataset_id=ds["id"])
+        store.execute_run(run_a["id"])
+        store.execute_run(run_b["id"])
+        store._runs[run_a["id"]].summary = {"metrics": {"correctness": {"mean": 0.9}}}
+        store._runs[run_b["id"]].summary = {"metrics": {"correctness": {"mean": 0.7}}}
+
+        result = store.detect_regression(run_a["id"], run_b["id"])
+        assert result["has_regression"] is True
+        assert any(r["metric"] == "correctness" for r in result["regressions"])
+
+    def test_regression_not_triggered_below_threshold(self, store: EvalStore) -> None:
+        ds = store.create_dataset(name="reg-ds-thresh")
+        store.add_rows(ds["id"], [{"input": {"q": "x"}, "expected_output": "y"}])
+        run_a = store.create_run(agent_name="agent", dataset_id=ds["id"])
+        run_b = store.create_run(agent_name="agent", dataset_id=ds["id"])
+        store.execute_run(run_a["id"])
+        store.execute_run(run_b["id"])
+        store._runs[run_a["id"]].summary = {"metrics": {"correctness": {"mean": 0.900}}}
+        store._runs[run_b["id"]].summary = {"metrics": {"correctness": {"mean": 0.875}}}
+
+        # Only a 2.8% drop — below the 5% default threshold
+        result = store.detect_regression(run_a["id"], run_b["id"])
+        assert result["has_regression"] is False
+
+    def test_detect_regression_raises_on_missing_run(self, store: EvalStore) -> None:
+        import pytest
+
+        with pytest.raises(ValueError):
+            store.detect_regression("nonexistent-a", "nonexistent-b")
+
+
+class TestCSVExport:
+    def test_export_csv_empty_run(self, store: EvalStore) -> None:
+        ds = store.create_dataset(name="csv-empty-ds")
+        run = store.create_run(agent_name="agent", dataset_id=ds["id"])
+        store.update_run_status(run["id"], "completed")
+        csv = store.export_csv(run["id"])
+        assert "row_id" in csv
+
+    def test_export_csv_with_results(self, store: EvalStore) -> None:
+        ds = store.create_dataset(name="csv-results-ds")
+        rows = store.add_rows(ds["id"], [{"input": {"q": "x"}, "expected_output": "y"}])
+        run = store.create_run(agent_name="agent", dataset_id=ds["id"])
+        store.add_result(
+            run_id=run["id"],
+            row_id=rows[0]["id"],
+            actual_output="the answer",
+            scores={"correctness": 0.85, "relevance": 0.7},
+        )
+        csv = store.export_csv(run["id"])
+        assert "correctness" in csv
+        assert "relevance" in csv
+        assert "the answer" in csv
+
+    def test_export_csv_raises_on_missing_run(self, store: EvalStore) -> None:
+        import pytest
+
+        with pytest.raises(ValueError):
+            store.export_csv("nonexistent-run")
+
+
+class TestCommunityDatasets:
+    def test_seed_community_datasets_creates_three(self, store: EvalStore) -> None:
+        from api.services.eval_service import seed_community_datasets
+
+        ids = seed_community_datasets(store)
+        assert len(ids) == 3
+
+    def test_seed_community_datasets_idempotent(self, store: EvalStore) -> None:
+        from api.services.eval_service import seed_community_datasets
+
+        ids_first = seed_community_datasets(store)
+        ids_second = seed_community_datasets(store)
+        assert set(ids_first) == set(ids_second)
+
+    def test_community_datasets_have_rows(self, store: EvalStore) -> None:
+        from api.services.eval_service import seed_community_datasets
+
+        ids = seed_community_datasets(store)
+        for dataset_id in ids:
+            rows = store.list_rows(dataset_id)
+            assert len(rows) >= 5
+
+    def test_community_datasets_tagged_community(self, store: EvalStore) -> None:
+        from api.services.eval_service import seed_community_datasets
+
+        seed_community_datasets(store)
+        datasets = store.list_datasets(team="community")
+        assert len(datasets) >= 3
+
+
+class TestJudgeScorerMultiCriteria:
+    def test_judge_returns_all_criteria(self) -> None:
+        scores = score_with_judge_model("The sky is blue", "The sky is blue")
+        assert set(scores.keys()) == {
+            "judge_accuracy",
+            "judge_helpfulness",
+            "judge_safety",
+            "judge_groundedness",
+        }
+
+    def test_judge_all_scores_in_range(self) -> None:
+        scores = score_with_judge_model("Some answer", "Expected answer")
+        for key, val in scores.items():
+            assert 0.0 <= val <= 1.0, f"{key}={val} out of range"
+
+    def test_judge_fallback_on_no_api_key(self, monkeypatch) -> None:
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        scores = score_with_judge_model("exact match", "exact match", judge_model="claude-opus-4")
+        assert scores["judge_accuracy"] == 1.0
+        assert scores["judge_safety"] == 1.0

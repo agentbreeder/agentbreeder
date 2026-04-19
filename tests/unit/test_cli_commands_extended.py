@@ -1099,6 +1099,7 @@ class TestEvalCommand:
                 }
             },
         }
+        mock_store.detect_regression.return_value = {"regressions": [], "has_regression": False}
 
         with patch(
             "cli.commands.eval._get_store",

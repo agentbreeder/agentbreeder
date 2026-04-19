@@ -203,6 +203,7 @@ ignore = [
     "S110",   # allow bare except pass (used in fallback logic)
     "S311",   # allow random for non-crypto use
     "S607",   # allow partial executable paths
+    "S608",   # allow SQL in string literals (used in benchmark/test data)
 ]
 
 [tool.ruff.lint.per-file-ignores]

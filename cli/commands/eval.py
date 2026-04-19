@@ -39,19 +39,41 @@ def eval_run(
     dataset: str = typer.Option(..., "--dataset", "-d", help="Dataset ID to run against"),
     model: str = typer.Option(None, "--model", "-m", help="Model override for the run"),
     temperature: float = typer.Option(None, "--temperature", "-T", help="Temperature override"),
-    judge: str = typer.Option(None, "--judge", help="Judge model for LLM-as-judge scoring"),
+    judge: str = typer.Option(
+        None, "--judge", "--judge-model", help="LLM judge model (claude-*, gpt-*, gemini-*)"
+    ),
+    scorer: str = typer.Option(
+        "exact",
+        "--scorer",
+        help="Scoring strategy: exact (fuzzy match), semantic (keyword overlap), judge (LLM-as-judge)",  # noqa: E501
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
-    """Run an evaluation of an agent against a dataset."""
+    """Run an evaluation of an agent against a dataset.
+
+    Scorer options:
+    - exact: fuzzy string match (fast, no API calls)
+    - semantic: keyword overlap ratio
+    - judge: LLM-as-judge multi-criteria scoring (accuracy, helpfulness, safety, groundedness)
+
+    Use --judge-model to specify which LLM to use for judge scoring.
+    """
     store = _get_store()
+
+    # Derive judge_model from scorer if not explicitly set
+    effective_judge = judge
+    if scorer == "judge" and not effective_judge:
+        effective_judge = "claude-haiku-4-5"
 
     config: dict = {}
     if model:
         config["model"] = model
     if temperature is not None:
         config["temperature"] = temperature
-    if judge:
-        config["judge_model"] = judge
+    if scorer:
+        config["scorer"] = scorer
+    if effective_judge:
+        config["judge_model"] = effective_judge
 
     try:
         run = store.create_run(
@@ -347,15 +369,23 @@ def eval_gate(
 
 @eval_app.command(name="compare")
 def eval_compare(
-    run_a: str = typer.Argument(..., help="First run ID"),
-    run_b: str = typer.Argument(..., help="Second run ID"),
+    run_a: str = typer.Argument(..., help="First run ID (baseline)"),
+    run_b: str = typer.Argument(..., help="Second run ID (candidate)"),
+    regression_threshold: float = typer.Option(
+        0.05, "--regression-threshold", "-r", help="Drop > this fraction triggers regression alert"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
-    """Compare two eval runs side-by-side."""
+    """Compare two eval runs side-by-side with regression detection.
+
+    Regressions are flagged when a metric drops by more than --regression-threshold (default 5%).
+    Returns exit code 1 if any regression is detected.
+    """
     store = _get_store()
 
     try:
         comparison = store.compare_runs(run_a, run_b)
+        regression = store.detect_regression(run_a, run_b, threshold=regression_threshold)
     except ValueError as e:
         if json_output:
             sys.stdout.write(json_lib.dumps({"error": str(e)}) + "\n")
@@ -364,14 +394,17 @@ def eval_compare(
         raise typer.Exit(code=1) from None
 
     if json_output:
+        comparison["regression"] = regression
         sys.stdout.write(json_lib.dumps(comparison, indent=2) + "\n")
+        if regression["has_regression"]:
+            raise typer.Exit(code=1)
         return
 
     console.print()
     console.print(
         Panel(
-            f"  Run A: [cyan]{comparison['run_a']['agent_name']}[/cyan] ({run_a[:8]}...)\n"
-            f"  Run B: [cyan]{comparison['run_b']['agent_name']}[/cyan] ({run_b[:8]}...)",
+            f"  Run A (baseline):  [cyan]{comparison['run_a']['agent_name']}[/cyan] ({run_a[:8]}...)\n"  # noqa: E501
+            f"  Run B (candidate): [cyan]{comparison['run_b']['agent_name']}[/cyan] ({run_b[:8]}...)",  # noqa: E501
             title="Run Comparison",
             border_style="blue",
         )
@@ -393,9 +426,9 @@ def eval_compare(
     for metric, data in sorted(metrics.items()):
         delta = data["delta"]
         if data["improved"]:
-            indicator = "[green]+[/green]"
+            indicator = "[green]▲[/green]"
         elif delta < 0:
-            indicator = "[red]-[/red]"
+            indicator = "[red]▼[/red]"
         else:
             indicator = "="
         delta_str = f"{delta:+.4f}"
@@ -409,3 +442,23 @@ def eval_compare(
 
     console.print(table)
     console.print()
+
+    # Regression summary
+    regressions = regression.get("regressions", [])
+    if regressions:
+        reg_lines = "\n".join(
+            f"  • [red]{r['metric']}[/red]: {r['delta']:+.4f} ({r['pct_drop']:.1f}% drop)"
+            for r in regressions
+        )
+        console.print(
+            Panel(
+                reg_lines,
+                title="[red]Regressions Detected[/red]",
+                border_style="red",
+            )
+        )
+        console.print()
+        raise typer.Exit(code=1)
+    else:
+        console.print("[green]No regressions detected.[/green]")
+        console.print()

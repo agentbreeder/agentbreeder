@@ -35,6 +35,11 @@ const FEATURES: Feature[] = [
     title: 'Multi-Agent Orchestration',
     desc: '6 orchestration strategies — router, sequential, parallel, supervisor, hierarchical, fan-out — via YAML or SDK.',
   },
+  {
+    icon: '🏆',
+    title: 'LLM-as-Judge Eval Hub',
+    desc: 'Multi-criteria scoring (accuracy, helpfulness, safety, groundedness) via Claude, GPT-4o, or Gemini. Public leaderboard, regression detection, CSV export.',
+  },
 ];
 
 export function Features() {
