@@ -54,6 +54,23 @@ CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
 class ClaudeSDKRuntime(RuntimeBuilder):
     """Runtime builder for Claude SDK agents."""
 
+    # Tool type prefix for computer/browser use — accepted by Claude Managed Agents
+    COMPUTER_USE_TOOL_PREFIX = "computer_use_"
+
+    def _has_computer_use_tools(self, config: AgentConfig) -> bool:
+        """Return True if any tool in the config requests computer use."""
+        for tool in config.tools:
+            tool_type = tool.get("type", "") if isinstance(tool, dict) else ""
+            if tool_type.startswith(self.COMPUTER_USE_TOOL_PREFIX):
+                return True
+        # Also check claude_managed.tools if deploy is claude-managed
+        if hasattr(config, "claude_managed") and config.claude_managed:
+            managed_tools = config.claude_managed.get("tools", [])
+            for mt in managed_tools:
+                if mt.get("type", "").startswith(self.COMPUTER_USE_TOOL_PREFIX):
+                    return True
+        return False
+
     def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
         errors: list[str] = []
 
@@ -67,6 +84,24 @@ class ClaudeSDKRuntime(RuntimeBuilder):
                 "for non-Anthropic models."
             )
             return RuntimeValidationResult(valid=False, errors=errors)
+
+        # Computer use tools require claude-managed deploy target
+        if self._has_computer_use_tools(config):
+            deploy_cloud = config.deploy.cloud if config.deploy else ""
+            if deploy_cloud != "claude-managed":
+                errors.append(
+                    "Computer use tools (type: computer_use_*) require "
+                    "deploy.cloud: claude-managed. "
+                    f"Current deploy.cloud is '{deploy_cloud}'. "
+                    "Update your agent.yaml to set deploy.cloud: claude-managed."
+                )
+                return RuntimeValidationResult(valid=False, errors=errors)
+            # computer_use agents are managed by Anthropic — no container is built
+            logger.info(
+                "Computer use tools detected for agent '%s' — targeting Anthropic Managed Agents runtime",
+                config.name,
+            )
+            return RuntimeValidationResult(valid=True, errors=[])
 
         # Check for agent source file
         agent_file = agent_dir / "agent.py"

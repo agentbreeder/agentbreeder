@@ -114,14 +114,63 @@
           "type": {
             "type": "string",
             "enum": [
-              "function"
-            ]
+              "function",
+              "computer_use_20260401",
+              "agent_toolset_20260401"
+            ],
+            "description": "Tool type — use computer_use_20260401 for browser/computer use agents"
           },
           "description": {
             "type": "string"
           },
           "schema": {
             "type": "object"
+          },
+          "approval": {
+            "type": "object",
+            "description": "Human-in-the-loop approval config for this tool call",
+            "additionalProperties": false,
+            "properties": {
+              "require": {
+                "type": "boolean",
+                "description": "If true, every call to this tool must be approved by a human before execution"
+              },
+              "timeout": {
+                "type": "string",
+                "description": "How long to wait for human approval before timing out (e.g. 30m, 1h)",
+                "pattern": "^\\d+[smh]$"
+              },
+              "notify": {
+                "type": "array",
+                "description": "Notification channels — at least one Slack channel or email address",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": ["slack"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "slack": {
+                          "type": "string",
+                          "description": "Slack channel (e.g. #approvals)"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["email"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "email": {
+                          "type": "string",
+                          "format": "email"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
           }
         }
       },
@@ -157,7 +206,8 @@
       "items": {
         "oneOf": [
           {
-            "type": "string"
+            "type": "string",
+            "description": "Built-in guardrail name (pii_detection, hallucination_check, content_filter, hitl_approve)"
           },
           {
             "type": "object",
@@ -171,6 +221,12 @@
               "endpoint": {
                 "type": "string",
                 "format": "uri"
+              },
+              "action": {
+                "type": "string",
+                "enum": ["block", "warn", "hitl_approve"],
+                "default": "block",
+                "description": "Action on guardrail trigger — hitl_approve routes the call to the HITL approval queue"
               }
             }
           }
@@ -192,9 +248,10 @@
             "azure",
             "gcp",
             "kubernetes",
-            "local"
+            "local",
+            "claude-managed"
           ],
-          "description": "Target cloud platform"
+          "description": "Target cloud platform — claude-managed means Anthropic manages the runtime (no container built)"
         },
         "runtime": {
           "type": "string",
@@ -253,6 +310,64 @@
             "type": "string"
           },
           "description": "Secret references"
+        },
+        "identity": {
+          "type": "object",
+          "description": "Per-agent cloud IAM identity configuration — auto-creates an IAM Role (AWS) or Service Account (GCP) scoped to this agent",
+          "additionalProperties": false,
+          "properties": {
+            "create": {
+              "type": "boolean",
+              "default": false,
+              "description": "Auto-create a dedicated IAM role (AWS) or Service Account (GCP) for this agent"
+            },
+            "permissions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "AWS IAM permission strings in action:resource format (e.g. s3:GetObject:arn:aws:s3:::my-bucket/*)"
+            },
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "GCP IAM roles to grant the Service Account (e.g. roles/storage.objectViewer)"
+            },
+            "boundary": {
+              "type": "string",
+              "description": "AWS IAM permissions boundary ARN — limits the maximum effective permissions"
+            }
+          }
+        },
+        "sidecar": {
+          "type": "object",
+          "description": "Observability sidecar configuration — auto-injected OTel/cost/guardrail container",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Inject the AgentBreeder observability sidecar alongside the agent container"
+            },
+            "guardrails": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Guardrails to enforce in the sidecar (e.g. pii_detection, content_filter)"
+            },
+            "otel_endpoint": {
+              "type": "string",
+              "description": "Override the OpenTelemetry collector endpoint (defaults to OPENTELEMETRY_ENDPOINT env var)"
+            },
+            "cost_tracking": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable token-level cost attribution in the sidecar"
+            }
+          }
         }
       }
     },
@@ -418,6 +533,40 @@
           ],
           "default": "none",
           "description": "Streaming mode for RunConfig"
+        }
+      }
+    },
+    "claude_managed": {
+      "type": "object",
+      "description": "Claude Managed Agents configuration — only read when deploy.cloud is claude-managed. No container is built; Anthropic manages the runtime.",
+      "additionalProperties": false,
+      "properties": {
+        "environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "networking": {
+              "type": "string",
+              "enum": ["unrestricted", "restricted"],
+              "default": "unrestricted",
+              "description": "Network access policy for the managed agent"
+            }
+          }
+        },
+        "tools": {
+          "type": "array",
+          "description": "Built-in tool types available to the managed agent",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Tool type identifier (e.g. computer_use_20260401, agent_toolset_20260401)"
+              }
+            }
+          }
         }
       }
     },

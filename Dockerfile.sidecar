@@ -1,0 +1,30 @@
+# AgentBreeder Observability Sidecar
+# Issue #73: Auto-inject OTel observability sidecar
+#
+# Build:  docker build -f Dockerfile.sidecar -t rajits/agentbreeder-sidecar:latest .
+# Run:    docker run -p 8090:8090 rajits/agentbreeder-sidecar:latest
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    opentelemetry-sdk \
+    opentelemetry-exporter-otlp-proto-grpc \
+    opentelemetry-instrumentation-httpx \
+    fastapi \
+    "uvicorn[standard]" \
+    httpx
+
+COPY engine/sidecar/server.py /app/server.py
+
+# Non-root user for security
+RUN useradd -m -r sidecar && chown -R sidecar:sidecar /app
+USER sidecar
+
+EXPOSE 8090
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
+    CMD python -c "import httpx; httpx.get('http://localhost:8090/health').raise_for_status()"
+
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8090"]
