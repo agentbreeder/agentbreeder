@@ -123,6 +123,21 @@ class TestHackerNewsConnector:
         assert items == []
 
     @pytest.mark.asyncio
+    async def test_fetch_returns_empty_on_json_parse_error(self) -> None:
+        from connectors.news.hackernews import HackerNewsConnector
+
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json = MagicMock(side_effect=ValueError("bad json"))
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            items = await HackerNewsConnector().fetch()
+        assert items == []
+
+    @pytest.mark.asyncio
     async def test_scan_converts_to_dicts(self) -> None:
         from connectors.news.hackernews import HackerNewsConnector
 
@@ -391,3 +406,33 @@ class TestParseStructTime:
 
         result = _parse_struct_time(None)
         assert result.tzinfo is not None
+
+    def test_overflow_returns_utc_now(self) -> None:
+        from connectors.news.rss import _parse_struct_time
+
+        bad_t = struct_time((9999, 13, 99, 99, 99, 99, 0, 0, 0))
+        result = _parse_struct_time(bad_t)
+        assert result.tzinfo is not None
+
+
+class TestRequireFeedparser:
+    def test_raises_when_feedparser_unavailable(self) -> None:
+        import connectors.news.rss as rss_mod
+
+        original = rss_mod._FEEDPARSER_AVAILABLE
+        try:
+            rss_mod._FEEDPARSER_AVAILABLE = False
+            with pytest.raises(ImportError, match="feedparser is required"):
+                rss_mod._require_feedparser()
+        finally:
+            rss_mod._FEEDPARSER_AVAILABLE = original
+
+    def test_no_raise_when_feedparser_available(self) -> None:
+        import connectors.news.rss as rss_mod
+
+        original = rss_mod._FEEDPARSER_AVAILABLE
+        try:
+            rss_mod._FEEDPARSER_AVAILABLE = True
+            rss_mod._require_feedparser()  # should not raise
+        finally:
+            rss_mod._FEEDPARSER_AVAILABLE = original

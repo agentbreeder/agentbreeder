@@ -948,3 +948,598 @@ class TestWaitForRollout:
             await deployer._wait_for_rollout(
                 apps_v1, "my-agent", DEFAULT_NAMESPACE, max_wait=3, poll_interval=1
             )
+
+
+# ---------------------------------------------------------------------------
+# KubernetesDeployer._get_autoscaling_client — lines 263-268
+# ---------------------------------------------------------------------------
+
+
+class TestGetAutoscalingClient:
+    def test_raises_import_error_when_kubernetes_sdk_missing(self) -> None:
+        deployer = KubernetesDeployer()
+        with patch.dict("sys.modules", {"kubernetes": None}):
+            with pytest.raises(ImportError, match="pip install agentbreeder\\[kubernetes\\]"):
+                deployer._get_autoscaling_client()
+
+    def test_returns_autoscaling_v2_api(self) -> None:
+        deployer = KubernetesDeployer()
+        mock_k8s, _apps_v1, _core_v1, autoscaling_v2 = _make_k8s_modules()
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes": mock_k8s,
+                "kubernetes.client": mock_k8s.client,
+                "kubernetes.client.rest": mock_k8s.client.rest,
+            },
+        ):
+            result = deployer._get_autoscaling_client()
+        # Should be the return value of AutoscalingV2Api()
+        assert result is mock_k8s.client.AutoscalingV2Api.return_value
+
+
+# ---------------------------------------------------------------------------
+# KubernetesDeployer._ensure_namespace — lines 276-300
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureNamespace:
+    def test_raises_import_error_when_kubernetes_sdk_missing(self) -> None:
+        deployer = KubernetesDeployer()
+        core_v1 = MagicMock()
+        with patch.dict("sys.modules", {"kubernetes.client.rest": None}):
+            with pytest.raises(ImportError, match="pip install agentbreeder\\[kubernetes\\]"):
+                deployer._ensure_namespace(core_v1, "test-ns")
+
+    def test_skips_creation_when_namespace_exists(self) -> None:
+        """read_namespace succeeds → no create_namespace call."""
+        deployer = KubernetesDeployer()
+        core_v1 = MagicMock()
+        core_v1.read_namespace.return_value = MagicMock()
+
+        mock_k8s, _, _, _ = _make_k8s_modules()
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes": mock_k8s,
+                "kubernetes.client": mock_k8s.client,
+                "kubernetes.client.rest": mock_k8s.client.rest,
+            },
+        ):
+            deployer._ensure_namespace(core_v1, "existing-ns")
+
+        core_v1.create_namespace.assert_not_called()
+
+    def test_creates_namespace_on_404(self) -> None:
+        """read_namespace raises 404 → create_namespace is called."""
+        deployer = KubernetesDeployer()
+        core_v1 = MagicMock()
+
+        mock_k8s, _, _, _ = _make_k8s_modules()
+        api_exc_class = mock_k8s.client.rest.ApiException
+        exc_404 = api_exc_class("not found")
+        exc_404.status = 404
+        core_v1.read_namespace.side_effect = exc_404
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes": mock_k8s,
+                "kubernetes.client": mock_k8s.client,
+                "kubernetes.client.rest": mock_k8s.client.rest,
+            },
+        ):
+            deployer._ensure_namespace(core_v1, "new-ns")
+
+        core_v1.create_namespace.assert_called_once()
+        body = core_v1.create_namespace.call_args[1]["body"]
+        assert body["metadata"]["name"] == "new-ns"
+        assert body["metadata"]["labels"]["managed-by"] == "agentbreeder"
+
+    def test_propagates_non_404_api_exception(self) -> None:
+        """Non-404 exceptions (e.g. 403 Forbidden) should re-raise."""
+        deployer = KubernetesDeployer()
+        core_v1 = MagicMock()
+
+        mock_k8s, _, _, _ = _make_k8s_modules()
+        api_exc_class = mock_k8s.client.rest.ApiException
+        exc_403 = api_exc_class("forbidden")
+        exc_403.status = 403
+        core_v1.read_namespace.side_effect = exc_403
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes": mock_k8s,
+                    "kubernetes.client": mock_k8s.client,
+                    "kubernetes.client.rest": mock_k8s.client.rest,
+                },
+            ),
+            pytest.raises(type(exc_403)),
+        ):
+            deployer._ensure_namespace(core_v1, "secret-ns")
+
+
+# ---------------------------------------------------------------------------
+# KubernetesDeployer.teardown — success paths (resources exist)
+# lines 464-466, 473, 482, 485, 493, 496, 502, 505
+# ---------------------------------------------------------------------------
+
+
+class TestTeardownSuccessPaths:
+    @pytest.mark.asyncio
+    async def test_teardown_deletes_all_resources_successfully(self) -> None:
+        """All four delete calls succeed (resources exist) — happy path."""
+        deployer = KubernetesDeployer()
+        deployer._k8s_config = K8sConfig()
+
+        fake_api_exc = type("ApiException", (Exception,), {"status": 0})
+        fake_rest = MagicMock()
+        fake_rest.ApiException = fake_api_exc
+
+        apps_v1 = MagicMock()
+        core_v1 = MagicMock()
+        autoscaling_v2 = MagicMock()
+
+        # All deletes succeed (return None-like)
+        apps_v1.delete_namespaced_deployment.return_value = MagicMock()
+        core_v1.delete_namespaced_service.return_value = MagicMock()
+        autoscaling_v2.delete_namespaced_horizontal_pod_autoscaler.return_value = MagicMock()
+        core_v1.delete_namespaced_config_map.return_value = MagicMock()
+
+        with (
+            patch.object(deployer, "_get_k8s_clients", return_value=(apps_v1, core_v1)),
+            patch.object(deployer, "_get_autoscaling_client", return_value=autoscaling_v2),
+            patch.dict("sys.modules", {"kubernetes.client.rest": fake_rest}),
+        ):
+            await deployer.teardown("my-agent")
+
+        apps_v1.delete_namespaced_deployment.assert_called_once_with(
+            name="my-agent", namespace=DEFAULT_NAMESPACE
+        )
+        core_v1.delete_namespaced_service.assert_called_once_with(
+            name="my-agent", namespace=DEFAULT_NAMESPACE
+        )
+        autoscaling_v2.delete_namespaced_horizontal_pod_autoscaler.assert_called_once_with(
+            name="my-agent", namespace=DEFAULT_NAMESPACE
+        )
+        core_v1.delete_namespaced_config_map.assert_called_once_with(
+            name="my-agent", namespace=DEFAULT_NAMESPACE
+        )
+
+    @pytest.mark.asyncio
+    async def test_teardown_propagates_403_on_service_delete(self) -> None:
+        """Non-404 error on Service delete should propagate."""
+        deployer = KubernetesDeployer()
+        deployer._k8s_config = K8sConfig()
+
+        fake_api_exc_class = type("ApiException", (Exception,), {"status": 403})
+        fake_rest = MagicMock()
+        fake_rest.ApiException = fake_api_exc_class
+
+        apps_v1 = MagicMock()
+        core_v1 = MagicMock()
+        autoscaling_v2 = MagicMock()
+
+        # Deployment deletes fine; Service throws 403
+        apps_v1.delete_namespaced_deployment.return_value = MagicMock()
+        core_v1.delete_namespaced_service.side_effect = fake_api_exc_class(403)
+
+        with (
+            patch.object(deployer, "_get_k8s_clients", return_value=(apps_v1, core_v1)),
+            patch.object(deployer, "_get_autoscaling_client", return_value=autoscaling_v2),
+            patch.dict("sys.modules", {"kubernetes.client.rest": fake_rest}),
+            pytest.raises(fake_api_exc_class),
+        ):
+            await deployer.teardown("my-agent")
+
+    @pytest.mark.asyncio
+    async def test_teardown_propagates_403_on_hpa_delete(self) -> None:
+        """Non-404 error on HPA delete should propagate."""
+        deployer = KubernetesDeployer()
+        deployer._k8s_config = K8sConfig()
+
+        fake_api_exc_class = type("ApiException", (Exception,), {"status": 403})
+        fake_rest = MagicMock()
+        fake_rest.ApiException = fake_api_exc_class
+
+        apps_v1 = MagicMock()
+        core_v1 = MagicMock()
+        autoscaling_v2 = MagicMock()
+
+        apps_v1.delete_namespaced_deployment.return_value = MagicMock()
+        core_v1.delete_namespaced_service.return_value = MagicMock()
+        autoscaling_v2.delete_namespaced_horizontal_pod_autoscaler.side_effect = (
+            fake_api_exc_class(403)
+        )
+
+        with (
+            patch.object(deployer, "_get_k8s_clients", return_value=(apps_v1, core_v1)),
+            patch.object(deployer, "_get_autoscaling_client", return_value=autoscaling_v2),
+            patch.dict("sys.modules", {"kubernetes.client.rest": fake_rest}),
+            pytest.raises(fake_api_exc_class),
+        ):
+            await deployer.teardown("my-agent")
+
+    @pytest.mark.asyncio
+    async def test_teardown_propagates_403_on_configmap_delete(self) -> None:
+        """Non-404 error on ConfigMap delete should propagate."""
+        deployer = KubernetesDeployer()
+        deployer._k8s_config = K8sConfig()
+
+        fake_api_exc_class = type("ApiException", (Exception,), {"status": 403})
+        fake_rest = MagicMock()
+        fake_rest.ApiException = fake_api_exc_class
+
+        apps_v1 = MagicMock()
+        core_v1 = MagicMock()
+        autoscaling_v2 = MagicMock()
+
+        apps_v1.delete_namespaced_deployment.return_value = MagicMock()
+        core_v1.delete_namespaced_service.return_value = MagicMock()
+        autoscaling_v2.delete_namespaced_horizontal_pod_autoscaler.return_value = MagicMock()
+        core_v1.delete_namespaced_config_map.side_effect = fake_api_exc_class(403)
+
+        with (
+            patch.object(deployer, "_get_k8s_clients", return_value=(apps_v1, core_v1)),
+            patch.object(deployer, "_get_autoscaling_client", return_value=autoscaling_v2),
+            patch.dict("sys.modules", {"kubernetes.client.rest": fake_rest}),
+            pytest.raises(fake_api_exc_class),
+        ):
+            await deployer.teardown("my-agent")
+
+
+# ---------------------------------------------------------------------------
+# KubernetesDeployer.get_logs — lines 540, 558-559
+# ---------------------------------------------------------------------------
+
+
+class TestGetLogsAdditional:
+    @pytest.mark.asyncio
+    async def test_get_logs_falls_back_to_first_pod_when_none_running(self) -> None:
+        """When no pod has phase 'Running', fall back to items[0]."""
+        deployer = KubernetesDeployer()
+        deployer._k8s_config = K8sConfig()
+
+        apps_v1 = MagicMock()
+        core_v1 = MagicMock()
+
+        pending_pod = MagicMock()
+        pending_pod.metadata.name = "my-agent-pending"
+        pending_pod.status.phase = "Pending"
+
+        core_v1.list_namespaced_pod.return_value = MagicMock(items=[pending_pod])
+        core_v1.read_namespaced_pod_log.return_value = "log from pending pod"
+
+        with patch.object(deployer, "_get_k8s_clients", return_value=(apps_v1, core_v1)):
+            logs = await deployer.get_logs("my-agent")
+
+        # Should still attempt to read from the fallback pod
+        call_kwargs = core_v1.read_namespaced_pod_log.call_args[1]
+        assert call_kwargs["name"] == "my-agent-pending"
+        assert logs == ["log from pending pod"]
+
+    @pytest.mark.asyncio
+    async def test_get_logs_returns_error_message_on_exception(self) -> None:
+        """SDK exception during log read → error message returned, no raise."""
+        deployer = KubernetesDeployer()
+        deployer._k8s_config = K8sConfig()
+
+        apps_v1 = MagicMock()
+        core_v1 = MagicMock()
+
+        pod = MagicMock()
+        pod.metadata.name = "my-agent-abc"
+        pod.status.phase = "Running"
+        core_v1.list_namespaced_pod.return_value = MagicMock(items=[pod])
+        core_v1.read_namespaced_pod_log.side_effect = RuntimeError("permission denied")
+
+        with patch.object(deployer, "_get_k8s_clients", return_value=(apps_v1, core_v1)):
+            logs = await deployer.get_logs("my-agent")
+
+        assert len(logs) == 1
+        assert "Error reading logs" in logs[0]
+        assert "permission denied" in logs[0]
+
+
+# ---------------------------------------------------------------------------
+# KubernetesDeployer._build_docker_image — lines 567-586
+# ---------------------------------------------------------------------------
+
+
+class TestBuildDockerImage:
+    @pytest.mark.asyncio
+    async def test_raises_import_error_when_docker_sdk_missing(self) -> None:
+        deployer = KubernetesDeployer()
+        image = _make_image()
+
+        with patch.dict("sys.modules", {"docker": None}):
+            with pytest.raises(ImportError, match="pip install docker"):
+                await deployer._build_docker_image(image, "my-agent:1.2.3")
+
+    @pytest.mark.asyncio
+    async def test_builds_image_with_correct_tag(self) -> None:
+        deployer = KubernetesDeployer()
+        image = _make_image()
+
+        mock_docker = MagicMock()
+        mock_client = MagicMock()
+        mock_docker.from_env.return_value = mock_client
+
+        built_image = MagicMock()
+        # Simulate build logs — one with stream, one without
+        build_logs = [
+            {"stream": "Step 1/3 : FROM python:3.11-slim\n"},
+            {"stream": "   \n"},  # whitespace-only line — should be skipped
+            {"other_key": "no stream key"},
+        ]
+        mock_client.images.build.return_value = (built_image, iter(build_logs))
+
+        with patch.dict("sys.modules", {"docker": mock_docker}):
+            await deployer._build_docker_image(image, "my-agent:1.2.3")
+
+        mock_client.images.build.assert_called_once_with(
+            path=str(image.context_dir),
+            tag="my-agent:1.2.3",
+            rm=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# KubernetesDeployer._apply_deployment — lines 596-611
+# ---------------------------------------------------------------------------
+
+
+class TestApplyDeployment:
+    def _make_manifest(self) -> dict:
+        return {"metadata": {"name": "my-agent", "namespace": DEFAULT_NAMESPACE}, "spec": {}}
+
+    def test_creates_deployment_when_not_found(self) -> None:
+        deployer = KubernetesDeployer()
+
+        mock_k8s, apps_v1, _, _ = _make_k8s_modules()
+        api_exc_class = mock_k8s.client.rest.ApiException
+        exc_404 = api_exc_class("not found")
+        exc_404.status = 404
+        apps_v1.read_namespaced_deployment.side_effect = exc_404
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes": mock_k8s,
+                "kubernetes.client": mock_k8s.client,
+                "kubernetes.client.rest": mock_k8s.client.rest,
+            },
+        ):
+            deployer._apply_deployment(
+                apps_v1, "my-agent", DEFAULT_NAMESPACE, self._make_manifest()
+            )
+
+        apps_v1.create_namespaced_deployment.assert_called_once()
+        apps_v1.patch_namespaced_deployment.assert_not_called()
+
+    def test_patches_existing_deployment(self) -> None:
+        deployer = KubernetesDeployer()
+
+        mock_k8s, apps_v1, _, _ = _make_k8s_modules()
+        apps_v1.read_namespaced_deployment.return_value = MagicMock()  # exists
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes": mock_k8s,
+                "kubernetes.client": mock_k8s.client,
+                "kubernetes.client.rest": mock_k8s.client.rest,
+            },
+        ):
+            deployer._apply_deployment(
+                apps_v1, "my-agent", DEFAULT_NAMESPACE, self._make_manifest()
+            )
+
+        apps_v1.patch_namespaced_deployment.assert_called_once()
+        apps_v1.create_namespaced_deployment.assert_not_called()
+
+    def test_propagates_non_404_api_exception(self) -> None:
+        deployer = KubernetesDeployer()
+
+        mock_k8s, apps_v1, _, _ = _make_k8s_modules()
+        api_exc_class = mock_k8s.client.rest.ApiException
+        exc_403 = api_exc_class("forbidden")
+        exc_403.status = 403
+        apps_v1.read_namespaced_deployment.side_effect = exc_403
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes": mock_k8s,
+                    "kubernetes.client": mock_k8s.client,
+                    "kubernetes.client.rest": mock_k8s.client.rest,
+                },
+            ),
+            pytest.raises(type(exc_403)),
+        ):
+            deployer._apply_deployment(
+                apps_v1, "my-agent", DEFAULT_NAMESPACE, self._make_manifest()
+            )
+
+    def test_raises_import_error_when_kubernetes_sdk_missing(self) -> None:
+        deployer = KubernetesDeployer()
+        apps_v1 = MagicMock()
+        with patch.dict("sys.modules", {"kubernetes.client.rest": None}):
+            with pytest.raises(ImportError, match="pip install agentbreeder\\[kubernetes\\]"):
+                deployer._apply_deployment(apps_v1, "my-agent", DEFAULT_NAMESPACE, {})
+
+
+# ---------------------------------------------------------------------------
+# KubernetesDeployer._apply_service — lines 621-636
+# ---------------------------------------------------------------------------
+
+
+class TestApplyService:
+    def _make_manifest(self) -> dict:
+        return {"metadata": {"name": "my-agent", "namespace": DEFAULT_NAMESPACE}, "spec": {}}
+
+    def test_creates_service_when_not_found(self) -> None:
+        deployer = KubernetesDeployer()
+
+        mock_k8s, _, core_v1, _ = _make_k8s_modules()
+        api_exc_class = mock_k8s.client.rest.ApiException
+        exc_404 = api_exc_class("not found")
+        exc_404.status = 404
+        core_v1.read_namespaced_service.side_effect = exc_404
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes": mock_k8s,
+                "kubernetes.client": mock_k8s.client,
+                "kubernetes.client.rest": mock_k8s.client.rest,
+            },
+        ):
+            deployer._apply_service(core_v1, "my-agent", DEFAULT_NAMESPACE, self._make_manifest())
+
+        core_v1.create_namespaced_service.assert_called_once()
+        core_v1.patch_namespaced_service.assert_not_called()
+
+    def test_patches_existing_service(self) -> None:
+        deployer = KubernetesDeployer()
+
+        mock_k8s, _, core_v1, _ = _make_k8s_modules()
+        core_v1.read_namespaced_service.return_value = MagicMock()  # exists
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes": mock_k8s,
+                "kubernetes.client": mock_k8s.client,
+                "kubernetes.client.rest": mock_k8s.client.rest,
+            },
+        ):
+            deployer._apply_service(core_v1, "my-agent", DEFAULT_NAMESPACE, self._make_manifest())
+
+        core_v1.patch_namespaced_service.assert_called_once()
+        core_v1.create_namespaced_service.assert_not_called()
+
+    def test_propagates_non_404_api_exception(self) -> None:
+        deployer = KubernetesDeployer()
+
+        mock_k8s, _, core_v1, _ = _make_k8s_modules()
+        api_exc_class = mock_k8s.client.rest.ApiException
+        exc_403 = api_exc_class("forbidden")
+        exc_403.status = 403
+        core_v1.read_namespaced_service.side_effect = exc_403
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes": mock_k8s,
+                    "kubernetes.client": mock_k8s.client,
+                    "kubernetes.client.rest": mock_k8s.client.rest,
+                },
+            ),
+            pytest.raises(type(exc_403)),
+        ):
+            deployer._apply_service(core_v1, "my-agent", DEFAULT_NAMESPACE, self._make_manifest())
+
+    def test_raises_import_error_when_kubernetes_sdk_missing(self) -> None:
+        deployer = KubernetesDeployer()
+        core_v1 = MagicMock()
+        with patch.dict("sys.modules", {"kubernetes.client.rest": None}):
+            with pytest.raises(ImportError, match="pip install agentbreeder\\[kubernetes\\]"):
+                deployer._apply_service(core_v1, "my-agent", DEFAULT_NAMESPACE, {})
+
+
+# ---------------------------------------------------------------------------
+# KubernetesDeployer._apply_hpa — lines 640-665
+# ---------------------------------------------------------------------------
+
+
+class TestApplyHpa:
+    def _make_manifest(self) -> dict:
+        return {
+            "metadata": {"name": "my-agent", "namespace": DEFAULT_NAMESPACE},
+            "spec": {},
+        }
+
+    def test_creates_hpa_when_not_found(self) -> None:
+        deployer = KubernetesDeployer()
+
+        mock_k8s, _, _, autoscaling_v2 = _make_k8s_modules()
+        api_exc_class = mock_k8s.client.rest.ApiException
+        exc_404 = api_exc_class("not found")
+        exc_404.status = 404
+        autoscaling_v2.read_namespaced_horizontal_pod_autoscaler.side_effect = exc_404
+
+        with (
+            patch.object(deployer, "_get_autoscaling_client", return_value=autoscaling_v2),
+            patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes": mock_k8s,
+                    "kubernetes.client": mock_k8s.client,
+                    "kubernetes.client.rest": mock_k8s.client.rest,
+                },
+            ),
+        ):
+            deployer._apply_hpa(self._make_manifest())
+
+        autoscaling_v2.create_namespaced_horizontal_pod_autoscaler.assert_called_once()
+        autoscaling_v2.patch_namespaced_horizontal_pod_autoscaler.assert_not_called()
+
+    def test_patches_existing_hpa(self) -> None:
+        deployer = KubernetesDeployer()
+
+        mock_k8s, _, _, autoscaling_v2 = _make_k8s_modules()
+        autoscaling_v2.read_namespaced_horizontal_pod_autoscaler.return_value = MagicMock()
+
+        with (
+            patch.object(deployer, "_get_autoscaling_client", return_value=autoscaling_v2),
+            patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes": mock_k8s,
+                    "kubernetes.client": mock_k8s.client,
+                    "kubernetes.client.rest": mock_k8s.client.rest,
+                },
+            ),
+        ):
+            deployer._apply_hpa(self._make_manifest())
+
+        autoscaling_v2.patch_namespaced_horizontal_pod_autoscaler.assert_called_once()
+        autoscaling_v2.create_namespaced_horizontal_pod_autoscaler.assert_not_called()
+
+    def test_propagates_non_404_api_exception(self) -> None:
+        deployer = KubernetesDeployer()
+
+        mock_k8s, _, _, autoscaling_v2 = _make_k8s_modules()
+        api_exc_class = mock_k8s.client.rest.ApiException
+        exc_403 = api_exc_class("forbidden")
+        exc_403.status = 403
+        autoscaling_v2.read_namespaced_horizontal_pod_autoscaler.side_effect = exc_403
+
+        with (
+            patch.object(deployer, "_get_autoscaling_client", return_value=autoscaling_v2),
+            patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes": mock_k8s,
+                    "kubernetes.client": mock_k8s.client,
+                    "kubernetes.client.rest": mock_k8s.client.rest,
+                },
+            ),
+            pytest.raises(type(exc_403)),
+        ):
+            deployer._apply_hpa(self._make_manifest())
+
+    def test_raises_import_error_when_kubernetes_sdk_missing(self) -> None:
+        deployer = KubernetesDeployer()
+        autoscaling_v2 = MagicMock()
+        with (
+            patch.object(deployer, "_get_autoscaling_client", return_value=autoscaling_v2),
+            patch.dict("sys.modules", {"kubernetes.client.rest": None}),
+            pytest.raises(ImportError, match="pip install agentbreeder\\[kubernetes\\]"),
+        ):
+            deployer._apply_hpa(self._make_manifest())

@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
@@ -251,3 +252,86 @@ class TestProtectedAgentRoutes:
             mock_list.return_value = ([], 0)
             res = client.get("/api/v1/agents")
             assert res.status_code == 200
+
+
+# ── Auth Service — async DB functions ──
+
+
+class TestAuthServiceFunctions:
+    @pytest.mark.asyncio
+    async def test_decode_access_token_missing_sub(self):
+        """Token without 'sub' claim must return None."""
+        import jwt as pyjwt
+
+        from api.config import settings
+
+        payload = {"email": "x@x.com", "role": "viewer"}
+        token = pyjwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+        assert decode_access_token(token) is None
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_email_found(self):
+        from api.services.auth import get_user_by_email
+
+        mock_user = _make_user(email="found@test.com")
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_user
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        result = await get_user_by_email(mock_db, "found@test.com")
+        assert result is mock_user
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_email_not_found(self):
+        from api.services.auth import get_user_by_email
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        result = await get_user_by_email(mock_db, "missing@test.com")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_id_found(self):
+        from api.services.auth import get_user_by_id
+
+        uid = uuid.uuid4()
+        mock_user = _make_user(id=uid)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_user
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        result = await get_user_by_id(mock_db, uid)
+        assert result is mock_user
+
+    @pytest.mark.asyncio
+    async def test_create_user_returns_user(self):
+        from api.services.auth import create_user
+
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+
+        user = await create_user(mock_db, "new@test.com", "New User", "securepass123")
+        assert user.email == "new@test.com"
+        assert user.name == "New User"
+        mock_db.add.assert_called_once()
+        mock_db.flush.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_create_user_custom_role(self):
+        from api.services.auth import create_user
+
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+
+        user = await create_user(
+            mock_db, "admin@test.com", "Admin", "adminpass123", team="ops", role=UserRole.admin
+        )
+        assert user.team == "ops"
+        assert user.role == UserRole.admin

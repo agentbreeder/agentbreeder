@@ -61,6 +61,34 @@ class TestGetDeployer:
         deployer = get_deployer(CloudType.kubernetes, runtime="eks")
         assert isinstance(deployer, KubernetesDeployer)
 
+    def test_runtime_alias_app_runner(self) -> None:
+        from engine.deployers.aws_app_runner import AWSAppRunnerDeployer
+
+        deployer = get_deployer(CloudType.aws, runtime="app-runner")
+        assert isinstance(deployer, AWSAppRunnerDeployer)
+
+    def test_runtime_alias_cloud_run(self) -> None:
+        from engine.deployers.gcp_cloudrun import GCPCloudRunDeployer
+
+        deployer = get_deployer(CloudType.gcp, runtime="cloud-run")
+        assert isinstance(deployer, GCPCloudRunDeployer)
+
+    def test_unknown_runtime_falls_back_to_cloud_default(self) -> None:
+        from engine.deployers.docker_compose import DockerComposeDeployer
+
+        deployer = get_deployer(CloudType.local, runtime="nonexistent-runtime")
+        assert isinstance(deployer, DockerComposeDeployer)
+
+    def test_unsupported_cloud_raises_key_error(self) -> None:
+        from unittest.mock import MagicMock
+
+        from engine.config_parser import CloudType
+
+        fake_cloud = MagicMock(spec=CloudType)
+        fake_cloud.value = "martian-cloud"
+        with pytest.raises(KeyError, match="not yet supported"):
+            get_deployer(fake_cloud)
+
 
 class TestDockerComposeDeployer:
     @pytest.fixture

@@ -789,3 +789,514 @@ class TestBuildContainerDefinition:
         log_opts = container_def["logConfiguration"]["options"]
         assert log_opts["awslogs-group"] == "/agentbreeder/my-agent"
         assert log_opts["awslogs-region"] == "us-east-1"
+
+
+# ---------------------------------------------------------------------------
+# _get_boto3_client — success path (boto3 present, uses configured region)
+# ---------------------------------------------------------------------------
+
+
+class TestGetBoto3ClientSuccess:
+    def test_returns_client_with_configured_region(self) -> None:
+        """When boto3 is present and AWS config is set, client uses the configured region."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        mock_boto3 = MagicMock()
+        mock_client = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        with patch.dict(sys.modules, {"boto3": mock_boto3}):
+            result = deployer._get_boto3_client("ecs")
+
+        mock_boto3.client.assert_called_once_with("ecs", region_name="us-east-1")
+        assert result is mock_client
+
+    def test_uses_default_region_when_aws_config_absent(self) -> None:
+        """When _aws_config is None, client falls back to DEFAULT_REGION."""
+        from engine.deployers.aws_ecs import DEFAULT_REGION
+
+        deployer = _make_deployer()
+        assert deployer._aws_config is None
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = MagicMock()
+
+        with patch.dict(sys.modules, {"boto3": mock_boto3}):
+            deployer._get_boto3_client("s3")
+
+        mock_boto3.client.assert_called_once_with("s3", region_name=DEFAULT_REGION)
+
+
+# ---------------------------------------------------------------------------
+# _ensure_ecr_repository — fallback / generic exception path
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureECRRepository:
+    @pytest.mark.asyncio
+    async def test_creates_repo_on_repository_not_found(self) -> None:
+        """RepositoryNotFoundException triggers repo creation."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecr_mock = MagicMock()
+
+        class RepositoryNotFoundError(Exception):
+            pass
+
+        ecr_mock.exceptions.RepositoryNotFoundException = RepositoryNotFoundError
+        ecr_mock.describe_repositories.side_effect = RepositoryNotFoundError("not found")
+        ecr_mock.create_repository.return_value = {}
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecr_mock):
+            await deployer._ensure_ecr_repository("my-agent")
+
+        ecr_mock.create_repository.assert_called_once()
+        call_kwargs = ecr_mock.create_repository.call_args.kwargs
+        assert call_kwargs["repositoryName"] == "my-agent"
+
+    @pytest.mark.asyncio
+    async def test_fallback_path_for_repositorynotfound_in_exc_type(self) -> None:
+        """Generic exception whose type name contains 'RepositoryNotFound' triggers fallback."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecr_mock = MagicMock()
+
+        # Make RepositoryNotFoundException a *different* class so the first
+        # except branch is not matched, falling through to the generic handler.
+        class FallbackBaseError(Exception):
+            pass
+
+        class RepositoryNotFoundAliasError(FallbackBaseError):
+            pass
+
+        class FakeExceptions:
+            RepositoryNotFoundException = FallbackBaseError  # doesn't match
+
+        ecr_mock.exceptions = FakeExceptions()
+
+        class RepositoryNotFoundError(Exception):
+            pass
+
+        # Name contains "RepositoryNotFound" → fallback branch
+        RepositoryNotFoundError.__name__ = "RepositoryNotFoundError"
+        ecr_mock.describe_repositories.side_effect = RepositoryNotFoundError("nope")
+        ecr_mock.create_repository.return_value = {}
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecr_mock):
+            await deployer._ensure_ecr_repository("my-agent")
+
+        ecr_mock.create_repository.assert_called_once_with(repositoryName="my-agent")
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_logs_warning_and_continues(self) -> None:
+        """An unrecognised exception is logged as a warning and does not raise."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecr_mock = MagicMock()
+
+        class UnrelatedBaseError(Exception):
+            pass
+
+        class FakeExceptions:
+            RepositoryNotFoundException = UnrelatedBaseError
+
+        ecr_mock.exceptions = FakeExceptions()
+
+        class WeirdError(Exception):
+            pass
+
+        ecr_mock.describe_repositories.side_effect = WeirdError("unexpected")
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecr_mock):
+            # Should NOT raise
+            await deployer._ensure_ecr_repository("my-agent")
+
+        ecr_mock.create_repository.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _push_image — full Docker push flow
+# ---------------------------------------------------------------------------
+
+
+class TestPushImage:
+    @pytest.mark.asyncio
+    async def test_push_image_raises_import_error_without_docker(self) -> None:
+        """ImportError with hint is raised when the docker SDK is missing."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+        from engine.runtimes.base import ContainerImage
+
+        deployer._aws_config = _extract_ecs_config(config)
+        image = MagicMock(spec=ContainerImage)
+        image.tag = "my-agent:1.0.0"
+        image.context_dir = MagicMock()
+
+        with patch.dict(sys.modules, {"docker": None}):
+            with pytest.raises(ImportError, match="Docker SDK"):
+                await deployer._push_image(image, "123.dkr.ecr.us-east-1.amazonaws.com/x:1")
+
+    @pytest.mark.asyncio
+    async def test_push_image_raises_on_ecr_push_error(self) -> None:
+        """RuntimeError is raised when the push output contains an 'error' key."""
+        from pathlib import Path
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+        from engine.runtimes.base import ContainerImage
+
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        deployer._aws_config = _extract_ecs_config(config)
+
+        image = MagicMock(spec=ContainerImage)
+        image.tag = "my-agent:1.0.0"
+        image.context_dir = Path("/tmp/ctx")
+
+        # Set up docker mock
+        mock_docker = MagicMock()
+        built_image = MagicMock()
+        mock_docker.from_env.return_value.images.build.return_value = (built_image, [])
+        # Push stream yields an error chunk
+        mock_docker.from_env.return_value.images.push.return_value = iter(
+            [{"error": "denied: access forbidden"}]
+        )
+
+        ecr_mock = MagicMock()
+        ecr_mock.get_authorization_token.return_value = {
+            "authorizationData": [{"authorizationToken": "dXNlcjpwYXNz"}]  # user:pass
+        }
+
+        import base64
+
+        token = base64.b64encode(b"user:pass").decode()
+        ecr_mock.get_authorization_token.return_value = {
+            "authorizationData": [{"authorizationToken": token}]
+        }
+
+        with (
+            patch.dict(sys.modules, {"docker": mock_docker}),
+            patch.object(deployer, "_get_boto3_client", return_value=ecr_mock),
+        ):
+            with pytest.raises(RuntimeError, match="ECR image push failed"):
+                await deployer._push_image(
+                    image, "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+                )
+
+    @pytest.mark.asyncio
+    async def test_push_image_success_path(self) -> None:
+        """Successful push completes without raising."""
+        import base64
+        from pathlib import Path
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+        from engine.runtimes.base import ContainerImage
+
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        deployer._aws_config = _extract_ecs_config(config)
+
+        image = MagicMock(spec=ContainerImage)
+        image.tag = "my-agent:1.0.0"
+        image.context_dir = Path("/tmp/ctx")
+
+        token = base64.b64encode(b"AWS:secret-token").decode()
+        ecr_mock = MagicMock()
+        ecr_mock.get_authorization_token.return_value = {
+            "authorizationData": [{"authorizationToken": token}]
+        }
+
+        mock_docker = MagicMock()
+        built_image = MagicMock()
+        # Build logs include a 'stream' chunk
+        mock_docker.from_env.return_value.images.build.return_value = (
+            built_image,
+            [{"stream": "Step 1/3"}],
+        )
+        # Push stream has only a status chunk (no error)
+        mock_docker.from_env.return_value.images.push.return_value = iter(
+            [{"status": "Pushing"}, {"status": "Pushed"}]
+        )
+
+        with (
+            patch.dict(sys.modules, {"docker": mock_docker}),
+            patch.object(deployer, "_get_boto3_client", return_value=ecr_mock),
+        ):
+            await deployer._push_image(image, "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0")
+
+        built_image.tag.assert_called_once_with(
+            "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+        )
+
+
+# ---------------------------------------------------------------------------
+# _register_task_definition — task_role_arn branch
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterTaskDefinition:
+    @pytest.mark.asyncio
+    async def test_task_role_arn_included_when_set(self) -> None:
+        """taskRoleArn kwarg is added when AWS_TASK_ROLE_ARN is configured."""
+        deployer = _make_deployer()
+        config = _make_agent_config(
+            extra_env={"AWS_TASK_ROLE_ARN": "arn:aws:iam::123456789012:role/myTaskRole"}
+        )
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.register_task_definition.return_value = {
+            "taskDefinition": {
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/my-agent:1"
+            }
+        }
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            arn = await deployer._register_task_definition(
+                config, "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+            )
+
+        assert arn.endswith(":1")
+        call_kwargs = ecs_mock.register_task_definition.call_args.kwargs
+        assert call_kwargs["taskRoleArn"] == "arn:aws:iam::123456789012:role/myTaskRole"
+
+
+# ---------------------------------------------------------------------------
+# teardown() — scale-to-zero exception is swallowed, delete failure raises
+# ---------------------------------------------------------------------------
+
+
+class TestTeardownEdgeCases:
+    @pytest.mark.asyncio
+    async def test_teardown_continues_when_scale_to_zero_fails(self) -> None:
+        """If update_service (scale-to-zero) raises, teardown logs and continues."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.update_service.side_effect = Exception("service not found")
+        ecs_mock.delete_service.return_value = {}
+        paginator_mock = MagicMock()
+        paginator_mock.paginate.return_value = [{"taskDefinitionArns": []}]
+        ecs_mock.get_paginator.return_value = paginator_mock
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            # Should not raise even though update_service failed
+            await deployer.teardown("my-agent")
+
+        ecs_mock.delete_service.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_teardown_raises_when_delete_service_fails(self) -> None:
+        """If delete_service raises, teardown re-raises the exception."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.update_service.return_value = {}
+        ecs_mock.delete_service.side_effect = RuntimeError("cluster missing")
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            with pytest.raises(RuntimeError, match="cluster missing"):
+                await deployer.teardown("my-agent")
+
+    @pytest.mark.asyncio
+    async def test_teardown_swallows_deregister_exception(self) -> None:
+        """If paginator/deregister raises, teardown logs a warning and does not re-raise."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.update_service.return_value = {}
+        ecs_mock.delete_service.return_value = {}
+        ecs_mock.get_paginator.side_effect = Exception("paginator unavailable")
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            # Should complete without raising
+            await deployer.teardown("my-agent")
+
+
+# ---------------------------------------------------------------------------
+# get_logs() — ResourceNotFoundException and NoSuchLogGroup paths
+# ---------------------------------------------------------------------------
+
+
+class TestGetLogsEdgeCases:
+    @pytest.mark.asyncio
+    async def test_get_logs_returns_placeholder_on_resource_not_found(self) -> None:
+        """ResourceNotFoundException returns a 'does not exist yet' message."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        logs_mock = MagicMock()
+
+        class ResourceNotFoundError(Exception):
+            pass
+
+        ResourceNotFoundError.__name__ = "ResourceNotFoundException"
+        logs_mock.filter_log_events.side_effect = ResourceNotFoundError("no group")
+
+        with patch.object(deployer, "_get_boto3_client", return_value=logs_mock):
+            result = await deployer.get_logs("my-agent")
+
+        assert len(result) == 1
+        assert "does not exist yet" in result[0]
+
+    @pytest.mark.asyncio
+    async def test_get_logs_returns_error_message_for_generic_exception(self) -> None:
+        """Any other exception returns an 'Error fetching logs' message."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        logs_mock = MagicMock()
+        logs_mock.filter_log_events.side_effect = ConnectionError("network timeout")
+
+        with patch.object(deployer, "_get_boto3_client", return_value=logs_mock):
+            result = await deployer.get_logs("my-agent")
+
+        assert len(result) == 1
+        assert "Error fetching logs" in result[0]
+
+
+# ---------------------------------------------------------------------------
+# status()
+# ---------------------------------------------------------------------------
+
+
+class TestStatus:
+    @pytest.mark.asyncio
+    async def test_status_raises_without_aws_config(self) -> None:
+        deployer = _make_deployer()
+        with pytest.raises(RuntimeError, match="not initialized"):
+            await deployer.status("my-agent")
+
+    @pytest.mark.asyncio
+    async def test_status_returns_not_found_when_no_services(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.describe_services.return_value = {"services": []}
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            result = await deployer.status("my-agent")
+
+        assert result == {"name": "my-agent", "status": "not_found"}
+
+    @pytest.mark.asyncio
+    async def test_status_returns_service_fields(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.describe_services.return_value = {
+            "services": [
+                {
+                    "status": "ACTIVE",
+                    "runningCount": 2,
+                    "desiredCount": 2,
+                    "pendingCount": 0,
+                    "taskDefinition": "arn:aws:ecs:us-east-1:123:task-definition/my-agent:3",
+                    "clusterArn": "arn:aws:ecs:us-east-1:123:cluster/agentbreeder-cluster",
+                }
+            ]
+        }
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            result = await deployer.status("my-agent")
+
+        assert result["status"] == "ACTIVE"
+        assert result["running_count"] == 2
+        assert result["desired_count"] == 2
+        assert result["name"] == "my-agent"
+
+
+# ---------------------------------------------------------------------------
+# deploy() — no prior provision (aws_config / image_uri are None)
+# ---------------------------------------------------------------------------
+
+
+class TestDeployNoPriorProvision:
+    @pytest.mark.asyncio
+    async def test_deploy_extracts_config_when_aws_config_none(self) -> None:
+        """deploy() self-initialises aws_config and image_uri when not pre-set."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        image = MagicMock()
+        image.tag = "my-agent:1.0.0"
+        image.context_dir = MagicMock()
+
+        assert deployer._aws_config is None
+        assert deployer._image_uri is None
+
+        ecs_mock = MagicMock()
+        ecs_mock.register_task_definition.return_value = {
+            "taskDefinition": {
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/my-agent:1"
+            }
+        }
+        ecs_mock.describe_services.return_value = {"services": []}
+        ecs_mock.create_service.return_value = {}
+        ecs_mock.get_waiter.return_value = MagicMock()
+
+        with (
+            patch.object(deployer, "_push_image", new_callable=AsyncMock),
+            patch.object(deployer, "_get_boto3_client", return_value=ecs_mock),
+        ):
+            result = await deployer.deploy(config, image)
+
+        assert deployer._aws_config is not None
+        assert deployer._image_uri is not None
+        assert result.status == "running"

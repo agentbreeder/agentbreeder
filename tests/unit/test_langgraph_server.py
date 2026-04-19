@@ -430,3 +430,309 @@ class TestStartupCheckpointerSetup:
             await srv.startup()  # Should not raise
 
         srv._agent = None
+
+
+# ---------------------------------------------------------------------------
+# _load_agent — AttributeError when no recognised export (lines 86-88)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAgentAttributeError:
+    def test_raises_attribute_error_when_no_recognised_export(self):
+        """agent.py missing all known exports must raise AttributeError (lines 86-88)."""
+        srv = _import_server()
+
+        import types as _types
+
+        fake_module = _types.ModuleType("agent")
+        # No 'graph', 'app', 'workflow', or 'agent' attribute
+        fake_module.something_else = "irrelevant"  # type: ignore[attr-defined]
+
+        with patch.dict(sys.modules, {"agent": fake_module}):
+            with pytest.raises(AttributeError, match="must export one of"):
+                srv._load_agent()
+
+    def test_raises_import_error_when_module_missing(self):
+        srv = _import_server()
+
+        with patch.dict(sys.modules, {"agent": None}):  # type: ignore[dict-item]
+            with pytest.raises((ImportError, AttributeError)):
+                srv._load_agent()
+
+    def test_returns_workflow_attr_when_present(self):
+        srv = _import_server()
+
+        import types as _types
+
+        fake_obj = object()
+        fake_module = _types.ModuleType("agent")
+        fake_module.workflow = fake_obj  # type: ignore[attr-defined]
+
+        # Stub langgraph.graph so isinstance check doesn't import-error
+        fake_lg_graph = _types.ModuleType("langgraph.graph")
+        fake_lg_graph.StateGraph = type("StateGraph", (), {})  # type: ignore[attr-defined]
+
+        with patch.dict(sys.modules, {"agent": fake_module, "langgraph.graph": fake_lg_graph}):
+            result = srv._load_agent()
+
+        assert result is fake_obj
+
+    def test_returns_agent_attr_when_present(self):
+        srv = _import_server()
+
+        import types as _types
+
+        fake_obj = object()
+        fake_module = _types.ModuleType("agent")
+        fake_module.agent = fake_obj  # type: ignore[attr-defined]
+
+        fake_lg_graph = _types.ModuleType("langgraph.graph")
+        fake_lg_graph.StateGraph = type("StateGraph", (), {})  # type: ignore[attr-defined]
+
+        with patch.dict(sys.modules, {"agent": fake_module, "langgraph.graph": fake_lg_graph}):
+            result = srv._load_agent()
+
+        assert result is fake_obj
+
+
+# ---------------------------------------------------------------------------
+# _load_agent — StateGraph ImportError inside the warning block (lines 107-108)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAgentStateGraphImportError:
+    def test_no_crash_when_langgraph_not_importable_inside_load(self):
+        """ImportError for langgraph.graph inside _load_agent must be silently swallowed."""
+        srv = _import_server()
+
+        import types as _types
+
+        fake_obj = object()
+        fake_module = _types.ModuleType("agent")
+        fake_module.graph = fake_obj  # type: ignore[attr-defined]
+
+        # Force langgraph.graph to raise ImportError
+        with patch.dict(sys.modules, {"agent": fake_module, "langgraph.graph": None}):  # type: ignore[dict-item]
+            result = srv._load_agent()
+
+        assert result is fake_obj
+
+
+# ---------------------------------------------------------------------------
+# startup — _tracer init and StateGraph compile branch (lines 112-116, 134-135)
+# ---------------------------------------------------------------------------
+
+
+class TestStartupTracingAndCompile:
+    @pytest.mark.asyncio
+    async def test_startup_compiles_state_graph(self):
+        """When _load_agent returns a StateGraph, startup() must compile it (line 134-135)."""
+        import types as _types
+
+        srv = _import_server()
+
+        class FakeStateGraph:
+            pass
+
+        compiled = MagicMock(name="compiled_graph")
+
+        raw_sg = FakeStateGraph()
+        raw_sg.compile = MagicMock(return_value=compiled)  # type: ignore[attr-defined]
+
+        fake_lg_graph = _types.ModuleType("langgraph.graph")
+        fake_lg_graph.StateGraph = FakeStateGraph  # type: ignore[attr-defined]
+
+        mock_checkpointer = MagicMock(spec=[])  # no setup()
+
+        with (
+            patch.object(srv, "_load_agent", return_value=raw_sg),
+            patch.object(srv, "_get_checkpointer", return_value=mock_checkpointer),
+            patch.dict(sys.modules, {"langgraph.graph": fake_lg_graph}),
+        ):
+            await srv.startup()
+
+        assert srv._agent is compiled
+        srv._agent = None
+
+    @pytest.mark.asyncio
+    async def test_startup_skips_compile_for_non_state_graph(self):
+        """When _load_agent returns a compiled graph, startup() uses it as-is."""
+        import types as _types
+
+        srv = _import_server()
+
+        class FakeStateGraph:
+            pass
+
+        # compiled_obj is NOT an instance of FakeStateGraph
+        compiled_obj = MagicMock(name="already_compiled")
+
+        fake_lg_graph = _types.ModuleType("langgraph.graph")
+        fake_lg_graph.StateGraph = FakeStateGraph  # type: ignore[attr-defined]
+
+        mock_checkpointer = MagicMock(spec=[])
+
+        with (
+            patch.object(srv, "_load_agent", return_value=compiled_obj),
+            patch.object(srv, "_get_checkpointer", return_value=mock_checkpointer),
+            patch.dict(sys.modules, {"langgraph.graph": fake_lg_graph}),
+        ):
+            await srv.startup()
+
+        assert srv._agent is compiled_obj
+        srv._agent = None
+
+    @pytest.mark.asyncio
+    async def test_startup_falls_back_when_langgraph_not_importable(self):
+        """ImportError for langgraph.graph in startup must fall back to raw agent."""
+        srv = _import_server()
+
+        raw_obj = MagicMock(name="raw_agent")
+        mock_checkpointer = MagicMock(spec=[])
+
+        with (
+            patch.object(srv, "_load_agent", return_value=raw_obj),
+            patch.object(srv, "_get_checkpointer", return_value=mock_checkpointer),
+            patch.dict(sys.modules, {"langgraph.graph": None}),  # type: ignore[dict-item]
+        ):
+            await srv.startup()
+
+        assert srv._agent is raw_obj
+        srv._agent = None
+
+    @pytest.mark.asyncio
+    async def test_startup_tracing_import_error_silently_skipped(self):
+        """When _tracing raises ImportError, startup must survive without crashing."""
+        srv = _import_server()
+        srv._tracer = None
+
+        raw_obj = MagicMock(name="agent")
+        mock_checkpointer = MagicMock(spec=[])
+
+        # Inject a broken _tracing module so ImportError fires at init_tracing()
+        broken_tracing = types.ModuleType("_tracing")
+
+        def _raise_import(*args, **kwargs):
+            raise ImportError("_tracing not available")
+
+        broken_tracing.init_tracing = _raise_import  # type: ignore[attr-defined]
+
+        with (
+            patch.object(srv, "_load_agent", return_value=raw_obj),
+            patch.object(srv, "_get_checkpointer", return_value=mock_checkpointer),
+            patch.dict(sys.modules, {"langgraph.graph": None, "_tracing": broken_tracing}),  # type: ignore[dict-item]
+        ):
+            # Must not raise — ImportError from init_tracing is swallowed by the try/except
+            await srv.startup()
+
+        # Server is up; _agent was set, tracer could be None or NoopTracer — just no crash
+        assert srv._agent is raw_obj
+        srv._agent = None
+
+
+# ---------------------------------------------------------------------------
+# /invoke — exception path (line 166) and no-aget_state branch (line 176)
+# ---------------------------------------------------------------------------
+
+
+class TestInvokeExtraPathsCoverage:
+    @pytest.mark.asyncio
+    async def test_invoke_returns_output_without_aget_state(self):
+        """When agent has no aget_state, normal response without interrupt check (line 176)."""
+        srv = _import_server()
+
+        mock_agent = MagicMock(spec=["ainvoke"])  # no aget_state
+        mock_agent.ainvoke = AsyncMock(return_value={"answer": "hi"})
+        srv._agent = mock_agent
+
+        transport = ASGITransport(app=srv.app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/invoke", json={"input": {"q": "test"}})
+
+        assert response.status_code == 200
+        assert response.json()["output"] == {"answer": "hi"}
+        srv._agent = None
+
+    @pytest.mark.asyncio
+    async def test_invoke_500_when_ainvoke_raises(self):
+        """Exception in ainvoke must produce HTTP 500 (line 166)."""
+        srv = _import_server()
+
+        mock_agent = MagicMock(spec=["ainvoke"])
+        mock_agent.ainvoke = AsyncMock(side_effect=RuntimeError("graph crash"))
+        srv._agent = mock_agent
+
+        transport = ASGITransport(app=srv.app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/invoke", json={"input": {}})
+
+        assert response.status_code == 500
+        assert "graph crash" in response.json()["detail"]
+        srv._agent = None
+
+
+# ---------------------------------------------------------------------------
+# /resume — exception path (line 223-225)
+# ---------------------------------------------------------------------------
+
+
+class TestResumeExtraPathsCoverage:
+    @pytest.mark.asyncio
+    async def test_resume_500_when_ainvoke_raises(self):
+        """Exception in resume ainvoke must produce HTTP 500 (lines 223-225)."""
+        srv = _import_server()
+
+        mock_agent = MagicMock()
+        mock_agent.ainvoke = AsyncMock(side_effect=ValueError("resume failed"))
+        srv._agent = mock_agent
+
+        fake_types_module = types.ModuleType("langgraph.types")
+        fake_types_module.Command = MagicMock(return_value=MagicMock())  # type: ignore[attr-defined]
+
+        with patch.dict(sys.modules, {"langgraph.types": fake_types_module}):
+            transport = ASGITransport(app=srv.app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.post(
+                    "/resume", json={"thread_id": "t1", "human_input": "ok"}
+                )
+
+        assert response.status_code == 500
+        assert "resume failed" in response.json()["detail"]
+        srv._agent = None
+
+
+# ---------------------------------------------------------------------------
+# _run_agent — sync invoke branch and TypeError branch (lines 232-236)
+# ---------------------------------------------------------------------------
+
+
+class TestRunAgentExtraDispatch:
+    @pytest.mark.asyncio
+    async def test_run_agent_uses_sync_invoke_when_no_ainvoke(self):
+        """When agent has invoke but not ainvoke, calls invoke() directly (lines 232-234)."""
+        srv = _import_server()
+
+        class SyncOnlyAgent:
+            def invoke(self, input_data, config=None):
+                return {"sync": "result"}
+
+        srv._agent = SyncOnlyAgent()
+
+        result = await srv._run_agent({"query": "hi"}, {"configurable": {"thread_id": "t1"}})
+        assert result == {"sync": "result"}
+        srv._agent = None
+
+    @pytest.mark.asyncio
+    async def test_run_agent_raises_type_error_for_unsupported_agent(self):
+        """Agent with neither ainvoke nor invoke raises TypeError (lines 235-236)."""
+        srv = _import_server()
+
+        class NoInvokeAgent:
+            pass
+
+        srv._agent = NoInvokeAgent()
+
+        with pytest.raises(TypeError, match="does not have invoke or ainvoke"):
+            await srv._run_agent({}, {})
+
+        srv._agent = None
