@@ -50,48 +50,50 @@ const STEPS: Step[] = [
 export function HowItWorks() {
   return (
     <section
-      className="mx-auto max-w-[1200px] border-t px-20 py-20"
+      className="w-full border-t py-20 lg:py-28"
       style={{ borderColor: 'var(--border)' }}
     >
-      <p
-        className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]"
-        style={{ color: 'var(--accent)' }}
-      >
-        How it works
-      </p>
-      <h2
-        className="mb-3 text-[36px] font-extrabold text-white"
-        style={{ letterSpacing: '-1px' }}
-      >
-        From YAML to production in 3 steps
-      </h2>
-      <p className="mb-12 max-w-[500px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
-        No infrastructure expertise required. AgentBreeder handles the entire
-        deploy pipeline.
-      </p>
-      <div className="grid grid-cols-3 gap-6">
-        {STEPS.map(({ num, title, desc }, i) => (
-          <div key={num} className="relative p-7">
-            <p
-              className="mb-3.5 font-mono text-[11px] font-semibold tracking-[1px]"
-              style={{ color: 'var(--accent)' }}
-            >
-              {num} ──
-            </p>
-            <h3 className="mb-2 text-[16px] font-bold text-white">{title}</h3>
-            <p className="text-[13px] leading-[1.65]" style={{ color: 'var(--text-muted)' }}>
-              {desc}
-            </p>
-            {i < STEPS.length - 1 && (
-              <span
-                className="absolute right-0 top-1/2 -translate-y-1/2 text-lg"
-                style={{ color: 'var(--text-dim)' }}
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-8 md:px-12 lg:px-16 xl:px-24">
+        <p
+          className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]"
+          style={{ color: 'var(--accent)' }}
+        >
+          How it works
+        </p>
+        <h2
+          className="mb-3 text-[28px] sm:text-[36px] font-extrabold text-white"
+          style={{ letterSpacing: '-1px' }}
+        >
+          From YAML to production in 3 steps
+        </h2>
+        <p className="mb-12 max-w-[500px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
+          No infrastructure expertise required. AgentBreeder handles the entire
+          deploy pipeline.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {STEPS.map(({ num, title, desc }, i) => (
+            <div key={num} className="relative p-7">
+              <p
+                className="mb-3.5 font-mono text-[11px] font-semibold tracking-[1px]"
+                style={{ color: 'var(--accent)' }}
               >
-                →
-              </span>
-            )}
-          </div>
-        ))}
+                {num} ──
+              </p>
+              <h3 className="mb-2 text-[16px] font-bold text-white">{title}</h3>
+              <p className="text-[13px] leading-[1.65]" style={{ color: 'var(--text-muted)' }}>
+                {desc}
+              </p>
+              {i < STEPS.length - 1 && (
+                <span
+                  className="hidden md:block absolute right-0 top-1/2 -translate-y-1/2 text-lg"
+                  style={{ color: 'var(--text-dim)' }}
+                >
+                  →
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );

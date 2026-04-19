@@ -8,95 +8,97 @@ const CAREER_HIGHLIGHTS = [
 
 export function BuiltBy() {
   return (
-    <section className="mx-auto max-w-[1200px] px-20 py-20">
-      <p
-        className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]"
-        style={{ color: 'var(--accent)' }}
-      >
-        Built by
-      </p>
-      <h2
-        className="mb-12 text-[36px] font-extrabold text-white"
-        style={{ letterSpacing: '-1px' }}
-      >
-        The inventor
-      </h2>
+    <section className="w-full py-20 lg:py-28">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-8 md:px-12 lg:px-16 xl:px-24">
+        <p
+          className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]"
+          style={{ color: 'var(--accent)' }}
+        >
+          Built by
+        </p>
+        <h2
+          className="mb-12 text-[28px] sm:text-[36px] font-extrabold text-white"
+          style={{ letterSpacing: '-1px' }}
+        >
+          The inventor
+        </h2>
 
-      <div
-        className="rounded-[18px] border p-10"
-        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
-      >
-        <div className="flex gap-10 items-start">
-          {/* Headshot */}
-          <div className="flex-shrink-0">
-            <div className="relative overflow-hidden rounded-2xl" style={{ width: 120, height: 120 }}>
-              <Image
-                src="/rajit-saha.jpg"
-                alt="Rajit Saha"
-                fill
-                className="object-cover"
-                sizes="120px"
-              />
-            </div>
-            <div className="mt-3 text-center">
-              <Link
-                href="https://www.linkedin.com/in/rajsaha/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-medium no-underline transition-all hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-              >
-                <LinkedInIcon />
-                LinkedIn
-              </Link>
-            </div>
-          </div>
-
-          {/* Bio */}
-          <div className="flex-1 min-w-0">
-            <div className="mb-1 flex items-center gap-3">
-              <h3 className="text-[22px] font-bold text-white">Rajit Saha</h3>
-              <span
-                className="rounded-full border px-2.5 py-0.5 text-[11px] font-semibold"
-                style={{
-                  background: 'var(--accent-dim)',
-                  borderColor: 'var(--accent-border)',
-                  color: 'var(--accent)',
-                }}
-              >
-                Inventor &amp; Author
-              </span>
-            </div>
-            <p className="mb-4 text-[13px]" style={{ color: 'var(--accent)' }}>
-              Director of Data Intelligence Platform · Udemy
-            </p>
-            <p className="mb-4 text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
-              Spent 20 years making data platforms bigger and faster. Then decided smarter was more interesting.
-              At Udemy, shipped AI agents that actually do things in production.
-              AgentBreeder is the tool I kept wishing existed while building them.
-            </p>
-            <p className="text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
-              The pattern across 8 companies and 23 years: architect it, build the MVP personally, hand it to a
-              great team to scale. Passive data warehouses had a good run. Active, agent-driven systems are what
-              comes next — and that&apos;s what I&apos;m building now.
-            </p>
-
-            {/* Stats row */}
-            <div className="mt-8 grid grid-cols-2 gap-4">
-              {CAREER_HIGHLIGHTS.map(({ label, desc }) => (
-                <div
-                  key={label}
-                  className="rounded-[10px] border p-4"
-                  style={{ background: 'var(--bg-base)', borderColor: 'var(--border)' }}
+        <div
+          className="rounded-[18px] border p-6 sm:p-10"
+          style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
+        >
+          <div className="flex flex-col sm:flex-row gap-8 sm:gap-10 items-start">
+            {/* Headshot */}
+            <div className="flex-shrink-0 flex sm:flex-col items-center gap-4 sm:gap-0">
+              <div className="relative overflow-hidden rounded-2xl" style={{ width: 100, height: 100 }}>
+                <Image
+                  src="/rajit-saha.jpg"
+                  alt="Rajit Saha"
+                  fill
+                  className="object-cover"
+                  sizes="100px"
+                />
+              </div>
+              <div className="sm:mt-3 sm:text-center">
+                <Link
+                  href="https://www.linkedin.com/in/rajsaha/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-medium no-underline transition-all hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
                 >
-                  <div className="mb-1 text-[18px] font-extrabold text-white" style={{ letterSpacing: '-0.5px' }}>
-                    {label}
+                  <LinkedInIcon />
+                  LinkedIn
+                </Link>
+              </div>
+            </div>
+
+            {/* Bio */}
+            <div className="flex-1 min-w-0">
+              <div className="mb-1 flex flex-wrap items-center gap-3">
+                <h3 className="text-[20px] sm:text-[22px] font-bold text-white">Rajit Saha</h3>
+                <span
+                  className="rounded-full border px-2.5 py-0.5 text-[11px] font-semibold"
+                  style={{
+                    background: 'var(--accent-dim)',
+                    borderColor: 'var(--accent-border)',
+                    color: 'var(--accent)',
+                  }}
+                >
+                  Inventor &amp; Author
+                </span>
+              </div>
+              <p className="mb-4 text-[13px]" style={{ color: 'var(--accent)' }}>
+                Director of Data Intelligence Platform · Udemy
+              </p>
+              <p className="mb-4 text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
+                Spent 20 years making data platforms bigger and faster. Then decided smarter was more interesting.
+                At Udemy, shipped AI agents that actually do things in production.
+                AgentBreeder is the tool I kept wishing existed while building them.
+              </p>
+              <p className="text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
+                The pattern across 8 companies and 23 years: architect it, build the MVP personally, hand it to a
+                great team to scale. Passive data warehouses had a good run. Active, agent-driven systems are what
+                comes next — and that&apos;s what I&apos;m building now.
+              </p>
+
+              {/* Stats row */}
+              <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {CAREER_HIGHLIGHTS.map(({ label, desc }) => (
+                  <div
+                    key={label}
+                    className="rounded-[10px] border p-4"
+                    style={{ background: 'var(--bg-base)', borderColor: 'var(--border)' }}
+                  >
+                    <div className="mb-1 text-[18px] font-extrabold text-white" style={{ letterSpacing: '-0.5px' }}>
+                      {label}
+                    </div>
+                    <div className="text-[11px] leading-[1.5]" style={{ color: 'var(--text-dim)' }}>
+                      {desc}
+                    </div>
                   </div>
-                  <div className="text-[11px] leading-[1.5]" style={{ color: 'var(--text-dim)' }}>
-                    {desc}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>

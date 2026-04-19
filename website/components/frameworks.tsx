@@ -3,7 +3,7 @@ const FRAMEWORKS = ['LangGraph', 'CrewAI', 'Claude SDK', 'Google ADK', 'OpenAI A
 export function Frameworks() {
   return (
     <div
-      className="flex flex-wrap items-center gap-8 border-y px-20 py-7"
+      className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-4 sm:gap-8 border-y px-4 sm:px-8 md:px-12 lg:px-16 xl:px-24 py-7"
       style={{ borderColor: 'var(--border)' }}
     >
       <span

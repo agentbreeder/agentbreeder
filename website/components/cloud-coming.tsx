@@ -20,7 +20,7 @@ function WaitlistForm() {
   return (
     <div>
       {sent ? (
-        <div className="flex items-center gap-3">
+        <div>
           <span
             className="inline-flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold"
             style={{ background: 'rgba(167,139,250,0.12)', color: '#c084fc', border: '1px solid rgba(167,139,250,0.25)' }}
@@ -29,24 +29,23 @@ function WaitlistForm() {
           </span>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="flex items-center gap-3">
+        <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <input
             type="email"
             required
             placeholder="you@company.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="rounded-xl border px-4 py-3 text-sm outline-none transition-all focus:border-[#a78bfa]"
+            className="rounded-xl border px-4 py-3 text-sm outline-none transition-all focus:border-[#a78bfa] w-full sm:w-[260px]"
             style={{
               background: 'var(--bg-surface)',
               borderColor: 'var(--border)',
               color: 'var(--text)',
-              width: 260,
             }}
           />
           <button
             type="submit"
-            className="inline-flex cursor-pointer items-center gap-2 rounded-xl border-0 px-7 py-3 text-sm font-bold transition-all hover:scale-[1.02] hover:opacity-90"
+            className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border-0 px-7 py-3 text-sm font-bold transition-all hover:scale-[1.02] hover:opacity-90"
             style={{
               background: 'linear-gradient(135deg, #a78bfa 0%, #f472b6 100%)',
               color: '#fff',
@@ -99,19 +98,16 @@ const CLOUD_FEATURES = [
 
 export function CloudComing() {
   return (
-    <section
-      id="cloud"
-      className="relative mx-auto max-w-[1200px] px-20 py-24"
-    >
+    <section id="cloud" className="relative w-full py-20 lg:py-28 overflow-hidden">
       {/* Background glow */}
       <div
         className="pointer-events-none absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full"
         style={{ background: 'radial-gradient(circle, rgba(167,139,250,0.06) 0%, transparent 65%)' }}
       />
 
-      <div className="relative z-10">
+      <div className="relative z-10 max-w-[1400px] mx-auto px-4 sm:px-8 md:px-12 lg:px-16 xl:px-24">
         {/* Badge */}
-        <div className="mb-6 flex items-center gap-2">
+        <div className="mb-6">
           <span
             className="inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-bold uppercase tracking-widest"
             style={{
@@ -127,7 +123,7 @@ export function CloudComing() {
 
         {/* Headline */}
         <h2
-          className="mb-4 text-[48px] font-black leading-[1.06] text-white"
+          className="mb-4 text-[36px] sm:text-[48px] font-black leading-[1.06] text-white"
           style={{ letterSpacing: '-2px' }}
         >
           AgentBreeder{' '}
@@ -142,7 +138,7 @@ export function CloudComing() {
           </span>
         </h2>
         <p
-          className="mb-4 max-w-[560px] text-lg leading-[1.7]"
+          className="mb-4 max-w-[560px] text-base sm:text-lg leading-[1.7]"
           style={{ color: 'var(--text-muted)' }}
         >
           The open-source CLI you love — now with a fully managed control plane.
@@ -161,7 +157,7 @@ export function CloudComing() {
         </p>
 
         {/* Feature grid */}
-        <div className="mb-14 grid grid-cols-3 gap-4">
+        <div className="mb-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {CLOUD_FEATURES.map(({ icon, title, desc }) => (
             <div
               key={title}

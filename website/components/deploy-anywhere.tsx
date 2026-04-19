@@ -197,7 +197,7 @@ export function DeployAnywhere() {
 
   return (
     <section style={{ background: 'var(--bg-base)' }}>
-      <div className="mx-auto max-w-[1200px] px-20 py-20">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-8 md:px-12 lg:px-16 xl:px-24 py-20 lg:py-28">
         <p
           className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]"
           style={{ color: 'var(--accent)' }}

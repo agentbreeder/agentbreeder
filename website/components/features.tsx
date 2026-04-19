@@ -44,38 +44,40 @@ const FEATURES: Feature[] = [
 
 export function Features() {
   return (
-    <section className="mx-auto max-w-[1200px] px-20 py-20">
-      <p
-        className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]"
-        style={{ color: 'var(--accent)' }}
-      >
-        Why AgentBreeder
-      </p>
-      <h2
-        className="mb-3 text-[36px] font-extrabold text-white"
-        style={{ letterSpacing: '-1px' }}
-      >
-        Everything you need to ship agents
-      </h2>
-      <p className="mb-12 max-w-[500px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
-        Stop reinventing deployment, governance, and observability for every agent.
-        AgentBreeder handles it automatically.
-      </p>
-      <div className="grid grid-cols-3 gap-4">
-        {FEATURES.map(({ icon, title, desc }) => (
-          <div
-            key={title}
-            className="rounded-[14px] border p-6 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-            style={{
-              background: 'var(--bg-surface)',
-              borderColor: 'var(--border)',
-            }}
-          >
-            <div className="mb-3 text-[22px]">{icon}</div>
-            <h3 className="mb-1.5 text-[15px] font-bold text-white">{title}</h3>
-            <p className="text-[13px] leading-[1.65]" style={{ color: 'var(--text-muted)' }}>{desc}</p>
-          </div>
-        ))}
+    <section className="w-full py-20 lg:py-28">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-8 md:px-12 lg:px-16 xl:px-24">
+        <p
+          className="mb-3 text-[11px] font-semibold uppercase tracking-[2px]"
+          style={{ color: 'var(--accent)' }}
+        >
+          Why AgentBreeder
+        </p>
+        <h2
+          className="mb-3 text-[28px] sm:text-[36px] font-extrabold text-white"
+          style={{ letterSpacing: '-1px' }}
+        >
+          Everything you need to ship agents
+        </h2>
+        <p className="mb-12 max-w-[500px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
+          Stop reinventing deployment, governance, and observability for every agent.
+          AgentBreeder handles it automatically.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {FEATURES.map(({ icon, title, desc }) => (
+            <div
+              key={title}
+              className="rounded-[14px] border p-6 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+              style={{
+                background: 'var(--bg-surface)',
+                borderColor: 'var(--border)',
+              }}
+            >
+              <div className="mb-3 text-[22px]">{icon}</div>
+              <h3 className="mb-1.5 text-[15px] font-bold text-white">{title}</h3>
+              <p className="text-[13px] leading-[1.65]" style={{ color: 'var(--text-muted)' }}>{desc}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
