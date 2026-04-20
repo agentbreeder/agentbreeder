@@ -579,7 +579,6 @@ async def graph_search(
     idx: "RAGIndex",
     top_k: int = 10,
     hops: int | None = None,
-    rerank: bool = True,
     seed_entity_limit: int = 5,
     vector_weight: float = 0.6,
     graph_weight: float = 0.4,
@@ -597,7 +596,7 @@ async def graph_search(
        where hop_decay(d) = 1.0 / (1 + d)  (seed entity chunks get hop_depth=0)
     8. Return top_k as GraphSearchHit objects
     """
-    from api.services.graph_store import get_graph_store
+    from api.services.graph_store import get_graph_store  # lazy to avoid circular import
 
     # Step 1: Embed query
     query_embeddings = await embed_texts([query], model=idx.embedding_model)
@@ -647,7 +646,7 @@ async def graph_search(
     chunk_map: dict[str, DocumentChunk] = {c.id: c for c in idx.chunks}
 
     # Find seed nodes: nodes whose chunk_ids overlap with top candidate chunks
-    all_nodes, _ = graph_store.list_nodes(index_id, per_page=10000)
+    all_nodes = graph_store.get_all_nodes(index_id)
     seed_node_ids: list[str] = []
     seed_entity_names: list[str] = []
     for node in all_nodes:
@@ -655,31 +654,29 @@ async def graph_search(
             seed_node_ids.append(node.id)
             seed_entity_names.append(node.entity)
 
-    # Step 4: BFS traversal
+    # Step 4: BFS traversal — returns list[tuple[GraphNode, int]] (node, depth)
     hops_value = hops if hops is not None else idx.max_hops
-    neighbor_nodes = graph_store.get_neighbors(index_id, seed_node_ids, hops=hops_value)
+    neighbor_results = graph_store.get_neighbors(index_id, seed_node_ids, hops=hops_value)
 
-    nodes_traversed = len(seed_node_ids) + len(neighbor_nodes)
-    all_edges, total_edges = graph_store.list_edges(index_id, per_page=10000)
-    edges_traversed = total_edges
+    nodes_traversed = len(seed_node_ids) + len(neighbor_results)
+    edges_traversed = len(neighbor_results)  # approximation: one edge per discovered neighbor
 
-    # Step 5: Collect neighbor chunk IDs (with hop depth tracking)
+    # Step 5: Collect neighbor chunk IDs (with actual BFS hop depth tracking)
     # chunk_id → minimum hop_depth at which it was reached
-    neighbor_chunk_hop: dict[str, int] = {}
+    chunk_hop_depth: dict[str, int] = {}
 
     # Seed entity chunks are at hop_depth=0
     for node in all_nodes:
         if node.id in set(seed_node_ids):
             for cid in node.chunk_ids:
-                if cid not in neighbor_chunk_hop:
-                    neighbor_chunk_hop[cid] = 0
+                if cid not in chunk_hop_depth:
+                    chunk_hop_depth[cid] = 0
 
-    # Neighbor chunks — we assign hop_depth=1 for simplicity (BFS doesn't track per-node depth)
-    # For a more precise implementation, we'd need get_neighbors to return depth info
-    for node in neighbor_nodes:
-        for cid in node.chunk_ids:
-            if cid not in neighbor_chunk_hop:
-                neighbor_chunk_hop[cid] = 1
+    # Neighbor chunks — use actual BFS depth from get_neighbors
+    for neighbor_node, depth in neighbor_results:
+        for cid in neighbor_node.chunk_ids:
+            if cid not in chunk_hop_depth:
+                chunk_hop_depth[cid] = depth  # actual BFS depth, not hardcoded 1
 
     # Step 6: Merge + deduplicate
     # Start with candidate chunks (hop_depth=0 for seed candidates)
@@ -691,7 +688,7 @@ async def graph_search(
         merged_chunk_hop[h.chunk_id] = 0  # Direct vector match = hop_depth 0
 
     # Add neighbor chunks not already in candidate set
-    for cid, hop_depth in neighbor_chunk_hop.items():
+    for cid, hop_depth in chunk_hop_depth.items():
         if cid not in candidate_chunk_ids:
             merged_chunk_hop[cid] = hop_depth
 
@@ -709,6 +706,7 @@ async def graph_search(
     scored.sort(key=lambda x: x[1], reverse=True)
 
     # Step 8: Build GraphSearchHit results
+    # graph_path is reserved for per-result traversal path (future)
     return [
         GraphSearchHit(
             chunk_id=chunk.id,
@@ -716,10 +714,10 @@ async def graph_search(
             source=chunk.source,
             score=score,
             metadata=chunk.metadata,
-            graph_path=seed_entity_names,
+            graph_path=[],
             nodes_traversed=nodes_traversed,
             edges_traversed=edges_traversed,
-            seed_entities=seed_entity_names,
+            seed_entities=list(seed_entity_names),
             hop_depth=hop_depth,
         )
         for chunk, score, hop_depth in scored[:top_k]
@@ -884,25 +882,27 @@ class RAGStore:
             # Phase 2.5: Entity extraction (graph/hybrid only)
             if idx.index_type in (IndexType.graph, IndexType.hybrid):
                 job.status = IngestJobStatus.extracting_entities
-                from api.services.graph_extraction import extract_entities_batch
-                from api.services.graph_store import get_graph_store
-                graph_store = get_graph_store()
-
-                # Extract entities for all chunks
-                chunk_texts = [c.text for c in all_chunks]
-                extraction_results = await extract_entities_batch(chunk_texts, model=idx.entity_model)
-
-                for chunk, (nodes, edges) in zip(all_chunks, extraction_results):
-                    for node in nodes:
-                        node.chunk_ids.append(chunk.id)
-                        graph_store.upsert_node(index_id, node)
-                    for edge in edges:
-                        edge.chunk_ids.append(chunk.id)
-                        graph_store.upsert_edge(index_id, edge)
-
-                idx.node_count = graph_store.node_count(index_id)
-                idx.edge_count = graph_store.edge_count(index_id)
-                idx.updated_at = datetime.now(UTC).isoformat()
+                try:
+                    from api.services.graph_extraction import extract_entities_batch
+                    from api.services.graph_store import get_graph_store  # lazy to avoid circular import
+                    graph_store = get_graph_store()
+                    chunk_texts = [c.text for c in all_chunks]
+                    extraction_results = await extract_entities_batch(chunk_texts, model=idx.entity_model)
+                    for chunk, (nodes, edges) in zip(all_chunks, extraction_results):
+                        for node in nodes:
+                            node.chunk_ids.append(chunk.id)
+                            graph_store.upsert_node(index_id, node)
+                        for edge in edges:
+                            edge.chunk_ids.append(chunk.id)
+                            graph_store.upsert_edge(index_id, edge)
+                    idx.node_count = graph_store.node_count(index_id)
+                    idx.edge_count = graph_store.edge_count(index_id)
+                    idx.updated_at = datetime.now(UTC).isoformat()
+                except Exception as extraction_err:
+                    logger.warning(
+                        "Entity extraction failed for index %s — continuing with vector-only results: %s",
+                        index_id, extraction_err,
+                    )
 
             # Phase 3: Indexing (add to in-memory store)
             job.status = IngestJobStatus.indexing
@@ -933,7 +933,6 @@ class RAGStore:
         text_weight: float = 0.3,
         # Graph search params (ignored for vector indexes):
         hops: int | None = None,
-        rerank: bool = True,
         seed_entity_limit: int = 5,
     ) -> list[SearchHit]:
         """Search an index using hybrid vector + text search (or graph-augmented search)."""
@@ -951,8 +950,8 @@ class RAGStore:
                 idx=idx,
                 top_k=top_k,
                 hops=hops,
-                rerank=rerank,
                 seed_entity_limit=seed_entity_limit,
+                vector_weight=vector_weight,
             )
 
         # Existing vector search path:

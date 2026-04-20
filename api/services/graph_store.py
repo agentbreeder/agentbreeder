@@ -172,10 +172,12 @@ class GraphStore:
 
     def get_neighbors(
         self, index_id: str, node_ids: list[str], hops: int
-    ) -> list[GraphNode]:
+    ) -> list[tuple[GraphNode, int]]:
         """BFS from seed node_ids up to `hops` depth.
 
-        Returns all unique neighbor nodes (excluding seed nodes themselves).
+        Returns all unique neighbor nodes (excluding seed nodes themselves) as
+        (GraphNode, depth) tuples where depth is the BFS hop depth at which the
+        node was first reached.
         Returns empty list if hops=0 or node_ids is empty.
         """
         if hops <= 0 or not node_ids:
@@ -202,7 +204,7 @@ class GraphStore:
             if nid in nodes:
                 queue.append((nid, 0))
 
-        result_ids: list[str] = []
+        result: list[tuple[str, int]] = []
 
         while queue:
             current_id, depth = queue.popleft()
@@ -211,10 +213,10 @@ class GraphStore:
             for neighbor_id in adjacency.get(current_id, set()):
                 if neighbor_id not in visited and neighbor_id in nodes:
                     visited.add(neighbor_id)
-                    result_ids.append(neighbor_id)
+                    result.append((neighbor_id, depth + 1))
                     queue.append((neighbor_id, depth + 1))
 
-        return [copy.deepcopy(nodes[nid]) for nid in result_ids]
+        return [(copy.deepcopy(nodes[nid]), depth) for nid, depth in result]
 
     # ------------------------------------------------------------------
     # Subgraph deletion
@@ -292,6 +294,10 @@ class GraphStore:
         start = (page - 1) * per_page
         end = start + per_page
         return all_edges[start:end], total
+
+    def get_all_nodes(self, index_id: str) -> list[GraphNode]:
+        """Return all nodes for index_id (no pagination). Use for internal search operations."""
+        return list(self._nodes.get(index_id, {}).values())
 
 
 # ---------------------------------------------------------------------------

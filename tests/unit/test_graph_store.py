@@ -163,7 +163,7 @@ def test_get_neighbors_one_hop():
     gs = GraphStore()
     _populate_linear(gs)
     result = gs.get_neighbors(IDX, ["A"], hops=1)
-    ids = {n.id for n in result}
+    ids = {n.id for n, _depth in result}
     assert ids == {"B"}
 
 
@@ -171,7 +171,7 @@ def test_get_neighbors_two_hops():
     gs = GraphStore()
     _populate_linear(gs)
     result = gs.get_neighbors(IDX, ["A"], hops=2)
-    ids = {n.id for n in result}
+    ids = {n.id for n, _depth in result}
     assert ids == {"B", "C"}
 
 
@@ -179,7 +179,7 @@ def test_get_neighbors_excludes_seeds():
     gs = GraphStore()
     _populate_linear(gs)
     result = gs.get_neighbors(IDX, ["A"], hops=2)
-    ids = {n.id for n in result}
+    ids = {n.id for n, _depth in result}
     assert "A" not in ids
 
 
@@ -192,7 +192,7 @@ def test_get_neighbors_no_cycles():
     gs.upsert_edge(IDX, make_edge("e2", "B", "rel", "A"))
     # Should terminate and return B (A is seed)
     result = gs.get_neighbors(IDX, ["A"], hops=5)
-    ids = {n.id for n in result}
+    ids = {n.id for n, _depth in result}
     assert ids == {"B"}
 
 
@@ -310,7 +310,8 @@ def test_get_neighbors_returns_copies():
     _populate_linear(gs)
     neighbors = gs.get_neighbors(IDX, ["A"], hops=1)
     assert neighbors
-    neighbors[0].chunk_ids.append("LEAKED")
-    stored = gs.get_node(IDX, neighbors[0].id)
+    node, _depth = neighbors[0]
+    node.chunk_ids.append("LEAKED")
+    stored = gs.get_node(IDX, node.id)
     assert stored is not None
     assert "LEAKED" not in stored.chunk_ids
