@@ -51,6 +51,9 @@ class IndexType(StrEnum):
     hybrid = "hybrid"
 
 
+DEFAULT_ENTITY_MODEL = "claude-haiku-4-5-20251001"
+
+
 class IngestJobStatus(StrEnum):
     pending = "pending"
     chunking = "chunking"
@@ -84,6 +87,7 @@ class GraphNode:
     embedding: list[float] | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        # embedding intentionally excluded from wire format; access .embedding directly for similarity
         return {
             "id": self.id,
             "entity": self.entity,
@@ -135,7 +139,7 @@ class RAGIndex:
     chunks: list[DocumentChunk] = field(default_factory=list)
     # Graph-specific fields
     index_type: IndexType = IndexType.vector
-    entity_model: str = "claude-haiku-4-5-20251001"
+    entity_model: str = DEFAULT_ENTITY_MODEL
     max_hops: int = 2
     relationship_types: list[str] = field(default_factory=list)
     node_count: int = 0
@@ -574,10 +578,16 @@ class RAGStore:
         chunk_overlap: int = 64,
         source: str = "manual",
         index_type: str = "vector",
-        entity_model: str = "claude-haiku-4-5-20251001",
+        entity_model: str = DEFAULT_ENTITY_MODEL,
         max_hops: int = 2,
         relationship_types: list[str] | None = None,
     ) -> RAGIndex:
+        try:
+            idx_type = IndexType(index_type)
+        except ValueError:
+            raise ValueError(
+                f"Invalid index_type '{index_type}'. Must be one of: {[e.value for e in IndexType]}"
+            )
         index_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
         dimensions = EMBEDDING_DIMENSIONS.get(embedding_model, 768)
@@ -593,7 +603,7 @@ class RAGStore:
             source=source,
             created_at=now,
             updated_at=now,
-            index_type=IndexType(index_type),
+            index_type=idx_type,
             entity_model=entity_model,
             max_hops=max_hops,
             relationship_types=relationship_types if relationship_types is not None else [],

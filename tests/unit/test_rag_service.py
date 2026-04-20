@@ -7,8 +7,14 @@ import math
 import pytest
 
 from api.services.rag_service import (
+    DEFAULT_ENTITY_MODEL,
     DocumentChunk,
+    GraphEdge,
+    GraphNode,
+    IndexType,
+    RAGIndex,
     RAGStore,
+    VectorIndex,
     _pseudo_embedding,
     chunk_fixed_size,
     chunk_recursive,
@@ -412,3 +418,155 @@ class TestRAGStoreSearch:
             d = results[0].to_dict()
             assert "score" in d
             assert "text" in d
+
+
+# ---------------------------------------------------------------------------
+# GraphNode Tests
+# ---------------------------------------------------------------------------
+
+
+class TestGraphNode:
+    def _make_node(self) -> GraphNode:
+        return GraphNode(
+            id="node-1",
+            entity="Python",
+            entity_type="LANGUAGE",
+            description="A programming language",
+            chunk_ids=["chunk-1", "chunk-2"],
+            embedding=[0.1, 0.2, 0.3],
+        )
+
+    def test_to_dict_excludes_embedding(self):
+        node = self._make_node()
+        d = node.to_dict()
+        assert "embedding" not in d
+
+    def test_to_dict_includes_all_other_fields(self):
+        node = self._make_node()
+        d = node.to_dict()
+        assert d["id"] == "node-1"
+        assert d["entity"] == "Python"
+        assert d["entity_type"] == "LANGUAGE"
+        assert d["description"] == "A programming language"
+        assert d["chunk_ids"] == ["chunk-1", "chunk-2"]
+
+    def test_embedding_accessible_directly(self):
+        node = self._make_node()
+        assert node.embedding == [0.1, 0.2, 0.3]
+
+
+# ---------------------------------------------------------------------------
+# GraphEdge Tests
+# ---------------------------------------------------------------------------
+
+
+class TestGraphEdge:
+    def _make_edge(self) -> GraphEdge:
+        return GraphEdge(
+            id="edge-1",
+            subject_id="node-1",
+            predicate="USES",
+            object_id="node-2",
+            chunk_ids=["chunk-3"],
+            weight=0.9,
+        )
+
+    def test_to_dict_includes_all_fields(self):
+        edge = self._make_edge()
+        d = edge.to_dict()
+        assert d["id"] == "edge-1"
+        assert d["subject_id"] == "node-1"
+        assert d["predicate"] == "USES"
+        assert d["object_id"] == "node-2"
+        assert d["chunk_ids"] == ["chunk-3"]
+        assert d["weight"] == 0.9
+
+
+# ---------------------------------------------------------------------------
+# RAGIndex (dataclass) Tests
+# ---------------------------------------------------------------------------
+
+
+class TestRAGIndex:
+    def _make_index(self) -> RAGIndex:
+        return RAGIndex(
+            id="idx-1",
+            name="test",
+            description="desc",
+            embedding_model="openai/text-embedding-3-small",
+            chunk_strategy="fixed_size",
+            chunk_size=512,
+            chunk_overlap=64,
+            dimensions=1536,
+            source="manual",
+            index_type=IndexType.graph,
+            entity_model=DEFAULT_ENTITY_MODEL,
+            max_hops=3,
+            relationship_types=["USES", "IS_A"],
+            node_count=5,
+            edge_count=7,
+        )
+
+    def test_to_dict_includes_graph_fields(self):
+        idx = self._make_index()
+        d = idx.to_dict()
+        assert d["index_type"] == "graph"
+        assert d["entity_model"] == DEFAULT_ENTITY_MODEL
+        assert d["max_hops"] == 3
+        assert d["relationship_types"] == ["USES", "IS_A"]
+        assert d["node_count"] == 5
+        assert d["edge_count"] == 7
+
+    def test_to_dict_excludes_chunks(self):
+        idx = self._make_index()
+        d = idx.to_dict()
+        assert "chunks" not in d
+
+    def test_vector_index_is_rag_index_alias(self):
+        assert VectorIndex is RAGIndex
+
+
+# ---------------------------------------------------------------------------
+# IndexType Tests
+# ---------------------------------------------------------------------------
+
+
+class TestIndexType:
+    def test_vector_value(self):
+        assert IndexType("vector") == IndexType.vector
+
+    def test_graph_value(self):
+        assert IndexType("graph") == IndexType.graph
+
+    def test_hybrid_value(self):
+        assert IndexType("hybrid") == IndexType.hybrid
+
+    def test_invalid_raises_value_error(self):
+        with pytest.raises(ValueError):
+            IndexType("bad")
+
+
+# ---------------------------------------------------------------------------
+# create_index Validation Tests
+# ---------------------------------------------------------------------------
+
+
+class TestCreateIndexValidation:
+    def setup_method(self):
+        self.store = RAGStore()
+
+    def test_invalid_index_type_raises_descriptive_error(self):
+        with pytest.raises(ValueError, match="Invalid index_type 'bad'"):
+            self.store.create_index(name="x", index_type="bad")
+
+    def test_error_message_lists_valid_values(self):
+        with pytest.raises(ValueError, match="vector"):
+            self.store.create_index(name="x", index_type="bad")
+
+    def test_valid_graph_index_type(self):
+        idx = self.store.create_index(name="g", index_type="graph")
+        assert idx.index_type == IndexType.graph
+
+    def test_valid_hybrid_index_type(self):
+        idx = self.store.create_index(name="h", index_type="hybrid")
+        assert idx.index_type == IndexType.hybrid

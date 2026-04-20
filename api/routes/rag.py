@@ -29,15 +29,22 @@ async def create_index(
     name = body.get("name")
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
-    idx = store.create_index(
-        name=name,
-        description=body.get("description", ""),
-        embedding_model=body.get("embedding_model", "openai/text-embedding-3-small"),
-        chunk_strategy=body.get("chunk_strategy", "fixed_size"),
-        chunk_size=body.get("chunk_size", 512),
-        chunk_overlap=body.get("chunk_overlap", 64),
-        source=body.get("source", "manual"),
-    )
+    try:
+        idx = store.create_index(
+            name=name,
+            description=body.get("description", ""),
+            embedding_model=body.get("embedding_model", "openai/text-embedding-3-small"),
+            chunk_strategy=body.get("chunk_strategy", "fixed_size"),
+            chunk_size=body.get("chunk_size", 512),
+            chunk_overlap=body.get("chunk_overlap", 64),
+            source=body.get("source", "manual"),
+            index_type=body.get("index_type", "vector"),
+            entity_model=body.get("entity_model", "claude-haiku-4-5-20251001"),
+            max_hops=body.get("max_hops", 2),
+            relationship_types=body.get("relationship_types", None),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ApiResponse(data=idx.to_dict())
 
 
