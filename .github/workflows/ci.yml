@@ -404,7 +404,7 @@ jobs:
         run: pip install -e ".[dev]" pytest-benchmark
 
       - name: Run benchmarks
-        run: pytest benchmarks/ --benchmark-json=benchmark-results.json --benchmark-min-rounds=10 --benchmark-warmup=on -o addopts="" -o asyncio_mode=strict
+        run: pytest benchmarks/ --benchmark-json=benchmark-results.json --benchmark-min-rounds=10 --benchmark-warmup=on -o addopts="" -o "python_files=benchmark_*.py test_*.py"
 
       - name: Upload benchmark results
         if: always()
