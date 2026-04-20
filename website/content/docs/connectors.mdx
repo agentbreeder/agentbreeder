@@ -1,0 +1,272 @@
+---
+title: Connectors — Integration Compatibility Matrix
+description: Supported connectors, their stability status, and configuration reference.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+# Connectors — Integration Compatibility Matrix
+
+Connectors are pluggable adapters that discover external resources (models, tools, dashboards) and register them in the AgentBreeder shared registry. A connector runs `scan()` and writes the result to the registry — agents then reference discovered items by name in `agent.yaml`.
+
+---
+
+## Compatibility Matrix
+
+| Connector | Status | Source | What it discovers |
+|-----------|--------|--------|-------------------|
+| `litellm` | ✅ Stable | `connectors/litellm/` | Models from a LiteLLM proxy (`/v1/models`) |
+| `smtp` | ✅ Stable | `connectors/email/` | Email-send capability (surfaces as a tool) |
+| `mcp_scanner` | ✅ Stable | `connectors/mcp_scanner/` | MCP servers in `.mcp.json` + local ports |
+| `openrouter` | ✅ Stable | `connectors/openrouter/` | Hundreds of models from OpenRouter API |
+| `news` | ✅ Stable | `connectors/news/` | HackerNews, ArXiv, and generic RSS feeds |
+| `grafana` | 🚧 Beta | `connectors/grafana/` | Dashboards; pushes metrics via Loki/Tempo |
+| `datadog` | 🚧 Beta | `connectors/datadog/` | Monitors; pushes metrics + APM traces |
+| `browser_use` | 📋 Planned | `connectors/browser_use/` | Browser automation via the `browser-use` library |
+
+**Status key:**
+- ✅ **Stable** — tested, production-ready, semver-stable API
+- 🚧 **Beta** — functional but API may change between minor versions
+- 📋 **Planned** — scaffolded, optional dep required, not yet promoted to stable
+
+---
+
+## Stable Connectors
+
+### `litellm` — LiteLLM Gateway
+
+Reads available models from a running [LiteLLM proxy](https://github.com/BerriAI/litellm) and registers them as model registry entries.
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LITELLM_BASE_URL` | `http://localhost:4000` | LiteLLM proxy base URL |
+| `LITELLM_API_KEY` | _(none)_ | API key for authenticated proxies |
+
+**Usage:**
+
+```python
+from connectors.litellm.connector import LiteLLMConnector
+
+connector = LiteLLMConnector(base_url="http://litellm:4000", api_key="sk-...")
+if await connector.is_available():
+    models = await connector.scan()
+    # models → [{"name": "openai/gpt-4o", "provider": "openai", ...}, ...]
+```
+
+**`agent.yaml` — reference a LiteLLM-discovered model:**
+
+```yaml
+model:
+  primary: openai/gpt-4o       # model ID as returned by scan()
+  gateway: litellm
+```
+
+---
+
+### `smtp` — Email Sender
+
+Sends email via SMTP and registers the capability as a tool in the registry.
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SMTP_HOST` | _(required)_ | SMTP server hostname |
+| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_USER` | _(none)_ | Auth username |
+| `SMTP_PASSWORD` | _(none)_ | Auth password |
+| `SMTP_USE_TLS` | `true` | Enable STARTTLS |
+
+**Usage:**
+
+```python
+from connectors.email.smtp import SMTPConnector
+
+connector = SMTPConnector(host="smtp.gmail.com", port=587, user="...", password="...")
+await connector.send_async(
+    to=["alice@example.com"],
+    subject="Agent alert",
+    body="Your order-fulfillment agent completed run #42.",
+)
+```
+
+---
+
+### `mcp_scanner` — MCP Auto-Discovery
+
+Discovers MCP servers from `.mcp.json` files and by probing well-known local ports.
+
+**Probed locations (in order):**
+
+1. `$PWD/.mcp.json`
+2. `~/.mcp.json`
+3. Ports 3000–3005 on `localhost` (HTTP health probe)
+
+**Usage:**
+
+```python
+from connectors.mcp_scanner.scanner import MCPScanner
+
+scanner = MCPScanner()
+tools = await scanner.scan()
+# tools → [{"name": "filesystem", "source": "mcp_scanner", ...}, ...]
+```
+
+Discovered tools are available immediately via `agentbreeder scan`:
+
+```bash
+agentbreeder scan --source mcp
+```
+
+---
+
+### `openrouter` — OpenRouter Models
+
+Fetches the full model catalogue from [OpenRouter](https://openrouter.ai) and registers each model.
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENROUTER_API_KEY` | _(required for full list)_ | OpenRouter API key |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Base URL override |
+
+**Usage:**
+
+```python
+from connectors.openrouter.connector import OpenRouterConnector
+
+connector = OpenRouterConnector(api_key="sk-or-...")
+models = await connector.scan()
+```
+
+---
+
+### `news` — News Feed Connectors
+
+Three sub-connectors in `connectors/news/`:
+
+| Sub-connector | Source | Import |
+|---------------|--------|--------|
+| `HackerNewsConnector` | HN Algolia API | `connectors.news.hackernews` |
+| `ArXivConnector` | ArXiv Atom feed | `connectors.news.arxiv` |
+| `RSSConnector` | Any RSS/Atom feed | `connectors.news.rss` |
+
+**Usage:**
+
+```python
+from connectors.news.hackernews import HackerNewsConnector
+
+hn = HackerNewsConnector(limit=20, min_score=100)
+stories = await hn.scan()
+# stories → [{"name": "Show HN: ...", "url": "...", ...}, ...]
+```
+
+---
+
+## Beta Connectors
+
+### `grafana` — Grafana Observability
+
+Pushes AgentBreeder agent metrics and traces to a Grafana stack (Loki for logs, Tempo for traces). Also scans existing Grafana dashboards into the registry.
+
+<Callout type="warn">
+  Beta: The `push_metrics()` and `push_traces()` method signatures may change before v2.0. Pin to a specific AgentBreeder version if using in production.
+</Callout>
+
+**Constructor:**
+
+```python
+from connectors.grafana.connector import GrafanaConnector
+
+connector = GrafanaConnector(
+    endpoint="https://grafana.example.com",
+    api_key="glsa_...",
+    org_id="1",
+)
+```
+
+---
+
+### `datadog` — Datadog APM
+
+Pushes agent invocation metrics and distributed traces to Datadog APM. Scans existing Datadog monitors into the registry.
+
+<Callout type="warn">
+  Beta: Trace payload format follows the Datadog v0.4 APM spec but may be updated to v0.5 in a future release.
+</Callout>
+
+**Constructor:**
+
+```python
+from connectors.datadog.connector import DatadogConnector
+
+connector = DatadogConnector(
+    api_key="dd_api_...",
+    app_key="dd_app_...",
+    site="datadoghq.com",       # or "datadoghq.eu" for EU
+)
+```
+
+---
+
+## Planned Connectors
+
+### `browser_use` — Browser Automation
+
+Surfaces the [`browser-use`](https://github.com/browser-use/browser-use) library as a `computer_use_20260401` tool type. When `deploy.cloud` is `claude-managed`, the tool type is forwarded directly to Anthropic Managed Agents — no container is built.
+
+**Install the optional dependency:**
+
+```bash
+pip install browser-use
+```
+
+**`agent.yaml`:**
+
+```yaml
+tools:
+  - name: browser
+    type: computer_use_20260401
+```
+
+<Callout type="info">
+  `browser_use` is scaffolded and functional but not yet promoted to Stable. It requires `pip install browser-use` and reports graceful unavailability when the library is absent.
+</Callout>
+
+---
+
+## Writing a Custom Connector
+
+All connectors implement `connectors.base.BaseConnector`:
+
+```python
+from connectors.base import BaseConnector
+
+class MyConnector(BaseConnector):
+    @property
+    def name(self) -> str:
+        return "my-connector"
+
+    async def is_available(self) -> bool:
+        """Return True if the external service is reachable."""
+        ...
+
+    async def scan(self) -> list[dict]:
+        """Return a list of discovered items.
+
+        Each item must have at minimum:
+          - name: str
+          - description: str
+          - source: str  (set to self.name)
+        """
+        ...
+```
+
+Place your connector in `connectors/<your-name>/connector.py` and register it with the scanner:
+
+```bash
+agentbreeder scan --source my-connector
+```
