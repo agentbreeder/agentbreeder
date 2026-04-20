@@ -234,7 +234,7 @@ Which framework?
 > 1
 
 Where will it run?
-1. Local  2. AWS  3. GCP  4. Kubernetes (planned)
+1. Local  2. AWS  3. GCP  4. Azure  5. Kubernetes
 > 2
 
 What tools should this agent have?
@@ -378,11 +378,72 @@ deploy:
     - OPENAI_API_KEY    # Must exist in GCP Secret Manager
 ```
 
-### AWS ECS Fargate (planned)
+### AWS ECS Fargate
 
 ```bash
-# Coming soon
-agentbreeder deploy agent.yaml --target aws --region us-east-1
+# Prerequisites: AWS CLI authenticated, account ID set
+export AWS_ACCOUNT_ID=123456789012
+export AWS_REGION=us-east-1
+
+# Deploy
+agentbreeder deploy agent.yaml --target ecs-fargate --region us-east-1
+```
+
+Your `agent.yaml` should specify AWS:
+
+```yaml
+deploy:
+  cloud: aws
+  runtime: ecs-fargate      # or: app-runner
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 10
+  env_vars:
+    AWS_ACCOUNT_ID: "123456789012"
+    AWS_REGION: us-east-1
+  secrets:
+    - OPENAI_API_KEY    # Must exist in AWS Secrets Manager
+```
+
+### AWS App Runner (serverless — no VPC or ALB needed)
+
+```bash
+agentbreeder deploy agent.yaml --target app-runner --region us-east-1
+```
+
+### Azure Container Apps
+
+```bash
+agentbreeder deploy agent.yaml --target container-apps
+```
+
+### Kubernetes (EKS / GKE / AKS / self-hosted)
+
+```bash
+# Ensure kubectl context points at the target cluster
+agentbreeder deploy agent.yaml --target kubernetes
+```
+
+### Anthropic Claude Managed Agents
+
+```bash
+agentbreeder deploy agent.yaml --target claude-managed
+```
+
+No container is built — Anthropic manages the runtime:
+
+```yaml
+deploy:
+  cloud: claude-managed
+  secrets:
+    - ANTHROPIC_API_KEY
+
+claude_managed:
+  environment:
+    networking: unrestricted
+  tools:
+    - type: agent_toolset_20260401
 ```
 
 ---
@@ -688,15 +749,17 @@ brew install ollama
 ollama serve &
 
 # Pull a model
-ollama pull llama3
+ollama pull gemma4
 ```
+
+Other models: `ollama pull llama3`, `ollama pull mistral`, `ollama pull phi4`
 
 ### Step 2: Configure your agent
 
 ```yaml
 # agent.yaml
 model:
-  primary: ollama/llama3
+  primary: ollama/gemma4
   gateway: ollama
 ```
 
@@ -924,7 +987,7 @@ agent = (
     Agent("support-agent", version="1.0.0", team="engineering")
     .with_model(primary="claude-sonnet-4", fallback="gpt-4o")
     .with_tools(["tools/zendesk-mcp", "tools/order-lookup"])
-    .with_prompt(system="You are a helpful customer support agent.")
+    .with_prompts(system="prompts/support-system-v3")
     .with_deploy(cloud="gcp", min_scale=1, max_scale=10)
 )
 ```
@@ -1003,11 +1066,11 @@ See [full migration guide](migrations/FROM_CUSTOM.md).
 Start with YAML config, eject to SDK code when you need more control.
 
 ```bash
-# Generate Python SDK code from your agent.yaml
-agentbreeder eject agent.yaml --language python
+# Eject to Python/TypeScript SDK code
+agentbreeder eject my-agent --to code
 
-# Generate TypeScript SDK code
-agentbreeder eject agent.yaml --language typescript
+# Or eject just to Low Code YAML (from No Code dashboard export)
+agentbreeder eject my-agent --to yaml
 ```
 
 This creates an `agent.py` (or `agent.ts`) that uses the SDK and can be customized freely. Your original `agent.yaml` is preserved.
