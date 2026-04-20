@@ -142,7 +142,7 @@ async def get_ingest_job(
 
 @router.post("/search")
 async def search(body: dict[str, Any]) -> ApiResponse[dict]:
-    """Search across a vector index using hybrid vector + text search.
+    """Search across a vector index using hybrid vector + text search, or graph/hybrid search.
 
     Request body:
     - index_id: str (required)
@@ -150,6 +150,8 @@ async def search(body: dict[str, Any]) -> ApiResponse[dict]:
     - top_k: int (default 10)
     - vector_weight: float (default 0.7)
     - text_weight: float (default 0.3)
+    - hops: int | None (default None) — for graph/hybrid indexes, number of BFS hops
+    - seed_entity_limit: int (default 5) — for graph/hybrid indexes, max seed entities
     """
     store = get_rag_store()
 
@@ -172,6 +174,8 @@ async def search(body: dict[str, Any]) -> ApiResponse[dict]:
         top_k=top_k,
         vector_weight=vector_weight,
         text_weight=text_weight,
+        hops=body.get("hops", None),
+        seed_entity_limit=body.get("seed_entity_limit", 5),
     )
 
     return ApiResponse(
@@ -182,4 +186,114 @@ async def search(body: dict[str, Any]) -> ApiResponse[dict]:
             "results": [h.to_dict() for h in hits],
             "total": len(hits),
         }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Graph metadata endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/indexes/{index_id}/graph")
+async def get_index_graph_metadata(index_id: str) -> ApiResponse[dict]:
+    """Get graph metadata for a graph/hybrid index.
+
+    Returns node count, edge count, entity type breakdown, and top entities.
+    Returns 404 if index not found. Returns 400 if index is not a graph/hybrid type.
+    """
+    store = get_rag_store()
+    idx = store.get_index(index_id)
+    if not idx:
+        raise HTTPException(status_code=404, detail="Index not found")
+    if idx.index_type.value not in ("graph", "hybrid"):
+        raise HTTPException(status_code=400, detail="Index is not a graph or hybrid type")
+
+    from api.services.graph_store import get_graph_store
+    graph_store = get_graph_store()
+
+    # Entity type breakdown
+    all_nodes = graph_store.get_all_nodes(index_id)
+    entity_types: dict[str, int] = {}
+    for node in all_nodes:
+        entity_types[node.entity_type] = entity_types.get(node.entity_type, 0) + 1
+
+    # Top 10 entities by chunk_ids count (most referenced)
+    top_entities = sorted(all_nodes, key=lambda n: len(n.chunk_ids), reverse=True)[:10]
+
+    return ApiResponse(data={
+        "index_id": index_id,
+        "index_type": idx.index_type.value,
+        "node_count": graph_store.node_count(index_id),
+        "edge_count": graph_store.edge_count(index_id),
+        "entity_types": [{"type": t, "count": c} for t, c in sorted(entity_types.items())],
+        "top_entities": [{"entity": n.entity, "type": n.entity_type, "chunk_count": len(n.chunk_ids)} for n in top_entities],
+    })
+
+
+@router.get("/indexes/{index_id}/entities")
+async def list_index_entities(
+    index_id: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    entity_type: str | None = Query(None),
+) -> ApiResponse[list[dict]]:
+    """List extracted entities for a graph/hybrid index (paginated).
+
+    Optional ?entity_type= filter. Returns 404 if index not found.
+    Returns 400 if index is not graph/hybrid type.
+    """
+    store = get_rag_store()
+    idx = store.get_index(index_id)
+    if not idx:
+        raise HTTPException(status_code=404, detail="Index not found")
+    if idx.index_type.value not in ("graph", "hybrid"):
+        raise HTTPException(status_code=400, detail="Index is not a graph or hybrid type")
+
+    from api.services.graph_store import get_graph_store
+    graph_store = get_graph_store()
+    nodes, total = graph_store.list_nodes(index_id, page=page, per_page=per_page, entity_type=entity_type)
+
+    return ApiResponse(
+        data=[n.to_dict() for n in nodes],
+        meta=ApiMeta(page=page, per_page=per_page, total=total),
+    )
+
+
+@router.get("/indexes/{index_id}/relationships")
+async def list_index_relationships(
+    index_id: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    predicate: str | None = Query(None),
+) -> ApiResponse[list[dict]]:
+    """List extracted relationships for a graph/hybrid index (paginated).
+
+    Optional ?predicate= filter. Returns 404 if index not found.
+    Returns 400 if index is not graph/hybrid type.
+    """
+    store = get_rag_store()
+    idx = store.get_index(index_id)
+    if not idx:
+        raise HTTPException(status_code=404, detail="Index not found")
+    if idx.index_type.value not in ("graph", "hybrid"):
+        raise HTTPException(status_code=400, detail="Index is not a graph or hybrid type")
+
+    from api.services.graph_store import get_graph_store
+    graph_store = get_graph_store()
+
+    # Resolve subject/object entity names for each edge
+    edges, total = graph_store.list_edges(index_id, page=page, per_page=per_page, predicate=predicate)
+    all_nodes = graph_store.get_all_nodes(index_id)
+    node_id_to_name = {n.id: n.entity for n in all_nodes}
+
+    edges_out = []
+    for e in edges:
+        d = e.to_dict()
+        d["subject_entity"] = node_id_to_name.get(e.subject_id, e.subject_id)
+        d["object_entity"] = node_id_to_name.get(e.object_id, e.object_id)
+        edges_out.append(d)
+
+    return ApiResponse(
+        data=edges_out,
+        meta=ApiMeta(page=page, per_page=per_page, total=total),
     )
