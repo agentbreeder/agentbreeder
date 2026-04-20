@@ -3121,4 +3121,4 @@ The following issues were filed ahead of the HN launch targeting operational qua
 
 **Note:** Issue #79 is now closed — multi-cloud website copy fully corrected in commit 4901c83. Issue #83 is partially resolved — `agentbreeder validate` already exists in the CLI.
 
-**Issue tracker:** 10 open · 43 closed — *Last updated: April 2026*
+**Issue tracker:** 18 open · 56 closed — *Last updated: April 20, 2026*
