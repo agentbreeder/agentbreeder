@@ -229,6 +229,28 @@ class SearchHit:
         }
 
 
+@dataclass
+class GraphSearchHit(SearchHit):
+    """A search result augmented with knowledge graph traversal metadata."""
+
+    graph_path: list[str] = field(default_factory=list)
+    nodes_traversed: int = 0
+    edges_traversed: int = 0
+    seed_entities: list[str] = field(default_factory=list)
+    hop_depth: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        base = super().to_dict()
+        base.update({
+            "graph_path": self.graph_path,
+            "nodes_traversed": self.nodes_traversed,
+            "edges_traversed": self.edges_traversed,
+            "seed_entities": self.seed_entities,
+            "hop_depth": self.hop_depth,
+        })
+        return base
+
+
 # ---------------------------------------------------------------------------
 # Chunking
 # ---------------------------------------------------------------------------
@@ -551,6 +573,159 @@ def hybrid_search(
     ]
 
 
+async def graph_search(
+    index_id: str,
+    query: str,
+    idx: "RAGIndex",
+    top_k: int = 10,
+    hops: int | None = None,
+    rerank: bool = True,
+    seed_entity_limit: int = 5,
+    vector_weight: float = 0.6,
+    graph_weight: float = 0.4,
+) -> list[GraphSearchHit]:
+    """Graph-augmented search: vector search → seed entities → BFS → merge → rerank.
+
+    Steps:
+    1. Embed query → query_vector
+    2. Vector search (top 20 candidates via hybrid_search)
+    3. Identify seed entities: nodes whose chunk_ids overlap with the top candidate chunks
+    4. BFS traversal of graph from seed entities (hops = hops or idx.max_hops)
+    5. Fetch source chunks for all neighbor nodes
+    6. Merge + deduplicate: candidate chunks (step 2) + neighbor chunks (step 5)
+    7. Score each chunk: score = vector_weight * cosine_sim + graph_weight * hop_decay(hop_depth)
+       where hop_decay(d) = 1.0 / (1 + d)  (seed entity chunks get hop_depth=0)
+    8. Return top_k as GraphSearchHit objects
+    """
+    from api.services.graph_store import get_graph_store
+
+    # Step 1: Embed query
+    query_embeddings = await embed_texts([query], model=idx.embedding_model)
+    if not query_embeddings:
+        return []
+    query_vector = query_embeddings[0]
+
+    # Step 2: Vector search — get top 20 candidates
+    candidate_hits = hybrid_search(
+        query_embedding=query_vector,
+        query_text=query,
+        chunks=idx.chunks,
+        top_k=20,
+        vector_weight=vector_weight,
+        text_weight=1.0 - vector_weight,
+    )
+
+    graph_store = get_graph_store()
+
+    # Check if there are any nodes for this index — if not, fall back to regular search
+    if graph_store.node_count(index_id) == 0:
+        # Fall back to hybrid_search and return as GraphSearchHit with empty graph fields
+        fallback_hits = hybrid_search(
+            query_embedding=query_vector,
+            query_text=query,
+            chunks=idx.chunks,
+            top_k=top_k,
+            vector_weight=vector_weight,
+            text_weight=1.0 - vector_weight,
+        )
+        return [
+            GraphSearchHit(
+                chunk_id=h.chunk_id,
+                text=h.text,
+                source=h.source,
+                score=h.score,
+                metadata=h.metadata,
+            )
+            for h in fallback_hits
+        ]
+
+    # Step 3: Identify seed entities
+    # Get the top seed_entity_limit candidate chunk IDs
+    top_candidate_chunk_ids = {h.chunk_id for h in candidate_hits[:seed_entity_limit]}
+
+    # Build a chunk_id → chunk map for fast lookup
+    chunk_map: dict[str, DocumentChunk] = {c.id: c for c in idx.chunks}
+
+    # Find seed nodes: nodes whose chunk_ids overlap with top candidate chunks
+    all_nodes, _ = graph_store.list_nodes(index_id, per_page=10000)
+    seed_node_ids: list[str] = []
+    seed_entity_names: list[str] = []
+    for node in all_nodes:
+        if any(cid in top_candidate_chunk_ids for cid in node.chunk_ids):
+            seed_node_ids.append(node.id)
+            seed_entity_names.append(node.entity)
+
+    # Step 4: BFS traversal
+    hops_value = hops if hops is not None else idx.max_hops
+    neighbor_nodes = graph_store.get_neighbors(index_id, seed_node_ids, hops=hops_value)
+
+    nodes_traversed = len(seed_node_ids) + len(neighbor_nodes)
+    all_edges, total_edges = graph_store.list_edges(index_id, per_page=10000)
+    edges_traversed = total_edges
+
+    # Step 5: Collect neighbor chunk IDs (with hop depth tracking)
+    # chunk_id → minimum hop_depth at which it was reached
+    neighbor_chunk_hop: dict[str, int] = {}
+
+    # Seed entity chunks are at hop_depth=0
+    for node in all_nodes:
+        if node.id in set(seed_node_ids):
+            for cid in node.chunk_ids:
+                if cid not in neighbor_chunk_hop:
+                    neighbor_chunk_hop[cid] = 0
+
+    # Neighbor chunks — we assign hop_depth=1 for simplicity (BFS doesn't track per-node depth)
+    # For a more precise implementation, we'd need get_neighbors to return depth info
+    for node in neighbor_nodes:
+        for cid in node.chunk_ids:
+            if cid not in neighbor_chunk_hop:
+                neighbor_chunk_hop[cid] = 1
+
+    # Step 6: Merge + deduplicate
+    # Start with candidate chunks (hop_depth=0 for seed candidates)
+    candidate_chunk_ids = {h.chunk_id for h in candidate_hits}
+    # chunk_id → hop_depth for final scoring
+    merged_chunk_hop: dict[str, int] = {}
+
+    for h in candidate_hits:
+        merged_chunk_hop[h.chunk_id] = 0  # Direct vector match = hop_depth 0
+
+    # Add neighbor chunks not already in candidate set
+    for cid, hop_depth in neighbor_chunk_hop.items():
+        if cid not in candidate_chunk_ids:
+            merged_chunk_hop[cid] = hop_depth
+
+    # Step 7: Score each chunk
+    scored: list[tuple[DocumentChunk, float, int]] = []  # (chunk, score, hop_depth)
+    for cid, hop_depth in merged_chunk_hop.items():
+        chunk = chunk_map.get(cid)
+        if chunk is None or chunk.embedding is None:
+            continue
+        cos_sim = cosine_similarity(query_vector, chunk.embedding)
+        hop_decay = 1.0 / (1 + hop_depth)
+        final_score = vector_weight * cos_sim + graph_weight * hop_decay
+        scored.append((chunk, final_score, hop_depth))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    # Step 8: Build GraphSearchHit results
+    return [
+        GraphSearchHit(
+            chunk_id=chunk.id,
+            text=chunk.text,
+            source=chunk.source,
+            score=score,
+            metadata=chunk.metadata,
+            graph_path=seed_entity_names,
+            nodes_traversed=nodes_traversed,
+            edges_traversed=edges_traversed,
+            seed_entities=seed_entity_names,
+            hop_depth=hop_depth,
+        )
+        for chunk, score, hop_depth in scored[:top_k]
+    ]
+
+
 # ---------------------------------------------------------------------------
 # In-Memory Store
 # ---------------------------------------------------------------------------
@@ -623,9 +798,14 @@ class RAGStore:
 
     def delete_index(self, index_id: str) -> bool:
         if index_id in self._indexes:
+            idx = self._indexes[index_id]
             del self._indexes[index_id]
             # Also delete related jobs
             self._jobs = {k: v for k, v in self._jobs.items() if v.index_id != index_id}
+            # Clean up graph store for graph/hybrid indexes
+            if idx.index_type in (IndexType.graph, IndexType.hybrid):
+                from api.services.graph_store import get_graph_store
+                get_graph_store().delete_subgraph(index_id)
             return True
         return False
 
@@ -701,6 +881,29 @@ class RAGStore:
                 all_chunks[i].embedding = emb
                 job.embedded_chunks = i + 1
 
+            # Phase 2.5: Entity extraction (graph/hybrid only)
+            if idx.index_type in (IndexType.graph, IndexType.hybrid):
+                job.status = IngestJobStatus.extracting_entities
+                from api.services.graph_extraction import extract_entities_batch
+                from api.services.graph_store import get_graph_store
+                graph_store = get_graph_store()
+
+                # Extract entities for all chunks
+                chunk_texts = [c.text for c in all_chunks]
+                extraction_results = await extract_entities_batch(chunk_texts, model=idx.entity_model)
+
+                for chunk, (nodes, edges) in zip(all_chunks, extraction_results):
+                    for node in nodes:
+                        node.chunk_ids.append(chunk.id)
+                        graph_store.upsert_node(index_id, node)
+                    for edge in edges:
+                        edge.chunk_ids.append(chunk.id)
+                        graph_store.upsert_edge(index_id, edge)
+
+                idx.node_count = graph_store.node_count(index_id)
+                idx.edge_count = graph_store.edge_count(index_id)
+                idx.updated_at = datetime.now(UTC).isoformat()
+
             # Phase 3: Indexing (add to in-memory store)
             job.status = IngestJobStatus.indexing
             idx.chunks.extend(all_chunks)
@@ -728,8 +931,12 @@ class RAGStore:
         top_k: int = 10,
         vector_weight: float = 0.7,
         text_weight: float = 0.3,
+        # Graph search params (ignored for vector indexes):
+        hops: int | None = None,
+        rerank: bool = True,
+        seed_entity_limit: int = 5,
     ) -> list[SearchHit]:
-        """Search an index using hybrid vector + text search."""
+        """Search an index using hybrid vector + text search (or graph-augmented search)."""
         idx = self._indexes.get(index_id)
         if not idx:
             raise ValueError(f"Index {index_id} not found")
@@ -737,7 +944,18 @@ class RAGStore:
         if not idx.chunks:
             return []
 
-        # Embed the query
+        if idx.index_type in (IndexType.graph, IndexType.hybrid):
+            return await graph_search(
+                index_id=index_id,
+                query=query,
+                idx=idx,
+                top_k=top_k,
+                hops=hops,
+                rerank=rerank,
+                seed_entity_limit=seed_entity_limit,
+            )
+
+        # Existing vector search path:
         query_embeddings = await embed_texts([query], model=idx.embedding_model)
         if not query_embeddings:
             return []
