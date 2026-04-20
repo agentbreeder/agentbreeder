@@ -38,7 +38,7 @@ AGENT_YAML = """
 name: bench-agent
 version: "1.0.0"
 team: benchmarks
-owner: bench@test.local
+owner: bench@example.com
 framework: langgraph
 model:
   primary: claude-haiku-4-5
