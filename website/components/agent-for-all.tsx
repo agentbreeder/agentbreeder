@@ -268,12 +268,181 @@ async function runFullCode(
   await wait(3500); if (signal.cancelled) return;
 }
 
+// ─── Phase 3: Prompts ────────────────────────────────────────────────────────
+
+const PROMPT_LINES: [string, string][] = [
+  ['# prompts/support-system-v3.yaml', '#484f58'],
+  ['version: v3',                      '#e6edf3'],
+  ['variables:',                       '#79c0ff'],
+  ['  - escalation_policy',            '#3fb950'],
+  ['  - product_catalog',              '#3fb950'],
+  ['cache: true  # ≥8k tokens',        '#484f58'],
+  ['content: |',                       '#79c0ff'],
+  ['  You are a tier-1 support agent.','#ffa657'],
+  ['  Always check the order DB first.','#ffa657'],
+  ['  Escalate if unresolved > 5 min.','#ffa657'],
+];
+
+async function runPrompts(
+  screenEl: HTMLDivElement,
+  signal: { cancelled: boolean },
+): Promise<void> {
+  screenEl.textContent = '';
+  const hdr = document.createElement('div');
+  hdr.style.cssText =
+    'opacity:0;transition:opacity 0.2s ease;font-size:11px;font-weight:600;color:#484f58;' +
+    'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;' +
+    'padding-bottom:8px;border-bottom:1px solid #21262d;';
+  hdr.textContent = 'Prompt Registry';
+  screenEl.appendChild(hdr);
+  reveal(hdr);
+  await wait(200); if (signal.cancelled) return;
+
+  for (const [text, color] of PROMPT_LINES) {
+    if (signal.cancelled) return;
+    append(screenEl, makeLine(text, color || '#e6edf3'));
+    await wait(text === '' ? 60 : 120);
+  }
+  await wait(400); if (signal.cancelled) return;
+  append(screenEl, makeLine('', '#484f58'));
+  append(screenEl, makeLine('$ agentbreeder deploy', '#3fb950'));
+  await wait(500); if (signal.cancelled) return;
+  append(screenEl, makeLine('  ✓  Prompt v3 resolved from registry', '#3fb950'));
+  await wait(300); if (signal.cancelled) return;
+  append(screenEl, makeLine('  ✓  Prompt cache warmed (8,192 tokens)', '#3fb950'));
+  await wait(3500); if (signal.cancelled) return;
+}
+
+// ─── Phase 4: RAG ────────────────────────────────────────────────────────────
+
+async function runRAG(
+  screenEl: HTMLDivElement,
+  signal: { cancelled: boolean },
+): Promise<void> {
+  screenEl.textContent = '';
+  const hdr = document.createElement('div');
+  hdr.style.cssText =
+    'opacity:0;transition:opacity 0.2s ease;font-size:11px;font-weight:600;color:#484f58;' +
+    'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;' +
+    'padding-bottom:8px;border-bottom:1px solid #21262d;';
+  hdr.textContent = 'RAG — Knowledge Base Search';
+  screenEl.appendChild(hdr);
+  reveal(hdr);
+  await wait(200); if (signal.cancelled) return;
+
+  append(screenEl, makeLine('# knowledge_bases in agent.yaml', '#484f58'));
+  await wait(150); if (signal.cancelled) return;
+  append(screenEl, makeLine('  - ref: kb/product-docs', '#3fb950'));
+  await wait(150); if (signal.cancelled) return;
+  append(screenEl, makeLine('  - ref: kb/return-policy', '#3fb950'));
+  await wait(500); if (signal.cancelled) return;
+  append(screenEl, makeLine('', '#484f58'));
+  append(screenEl, makeLine('> query: "return policy for electronics"', '#58a6ff'));
+  await wait(700); if (signal.cancelled) return;
+  append(screenEl, makeLine('', '#484f58'));
+  append(screenEl, makeLine('✓ kb/product-docs  (similarity: 0.94)', '#3fb950'));
+  await wait(250); if (signal.cancelled) return;
+  append(screenEl, makeLine('  → Electronics return window: 30 days', '#e6edf3'));
+  await wait(400); if (signal.cancelled) return;
+  append(screenEl, makeLine('✓ kb/return-policy  (similarity: 0.89)', '#3fb950'));
+  await wait(250); if (signal.cancelled) return;
+  append(screenEl, makeLine('  → Extended returns: holiday season', '#e6edf3'));
+  await wait(3500); if (signal.cancelled) return;
+}
+
+// ─── Phase 5: MCP ────────────────────────────────────────────────────────────
+
+async function runMCP(
+  screenEl: HTMLDivElement,
+  signal: { cancelled: boolean },
+): Promise<void> {
+  screenEl.textContent = '';
+  const hdr = document.createElement('div');
+  hdr.style.cssText =
+    'opacity:0;transition:opacity 0.2s ease;font-size:11px;font-weight:600;color:#484f58;' +
+    'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;' +
+    'padding-bottom:8px;border-bottom:1px solid #21262d;';
+  hdr.textContent = 'MCP Server Discovery';
+  screenEl.appendChild(hdr);
+  reveal(hdr);
+  await wait(200); if (signal.cancelled) return;
+
+  append(screenEl, makeLine('$ agentbreeder scan --mcp', '#3fb950'));
+  await wait(600); if (signal.cancelled) return;
+  append(screenEl, makeLine('✓ Discovered 4 MCP servers on network:', '#3fb950'));
+  await wait(300); if (signal.cancelled) return;
+  const servers: [string, string][] = [
+    ['  ├─ tools/zendesk-mcp     v2.1.0', '#e6edf3'],
+    ['  ├─ tools/github-mcp      v1.4.2', '#e6edf3'],
+    ['  ├─ tools/slack-mcp       v1.0.8', '#e6edf3'],
+    ['  └─ tools/jira-mcp        v0.9.1', '#e6edf3'],
+  ];
+  for (const [text, color] of servers) {
+    if (signal.cancelled) return;
+    append(screenEl, makeLine(text, color));
+    await wait(220);
+  }
+  await wait(400); if (signal.cancelled) return;
+  append(screenEl, makeLine('', '#484f58'));
+  append(screenEl, makeLine('✓ Registered in org registry', '#3fb950'));
+  await wait(300); if (signal.cancelled) return;
+  append(screenEl, makeLine('✓ Available in agent.yaml as tools/…', '#3fb950'));
+  await wait(3500); if (signal.cancelled) return;
+}
+
+// ─── Phase 6: A2A ────────────────────────────────────────────────────────────
+
+async function runA2A(
+  screenEl: HTMLDivElement,
+  signal: { cancelled: boolean },
+): Promise<void> {
+  screenEl.textContent = '';
+  const hdr = document.createElement('div');
+  hdr.style.cssText =
+    'opacity:0;transition:opacity 0.2s ease;font-size:11px;font-weight:600;color:#484f58;' +
+    'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;' +
+    'padding-bottom:8px;border-bottom:1px solid #21262d;';
+  hdr.textContent = 'A2A — Agent-to-Agent Protocol';
+  screenEl.appendChild(hdr);
+  reveal(hdr);
+  await wait(200); if (signal.cancelled) return;
+
+  append(screenEl, makeLine('# support-agent → escalation-agent', '#484f58'));
+  await wait(300); if (signal.cancelled) return;
+  append(screenEl, makeLine('→ POST /a2a/invoke', '#58a6ff'));
+  await wait(350); if (signal.cancelled) return;
+  const payload: [string, string][] = [
+    ['{', '#e6edf3'],
+    ['  "jsonrpc": "2.0",', '#e6edf3'],
+    ['  "method": "agent/invoke",', '#79c0ff'],
+    ['  "params": {', '#e6edf3'],
+    ['    "task": "Escalate ticket #4821"', '#3fb950'],
+    ['  }', '#e6edf3'],
+    ['}', '#e6edf3'],
+  ];
+  for (const [text, color] of payload) {
+    if (signal.cancelled) return;
+    append(screenEl, makeLine(text, color));
+    await wait(130);
+  }
+  await wait(700); if (signal.cancelled) return;
+  append(screenEl, makeLine('', '#484f58'));
+  append(screenEl, makeLine('✓ escalation-agent responded (287ms)', '#3fb950'));
+  await wait(250); if (signal.cancelled) return;
+  append(screenEl, makeLine('  priority: high | assigned: tier-2', '#ffa657'));
+  await wait(3500); if (signal.cancelled) return;
+}
+
 // ─── Main loop ────────────────────────────────────────────────────────────────
 
 const PHASES = [
-  { label: 'No Code',   role: 'Business Users · PMs · Executives',  color: '#58a6ff', run: runNoCode   },
-  { label: 'Low Code',  role: 'ML Engineers · DevOps · Architects',  color: '#3fb950', run: runLowCode  },
-  { label: 'Full Code', role: 'Senior Engineers · Researchers',      color: '#a78bfa', run: runFullCode },
+  { label: 'No Code',   role: 'Business Users · PMs · Executives',        color: '#58a6ff', run: runNoCode   },
+  { label: 'Low Code',  role: 'ML Engineers · DevOps · Architects',        color: '#3fb950', run: runLowCode  },
+  { label: 'Full Code', role: 'Senior Engineers · Researchers',            color: '#a78bfa', run: runFullCode },
+  { label: 'Prompts',   role: 'Versioned prompts · Prompt caching · Vars', color: '#f472b6', run: runPrompts  },
+  { label: 'RAG',       role: 'Knowledge bases · Semantic search',          color: '#fb923c', run: runRAG      },
+  { label: 'MCP',       role: 'MCP server discovery · Tool registry',       color: '#34d399', run: runMCP      },
+  { label: 'A2A',       role: 'Agent-to-agent calls · JSON-RPC protocol',  color: '#e879f9', run: runA2A      },
 ];
 
 async function runLoop(
@@ -308,8 +477,12 @@ async function runLoop(
 const FRAMEWORKS = ['LangGraph', 'OpenAI Agents', 'Claude SDK', 'CrewAI', 'Google ADK', 'Custom'];
 
 const CLOUDS = [
-  { label: 'Local',      color: '#22c55e' },
-  { label: 'Cloud Run',  color: '#4285f4' },
+  { label: 'Local',       color: '#22c55e' },
+  { label: 'Cloud Run',   color: '#4285f4' },
+  { label: 'ECS Fargate', color: '#ff9900' },
+  { label: 'App Runner',  color: '#ff9900' },
+  { label: 'Azure',       color: '#0078d4' },
+  { label: 'Kubernetes',  color: '#326ce5' },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -319,6 +492,10 @@ export function AgentForAll() {
   const tab0        = useRef<HTMLDivElement>(null);
   const tab1        = useRef<HTMLDivElement>(null);
   const tab2        = useRef<HTMLDivElement>(null);
+  const tab3        = useRef<HTMLDivElement>(null);
+  const tab4        = useRef<HTMLDivElement>(null);
+  const tab5        = useRef<HTMLDivElement>(null);
+  const tab6        = useRef<HTMLDivElement>(null);
   const roleRef     = useRef<HTMLSpanElement>(null);
   const winTitleRef = useRef<HTMLSpanElement>(null);
 
@@ -326,7 +503,7 @@ export function AgentForAll() {
     const signal = { cancelled: false };
     runLoop(
       screenRef.current!,
-      [tab0.current!, tab1.current!, tab2.current!],
+      [tab0.current!, tab1.current!, tab2.current!, tab3.current!, tab4.current!, tab5.current!, tab6.current!],
       roleRef.current!,
       winTitleRef.current!,
       signal,
@@ -415,7 +592,7 @@ export function AgentForAll() {
             {PHASES.map((p, i) => (
               <div
                 key={p.label}
-                ref={[tab0, tab1, tab2][i]}
+                ref={[tab0, tab1, tab2, tab3, tab4, tab5, tab6][i]}
                 style={tabBase}
               >
                 {p.label}
