@@ -1,0 +1,129 @@
+# seeds/finance-analyst-agent.yaml
+#
+# Domain: Finance
+# Use case: Financial report summarization and Q&A. Analysts upload quarterly
+#   10-Ks, earnings call transcripts, and internal board decks; the agent
+#   answers natural-language questions, surfaces key metrics, and flags
+#   material risks — all grounded in the uploaded documents via RAG.
+#
+# Framework:  openai_agents   (native file search + structured output support)
+# Model:      gpt-4o          (primary), claude-sonnet-4 (fallback)
+# Deploy:     AWS ECS Fargate (us-east-1)
+# Guardrails: pii_detection   (financial docs often contain personal info)
+#
+# To load into your local registry:
+#   agentbreeder validate seeds/finance-analyst-agent.yaml
+#   agentbreeder register seeds/finance-analyst-agent.yaml
+
+# ── Identity ──────────────────────────────────────────────────────────────────
+name: finance-analyst-agent
+version: 1.1.0
+description: >
+  RAG-backed financial analysis agent. Answers questions about uploaded
+  financial documents (10-K, 10-Q, earnings transcripts, board decks),
+  extracts key metrics (revenue, EBITDA, guidance), identifies material risks,
+  and generates structured summaries suitable for investor memos. All responses
+  are grounded in cited source documents.
+team: finance
+owner: finance-eng@company.com
+tags:
+  - finance
+  - rag
+  - reporting
+  - analysis
+  - production
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  primary: gpt-4o
+  fallback: claude-sonnet-4
+  temperature: 0.1        # Low temperature — financial analysis must be precise
+  max_tokens: 8192        # Long outputs for comprehensive report summaries
+
+# ── Framework ─────────────────────────────────────────────────────────────────
+framework: openai_agents
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+tools:
+  - ref: tools/document-search      # RAG-backed document retrieval with citations
+  - ref: tools/spreadsheet-parser   # Parse tabular data from uploaded Excel/CSV
+  - name: extract_key_metrics
+    type: function
+    description: "Extract and structure key financial metrics from retrieved context"
+    schema:
+      type: object
+      properties:
+        metric_names:
+          type: array
+          items:
+            type: string
+          description: >
+            List of metrics to extract (e.g. ["revenue", "gross_margin",
+            "ebitda", "eps", "guidance_revenue"])
+        period:
+          type: string
+          description: Reporting period (e.g. "Q3 2025", "FY 2024")
+        currency:
+          type: string
+          default: USD
+      required: [metric_names, period]
+  - name: flag_risk_factors
+    type: function
+    description: "Identify and categorize material risk factors from the document"
+    schema:
+      type: object
+      properties:
+        risk_categories:
+          type: array
+          items:
+            type: string
+            enum: [market, regulatory, operational, financial, geopolitical, other]
+        max_risks:
+          type: integer
+          default: 10
+      required: []
+
+# ── Knowledge Bases ───────────────────────────────────────────────────────────
+knowledge_bases:
+  - ref: kb/sec-filings             # Indexed 10-K and 10-Q filings
+  - ref: kb/earnings-transcripts    # Earnings call transcripts
+  - ref: kb/internal-board-decks    # Board presentation decks (access-controlled)
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+prompts:
+  system: prompts/finance-analyst-system-v2
+
+# ── Guardrails ────────────────────────────────────────────────────────────────
+guardrails:
+  - pii_detection           # Scrub personal financial data (SSNs, account numbers)
+  - hallucination_check     # Flag low-confidence answers — accuracy is critical here
+
+# ── Deployment ────────────────────────────────────────────────────────────────
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 5
+    target_cpu: 70
+  resources:
+    cpu: "2"          # PDF parsing + RAG retrieval benefit from extra CPU
+    memory: "4Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    MAX_DOCUMENT_SIZE_MB: "50"
+    CITATION_FORMAT: inline         # "inline" | "footnote" | "endnote"
+  secrets:
+    - OPENAI_API_KEY
+    - RAG_INDEX_API_KEY
+    - INTERNAL_DOCS_STORAGE_KEY
+
+# ── Access Control ────────────────────────────────────────────────────────────
+access:
+  visibility: team
+  allowed_callers:
+    - team:finance
+    - team:executive              # Executives can query directly
+  require_approval: false

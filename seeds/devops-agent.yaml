@@ -1,0 +1,127 @@
+# seeds/devops-agent.yaml
+#
+# Domain: DevOps / SRE
+# Use case: Infrastructure monitoring and incident triage. Watches for alerts
+#   from PagerDuty, enriches them with context from logs and metrics, proposes
+#   a root-cause hypothesis, and either auto-resolves low-severity incidents or
+#   pages the on-call engineer with a structured summary.
+#
+# Framework:  claude_sdk      (streaming responses for real-time incident feeds)
+# Model:      claude-sonnet-4 (primary)
+# Deploy:     GCP Cloud Run   (us-east1) — low-latency, close to monitoring stack
+# Tools:      PagerDuty MCP, GitHub MCP (for runbook lookup + PR context)
+#
+# To load into your local registry:
+#   agentbreeder validate seeds/devops-agent.yaml
+#   agentbreeder register seeds/devops-agent.yaml
+
+# ── Identity ──────────────────────────────────────────────────────────────────
+name: devops-agent
+version: 1.3.0
+description: >
+  SRE incident triage agent. Ingests PagerDuty alerts, queries logs and
+  metrics for context, proposes root-cause hypotheses, and either auto-resolves
+  routine incidents or drafts a structured incident summary for the on-call
+  engineer. Integrates with GitHub to surface recent deployments that may be
+  correlated with the incident.
+team: platform-engineering
+owner: sre@company.com
+tags:
+  - devops
+  - sre
+  - incident-triage
+  - pagerduty
+  - monitoring
+  - production
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  primary: claude-sonnet-4
+  temperature: 0.1        # Near-deterministic for incident analysis
+  max_tokens: 4096
+
+# ── Framework ─────────────────────────────────────────────────────────────────
+framework: claude_sdk
+
+# Claude SDK — extended thinking for complex multi-signal root cause analysis
+claude_sdk:
+  thinking:
+    type: adaptive
+    effort: high          # Incidents deserve thorough reasoning
+  prompt_caching: true
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+tools:
+  - ref: tools/pagerduty-mcp        # Acknowledge, resolve, escalate incidents
+  - ref: tools/github-mcp           # Look up recent PRs, commits, deploy tags
+  - ref: tools/datadog-mcp          # Query metrics, dashboards, log streams
+  - ref: tools/runbook-search       # Semantic search over internal runbooks
+  - name: create_incident_summary
+    type: function
+    description: "Post a structured incident summary to the incident Slack channel"
+    schema:
+      type: object
+      properties:
+        incident_id:
+          type: string
+        severity:
+          type: string
+          enum: [P1, P2, P3, P4]
+        hypothesis:
+          type: string
+          description: Root cause hypothesis in 1-3 sentences
+        evidence:
+          type: array
+          items:
+            type: string
+          description: Bullet points of supporting evidence
+        recommended_action:
+          type: string
+        auto_resolved:
+          type: boolean
+      required: [incident_id, severity, hypothesis, recommended_action, auto_resolved]
+
+# ── Knowledge Bases ───────────────────────────────────────────────────────────
+knowledge_bases:
+  - ref: kb/runbooks                # Indexed runbooks for known failure modes
+  - ref: kb/architecture-diagrams   # System dependency maps for blast radius
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+prompts:
+  system: prompts/devops-triage-system-v1
+
+# ── Guardrails ────────────────────────────────────────────────────────────────
+guardrails:
+  - content_filter    # Prevent auto-resolution from taking destructive actions
+
+# ── Deployment ────────────────────────────────────────────────────────────────
+deploy:
+  cloud: gcp
+  runtime: cloud-run
+  region: us-east1
+  scaling:
+    min: 1            # Always warm — incidents don't wait for cold starts
+    max: 8
+    target_cpu: 70
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    AUTO_RESOLVE_SEVERITY_THRESHOLD: P4   # Only auto-resolve P4 and below
+    INCIDENT_SLACK_CHANNEL: "#incidents"
+  secrets:
+    - PAGERDUTY_API_KEY
+    - GITHUB_APP_PRIVATE_KEY
+    - DATADOG_API_KEY
+    - DATADOG_APP_KEY
+    - SLACK_BOT_TOKEN
+
+# ── Access Control ────────────────────────────────────────────────────────────
+access:
+  visibility: team
+  allowed_callers:
+    - team:platform-engineering
+    - team:engineering        # Any engineer can query incident status
+  require_approval: false

@@ -1,0 +1,112 @@
+# seeds/customer-support-agent.yaml
+#
+# Domain: Customer Support
+# Use case: Tier-1 customer support bot that resolves common issues via Zendesk,
+#   looks up orders, and escalates unresolved tickets to a human queue.
+#
+# Framework:  claude_sdk
+# Model:      claude-sonnet-4  (primary), gpt-4o (fallback)
+# Deploy:     AWS ECS Fargate (us-east-1)
+# Guardrails: pii_detection, content_filter
+#
+# To load into your local registry:
+#   agentbreeder validate seeds/customer-support-agent.yaml
+#   agentbreeder register seeds/customer-support-agent.yaml
+
+# ── Identity ──────────────────────────────────────────────────────────────────
+name: customer-support-agent
+version: 1.0.0
+description: >
+  Handles tier-1 customer support inquiries: order status, returns, refunds,
+  and account issues. Integrates with Zendesk for ticket management and
+  escalates unresolved issues to the human support queue.
+team: customer-success
+owner: support-eng@company.com
+tags:
+  - support
+  - zendesk
+  - tier-1
+  - production
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  primary: claude-sonnet-4
+  fallback: gpt-4o
+  temperature: 0.3        # Low temperature for consistent, factual responses
+  max_tokens: 2048
+
+# ── Framework ─────────────────────────────────────────────────────────────────
+framework: claude_sdk
+
+# Claude SDK — adaptive thinking keeps responses accurate without overthinking
+claude_sdk:
+  thinking:
+    type: adaptive
+    effort: medium
+  prompt_caching: true    # System prompt is large; caching reduces latency + cost
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+tools:
+  - ref: tools/zendesk-mcp          # Zendesk: read/write tickets, add comments
+  - ref: tools/order-lookup         # Internal order status + tracking lookup
+  - ref: tools/account-lookup       # Fetch customer account details
+  - name: escalate_ticket
+    type: function
+    description: "Escalate an unresolved ticket to the human support queue with a summary"
+    schema:
+      type: object
+      properties:
+        ticket_id:
+          type: string
+          description: Zendesk ticket ID
+        reason:
+          type: string
+          description: Why the ticket cannot be resolved automatically
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+      required: [ticket_id, reason, priority]
+
+# ── Knowledge Bases ───────────────────────────────────────────────────────────
+knowledge_bases:
+  - ref: kb/return-policy           # Return & refund policy documents
+  - ref: kb/product-docs            # Product documentation and FAQs
+  - ref: kb/shipping-info           # Shipping carriers, timelines, and regions
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+prompts:
+  system: prompts/support-system-v3  # Versioned system prompt from registry
+
+# ── Guardrails ────────────────────────────────────────────────────────────────
+guardrails:
+  - pii_detection     # Strip credit card numbers, SSNs from outputs
+  - content_filter    # Block harmful or off-topic responses
+
+# ── Deployment ────────────────────────────────────────────────────────────────
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 2            # Keep warm for support hours
+    max: 20
+    target_cpu: 65
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    TICKET_ESCALATION_QUEUE: support-tier2
+  secrets:
+    - ZENDESK_API_KEY
+    - ZENDESK_SUBDOMAIN
+    - INTERNAL_ORDER_API_KEY
+
+# ── Access Control ────────────────────────────────────────────────────────────
+access:
+  visibility: team
+  allowed_callers:
+    - team:customer-success
+    - team:engineering
+  require_approval: false

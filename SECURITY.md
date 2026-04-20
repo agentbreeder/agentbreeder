@@ -62,6 +62,39 @@ We will credit reporters in security advisories unless they prefer anonymity.
 - Dependabot enabled for automated dependency updates
 - No dependencies with known critical vulnerabilities in releases
 
+## CI Security Pipeline
+
+Every pull request and every push to `main` runs the full security pipeline defined in `.github/workflows/security.yml`. The pipeline includes:
+
+### Secret Scanning (Gitleaks)
+
+[Gitleaks](https://github.com/gitleaks/gitleaks) scans every PR and push for accidentally committed secrets — API keys, tokens, credentials, and private keys.
+
+- **Trigger:** All PRs and pushes to `main`
+- **Scope:** Full git history (`fetch-depth: 0`) — not just the latest commit
+- **Config:** `.gitleaks.toml` at the repo root defines an allowlist that covers test fixtures, example placeholder values, and known-safe patterns in `examples/` directories. If Gitleaks flags a false positive, add it to the allowlist with a comment explaining why it is safe.
+
+**If you accidentally commit a secret:**
+1. **Rotate it immediately** — treat the exposed credential as compromised, regardless of whether the commit is public. Removing it from history is not sufficient.
+2. Revoke or regenerate the credential in the relevant service (AWS IAM, GCP, GitHub, etc.).
+3. Remove the secret from git history using `git filter-repo` or BFG Repo Cleaner.
+4. Force-push the cleaned history and notify the security team at **security@agentbreeder.com**.
+
+> Removing a secret from git history does not un-expose it. Always rotate first.
+
+### Python SAST (Bandit)
+
+Bandit runs static analysis on all Python source files to detect common security anti-patterns (shell injection, use of `assert` for auth, weak cryptography, etc.).
+
+### Dependency Auditing
+
+- **pip-audit** — checks all Python dependencies against the PyPI advisory database
+- **npm audit** — checks all Node.js dependencies in `dashboard/` against the npm advisory database
+
+### Container Image Scanning (Trivy)
+
+[Trivy](https://github.com/aquasecurity/trivy) scans all built Docker images for known CVEs in OS packages and language-level dependencies before images are pushed to Docker Hub.
+
 ## Security-Related Configuration
 
 See the environment variables section in [CLAUDE.md](CLAUDE.md) for:

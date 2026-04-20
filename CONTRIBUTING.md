@@ -38,6 +38,40 @@ You'll receive a response within 48 hours. We follow responsible disclosure and 
 
 ---
 
+## Contributing to the Registry
+
+The AgentBreeder registry is more useful when it contains real, battle-tested agents that teams can learn from and adapt. We welcome seed agent contributions.
+
+### What qualifies as a good registry agent
+
+- **Real use case** — solves an actual business problem, not a toy example
+- **Tested** — the author has deployed and run this agent (or a close variant) in production or staging
+- **Complete** — includes `team`, `owner`, `tags`, at least one `tool` or `knowledge_base`, and a guardrail where appropriate
+- **Well-commented** — non-obvious fields are annotated so readers understand the intent
+
+### How to submit a registry seed
+
+1. Copy or write an `agent.yaml` for your agent in the `seeds/` directory
+2. Validate it locally:
+   ```bash
+   agentbreeder validate seeds/your-agent-name.yaml
+   ```
+3. Add a row for your agent to `seeds/README.md`
+4. Open a pull request with the title `registry: add <agent-name> seed`
+
+### Quality checklist
+
+Before opening a PR, confirm:
+
+- [ ] `name` is slug-friendly (lowercase, hyphens only, no spaces)
+- [ ] `version` follows SemVer (`1.0.0`)
+- [ ] `model.primary` references a model that exists in the AgentBreeder model registry or a well-known provider ID
+- [ ] `team` and `owner` are filled in (use placeholder values like `your-team` / `your-name@company.com` if contributing publicly)
+- [ ] At least one guardrail is included where the agent handles user input or sensitive data
+- [ ] `agentbreeder validate` passes with no errors
+
+---
+
 ## Development Setup
 
 ### Prerequisites

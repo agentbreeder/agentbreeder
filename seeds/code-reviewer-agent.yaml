@@ -1,0 +1,162 @@
+# seeds/code-reviewer-agent.yaml
+#
+# Domain: Developer Productivity
+# Use case: Automated PR code review via the A2A protocol. When a pull request
+#   is opened, this agent reviews the diff for bugs, security issues, test
+#   coverage gaps, and style violations. It calls a subordinate linter-agent
+#   via A2A to perform language-specific static analysis, then synthesizes
+#   both results into a structured GitHub review comment.
+#
+# Framework:  claude_sdk      (extended thinking for deep code reasoning)
+# Model:      claude-sonnet-4 (primary)
+# Deploy:     GCP Cloud Run   (us-central1)
+# A2A:        calls linter-agent for static analysis sub-task
+#
+# To load into your local registry:
+#   agentbreeder validate seeds/code-reviewer-agent.yaml
+#   agentbreeder register seeds/code-reviewer-agent.yaml
+
+# ── Identity ──────────────────────────────────────────────────────────────────
+name: code-reviewer-agent
+version: 1.2.0
+description: >
+  AI code reviewer for GitHub pull requests. Reviews diffs for correctness,
+  security vulnerabilities, test coverage, and style. Delegates static
+  analysis to the linter-agent sub-agent via A2A, then synthesizes findings
+  into actionable GitHub review comments with line-level annotations.
+  Integrates with the GitHub PR workflow so reviews appear as a bot check.
+team: developer-productivity
+owner: devtools@company.com
+tags:
+  - code-review
+  - developer-productivity
+  - github
+  - a2a
+  - security
+  - production
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  primary: claude-sonnet-4
+  temperature: 0.2        # Slightly creative — good reviews explain reasoning
+  max_tokens: 8192        # Code diffs + structured review output can be long
+
+# ── Framework ─────────────────────────────────────────────────────────────────
+framework: claude_sdk
+
+# Claude SDK — extended thinking for thorough analysis of complex diffs
+claude_sdk:
+  thinking:
+    type: adaptive
+    effort: high          # Code review quality directly impacts product quality
+  prompt_caching: true    # System prompt with coding standards is large and static
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+tools:
+  - ref: tools/github-mcp           # Fetch PR diffs, post review comments, set check status
+  - ref: tools/semgrep-mcp          # SAST: pattern-based security vulnerability scanning
+  - name: call_linter_agent
+    type: function
+    description: "Invoke the linter-agent sub-agent via A2A for static analysis of a code snippet"
+    schema:
+      type: object
+      properties:
+        language:
+          type: string
+          enum: [python, typescript, javascript, go, rust, java]
+        code:
+          type: string
+          description: The code snippet or file content to lint
+        rules:
+          type: array
+          items:
+            type: string
+          description: >
+            Optional list of specific rule IDs to enforce.
+            If omitted, the linter-agent applies the org-wide default ruleset.
+      required: [language, code]
+  - name: post_review_summary
+    type: function
+    description: "Post the final structured review as a GitHub PR review"
+    schema:
+      type: object
+      properties:
+        pr_number:
+          type: integer
+        repo:
+          type: string
+          description: "owner/repo format"
+        verdict:
+          type: string
+          enum: [approve, request_changes, comment]
+        summary:
+          type: string
+          description: Executive summary of the review (markdown)
+        line_comments:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              line:
+                type: integer
+              body:
+                type: string
+              severity:
+                type: string
+                enum: [info, warning, error]
+      required: [pr_number, repo, verdict, summary]
+
+# ── Sub-agents (A2A) ──────────────────────────────────────────────────────────
+# linter-agent is called via A2A for language-specific static analysis.
+# It runs independently and returns structured lint results.
+a2a:
+  sub_agents:
+    - ref: agents/linter-agent      # Registered A2A-capable agent in the registry
+      capabilities: [lint, style-check, type-check]
+
+# ── Knowledge Bases ───────────────────────────────────────────────────────────
+knowledge_bases:
+  - ref: kb/coding-standards        # Org coding style guides per language
+  - ref: kb/security-checklist      # OWASP Top 10 + internal security patterns
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+prompts:
+  system: prompts/code-reviewer-system-v2
+
+# ── Guardrails ────────────────────────────────────────────────────────────────
+guardrails:
+  - content_filter    # Ensure review comments are constructive and professional
+
+# ── Deployment ────────────────────────────────────────────────────────────────
+deploy:
+  cloud: gcp
+  runtime: cloud-run
+  region: us-central1
+  scaling:
+    min: 0            # Event-driven; triggered by GitHub webhook per PR
+    max: 10
+    target_cpu: 75
+  resources:
+    cpu: "2"          # Extended thinking + large diffs need more CPU
+    memory: "2Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    MAX_DIFF_SIZE_LINES: "2000"      # Skip auto-review for massive refactor PRs
+    REVIEW_TIMEOUT_SECONDS: "120"
+    LINTER_AGENT_A2A_URL: "https://linter-agent.internal.company.com"
+  secrets:
+    - ANTHROPIC_API_KEY
+    - GITHUB_APP_PRIVATE_KEY
+    - GITHUB_APP_ID
+    - SEMGREP_API_KEY
+
+# ── Access Control ────────────────────────────────────────────────────────────
+access:
+  visibility: team
+  allowed_callers:
+    - team:developer-productivity
+    - team:engineering              # All engineers can trigger reviews via GitHub webhook
+  require_approval: false

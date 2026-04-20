@@ -1,0 +1,147 @@
+# seeds/content-moderator-agent.yaml
+#
+# Domain: Trust & Safety
+# Use case: High-throughput content safety scoring for user-generated content.
+#   Evaluates text (posts, comments, reviews, chat messages) across multiple
+#   harm categories, returns a structured safety score, and routes flagged
+#   content to human reviewers or auto-removes policy violations.
+#
+# Framework:  claude_sdk          (streaming scores + reliable structured output)
+# Model:      claude-haiku-4-5   (primary) — fast and cost-efficient for volume
+# Deploy:     Kubernetes          (self-hosted cluster for data residency requirements)
+# Guardrails: content_filter, hallucination_check
+#
+# To load into your local registry:
+#   agentbreeder validate seeds/content-moderator-agent.yaml
+#   agentbreeder register seeds/content-moderator-agent.yaml
+
+# ── Identity ──────────────────────────────────────────────────────────────────
+name: content-moderator-agent
+version: 3.0.0
+description: >
+  High-throughput content safety scoring agent. Evaluates user-generated text
+  across harm categories (hate speech, harassment, CSAM, self-harm, spam,
+  misinformation) and returns a structured policy decision with confidence
+  scores and a human-readable rationale. Routes borderline content to a
+  human review queue; auto-removes clear violations.
+team: trust-and-safety
+owner: trust-safety-eng@company.com
+tags:
+  - moderation
+  - trust-safety
+  - content-safety
+  - high-throughput
+  - kubernetes
+  - production
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  primary: claude-haiku-4-5        # Optimized for speed and cost at scale
+  fallback: claude-sonnet-4        # Fallback for complex edge cases
+  temperature: 0.0                 # Fully deterministic moderation decisions
+  max_tokens: 512                  # Structured output only; no long generations
+
+# ── Framework ─────────────────────────────────────────────────────────────────
+framework: claude_sdk
+
+# Claude SDK — no extended thinking needed; speed is the priority
+claude_sdk:
+  thinking:
+    type: adaptive
+    effort: low
+  prompt_caching: true    # System prompt with policy definitions is large and static
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+tools:
+  - name: submit_moderation_decision
+    type: function
+    description: "Submit a structured moderation decision for a piece of content"
+    schema:
+      type: object
+      properties:
+        content_id:
+          type: string
+        decision:
+          type: string
+          enum: [allow, flag_for_review, auto_remove]
+        violated_policies:
+          type: array
+          items:
+            type: string
+            enum:
+              - hate_speech
+              - harassment
+              - csam
+              - self_harm
+              - spam
+              - misinformation
+              - graphic_violence
+              - none
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Overall confidence in the decision (0.0 - 1.0)
+        rationale:
+          type: string
+          description: One-sentence explanation for the decision
+      required: [content_id, decision, violated_policies, confidence, rationale]
+  - name: route_to_human_review
+    type: function
+    description: "Place borderline content in the human review queue with priority"
+    schema:
+      type: object
+      properties:
+        content_id:
+          type: string
+        priority:
+          type: string
+          enum: [low, normal, high, critical]
+        context:
+          type: string
+          description: Brief context for the human reviewer
+      required: [content_id, priority]
+
+# ── Knowledge Bases ───────────────────────────────────────────────────────────
+knowledge_bases:
+  - ref: kb/content-policy          # Full community guidelines and policy spec
+  - ref: kb/moderation-examples     # Labeled examples for policy boundary cases
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+prompts:
+  system: prompts/content-moderation-system-v4
+
+# ── Guardrails ────────────────────────────────────────────────────────────────
+guardrails:
+  - content_filter        # Meta-guardrail: prevent the agent itself from generating harmful content
+  - hallucination_check   # Ensure policy citations are grounded in actual policy text
+
+# ── Deployment ────────────────────────────────────────────────────────────────
+deploy:
+  cloud: kubernetes
+  runtime: deployment
+  scaling:
+    min: 3              # Always-on; UGC platforms have no off-peak
+    max: 50             # Burst capacity for viral content spikes
+    target_cpu: 60
+  resources:
+    cpu: "0.5"          # Lightweight — Haiku is fast; many replicas preferred
+    memory: "1Gi"
+  env_vars:
+    LOG_LEVEL: warn     # Minimal logging for throughput; violations logged separately
+    ENVIRONMENT: production
+    AUTO_REMOVE_CONFIDENCE_THRESHOLD: "0.95"   # Only auto-remove if very confident
+    HUMAN_REVIEW_THRESHOLD: "0.70"             # Flag for review if confidence < 0.70
+    BATCH_SIZE: "50"                           # Process up to 50 items per invocation
+  secrets:
+    - ANTHROPIC_API_KEY
+    - MODERATION_QUEUE_DSN
+    - CONTENT_STORE_API_KEY
+
+# ── Access Control ────────────────────────────────────────────────────────────
+access:
+  visibility: team
+  allowed_callers:
+    - team:trust-and-safety
+    - team:platform-engineering   # Platform calls this agent from the ingestion pipeline
+  require_approval: false

@@ -1,0 +1,117 @@
+# seeds/data-pipeline-agent.yaml
+#
+# Domain: Data Engineering
+# Use case: Orchestrates ETL pipelines — extracts data from sources, applies
+#   transformations, validates schema quality, and loads into the data warehouse.
+#   Maintains pipeline state in PostgreSQL memory so runs are resumable.
+#
+# Framework:  langgraph       (graph-based control flow is natural for ETL DAGs)
+# Model:      gpt-4o          (primary), claude-sonnet-4 (fallback)
+# Deploy:     GCP Cloud Run   (us-central1)
+# Memory:     postgresql      (durable pipeline state across invocations)
+#
+# To load into your local registry:
+#   agentbreeder validate seeds/data-pipeline-agent.yaml
+#   agentbreeder register seeds/data-pipeline-agent.yaml
+
+# ── Identity ──────────────────────────────────────────────────────────────────
+name: data-pipeline-agent
+version: 2.1.0
+description: >
+  LangGraph-based ETL orchestrator. Extracts from configured sources (S3, GCS,
+  databases, REST APIs), applies configurable transformation rules, validates
+  output schema, and loads into BigQuery or Snowflake. Supports incremental
+  and full-refresh modes. Pipeline state is persisted so partial runs recover
+  automatically on retry.
+team: data-engineering
+owner: data-platform@company.com
+tags:
+  - etl
+  - data-pipeline
+  - langgraph
+  - bigquery
+  - production
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  primary: gpt-4o
+  fallback: claude-sonnet-4
+  temperature: 0.0        # Deterministic — ETL logic should not vary
+  max_tokens: 8192        # Long context for large schema analysis
+
+# ── Framework ─────────────────────────────────────────────────────────────────
+framework: langgraph
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+tools:
+  - ref: tools/gcs-reader           # Read files from GCS buckets
+  - ref: tools/s3-reader            # Read files from S3 buckets
+  - ref: tools/bigquery-writer      # Write transformed data to BigQuery
+  - ref: tools/snowflake-writer     # Alternative load target: Snowflake
+  - ref: tools/dbt-runner           # Run dbt transformations post-load
+  - name: validate_schema
+    type: function
+    description: "Validate a data batch against the expected Avro/JSON Schema"
+    schema:
+      type: object
+      properties:
+        dataset_id:
+          type: string
+        schema_ref:
+          type: string
+          description: Registry reference to the expected schema (e.g. schemas/events-v2)
+        sample_rows:
+          type: integer
+          description: Number of rows to sample for validation (default 1000)
+      required: [dataset_id, schema_ref]
+
+# ── Memory ────────────────────────────────────────────────────────────────────
+# PostgreSQL memory gives durable pipeline checkpoints; if Cloud Run restarts
+# mid-run, the agent resumes from the last committed checkpoint.
+memory:
+  backend: postgresql
+  connection_secret: PIPELINE_STATE_DB_URL
+  namespace: data-pipeline-agent
+  ttl_days: 30
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+prompts:
+  system: prompts/data-pipeline-system-v2
+
+# ── Guardrails ────────────────────────────────────────────────────────────────
+guardrails:
+  - pii_detection    # Prevent PII from being logged in pipeline outputs
+
+# ── Deployment ────────────────────────────────────────────────────────────────
+deploy:
+  cloud: gcp
+  runtime: cloud-run
+  region: us-central1
+  scaling:
+    min: 0            # Scale to zero between scheduled runs
+    max: 5
+    target_cpu: 80
+  resources:
+    cpu: "2"          # ETL workloads benefit from extra CPU for transforms
+    memory: "4Gi"
+  env_vars:
+    LOG_LEVEL: info
+    ENVIRONMENT: production
+    PIPELINE_MODE: incremental       # "incremental" | "full-refresh"
+    BATCH_SIZE: "10000"
+    BIGQUERY_DATASET: analytics_raw
+  secrets:
+    - PIPELINE_STATE_DB_URL
+    - GCS_SERVICE_ACCOUNT_JSON
+    - BIGQUERY_SERVICE_ACCOUNT_JSON
+    - SNOWFLAKE_ACCOUNT
+    - SNOWFLAKE_USER
+    - SNOWFLAKE_PASSWORD
+
+# ── Access Control ────────────────────────────────────────────────────────────
+access:
+  visibility: team
+  allowed_callers:
+    - team:data-engineering
+    - team:analytics
+  require_approval: false
