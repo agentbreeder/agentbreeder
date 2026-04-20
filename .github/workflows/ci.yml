@@ -403,8 +403,11 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]" pytest-benchmark
 
+      - name: Verify benchmark imports
+        run: python -c "import sys; sys.path.insert(0, 'benchmarks'); import benchmark_core; print('OK:', [f for f in dir(benchmark_core) if f.startswith('test_')])"
+
       - name: Run benchmarks
-        run: pytest benchmarks/ --benchmark-json=benchmark-results.json --benchmark-min-rounds=10 --benchmark-warmup=on -o addopts=""
+        run: pytest benchmarks/ --benchmark-json=benchmark-results.json --benchmark-min-rounds=10 --benchmark-warmup=on -o addopts="" --tb=long -v
 
       - name: Upload benchmark results
         if: always()
