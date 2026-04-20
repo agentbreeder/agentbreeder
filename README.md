@@ -267,6 +267,22 @@ pipeline.deploy()
 
 ---
 
+## Prerequisites
+
+| Requirement | Min version | Why | Install |
+|-------------|-------------|-----|---------|
+| **Python** | 3.11+ | CLI, API server, Python SDK | [python.org](https://www.python.org/downloads/) / `brew install python@3.11` |
+| **Docker** | 24+ | Local deploys, container builds, full platform | [docs.docker.com](https://docs.docker.com/get-docker/) |
+| **Node.js + npx** | 18+ | MCP servers (most use `npx`), TypeScript SDK | [nodejs.org](https://nodejs.org/) / `brew install node` |
+| **Ollama** | any | Local model inference (optional) | [ollama.com](https://ollama.com) / `brew install ollama` |
+| **gcloud CLI** | any | GCP Cloud Run deploys (optional) | [cloud.google.com/sdk](https://cloud.google.com/sdk/docs/install) |
+| **AWS CLI** | 2+ | AWS ECS / App Runner deploys (optional) | [aws.amazon.com/cli](https://aws.amazon.com/cli/) |
+| **Azure CLI** | any | Azure Container Apps deploys (optional) | [learn.microsoft.com](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) |
+
+> Docker is required for `--target local` and container builds. For `--target claude-managed` only, Docker is not needed.
+
+---
+
 ## Install
 
 ### PyPI (recommended)

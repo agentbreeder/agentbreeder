@@ -12,6 +12,26 @@ Get AgentBreeder running in under 5 minutes.
 
 ---
 
+## Prerequisites
+
+Before you install, make sure you have:
+
+| Requirement | Min version | Why | How to get it |
+|-------------|-------------|-----|---------------|
+| **Python** | 3.11+ | CLI, API server, Python SDK | [python.org](https://www.python.org/downloads/) or `brew install python@3.11` |
+| **Docker** | 24+ | `--target local` deploys and all container builds | [docs.docker.com/get-docker](https://docs.docker.com/get-docker/) |
+| **Node.js + npx** | 18+ | MCP servers (most run via `npx`), TypeScript SDK | [nodejs.org](https://nodejs.org/) or `brew install node` |
+| **Ollama** | any | Local model inference — only if you don't have cloud API keys | [ollama.com](https://ollama.com) |
+| **gcloud CLI** | any | GCP Cloud Run deploys only | [cloud.google.com/sdk](https://cloud.google.com/sdk/docs/install) |
+| **AWS CLI v2** | 2+ | AWS ECS Fargate / App Runner deploys only | [aws.amazon.com/cli](https://aws.amazon.com/cli/) |
+| **Azure CLI** | any | Azure Container Apps deploys only | [learn.microsoft.com](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) |
+
+<Callout type="info" title="Minimum to get started">
+  You only need **Python 3.11+** and **Docker** to run the quickstart locally. Cloud CLIs, Node.js, and Ollama are only needed when you use those specific features.
+</Callout>
+
+---
+
 ## Install
 
 <Tabs items={['PyPI (recommended)', 'Homebrew', 'Docker', 'npm (TypeScript / JS)', 'From source']}>

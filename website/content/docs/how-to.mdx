@@ -11,6 +11,29 @@ Practical recipes for common AgentBreeder workflows. Each section is self-contai
 
 ## Install AgentBreeder
 
+### Prerequisites
+
+| Requirement | Min version | Why you need it | Install |
+|-------------|-------------|-----------------|---------|
+| **Python** | 3.11+ | CLI, API server, Python SDK | `brew install python@3.11` or [python.org](https://www.python.org/downloads/) |
+| **Docker** | 24+ | `--target local` deploys, all container builds, full platform stack | [docs.docker.com/get-docker](https://docs.docker.com/get-docker/) |
+| **Node.js + npx** | 18+ | MCP servers (most run via `npx -y @modelcontextprotocol/...`), TypeScript SDK | `brew install node` or [nodejs.org](https://nodejs.org/) |
+| **Ollama** | any | Local model inference — skip if you have cloud API keys | `brew install ollama` or [ollama.com](https://ollama.com) |
+| **gcloud CLI** | any | GCP Cloud Run deploys only | [cloud.google.com/sdk](https://cloud.google.com/sdk/docs/install) |
+| **AWS CLI v2** | 2+ | AWS ECS Fargate / App Runner deploys only | [aws.amazon.com/cli](https://aws.amazon.com/cli/) |
+| **Azure CLI** | any | Azure Container Apps deploys only | [learn.microsoft.com](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) |
+| **kubectl** | any | Kubernetes deploys only | `brew install kubectl` or [kubernetes.io/docs](https://kubernetes.io/docs/tasks/tools/) |
+
+Quick check:
+
+```bash
+python3 --version    # need 3.11+
+docker --version     # need 24+
+node --version       # need 18+ (for MCP servers and TS SDK)
+npx --version        # comes with Node
+ollama --version     # optional — for local models
+```
+
 ### Option 1: PyPI (recommended)
 
 ```bash
