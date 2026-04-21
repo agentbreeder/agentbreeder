@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import dataclasses
-
 import pytest
 
-from api.services.graph_store import GraphStore, _normalize_entity_name
+from api.services.graph_store import GraphStore
 from api.services.rag_service import GraphEdge, GraphNode
 
 # ---------------------------------------------------------------------------

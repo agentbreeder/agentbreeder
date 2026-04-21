@@ -640,18 +640,27 @@ class TestGraphSearchAndIngest:
         job = await self.store.ingest_files(idx.id, [("ml.txt", content)])
         # Job must complete even if entity extraction fails (no API key in tests)
         from api.services.rag_service import IngestJobStatus
+
         assert job.status == IngestJobStatus.completed
 
     def test_get_neighbors_returns_depth(self):
         """get_neighbors returns list of (GraphNode, int) tuples with correct depths."""
         from api.services.rag_service import GraphEdge, GraphNode
+
         gs = GraphStore()
         idx_id = "test-depth"
         # Build: A -[r]-> B -[r]-> C
         for nid, name in [("A", "NodeA"), ("B", "NodeB"), ("C", "NodeC")]:
-            gs.upsert_node(idx_id, GraphNode(id=nid, entity=name, entity_type="T", description="", chunk_ids=[]))
-        gs.upsert_edge(idx_id, GraphEdge(id="e1", subject_id="A", predicate="r", object_id="B", chunk_ids=[]))
-        gs.upsert_edge(idx_id, GraphEdge(id="e2", subject_id="B", predicate="r", object_id="C", chunk_ids=[]))
+            gs.upsert_node(
+                idx_id,
+                GraphNode(id=nid, entity=name, entity_type="T", description="", chunk_ids=[]),
+            )
+        gs.upsert_edge(
+            idx_id, GraphEdge(id="e1", subject_id="A", predicate="r", object_id="B", chunk_ids=[])
+        )
+        gs.upsert_edge(
+            idx_id, GraphEdge(id="e2", subject_id="B", predicate="r", object_id="C", chunk_ids=[])
+        )
 
         results = gs.get_neighbors(idx_id, ["A"], hops=2)
         # Should be list of tuples

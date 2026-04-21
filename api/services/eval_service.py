@@ -237,7 +237,21 @@ def score_hop_coverage(answer: str, multi_hop_questions: list[str]) -> float:
     """
     if not multi_hop_questions:
         return 1.0
-    stopwords = {"the", "a", "an", "is", "are", "was", "were", "in", "of", "to", "and", "or", "for"}
+    stopwords = {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "in",
+        "of",
+        "to",
+        "and",
+        "or",
+        "for",
+    }  # noqa: E501
     covered = 0
     for q in multi_hop_questions:
         terms = [t for t in q.lower().split() if t not in stopwords and len(t) > 2]

@@ -15,6 +15,7 @@ client = TestClient(app)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_rag_index(index_type_value: str = "vector", index_id: str = "idx-test"):
     """Build a lightweight mock RAG index."""
     m = MagicMock()
@@ -29,7 +30,9 @@ def _make_rag_index(index_type_value: str = "vector", index_id: str = "idx-test"
     return m
 
 
-def _make_graph_node(entity: str = "Alice", entity_type: str = "PERSON", chunk_ids: list | None = None):
+def _make_graph_node(
+    entity: str = "Alice", entity_type: str = "PERSON", chunk_ids: list | None = None
+):
     n = MagicMock()
     n.entity = entity
     n.entity_type = entity_type
@@ -44,13 +47,18 @@ def _make_graph_edge(subject_id: str = "alice", object_id: str = "bob", predicat
     e.subject_id = subject_id
     e.object_id = object_id
     e.predicate = predicate
-    e.to_dict.return_value = {"subject_id": subject_id, "object_id": object_id, "predicate": predicate}
+    e.to_dict.return_value = {
+        "subject_id": subject_id,
+        "object_id": object_id,
+        "predicate": predicate,
+    }
     return e
 
 
 # ---------------------------------------------------------------------------
 # /graph endpoint
 # ---------------------------------------------------------------------------
+
 
 class TestGetGraphMetadata:
     @patch("api.routes.rag.get_rag_store")
@@ -122,6 +130,7 @@ class TestGetGraphMetadata:
 # /entities endpoint
 # ---------------------------------------------------------------------------
 
+
 class TestListEntities:
     @patch("api.routes.rag.get_rag_store")
     def test_wrong_type_returns_400(self, mock_rag_store):
@@ -178,6 +187,7 @@ class TestListEntities:
 # ---------------------------------------------------------------------------
 # /relationships endpoint
 # ---------------------------------------------------------------------------
+
 
 class TestListRelationships:
     @patch("api.routes.rag.get_rag_store")
