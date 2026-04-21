@@ -3044,7 +3044,7 @@ agentbreeder/
 
 ---
 
-*Last updated: 2026-04-19 — 10 open issues, 43 closed*
+*Last updated: 2026-04-20 — 16 open issues, 58 closed*
 *Status: v0.1–v1.2 complete (M1–M23). v1.3–v1.7 done. v1.8 done (connectors + schedule + Ollama/OpenRouter). v1.9 planned (M36 TypeScript SDK Parity). v2.0 done (M38 E2E suite — 104 tests, 15 spec files). v2.1–v2.5 planned (Cloud integration modules — see above). Open issues: 10 | Closed: 43.*
 
 ## Milestone M38 — Exhaustive Live Docker E2E Test Suite
@@ -3121,4 +3121,4 @@ The following issues were filed ahead of the HN launch targeting operational qua
 
 **Note:** Issue #79 is now closed — multi-cloud website copy fully corrected in commit 4901c83. Issue #83 is partially resolved — `agentbreeder validate` already exists in the CLI.
 
-**Issue tracker:** 18 open · 56 closed — *Last updated: April 20, 2026*
+**Issue tracker:** 16 open · 58 closed — *Last updated: April 20, 2026*
