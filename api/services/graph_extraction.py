@@ -55,7 +55,10 @@ async def extract_entities(
         return active_cache[cache_key]
 
     # Call LLM
-    raw = await _call_claude(text, model)
+    if model.startswith("ollama/"):
+        raw = await _call_ollama(text, model[len("ollama/") :])
+    else:
+        raw = await _call_claude(text, model)
 
     # Parse results
     nodes, edges = _parse_extraction_result(raw, text)
@@ -154,6 +157,64 @@ async def _call_claude(text: str, model: str) -> dict[str, Any]:
         return {"entities": [], "relationships": []}
     except Exception as e:
         logger.warning("Entity extraction: unexpected error: %s", e)
+        return {"entities": [], "relationships": []}
+
+
+async def _call_ollama(text: str, model_name: str) -> dict[str, Any]:
+    """Call local Ollama chat API to extract entities and relationships.
+
+    model_name is the bare name (e.g. "qwen2.5:7b"), without the "ollama/" prefix.
+    Uses OLLAMA_BASE_URL env var; defaults to http://localhost:11434.
+    On any error: logs warning and returns empty result (never raises).
+    """
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+
+    system_prompt = (
+        "You are an information extraction assistant. "
+        "Extract entities and relationships from text. "
+        "Return ONLY valid JSON — no prose."
+    )
+    user_prompt = (
+        f"Extract from the following text chunk:\n"
+        f"<chunk>{text}</chunk>\n\n"
+        "Return JSON with this exact schema:\n"
+        "{\n"
+        '  "entities": [\n'
+        '    {"entity": "string", "type": "organization|person|concept|location|event|other", "description": "string"}\n'
+        "  ],\n"
+        '  "relationships": [\n'
+        '    {"subject": "entity name", "predicate": "relationship verb", "object": "entity name"}\n'
+        "  ]\n"
+        "}"
+    )
+    payload = {
+        "model": model_name,
+        "format": "json",
+        "stream": False,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(f"{base_url}/api/chat", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["message"]["content"]
+            return json.loads(content)
+    except json.JSONDecodeError as e:
+        logger.warning("Entity extraction (Ollama): failed to parse JSON response: %s", e)
+        return {"entities": [], "relationships": []}
+    except httpx.HTTPError as e:
+        logger.warning("Entity extraction (Ollama): HTTP error calling Ollama: %s", e)
+        return {"entities": [], "relationships": []}
+    except (KeyError, IndexError) as e:
+        logger.warning("Entity extraction (Ollama): unexpected response structure: %s", e)
+        return {"entities": [], "relationships": []}
+    except Exception as e:
+        logger.warning("Entity extraction (Ollama): unexpected error: %s", e)
         return {"entities": [], "relationships": []}
 
 

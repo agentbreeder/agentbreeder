@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from unittest.mock import AsyncMock, patch
+import json as _json
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from api.services.graph_extraction import (
+    _call_ollama,
     _normalize_entity_name,
     _parse_extraction_result,
     clear_extraction_cache,
@@ -146,7 +149,9 @@ async def test_extract_entities_cache_hit():
     cache_key = hashlib.sha256(
         json.dumps({"text": "hello", "model": DEFAULT_ENTITY_MODEL}, sort_keys=True).encode()
     ).hexdigest()
-    cached_nodes = [GraphNode(id="n1", entity="Cached", entity_type="concept", description="", chunk_ids=[])]
+    cached_nodes = [
+        GraphNode(id="n1", entity="Cached", entity_type="concept", description="", chunk_ids=[])
+    ]
     cached_edges: list[GraphEdge] = []
     cache[cache_key] = (cached_nodes, cached_edges)
 
@@ -270,3 +275,94 @@ async def test_clear_extraction_cache():
     clear_extraction_cache()
 
     assert len(get_extraction_cache()) == 0
+
+
+# ---------------------------------------------------------------------------
+# Ollama routing and _call_ollama tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_extract_entities_routes_to_ollama_for_ollama_prefix():
+    mock_result = {
+        "entities": [{"entity": "AgentBreeder", "type": "concept", "description": "A platform"}],
+        "relationships": [],
+    }
+    with patch("api.services.graph_extraction._call_ollama", new_callable=AsyncMock) as mock:
+        mock.return_value = mock_result
+        nodes, edges = await extract_entities("test text", model="ollama/qwen2.5:7b", cache={})
+    mock.assert_called_once_with("test text", "qwen2.5:7b")
+    assert len(nodes) == 1
+    assert nodes[0].entity == "AgentBreeder"
+
+
+@pytest.mark.asyncio
+async def test_extract_entities_routes_to_claude_for_non_ollama():
+    with patch("api.services.graph_extraction._call_claude", new_callable=AsyncMock) as mock:
+        mock.return_value = {"entities": [], "relationships": []}
+        await extract_entities("test text", model="claude-haiku-4-5-20251001", cache={})
+    mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_call_ollama_returns_empty_on_http_error():
+    with patch("api.services.graph_extraction.httpx.AsyncClient") as MockClient:
+        inst = AsyncMock()
+        inst.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=inst)
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        result = await _call_ollama("text", "qwen2.5:7b")
+    assert result == {"entities": [], "relationships": []}
+
+
+@pytest.mark.asyncio
+async def test_call_ollama_returns_empty_on_bad_json():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {"message": {"content": "not-json"}}
+    with patch("api.services.graph_extraction.httpx.AsyncClient") as MockClient:
+        inst = AsyncMock()
+        inst.post = AsyncMock(return_value=mock_resp)
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=inst)
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        result = await _call_ollama("text", "qwen2.5:7b")
+    assert result == {"entities": [], "relationships": []}
+
+
+@pytest.mark.asyncio
+async def test_call_ollama_parses_valid_entities():
+    payload = {
+        "entities": [{"entity": "GraphRAG", "type": "concept", "description": "Graph-based RAG"}],
+        "relationships": [],
+    }
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {"message": {"content": _json.dumps(payload)}}
+    with patch("api.services.graph_extraction.httpx.AsyncClient") as MockClient:
+        inst = AsyncMock()
+        inst.post = AsyncMock(return_value=mock_resp)
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=inst)
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        result = await _call_ollama("GraphRAG text", "qwen2.5:7b")
+    assert result["entities"][0]["entity"] == "GraphRAG"
+
+
+@pytest.mark.asyncio
+async def test_call_ollama_uses_ollama_base_url_env(monkeypatch):
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama-server:11434")
+    captured_urls: list[str] = []
+
+    async def fake_post(url: str, **kwargs):  # type: ignore[return]
+        captured_urls.append(url)
+        m = MagicMock()
+        m.raise_for_status = MagicMock()
+        m.json.return_value = {"message": {"content": '{"entities":[],"relationships":[]}'}}
+        return m
+
+    with patch("api.services.graph_extraction.httpx.AsyncClient") as MockClient:
+        inst = AsyncMock()
+        inst.post = fake_post
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=inst)
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        await _call_ollama("text", "qwen2.5:7b")
+    assert captured_urls[0] == "http://ollama-server:11434/api/chat"

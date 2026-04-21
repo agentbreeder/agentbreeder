@@ -52,6 +52,7 @@ class IndexType(StrEnum):
 
 
 DEFAULT_ENTITY_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_OLLAMA_ENTITY_MODEL = "ollama/qwen2.5:7b"
 
 
 class IngestJobStatus(StrEnum):
@@ -241,13 +242,15 @@ class GraphSearchHit(SearchHit):
 
     def to_dict(self) -> dict[str, Any]:
         base = super().to_dict()
-        base.update({
-            "graph_path": self.graph_path,
-            "nodes_traversed": self.nodes_traversed,
-            "edges_traversed": self.edges_traversed,
-            "seed_entities": self.seed_entities,
-            "hop_depth": self.hop_depth,
-        })
+        base.update(
+            {
+                "graph_path": self.graph_path,
+                "nodes_traversed": self.nodes_traversed,
+                "edges_traversed": self.edges_traversed,
+                "seed_entities": self.seed_entities,
+                "hop_depth": self.hop_depth,
+            }
+        )
         return base
 
 
@@ -576,7 +579,7 @@ def hybrid_search(
 async def graph_search(
     index_id: str,
     query: str,
-    idx: "RAGIndex",
+    idx: RAGIndex,
     top_k: int = 10,
     hops: int | None = None,
     seed_entity_limit: int = 5,
@@ -803,6 +806,7 @@ class RAGStore:
             # Clean up graph store for graph/hybrid indexes
             if idx.index_type in (IndexType.graph, IndexType.hybrid):
                 from api.services.graph_store import get_graph_store
+
                 get_graph_store().delete_subgraph(index_id)
             return True
         return False
@@ -884,10 +888,15 @@ class RAGStore:
                 job.status = IngestJobStatus.extracting_entities
                 try:
                     from api.services.graph_extraction import extract_entities_batch
-                    from api.services.graph_store import get_graph_store  # lazy to avoid circular import
+                    from api.services.graph_store import (
+                        get_graph_store,  # lazy to avoid circular import
+                    )
+
                     graph_store = get_graph_store()
                     chunk_texts = [c.text for c in all_chunks]
-                    extraction_results = await extract_entities_batch(chunk_texts, model=idx.entity_model)
+                    extraction_results = await extract_entities_batch(
+                        chunk_texts, model=idx.entity_model
+                    )
                     for chunk, (nodes, edges) in zip(all_chunks, extraction_results):
                         for node in nodes:
                             node.chunk_ids.append(chunk.id)
@@ -901,7 +910,8 @@ class RAGStore:
                 except Exception as extraction_err:
                     logger.warning(
                         "Entity extraction failed for index %s — continuing with vector-only results: %s",
-                        index_id, extraction_err,
+                        index_id,
+                        extraction_err,
                     )
 
             # Phase 3: Indexing (add to in-memory store)
