@@ -763,6 +763,12 @@ class VectorIndexResponse(BaseModel):
     chunk_count: int
     created_at: str
     updated_at: str
+    index_type: str = "vector"
+    entity_model: str = "claude-haiku-4-5-20251001"
+    max_hops: int = 2
+    relationship_types: list[str] = []
+    node_count: int = 0
+    edge_count: int = 0
 
 
 class IngestJobResponse(BaseModel):

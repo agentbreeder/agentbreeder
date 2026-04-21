@@ -8,6 +8,7 @@ Subagent refs are resolved into auto-generated tool definitions.
 from __future__ import annotations
 
 import logging
+import os
 
 from engine.a2a.tool_generator import generate_subagent_tools
 from engine.config_parser import AgentConfig, ToolRef
@@ -55,6 +56,15 @@ def resolve_dependencies(config: AgentConfig) -> AgentConfig:
     # MCP server refs (pass through for sidecar deployment)
     for mcp in config.mcp_servers:
         refs.append(mcp.ref)
+
+    # If NEO4J_URL is set in environment, inject it for any deployment with knowledge bases
+    if config.knowledge_bases:
+        neo4j_url = os.environ.get("NEO4J_URL")
+        if neo4j_url and "NEO4J_URL" not in (config.deploy.env_vars or {}):
+            if config.deploy.env_vars is None:
+                config.deploy.env_vars = {}
+            config.deploy.env_vars["NEO4J_URL"] = neo4j_url
+            logger.debug("Injected NEO4J_URL for agent with knowledge bases")
 
     if refs:
         logger.debug("Dependency resolution — refs: %s", refs)

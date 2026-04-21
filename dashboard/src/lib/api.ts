@@ -435,11 +435,13 @@ export interface VectorIndex {
   name: string;
   description: string;
   embedding_model: string;
+  entity_model: string;
   chunk_strategy: string;
   chunk_size: number;
   chunk_overlap: number;
   dimensions: number;
   source: string;
+  index_type: "vector" | "graph" | "hybrid";
   doc_count: number;
   chunk_count: number;
   created_at: string;
@@ -466,6 +468,34 @@ export interface RAGSearchHit {
   source: string;
   score: number;
   metadata: Record<string, unknown>;
+}
+
+export interface GraphEntity {
+  id: string;
+  entity: string;
+  entity_type: string;
+  description: string;
+  chunk_ids: string[];
+}
+
+export interface GraphRelationship {
+  id: string;
+  subject_id: string;
+  predicate: string;
+  object_id: string;
+  subject_entity: string;
+  object_entity: string;
+  chunk_ids: string[];
+  weight: number;
+}
+
+export interface GraphMetadata {
+  index_id: string;
+  index_type: string;
+  node_count: number;
+  edge_count: number;
+  entity_types: { type: string; count: number }[];
+  top_entities: { entity: string; type: string; chunk_count: number }[];
 }
 
 export interface RAGSearchResponse {
@@ -1261,6 +1291,30 @@ export const api = {
       }),
     deleteIndex: (id: string) =>
       request<{ deleted: boolean }>(`/rag/indexes/${id}`, { method: "DELETE" }),
+    getGraphMeta: (indexId: string) =>
+      request<GraphMetadata>(`/rag/indexes/${indexId}/graph`),
+    listEntities: (
+      indexId: string,
+      params?: { page?: number; per_page?: number; entity_type?: string },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.page) qs.set("page", String(params.page));
+      if (params?.per_page) qs.set("per_page", String(params.per_page));
+      if (params?.entity_type) qs.set("entity_type", params.entity_type);
+      const q = qs.toString();
+      return request<GraphEntity[]>(`/rag/indexes/${indexId}/entities${q ? `?${q}` : ""}`);
+    },
+    listRelationships: (
+      indexId: string,
+      params?: { page?: number; per_page?: number; predicate?: string },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.page) qs.set("page", String(params.page));
+      if (params?.per_page) qs.set("per_page", String(params.per_page));
+      if (params?.predicate) qs.set("predicate", params.predicate);
+      const q = qs.toString();
+      return request<GraphRelationship[]>(`/rag/indexes/${indexId}/relationships${q ? `?${q}` : ""}`);
+    },
     ingest: async (indexId: string, files: File[]) => {
       const formData = new FormData();
       for (const file of files) {

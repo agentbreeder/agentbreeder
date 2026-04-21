@@ -6,9 +6,17 @@ import math
 
 import pytest
 
+from api.services.graph_store import GraphStore
 from api.services.rag_service import (
+    DEFAULT_ENTITY_MODEL,
     DocumentChunk,
+    GraphEdge,
+    GraphNode,
+    GraphSearchHit,
+    IndexType,
+    RAGIndex,
     RAGStore,
+    VectorIndex,
     _pseudo_embedding,
     chunk_fixed_size,
     chunk_recursive,
@@ -412,3 +420,243 @@ class TestRAGStoreSearch:
             d = results[0].to_dict()
             assert "score" in d
             assert "text" in d
+
+
+# ---------------------------------------------------------------------------
+# GraphNode Tests
+# ---------------------------------------------------------------------------
+
+
+class TestGraphNode:
+    def _make_node(self) -> GraphNode:
+        return GraphNode(
+            id="node-1",
+            entity="Python",
+            entity_type="LANGUAGE",
+            description="A programming language",
+            chunk_ids=["chunk-1", "chunk-2"],
+            embedding=[0.1, 0.2, 0.3],
+        )
+
+    def test_to_dict_excludes_embedding(self):
+        node = self._make_node()
+        d = node.to_dict()
+        assert "embedding" not in d
+
+    def test_to_dict_includes_all_other_fields(self):
+        node = self._make_node()
+        d = node.to_dict()
+        assert d["id"] == "node-1"
+        assert d["entity"] == "Python"
+        assert d["entity_type"] == "LANGUAGE"
+        assert d["description"] == "A programming language"
+        assert d["chunk_ids"] == ["chunk-1", "chunk-2"]
+
+    def test_embedding_accessible_directly(self):
+        node = self._make_node()
+        assert node.embedding == [0.1, 0.2, 0.3]
+
+
+# ---------------------------------------------------------------------------
+# GraphEdge Tests
+# ---------------------------------------------------------------------------
+
+
+class TestGraphEdge:
+    def _make_edge(self) -> GraphEdge:
+        return GraphEdge(
+            id="edge-1",
+            subject_id="node-1",
+            predicate="USES",
+            object_id="node-2",
+            chunk_ids=["chunk-3"],
+            weight=0.9,
+        )
+
+    def test_to_dict_includes_all_fields(self):
+        edge = self._make_edge()
+        d = edge.to_dict()
+        assert d["id"] == "edge-1"
+        assert d["subject_id"] == "node-1"
+        assert d["predicate"] == "USES"
+        assert d["object_id"] == "node-2"
+        assert d["chunk_ids"] == ["chunk-3"]
+        assert d["weight"] == 0.9
+
+
+# ---------------------------------------------------------------------------
+# RAGIndex (dataclass) Tests
+# ---------------------------------------------------------------------------
+
+
+class TestRAGIndex:
+    def _make_index(self) -> RAGIndex:
+        return RAGIndex(
+            id="idx-1",
+            name="test",
+            description="desc",
+            embedding_model="openai/text-embedding-3-small",
+            chunk_strategy="fixed_size",
+            chunk_size=512,
+            chunk_overlap=64,
+            dimensions=1536,
+            source="manual",
+            index_type=IndexType.graph,
+            entity_model=DEFAULT_ENTITY_MODEL,
+            max_hops=3,
+            relationship_types=["USES", "IS_A"],
+            node_count=5,
+            edge_count=7,
+        )
+
+    def test_to_dict_includes_graph_fields(self):
+        idx = self._make_index()
+        d = idx.to_dict()
+        assert d["index_type"] == "graph"
+        assert d["entity_model"] == DEFAULT_ENTITY_MODEL
+        assert d["max_hops"] == 3
+        assert d["relationship_types"] == ["USES", "IS_A"]
+        assert d["node_count"] == 5
+        assert d["edge_count"] == 7
+
+    def test_to_dict_excludes_chunks(self):
+        idx = self._make_index()
+        d = idx.to_dict()
+        assert "chunks" not in d
+
+    def test_vector_index_is_rag_index_alias(self):
+        assert VectorIndex is RAGIndex
+
+
+# ---------------------------------------------------------------------------
+# IndexType Tests
+# ---------------------------------------------------------------------------
+
+
+class TestIndexType:
+    def test_vector_value(self):
+        assert IndexType("vector") == IndexType.vector
+
+    def test_graph_value(self):
+        assert IndexType("graph") == IndexType.graph
+
+    def test_hybrid_value(self):
+        assert IndexType("hybrid") == IndexType.hybrid
+
+    def test_invalid_raises_value_error(self):
+        with pytest.raises(ValueError):
+            IndexType("bad")
+
+
+# ---------------------------------------------------------------------------
+# create_index Validation Tests
+# ---------------------------------------------------------------------------
+
+
+class TestCreateIndexValidation:
+    def setup_method(self):
+        self.store = RAGStore()
+
+    def test_invalid_index_type_raises_descriptive_error(self):
+        with pytest.raises(ValueError, match="Invalid index_type 'bad'"):
+            self.store.create_index(name="x", index_type="bad")
+
+    def test_error_message_lists_valid_values(self):
+        with pytest.raises(ValueError, match="vector"):
+            self.store.create_index(name="x", index_type="bad")
+
+    def test_valid_graph_index_type(self):
+        idx = self.store.create_index(name="g", index_type="graph")
+        assert idx.index_type == IndexType.graph
+
+    def test_valid_hybrid_index_type(self):
+        idx = self.store.create_index(name="h", index_type="hybrid")
+        assert idx.index_type == IndexType.hybrid
+
+
+# ---------------------------------------------------------------------------
+# Graph search and ingest integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestGraphSearchAndIngest:
+    def setup_method(self):
+        self.store = RAGStore()
+
+    @pytest.mark.asyncio
+    async def test_graph_search_fallback_no_nodes(self):
+        """Graph index with no graph data falls back to vector search without raising."""
+        idx = self.store.create_index(
+            name="graph-fallback",
+            index_type="graph",
+            chunk_size=100,
+            chunk_overlap=0,
+        )
+        content = b"Python is a high-level programming language."
+        await self.store.ingest_files(idx.id, [("doc.txt", content)])
+        # No graph data was extracted (no API key) — should fall back to vector results
+        results = await self.store.search(idx.id, "Python language")
+        # Should not raise and should return results (fallback path)
+        assert isinstance(results, list)
+
+    def test_graph_search_hit_to_dict(self):
+        """GraphSearchHit.to_dict() includes all fields from both parent and child."""
+        hit = GraphSearchHit(
+            chunk_id="c1",
+            text="hello world",
+            source="doc.txt",
+            score=0.85,
+            metadata={"key": "val"},
+            graph_path=[],
+            nodes_traversed=3,
+            edges_traversed=2,
+            seed_entities=["Python", "ML"],
+            hop_depth=1,
+        )
+        d = hit.to_dict()
+        # Parent fields
+        assert d["chunk_id"] == "c1"
+        assert d["text"] == "hello world"
+        assert d["source"] == "doc.txt"
+        assert abs(d["score"] - 0.85) < 1e-4
+        assert d["metadata"] == {"key": "val"}
+        # Child fields
+        assert d["graph_path"] == []
+        assert d["nodes_traversed"] == 3
+        assert d["edges_traversed"] == 2
+        assert d["seed_entities"] == ["Python", "ML"]
+        assert d["hop_depth"] == 1
+
+    @pytest.mark.asyncio
+    async def test_ingest_graph_index_sets_status(self):
+        """Ingesting into a graph index completes (extraction may return empty, must not fail)."""
+        idx = self.store.create_index(
+            name="graph-ingest",
+            index_type="graph",
+            chunk_size=200,
+            chunk_overlap=0,
+        )
+        content = b"Machine learning is a subfield of artificial intelligence."
+        job = await self.store.ingest_files(idx.id, [("ml.txt", content)])
+        # Job must complete even if entity extraction fails (no API key in tests)
+        from api.services.rag_service import IngestJobStatus
+        assert job.status == IngestJobStatus.completed
+
+    def test_get_neighbors_returns_depth(self):
+        """get_neighbors returns list of (GraphNode, int) tuples with correct depths."""
+        from api.services.rag_service import GraphEdge, GraphNode
+        gs = GraphStore()
+        idx_id = "test-depth"
+        # Build: A -[r]-> B -[r]-> C
+        for nid, name in [("A", "NodeA"), ("B", "NodeB"), ("C", "NodeC")]:
+            gs.upsert_node(idx_id, GraphNode(id=nid, entity=name, entity_type="T", description="", chunk_ids=[]))
+        gs.upsert_edge(idx_id, GraphEdge(id="e1", subject_id="A", predicate="r", object_id="B", chunk_ids=[]))
+        gs.upsert_edge(idx_id, GraphEdge(id="e2", subject_id="B", predicate="r", object_id="C", chunk_ids=[]))
+
+        results = gs.get_neighbors(idx_id, ["A"], hops=2)
+        # Should be list of tuples
+        assert isinstance(results, list)
+        assert all(isinstance(item, tuple) and len(item) == 2 for item in results)
+        depth_by_id = {node.id: depth for node, depth in results}
+        assert depth_by_id["B"] == 1
+        assert depth_by_id["C"] == 2

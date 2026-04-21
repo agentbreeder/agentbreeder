@@ -1,0 +1,12 @@
+name: graphrag-demo-agent
+version: "1.0.0"
+description: "Demo agent that answers questions using GraphRAG over AgentBreeder technical docs"
+team: examples
+owner: demo@agentbreeder.dev
+framework: claude_sdk
+model:
+  primary: ollama/qwen2.5:7b
+knowledge_bases:
+  - ref: kb/agentbreeder-docs
+deploy:
+  cloud: local

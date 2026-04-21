@@ -204,11 +204,75 @@ def score_with_judge_model(
     }
 
 
+def score_entity_recall(actual: str, ground_truth_entities: list[str]) -> float:
+    """Fraction of ground-truth entities present in the retrieved context.
+
+    Returns 1.0 if ground_truth_entities is empty (nothing to miss).
+    Case-insensitive substring match.
+    """
+    if not ground_truth_entities:
+        return 1.0
+    present = sum(1 for e in ground_truth_entities if e.lower() in actual.lower())
+    return round(present / len(ground_truth_entities), 4)
+
+
+def score_relationship_precision(retrieved_rels: list[tuple], correct_rels: list[tuple]) -> float:
+    """Fraction of retrieved relationships that match ground truth (exact tuple match).
+
+    Each rel is a (subject, predicate, object) tuple (all strings).
+    Returns 1.0 if retrieved_rels is empty (nothing to be wrong about).
+    """
+    if not retrieved_rels:
+        return 1.0
+    correct_set = set(correct_rels)
+    matches = sum(1 for r in retrieved_rels if r in correct_set)
+    return round(matches / len(retrieved_rels), 4)
+
+
+def score_hop_coverage(answer: str, multi_hop_questions: list[str]) -> float:
+    """Fraction of multi-hop questions whose key terms appear in the answer.
+
+    A multi-hop question is 'covered' if all its non-stopword terms appear in the answer.
+    Returns 1.0 if multi_hop_questions is empty.
+    """
+    if not multi_hop_questions:
+        return 1.0
+    stopwords = {"the", "a", "an", "is", "are", "was", "were", "in", "of", "to", "and", "or", "for"}
+    covered = 0
+    for q in multi_hop_questions:
+        terms = [t for t in q.lower().split() if t not in stopwords and len(t) > 2]
+        if not terms or all(t in answer.lower() for t in terms):
+            covered += 1
+    return round(covered / len(multi_hop_questions), 4)
+
+
+def score_vector_fallback_rate(search_hits: list) -> float:
+    """Fraction of GraphSearchHit results that used only vector search (no graph traversal).
+
+    A hit is a fallback if nodes_traversed == 0.
+    Returns 0.0 if search_hits is empty (no fallbacks).
+    Accepts a list of dicts (from to_dict()) or objects with .nodes_traversed attribute.
+    """
+    if not search_hits:
+        return 0.0
+    fallbacks = 0
+    for hit in search_hits:
+        if isinstance(hit, dict):
+            fallbacks += 1 if hit.get("nodes_traversed", 0) == 0 else 0
+        else:
+            fallbacks += 1 if getattr(hit, "nodes_traversed", 0) == 0 else 0
+    return round(fallbacks / len(search_hits), 4)
+
+
 BUILT_IN_SCORERS = {
     "correctness": score_correctness,
     "relevance": score_relevance,
     "latency_score": score_latency,
     "cost_score": score_cost,
+    "entity_recall": score_entity_recall,
+    "relationship_precision": score_relationship_precision,
+    "hop_coverage": score_hop_coverage,
+    "vector_fallback_rate": score_vector_fallback_rate,
 }
 
 

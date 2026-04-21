@@ -267,6 +267,34 @@ pipeline.deploy()
 
 ---
 
+## GraphRAG — Knowledge Graph-Enhanced Retrieval
+
+GraphRAG extends vector search with entity extraction and graph traversal. When your queries require multi-hop reasoning ("What does AgentBreeder RBAC affect?"), GraphRAG follows entity relationships to surface connected concepts that pure vector search misses.
+
+**When to use graph vs vector:**
+- **Vector**: Fast, general-purpose semantic search. Best for most RAG use cases.
+- **Graph**: Multi-hop reasoning, entity-centric queries, relationship discovery.
+- **Hybrid**: Both — vector search + graph traversal, combined scoring.
+
+**Quick start (local with Ollama):**
+
+```bash
+# Pull models
+ollama pull qwen2.5:7b
+ollama pull nomic-embed-text
+
+# Start local stack
+docker compose up -d
+
+# Run the sample agent
+python examples/graphrag-ollama-agent/ingest.py
+agentbreeder chat --agent graphrag-demo-agent "What are the GraphRAG concepts in AgentBreeder?"
+```
+
+See `examples/graphrag-ollama-agent/` for a complete working example and full documentation.
+
+---
+
 ## Prerequisites
 
 | Requirement | Min version | Why | Install |

@@ -123,6 +123,37 @@
       },
       "description": "Data sources to ingest into the index"
     },
+    "index_type": {
+      "type": "string",
+      "enum": ["vector", "graph", "hybrid"],
+      "default": "vector",
+      "description": "Index storage and retrieval type"
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Graph-specific configuration (only used when index_type is graph or hybrid)",
+      "properties": {
+        "entity_model": {
+          "type": "string",
+          "default": "claude-haiku-4-5-20251001",
+          "description": "Model used for entity and relationship extraction"
+        },
+        "max_hops": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 2,
+          "description": "Maximum BFS traversal depth for graph search"
+        },
+        "relationship_types": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Restrict extraction to these predicate types. Empty = extract all."
+        }
+      }
+    },
     "search": {
       "type": "object",
       "additionalProperties": false,

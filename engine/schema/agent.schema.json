@@ -186,6 +186,37 @@
         "properties": {
           "ref": {
             "type": "string"
+          },
+          "retrieval": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Retrieval configuration for this knowledge base",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["vector", "graph", "hybrid"],
+                "default": "vector",
+                "description": "Retrieval strategy"
+              },
+              "hops": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "default": 2,
+                "description": "Graph traversal depth (graph/hybrid only)"
+              },
+              "top_k": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 10,
+                "description": "Number of results to retrieve"
+              },
+              "rerank": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether to rerank retrieved chunks"
+              }
+            }
           }
         }
       },

@@ -18,6 +18,7 @@ import { api, type RAGSearchHit, type IngestJob } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { GraphTab } from "@/components/GraphTab";
 
 // --- Types ---
 
@@ -516,9 +517,13 @@ function SearchPanel({ indexId }: { indexId: string }) {
 function IndexDetailView({
   indexId,
   onBack,
+  activeTab,
+  setActiveTab,
 }: {
   indexId: string;
   onBack: () => void;
+  activeTab: "overview" | "graph";
+  setActiveTab: (tab: "overview" | "graph") => void;
 }) {
   const queryClient = useQueryClient();
   const { data: indexResp, isLoading } = useQuery({
@@ -527,6 +532,9 @@ function IndexDetailView({
   });
 
   const index = indexResp?.data;
+
+  const isGraphIndex =
+    index?.index_type === "graph" || index?.index_type === "hybrid";
 
   const handleIngestComplete = () => {
     queryClient.invalidateQueries({ queryKey: ["rag-index", indexId] });
@@ -566,66 +574,93 @@ function IndexDetailView({
         </Badge>
       </div>
 
-      {/* Content: 3-column */}
-      <div className="grid flex-1 grid-cols-[280px_1fr_320px] overflow-hidden">
-        {/* Left: Stats */}
-        <div className="overflow-y-auto border-r border-border p-4">
-          <h2 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Index Details
-          </h2>
-          <div className="space-y-3">
-            <div className="rounded-md border border-border p-3">
-              <p className="text-[10px] text-muted-foreground">Documents</p>
-              <p className="text-lg font-semibold">{formatNumber(index.doc_count)}</p>
-            </div>
-            <div className="rounded-md border border-border p-3">
-              <p className="text-[10px] text-muted-foreground">Chunks</p>
-              <p className="text-lg font-semibold">{formatNumber(index.chunk_count)}</p>
-            </div>
-            <div className="rounded-md border border-border p-3">
-              <p className="text-[10px] text-muted-foreground">Dimensions</p>
-              <p className="text-lg font-semibold">{index.dimensions}</p>
-            </div>
+      {/* Tab bar — only visible for graph/hybrid indexes */}
+      {isGraphIndex && (
+        <div className="flex gap-1 border-b border-border px-6">
+          <button
+            onClick={() => setActiveTab("overview")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "overview" ? "text-foreground border-b-2 border-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            Overview
+          </button>
+          <button
+            onClick={() => setActiveTab("graph")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "graph" ? "text-foreground border-b-2 border-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            Knowledge Graph
+          </button>
+        </div>
+      )}
 
-            <div className="space-y-2 pt-2">
-              <div>
-                <p className="text-[10px] text-muted-foreground">Embedding Model</p>
-                <p className="text-xs font-mono">{index.embedding_model}</p>
+      {/* Content: 3-column overview */}
+      {(!isGraphIndex || activeTab === "overview") && (
+        <div className="grid flex-1 grid-cols-[280px_1fr_320px] overflow-hidden">
+          {/* Left: Stats */}
+          <div className="overflow-y-auto border-r border-border p-4">
+            <h2 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Index Details
+            </h2>
+            <div className="space-y-3">
+              <div className="rounded-md border border-border p-3">
+                <p className="text-[10px] text-muted-foreground">Documents</p>
+                <p className="text-lg font-semibold">{formatNumber(index.doc_count)}</p>
               </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground">Chunk Strategy</p>
-                <p className="text-xs">{index.chunk_strategy}</p>
+              <div className="rounded-md border border-border p-3">
+                <p className="text-[10px] text-muted-foreground">Chunks</p>
+                <p className="text-lg font-semibold">{formatNumber(index.chunk_count)}</p>
               </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground">Chunk Size / Overlap</p>
-                <p className="text-xs font-mono">
-                  {index.chunk_size} / {index.chunk_overlap}
-                </p>
+              <div className="rounded-md border border-border p-3">
+                <p className="text-[10px] text-muted-foreground">Dimensions</p>
+                <p className="text-lg font-semibold">{index.dimensions}</p>
               </div>
-              {index.description && (
+
+              <div className="space-y-2 pt-2">
                 <div>
-                  <p className="text-[10px] text-muted-foreground">Description</p>
-                  <p className="text-xs">{index.description}</p>
+                  <p className="text-[10px] text-muted-foreground">Embedding Model</p>
+                  <p className="text-xs font-mono">{index.embedding_model}</p>
                 </div>
-              )}
-              <div>
-                <p className="text-[10px] text-muted-foreground">Created</p>
-                <p className="text-xs">{formatDate(index.created_at)}</p>
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Chunk Strategy</p>
+                  <p className="text-xs">{index.chunk_strategy}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Chunk Size / Overlap</p>
+                  <p className="text-xs font-mono">
+                    {index.chunk_size} / {index.chunk_overlap}
+                  </p>
+                </div>
+                {index.description && (
+                  <div>
+                    <p className="text-[10px] text-muted-foreground">Description</p>
+                    <p className="text-xs">{index.description}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Created</p>
+                  <p className="text-xs">{formatDate(index.created_at)}</p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Center: Search */}
-        <div className="overflow-y-auto p-4">
-          <SearchPanel indexId={indexId} />
-        </div>
+          {/* Center: Search */}
+          <div className="overflow-y-auto p-4">
+            <SearchPanel indexId={indexId} />
+          </div>
 
-        {/* Right: Ingest */}
-        <div className="overflow-y-auto border-l border-border p-4">
-          <IngestPanel indexId={indexId} onComplete={handleIngestComplete} />
+          {/* Right: Ingest */}
+          <div className="overflow-y-auto border-l border-border p-4">
+            <IngestPanel indexId={indexId} onComplete={handleIngestComplete} />
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Graph tab content */}
+      {isGraphIndex && activeTab === "graph" && (
+        <div className="flex-1 overflow-hidden">
+          <GraphTab indexId={index.id} />
+        </div>
+      )}
     </div>
   );
 }
@@ -636,6 +671,7 @@ export default function RAGBuilderPage() {
   const [view, setView] = useState<View>("list");
   const [selectedIndexId, setSelectedIndexId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"overview" | "graph">("overview");
 
   const queryClient = useQueryClient();
 
@@ -660,6 +696,7 @@ export default function RAGBuilderPage() {
       queryClient.invalidateQueries({ queryKey: ["rag-indexes"] });
       setCreateOpen(false);
       setSelectedIndexId(data.id);
+      setActiveTab("overview");
       setView("detail");
     },
   });
@@ -677,9 +714,12 @@ export default function RAGBuilderPage() {
     return (
       <IndexDetailView
         indexId={selectedIndexId}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
         onBack={() => {
           setView("list");
           setSelectedIndexId(null);
+          setActiveTab("overview");
           queryClient.invalidateQueries({ queryKey: ["rag-indexes"] });
         }}
       />
@@ -743,6 +783,7 @@ export default function RAGBuilderPage() {
                 className="group cursor-pointer rounded-lg border border-border bg-card p-4 transition-all hover:border-foreground/20 hover:shadow-sm"
                 onClick={() => {
                   setSelectedIndexId(idx.id);
+                  setActiveTab("overview");
                   setView("detail");
                 }}
               >

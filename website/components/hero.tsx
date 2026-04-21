@@ -70,6 +70,52 @@ export function Hero() {
           className="absolute -left-20 top-1/3 h-[300px] w-[300px] rounded-full"
           style={{ background: 'radial-gradient(circle, rgba(96,165,250,0.04) 0%, transparent 65%)' }}
         />
+        {/* Animated knowledge graph */}
+        <svg
+          className="absolute inset-0 h-full w-full opacity-[0.12]"
+          viewBox="0 0 400 300"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <defs>
+            <style>{`
+              .ab-edge { stroke-dasharray: 160; animation: ab-edge-travel 3s linear infinite; }
+              .ab-e2 { animation-delay: 0.75s; }
+              .ab-e3 { animation-delay: 1.5s; }
+              .ab-e4 { animation-delay: 2.25s; }
+              .ab-node { animation: ab-node-pulse 2s ease-in-out infinite; }
+              .ab-n2 { animation-delay: 0.5s; }
+              .ab-n3 { animation-delay: 1s; }
+              .ab-n4 { animation-delay: 1.5s; }
+              @keyframes ab-edge-travel {
+                0% { stroke-dashoffset: 160; }
+                100% { stroke-dashoffset: -160; }
+              }
+              @keyframes ab-node-pulse {
+                0%, 100% { opacity: 0.4; }
+                50% { opacity: 1; }
+              }
+            `}</style>
+          </defs>
+          {/* Edges: center → outer nodes */}
+          <line x1="200" y1="150" x2="310" y2="65" stroke="#22c55e" strokeWidth="1.5" className="ab-edge" />
+          <line x1="200" y1="150" x2="310" y2="235" stroke="#a855f7" strokeWidth="1.5" className="ab-edge ab-e2" />
+          <line x1="200" y1="150" x2="90" y2="235" stroke="#3b82f6" strokeWidth="1.5" className="ab-edge ab-e3" />
+          <line x1="200" y1="150" x2="90" y2="65" stroke="#f59e0b" strokeWidth="1.5" className="ab-edge ab-e4" />
+          {/* Outer nodes */}
+          <circle cx="310" cy="65" r="7" fill="#22c55e" className="ab-node" />
+          <circle cx="310" cy="235" r="7" fill="#a855f7" className="ab-node ab-n2" />
+          <circle cx="90" cy="235" r="7" fill="#3b82f6" className="ab-node ab-n3" />
+          <circle cx="90" cy="65" r="7" fill="#f59e0b" className="ab-node ab-n4" />
+          {/* Center node */}
+          <circle cx="200" cy="150" r="9" fill="white" className="ab-node" />
+          {/* Labels */}
+          <text x="310" y="51" textAnchor="middle" fill="#9ca3af" fontSize="9" fontFamily="monospace">deploy</text>
+          <text x="328" y="250" textAnchor="middle" fill="#9ca3af" fontSize="9" fontFamily="monospace">RBAC</text>
+          <text x="72" y="250" textAnchor="middle" fill="#9ca3af" fontSize="9" fontFamily="monospace">cost</text>
+          <text x="90" y="51" textAnchor="middle" fill="#9ca3af" fontSize="9" fontFamily="monospace">registry</text>
+          <text x="200" y="137" textAnchor="middle" fill="#9ca3af" fontSize="9" fontFamily="monospace">agent.yaml</text>
+        </svg>
       </div>
 
       <div className="relative z-10 w-full max-w-[1400px] mx-auto px-4 sm:px-8 md:px-12 lg:px-16 xl:px-24 py-16 lg:py-0">
