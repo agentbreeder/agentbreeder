@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import json as _json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -337,7 +336,7 @@ async def test_call_ollama_parses_valid_entities():
     }
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()
-    mock_resp.json.return_value = {"message": {"content": _json.dumps(payload)}}
+    mock_resp.json.return_value = {"message": {"content": json.dumps(payload)}}
     with patch("api.services.graph_extraction.httpx.AsyncClient") as MockClient:
         inst = AsyncMock()
         inst.post = AsyncMock(return_value=mock_resp)
