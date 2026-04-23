@@ -1,0 +1,86 @@
+---
+title: Comparisons
+description: How AgentBreeder relates to agent frameworks, cloud platforms, and other deployment tools.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+# Comparisons
+
+<Callout title="tl;dr">
+  AgentBreeder is not an agent framework. It is the **deployment, governance, and operations layer**
+  for agents built with any framework. You use them together.
+</Callout>
+
+## AgentBreeder vs Agent SDKs
+
+**LangGraph · CrewAI · OpenAI Agents · Claude SDK · Google ADK · Mastra**
+
+Agent SDKs help you *build* an agent. AgentBreeder helps you *ship, govern, and operate* it.
+
+| Capability | Agent SDKs | AgentBreeder |
+|---|---|---|
+| Define agent logic | ✅ | — |
+| Tool use, memory, multi-step reasoning | ✅ | — |
+| Deploy to any cloud | ❌ Framework-specific | ✅ AWS, GCP, Azure, K8s, local |
+| RBAC — control who can deploy | ❌ | ✅ Validated before build starts |
+| Cost tracking per team / agent / model | ❌ | ✅ Automatic |
+| Audit trail | ❌ | ✅ Every deploy logged |
+| Org-wide agent registry | ❌ | ✅ Auto-registered on deploy |
+| Multi-agent orchestration (cross-framework) | ⚠️ Framework-specific | ✅ 6 strategies, any framework |
+| MCP server hub | ⚠️ Varies | ✅ Native |
+
+**These are complementary, not competing.** Your LangGraph or CrewAI agent is the application code. AgentBreeder is the platform that deploys and governs it — the same relationship as your app code vs Docker + Kubernetes.
+
+```
+Your agent framework  →  writes the agent logic
+AgentBreeder          →  deploys it, governs it, tracks it, registers it
+```
+
+---
+
+## AgentBreeder vs Managed Cloud Agent Platforms
+
+**AWS Bedrock Agents · GCP Vertex AI Agent Builder · Azure AI Agent Service**
+
+Cloud platforms offer integrated build-and-deploy experiences — but only within their cloud.
+
+| Capability | Cloud Platforms | AgentBreeder |
+|---|---|---|
+| Managed infrastructure | ✅ Their cloud | ✅ Any cloud |
+| Framework flexibility | ❌ Platform-specific SDK | ✅ Any framework |
+| Multi-cloud portability | ❌ Locked in | ✅ Same `agent.yaml` → AWS, GCP, or local |
+| Works with your existing agents | ❌ Rewrite required | ✅ Wrap in `agent.yaml` |
+| Governance (RBAC, audit, cost) | ⚠️ Platform-level only | ✅ Per deploy, per team, per model |
+| Org-wide registry | ❌ | ✅ |
+| Open source | ❌ Proprietary | ✅ Apache 2.0 |
+| Self-hostable | ❌ | ✅ |
+
+---
+
+## AgentBreeder vs Kubernetes / Helm
+
+Kubernetes is a general-purpose container orchestrator. AgentBreeder is a purpose-built platform for agents.
+
+| Capability | Kubernetes + Helm | AgentBreeder |
+|---|---|---|
+| Deploy any container | ✅ | ✅ (generates the manifests) |
+| Agent-aware config (`agent.yaml`) | ❌ Generic YAML | ✅ |
+| RBAC tied to agents and teams | ❌ Custom work | ✅ Built in |
+| Cost attribution per agent/team | ❌ Custom work | ✅ Built in |
+| Prompt, tool, model registry | ❌ | ✅ |
+| Kubernetes as a deploy target | ✅ | ✅ (`deploy.cloud: kubernetes`) |
+
+AgentBreeder can deploy *to* Kubernetes. It is not a replacement for it — it generates the deployment manifests and wires in governance, so you don't have to.
+
+---
+
+## The Right Mental Model
+
+| Analogy | Build | Deploy + Operate |
+|---------|-------|-----------------|
+| Code | You write Python | Docker + Kubernetes ship it |
+| Infrastructure | Terraform defines it | CI/CD deploys it |
+| **Agents** | **Your framework builds it** | **AgentBreeder ships and governs it** |
+
+AgentBreeder is to agents what Docker + Kubernetes is to microservices — the layer you add once and never think about again.

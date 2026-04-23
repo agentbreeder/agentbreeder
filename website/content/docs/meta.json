@@ -23,6 +23,7 @@
     "agent-yaml",
     "registry-guide",
     "api-stability",
+    "comparisons",
     "---Reference---",
     "cli-reference",
     "orchestration-sdk",

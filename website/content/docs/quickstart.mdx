@@ -16,30 +16,51 @@ Deploy your first agent in under 5 minutes.
 | Requirement | Min version | Why |
 |-------------|-------------|-----|
 | **Python** | 3.11+ | CLI, API server, Python SDK |
-| **Docker** | 24+ | Local deploys and container builds |
+| **Docker Desktop** | 24+ | Local deploys and container builds — must be **open and running** |
 | **Node.js + npx** | 18+ | MCP servers (run via `npx`) |
 
 <Callout type="info" title="Just starting out?">
-  Python 3.11+ and Docker are the only hard requirements for this quickstart. Node.js is only needed when you wire in MCP servers.
+  Python 3.11+ and Docker Desktop are the only hard requirements for this quickstart. Node.js is only needed when you wire in MCP servers.
 </Callout>
 
 Check yours:
 
 ```bash
 python3 --version   # need 3.11+
-docker --version    # need 24+
+docker info         # must succeed — if it errors, open Docker Desktop first
 ```
+
+<Callout type="warn" title="Docker not running?">
+  Open the **Docker Desktop** app before running any `docker` commands. On Linux: `sudo systemctl start docker`. Verify with `docker info` — a successful response means Docker is ready.
+</Callout>
 
 ---
 
 ## 1. Install
 
+Pick the method that matches your environment:
+
+| Method | Command |
+|--------|---------|
+| **pip** (Python 3) | `pip3 install agentbreeder` |
+| **Homebrew** (macOS) | `brew tap agentbreeder/agentbreeder && brew install agentbreeder` |
+| **Docker** | `docker run rajits/agentbreeder-cli --help` |
+| **npm** | `npm install @agentbreeder/sdk` |
+
 ```bash
-pip install agentbreeder
+pip3 install agentbreeder
 agentbreeder --help
 ```
 
-Other install options (Homebrew, Docker, npm, from source) → [How-To: Install →](how-to#install-agentbreeder)
+> **`agentbreeder: command not found` after install?** pip's script directory may not be in your PATH. Run:
+> ```bash
+> python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+> ```
+> Add that path to your `PATH` (e.g. in `~/.zshrc`), then open a new terminal. See [full troubleshooting →](how-to#agentbreeder-command-not-found)
+
+> On macOS, **Homebrew is the easiest install** — it handles PATH automatically.
+
+All install options → [How-To: Install →](how-to#install-agentbreeder)
 
 ---
 

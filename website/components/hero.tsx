@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 
 const YAML_PREVIEW = `# identity
@@ -51,6 +52,30 @@ function YamlLine({ line }: { line: string }) {
 }
 
 export function Hero() {
+  const [copied, setCopied] = useState(false);
+
+  function copyInstallCmd() {
+    const text = 'pip3 install agentbreeder';
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    } else {
+      // fallback for HTTP contexts
+      const el = document.createElement('textarea');
+      el.value = text;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
   return (
     <section className="relative w-full min-h-[calc(100vh-3.5rem)] flex items-center">
       {/* Full-bleed background glows */}
@@ -149,17 +174,17 @@ export function Hero() {
               style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-hover)' }}
             >
               <span style={{ color: 'var(--accent)' }}>$</span>
-              <span className="text-sm text-white flex-1">pip install agentbreeder</span>
+              <span className="text-sm text-white flex-1">pip3 install agentbreeder</span>
               <button
                 className="ml-2 rounded-md border px-2.5 py-0.5 font-sans text-xs transition-colors flex-shrink-0"
                 style={{
                   background: 'var(--bg-elevated)',
                   borderColor: 'var(--border)',
-                  color: 'var(--text-muted)',
+                  color: copied ? 'var(--accent)' : 'var(--text-muted)',
                 }}
-                onClick={() => navigator.clipboard.writeText('pip install agentbreeder')}
+                onClick={copyInstallCmd}
               >
-                copy
+                {copied ? 'copied!' : 'copy'}
               </button>
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">

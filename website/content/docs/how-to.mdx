@@ -21,9 +21,11 @@ Recipes for common AgentBreeder workflows. Each section is self-contained — ju
 <Tabs items={['PyPI (recommended)', 'Homebrew', 'Docker', 'npm (TypeScript / JS)', 'From source']}>
   <Tab value="PyPI (recommended)">
 ```bash
-pip install agentbreeder          # full CLI + API server + engine
-pip install agentbreeder-sdk      # lightweight SDK only
+pip3 install agentbreeder          # full CLI + API server + engine
+pip3 install agentbreeder-sdk      # lightweight SDK only
 ```
+
+> **macOS / command not found?** See the [troubleshooting section below.](#agentbreeder-command-not-found)
   </Tab>
   <Tab value="Homebrew">
 ```bash
@@ -858,11 +860,25 @@ Default login: `admin@agentbreeder.local` / `plant`
 
 ### "agentbreeder: command not found"
 
+This almost always means pip's script directory is not in your `PATH`.
+
 ```bash
-pip show agentbreeder            # check if installed
-python -m cli.main --help        # if installed but not in PATH
-pip install agentbreeder         # reinstall
+pip3 show agentbreeder           # confirm it's installed and see Location
+
+# macOS — find where pip installed the script:
+python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+
+# Add that directory to your shell (e.g. ~/.zshrc or ~/.bashrc):
+export PATH="$HOME/Library/Python/3.x/bin:$PATH"   # adjust 3.x to your version
+source ~/.zshrc
+
+# Alternatively, install into a place already on PATH:
+pip3 install --user agentbreeder
+# or use Homebrew (recommended for macOS):
+brew tap agentbreeder/agentbreeder && brew install agentbreeder
 ```
+
+After updating PATH, open a new terminal and run `agentbreeder --help`.
 
 ### "Validation failed: unknown framework"
 
