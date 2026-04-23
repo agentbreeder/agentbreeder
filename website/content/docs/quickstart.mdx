@@ -93,10 +93,32 @@ support-agent/
 
 ---
 
-## 3. Validate
+## 3. Set Up Your API Key
 
 ```bash
 cd support-agent
+cp .env.example .env
+```
+
+Open `.env` and add the key for your chosen model:
+
+| Model | Key needed |
+|-------|-----------|
+| `gpt-4o` | `OPENAI_API_KEY=sk-...` |
+| `claude-sonnet-4` | `ANTHROPIC_API_KEY=sk-ant-...` |
+| `gemini-2.0-flash` | `GOOGLE_API_KEY=...` |
+| `ollama/*` | None — [install Ollama](https://ollama.com) and run `ollama pull <model>` |
+
+<Callout type="info" title="No API key? Use Ollama.">
+  If you have [Ollama](https://ollama.com) running locally, `agentbreeder init` will automatically
+  detect your local models and default to them — no API key required.
+</Callout>
+
+---
+
+## 4. Validate
+
+```bash
 agentbreeder validate agent.yaml
 ```
 
@@ -104,7 +126,7 @@ Runs three checks: YAML syntax → JSON Schema → semantic validation (framewor
 
 ---
 
-## 4. Deploy Locally
+## 5. Deploy Locally
 
 ```bash
 agentbreeder deploy agent.yaml --target local

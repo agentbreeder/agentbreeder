@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -19,6 +20,25 @@ from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, Infr
 from engine.runtimes.base import ContainerImage
 
 logger = logging.getLogger(__name__)
+
+
+def _docker_client():
+    """Return a Docker client, preferring the current user's socket on macOS."""
+    import docker
+
+    # If DOCKER_HOST is already set, honour it.
+    if os.environ.get("DOCKER_HOST"):
+        return docker.from_env()
+
+    # On macOS, Docker Desktop creates a per-user socket that may differ from
+    # the system symlink at /var/run/docker.sock (which can point to another
+    # user's socket and cause PermissionError).
+    user_socket = Path.home() / ".docker" / "run" / "docker.sock"
+    if user_socket.exists():
+        return docker.DockerClient(base_url=f"unix://{user_socket}")
+
+    return docker.from_env()
+
 
 AGENTBREEDER_DIR = Path.home() / ".agentbreeder"
 STATE_FILE = AGENTBREEDER_DIR / "state.json"
@@ -127,23 +147,28 @@ class DockerComposeDeployer(BaseDeployer):
             msg = "Docker SDK not installed. Run: pip install docker"
             raise RuntimeError(msg) from e
 
-        client = docker.from_env()
+        client = _docker_client()
         assert image is not None, "ContainerImage required for Docker Compose deployer"
         agent_state = self._state.get("agents", {}).get(config.name, {})
         port = agent_state.get("port", self._allocate_port())
 
-        # Build the image
+        # Build via the CLI so BuildKit output is handled correctly.
+        # The Python Docker SDK misparses BuildKit log format and fails to
+        # resolve the image ID after a successful build on modern Docker Desktop.
+        import subprocess as _sp
+
         logger.info("Building Docker image: %s", image.tag)
-        built_image, build_logs = client.images.build(
-            path=str(image.context_dir),
-            tag=image.tag,
-            rm=True,
+        result = _sp.run(
+            ["docker", "build", "-t", image.tag, str(image.context_dir)],
+            capture_output=True,
+            text=True,
         )
-        for chunk in build_logs:
-            if "stream" in chunk:
-                line = chunk["stream"].strip()
-                if line:
-                    logger.debug("  %s", line)
+        for line in result.stdout.splitlines():
+            logger.debug("  %s", line)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"docker build failed (exit {result.returncode}):\n{result.stderr}"
+            )
 
         # Stop existing container if any
         container_name = f"agentbreeder-{config.name}"
@@ -163,6 +188,7 @@ class DockerComposeDeployer(BaseDeployer):
             "AGENT_NAME": config.name,
             "AGENT_VERSION": config.version,
             "AGENT_FRAMEWORK": config.framework.value,
+            "AGENT_MODEL": config.model.primary,
         }
         if otel := _os.getenv("OPENTELEMETRY_ENDPOINT"):
             container_env["OPENTELEMETRY_ENDPOINT"] = otel
@@ -188,6 +214,17 @@ class DockerComposeDeployer(BaseDeployer):
         if config.model.primary.startswith("ollama/"):
             run_kwargs["network"] = OLLAMA_NETWORK_NAME
         container = client.containers.run(image.tag, **run_kwargs)
+
+        # Give the container a moment to start, then check it didn't exit immediately.
+        await asyncio.sleep(3)
+        container.reload()
+        if container.status != "running":
+            logs = container.logs().decode("utf-8", errors="replace").strip()
+            raise RuntimeError(
+                f"Container exited immediately (status: {container.status}).\n\n"
+                f"Container logs:\n{logs or '(no output)'}\n\n"
+                f"Tip: if the error mentions a missing API key, add it to your .env file and redeploy."
+            )
 
         endpoint_url = f"http://localhost:{port}"
         self._state["agents"][config.name] = {
@@ -248,7 +285,7 @@ class DockerComposeDeployer(BaseDeployer):
             msg = "Docker SDK not installed. Run: pip install docker"
             raise RuntimeError(msg) from e
 
-        client = docker.from_env()
+        client = _docker_client()
         container_name = f"agentbreeder-{agent_name}"
 
         try:
@@ -273,7 +310,7 @@ class DockerComposeDeployer(BaseDeployer):
             msg = "Docker SDK not installed. Run: pip install docker"
             raise RuntimeError(msg) from e
 
-        client = docker.from_env()
+        client = _docker_client()
         container_name = f"agentbreeder-{agent_name}"
 
         try:

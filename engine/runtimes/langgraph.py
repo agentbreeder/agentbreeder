@@ -136,6 +136,15 @@ class LangGraphRuntime(RuntimeBuilder):
             "httpx>=0.27.0",
             "pydantic>=2.0.0",
         ]
-        if _is_litellm_model(config.model.primary):
+        model = config.model.primary
+        if model.startswith("ollama/"):
+            deps.append("langchain-ollama>=0.2.0")
+        elif model.startswith("claude"):
+            deps.append("langchain-anthropic>=0.3.0")
+        elif model.startswith("gemini"):
+            deps.append("langchain-google-genai>=2.0.0")
+        else:
+            deps.append("langchain-openai>=0.2.0")
+        if _is_litellm_model(model):
             deps.extend(_get_litellm_requirements())
         return deps
