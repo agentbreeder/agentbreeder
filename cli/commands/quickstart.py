@@ -357,13 +357,13 @@ def _compose_run(
 def _load_seed_module():
     """Load deploy/seed/seed.py as a module."""
     import importlib.util
-    import types
 
     seed_path = DEPLOY_DIR / "seed" / "seed.py"
     spec = importlib.util.spec_from_file_location("qs_seed", seed_path)
     if spec is None or spec.loader is None:
         return None
-    mod = types.ModuleType("qs_seed")
+    # module_from_spec sets __file__, __spec__, etc. so seed.py can use Path(__file__)
+    mod = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(mod)
         return mod
@@ -505,7 +505,7 @@ def _register_agents() -> list[dict]:
     for yaml_path in yamls:
         try:
             content = yaml_path.read_text()
-            result = _api_post("/api/v1/agents/from-yaml", {"yaml": content})
+            result = _api_post("/api/v1/agents/from-yaml", {"yaml_content": content})
             if result:
                 agents.append(result.get("data", {}))
         except Exception:
