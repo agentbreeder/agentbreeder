@@ -997,16 +997,21 @@ def quickstart(
             )
             raise typer.Exit(code=1)
 
-    pull_args = ["pull", "--quiet"]
-    console.print("  [dim]Pulling images (first run may take a few minutes)...[/dim]")
-    _compose_run(compose_cmd, pull_args, env=compose_env, capture=True)
+    if qs_running:
+        # Stack already up — skip pull/up to avoid re-running migrate and wiping seed data
+        _info("Stack already running — skipping pull/up")
+        result = subprocess.CompletedProcess(args=[], returncode=0)
+    else:
+        pull_args = ["pull", "--quiet"]
+        console.print("  [dim]Pulling images (first run may take a few minutes)...[/dim]")
+        _compose_run(compose_cmd, pull_args, env=compose_env, capture=True)
 
-    up_args = ["up", "-d"]
-    if dev:
-        up_args.append("--build")
-        _info("Building from source (--dev mode)")
+        up_args = ["up", "-d"]
+        if dev:
+            up_args.append("--build")
+            _info("Building from source (--dev mode)")
 
-    result = _compose_run(compose_cmd, up_args, env=compose_env)
+        result = _compose_run(compose_cmd, up_args, env=compose_env)
     if result.returncode != 0:
         # Identify which containers from OUR stack are running (not external conflicts)
         qs_containers = subprocess.run(
