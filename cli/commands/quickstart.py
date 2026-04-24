@@ -324,7 +324,7 @@ def _wait_http(url: str, timeout: int = 120, interval: float = 3.0) -> bool:
             resp = httpx.get(url, timeout=4.0)
             if resp.status_code < 500:
                 return True
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError):
             pass
         time.sleep(interval)
     return False
@@ -963,31 +963,39 @@ def quickstart(
     # ── Step 4: Start the stack ──────────────────────────────────────────────
     _step("Starting Services", 4, total_steps)
 
-    # Pre-flight: check for port conflicts before pulling images
-    taken_ports = _check_ports()
-    if taken_ports:
-        conflict_lines = "\n".join(
-            f"  • [bold]:{port}[/bold]  {name}  [dim](already in use)[/dim]"
-            for port, name in taken_ports
-        )
-        console.print(
-            Panel(
-                "[yellow]Port conflicts detected.[/yellow]\n\n"
-                "These ports are already in use on your machine:\n\n"
-                + conflict_lines
-                + "\n\n"
-                "[bold]To fix:[/bold]\n"
-                "  Stop the conflicting services, then re-run [cyan]agentbreeder quickstart[/cyan].\n\n"
-                "  If you have the [bold]agentbreeder dev stack[/bold] running:\n"
-                "  [cyan]docker compose -f deploy/docker-compose.yml down[/cyan]\n\n"
-                "  To find and stop any process on a port:\n"
-                "  [cyan]lsof -ti :<port> | xargs kill -9[/cyan]",
-                title="[bold yellow]Port Conflict[/bold yellow]",
-                border_style="yellow",
-                padding=(1, 2),
+    # Pre-flight: check for port conflicts before pulling images.
+    # Skip if the ports are already owned by our own quickstart stack
+    # (e.g., re-running after a partial failure that left containers up).
+    qs_running = subprocess.run(
+        ["docker", "ps", "--filter", "name=agentbreeder-qs", "--format", "{{.Names}}"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if not qs_running:
+        taken_ports = _check_ports()
+        if taken_ports:
+            conflict_lines = "\n".join(
+                f"  • [bold]:{port}[/bold]  {name}  [dim](already in use)[/dim]"
+                for port, name in taken_ports
             )
-        )
-        raise typer.Exit(code=1)
+            console.print(
+                Panel(
+                    "[yellow]Port conflicts detected.[/yellow]\n\n"
+                    "These ports are already in use on your machine:\n\n"
+                    + conflict_lines
+                    + "\n\n"
+                    "[bold]To fix:[/bold]\n"
+                    "  Stop the conflicting services, then re-run [cyan]agentbreeder quickstart[/cyan].\n\n"
+                    "  If you have the [bold]agentbreeder dev stack[/bold] running:\n"
+                    "  [cyan]docker compose -f deploy/docker-compose.yml down[/cyan]\n\n"
+                    "  To find and stop any process on a port:\n"
+                    "  [cyan]lsof -ti :<port> | xargs kill -9[/cyan]",
+                    title="[bold yellow]Port Conflict[/bold yellow]",
+                    border_style="yellow",
+                    padding=(1, 2),
+                )
+            )
+            raise typer.Exit(code=1)
 
     pull_args = ["pull", "--quiet"]
     console.print("  [dim]Pulling images (first run may take a few minutes)...[/dim]")
@@ -1000,34 +1008,53 @@ def quickstart(
 
     result = _compose_run(compose_cmd, up_args, env=compose_env)
     if result.returncode != 0:
-        # Re-check ports in case something started between check and up
-        taken_ports = _check_ports()
-        if taken_ports:
-            conflict_lines = "\n".join(
-                f"  • [bold]:{port}[/bold]  {name}" for port, name in taken_ports
+        # Identify which containers from OUR stack are running (not external conflicts)
+        qs_containers = subprocess.run(
+            ["docker", "ps", "--filter", "name=agentbreeder-qs", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        # Check for unhealthy containers to give a specific message
+        unhealthy = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=agentbreeder-qs",
+             "--filter", "health=unhealthy", "--format", "{{.Names}}: {{.Status}}"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        exited = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=agentbreeder-qs",
+             "--filter", "status=exited", "--format", "{{.Names}}: {{.Status}}"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        detail_lines = []
+        if unhealthy:
+            for line in unhealthy.splitlines():
+                detail_lines.append(f"  • [yellow]unhealthy[/yellow]  {line}")
+        if exited:
+            for line in exited.splitlines():
+                detail_lines.append(f"  • [red]exited[/red]      {line}")
+
+        detail = ("\n" + "\n".join(detail_lines) + "\n") if detail_lines else ""
+
+        console.print(
+            Panel(
+                "[red]Failed to start services.[/red]"
+                + detail
+                + "\n"
+                "Diagnose:\n"
+                "  [cyan]docker compose -f deploy/docker-compose.quickstart.yml --project-name agentbreeder-qs logs[/cyan]\n\n"
+                "Common fixes:\n"
+                "  • [bold]Disk space:[/bold]  [cyan]docker system prune -f[/cyan]\n"
+                "  • [bold]Port conflict:[/bold] stop any service using ports 5432/6379/8000/3001/8001/7474/7687\n"
+                "    Dev stack: [cyan]docker compose -f deploy/docker-compose.yml down[/cyan]",
+                border_style="red",
+                padding=(1, 2),
             )
-            console.print(
-                Panel(
-                    "[red]Failed to start services — port conflict.[/red]\n\n"
-                    + conflict_lines
-                    + "\n\n"
-                    "Stop the conflicting services and re-run [cyan]agentbreeder quickstart[/cyan].\n"
-                    "Dev stack: [cyan]docker compose -f deploy/docker-compose.yml down[/cyan]",
-                    border_style="red",
-                    padding=(1, 2),
-                )
-            )
-        else:
-            console.print(
-                Panel(
-                    "[red]Failed to start services.[/red]\n\n"
-                    "Common fixes:\n"
-                    "  • Disk space: [cyan]docker system prune -f[/cyan]\n"
-                    "  • View logs: [cyan]docker compose -f deploy/docker-compose.quickstart.yml logs[/cyan]\n",
-                    border_style="red",
-                    padding=(1, 2),
-                )
-            )
+        )
         raise typer.Exit(code=1)
 
     # ── Step 5: Wait for services ────────────────────────────────────────────
