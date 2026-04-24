@@ -405,7 +405,7 @@ agentbreeder provider [SUBCOMMAND] [OPTIONS]
 | Subcommand | Description |
 |------------|-------------|
 | `list` | List all configured providers with status |
-| `add TYPE` | Add a new provider (interactive or with `--api-key`) |
+| `add TYPE` | Add a new provider (interactive or with `--api-key` / `--base-url`) |
 | `test NAME` | Test a provider connection |
 | `models NAME` | List available models from a provider |
 | `remove NAME` | Remove a provider and its API key |
@@ -419,9 +419,10 @@ API keys are stored in the project `.env` file (or `~/.agentbreeder/.env` if no 
 **Examples:**
 ```bash
 agentbreeder provider list                              # List all providers
-agentbreeder provider add openai                        # Interactive setup
-agentbreeder provider add openai --api-key sk-proj-...  # Non-interactive
-agentbreeder provider add ollama                        # Auto-detect local Ollama
+agentbreeder provider add openai                                        # Interactive setup
+agentbreeder provider add openai --api-key sk-proj-...              # Non-interactive
+agentbreeder provider add ollama                                        # Auto-detect local Ollama
+agentbreeder provider add litellm --base-url http://localhost:4000      # Custom base URL (LiteLLM, Ollama, vLLM)
 agentbreeder provider test openai                       # Verify connection + latency
 agentbreeder provider models openai                     # List available models
 agentbreeder provider disable openai                    # Disable without removing
@@ -948,13 +949,13 @@ agentbreeder compliance generate --since 1y --format pdf  # 1-year PDF report
 Start the AgentBreeder dashboard and API server via Docker Compose.
 
 ```
-agentbreeder ui [--logs] [--pull] [--api-port PORT] [--port PORT]
+agentbreeder ui [--follow] [--pull] [--api-port PORT] [--port PORT]
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--logs` | Off | Tail logs after start (Ctrl+C stops the stack) |
-| `--pull` | Off | Pull latest images before starting |
+| `--follow`, `-f` | Off | Tail logs after start (Ctrl+C stops the stack) |
+| `--pull / --no-pull` | `--no-pull` | Pull latest images before starting |
 | `--api-port` | `8000` | Local port for the API server |
 | `--port` | `3001` | Local port for the dashboard |
 
@@ -965,12 +966,12 @@ agentbreeder ui [--logs] [--pull] [--api-port PORT] [--port PORT]
 Start the full AgentBreeder platform stack (API + Dashboard + Postgres + Redis + migrations).
 
 ```
-agentbreeder up [--yes] [--no-browser] [--env-file PATH] [--build]
+agentbreeder up [--no-input] [--no-browser] [--env-file PATH] [--build]
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--yes` | Off | Skip interactive prompts, use defaults |
+| `--no-input` | Off | Skip interactive prompts, use defaults |
 | `--no-browser` | Off | Don't open browser after startup |
 | `--env-file` | — | Path to an existing `.env` file |
 | `--build` | Off | Build images from source (instead of using cached images) |
@@ -982,12 +983,12 @@ agentbreeder up [--yes] [--no-browser] [--env-file PATH] [--build]
 Stop and remove the platform stack started by `agentbreeder up`.
 
 ```
-agentbreeder down [--volumes] [--json]
+agentbreeder down [--clean] [--json]
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--volumes` | Off | Also remove volumes (deletes database data) |
+| `--clean` | Off | Also remove volumes (full reset — deletes all database data) |
 | `--json` | Off | JSON output |
 
 ---

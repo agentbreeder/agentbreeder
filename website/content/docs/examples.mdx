@@ -1,0 +1,370 @@
+---
+title: Examples
+description: Working example agents for every framework, cloud target, SDK, and integration pattern in AgentBreeder.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+# Examples
+
+Every example in `examples/` is a deployable agent with a real `agent.yaml` and runnable code.
+Clone the repo and run any example locally in under 5 minutes.
+
+```bash
+git clone https://github.com/agentbreeder/agentbreeder
+cd agentbreeder/examples/<example-name>
+agentbreeder deploy --target local
+```
+
+---
+
+## Framework Examples
+
+Start here if you want to see how a specific framework integrates with AgentBreeder.
+
+### LangGraph
+**`examples/langgraph-agent/`**
+
+Stateful multi-step research agent using LangGraph's graph-based orchestration. Demonstrates tool use, state management, and conditional edges.
+
+```bash
+cd examples/langgraph-agent && agentbreeder deploy --target local
+```
+
+---
+
+### CrewAI
+**`examples/crewai-agent/`**
+
+Role-based multi-agent crew: a Researcher agent and a Writer agent collaborating in sequence. Shows how CrewAI's crew definition maps to `agent.yaml`.
+
+```bash
+cd examples/crewai-agent && agentbreeder deploy --target local
+```
+
+---
+
+### Claude SDK
+**`examples/claude-sdk-agent/`**
+
+Claude SDK agent with adaptive thinking, prompt caching, and MCP tool use. Shows the `claude_sdk:` config block in `agent.yaml`.
+
+```bash
+cd examples/claude-sdk-agent && agentbreeder deploy --target local
+```
+
+---
+
+### OpenAI Agents SDK
+**`examples/openai-agents-agent/`**
+
+OpenAI Agents SDK with handoffs, guardrails, and file search. Shows how the Responses API maps to the AgentBreeder deploy pipeline.
+
+```bash
+cd examples/openai-agents-agent && agentbreeder deploy --target local
+```
+
+---
+
+### Google ADK
+**`examples/google-adk-agent/`**
+
+Google ADK agent with session memory and BigQuery grounding, deployed to GCP Cloud Run via AgentBreeder.
+
+```bash
+cd examples/google-adk-agent && agentbreeder deploy --target local
+```
+
+---
+
+## Cloud Target Examples
+
+Use these to see how the same agent deploys to a specific cloud.
+
+### AWS App Runner
+**`examples/aws-app-runner-agent/`**
+
+Deploys to AWS App Runner — serverless containers with no VPC, no ALB, and no load balancer configuration required. Ideal for simple HTTP-accessible agents.
+
+```yaml
+# agent.yaml
+deploy:
+  cloud: aws
+  runtime: app-runner
+  region: us-east-1
+```
+
+```bash
+cd examples/aws-app-runner-agent
+agentbreeder deploy --target app-runner --region us-east-1
+```
+
+---
+
+### Claude Managed Agents (Anthropic)
+**`examples/claude-managed-agent/`**
+
+Deploys to Anthropic's managed cloud — no container build, no infrastructure to provision. Anthropic manages the execution environment. Requires `deploy.cloud: claude-managed` and Claude 4.5+ model.
+
+```yaml
+# agent.yaml
+deploy:
+  cloud: claude-managed
+
+claude_managed:
+  environment:
+    networking: unrestricted
+  tools:
+    - type: agent_toolset_20260401
+```
+
+```bash
+cd examples/claude-managed-agent
+agentbreeder deploy --target claude-managed
+```
+
+<Callout type="info">
+  Claude Managed Agents requires a direct Anthropic API key — AWS Bedrock and GCP Vertex AI are not supported for this target.
+</Callout>
+
+---
+
+## Local Model Examples
+
+Run agents with no API keys required.
+
+### Ollama (Local LLMs)
+**`examples/ollama-agent/`**
+
+Runs a full agent locally using Ollama and any GGUF-compatible model (Gemma, Llama, Mistral, Phi). No API key needed.
+
+```bash
+# Pull a model first
+ollama pull gemma4
+
+cd examples/ollama-agent
+agentbreeder deploy --target local
+```
+
+```yaml
+# agent.yaml
+model:
+  primary: ollama/gemma4
+  gateway: ollama
+
+deploy:
+  cloud: local
+  runtime: docker
+```
+
+---
+
+### OpenRouter (300+ models, one API key)
+**`examples/openrouter-agent/`**
+
+Routes to DeepSeek-R1, Llama 3, Mistral, or 300+ other models via OpenRouter. One `OPENROUTER_API_KEY` instead of per-provider keys.
+
+```yaml
+# agent.yaml
+model:
+  primary: openrouter/deepseek/deepseek-r1
+  gateway: openrouter
+```
+
+```bash
+agentbreeder provider add openrouter --api-key <your-key>
+cd examples/openrouter-agent && agentbreeder deploy --target local
+```
+
+---
+
+## Multi-Agent Examples
+
+### A2A Subagent (Agent-to-Agent)
+**`examples/a2a-subagent/`**
+
+Coordinator + specialist subagent pattern using the A2A protocol. A `research-coordinator` agent dynamically delegates tasks to a `web-search` subagent and a `summarizer` subagent at runtime.
+
+Shows how to:
+- Configure `a2a:` in `agent.yaml`
+- Register subagents in the org registry
+- Route tasks between agents over JSON-RPC
+
+```bash
+cd examples/a2a-subagent
+agentbreeder deploy --target local   # deploys all agents
+```
+
+---
+
+### Orchestration Patterns
+**`examples/orchestration/`**
+
+Four production-ready orchestration patterns as `orchestration.yaml` files:
+
+| Pattern | Directory | Description |
+|---|---|---|
+| Customer support pipeline | `customer-support/` | Router → Tier-1 agent → Tier-2 escalation |
+| Data pipeline | `data-pipeline/` | Sequential ingestion → processing → output |
+| Fan-out / fan-in | `fan-out-fan-in/` | Parallel search agents → aggregator |
+| Supervisor | `supervisor/` | LLM-driven routing to specialist agents |
+
+```bash
+cd examples/orchestration/fan-out-fan-in
+agentbreeder orchestration deploy orchestration.yaml
+agentbreeder orchestration chat research-pipeline
+```
+
+---
+
+## RAG and Knowledge Base Examples
+
+### GraphRAG with Ollama
+**`examples/graphrag-ollama-agent/`**
+
+Knowledge base + Neo4j graph RAG hybrid search, powered by local Ollama. No cloud API keys required. Includes an `ingest.py` script to populate the knowledge graph.
+
+```bash
+cd examples/graphrag-ollama-agent
+python ingest.py                             # populate Neo4j knowledge graph
+agentbreeder deploy --target local
+```
+
+---
+
+## Real-World Agent Examples
+
+### AI News Digest
+**`examples/ai-news-digest/`**
+
+Production-quality agent that runs on a daily cron schedule:
+1. Fetches top stories from Hacker News, ArXiv (cs.AI + cs.LG), and RSS feeds
+2. Synthesises a grouped digest using Google ADK + Ollama Gemma3:27b
+3. Emails the digest to configured recipients via Gmail
+
+Demonstrates: `agentbreeder schedule`, MCP tool server, SMTP connector, Google ADK framework, Ollama local model.
+
+```bash
+cd examples/ai-news-digest
+
+# One-time setup
+agentbreeder setup
+
+# Run now
+agentbreeder chat --agent ai-news-digest
+
+# Schedule daily at 7am
+agentbreeder schedule create --cron "0 7 * * *" --agent ai-news-digest
+```
+
+---
+
+## TypeScript SDK Examples
+
+### Basic TypeScript SDK
+**`examples/sdk-ts-basic/`**
+
+Minimal TypeScript SDK example — define an agent with `@agentbreeder/sdk`, add tools and guardrails, print the generated `agent.yaml`.
+
+```typescript
+import { Agent, Tool } from "@agentbreeder/sdk";
+
+const agent = new Agent("research-assistant", {
+  version: "1.0.0",
+  team: "engineering",
+  framework: "claude_sdk",
+})
+  .withModel("claude-sonnet-4-6", { temperature: 0.7 })
+  .withTool(searchTool)
+  .withGuardrail("pii_detection")
+  .withDeploy("aws", { runtime: "ecs-fargate" });
+
+console.log(agent.toYaml());
+```
+
+```bash
+cd examples/sdk-ts-basic
+npm install && npm start
+```
+
+---
+
+### Advanced TypeScript SDK
+**`examples/sdk-ts-advanced/`**
+
+Multi-agent orchestration, memory configuration, MCP server wiring, and cloud deploy — all from TypeScript code.
+
+```bash
+cd examples/sdk-ts-advanced
+npm install && npm start
+```
+
+---
+
+## Python SDK Examples
+
+### Basic Python SDK
+**`examples/sdk-basic/`**
+
+Minimal Python SDK example — define an agent programmatically, deploy to local Docker.
+
+---
+
+### Advanced Python SDK
+**`examples/sdk-advanced/`**
+
+Full SDK usage: memory, knowledge bases, prompt registry references, MCP servers, and multi-cloud deploy targets — all from Python code.
+
+---
+
+## Template Examples
+
+**`examples/templates/`**
+
+12 production-quality agent templates covering common enterprise use cases. Each is a complete `agent.yaml` with recommended model, tools, guardrails, and deploy config.
+
+| Template | Use case |
+|---|---|
+| `customer-support` | Tier-1 support with Zendesk + order lookup |
+| `code-review` | PR review agent with GitHub MCP |
+| `data-analyst` | SQL + chart generation from natural language |
+| `document-processor` | Extract, classify, and route documents |
+| `research-assistant` | Web search + summarization + citations |
+| `sales-outreach` | CRM-grounded personalized outreach |
+| `incident-responder` | On-call runbook execution |
+| `content-moderator` | Multi-criteria content safety classifier |
+| `knowledge-base-qa` | RAG Q&A over internal docs |
+| `scheduler` | Calendar-aware meeting and task scheduling |
+| `data-pipeline` | ETL orchestration agent |
+| `compliance-checker` | Policy validation against internal rulebooks |
+
+```bash
+agentbreeder template list
+agentbreeder template use customer-support --name my-support-agent
+agentbreeder deploy --target local
+```
+
+---
+
+## All Examples at a Glance
+
+| Example | Framework | Cloud target | Requires API key |
+|---|---|---|---|
+| `langgraph-agent` | LangGraph | local / any | Optional (Ollama works) |
+| `crewai-agent` | CrewAI | local / any | Optional |
+| `claude-sdk-agent` | Claude SDK | local / any | Anthropic |
+| `openai-agents-agent` | OpenAI Agents | local / any | OpenAI |
+| `google-adk-agent` | Google ADK | local / GCP | Google |
+| `aws-app-runner-agent` | LangGraph | AWS App Runner | AWS + LLM |
+| `claude-managed-agent` | Claude Managed | Anthropic | Anthropic |
+| `ollama-agent` | LangGraph | local | None |
+| `openrouter-agent` | LangGraph | local / any | OpenRouter |
+| `a2a-subagent` | LangGraph | local / any | Optional |
+| `orchestration/` | Any | local / any | Optional |
+| `graphrag-ollama-agent` | LangGraph | local | None |
+| `ai-news-digest` | Google ADK | local / any | Gmail (SMTP) |
+| `sdk-ts-basic` | Claude SDK | any | Anthropic |
+| `sdk-ts-advanced` | Claude SDK | any | Anthropic |
+| `sdk-basic` | Any | any | Varies |
+| `sdk-advanced` | Any | any | Varies |
+| `templates/` | Various | any | Varies |
