@@ -434,7 +434,7 @@ class TestDockerComposeDeployerDeploy:
     @pytest.mark.asyncio
     async def test_pull_ollama_model_success(self, tmp_path: Path) -> None:
         """_pull_ollama_model should exec ollama pull and log success."""
-        from engine.deployers.docker_compose import OLLAMA_CONTAINER_NAME, DockerComposeDeployer
+        from engine.deployers.docker_compose import DockerComposeDeployer
 
         mock_container = MagicMock()
         mock_container.exec_run.side_effect = [
@@ -511,15 +511,13 @@ class TestDockerComposeDeployerDeploy:
         with patch("engine.deployers.docker_compose._docker_client", return_value=mock_client):
             deployer = DockerComposeDeployer()
             since = datetime(2024, 1, 1)
-            logs = await deployer.get_logs("test-agent", since=since)
+            await deployer.get_logs("test-agent", since=since)
 
         call_kwargs = mock_container.logs.call_args.kwargs
         assert "since" in call_kwargs
 
     def test_docker_client_uses_docker_host_env(self) -> None:
         """When DOCKER_HOST is set, _docker_client() uses docker.from_env()."""
-        import docker
-
         from engine.deployers.docker_compose import _docker_client
 
         with (
