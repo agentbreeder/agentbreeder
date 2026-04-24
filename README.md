@@ -89,7 +89,7 @@ owner: alice@company.com
 framework: langgraph          # or: openai_agents, claude_sdk, crewai, google_adk, custom
 
 model:
-  primary: claude-sonnet-4
+  primary: claude-sonnet-4-6
   fallback: gpt-4o
 
 tools:
@@ -127,7 +127,7 @@ from agenthub import Agent
 
 agent = (
     Agent("support-agent", version="1.0.0", team="eng")
-    .with_model(primary="claude-sonnet-4", fallback="gpt-4o")
+    .with_model(primary="claude-sonnet-4-6", fallback="gpt-4o")
     .with_tools(["tools/zendesk-mcp", "tools/order-lookup"])
     .with_deploy(cloud="gcp", min_scale=1, max_scale=10)
 )
@@ -140,7 +140,7 @@ agent.deploy()
 
 **Frameworks** — LangGraph · OpenAI Agents · Claude SDK · CrewAI · Google ADK · Custom
 
-**Cloud targets** — AWS (ECS Fargate, App Runner) · GCP Cloud Run · Azure Container Apps · Kubernetes · Local Docker · Claude Managed Agents
+**Cloud targets** — AWS (ECS Fargate, App Runner, EKS) · GCP (Cloud Run, GKE) · Azure Container Apps · Kubernetes (EKS/GKE/AKS/self-hosted) · Local Docker · Claude Managed Agents
 
 **LLM providers** — Anthropic · OpenAI · Google · Ollama (local, free) · LiteLLM · OpenRouter
 
@@ -161,22 +161,33 @@ Full feature matrix and supported versions → [docs/features](https://www.agent
 | `agentbreeder quickstart` | **Full local bootstrap** — Docker, stack, seed data, 5 sample agents, dashboard |
 | `agentbreeder setup` | Configure Ollama + cloud API keys (interactive wizard) |
 | `agentbreeder seed` | Seed ChromaDB and Neo4j; ingest your own docs with `--docs` |
+| `agentbreeder ui` | Start the dashboard + API via Docker (lighter alternative to `quickstart`) |
+| `agentbreeder up` / `down` | Start / stop the full local platform stack |
 | `agentbreeder init` | Scaffold a new agent project (interactive) |
 | `agentbreeder deploy` | Deploy an agent (local, AWS, GCP, Azure, K8s) |
-| `agentbreeder chat` | Chat with a deployed agent; `--local` uses Ollama directly |
 | `agentbreeder validate` | Validate `agent.yaml` without deploying |
-| `agentbreeder list` | List registered agents, tools, models, prompts |
-| `agentbreeder describe` | Show full detail for a registered agent |
-| `agentbreeder provider` | Manage LLM provider connections and API keys |
-| `agentbreeder scan` | Auto-discover Ollama models and MCP servers |
+| `agentbreeder chat` | Chat with a deployed agent; `--local` uses Ollama directly |
 | `agentbreeder logs` | Stream logs from a deployed agent |
 | `agentbreeder status` | Show deploy status of all agents |
+| `agentbreeder list` | List registered agents, tools, models, prompts |
+| `agentbreeder search` | Search the org registry across all entity types |
+| `agentbreeder describe` | Show full detail for a registered agent |
 | `agentbreeder teardown` | Remove a deployed agent and its cloud resources |
-| `agentbreeder up` / `down` | Start / stop the local platform |
-| `agentbreeder eval` | Run evaluations against an agent |
+| `agentbreeder eval` | Run LLM-as-judge evaluations against an agent |
+| `agentbreeder eject` | Eject from Low Code to Full Code (generates SDK scaffold) |
+| `agentbreeder submit` | Open a PR for an agent change (git workflow) |
+| `agentbreeder review` | Review a pending agent PR |
+| `agentbreeder publish` | Merge an approved agent PR |
+| `agentbreeder schedule` | Create cron-based scheduled agent runs |
+| `agentbreeder provider` | Manage LLM provider connections and API keys |
+| `agentbreeder scan` | Auto-discover Ollama models and MCP servers on your network |
+| `agentbreeder secret` | Manage secrets across backends (env, AWS, GCP, Vault) |
+| `agentbreeder template` | Browse and apply agent templates from the marketplace |
 | `agentbreeder orchestration` | Manage multi-agent orchestrations |
+| `agentbreeder compliance` | Generate SOC 2 / HIPAA / GDPR / ISO 27001 evidence reports |
+| `agentbreeder --version` | Print the installed version |
 
-Full CLI reference → [agentbreeder.io/docs/cli](https://www.agentbreeder.io/docs/cli)
+Full CLI reference → [agentbreeder.io/docs/cli-reference](https://www.agentbreeder.io/docs/cli-reference)
 
 ---
 
@@ -262,12 +273,15 @@ Full quickstart guide → [agentbreeder.io/docs/quickstart](https://www.agentbre
 | | |
 |---|---|
 | [Quickstart](https://www.agentbreeder.io/docs/quickstart) | Full local platform in one command |
+| [Examples](https://www.agentbreeder.io/docs/examples) | 18 working examples — every framework, cloud, and pattern |
 | [agent.yaml reference](https://www.agentbreeder.io/docs/agent-yaml) | Every field, every option |
-| [CLI reference](https://www.agentbreeder.io/docs/cli) | All commands |
-| [RAG & GraphRAG](https://www.agentbreeder.io/docs/rag) | ChromaDB vector search + Neo4j knowledge graphs |
-| [MCP & A2A](https://www.agentbreeder.io/docs/mcp-a2a) | MCP server registry + Agent-to-Agent protocol |
+| [CLI reference](https://www.agentbreeder.io/docs/cli-reference) | All commands and flags |
 | [How-To guides](https://www.agentbreeder.io/docs/how-to) | Install, deploy, orchestrate, evaluate |
-| [SDK reference](https://www.agentbreeder.io/docs/sdk) | Python + TypeScript |
+| [RAG & GraphRAG](https://www.agentbreeder.io/docs/rag) | ChromaDB vector search + Neo4j knowledge graphs |
+| [MCP servers](https://www.agentbreeder.io/docs/mcp-servers) | MCP server registry + sidecar injection |
+| [A2A protocol](https://www.agentbreeder.io/docs/a2a-protocol) | Agent-to-Agent JSON-RPC communication |
+| [Comparisons](https://www.agentbreeder.io/docs/comparisons) | AgentBreeder vs Google, Anthropic, OpenAI, Azure, AWS |
+| [SDK reference](https://www.agentbreeder.io/docs/full-code) | Python + TypeScript full-code SDK |
 
 ---
 
