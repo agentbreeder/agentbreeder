@@ -1,0 +1,273 @@
+---
+title: orchestration.yaml Reference
+description: Complete reference for orchestration.yaml — the Low Code configuration file for multi-agent pipelines in AgentBreeder.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+# orchestration.yaml Reference
+
+`orchestration.yaml` is the Low Code configuration file for multi-agent pipelines. It defines the agent graph, routing strategy, shared state, and deployment target.
+
+All strategies are supported by the Dashboard visual canvas (No Code) and the Python/TypeScript SDK (Full Code). All tiers share the same deploy pipeline and governance.
+
+---
+
+## Minimal Example
+
+```yaml
+name: support-pipeline
+version: "1.0.0"
+team: customer-success
+strategy: router
+
+agents:
+  triage:
+    ref: agents/triage-agent
+    routes:
+      - condition: billing
+        target: billing
+      - condition: default
+        target: general
+  billing:
+    ref: agents/billing-agent
+    fallback: general
+  general:
+    ref: agents/general-agent
+```
+
+---
+
+## Full Spec
+
+```yaml
+# ── Identity ───────────────────────────────────────────────────────────────
+name: support-pipeline           # Required. Lowercase alphanumeric + hyphens.
+version: "1.0.0"                 # Required. SemVer.
+description: "Multi-agent support routing"  # Optional.
+team: customer-success           # Optional. Must match a registered team.
+owner: alice@company.com         # Optional. Email of responsible engineer.
+tags: [support, production]      # Optional. Used for registry discovery.
+
+# ── Strategy ───────────────────────────────────────────────────────────────
+strategy: router                 # Required. One of:
+                                 #   router         — keyword/intent routing
+                                 #   sequential     — chain (output feeds next)
+                                 #   parallel       — all agents run concurrently
+                                 #   hierarchical   — supervisor delegates
+                                 #   supervisor     — supervisor plans + delegates
+                                 #   fan_out_fan_in — parallel + merge agent
+
+# ── Agents ─────────────────────────────────────────────────────────────────
+agents:
+  triage:                        # Agent name (used in routes and supervisor_config)
+    ref: agents/triage-agent     # Registry reference (see Agent References below)
+    routes:                      # Optional. Only for router strategy.
+      - condition: billing       # Keyword or intent label that triggers this route
+        target: billing          # Name of agent to route to
+      - condition: default       # "default" catches unmatched messages
+        target: general
+    fallback: general            # Optional. Agent to use if this agent errors.
+
+  billing:
+    ref: agents/billing-agent
+    fallback: general
+
+  general:
+    ref: agents/general-agent
+
+# ── Shared State ───────────────────────────────────────────────────────────
+shared_state:                    # Optional. Defaults: type=session_context, backend=redis
+  type: session_context          # session_context | dict | custom
+  backend: redis                 # redis | in_memory | postgresql
+
+# ── Supervisor Config ──────────────────────────────────────────────────────
+# Required for strategy: supervisor, hierarchical, fan_out_fan_in
+supervisor_config:
+  supervisor_agent: triage       # Agent that plans and delegates (supervisor/hierarchical)
+  merge_agent: aggregator        # Agent that combines results (fan_out_fan_in)
+  max_iterations: 3              # Max supervisor/worker loops (default: 3)
+
+# ── Deploy ─────────────────────────────────────────────────────────────────
+deploy:
+  target: local                  # local | cloud-run | ecs-fargate | kubernetes
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+```
+
+---
+
+## Strategies
+
+### `router`
+
+Routes each incoming message to one agent based on keyword or intent matching. The first matching `condition` wins; `default` is the catch-all.
+
+```yaml
+strategy: router
+agents:
+  triage:
+    ref: agents/triage
+    routes:
+      - condition: billing
+        target: billing
+      - condition: refund
+        target: billing
+      - condition: default
+        target: general
+  billing:
+    ref: agents/billing
+  general:
+    ref: agents/general
+```
+
+### `sequential`
+
+Agents run in definition order. The output of each agent becomes the input to the next.
+
+```yaml
+strategy: sequential
+agents:
+  researcher:
+    ref: agents/researcher
+  summarizer:
+    ref: agents/summarizer
+  reviewer:
+    ref: agents/reviewer
+    fallback: summarizer
+```
+
+### `parallel`
+
+All agents receive the same input and run concurrently. Results are returned as a list.
+
+```yaml
+strategy: parallel
+agents:
+  sentiment:
+    ref: agents/sentiment
+  topics:
+    ref: agents/topics
+  summary:
+    ref: agents/summarizer
+```
+
+### `fan_out_fan_in`
+
+Workers run in parallel; a merge agent combines their outputs into a single response.
+
+```yaml
+strategy: fan_out_fan_in
+agents:
+  sentiment:
+    ref: agents/sentiment
+  topics:
+    ref: agents/topics
+  aggregator:
+    ref: agents/aggregator
+supervisor_config:
+  merge_agent: aggregator
+```
+
+### `supervisor`
+
+A supervisor agent receives the task, delegates sub-tasks to workers (one at a time or concurrently), and synthesizes the final response.
+
+```yaml
+strategy: supervisor
+agents:
+  coordinator:
+    ref: agents/coordinator
+  researcher:
+    ref: agents/researcher
+  writer:
+    ref: agents/writer
+  reviewer:
+    ref: agents/reviewer
+supervisor_config:
+  supervisor_agent: coordinator
+  max_iterations: 5
+```
+
+### `hierarchical`
+
+Like `supervisor` but with a fixed hierarchy: the supervisor always delegates in a structured pattern rather than deciding dynamically.
+
+---
+
+## Agent References
+
+Agents can reference any deployed agent in four ways:
+
+```yaml
+agents:
+  billing:
+    # Versioned registry reference (recommended — audited, rollback-safe)
+    ref: registry://agents/billing-agent@v2.1
+
+    # Short form (resolves to latest stable in the registry)
+    ref: agents/billing-agent
+
+    # Direct A2A endpoint (for cross-cluster or external agents)
+    ref: https://billing.internal.company.com
+
+    # Local agent in the same workspace (dev/monorepo use)
+    ref: ../../agents/billing-agent/agent.yaml
+```
+
+<Callout type="info">
+  The `registry://agents/billing-agent@v2.1` form pins to a specific version. If that version is deprecated, the orchestration validation step will fail with a clear error — protecting you from silent breakage.
+</Callout>
+
+All four reference forms are resolved during the **dependency resolution** step of the deploy pipeline, before any container is built. If a reference cannot be resolved, the deploy rolls back.
+
+---
+
+## Validation
+
+```bash
+# Validate a single orchestration file
+agentbreeder orchestration validate orchestration.yaml
+
+# Validate all orchestrations in a workspace
+agentbreeder validate
+```
+
+Validation checks:
+
+- `name` is lowercase alphanumeric with hyphens
+- `version` is SemVer
+- `strategy` is a known value
+- At least one agent defined
+- All route `target` values reference known agents in the same file
+- All `fallback` values reference known agents in the same file
+- `supervisor` / `hierarchical` strategies have `supervisor_config.supervisor_agent`
+- `fan_out_fan_in` has `supervisor_config.merge_agent`
+
+---
+
+## Full Code SDK
+
+The Python and TypeScript SDKs produce `orchestration.yaml`-compatible output:
+
+```python
+from agenthub import Orchestration, Pipeline, FanOut, Supervisor
+
+# Equivalent to the router example above
+pipeline = (
+    Orchestration("support-pipeline", strategy="router", team="customer-success")
+    .add_agent("triage",  ref="agents/triage")
+    .add_agent("billing", ref="agents/billing")
+    .add_agent("general", ref="agents/general")
+    .with_route("triage", condition="billing", target="billing")
+    .with_route("triage", condition="default", target="general")
+)
+pipeline.save("orchestration.yaml")   # identical to hand-written YAML
+```
+
+The saved file is valid `orchestration.yaml` — open it in the Dashboard editor, check it into git, or pass it to `agentbreeder orchestration deploy`.
+
+---
+
+*See also: [Full Code Orchestration SDK](/docs/orchestration-sdk) · [CLI reference](/docs/cli-reference#agentbreeder-orchestration) · [agent.yaml reference](/docs/agent-yaml)*

@@ -27,6 +27,7 @@
     "comparisons",
     "---Reference---",
     "cli-reference",
+    "orchestration-yaml",
     "orchestration-sdk",
     "---Migrations---",
     "migrations"

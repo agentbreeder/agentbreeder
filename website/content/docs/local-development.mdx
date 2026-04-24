@@ -12,7 +12,7 @@ This guide covers setting up AgentBreeder for local development and contributing
 | Tool | Version | Purpose |
 |------|---------|---------|
 | Python | 3.11+ | Backend, CLI, engine |
-| Node.js | 18+ | Dashboard frontend |
+| Node.js | 22+ | Dashboard frontend |
 | Docker & Compose | Latest | Local services, container builds |
 | Git | Latest | Version control |
 
@@ -122,14 +122,35 @@ npx playwright test --ui               # Interactive UI mode
 npx playwright test tests/e2e/agents   # Specific directory
 ```
 
+### Live Docker E2E tests (full stack)
+
+Runs 97 Playwright tests against the real Docker Compose stack — no mocks. Covers all 12 feature domains: providers, prompts, tools, RAG, MCP servers, agent builders (no-code + YAML), playground execution, tracing, evaluations, cost dashboard, and RBAC.
+
+```bash
+# Start the stack first
+docker compose -f deploy/docker-compose.yml up -d
+
+# Run all 97 live E2E tests
+cd dashboard && npm run test:e2e:live
+
+# Watch tests run in a browser (recommended for development)
+npm run test:e2e:live:ui
+
+# Debug a single failing test
+npm run test:e2e:live:debug -- --grep "provider"
+```
+
+Test credentials and stack config are in `dashboard/.env.e2e`. The global setup provisions test users and teardown cleans them up automatically.
+
 ### Coverage report
 
 ```bash
-pytest tests/unit/ \
-  --cov=api --cov=engine --cov=cli --cov=registry --cov=connectors \
+pytest tests/unit/ tests/integration/ \
+  --cov=api --cov=engine --cov=cli --cov=registry --cov=connectors --cov=sdk \
   --cov-report=html
 
 # Open htmlcov/index.html in your browser
+# Current baseline: 96% source coverage (3,374 tests)
 ```
 
 ## Linting & Formatting
