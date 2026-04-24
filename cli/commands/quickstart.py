@@ -24,6 +24,7 @@ import os
 import platform
 import secrets
 import shutil
+import socket
 import subprocess
 import time
 import webbrowser
@@ -601,6 +602,29 @@ def _write_env_key(key: str, value: str) -> None:
 # ── Print helpers ───────────────────────────────────────────────────────────
 
 
+_QS_PORTS: dict[int, str] = {
+    5432: "PostgreSQL",
+    6379: "Redis",
+    8000: "AgentBreeder API",
+    3001: "Dashboard",
+    4000: "LiteLLM",
+    8001: "ChromaDB",
+    7474: "Neo4j HTTP",
+    7687: "Neo4j Bolt",
+}
+
+
+def _check_ports() -> list[tuple[int, str]]:
+    """Return list of (port, service) that are already in use."""
+    taken = []
+    for port, name in _QS_PORTS.items():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.3)
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                taken.append((port, name))
+    return taken
+
+
 def _step(title: str, n: int, total: int = 8) -> None:
     console.print()
     console.print(Rule(f"[bold]Step {n}/{total} — {title}[/bold]", style="blue"))
@@ -939,6 +963,32 @@ def quickstart(
     # ── Step 4: Start the stack ──────────────────────────────────────────────
     _step("Starting Services", 4, total_steps)
 
+    # Pre-flight: check for port conflicts before pulling images
+    taken_ports = _check_ports()
+    if taken_ports:
+        conflict_lines = "\n".join(
+            f"  • [bold]:{port}[/bold]  {name}  [dim](already in use)[/dim]"
+            for port, name in taken_ports
+        )
+        console.print(
+            Panel(
+                "[yellow]Port conflicts detected.[/yellow]\n\n"
+                "These ports are already in use on your machine:\n\n"
+                + conflict_lines
+                + "\n\n"
+                "[bold]To fix:[/bold]\n"
+                "  Stop the conflicting services, then re-run [cyan]agentbreeder quickstart[/cyan].\n\n"
+                "  If you have the [bold]agentbreeder dev stack[/bold] running:\n"
+                "  [cyan]docker compose -f deploy/docker-compose.yml down[/cyan]\n\n"
+                "  To find and stop any process on a port:\n"
+                "  [cyan]lsof -ti :<port> | xargs kill -9[/cyan]",
+                title="[bold yellow]Port Conflict[/bold yellow]",
+                border_style="yellow",
+                padding=(1, 2),
+            )
+        )
+        raise typer.Exit(code=1)
+
     pull_args = ["pull", "--quiet"]
     console.print("  [dim]Pulling images (first run may take a few minutes)...[/dim]")
     _compose_run(compose_cmd, pull_args, env=compose_env, capture=True)
@@ -950,17 +1000,34 @@ def quickstart(
 
     result = _compose_run(compose_cmd, up_args, env=compose_env)
     if result.returncode != 0:
-        console.print(
-            Panel(
-                "[red]Failed to start services.[/red]\n\n"
-                "Common fixes:\n"
-                "  • Port conflicts: check ports 5432, 6379, 8000, 3001, 4000, 8001, 7474, 7687\n"
-                "  • Disk space: docker system prune -f\n"
-                "  • View logs: docker compose -f deploy/docker-compose.quickstart.yml logs\n",
-                border_style="red",
-                padding=(1, 2),
+        # Re-check ports in case something started between check and up
+        taken_ports = _check_ports()
+        if taken_ports:
+            conflict_lines = "\n".join(
+                f"  • [bold]:{port}[/bold]  {name}" for port, name in taken_ports
             )
-        )
+            console.print(
+                Panel(
+                    "[red]Failed to start services — port conflict.[/red]\n\n"
+                    + conflict_lines
+                    + "\n\n"
+                    "Stop the conflicting services and re-run [cyan]agentbreeder quickstart[/cyan].\n"
+                    "Dev stack: [cyan]docker compose -f deploy/docker-compose.yml down[/cyan]",
+                    border_style="red",
+                    padding=(1, 2),
+                )
+            )
+        else:
+            console.print(
+                Panel(
+                    "[red]Failed to start services.[/red]\n\n"
+                    "Common fixes:\n"
+                    "  • Disk space: [cyan]docker system prune -f[/cyan]\n"
+                    "  • View logs: [cyan]docker compose -f deploy/docker-compose.quickstart.yml logs[/cyan]\n",
+                    border_style="red",
+                    padding=(1, 2),
+                )
+            )
         raise typer.Exit(code=1)
 
     # ── Step 5: Wait for services ────────────────────────────────────────────
