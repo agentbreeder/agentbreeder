@@ -78,7 +78,12 @@ jobs:
         # base dep, but we use the [cryptography] extra so ecdsa is never
         # used for actual crypto operations.  No fixed ecdsa version exists.
         # TODO: Replace python-jose with PyJWT to drop ecdsa entirely.
-        run: pip-audit --skip-editable --ignore-vuln CVE-2024-23342
+        # Ignore CVE-2026-3219 (pip): vulnerability in the pip tool itself
+        # as shipped by the CI runner image; not in our application code.
+        run: |
+          pip-audit --skip-editable \
+            --ignore-vuln CVE-2024-23342 \
+            --ignore-vuln CVE-2026-3219
 
   # ── npm dependency audit ────────────────────────────────────────────────────
   npm-audit:
