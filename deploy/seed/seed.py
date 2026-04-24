@@ -28,6 +28,10 @@ from pathlib import Path
 import httpx
 
 CHROMADB_BASE = "http://localhost:8001"
+CHROMA_TENANT = "default_tenant"
+CHROMA_DATABASE = "default_database"
+# v2 base path — all collection operations live here
+CHROMA_V2 = f"{CHROMADB_BASE}/api/v2/tenants/{CHROMA_TENANT}/databases/{CHROMA_DATABASE}"
 NEO4J_HTTP = "http://localhost:7474"
 NEO4J_USER = "neo4j"
 NEO4J_PASS = "agentbreeder"
@@ -102,28 +106,18 @@ MATCH (a:Agent), (d:DeployTarget {name:'local'}) CREATE (a)-[:DEPLOYED_ON]->(d)
 # ── ChromaDB helpers ────────────────────────────────────────────────────────
 
 
+def _chroma_client():
+    """Return an HttpClient connected to the local ChromaDB instance."""
+    import chromadb
+    return chromadb.HttpClient(host="localhost", port=8001)
+
+
 def _chroma_is_up() -> bool:
     try:
-        resp = httpx.get(f"{CHROMADB_BASE}/api/v1/heartbeat", timeout=5.0)
-        return resp.status_code == 200
-    except (httpx.ConnectError, httpx.TimeoutException):
+        _chroma_client().heartbeat()
+        return True
+    except Exception:
         return False
-
-
-def _get_or_create_collection(name: str) -> str | None:
-    """Return collection ID, creating if needed."""
-    resp = httpx.post(
-        f"{CHROMADB_BASE}/api/v1/collections",
-        json={"name": name, "get_or_create": True},
-        timeout=15.0,
-    )
-    if resp.status_code in (200, 201):
-        return resp.json().get("id")
-    # Try fetching existing
-    resp2 = httpx.get(f"{CHROMADB_BASE}/api/v1/collections/{name}", timeout=10.0)
-    if resp2.status_code == 200:
-        return resp2.json().get("id")
-    return None
 
 
 def _load_docs_from_dir(docs_dir: Path) -> list[dict]:
@@ -180,40 +174,36 @@ def seed_chromadb(
 
     source_dir = docs_dir or DOCS_DIR
 
-    if clear:
-        try:
-            httpx.delete(f"{CHROMADB_BASE}/api/v1/collections/{collection}", timeout=10.0)
-        except Exception:
-            pass
+    try:
+        client = _chroma_client()
 
-    collection_id = _get_or_create_collection(collection)
-    if not collection_id:
-        return {"ok": False, "error": f"Could not create collection '{collection}'"}
+        if clear:
+            try:
+                client.delete_collection(collection)
+            except Exception:
+                pass
 
-    docs = _load_docs_from_dir(source_dir)
-    if not docs:
-        return {"ok": False, "error": f"No .md/.txt files found in {source_dir}"}
+        col = client.get_or_create_collection(collection)
 
-    ids = [d["id"] for d in docs]
-    documents = [d["text"] for d in docs]
-    metadatas = [d["metadata"] for d in docs]
+        docs = _load_docs_from_dir(source_dir)
+        if not docs:
+            return {"ok": False, "error": f"No .md/.txt files found in {source_dir}"}
 
-    resp = httpx.post(
-        f"{CHROMADB_BASE}/api/v1/collections/{collection_id}/upsert",
-        json={"ids": ids, "documents": documents, "metadatas": metadatas},
-        timeout=120.0,
-    )
+        ids = [d["id"] for d in docs]
+        documents = [d["text"] for d in docs]
+        metadatas = [d["metadata"] for d in docs]
 
-    if resp.status_code not in (200, 201):
-        return {"ok": False, "error": f"Upsert failed: HTTP {resp.status_code}"}
+        col.upsert(ids=ids, documents=documents, metadatas=metadatas)
 
-    return {
-        "ok": True,
-        "collection": collection,
-        "collection_id": collection_id,
-        "documents_seeded": len(docs),
-        "source": str(source_dir),
-    }
+        return {
+            "ok": True,
+            "collection": collection,
+            "collection_id": col.id,
+            "documents_seeded": len(docs),
+            "source": str(source_dir),
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 def list_chromadb() -> dict:
@@ -221,18 +211,9 @@ def list_chromadb() -> dict:
     if not _chroma_is_up():
         return {"ok": False, "error": f"ChromaDB not reachable at {CHROMADB_BASE}"}
     try:
-        resp = httpx.get(f"{CHROMADB_BASE}/api/v1/collections", timeout=10.0)
-        if resp.status_code != 200:
-            return {"ok": False, "error": f"HTTP {resp.status_code}"}
-        collections = resp.json()
-        result = []
-        for col in collections:
-            col_id = col.get("id", "")
-            count_resp = httpx.get(
-                f"{CHROMADB_BASE}/api/v1/collections/{col_id}/count", timeout=5.0
-            )
-            count = count_resp.json() if count_resp.status_code == 200 else "?"
-            result.append({"name": col.get("name"), "id": col_id, "count": count})
+        client = _chroma_client()
+        collections = client.list_collections()
+        result = [{"name": col.name, "id": str(col.id), "count": col.count()} for col in collections]
         return {"ok": True, "collections": result}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}

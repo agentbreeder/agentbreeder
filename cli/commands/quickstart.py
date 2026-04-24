@@ -391,10 +391,33 @@ def _seed_neo4j() -> bool:
 
 # ── AgentBreeder API registration ───────────────────────────────────────────
 
+_API_TOKEN: str | None = None
+
+
+def _get_api_token() -> str | None:
+    """Log in as the default admin and return a JWT token (cached)."""
+    global _API_TOKEN
+    if _API_TOKEN:
+        return _API_TOKEN
+    try:
+        resp = httpx.post(
+            f"{API_BASE}/api/v1/auth/login",
+            json={"email": "admin@agentbreeder.local", "password": "plant"},
+            timeout=10.0,
+        )
+        if resp.status_code == 200:
+            _API_TOKEN = resp.json()["data"]["access_token"]
+            return _API_TOKEN
+    except Exception:
+        pass
+    return None
+
 
 def _api_post(path: str, payload: dict) -> dict | None:
+    token = _get_api_token()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
-        resp = httpx.post(f"{API_BASE}{path}", json=payload, timeout=15.0)
+        resp = httpx.post(f"{API_BASE}{path}", json=payload, headers=headers, timeout=15.0)
         if resp.status_code in (200, 201):
             return resp.json()
     except (httpx.ConnectError, httpx.TimeoutException):
@@ -424,7 +447,7 @@ def _register_mcp_servers() -> int:
     ]
     count = 0
     for s in servers:
-        result = _api_post("/api/v1/mcp_servers", s)
+        result = _api_post("/api/v1/mcp-servers", s)
         if result:
             count += 1
     return count
@@ -462,7 +485,7 @@ def _register_prompts() -> int:
     ]
     count = 0
     for p in prompts:
-        result = _api_post("/api/v1/prompts", p)
+        result = _api_post("/api/v1/registry/prompts", p)
         if result:
             count += 1
     return count
