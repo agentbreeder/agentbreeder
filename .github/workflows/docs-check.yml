@@ -90,6 +90,8 @@ jobs:
             if [ -f "$yaml_file" ]; then
               # Skip template definitions — they use the template schema, not agent schema
               case "$yaml_file" in examples/templates/*) continue ;; esac
+              # Skip Google ADK native root_agent.yaml files — framework-specific format, not agent.yaml
+              case "$yaml_file" in */root_agent.yaml) continue ;; esac
               echo "Validating: $yaml_file"
               python -m cli.main validate "$yaml_file" 2>&1 || {
                 echo "::error file=$yaml_file::YAML validation failed"

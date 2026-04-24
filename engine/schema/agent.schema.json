@@ -116,9 +116,10 @@
             "enum": [
               "function",
               "computer_use_20260401",
-              "agent_toolset_20260401"
+              "agent_toolset_20260401",
+              "a2a"
             ],
-            "description": "Tool type — use computer_use_20260401 for browser/computer use agents"
+            "description": "Tool type — use a2a to call another agent via Agent-to-Agent protocol, computer_use_20260401 for browser/computer use agents"
           },
           "description": {
             "type": "string"
