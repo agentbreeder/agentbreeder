@@ -612,6 +612,66 @@ def _guide_cloud_deploy(target: str) -> None:
             )
 
 
+_CLOUD_PROVIDERS: list[tuple[str, str, str, str]] = [
+    # (display_name,          env_key,               placeholder,   models)
+    ("OpenAI",               "OPENAI_API_KEY",       "sk-...",      "gpt-4o, gpt-4o-mini"),
+    ("Anthropic (Claude)",   "ANTHROPIC_API_KEY",    "sk-ant-...",  "claude-sonnet-4, claude-haiku-4"),
+    ("Google Gemini",        "GOOGLE_API_KEY",       "AIza...",     "gemini-2.0-flash"),
+    ("OpenRouter",           "OPENROUTER_API_KEY",   "sk-or-...",   "100+ models, pay-per-use"),
+]
+
+
+def _collect_provider_keys(existing_env: dict) -> tuple[dict, bool]:
+    """Interactively prompt for cloud API keys. Returns (new_keys_dict, has_ollama)."""
+    has_ollama = False
+    try:
+        resp = httpx.get("http://localhost:11434/", timeout=3.0)
+        has_ollama = resp.status_code == 200
+    except (httpx.ConnectError, httpx.TimeoutException):
+        pass
+
+    console.print()
+    console.print("  [bold]Provider status:[/bold]")
+    console.print()
+    if has_ollama:
+        console.print("  [green]●[/green] Ollama  [dim](running — free local inference)[/dim]")
+    else:
+        console.print(
+            "  [dim]○[/dim] Ollama  [dim](not running — "
+            "start with: [cyan]ollama serve[/cyan])[/dim]"
+        )
+
+    for name, env_key, _ph, models in _CLOUD_PROVIDERS:
+        existing = existing_env.get(env_key) or os.environ.get(env_key, "")
+        if existing:
+            masked = existing[:10] + "..." if len(existing) > 10 else "***"
+            console.print(
+                f"  [green]●[/green] {name}  [dim]({masked} — already set)[/dim]"
+            )
+        else:
+            console.print(f"  [dim]○[/dim] {name}  [dim]({models})[/dim]")
+
+    console.print()
+    console.print(
+        "  [bold]Add or update API keys[/bold]  [dim](press Enter to skip any)[/dim]"
+    )
+    console.print()
+
+    collected: dict[str, str] = {}
+    for name, env_key, placeholder, _models in _CLOUD_PROVIDERS:
+        existing = existing_env.get(env_key) or os.environ.get(env_key, "")
+        if existing:
+            masked = existing[:10] + "..." if len(existing) > 10 else "***"
+            prompt = f"  {name} [dim]({masked}, Enter to keep)[/dim]: "
+        else:
+            prompt = f"  {name} [dim]({placeholder}, Enter to skip)[/dim]: "
+        val = console.input(prompt).strip()
+        if val:
+            collected[env_key] = val
+
+    return collected, has_ollama
+
+
 def _write_env_key(key: str, value: str) -> None:
     env_path = Path.cwd() / ".env"
     if env_path.exists():
@@ -909,46 +969,45 @@ def quickstart(
 
     _ok(f"{binary.capitalize()} daemon is running")
 
-    # ── Step 2: LLM providers check ──────────────────────────────────────────
+    # ── Step 2: LLM providers ────────────────────────────────────────────────
     _step("LLM Providers", 2, total_steps)
 
-    has_ollama = False
+    # Read any existing .env from CWD first so we can show masked existing keys.
+    _cwd_env: dict[str, str] = {}
+    _cwd_env_path = Path.cwd() / ".env"
+    if _cwd_env_path.exists():
+        for _line in _cwd_env_path.read_text().splitlines():
+            if "=" in _line and not _line.startswith("#"):
+                _k, _v = _line.split("=", 1)
+                _cwd_env[_k.strip()] = _v.strip()
+
+    new_provider_keys, has_ollama = _collect_provider_keys(_cwd_env)
+
+    # Merge new keys into process env so the compose step picks them up
+    os.environ.update(new_provider_keys)
+
     has_cloud_key = any(
-        os.environ.get(k) for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY")
+        os.environ.get(k)
+        for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY")
     )
 
-    try:
-        resp = httpx.get("http://localhost:11434/", timeout=3.0)
-        has_ollama = resp.status_code == 200
-    except (httpx.ConnectError, httpx.TimeoutException):
-        pass
-
+    console.print()
     if has_ollama:
-        _ok("Ollama is running — local models will be used as primary")
-    else:
-        _warn("Ollama not running at http://localhost:11434")
-        _info("Agents will use cloud providers if API keys are set")
-        _info("For free local inference: ollama serve  (then: ollama pull llama3.2)")
-
+        _ok("Ollama ready — local models available")
     if has_cloud_key:
-        keys_found = [
-            k
-            for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY")
-            if os.environ.get(k)
-        ]
-        _ok(f"Cloud keys found: {', '.join(keys_found)}")
-    else:
-        _warn("No cloud API keys in environment")
-        _info("Set them in .env or run: agentbreeder setup --providers-only")
+        active = [k for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY") if os.environ.get(k)]
+        _ok(f"Cloud providers configured: {', '.join(active)}")
+    if new_provider_keys:
+        _ok(f"Keys saved: {', '.join(new_provider_keys)}")
 
     if not has_ollama and not has_cloud_key:
         console.print()
         console.print(
             Panel(
-                "[yellow]No LLM provider available.[/yellow]\n\n"
+                "[yellow]No LLM provider configured.[/yellow]\n\n"
                 "Agents need at least one of:\n"
                 "  • [cyan]ollama serve[/cyan] + [cyan]ollama pull llama3.2[/cyan]  (free, local)\n"
-                "  • [cyan]OPENAI_API_KEY[/cyan] / [cyan]ANTHROPIC_API_KEY[/cyan] in .env\n\n"
+                "  • An API key entered above\n\n"
                 "Continue to set up the stack anyway?",
                 border_style="yellow",
                 padding=(1, 2),
@@ -958,33 +1017,52 @@ def quickstart(
             console.input("  [bold]Continue without a provider? (y/N): [/bold]").strip().lower()
         )
         if proceed != "y":
-            console.print("  [dim]Run: agentbreeder setup  — then come back[/dim]")
+            console.print("  [dim]Re-run agentbreeder quickstart and enter an API key above.[/dim]")
             raise typer.Exit(code=0)
 
     # ── Step 3: Compose environment ──────────────────────────────────────────
     _step("Environment", 3, total_steps)
 
-    env_path = DEPLOY_DIR.parent / ".env"
+    # Primary .env lives where the user ran the command from.
+    env_path = Path.cwd() / ".env"
+    # Docker compose reads from DEPLOY_DIR; keep a copy there too if different.
+    deploy_env_path = DEPLOY_DIR.parent / ".env"
+
     compose_env: dict[str, str] = {}
 
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
+    # Load existing .env (CWD wins, fall back to deploy dir)
+    source_path = env_path if env_path.exists() else (deploy_env_path if deploy_env_path.exists() else None)
+    if source_path:
+        for line in source_path.read_text().splitlines():
             if "=" in line and not line.startswith("#"):
                 k, v = line.split("=", 1)
                 compose_env[k.strip()] = v.strip()
-        _ok(f"Using existing .env: {env_path}")
-    else:
-        # Generate minimal .env
-        compose_env.update(
-            {
-                "SECRET_KEY": secrets.token_hex(32),
-                "JWT_SECRET_KEY": secrets.token_hex(32),
-                "LITELLM_MASTER_KEY": f"sk-agentbreeder-{secrets.token_hex(16)}",
-            }
-        )
+
+    # Inject generated secrets if not already present
+    compose_env.setdefault("SECRET_KEY", secrets.token_hex(32))
+    compose_env.setdefault("JWT_SECRET_KEY", secrets.token_hex(32))
+    compose_env.setdefault("LITELLM_MASTER_KEY", f"sk-agentbreeder-{secrets.token_hex(16)}")
+
+    # Merge provider keys collected in Step 2
+    compose_env.update(new_provider_keys)
+
+    # Also pull any cloud keys already in the environment (e.g. exported in shell)
+    for _env_key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY"):
+        if os.environ.get(_env_key) and _env_key not in compose_env:
+            compose_env[_env_key] = os.environ[_env_key]
+
+    def _write_env_file(path: Path) -> None:
         lines = [f"{k}={v}" for k, v in compose_env.items()]
-        env_path.write_text("\n".join(lines) + "\n")
-        _ok(f"Created .env at {env_path}")
+        path.write_text("\n".join(lines) + "\n")
+
+    _write_env_file(env_path)
+    if deploy_env_path.resolve() != env_path.resolve():
+        _write_env_file(deploy_env_path)
+
+    if source_path:
+        _ok(f".env updated: {env_path}")
+    else:
+        _ok(f".env created: {env_path}")
 
     # Ensure MCP workspace dir exists
     MCP_WORKSPACE.mkdir(parents=True, exist_ok=True)
