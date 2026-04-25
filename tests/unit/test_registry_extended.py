@@ -651,3 +651,68 @@ class TestDeployRegistryGet:
     @pytest.mark.asyncio
     async def test_get_missing(self, session: AsyncSession) -> None:
         assert await DeployRegistry.get(session, uuid.uuid4()) is None
+
+
+class TestDeployJobCascadeDelete:
+    """Verify that deleting an Agent cascades to its DeployJobs (issue #121)."""
+
+    @pytest.mark.asyncio
+    async def test_cascade_delete_removes_deploy_jobs(self, session: AsyncSession) -> None:
+        agent = Agent(
+            name="cascade-agent",
+            version="1.0.0",
+            team="eng",
+            owner="t@t.com",
+            framework="langgraph",
+            model_primary="gpt-4o",
+            status=AgentStatus.running,
+        )
+        session.add(agent)
+        await session.flush()
+
+        job = DeployJob(
+            agent_id=agent.id,
+            status=DeployJobStatus.completed,
+            target="local",
+        )
+        session.add(job)
+        await session.flush()
+
+        job_id = job.id
+
+        # Hard-delete the agent; the FK cascade should remove the deploy job.
+        await session.delete(agent)
+        await session.flush()
+
+        # The deploy job must no longer exist.
+        orphan = await DeployRegistry.get(session, job_id)
+        assert orphan is None, "DeployJob was not removed when parent Agent was deleted (issue #121)"
+
+    @pytest.mark.asyncio
+    async def test_cascade_delete_multiple_jobs(self, session: AsyncSession) -> None:
+        agent = Agent(
+            name="multi-job-agent",
+            version="1.0.0",
+            team="eng",
+            owner="t@t.com",
+            framework="langgraph",
+            model_primary="gpt-4o",
+            status=AgentStatus.running,
+        )
+        session.add(agent)
+        await session.flush()
+
+        job_ids = []
+        for status in [DeployJobStatus.completed, DeployJobStatus.failed, DeployJobStatus.pending]:
+            job = DeployJob(agent_id=agent.id, status=status, target="local")
+            session.add(job)
+            await session.flush()
+            job_ids.append(job.id)
+
+        await session.delete(agent)
+        await session.flush()
+
+        for jid in job_ids:
+            assert await DeployRegistry.get(session, jid) is None, (
+                f"DeployJob {jid} should have been cascade-deleted with its agent"
+            )

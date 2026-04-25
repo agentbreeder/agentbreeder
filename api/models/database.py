@@ -23,8 +23,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from api.models.enums import (
     A2AStatus,
     AgentStatus,
+    BudgetDuration,
     DeployJobStatus,
     EvalRunStatus,
+    KeyScopeType,
     ListingStatus,
     OrchestrationStatus,
     ProviderStatus,
@@ -86,7 +88,9 @@ class Agent(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    deploy_jobs: Mapped[list[DeployJob]] = relationship(back_populates="agent")
+    deploy_jobs: Mapped[list[DeployJob]] = relationship(
+        back_populates="agent", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("ix_agents_team_status", "team", "status"),
@@ -101,7 +105,7 @@ class DeployJob(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
     status: Mapped[DeployJobStatus] = mapped_column(
         Enum(DeployJobStatus), default=DeployJobStatus.pending, nullable=False
@@ -587,4 +591,68 @@ class ListingReview(Base):
     __table_args__ = (
         Index("ix_listing_reviews_listing_id", "listing_id"),
         Index("ix_listing_reviews_reviewer", "reviewer"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# LiteLLM Virtual Key References (M22)
+# ---------------------------------------------------------------------------
+
+
+class LiteLLMKeyRef(Base):
+    """Reference to a LiteLLM virtual key stored in the litellm DB.
+
+    AgentBreeder stores the metadata (scope, tags, budget) here so it can
+    associate keys with teams, users, agents, and service principals without
+    storing the secret value itself.
+    """
+
+    __tablename__ = "litellm_key_refs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Human-readable alias shown in the dashboard (e.g. "team-engineering-prod")
+    key_alias: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+
+    # First 12 chars of the sk-... value for safe display; never the full key
+    key_prefix: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    # The LiteLLM internal key ID (used to call /key/delete)
+    litellm_key_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Who this key is issued to
+    scope_type: Mapped[KeyScopeType] = mapped_column(Enum(KeyScopeType), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(255), nullable=False)  # team name / user id / agent name
+
+    # Optional FK-friendly denormalized fields for filtering
+    team_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    agent_name: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # What models this key can call (null = all models)
+    allowed_models: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    # Spend limits
+    max_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    budget_duration: Mapped[BudgetDuration | None] = mapped_column(Enum(BudgetDuration), nullable=True)
+    tpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)   # tokens/minute
+    rpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)   # requests/minute
+
+    # Routing / classification tags (e.g. ["production", "rag", "customer-support"])
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+
+    # Soft expiry (LiteLLM also enforces this, but stored here for dashboard display)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_litellm_key_refs_scope", "scope_type", "scope_id"),
+        Index("ix_litellm_key_refs_team", "team_id"),
+        Index("ix_litellm_key_refs_agent", "agent_name"),
     )
