@@ -1082,6 +1082,19 @@ export const api = {
     usage: (id: string) => request<ModelUsage[]>(`/registry/models/${id}/usage`),
     compare: (ids: string[]) =>
       request<Model[]>(`/registry/models/compare?ids=${ids.join(",")}`),
+    create: (data: {
+      name: string;
+      provider: string;
+      description?: string;
+      context_window?: number | null;
+      input_price_per_million?: number | null;
+      output_price_per_million?: number | null;
+      capabilities?: string[];
+    }) =>
+      request<Model>("/registry/models", {
+        method: "POST",
+        body: JSON.stringify({ source: "manual", ...data }),
+      }),
   },
   prompts: {
     list: (params?: { team?: string; page?: number }) => {

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   Cpu,
@@ -9,6 +9,7 @@ import {
   GitCompareArrows,
   Plus,
   Star,
+  ChevronLeft,
 } from "lucide-react";
 import { api, type Model } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -171,132 +172,266 @@ function ModelRow({
   );
 }
 
+// ── Model catalog ────────────────────────────────────────────────────────────
+
+type CatalogModel = {
+  name: string;
+  description: string;
+  contextWindow: number;
+  inputPrice: number | null;
+  outputPrice: number | null;
+  capabilities: string[];
+};
+
+type ProviderCatalog = {
+  id: string;
+  label: string;
+  color: string;
+  models: CatalogModel[];
+};
+
+const PROVIDER_CATALOG: ProviderCatalog[] = [
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    color: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+    models: [
+      { name: "claude-opus-4-7",    description: "Most capable Claude model — complex reasoning, research, coding",    contextWindow: 200000, inputPrice: 15.00, outputPrice: 75.00,  capabilities: ["text", "vision", "tool_use", "thinking"] },
+      { name: "claude-sonnet-4-6",  description: "Best balance of speed and intelligence — recommended for most tasks", contextWindow: 200000, inputPrice:  3.00, outputPrice: 15.00,  capabilities: ["text", "vision", "tool_use"] },
+      { name: "claude-haiku-4-5",   description: "Fastest and most compact Claude model",                              contextWindow: 200000, inputPrice:  0.80, outputPrice:  4.00,  capabilities: ["text", "vision", "tool_use"] },
+    ],
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    color: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+    models: [
+      { name: "gpt-4o",       description: "GPT-4o — multimodal flagship, fast and affordable",        contextWindow: 128000,  inputPrice:  2.50, outputPrice: 10.00, capabilities: ["text", "vision", "tool_use"] },
+      { name: "gpt-4o-mini",  description: "Lightweight GPT-4o — cost-efficient for high-volume tasks", contextWindow: 128000,  inputPrice:  0.15, outputPrice:  0.60, capabilities: ["text", "vision", "tool_use"] },
+      { name: "o3",           description: "OpenAI o3 — advanced reasoning model",                      contextWindow: 200000,  inputPrice: 10.00, outputPrice: 40.00, capabilities: ["text", "tool_use", "reasoning"] },
+      { name: "o4-mini",      description: "OpenAI o4-mini — fast reasoning at lower cost",             contextWindow: 200000,  inputPrice:  1.10, outputPrice:  4.40, capabilities: ["text", "vision", "tool_use", "reasoning"] },
+    ],
+  },
+  {
+    id: "google",
+    label: "Google",
+    color: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+    models: [
+      { name: "gemini-2.5-pro-preview",  description: "Gemini 2.5 Pro — best Google model, 1M context",       contextWindow: 1000000, inputPrice: 1.25, outputPrice: 10.00, capabilities: ["text", "vision", "tool_use", "reasoning"] },
+      { name: "gemini-2.0-flash",        description: "Gemini 2.0 Flash — fast multimodal inference",          contextWindow: 1000000, inputPrice: 0.10, outputPrice:  0.40, capabilities: ["text", "vision", "tool_use"] },
+      { name: "gemini-2.0-flash-lite",   description: "Gemini 2.0 Flash-Lite — ultra-low cost",                contextWindow: 1000000, inputPrice: 0.075,outputPrice:  0.30, capabilities: ["text", "tool_use"] },
+    ],
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    color: "bg-violet-500/10 text-violet-600 border-violet-500/20",
+    models: [
+      { name: "openrouter/auto",                              description: "Auto-selects the cheapest available model for each request", contextWindow: 200000, inputPrice: null,  outputPrice: null,  capabilities: ["text"] },
+      { name: "openrouter/google/gemini-2.0-flash-001",      description: "Gemini 2.0 Flash via OpenRouter",                            contextWindow: 1000000,inputPrice: 0.10,  outputPrice: 0.40,  capabilities: ["text", "vision"] },
+      { name: "openrouter/deepseek/deepseek-chat-v3-0324",   description: "DeepSeek v3 — strong coding and reasoning",                  contextWindow: 163840, inputPrice: 0.27,  outputPrice: 1.10,  capabilities: ["text", "tool_use"] },
+      { name: "openrouter/meta-llama/llama-4-maverick",      description: "Llama 4 Maverick — Meta's frontier open model",              contextWindow: 524288, inputPrice: 0.19,  outputPrice: 0.65,  capabilities: ["text", "vision"] },
+    ],
+  },
+  {
+    id: "ollama",
+    label: "Ollama (local)",
+    color: "bg-gray-500/10 text-gray-600 border-gray-500/20",
+    models: [
+      { name: "llama3.2:3b",   description: "Llama 3.2 3B — fast local inference, great for chat",     contextWindow: 128000, inputPrice: 0, outputPrice: 0, capabilities: ["text"] },
+      { name: "llama3.1:8b",   description: "Llama 3.1 8B — strong general-purpose local model",       contextWindow: 128000, inputPrice: 0, outputPrice: 0, capabilities: ["text", "tool_use"] },
+      { name: "mistral:7b",    description: "Mistral 7B — fast and efficient local model",             contextWindow:  32768, inputPrice: 0, outputPrice: 0, capabilities: ["text"] },
+      { name: "gemma3:12b",    description: "Gemma 3 12B — Google's open local model",                 contextWindow: 131072, inputPrice: 0, outputPrice: 0, capabilities: ["text"] },
+      { name: "qwq:32b",       description: "QwQ 32B — strong reasoning local model",                  contextWindow: 131072, inputPrice: 0, outputPrice: 0, capabilities: ["text", "reasoning"] },
+    ],
+  },
+];
+
 function CreateModelDialog() {
   const [open, setOpen] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<ProviderCatalog | null>(null);
   const [name, setName] = useState("");
-  const [provider, setProvider] = useState("");
   const [description, setDescription] = useState("");
   const [contextWindow, setContextWindow] = useState("");
   const [inputPrice, setInputPrice] = useState("");
   const [outputPrice, setOutputPrice] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
-  const resetForm = () => {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      api.models.create({
+        name: name.trim(),
+        provider: selectedProvider!.id,
+        description: description.trim(),
+        context_window: contextWindow ? parseInt(contextWindow, 10) : null,
+        input_price_per_million: inputPrice ? parseFloat(inputPrice) : null,
+        output_price_per_million: outputPrice ? parseFloat(outputPrice) : null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["models"] });
+      setOpen(false);
+      reset();
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const reset = () => {
+    setSelectedProvider(null);
     setName("");
-    setProvider("");
     setDescription("");
     setContextWindow("");
     setInputPrice("");
     setOutputPrice("");
+    setError(null);
   };
 
-  const canSubmit = name.trim() && provider.trim();
-
-  const handleCreate = () => {
-    setOpen(false);
-    resetForm();
+  const applyPreset = (m: CatalogModel) => {
+    setName(m.name);
+    setDescription(m.description);
+    setContextWindow(String(m.contextWindow));
+    setInputPrice(m.inputPrice !== null ? String(m.inputPrice) : "");
+    setOutputPrice(m.outputPrice !== null ? String(m.outputPrice) : "");
   };
+
+  const canSubmit = !!selectedProvider && name.trim() && !mutation.isPending;
 
   return (
-    <Dialog open={open} onOpenChange={(val) => { setOpen(val); if (!val) resetForm(); }}>
-      <DialogTrigger
-        render={<Button size="sm" />}
-      >
+    <Dialog open={open} onOpenChange={(val) => { setOpen(val); if (!val) reset(); }}>
+      <DialogTrigger render={<Button size="sm" />}>
         <Plus className="size-3" data-icon="inline-start" />
         Add Model
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add Model</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {selectedProvider && (
+              <button onClick={() => { setSelectedProvider(null); setName(""); }} className="text-muted-foreground hover:text-foreground">
+                <ChevronLeft className="size-4" />
+              </button>
+            )}
+            {selectedProvider ? `${selectedProvider.label} — Select Model` : "Add Model"}
+          </DialogTitle>
           <DialogDescription>
-            Register a new model in the organization registry.
+            {selectedProvider
+              ? "Choose a model or type a custom name below."
+              : "Select a provider to see available models."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium">Model Name</label>
-              <Input
-                placeholder="e.g. claude-sonnet-4"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium">Provider</label>
-              <select
-                value={provider}
-                onChange={(e) => setProvider(e.target.value)}
-                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none"
+        {!selectedProvider ? (
+          /* Step 1 — Provider grid */
+          <div className="grid grid-cols-2 gap-2 py-1">
+            {PROVIDER_CATALOG.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedProvider(p)}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm font-medium transition-colors hover:bg-muted/50",
+                  p.color
+                )}
               >
-                <option value="">Select provider</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="openai">OpenAI</option>
-                <option value="google">Google</option>
-                <option value="meta">Meta</option>
-                <option value="mistral">Mistral</option>
-                <option value="cohere">Cohere</option>
-                <option value="ollama">Ollama</option>
-              </select>
-            </div>
+                <span className="flex-1">{p.label}</span>
+                <span className="text-[10px] text-muted-foreground">{p.models.length} models</span>
+              </button>
+            ))}
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">Description</label>
-            <Input
-              placeholder="Optional description..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="h-8 text-xs"
-            />
+        ) : (
+          /* Step 2 — Model selection + fields */
+          <div className="grid gap-3">
+            {/* Quick-pick preset buttons */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Quick select</label>
+              <div className="flex flex-wrap gap-1.5">
+                {selectedProvider.models.map((m) => (
+                  <button
+                    key={m.name}
+                    onClick={() => applyPreset(m)}
+                    className={cn(
+                      "rounded-md border px-2 py-1 text-[10px] font-medium transition-colors hover:opacity-80",
+                      name === m.name
+                        ? "bg-foreground text-background border-foreground"
+                        : "bg-muted/40 border-border text-muted-foreground"
+                    )}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="mb-1 block text-xs font-medium">Model name <span className="text-destructive">*</span></label>
+                <Input
+                  placeholder={`e.g. ${selectedProvider.models[0]?.name}`}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="mb-1 block text-xs font-medium">Description</label>
+                <Input
+                  placeholder="Optional description..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium">Context window</label>
+                <Input
+                  placeholder="e.g. 128000"
+                  value={contextWindow}
+                  onChange={(e) => setContextWindow(e.target.value)}
+                  className="h-8 text-xs"
+                  type="number"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium">Input $/M tokens</label>
+                <Input
+                  placeholder={selectedProvider.id === "ollama" ? "0 (free)" : "e.g. 3.00"}
+                  value={inputPrice}
+                  onChange={(e) => setInputPrice(e.target.value)}
+                  className="h-8 text-xs"
+                  type="number"
+                  step="0.001"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium">Output $/M tokens</label>
+                <Input
+                  placeholder={selectedProvider.id === "ollama" ? "0 (free)" : "e.g. 15.00"}
+                  value={outputPrice}
+                  onChange={(e) => setOutputPrice(e.target.value)}
+                  className="h-8 text-xs"
+                  type="number"
+                  step="0.001"
+                />
+              </div>
+            </div>
+
+            {error && (
+              <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+            )}
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium">Context Window</label>
-              <Input
-                placeholder="e.g. 128000"
-                value={contextWindow}
-                onChange={(e) => setContextWindow(e.target.value)}
-                className="h-8 text-xs"
-                type="number"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium">Input $/M tokens</label>
-              <Input
-                placeholder="e.g. 3.00"
-                value={inputPrice}
-                onChange={(e) => setInputPrice(e.target.value)}
-                className="h-8 text-xs"
-                type="number"
-                step="0.01"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium">Output $/M tokens</label>
-              <Input
-                placeholder="e.g. 15.00"
-                value={outputPrice}
-                onChange={(e) => setOutputPrice(e.target.value)}
-                className="h-8 text-xs"
-                type="number"
-                step="0.01"
-              />
-            </div>
-          </div>
-        </div>
+        )}
 
         <DialogFooter>
           <DialogClose render={<Button variant="outline" size="sm" />}>
             Cancel
           </DialogClose>
-          <Button
-            size="sm"
-            onClick={handleCreate}
-            disabled={!canSubmit}
-          >
-            Add Model
-          </Button>
+          {selectedProvider && (
+            <Button size="sm" onClick={() => mutation.mutate()} disabled={!canSubmit}>
+              {mutation.isPending ? "Saving..." : "Add Model"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
