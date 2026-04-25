@@ -114,7 +114,7 @@ async def create_agent(
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AgentResponse]:
-    """Manually register an agent in the registry."""
+    """Manually register an agent in the registry (upsert by name)."""
     from engine.config_parser import AgentConfig, FrameworkType
 
     # Build a minimal AgentConfig for registry
@@ -129,7 +129,11 @@ async def create_agent(
         deploy={"cloud": "local"},
         tags=body.tags,
     )
+    # AgentRegistry.register performs an upsert, so duplicate names update
+    # the existing record rather than raising a DB constraint violation.
     agent = await AgentRegistry.register(db, config, endpoint_url=body.endpoint_url or "")
+    await db.commit()
+    await db.refresh(agent)
     return ApiResponse(data=AgentResponse.model_validate(agent))
 
 
@@ -156,7 +160,8 @@ async def update_agent(
     if body.tags is not None:
         agent.tags = body.tags
 
-    await db.flush()
+    await db.commit()
+    await db.refresh(agent)
     return ApiResponse(data=AgentResponse.model_validate(agent))
 
 

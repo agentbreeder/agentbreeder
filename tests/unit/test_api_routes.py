@@ -161,24 +161,44 @@ def _make_mock_user(**kwargs):
     return mock
 
 
+def _make_mock_db() -> MagicMock:
+    """Return a mock AsyncSession whose commit/refresh are async no-ops."""
+    mock_db = MagicMock()
+    mock_db.commit = AsyncMock()
+    mock_db.refresh = AsyncMock()
+    mock_db.flush = AsyncMock()
+    return mock_db
+
+
+async def _override_get_db_noop():
+    """FastAPI dependency override: yields a no-op async DB session."""
+    yield _make_mock_db()
+
+
 class TestCreateAgent:
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
     @patch("api.routes.agents.AgentRegistry.register", new_callable=AsyncMock)
     def test_create_agent(self, mock_register: AsyncMock, mock_get_user: AsyncMock) -> None:
+        from api.database import get_db
+
         mock_get_user.return_value = _make_mock_user()
         mock_register.return_value = _make_agent("new-agent")
-        resp = client.post(
-            "/api/v1/agents",
-            headers=_auth_headers(),
-            json={
-                "name": "new-agent",
-                "version": "1.0.0",
-                "team": "eng",
-                "owner": "a@b.com",
-                "framework": "langgraph",
-                "model_primary": "gpt-4o",
-            },
-        )
+        app.dependency_overrides[get_db] = _override_get_db_noop
+        try:
+            resp = client.post(
+                "/api/v1/agents",
+                headers=_auth_headers(),
+                json={
+                    "name": "new-agent",
+                    "version": "1.0.0",
+                    "team": "eng",
+                    "owner": "a@b.com",
+                    "framework": "langgraph",
+                    "model_primary": "gpt-4o",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
         assert resp.status_code == 201
         assert resp.json()["data"]["name"] == "new-agent"
         mock_register.assert_called_once()
@@ -188,6 +208,8 @@ class TestCreateAgent:
     def test_create_agent_with_all_fields(
         self, mock_register: AsyncMock, mock_get_user: AsyncMock
     ) -> None:
+        from api.database import get_db
+
         mock_get_user.return_value = _make_mock_user()
         mock_register.return_value = _make_agent(
             "full-agent",
@@ -195,59 +217,108 @@ class TestCreateAgent:
             model_fallback="gpt-4o",
             tags=["prod"],
         )
-        resp = client.post(
-            "/api/v1/agents",
-            headers=_auth_headers(),
-            json={
-                "name": "full-agent",
-                "version": "2.0.0",
-                "description": "Full",
-                "team": "platform",
-                "owner": "b@c.com",
-                "framework": "crewai",
-                "model_primary": "claude-sonnet-4",
-                "model_fallback": "gpt-4o",
-                "endpoint_url": "http://localhost:9090",
-                "tags": ["prod"],
-            },
-        )
+        app.dependency_overrides[get_db] = _override_get_db_noop
+        try:
+            resp = client.post(
+                "/api/v1/agents",
+                headers=_auth_headers(),
+                json={
+                    "name": "full-agent",
+                    "version": "2.0.0",
+                    "description": "Full",
+                    "team": "platform",
+                    "owner": "b@c.com",
+                    "framework": "crewai",
+                    "model_primary": "claude-sonnet-4",
+                    "model_fallback": "gpt-4o",
+                    "endpoint_url": "http://localhost:9090",
+                    "tags": ["prod"],
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
         assert resp.status_code == 201
         data = resp.json()["data"]
         assert data["framework"] == "crewai"
         assert data["model_fallback"] == "gpt-4o"
+
+    @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
+    @patch("api.routes.agents.AgentRegistry.register", new_callable=AsyncMock)
+    def test_create_agent_duplicate_name_upserts_not_500(
+        self, mock_register: AsyncMock, mock_get_user: AsyncMock
+    ) -> None:
+        """Issue #116 — duplicate name must NOT raise 500; register() handles upsert."""
+        from api.database import get_db
+
+        mock_get_user.return_value = _make_mock_user()
+        # Simulate what register() returns after updating the existing record
+        mock_register.return_value = _make_agent("existing-agent", version="2.0.0")
+        app.dependency_overrides[get_db] = _override_get_db_noop
+        try:
+            resp = client.post(
+                "/api/v1/agents",
+                headers=_auth_headers(),
+                json={
+                    "name": "existing-agent",  # same name as an existing agent
+                    "version": "2.0.0",
+                    "team": "eng",
+                    "owner": "a@b.com",
+                    "framework": "langgraph",
+                    "model_primary": "gpt-4o",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+        # Must not 500 — upsert should succeed with 201 and return updated record
+        assert resp.status_code == 201
+        assert resp.json()["data"]["name"] == "existing-agent"
+        assert resp.json()["data"]["version"] == "2.0.0"
+        mock_register.assert_called_once()
 
 
 class TestUpdateAgent:
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
     @patch("api.routes.agents.AgentRegistry.get_by_id", new_callable=AsyncMock)
     def test_update_version(self, mock_get: AsyncMock, mock_get_user: AsyncMock) -> None:
+        from api.database import get_db
+
         mock_get_user.return_value = _make_mock_user()
         agent = _make_agent()
         mock_get.return_value = agent
-        resp = client.put(
-            f"/api/v1/agents/{agent.id}",
-            headers=_auth_headers(),
-            json={"version": "2.0.0"},
-        )
+        app.dependency_overrides[get_db] = _override_get_db_noop
+        try:
+            resp = client.put(
+                f"/api/v1/agents/{agent.id}",
+                headers=_auth_headers(),
+                json={"version": "2.0.0"},
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
         assert resp.status_code == 200
         assert resp.json()["data"]["version"] == "2.0.0"
 
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
     @patch("api.routes.agents.AgentRegistry.get_by_id", new_callable=AsyncMock)
     def test_update_multiple_fields(self, mock_get: AsyncMock, mock_get_user: AsyncMock) -> None:
+        from api.database import get_db
+
         mock_get_user.return_value = _make_mock_user()
         agent = _make_agent()
         mock_get.return_value = agent
-        resp = client.put(
-            f"/api/v1/agents/{agent.id}",
-            headers=_auth_headers(),
-            json={
-                "description": "Updated",
-                "endpoint_url": "http://new:9090",
-                "status": "stopped",
-                "tags": ["updated"],
-            },
-        )
+        app.dependency_overrides[get_db] = _override_get_db_noop
+        try:
+            resp = client.put(
+                f"/api/v1/agents/{agent.id}",
+                headers=_auth_headers(),
+                json={
+                    "description": "Updated",
+                    "endpoint_url": "http://new:9090",
+                    "status": "stopped",
+                    "tags": ["updated"],
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["description"] == "Updated"
@@ -257,14 +328,55 @@ class TestUpdateAgent:
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
     @patch("api.routes.agents.AgentRegistry.get_by_id", new_callable=AsyncMock)
     def test_update_not_found(self, mock_get: AsyncMock, mock_get_user: AsyncMock) -> None:
+        from api.database import get_db
+
         mock_get_user.return_value = _make_mock_user()
         mock_get.return_value = None
-        resp = client.put(
-            f"/api/v1/agents/{uuid.uuid4()}",
-            headers=_auth_headers(),
-            json={"version": "2.0.0"},
-        )
+        app.dependency_overrides[get_db] = _override_get_db_noop
+        try:
+            resp = client.put(
+                f"/api/v1/agents/{uuid.uuid4()}",
+                headers=_auth_headers(),
+                json={"version": "2.0.0"},
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
         assert resp.status_code == 404
+
+    @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
+    @patch("api.routes.agents.AgentRegistry.get_by_id", new_callable=AsyncMock)
+    def test_update_uses_commit_and_refresh_not_flush(
+        self, mock_get: AsyncMock, mock_get_user: AsyncMock
+    ) -> None:
+        """Issue #115 — PUT must call commit()+refresh() so lazy-loaded fields are available."""
+        from api.database import get_db
+
+        mock_get_user.return_value = _make_mock_user()
+        agent = _make_agent()
+        mock_get.return_value = agent
+
+        mock_db = _make_mock_db()
+
+        async def _override_get_db_capture():
+            yield mock_db
+
+        app.dependency_overrides[get_db] = _override_get_db_capture
+        try:
+            resp = client.put(
+                f"/api/v1/agents/{agent.id}",
+                headers=_auth_headers(),
+                json={"version": "3.0.0"},
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+
+        assert resp.status_code == 200
+        # commit() must have been called (not flush())
+        mock_db.commit.assert_awaited_once()
+        # refresh() must have been called so updated_at and other lazy fields load
+        mock_db.refresh.assert_awaited_once_with(agent)
+        # flush() must NOT have been called on this path
+        mock_db.flush.assert_not_awaited()
 
 
 class TestDeleteAgent:
