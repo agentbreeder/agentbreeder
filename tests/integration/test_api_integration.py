@@ -148,7 +148,9 @@ class TestAgentCRUDFlow:
     @patch("sqlalchemy.ext.asyncio.AsyncSession.refresh", new_callable=AsyncMock)
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
     @patch("api.routes.agents.AgentRegistry.register", new_callable=AsyncMock)
-    def test_create_agent(self, mock_register: AsyncMock, mock_user: AsyncMock, _mock_refresh: AsyncMock) -> None:
+    def test_create_agent(
+        self, mock_register: AsyncMock, mock_user: AsyncMock, _mock_refresh: AsyncMock
+    ) -> None:
         """POST /api/v1/agents should create a new agent."""
         agent_id = uuid.uuid4()
         mock_user.return_value = _make_mock_user()
@@ -214,7 +216,9 @@ class TestAgentCRUDFlow:
     @patch("sqlalchemy.ext.asyncio.AsyncSession.refresh", new_callable=AsyncMock)
     @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
     @patch("api.routes.agents.AgentRegistry.get_by_id", new_callable=AsyncMock)
-    def test_update_agent(self, mock_get: AsyncMock, mock_user: AsyncMock, _mock_refresh: AsyncMock) -> None:
+    def test_update_agent(
+        self, mock_get: AsyncMock, mock_user: AsyncMock, _mock_refresh: AsyncMock
+    ) -> None:
         """PUT /api/v1/agents/{id} should update agent fields."""
         agent_id = uuid.uuid4()
         agent = _make_agent_mock("my-agent", id=agent_id)
