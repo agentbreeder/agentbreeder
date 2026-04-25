@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
+from api.auth import get_current_user, get_optional_user
 from api.main import app
 from api.models.enums import (
     AgentStatus,
@@ -21,6 +22,29 @@ from api.models.enums import (
     UserRole,
 )
 from api.services.auth import create_access_token
+
+# Wire a default admin user into the app so all auth-gated routes pass without
+# needing a real DB or individual per-request headers.
+_DEFAULT_USER_ID = uuid.uuid4()
+_DEFAULT_USER = MagicMock()
+_DEFAULT_USER.id = _DEFAULT_USER_ID
+_DEFAULT_USER.email = "integration-test@agentbreeder.io"
+_DEFAULT_USER.name = "Integration Test Admin"
+_DEFAULT_USER.role = UserRole.admin
+_DEFAULT_USER.team = "engineering"
+_DEFAULT_USER.is_active = True
+
+
+async def _mock_get_current_user():
+    return _DEFAULT_USER
+
+
+async def _mock_get_optional_user():
+    return _DEFAULT_USER
+
+
+app.dependency_overrides[get_current_user] = _mock_get_current_user
+app.dependency_overrides[get_optional_user] = _mock_get_optional_user
 
 client = TestClient(app)
 
@@ -258,18 +282,24 @@ class TestAgentCRUDFlow:
 
     def test_create_agent_unauthorized(self) -> None:
         """POST /api/v1/agents without auth should return 401."""
-        resp = client.post(
-            "/api/v1/agents",
-            json={
-                "name": "no-auth-agent",
-                "version": "1.0.0",
-                "team": "engineering",
-                "owner": "dev@example.com",
-                "framework": "langgraph",
-                "model_primary": "gpt-4o",
-            },
-        )
-        assert resp.status_code == 401
+        # Temporarily remove the global auth override so the endpoint enforces auth.
+        saved = app.dependency_overrides.pop(get_current_user, None)
+        try:
+            resp = client.post(
+                "/api/v1/agents",
+                json={
+                    "name": "no-auth-agent",
+                    "version": "1.0.0",
+                    "team": "engineering",
+                    "owner": "dev@example.com",
+                    "framework": "langgraph",
+                    "model_primary": "gpt-4o",
+                },
+            )
+            assert resp.status_code == 401
+        finally:
+            if saved is not None:
+                app.dependency_overrides[get_current_user] = saved
 
 
 class TestAgentSearchAndValidation:
