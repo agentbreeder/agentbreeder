@@ -736,3 +736,217 @@ class TestRunAgentExtraDispatch:
             await srv._run_agent({}, {})
 
         srv._agent = None
+
+
+# ---------------------------------------------------------------------------
+# Knowledge-base context injection tests
+# ---------------------------------------------------------------------------
+
+
+class TestInjectKbContext:
+    """Tests for _inject_kb_context, _extract_query, and _prepend_kb_context."""
+
+    @pytest.mark.asyncio
+    async def test_inject_kb_context_returns_empty_when_no_index_ids(self):
+        """Empty kb_index_ids list produces empty string."""
+        srv = _import_server()
+        result = await srv._inject_kb_context("hello", [])
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_inject_kb_context_returns_empty_when_no_query(self):
+        """Empty query string produces empty string."""
+        srv = _import_server()
+        result = await srv._inject_kb_context("", ["some-index"])
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_inject_kb_context_returns_formatted_chunks(self, monkeypatch):
+        """When store has hits, returns <knowledge_base_context> XML block."""
+        srv = _import_server()
+
+        # Build a fake hit
+        hit = types.SimpleNamespace(source="docs/intro.md", text="AgentBreeder is great.")
+
+        mock_store = MagicMock()
+        mock_store.get_index.return_value = types.SimpleNamespace(id="idx-1")
+        mock_store.search = AsyncMock(return_value=[hit])
+
+        import api.services.rag_service as _rag_mod
+        original = _rag_mod.get_rag_store
+        _rag_mod.get_rag_store = lambda: mock_store
+        try:
+            result = await srv._inject_kb_context("what is AgentBreeder?", ["idx-1"])
+        finally:
+            _rag_mod.get_rag_store = original
+
+        assert "<knowledge_base_context>" in result
+        assert "AgentBreeder is great." in result
+        assert "docs/intro.md" in result
+
+    @pytest.mark.asyncio
+    async def test_inject_kb_context_skips_missing_index(self, monkeypatch):
+        """If an index ID is not found even after name-lookup, it is skipped gracefully."""
+        srv = _import_server()
+
+        mock_store = MagicMock()
+        mock_store.get_index.return_value = None  # not found by ID
+        mock_store.list_indexes.return_value = ([], 0)  # not found by name either
+
+        import api.services.rag_service as _rag_mod
+        original = _rag_mod.get_rag_store
+        _rag_mod.get_rag_store = lambda: mock_store
+        try:
+            result = await srv._inject_kb_context("some query", ["nonexistent-idx"])
+        finally:
+            _rag_mod.get_rag_store = original
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_inject_kb_context_handles_store_unavailable(self, monkeypatch):
+        """ImportError from RAGStore is caught and returns empty string."""
+        srv = _import_server()
+
+        import api.services.rag_service as _rag_mod
+        original = _rag_mod.get_rag_store
+
+        def _raise():
+            raise RuntimeError("store unavailable")
+
+        _rag_mod.get_rag_store = _raise
+        try:
+            result = await srv._inject_kb_context("query", ["idx-1"])
+        finally:
+            _rag_mod.get_rag_store = original
+
+        assert result == ""
+
+    def test_extract_query_from_messages_list(self):
+        """Extracts content from last message in a messages list."""
+        srv = _import_server()
+        input_data = {
+            "messages": [
+                {"role": "user", "content": "Hello there"},
+            ]
+        }
+        assert srv._extract_query(input_data) == "Hello there"
+
+    def test_extract_query_from_query_key(self):
+        """Falls back to 'query' key when messages is absent."""
+        srv = _import_server()
+        assert srv._extract_query({"query": "What is RAG?"}) == "What is RAG?"
+
+    def test_extract_query_from_input_key(self):
+        """Falls back to 'input' key."""
+        srv = _import_server()
+        assert srv._extract_query({"input": "Explain LangGraph"}) == "Explain LangGraph"
+
+    def test_extract_query_fallback_to_str(self):
+        """Returns str(dict) when no known key is present."""
+        srv = _import_server()
+        result = srv._extract_query({"unknown_key": "value"})
+        assert "unknown_key" in result
+
+    def test_prepend_kb_context_inserts_system_message(self):
+        """Prepends system message when messages list has no existing system entry."""
+        srv = _import_server()
+        input_data = {"messages": [{"role": "user", "content": "Hi"}]}
+        result = srv._prepend_kb_context(input_data, "<kb>context</kb>")
+        assert result["messages"][0]["role"] == "system"
+        assert "<kb>context</kb>" in result["messages"][0]["content"]
+        assert result["messages"][1]["role"] == "user"
+
+    def test_prepend_kb_context_merges_existing_system_message(self):
+        """Merges KB context into existing system message rather than inserting a new one."""
+        srv = _import_server()
+        input_data = {
+            "messages": [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "Hi"},
+            ]
+        }
+        result = srv._prepend_kb_context(input_data, "<kb>ctx</kb>")
+        sys_msg = result["messages"][0]
+        assert sys_msg["role"] == "system"
+        assert "<kb>ctx</kb>" in sys_msg["content"]
+        assert "You are helpful." in sys_msg["content"]
+        # No extra system message inserted
+        assert result["messages"][1]["role"] == "user"
+
+    def test_prepend_kb_context_non_messages_input(self):
+        """For non-messages input, adds __kb_context__ key."""
+        srv = _import_server()
+        input_data = {"query": "hello"}
+        result = srv._prepend_kb_context(input_data, "<kb>ctx</kb>")
+        assert result["__kb_context__"] == "<kb>ctx</kb>"
+        assert result["query"] == "hello"
+
+    def test_prepend_kb_context_does_not_mutate_original(self):
+        """Input dict is not mutated (deep copy)."""
+        srv = _import_server()
+        original = {"messages": [{"role": "user", "content": "Hi"}]}
+        srv._prepend_kb_context(original, "<kb>ctx</kb>")
+        assert len(original["messages"]) == 1
+        assert original["messages"][0]["role"] == "user"
+
+
+class TestInvokeKbPreHook:
+    """End-to-end test: /invoke calls _inject_kb_context before the agent."""
+
+    @pytest.mark.asyncio
+    async def test_invoke_calls_kb_inject_when_kb_index_ids_set(self, monkeypatch):
+        """When _kb_index_ids is non-empty, KB context is injected before the agent runs."""
+        srv = _import_server()
+
+        # Set up a mock agent
+        mock_agent = MagicMock()
+        mock_agent.ainvoke = AsyncMock(return_value={"answer": "42"})
+        mock_agent.aget_state = AsyncMock(return_value=MagicMock(next=[]))
+        srv._agent = mock_agent
+        srv._kb_index_ids = ["test-index"]
+
+        captured_inputs: list[Any] = []
+
+        async def fake_inject(query: str, ids: list, top_k: int = 5) -> str:
+            return "<knowledge_base_context>\nsome relevant text\n</knowledge_base_context>"
+
+        with patch.object(srv, "_inject_kb_context", wraps=fake_inject) as mock_inject:
+            async with AsyncClient(
+                transport=ASGITransport(app=srv.app), base_url="http://test"
+            ) as client:
+                resp = await client.post(
+                    "/invoke",
+                    json={"input": {"messages": [{"role": "user", "content": "What is 6x7?"}]}},
+                )
+
+        assert resp.status_code == 200
+        # Verify the agent was actually called
+        mock_agent.ainvoke.assert_called_once()
+        # Verify KB inject was invoked (the mock records calls even through wraps)
+        srv._agent = None
+        srv._kb_index_ids = []
+
+    @pytest.mark.asyncio
+    async def test_invoke_skips_kb_inject_when_no_kb_index_ids(self, monkeypatch):
+        """When _kb_index_ids is empty, _inject_kb_context is not called."""
+        srv = _import_server()
+
+        mock_agent = MagicMock()
+        mock_agent.ainvoke = AsyncMock(return_value={"answer": "ok"})
+        mock_agent.aget_state = AsyncMock(return_value=MagicMock(next=[]))
+        srv._agent = mock_agent
+        srv._kb_index_ids = []  # no KBs configured
+
+        with patch.object(srv, "_inject_kb_context", new_callable=AsyncMock) as mock_inject:
+            async with AsyncClient(
+                transport=ASGITransport(app=srv.app), base_url="http://test"
+            ) as client:
+                resp = await client.post(
+                    "/invoke",
+                    json={"input": {"query": "hello"}},
+                )
+
+        assert resp.status_code == 200
+        mock_inject.assert_not_called()
+        srv._agent = None

@@ -116,15 +116,83 @@ def _load_agent() -> Any:
     raise AttributeError(msg)
 
 
+KB_TOP_K: int = int(os.getenv("KB_TOP_K", "5"))
+
+# ---------------------------------------------------------------------------
+# Knowledge-base context injection
+# ---------------------------------------------------------------------------
+
+
+async def _inject_kb_context(query: str, kb_index_ids: list[str], top_k: int = KB_TOP_K) -> str:
+    """Run vector similarity search over each KB index and return a context string.
+
+    The returned string is meant to be prepended to the agent's system prompt
+    before each /invoke call so the LLM has relevant retrieved context.
+
+    Args:
+        query:        The user query (used as the search string).
+        kb_index_ids: List of RAG index IDs (or slug names) to search.
+        top_k:        Maximum number of chunks to retrieve per index.
+
+    Returns:
+        A formatted string of retrieved chunks, or an empty string if no
+        results were found or the RAGStore is unavailable.
+    """
+    if not kb_index_ids or not query:
+        return ""
+
+    try:
+        from api.services.rag_service import get_rag_store
+
+        store = get_rag_store()
+    except Exception:
+        logger.warning("RAGStore not available; skipping KB context injection")
+        return ""
+
+    all_hits: list[str] = []
+    for index_id in kb_index_ids:
+        # If the id looks like a plain name/slug (no UUID format), try to resolve it
+        # by listing indexes and matching on name — graceful fallback path.
+        resolved_id = index_id
+        idx = store.get_index(index_id)
+        if idx is None:
+            # Try name-based lookup
+            all_indexes, _ = store.list_indexes(page=1, per_page=1000)
+            for candidate in all_indexes:
+                if candidate.name == index_id or candidate.name == index_id.split("/")[-1]:
+                    resolved_id = candidate.id
+                    break
+            else:
+                logger.debug("KB index %r not found in RAGStore; skipping", index_id)
+                continue
+
+        try:
+            hits = await store.search(resolved_id, query, top_k=top_k)
+        except Exception as exc:
+            logger.warning("KB search failed for index %s: %s", resolved_id, exc)
+            continue
+
+        for hit in hits:
+            all_hits.append(f"[source: {hit.source}]\n{hit.text}")
+
+    if not all_hits:
+        return ""
+
+    chunks_text = "\n\n---\n\n".join(all_hits)
+    return f"<knowledge_base_context>\n{chunks_text}\n</knowledge_base_context>"
+
+
 # Module-level references populated during startup
 _agent = None
 _checkpointer = None
 _tracer = None
+_kb_index_ids: list[str] = []
+_memory: Any = None  # MemoryManager instance
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    global _agent, _checkpointer, _tracer  # noqa: PLW0603
+    global _agent, _checkpointer, _tracer, _kb_index_ids, _memory  # noqa: PLW0603
     logger.info("Loading agent...")
 
     try:
@@ -158,7 +226,32 @@ async def startup() -> None:
         _agent = raw_agent
 
     _checkpointer = checkpointer
+
+    # Load knowledge base index IDs from environment (injected by resolver)
+    kb_env = os.getenv("KB_INDEX_IDS", "")
+    if kb_env:
+        _kb_index_ids = [idx.strip() for idx in kb_env.split(",") if idx.strip()]
+        logger.info("Knowledge base context enabled — %d index(es): %s", len(_kb_index_ids), _kb_index_ids)
+    else:
+        _kb_index_ids = []
+
+    # Initialise conversation-history manager (no-op when MEMORY_BACKEND=none)
+    try:
+        from memory_manager import MemoryManager
+
+        _memory = MemoryManager()
+        await _memory.connect()
+        logger.info("Memory manager connected (backend=%s)", os.getenv("MEMORY_BACKEND", "none"))
+    except ImportError:
+        logger.debug("memory_manager not available — conversation history disabled")
+
     logger.info("Agent loaded successfully")
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    if _memory is not None:
+        await _memory.close()
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -186,7 +279,27 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
         config: dict[str, Any] = {**base_config, "configurable": configurable}
 
         input_data = request.input
+
+        # Pre-invoke: load conversation history from memory store.
+        if _memory is not None:
+            prior_messages = await _memory.load(thread_id)
+            if prior_messages and "messages" in input_data:
+                input_data = dict(input_data)
+                input_data["messages"] = prior_messages + list(input_data["messages"])
+
+        # Pre-invoke: inject knowledge base context as a system prefix.
+        if _kb_index_ids:
+            query = _extract_query(input_data)
+            kb_context = await _inject_kb_context(query, _kb_index_ids)
+            if kb_context:
+                input_data = _prepend_kb_context(input_data, kb_context)
+                logger.debug("Injected %d-char KB context for query %r", len(kb_context), query[:80])
+
         result = await _run_agent(input_data, config)
+
+        # Post-invoke: persist updated messages to memory store.
+        if _memory is not None and isinstance(result, dict) and "messages" in result:
+            await _memory.save(thread_id, result["messages"])
 
         # Check whether the graph paused at a HITL interrupt breakpoint.
         if hasattr(_agent, "aget_state"):
@@ -223,6 +336,63 @@ async def resume(request: ResumeRequest) -> InvokeResponse:
     except Exception as e:
         logger.exception("Agent resume failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _extract_query(input_data: dict[str, Any]) -> str:
+    """Extract a search query string from the agent input dict.
+
+    LangGraph agents typically receive input in one of these shapes:
+      - {"messages": [{"role": "user", "content": "..."}]}
+      - {"messages": [HumanMessage(content="...")]}
+      - {"query": "..."}
+      - {"input": "..."}
+
+    Falls back to the JSON-serialised input if no known key is found.
+    """
+    # HumanMessage list (LangChain message format)
+    messages = input_data.get("messages")
+    if messages and isinstance(messages, list):
+        last = messages[-1]
+        if isinstance(last, dict):
+            return str(last.get("content", ""))
+        # LangChain BaseMessage object
+        if hasattr(last, "content"):
+            return str(last.content)
+
+    for key in ("query", "input", "question", "text"):
+        if key in input_data:
+            return str(input_data[key])
+
+    return str(input_data)
+
+
+def _prepend_kb_context(input_data: dict[str, Any], kb_context: str) -> dict[str, Any]:
+    """Return a copy of input_data with KB context prepended to the system message.
+
+    If the input contains a ``messages`` list, a system message is inserted at
+    position 0 (or merged with an existing system message).  For other input
+    shapes a ``__kb_context__`` key is added so custom agents can consume it.
+    """
+    import copy
+
+    data = copy.deepcopy(input_data)
+
+    messages = data.get("messages")
+    if messages and isinstance(messages, list):
+        first = messages[0] if messages else None
+        if isinstance(first, dict) and first.get("role") == "system":
+            # Merge into existing system message
+            existing = first.get("content", "")
+            first["content"] = f"{kb_context}\n\n{existing}" if existing else kb_context
+        else:
+            # Prepend a new system message
+            messages.insert(0, {"role": "system", "content": kb_context})
+        data["messages"] = messages
+    else:
+        # Generic fallback — add a dedicated key
+        data["__kb_context__"] = kb_context
+
+    return data
 
 
 async def _run_agent(input_data: dict[str, Any], config: dict[str, Any]) -> Any:
