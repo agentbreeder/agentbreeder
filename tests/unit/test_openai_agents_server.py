@@ -389,3 +389,217 @@ class TestHealthEndpoint:
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json()["status"] == "loading"
+
+
+# ---------------------------------------------------------------------------
+# tool_bridge A2A integration tests (feature #110)
+# ---------------------------------------------------------------------------
+
+
+class TestToolBridgeA2AIntegration:
+    """Tests for the tool_bridge A2A sub-agent registration added in startup()."""
+
+    @pytest.mark.asyncio
+    async def test_a2a_tool_registered_on_agent_tools_list(self, agents_stub):
+        """When AGENT_TOOLS_JSON is set, FunctionTool should be appended to agent.tools."""
+        server = _import_server(agents_stub)
+
+        # Build a fake agent with a mutable tools list.
+        fake_agent = MagicMock()
+        fake_agent.tools = []
+
+        # Build a fake tool_bridge.
+        fake_tb = MagicMock()
+        fake_tb.execute.return_value = "pong"
+
+        # Build a fake FunctionTool constructor so we can check it's called.
+        created_tools = []
+
+        class FakeFunctionTool:
+            def __init__(self, fn):
+                self._fn = fn
+                created_tools.append(self)
+
+        agents_stub.FunctionTool = FakeFunctionTool
+
+        import json as _json
+        import sys as _sys
+
+        _sys.modules["engine.tool_bridge"] = fake_tb
+
+        tools_json = _json.dumps([{"name": "sub_agent", "description": "A2A sub-agent"}])
+
+        with (
+            patch.object(server, "_load_agent", return_value=fake_agent),
+            patch.dict("os.environ", {
+                "AGENT_TOOLS_JSON": tools_json,
+                "OPENAI_API_KEY": "sk-dummy",
+            }),
+        ):
+            await server.startup()
+
+        # FunctionTool was instantiated for the sub_agent tool.
+        assert len(created_tools) == 1
+        # The tool was appended to agent.tools.
+        assert len(fake_agent.tools) == 1
+        assert fake_agent.tools[0] is created_tools[0]
+        # _a2a_tools_registered flag should be True.
+        assert server._a2a_tools_registered is True
+
+        _sys.modules.pop("engine.tool_bridge", None)
+
+    @pytest.mark.asyncio
+    async def test_a2a_tool_fn_calls_tool_bridge_execute(self, agents_stub):
+        """The FunctionTool callable should forward calls to tool_bridge.execute."""
+        server = _import_server(agents_stub)
+
+        fake_agent = MagicMock()
+        fake_agent.tools = []
+
+        fake_tb = MagicMock()
+        fake_tb.execute.return_value = "result data"
+
+        captured_fns = []
+
+        class FakeFunctionTool:
+            def __init__(self, fn):
+                self._fn = fn
+                captured_fns.append(fn)
+
+        agents_stub.FunctionTool = FakeFunctionTool
+
+        import json as _json
+        import sys as _sys
+
+        _sys.modules["engine.tool_bridge"] = fake_tb
+
+        tools_json = _json.dumps([{"name": "my_tool", "description": "Does a thing"}])
+
+        with (
+            patch.object(server, "_load_agent", return_value=fake_agent),
+            patch.dict("os.environ", {
+                "AGENT_TOOLS_JSON": tools_json,
+                "OPENAI_API_KEY": "sk-dummy",
+            }),
+        ):
+            await server.startup()
+
+        assert len(captured_fns) == 1
+        fn = captured_fns[0]
+        # Call the wrapped function — it should delegate to tool_bridge.execute.
+        output = fn(input="test input")
+        fake_tb.execute.assert_called_once_with("my_tool", {"input": "test input"})
+        assert output == "result data"
+
+        _sys.modules.pop("engine.tool_bridge", None)
+
+    @pytest.mark.asyncio
+    async def test_a2a_tool_fn_returns_error_string_on_execute_failure(self, agents_stub):
+        """If tool_bridge.execute raises, the fn returns an error string (does not crash)."""
+        server = _import_server(agents_stub)
+
+        fake_agent = MagicMock()
+        fake_agent.tools = []
+
+        fake_tb = MagicMock()
+        fake_tb.execute.side_effect = KeyError("no endpoint")
+
+        captured_fns = []
+
+        class FakeFunctionTool:
+            def __init__(self, fn):
+                captured_fns.append(fn)
+
+        agents_stub.FunctionTool = FakeFunctionTool
+
+        import json as _json
+        import sys as _sys
+
+        _sys.modules["engine.tool_bridge"] = fake_tb
+
+        tools_json = _json.dumps([{"name": "broken_tool"}])
+
+        with (
+            patch.object(server, "_load_agent", return_value=fake_agent),
+            patch.dict("os.environ", {
+                "AGENT_TOOLS_JSON": tools_json,
+                "OPENAI_API_KEY": "sk-dummy",
+            }),
+        ):
+            await server.startup()
+
+        assert len(captured_fns) == 1
+        result = captured_fns[0](input="anything")
+        assert "Error calling" in result
+
+        _sys.modules.pop("engine.tool_bridge", None)
+
+    @pytest.mark.asyncio
+    async def test_a2a_tools_not_registered_when_agent_has_no_tools_list(self, agents_stub):
+        """If the agent has no mutable .tools list, registration is skipped gracefully."""
+        server = _import_server(agents_stub)
+
+        # Agent without a list tools attribute.
+        fake_agent = MagicMock(spec=["name"])  # no 'tools' attribute
+
+        fake_tb = MagicMock()
+        fake_tb.execute.return_value = "x"
+
+        class FakeFunctionTool:
+            def __init__(self, fn):
+                pass
+
+        agents_stub.FunctionTool = FakeFunctionTool
+
+        import json as _json
+        import sys as _sys
+
+        _sys.modules["engine.tool_bridge"] = fake_tb
+
+        tools_json = _json.dumps([{"name": "tool_a"}])
+
+        with (
+            patch.object(server, "_load_agent", return_value=fake_agent),
+            patch.dict("os.environ", {
+                "AGENT_TOOLS_JSON": tools_json,
+                "OPENAI_API_KEY": "sk-dummy",
+            }),
+        ):
+            # Must not raise.
+            await server.startup()
+
+        _sys.modules.pop("engine.tool_bridge", None)
+
+    @pytest.mark.asyncio
+    async def test_empty_tools_json_skips_a2a_registration(self, agents_stub):
+        """When AGENT_TOOLS_JSON is empty ([]), no FunctionTool is created."""
+        server = _import_server(agents_stub)
+
+        fake_agent = MagicMock()
+        fake_agent.tools = []
+
+        tool_created = []
+
+        class FakeFunctionTool:
+            def __init__(self, fn):
+                tool_created.append(fn)
+
+        agents_stub.FunctionTool = FakeFunctionTool
+
+        import sys as _sys
+
+        fake_tb = MagicMock()
+        _sys.modules["engine.tool_bridge"] = fake_tb
+
+        with (
+            patch.object(server, "_load_agent", return_value=fake_agent),
+            patch.dict("os.environ", {
+                "AGENT_TOOLS_JSON": "[]",
+                "OPENAI_API_KEY": "sk-dummy",
+            }),
+        ):
+            await server.startup()
+
+        assert tool_created == []
+
+        _sys.modules.pop("engine.tool_bridge", None)

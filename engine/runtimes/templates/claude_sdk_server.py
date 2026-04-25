@@ -192,31 +192,129 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+_AGENTIC_LOOP_MAX_ITER: int = 10  # guard against infinite tool-use loops
+
+
+async def _run_agentic_loop(
+    client: Any,
+    model: str,
+    system_prompt: str,
+    messages: list[dict[str, Any]],
+) -> str:
+    """Drive a full agentic tool-use loop for an AsyncAnthropic client.
+
+    Each iteration:
+    1. Calls ``client.messages.create(...)``
+    2. If any ``tool_use`` blocks are present, executes them via
+       ``tool_bridge.execute()`` and appends the ``tool_result`` back to
+       *messages* before looping.
+    3. Stops when the response contains no ``tool_use`` blocks (i.e. only text
+       or an ``end_turn`` stop reason) or after *_AGENTIC_LOOP_MAX_ITER*
+       iterations, whichever comes first.
+
+    Args:
+        client:        An ``anthropic.AsyncAnthropic`` instance.
+        model:         Model identifier string.
+        system_prompt: System prompt (may be empty).
+        messages:      Mutable message list; the first entry is the user
+                       message.  Tool results are appended in-place.
+
+    Returns:
+        The final text response from the model.
+    """
+    # Use sys.modules to pick up test-injected stubs for tool_bridge.
+    _tb = sys.modules.get("engine.tool_bridge")
+    if _tb is None:
+        import engine.tool_bridge as _tb  # noqa: PLC0415
+
+    for _iteration in range(_AGENTIC_LOOP_MAX_ITER):
+        max_tokens = int(os.getenv("AGENT_MAX_TOKENS", "4096"))
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": messages,
+        }
+        if _thinking_config:
+            thinking_type = _thinking_config.get("type", "adaptive")
+            effort = _thinking_config.get("_effort", "high")
+            kwargs["thinking"] = {"type": thinking_type}
+            kwargs["output_config"] = {"effort": effort}
+            kwargs["betas"] = ["interleaved-thinking-2025-05-14"]
+        if system_prompt:
+            if _prompt_caching_enabled and len(system_prompt) >= _get_cache_threshold(model):
+                kwargs["system"] = [
+                    {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
+                ]
+            else:
+                kwargs["system"] = system_prompt
+        if _tools:
+            kwargs["tools"] = _tools
+
+        response = await client.messages.create(**kwargs)
+
+        # Collect tool_use blocks from this response.
+        tool_use_blocks = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
+
+        if not tool_use_blocks:
+            # No tool calls — return the final text response.
+            return _extract_text(response)
+
+        if _iteration == _AGENTIC_LOOP_MAX_ITER - 1:
+            # Safety guard: hit max iterations; return whatever text we have.
+            logger.warning(
+                "Agentic loop reached max iterations (%d); returning partial response.",
+                _AGENTIC_LOOP_MAX_ITER,
+            )
+            return _extract_text(response)
+
+        # Append the assistant turn (including tool_use blocks) to messages.
+        messages.append({"role": "assistant", "content": response.content})
+
+        # Execute each tool and collect tool_result blocks.
+        tool_results: list[dict[str, Any]] = []
+        for block in tool_use_blocks:
+            tool_name: str = block.name
+            tool_input: dict[str, Any] = block.id and block.input or {}
+            try:
+                tool_output = _tb.execute(tool_name, tool_input)
+                content = str(tool_output)
+                is_error = False
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Tool %r execution error: %s", tool_name, exc)
+                content = f"Error: {exc}"
+                is_error = True
+
+            tool_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": content,
+                    "is_error": is_error,
+                }
+            )
+
+        # Append all tool results as a single user message.
+        messages.append({"role": "user", "content": tool_results})
+
+    # Should never reach here because the loop body always returns or loops.
+    return ""  # pragma: no cover
+
+
 async def _run_agent(input_data: str) -> str:
     """Run the agent, dispatching based on the type of object loaded from agent.py."""
     import anthropic
 
     model = os.getenv("AGENT_MODEL", "claude-sonnet-4-6")
     system_prompt = os.getenv("AGENT_SYSTEM_PROMPT", "")
-    messages = [{"role": "user", "content": input_data}]
+    messages: list[dict[str, Any]] = [{"role": "user", "content": input_data}]
 
-    # anthropic.AsyncAnthropic client
+    # anthropic.AsyncAnthropic client — full agentic tool-use loop
     if isinstance(_agent, anthropic.AsyncAnthropic):
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "max_tokens": 1024,
-            "messages": messages,
-        }
-        if system_prompt:
-            kwargs["system"] = system_prompt
-        if _tools:
-            kwargs["tools"] = _tools
-        response = await _agent.messages.create(**kwargs)
-        return _extract_text(response)
+        return await _run_agentic_loop(_agent, model, system_prompt, messages)
 
     # anthropic.Anthropic (sync) client — run in thread to avoid blocking
     if isinstance(_agent, anthropic.Anthropic):
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": 1024,
             "messages": messages,

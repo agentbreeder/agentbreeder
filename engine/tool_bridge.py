@@ -386,3 +386,46 @@ def to_adk_tools(tools: list[Any]) -> list[Callable[..., Any]]:
         )
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Generic tool executor
+# ---------------------------------------------------------------------------
+
+
+def execute(tool_name: str, tool_input: dict[str, Any]) -> Any:
+    """Execute a registered tool by name via its HTTP endpoint.
+
+    Looks up the endpoint from the ``TOOL_ENDPOINT_<SLUG>`` environment
+    variable (where SLUG is derived from *tool_name*) and POSTs *tool_input*
+    as JSON.
+
+    Args:
+        tool_name: The tool name used to derive the env-var slug.
+        tool_input: Arbitrary JSON-serialisable payload to send as the POST
+            body.
+
+    Returns:
+        The ``output`` field from the JSON response if present, otherwise the
+        full deserialized response body.
+
+    Raises:
+        KeyError: If no endpoint is configured for *tool_name*.
+        httpx.HTTPError: If the HTTP request fails.
+    """
+    slug = _ref_to_slug(tool_name)
+    env_key = _ENV_PREFIX + slug
+    endpoint = os.environ.get(env_key)
+    if endpoint is None:
+        msg = (
+            f"No endpoint configured for tool {tool_name!r}. "
+            f"Set {env_key} to the tool's HTTP endpoint URL."
+        )
+        raise KeyError(msg)
+
+    response = _sync_http_client.post(endpoint, json=tool_input)
+    response.raise_for_status()
+    data = response.json()
+    if isinstance(data, dict):
+        return data.get("output", data)
+    return data

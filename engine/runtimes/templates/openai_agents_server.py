@@ -92,11 +92,12 @@ def _load_agent() -> Any:
 # Load agent at startup
 _agent = None
 _tracer = None
+_a2a_tools_registered: bool = False  # tracks whether tool_bridge A2A tools were injected
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    global _agent, _tracer  # noqa: PLW0603
+    global _agent, _tracer, _a2a_tools_registered  # noqa: PLW0603
     logger.info("Loading OpenAI Agents SDK agent...")
     _agent = _load_agent()
     logger.info("Agent loaded successfully")
@@ -107,6 +108,59 @@ async def startup() -> None:
         _tracer = init_tracing()
     except ImportError:
         pass
+
+    # --- tool_bridge A2A sub-agent integration ---
+    # Register any A2A sub-agent tools from tool_bridge as FunctionTool instances
+    # that the OpenAI Agents SDK can call.  This keeps the existing SDK handoff
+    # logic untouched while giving agents access to A2A sub-agents.
+    tools_json = os.getenv("AGENT_TOOLS_JSON", "[]")
+    try:
+        raw_tools = json.loads(tools_json)
+        if raw_tools and _agent is not None:
+            _tb = sys.modules.get("engine.tool_bridge")
+            if _tb is None:
+                import engine.tool_bridge as _tb  # noqa: PLC0415
+
+            from agents import FunctionTool
+
+            for tool_spec in raw_tools:
+                # Each entry in raw_tools is a dict with at least a "name" key.
+                tool_name: str = tool_spec.get("name") or ""
+                if not tool_name:
+                    continue
+                tool_description: str = tool_spec.get("description") or f"A2A sub-agent: {tool_name}"
+
+                # Capture loop variables in the closure.
+                def _make_fn(name: str, tb: Any) -> Any:
+                    def _tool_fn(input: str) -> str:  # noqa: A002
+                        try:
+                            result = tb.execute(name, {"input": input})
+                            return str(result)
+                        except Exception as exc:  # noqa: BLE001
+                            return f"Error calling {name!r}: {exc}"
+
+                    _tool_fn.__name__ = name
+                    _tool_fn.__doc__ = tool_description
+                    return _tool_fn
+
+                fn = _make_fn(tool_name, _tb)
+                try:
+                    sdk_tool = FunctionTool(fn)
+                    if hasattr(_agent, "tools") and isinstance(_agent.tools, list):
+                        _agent.tools.append(sdk_tool)
+                        logger.info("Registered A2A tool %r on agent", tool_name)
+                    else:
+                        logger.warning(
+                            "Agent has no mutable .tools list; could not register A2A tool %r",
+                            tool_name,
+                        )
+                except Exception:  # noqa: BLE001
+                    logger.exception("Failed to create FunctionTool for A2A tool %r", tool_name)
+
+            _a2a_tools_registered = True
+            logger.info("A2A tool_bridge integration complete")
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to register A2A tools from tool_bridge — proceeding without them")
 
     import os as _os
 
