@@ -628,7 +628,9 @@ class LiteLLMKeyRef(Base):
 
     # Who this key is issued to
     scope_type: Mapped[KeyScopeType] = mapped_column(Enum(KeyScopeType), nullable=False)
-    scope_id: Mapped[str] = mapped_column(String(255), nullable=False)  # team name / user id / agent name
+    scope_id: Mapped[str] = mapped_column(
+        String(255), nullable=False
+    )  # team name / user id / agent name
 
     # Optional FK-friendly denormalized fields for filtering
     team_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
@@ -640,9 +642,11 @@ class LiteLLMKeyRef(Base):
 
     # Spend limits
     max_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
-    budget_duration: Mapped[BudgetDuration | None] = mapped_column(Enum(BudgetDuration), nullable=True)
-    tpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)   # tokens/minute
-    rpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)   # requests/minute
+    budget_duration: Mapped[BudgetDuration | None] = mapped_column(
+        Enum(BudgetDuration), nullable=True
+    )
+    tpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)  # tokens/minute
+    rpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)  # requests/minute
 
     # Routing / classification tags (e.g. ["production", "rag", "customer-support"])
     tags: Mapped[list] = mapped_column(JSON, default=list)
@@ -652,7 +656,9 @@ class LiteLLMKeyRef(Base):
 
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -681,14 +687,18 @@ class ResourcePermission(Base):
     resource_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
 
     # Who the permission is granted to
-    principal_type: Mapped[str] = mapped_column(String(20), nullable=False)  # user|team|service_principal|group
+    principal_type: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # user|team|service_principal|group
     principal_id: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # What they can do: ["read", "use", "write", "deploy", "publish", "admin"]
     actions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
     created_by: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_resource_permissions_resource", "resource_type", "resource_id"),
@@ -708,13 +718,17 @@ class AssetApprovalRequest(Base):
     asset_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     submitter_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending|approved|rejected
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )  # pending|approved|rejected
 
     approver_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    reason: Mapped[str | None] = mapped_column(Text, nullable=True)    # admin note on decision
-    message: Mapped[str | None] = mapped_column(Text, nullable=True)   # submitter message
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # admin note on decision
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)  # submitter message
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
@@ -738,7 +752,9 @@ class ServicePrincipal(Base):
 
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     team_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    role: Mapped[str] = mapped_column(String(50), nullable=False, default="viewer")  # deployer|contributor|viewer
+    role: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="viewer"
+    )  # deployer|contributor|viewer
 
     # Optional allowlist of resource_type:resource_id pairs
     allowed_assets: Mapped[list | None] = mapped_column(JSON, nullable=True)
@@ -747,11 +763,69 @@ class ServicePrincipal(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_service_principals_name", "name"),
         Index("ix_service_principals_team", "team_id"),
+    )
+
+
+class MemoryConfig(Base):
+    """Persistent memory configuration — replaces the ephemeral in-process dict store."""
+
+    __tablename__ = "memory_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    team: Mapped[str] = mapped_column(String(100), nullable=False)
+    owner: Mapped[str] = mapped_column(String(255), nullable=False)
+    memory_type: Mapped[str] = mapped_column(String(50), nullable=False, default="buffer_window")
+    backend: Mapped[str] = mapped_column(String(50), nullable=False, default="postgresql")
+    scope: Mapped[str] = mapped_column(String(50), nullable=False, default="agent")
+    config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    messages: Mapped[list[MemoryMessage]] = relationship(
+        "MemoryMessage", back_populates="config", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_memory_configs_team", "team"),
+        Index("ix_memory_configs_name", "name"),
+    )
+
+
+class MemoryMessage(Base):
+    """A single conversation turn stored for a memory config session."""
+
+    __tablename__ = "memory_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    config_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("memory_configs.id", ondelete="CASCADE"), nullable=False
+    )
+    session_id: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(String(50), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    config: Mapped[MemoryConfig] = relationship("MemoryConfig", back_populates="messages")
+
+    __table_args__ = (
+        Index("ix_memory_messages_config_session", "config_id", "session_id"),
+        Index("ix_memory_messages_config_created", "config_id", "created_at"),
     )
 
 
@@ -769,7 +843,9 @@ class PrincipalGroup(Base):
     member_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
     created_by: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_principal_groups_team", "team_id"),

@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.auth import get_current_user
 from api.middleware.rbac import require_role
 from api.models.database import User
-
 from api.models.schemas import (
     ApiMeta,
     ApiResponse,
@@ -38,6 +37,8 @@ async def create_memory_config(
     """Create a new memory configuration."""
     config = await MemoryService.create_config(
         name=body.name,
+        team=body.team,
+        owner=body.owner,
         backend_type=body.backend_type,
         memory_type=body.memory_type,
         max_messages=body.max_messages,
@@ -45,6 +46,7 @@ async def create_memory_config(
         scope=body.scope,
         linked_agents=body.linked_agents,
         description=body.description,
+        tags=body.tags,
     )
     return ApiResponse(data=MemoryConfigResponse.model_validate(config.model_dump()))
 
@@ -64,7 +66,9 @@ async def list_memory_configs(
 
 
 @router.get("/configs/{config_id}", response_model=ApiResponse[MemoryConfigResponse])
-async def get_memory_config(config_id: str, _user: User = Depends(get_current_user)) -> ApiResponse[MemoryConfigResponse]:
+async def get_memory_config(
+    config_id: str, _user: User = Depends(get_current_user)
+) -> ApiResponse[MemoryConfigResponse]:
     """Get a memory configuration with stats."""
     config = await MemoryService.get_config(config_id)
     if not config:
@@ -73,7 +77,9 @@ async def get_memory_config(config_id: str, _user: User = Depends(get_current_us
 
 
 @router.delete("/configs/{config_id}", response_model=ApiResponse[dict])
-async def delete_memory_config(config_id: str, _user: User = Depends(require_role("admin"))) -> ApiResponse[dict]:
+async def delete_memory_config(
+    config_id: str, _user: User = Depends(require_role("admin"))
+) -> ApiResponse[dict]:
     """Delete a memory configuration and all its data."""
     deleted = await MemoryService.delete_config(config_id)
     if not deleted:
@@ -85,7 +91,9 @@ async def delete_memory_config(config_id: str, _user: User = Depends(require_rol
 
 
 @router.get("/configs/{config_id}/stats", response_model=ApiResponse[MemoryStatsResponse])
-async def get_memory_stats(config_id: str, _user: User = Depends(get_current_user)) -> ApiResponse[MemoryStatsResponse]:
+async def get_memory_stats(
+    config_id: str, _user: User = Depends(get_current_user)
+) -> ApiResponse[MemoryStatsResponse]:
     """Get usage statistics for a memory configuration."""
     stats = await MemoryService.get_stats(config_id)
     if not stats:

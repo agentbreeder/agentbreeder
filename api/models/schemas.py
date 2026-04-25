@@ -666,13 +666,16 @@ class GitPRListResponse(BaseModel):
 
 class CreateMemoryConfigRequest(BaseModel):
     name: str
-    backend_type: str = "in_memory"  # "in_memory" | "postgresql"
-    memory_type: str = "buffer_window"  # "buffer_window" | "buffer"
+    team: str = "default"
+    owner: str = ""
+    backend_type: str = "postgresql"  # "postgresql" | "redis"
+    memory_type: str = "buffer_window"  # "buffer_window" | "buffer" (summary/entity/semantic: Phase 2)
     max_messages: int = Field(default=100, ge=1, le=100_000)
     namespace_pattern: str = "{agent_id}:{session_id}"
-    scope: str = "agent"  # "agent" | "team" | "global"
+    scope: str = "agent"  # "agent" (team/global: Phase 2)
     linked_agents: list[str] = Field(default_factory=list)
     description: str = ""
+    tags: list[str] = Field(default_factory=list)
 
 
 class MemoryConfigResponse(BaseModel):
@@ -1255,7 +1258,10 @@ class LiteLLMKeyResponse(BaseModel):
 
 class LiteLLMKeyCreateResponse(LiteLLMKeyResponse):
     """Returned only on creation — includes the full key value once."""
-    key_value: str = Field(..., description="Full sk-... value. Store it — it will not be shown again.")
+
+    key_value: str = Field(
+        ..., description="Full sk-... value. Store it — it will not be shown again."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1271,7 +1277,9 @@ VALID_APPROVAL_STATUSES = {"pending", "approved", "rejected"}
 class PermissionGrant(BaseModel):
     """Request body for granting a permission."""
 
-    resource_type: str = Field(..., description="One of: agent, prompt, tool, memory, rag, model, mcp_server")
+    resource_type: str = Field(
+        ..., description="One of: agent, prompt, tool, memory, rag, model, mcp_server"
+    )
     resource_id: uuid.UUID
     principal_type: str = Field(..., description="One of: user, team, service_principal, group")
     principal_id: str
@@ -1366,6 +1374,7 @@ class ServicePrincipalResponse(BaseModel):
 
 class ServicePrincipalKeyResponse(BaseModel):
     """Returned after key rotation — includes full key value once."""
+
     service_principal_id: uuid.UUID
     key_alias: str
     key_value: str = Field(..., description="Full sk-... value. Store it — not shown again.")

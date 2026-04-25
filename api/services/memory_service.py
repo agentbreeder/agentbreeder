@@ -1,59 +1,60 @@
 """Memory backend registry and management service.
 
-Provides in-memory storage for memory configurations, messages, and conversations.
-Supports two backend types: buffer_window (sliding window) and buffer (full buffer).
-PostgreSQL backend is simulated with in-memory store for now.
+Backed by PostgreSQL via SQLAlchemy. All data persists across API restarts
+and is consistent across replicas.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
+from fastapi import HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, func, select
+
+from api.database import async_session
+from api.models.database import MemoryConfig as MemoryConfigORM
+from api.models.database import MemoryMessage as MemoryMessageORM
 
 logger = logging.getLogger(__name__)
 
+_PHASE2_MEMORY_TYPES = {"summary", "entity", "semantic"}
+_PHASE2_SCOPES = {"team", "global"}
+
 
 # ---------------------------------------------------------------------------
-# Data models (internal)
+# Pydantic response models
 # ---------------------------------------------------------------------------
 
 
 class MemoryMessage(BaseModel):
-    """A single message stored in memory."""
-
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str
     config_id: str
     session_id: str
-    agent_id: str | None = None
-    role: str  # "user" | "assistant" | "system" | "tool"
+    role: str
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime
 
 
 class MemoryConfig(BaseModel):
-    """Configuration for a memory backend instance."""
-
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str
     name: str
-    backend_type: str  # "in_memory" | "postgresql"
-    memory_type: str = "buffer_window"  # "buffer_window" | "buffer"
+    backend_type: str
+    memory_type: str = "buffer_window"
     max_messages: int = 100
     namespace_pattern: str = "{agent_id}:{session_id}"
-    scope: str = "agent"  # "agent" | "team" | "global"
+    scope: str = "agent"
     linked_agents: list[str] = Field(default_factory=list)
     description: str = ""
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime
+    updated_at: datetime
 
 
 class MemoryStats(BaseModel):
-    """Stats about a memory config's usage."""
-
     config_id: str
     backend_type: str
     memory_type: str
@@ -64,8 +65,6 @@ class MemoryStats(BaseModel):
 
 
 class ConversationSummary(BaseModel):
-    """Summary of a conversation (session)."""
-
     session_id: str
     agent_id: str | None = None
     message_count: int
@@ -74,11 +73,43 @@ class ConversationSummary(BaseModel):
 
 
 class MemorySearchResult(BaseModel):
-    """A search hit within stored messages."""
-
     message: MemoryMessage
     score: float = 1.0
     highlight: str = ""
+
+
+# ---------------------------------------------------------------------------
+# ORM helpers
+# ---------------------------------------------------------------------------
+
+
+def _config_from_orm(row: MemoryConfigORM) -> MemoryConfig:
+    cfg = row.config or {}
+    return MemoryConfig(
+        id=str(row.id),
+        name=row.name,
+        backend_type=row.backend,
+        memory_type=row.memory_type,
+        max_messages=cfg.get("max_messages", 100),
+        namespace_pattern=cfg.get("namespace_pattern", "{agent_id}:{session_id}"),
+        scope=row.scope,
+        linked_agents=cfg.get("linked_agents", []),
+        description=cfg.get("description", ""),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _message_from_orm(row: MemoryMessageORM) -> MemoryMessage:
+    return MemoryMessage(
+        id=str(row.id),
+        config_id=str(row.config_id),
+        session_id=row.session_id,
+        role=row.role,
+        content=row.content,
+        metadata=row.metadata_ or {},
+        timestamp=row.created_at,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -87,94 +118,140 @@ class MemorySearchResult(BaseModel):
 
 
 class MemoryService:
-    """In-memory implementation of the memory backend service.
+    """Database-backed memory service."""
 
-    All data is stored in class-level dicts so it persists across requests
-    within the same process. Both "in_memory" and "postgresql" backend types
-    are simulated in-process for v0.3.
-    """
-
-    _configs: dict[str, MemoryConfig] = {}
-    _messages: dict[str, list[MemoryMessage]] = {}  # keyed by config_id
+    @staticmethod
+    def reset() -> None:
+        """No-op: kept for test compatibility; data lives in the database now."""
 
     # -- Config CRUD --------------------------------------------------------
-
-    @classmethod
-    def reset(cls) -> None:
-        """Clear all data (used in tests)."""
-        cls._configs.clear()
-        cls._messages.clear()
 
     @classmethod
     async def create_config(
         cls,
         *,
         name: str,
-        backend_type: str = "in_memory",
+        backend_type: str = "postgresql",
         memory_type: str = "buffer_window",
         max_messages: int = 100,
         namespace_pattern: str = "{agent_id}:{session_id}",
         scope: str = "agent",
         linked_agents: list[str] | None = None,
         description: str = "",
+        team: str = "default",
+        owner: str = "",
+        tags: list[str] | None = None,
     ) -> MemoryConfig:
-        config = MemoryConfig(
+        if memory_type in _PHASE2_MEMORY_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"memory_type '{memory_type}' is planned for Phase 2 and not yet available. "
+                "Use 'buffer_window' or 'buffer'.",
+            )
+        if scope in _PHASE2_SCOPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"scope '{scope}' is planned for Phase 2 and not yet available. Use 'agent'.",
+            )
+
+        row = MemoryConfigORM(
+            id=uuid.uuid4(),
             name=name,
-            backend_type=backend_type,
+            team=team,
+            owner=owner,
             memory_type=memory_type,
-            max_messages=max_messages,
-            namespace_pattern=namespace_pattern,
+            backend=backend_type,
             scope=scope,
-            linked_agents=linked_agents or [],
-            description=description,
+            tags=tags or [],
+            config={
+                "max_messages": max_messages,
+                "namespace_pattern": namespace_pattern,
+                "linked_agents": linked_agents or [],
+                "description": description,
+            },
         )
-        cls._configs[config.id] = config
-        cls._messages[config.id] = []
-        logger.info("Created memory config %s (%s)", config.name, config.id)
-        return config
+        async with async_session() as session:
+            session.add(row)
+            await session.commit()
+            await session.refresh(row)
+            logger.info("Created memory config %s (%s)", row.name, row.id)
+            return _config_from_orm(row)
 
     @classmethod
     async def list_configs(
         cls, *, page: int = 1, per_page: int = 20
     ) -> tuple[list[MemoryConfig], int]:
-        all_configs = sorted(cls._configs.values(), key=lambda c: c.name)
-        total = len(all_configs)
-        start = (page - 1) * per_page
-        return all_configs[start : start + per_page], total
+        async with async_session() as session:
+            total_result = await session.execute(select(func.count()).select_from(MemoryConfigORM))
+            total = total_result.scalar_one()
+            offset = (page - 1) * per_page
+            rows_result = await session.execute(
+                select(MemoryConfigORM)
+                .order_by(MemoryConfigORM.name)
+                .offset(offset)
+                .limit(per_page)
+            )
+            rows = rows_result.scalars().all()
+            return [_config_from_orm(r) for r in rows], total
 
     @classmethod
     async def get_config(cls, config_id: str) -> MemoryConfig | None:
-        return cls._configs.get(config_id)
+        async with async_session() as session:
+            row = await session.get(MemoryConfigORM, uuid.UUID(config_id))
+            return _config_from_orm(row) if row else None
 
     @classmethod
     async def delete_config(cls, config_id: str) -> bool:
-        if config_id not in cls._configs:
-            return False
-        del cls._configs[config_id]
-        cls._messages.pop(config_id, None)
-        logger.info("Deleted memory config %s", config_id)
-        return True
+        async with async_session() as session:
+            row = await session.get(MemoryConfigORM, uuid.UUID(config_id))
+            if row is None:
+                return False
+            await session.delete(row)
+            await session.commit()
+            logger.info("Deleted memory config %s", config_id)
+            return True
 
     # -- Stats --------------------------------------------------------------
 
     @classmethod
     async def get_stats(cls, config_id: str) -> MemoryStats | None:
-        config = cls._configs.get(config_id)
-        if config is None:
-            return None
-        msgs = cls._messages.get(config_id, [])
-        sessions = {m.session_id for m in msgs}
-        # Rough size estimate: sum of content lengths
-        size = sum(len(m.content.encode("utf-8")) for m in msgs)
-        return MemoryStats(
-            config_id=config_id,
-            backend_type=config.backend_type,
-            memory_type=config.memory_type,
-            message_count=len(msgs),
-            session_count=len(sessions),
-            storage_size_bytes=size,
-            linked_agent_count=len(config.linked_agents),
-        )
+        async with async_session() as session:
+            row = await session.get(MemoryConfigORM, uuid.UUID(config_id))
+            if row is None:
+                return None
+
+            cid = uuid.UUID(config_id)
+            msg_count_result = await session.execute(
+                select(func.count())
+                .select_from(MemoryMessageORM)
+                .where(MemoryMessageORM.config_id == cid)
+            )
+            msg_count = msg_count_result.scalar_one()
+
+            session_count_result = await session.execute(
+                select(func.count(MemoryMessageORM.session_id.distinct())).where(
+                    MemoryMessageORM.config_id == cid
+                )
+            )
+            session_count = session_count_result.scalar_one()
+
+            size_result = await session.execute(
+                select(func.coalesce(func.sum(func.length(MemoryMessageORM.content)), 0)).where(
+                    MemoryMessageORM.config_id == cid
+                )
+            )
+            size = size_result.scalar_one()
+
+            cfg = row.config or {}
+            return MemoryStats(
+                config_id=config_id,
+                backend_type=row.backend,
+                memory_type=row.memory_type,
+                message_count=msg_count,
+                session_count=session_count,
+                storage_size_bytes=size,
+                linked_agent_count=len(cfg.get("linked_agents", [])),
+            )
 
     # -- Message storage ----------------------------------------------------
 
@@ -189,40 +266,56 @@ class MemoryService:
         agent_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> MemoryMessage | None:
-        config = cls._configs.get(config_id)
-        if config is None:
-            return None
+        async with async_session() as db:
+            cid = uuid.UUID(config_id)
+            config_row = await db.get(MemoryConfigORM, cid)
+            if config_row is None:
+                return None
 
-        msg = MemoryMessage(
-            config_id=config_id,
-            session_id=session_id,
-            agent_id=agent_id,
-            role=role,
-            content=content,
-            metadata=metadata or {},
-        )
+            cfg = config_row.config or {}
+            max_messages = cfg.get("max_messages", 100)
 
-        if config_id not in cls._messages:
-            cls._messages[config_id] = []
+            msg = MemoryMessageORM(
+                id=uuid.uuid4(),
+                config_id=cid,
+                session_id=session_id,
+                role=role,
+                content=content,
+                metadata_=metadata or {},
+            )
+            db.add(msg)
+            await db.flush()
 
-        cls._messages[config_id].append(msg)
+            # buffer_window: keep only the latest max_messages per session
+            if config_row.memory_type == "buffer_window":
+                count_result = await db.execute(
+                    select(func.count())
+                    .select_from(MemoryMessageORM)
+                    .where(
+                        MemoryMessageORM.config_id == cid,
+                        MemoryMessageORM.session_id == session_id,
+                    )
+                )
+                count = count_result.scalar_one()
+                if count > max_messages:
+                    excess = count - max_messages
+                    oldest_result = await db.execute(
+                        select(MemoryMessageORM.id)
+                        .where(
+                            MemoryMessageORM.config_id == cid,
+                            MemoryMessageORM.session_id == session_id,
+                        )
+                        .order_by(MemoryMessageORM.created_at)
+                        .limit(excess)
+                    )
+                    oldest_ids = [r[0] for r in oldest_result]
+                    await db.execute(
+                        delete(MemoryMessageORM).where(MemoryMessageORM.id.in_(oldest_ids))
+                    )
 
-        # Apply buffer_window truncation per session
-        if config.memory_type == "buffer_window":
-            session_msgs = [m for m in cls._messages[config_id] if m.session_id == session_id]
-            if len(session_msgs) > config.max_messages:
-                # Keep only the latest max_messages for this session
-                to_remove = len(session_msgs) - config.max_messages
-                removed = 0
-                new_list: list[MemoryMessage] = []
-                for m in cls._messages[config_id]:
-                    if m.session_id == session_id and removed < to_remove:
-                        removed += 1
-                        continue
-                    new_list.append(m)
-                cls._messages[config_id] = new_list
-
-        return msg
+            await db.commit()
+            await db.refresh(msg)
+            return _message_from_orm(msg)
 
     # -- Conversations ------------------------------------------------------
 
@@ -235,37 +328,49 @@ class MemoryService:
         page: int = 1,
         per_page: int = 20,
     ) -> tuple[list[ConversationSummary], int]:
-        msgs = cls._messages.get(config_id, [])
-        if agent_id:
-            msgs = [m for m in msgs if m.agent_id == agent_id]
-
-        # Group by session
-        sessions: dict[str, list[MemoryMessage]] = {}
-        for m in msgs:
-            sessions.setdefault(m.session_id, []).append(m)
-
-        summaries: list[ConversationSummary] = []
-        for sid, session_msgs in sorted(sessions.items()):
-            sorted_msgs = sorted(session_msgs, key=lambda x: x.timestamp)
-            summaries.append(
-                ConversationSummary(
-                    session_id=sid,
-                    agent_id=session_msgs[0].agent_id,
-                    message_count=len(session_msgs),
-                    first_message_at=sorted_msgs[0].timestamp,
-                    last_message_at=sorted_msgs[-1].timestamp,
+        async with async_session() as db:
+            cid = uuid.UUID(config_id)
+            q = (
+                select(
+                    MemoryMessageORM.session_id,
+                    func.count().label("message_count"),
+                    func.min(MemoryMessageORM.created_at).label("first_message_at"),
+                    func.max(MemoryMessageORM.created_at).label("last_message_at"),
                 )
+                .where(MemoryMessageORM.config_id == cid)
+                .group_by(MemoryMessageORM.session_id)
+                .order_by(MemoryMessageORM.session_id)
             )
-
-        total = len(summaries)
-        start = (page - 1) * per_page
-        return summaries[start : start + per_page], total
+            rows_result = await db.execute(q)
+            all_rows = rows_result.all()
+            total = len(all_rows)
+            start = (page - 1) * per_page
+            page_rows = all_rows[start : start + per_page]
+            return (
+                [
+                    ConversationSummary(
+                        session_id=r.session_id,
+                        message_count=r.message_count,
+                        first_message_at=r.first_message_at,
+                        last_message_at=r.last_message_at,
+                    )
+                    for r in page_rows
+                ],
+                total,
+            )
 
     @classmethod
     async def get_conversation(cls, config_id: str, session_id: str) -> list[MemoryMessage]:
-        msgs = cls._messages.get(config_id, [])
-        session_msgs = [m for m in msgs if m.session_id == session_id]
-        return sorted(session_msgs, key=lambda x: x.timestamp)
+        async with async_session() as db:
+            result = await db.execute(
+                select(MemoryMessageORM)
+                .where(
+                    MemoryMessageORM.config_id == uuid.UUID(config_id),
+                    MemoryMessageORM.session_id == session_id,
+                )
+                .order_by(MemoryMessageORM.created_at)
+            )
+            return [_message_from_orm(r) for r in result.scalars().all()]
 
     # -- Delete conversations -----------------------------------------------
 
@@ -278,33 +383,18 @@ class MemoryService:
         agent_id: str | None = None,
         before: datetime | None = None,
     ) -> int:
-        """Delete conversations matching filters. Returns number of messages deleted."""
-        if config_id not in cls._messages:
-            return 0
-
-        original_count = len(cls._messages[config_id])
-        filtered: list[MemoryMessage] = []
-
-        for m in cls._messages[config_id]:
-            should_delete = True
-            if session_id and m.session_id != session_id:
-                should_delete = False
-            if agent_id and m.agent_id != agent_id:
-                should_delete = False
-            if before and m.timestamp >= before:
-                should_delete = False
-
-            # If no filter matched specifically, only delete if at least one filter was given
-            if not session_id and not agent_id and not before:
-                should_delete = False
-
-            if not should_delete:
-                filtered.append(m)
-
-        cls._messages[config_id] = filtered
-        deleted = original_count - len(filtered)
-        logger.info("Deleted %d messages from config %s", deleted, config_id)
-        return deleted
+        async with async_session() as db:
+            cid = uuid.UUID(config_id)
+            stmt = delete(MemoryMessageORM).where(MemoryMessageORM.config_id == cid)
+            if session_id:
+                stmt = stmt.where(MemoryMessageORM.session_id == session_id)
+            if before:
+                stmt = stmt.where(MemoryMessageORM.created_at < before)
+            result = await db.execute(stmt)
+            await db.commit()
+            deleted = result.rowcount
+            logger.info("Deleted %d messages from config %s", deleted, config_id)
+            return deleted
 
     # -- Search -------------------------------------------------------------
 
@@ -316,32 +406,33 @@ class MemoryService:
         query: str,
         limit: int = 50,
     ) -> list[MemorySearchResult]:
-        """Simple full-text search across messages in a config."""
-        msgs = cls._messages.get(config_id, [])
-        query_lower = query.lower()
-        results: list[MemorySearchResult] = []
-
-        for m in msgs:
-            content_lower = m.content.lower()
-            if query_lower in content_lower:
-                # Find a highlight snippet around the match
-                idx = content_lower.index(query_lower)
-                start = max(0, idx - 40)
-                end = min(len(m.content), idx + len(query) + 40)
-                highlight = m.content[start:end]
-                if start > 0:
-                    highlight = "..." + highlight
-                if end < len(m.content):
-                    highlight = highlight + "..."
-
-                results.append(
-                    MemorySearchResult(
-                        message=m,
-                        score=1.0,
-                        highlight=highlight,
-                    )
+        async with async_session() as db:
+            result = await db.execute(
+                select(MemoryMessageORM)
+                .where(
+                    MemoryMessageORM.config_id == uuid.UUID(config_id),
+                    MemoryMessageORM.content.ilike(f"%{query}%"),
                 )
-                if len(results) >= limit:
-                    break
-
-        return results
+                .order_by(MemoryMessageORM.created_at)
+                .limit(limit)
+            )
+            rows = result.scalars().all()
+            results: list[MemorySearchResult] = []
+            for row in rows:
+                content_lower = row.content.lower()
+                query_lower = query.lower()
+                idx = content_lower.find(query_lower)
+                if idx >= 0:
+                    start = max(0, idx - 40)
+                    end = min(len(row.content), idx + len(query) + 40)
+                    highlight = row.content[start:end]
+                    if start > 0:
+                        highlight = "..." + highlight
+                    if end < len(row.content):
+                        highlight = highlight + "..."
+                else:
+                    highlight = row.content[:80]
+                results.append(
+                    MemorySearchResult(message=_message_from_orm(row), highlight=highlight)
+                )
+            return results

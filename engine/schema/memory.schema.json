@@ -45,15 +45,15 @@
     },
     "backend": {
       "type": "string",
-      "enum": ["in_memory", "postgresql", "redis"],
-      "default": "in_memory",
-      "description": "Storage backend for memory"
+      "enum": ["postgresql", "redis"],
+      "default": "postgresql",
+      "description": "Storage backend for memory. 'in_memory' was removed in v1.9 — use 'postgresql'."
     },
     "memory_type": {
       "type": "string",
       "enum": ["buffer_window", "buffer", "summary", "entity", "semantic"],
       "default": "buffer_window",
-      "description": "Memory strategy type"
+      "description": "Memory strategy type. 'summary', 'entity', and 'semantic' are Phase 2 — not yet available; the API will return HTTP 400 if used."
     },
     "config": {
       "type": "object",
@@ -68,7 +68,7 @@
         "ttl_seconds": {
           "type": "integer",
           "minimum": 0,
-          "description": "Time-to-live for stored messages in seconds (0 = no expiry)"
+          "description": "Time-to-live for stored messages in seconds (0 = no expiry). Injected as MEMORY_TTL_SECONDS into the agent container at deploy time."
         },
         "namespace_pattern": {
           "type": "string",
@@ -82,7 +82,7 @@
       "type": "string",
       "enum": ["agent", "team", "global"],
       "default": "agent",
-      "description": "Memory isolation scope"
+      "description": "Memory isolation scope. 'team' and 'global' are Phase 2 — not yet available; the API will return HTTP 400 if used."
     }
   }
 }

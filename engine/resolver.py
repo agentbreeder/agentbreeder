@@ -67,6 +67,35 @@ def _resolve_kb_index_ids(kb_refs: list[object]) -> list[str]:
     return resolved
 
 
+def _resolve_memory_config(store_refs: list[str]) -> tuple[str, int]:
+    """Return (backend, ttl_seconds) for the agent's memory configuration.
+
+    Looks up the first memory store ref from the platform registry. Falls back
+    to (postgresql, 0) so agents always get a meaningful default.
+    """
+    if not store_refs:
+        return "none", 0
+
+    try:
+        import asyncio  # noqa: PLC0415
+
+        from api.services.memory_service import MemoryService  # noqa: PLC0415
+
+        async def _fetch() -> tuple[str, int]:
+            slug = store_refs[0].split("/")[-1]
+            configs, _ = await MemoryService.list_configs(per_page=1000)
+            for cfg in configs:
+                if cfg.name == slug:
+                    ttl = (cfg.config or {}).get("ttl_seconds", 0) if hasattr(cfg, "config") else 0
+                    return cfg.backend_type, int(ttl)
+            return "postgresql", 0
+
+        return asyncio.run(_fetch())
+    except Exception:
+        logger.debug("MemoryService not available; using postgresql backend default")
+        return "postgresql", 0
+
+
 class ResolutionError(Exception):
     """Raised when a registry reference cannot be resolved."""
 
@@ -108,15 +137,27 @@ def resolve_dependencies(config: AgentConfig) -> AgentConfig:
     for mcp in config.mcp_servers:
         refs.append(mcp.ref)
 
-    # Memory store refs (pass through — resolved at runtime by MemoryManager)
+    # Memory store refs — resolve backend + TTL into agent env vars
     if config.memory:
+        if config.deploy.env_vars is None:
+            config.deploy.env_vars = {}
+
+        backend, ttl_seconds = _resolve_memory_config(config.memory.stores)
+        if backend:
+            config.deploy.env_vars.setdefault("MEMORY_BACKEND", backend)
+        if ttl_seconds and ttl_seconds > 0:
+            config.deploy.env_vars.setdefault("MEMORY_TTL_SECONDS", str(ttl_seconds))
+
+        redis_url = os.environ.get("REDIS_URL")
+        db_url = os.environ.get("DATABASE_URL")
+        if backend == "redis" and redis_url:
+            config.deploy.env_vars.setdefault("REDIS_URL", redis_url)
+        elif backend == "postgresql" and db_url:
+            config.deploy.env_vars.setdefault("DATABASE_URL", db_url)
+
         for store_ref in config.memory.stores:
             refs.append(f"memory:{store_ref}")
-        logger.debug(
-            "Registered %d memory store refs: %s",
-            len(config.memory.stores),
-            config.memory.stores,
-        )
+        logger.debug("Resolved memory stores: backend=%s ttl=%s", backend, ttl_seconds)
 
     # Resolve knowledge base refs → RAG index IDs and inject into env vars so
     # that server templates can perform vector search at invoke time.

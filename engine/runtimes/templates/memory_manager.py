@@ -50,6 +50,8 @@ class MemoryManager:
     def __init__(self) -> None:
         self._backend: str = os.getenv("MEMORY_BACKEND", "none").lower()
         self._agent_name: str = os.getenv("AGENT_NAME", "agent")
+        ttl_raw = os.getenv("MEMORY_TTL_SECONDS", "0")
+        self._ttl_seconds: int = int(ttl_raw) if ttl_raw.isdigit() else 0
         self._redis: Any = None  # aioredis / redis.asyncio client
         self._pg_pool: Any = None  # asyncpg connection pool
 
@@ -155,7 +157,10 @@ class MemoryManager:
         return json.loads(raw)
 
     async def _redis_save(self, key: str, messages: MessageList) -> None:
-        await self._redis.set(key, json.dumps(messages))
+        if self._ttl_seconds > 0:
+            await self._redis.set(key, json.dumps(messages), ex=self._ttl_seconds)
+        else:
+            await self._redis.set(key, json.dumps(messages))
 
     # PostgreSQL implementation -------------------------------------------
 
@@ -219,3 +224,9 @@ class MemoryManager:
                 key,
                 json.dumps(messages),
             )
+            if self._ttl_seconds > 0:
+                await conn.execute(
+                    "DELETE FROM agentbreeder_memory WHERE key = $1 AND updated_at < NOW() - ($2 || ' seconds')::INTERVAL",
+                    key,
+                    str(self._ttl_seconds),
+                )
