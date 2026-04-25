@@ -256,19 +256,51 @@ class TeamService:
         )
         cls._memberships[membership.id] = membership
         logger.info("Added %s to team %s as %s", user_email, team_id, role)
+
+        # Auto-mint LiteLLM key for the new member (best-effort, non-blocking)
+        try:
+            import asyncio
+
+            asyncio.ensure_future(
+                cls._auto_mint_member_key(
+                    team_id=team_id,
+                    user_email=user_email,
+                    team_name=cls._teams[team_id].name if team_id in cls._teams else team_id,
+                )
+            )
+        except Exception:
+            logger.debug("LiteLLM key auto-mint skipped (event loop unavailable)")
+
         return membership
 
     @classmethod
     async def remove_member(cls, team_id: str, user_id: str) -> bool:
         """Remove a member from a team."""
         to_remove = None
+        removed_email: str | None = None
         for mid, m in cls._memberships.items():
             if m.team_id == team_id and m.user_id == user_id:
                 to_remove = mid
+                removed_email = m.user_email
                 break
         if to_remove:
             del cls._memberships[to_remove]
             logger.info("Removed user %s from team %s", user_id, team_id)
+
+            # Auto-revoke LiteLLM key for removed member (best-effort)
+            if removed_email:
+                try:
+                    import asyncio
+
+                    asyncio.ensure_future(
+                        cls._auto_revoke_member_key(
+                            team_id=team_id,
+                            user_email=removed_email,
+                        )
+                    )
+                except Exception:
+                    logger.debug("LiteLLM key auto-revoke skipped (event loop unavailable)")
+
             return True
         return False
 
@@ -444,6 +476,80 @@ class TeamService:
             return {"success": True, "provider": key_data.provider, "hint": key_data.key_hint}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    # -- LiteLLM key lifecycle hooks ----------------------------------------
+
+    @classmethod
+    async def _auto_mint_member_key(
+        cls,
+        team_id: str,
+        user_email: str,
+        team_name: str,
+    ) -> None:
+        """Auto-mint a LiteLLM user-scoped key when a member joins a team.
+
+        Runs as a background task — failures are logged but not propagated.
+        Requires a live DB session (skipped in-memory-only mode).
+        """
+        try:
+            from api.database import async_session
+            from api.models.enums import KeyScopeType
+            from api.models.schemas import LiteLLMKeyCreate
+            from api.services.litellm_key_service import create_key
+
+            key_alias = f"user-{user_email}-{team_name}"
+            async with async_session() as db:
+                body = LiteLLMKeyCreate(
+                    key_alias=key_alias,
+                    scope_type=KeyScopeType.user,
+                    scope_id=user_email,
+                    team_id=team_id,
+                    tags=["auto-provisioned", f"user:{user_email}", f"team:{team_name}"],
+                )
+                await create_key(db, body, created_by="team-service")
+                await db.commit()
+                logger.info("Auto-minted LiteLLM key %s for %s joining team %s", key_alias, user_email, team_name)
+        except Exception as exc:
+            logger.debug("LiteLLM key auto-mint failed for %s: %s", user_email, exc)
+
+    @classmethod
+    async def _auto_revoke_member_key(
+        cls,
+        team_id: str,
+        user_email: str,
+    ) -> None:
+        """Auto-revoke a user's LiteLLM keys when they leave a team.
+
+        Runs as a background task — failures are logged but not propagated.
+        """
+        try:
+            from api.database import async_session
+            from api.models.database import LiteLLMKeyRef
+            from api.models.enums import KeyScopeType
+            from api.services.litellm_key_service import revoke_key
+            from sqlalchemy import select
+
+            async with async_session() as db:
+                stmt = select(LiteLLMKeyRef).where(
+                    LiteLLMKeyRef.scope_type == KeyScopeType.user,
+                    LiteLLMKeyRef.scope_id == user_email,
+                    LiteLLMKeyRef.team_id == team_id,
+                    LiteLLMKeyRef.is_active.is_(True),
+                )
+                result = await db.execute(stmt)
+                keys = result.scalars().all()
+                for key in keys:
+                    await revoke_key(db, key.key_alias)
+                if keys:
+                    await db.commit()
+                    logger.info(
+                        "Auto-revoked %d LiteLLM key(s) for %s leaving team %s",
+                        len(keys),
+                        user_email,
+                        team_id,
+                    )
+        except Exception as exc:
+            logger.debug("LiteLLM key auto-revoke failed for %s: %s", user_email, exc)
 
     # -- Seed default team --------------------------------------------------
 

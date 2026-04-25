@@ -1255,7 +1255,142 @@ class LiteLLMKeyResponse(BaseModel):
 
 class LiteLLMKeyCreateResponse(LiteLLMKeyResponse):
     """Returned only on creation — includes the full key value once."""
+    key_value: str = Field(..., description="Full sk-... value. Store it — it will not be shown again.")
 
-    key_value: str = Field(
-        ..., description="Full sk-... value. Store it — it will not be shown again."
+
+# ---------------------------------------------------------------------------
+# RBAC Phase 2 — Resource Permissions + Asset Approvals
+# ---------------------------------------------------------------------------
+
+VALID_ACTIONS = {"read", "use", "write", "deploy", "publish", "admin"}
+VALID_RESOURCE_TYPES = {"agent", "prompt", "tool", "memory", "rag", "model", "mcp_server"}
+VALID_PRINCIPAL_TYPES = {"user", "team", "service_principal", "group"}
+VALID_APPROVAL_STATUSES = {"pending", "approved", "rejected"}
+
+
+class PermissionGrant(BaseModel):
+    """Request body for granting a permission."""
+
+    resource_type: str = Field(..., description="One of: agent, prompt, tool, memory, rag, model, mcp_server")
+    resource_id: uuid.UUID
+    principal_type: str = Field(..., description="One of: user, team, service_principal, group")
+    principal_id: str
+    actions: list[str] = Field(..., description='e.g. ["read", "use", "deploy"]')
+
+
+class PermissionResponse(BaseModel):
+    id: uuid.UUID
+    resource_type: str
+    resource_id: uuid.UUID
+    principal_type: str
+    principal_id: str
+    actions: list[str]
+    created_by: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PermissionCheckResponse(BaseModel):
+    allowed: bool
+    reason: str
+
+
+class ApprovalRequestCreate(BaseModel):
+    """Submit an asset for admin approval."""
+
+    asset_type: str
+    asset_id: uuid.UUID
+    asset_version: str | None = None
+    message: str | None = Field(None, description="Optional note from the submitter")
+
+
+class ApprovalResponse(BaseModel):
+    id: uuid.UUID
+    asset_type: str
+    asset_id: uuid.UUID
+    asset_version: str | None
+    submitter_id: str
+    status: str
+    approver_id: str | None
+    reason: str | None
+    message: str | None
+    created_at: datetime
+    decided_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
+class ApprovalDecision(BaseModel):
+    """Body for approve/reject endpoints."""
+
+    reason: str | None = Field(None, description="Admin note explaining the decision")
+
+
+# ---------------------------------------------------------------------------
+# RBAC Phase 3 — Service Principals + Principal Groups
+# ---------------------------------------------------------------------------
+
+VALID_SP_ROLES = {"deployer", "contributor", "viewer"}
+
+
+class ServicePrincipalCreate(BaseModel):
+    name: str = Field(..., description="Unique slug for this service principal")
+    team_id: str
+    role: str = Field("viewer", description="One of: deployer, contributor, viewer")
+    allowed_assets: list[str] | None = Field(
+        None,
+        description='Optional allowlist: ["agent:uuid", "prompt:uuid", ...]',
     )
+
+
+class ServicePrincipalUpdate(BaseModel):
+    role: str | None = None
+    allowed_assets: list[str] | None = None
+    is_active: bool | None = None
+
+
+class ServicePrincipalResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    team_id: str
+    role: str
+    allowed_assets: list[str] | None
+    created_by: str
+    last_used_at: datetime | None
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ServicePrincipalKeyResponse(BaseModel):
+    """Returned after key rotation — includes full key value once."""
+    service_principal_id: uuid.UUID
+    key_alias: str
+    key_value: str = Field(..., description="Full sk-... value. Store it — not shown again.")
+
+
+class PrincipalGroupCreate(BaseModel):
+    name: str
+    team_id: str
+    member_ids: list[str] = Field(default_factory=list)
+
+
+class PrincipalGroupUpdate(BaseModel):
+    name: str | None = None
+
+
+class PrincipalGroupResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    team_id: str
+    member_ids: list[str]
+    created_by: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class GroupMemberAdd(BaseModel):
+    member_id: str = Field(..., description="User email or service_principal ID")

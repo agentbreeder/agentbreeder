@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import get_current_user
+from api.auth import get_current_user, get_optional_user
 from api.database import get_db
 from api.models.database import Agent, User
 from api.models.enums import AgentStatus
@@ -25,6 +25,46 @@ from api.models.schemas import (
 from registry.agents import AgentRegistry, create_from_yaml, validate_config_yaml
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
+
+async def _enforce_acl(
+    db: "AsyncSession",
+    user_email: str,
+    resource_id: "uuid.UUID",
+    action: str,
+) -> None:
+    """Check ACL for an agent. Raises 403 if explicitly denied.
+
+    Passes silently if: no ACL rows exist, DB unavailable, or permission granted.
+    """
+    try:
+        from api.services.rbac_service import check_permission
+        from sqlalchemy import select
+        from api.models.database import ResourcePermission
+
+        allowed, reason = await check_permission(
+            db,
+            user_email=user_email,
+            resource_type="agent",
+            resource_id=resource_id,
+            action=action,
+        )
+        result = await db.execute(
+            select(ResourcePermission).where(
+                ResourcePermission.resource_type == "agent",
+                ResourcePermission.resource_id == resource_id,
+            ).limit(1)
+        )
+        has_acl = result.scalar_one_or_none() is not None
+        if has_acl and not allowed:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail=f"Access denied: {reason}")
+    except Exception as exc:
+        if "403" in str(exc) or "Access denied" in str(exc):
+            raise
+        # DB unavailable or table not yet migrated — allow access
+        pass
+
+
 
 
 @router.get("", response_model=ApiResponse[list[AgentResponse]])
@@ -100,11 +140,21 @@ async def search_agents(
 async def get_agent(
     agent_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_optional_user),
 ) -> ApiResponse[AgentResponse]:
-    """Get agent details by ID."""
+    """Get agent details by ID.
+
+    Enforces ACL if the current user is authenticated: user must have 'read'
+    permission on this agent (or no ACL row exists, which allows open access).
+    """
     agent = await AgentRegistry.get_by_id(db, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+
+    # ACL enforcement (soft: only blocks if explicit deny rows exist)
+    if user is not None:
+        await _enforce_acl(db, user.email, agent_id, "read")
+
     return ApiResponse(data=AgentResponse.model_validate(agent))
 
 
@@ -141,13 +191,16 @@ async def create_agent(
 async def update_agent(
     agent_id: uuid.UUID,
     body: AgentUpdate,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AgentResponse]:
     """Update an agent's metadata."""
     agent = await AgentRegistry.get_by_id(db, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+
+    # ACL enforcement — requires 'write' permission
+    await _enforce_acl(db, user.email, agent_id, "write")
 
     if body.version is not None:
         agent.version = body.version
@@ -206,13 +259,16 @@ async def clone_agent(
 @router.delete("/{agent_id}", response_model=ApiResponse[dict])
 async def delete_agent(
     agent_id: uuid.UUID,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[dict]:
     """Soft-delete (archive) an agent."""
     agent = await AgentRegistry.get_by_id(db, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+
+    # ACL enforcement — requires 'admin' permission to delete
+    await _enforce_acl(db, user.email, agent_id, "admin")
 
     agent.status = AgentStatus.stopped
     await db.flush()

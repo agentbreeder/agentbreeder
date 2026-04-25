@@ -31,6 +31,7 @@ from api.routes import (
     prompts,
     providers,
     rag,
+    rbac,
     registry,
     sandbox,
     teams,
@@ -124,6 +125,7 @@ app.include_router(agentops.router)
 app.include_router(gateway.router)
 app.include_router(compliance.router)
 app.include_router(approvals.router)
+app.include_router(rbac.router)
 
 # v2 routes (preview)
 app.include_router(agents_v2.router)
