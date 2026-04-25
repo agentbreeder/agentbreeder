@@ -1120,7 +1120,9 @@ def quickstart(
     if qs_running:
         # Stack already up — skip pull/up to avoid re-running migrate and wiping seed data
         _info("Stack already running — skipping pull/up")
-        result = subprocess.CompletedProcess(args=[], returncode=0)
+        result: subprocess.CompletedProcess[bytes] = subprocess.CompletedProcess(
+            args=[], returncode=0
+        )
     else:
         pull_args = ["pull", "--quiet"]
         console.print("  [dim]Pulling images (first run may take a few minutes)...[/dim]")

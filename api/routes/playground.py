@@ -211,7 +211,9 @@ async def _resolve_model(requested: str | None) -> str:
     return models[0] if models else "ollama/llama3.2"
 
 
-async def _call_litellm(messages: list[dict], model: str, timeout: float = 180.0) -> tuple[str, int, int]:
+async def _call_litellm(
+    messages: list[dict], model: str, timeout: float = 180.0
+) -> tuple[str, int, int]:
     """Call LiteLLM gateway. Returns (response_text, input_tokens, output_tokens)."""
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
@@ -291,9 +293,9 @@ async def playground_chat(
         candidates.append(model_fallback)
     # Add any available models from LiteLLM as last-resort options
     available = await _list_available_models()
-    for m in available:
-        if m not in candidates:
-            candidates.append(m)
+    for model in available:
+        if model not in candidates:
+            candidates.append(model)
     if not candidates:
         candidates = ["ollama/llama3.2"]
 

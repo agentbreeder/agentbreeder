@@ -18,7 +18,7 @@ from engine.config_parser import AgentConfig, ToolRef
 logger = logging.getLogger(__name__)
 
 
-def _resolve_kb_index_ids(kb_refs: list) -> list[str]:
+def _resolve_kb_index_ids(kb_refs: list[object]) -> list[str]:
     """Return RAG store index IDs for the given knowledge-base refs.
 
     Resolution order:

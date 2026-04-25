@@ -137,7 +137,7 @@ class MemoryManager:
             )
             return
         try:
-            import redis.asyncio as aioredis  # type: ignore[import]
+            import redis.asyncio as aioredis  # type: ignore[import-untyped]
 
             self._redis = await aioredis.from_url(redis_url, decode_responses=True)
             logger.info("MemoryManager: connected to Redis at %s", redis_url)
@@ -168,7 +168,7 @@ class MemoryManager:
             )
             return
         try:
-            import asyncpg  # type: ignore[import]
+            import asyncpg  # type: ignore[import-untyped]
 
             self._pg_pool = await asyncpg.create_pool(dsn=db_url)
             await self._pg_ensure_table()
