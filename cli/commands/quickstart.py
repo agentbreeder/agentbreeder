@@ -534,6 +534,45 @@ def _deploy_agents_local(compose_cmd: str, env: dict[str, str]) -> bool:
 # ── Cloud deployment helper ─────────────────────────────────────────────────
 
 
+def _check_cloud_prerequisites(target: str) -> bool:
+    """Check that the cloud CLI is installed and authenticated. Returns True if all checks pass."""
+    cli_checks = {
+        "aws": ("aws", "brew install awscli"),
+        "gcp": ("gcloud", "brew install --cask google-cloud-sdk"),
+        "azure": ("az", "brew install azure-cli"),
+    }
+    auth_checks = {
+        "aws": (
+            ["aws", "sts", "get-caller-identity", "--output", "text"],
+            "Run: aws configure",
+        ),
+        "gcp": (
+            ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
+            "Run: gcloud auth login",
+        ),
+        "azure": (
+            ["az", "account", "show", "--output", "none"],
+            "Run: az login",
+        ),
+    }
+
+    if target not in cli_checks:
+        return True
+
+    cli_binary, install_cmd = cli_checks[target]
+    if not shutil.which(cli_binary):
+        console.print(f"  [red]{cli_binary} CLI not found.[/red] Install with: [bold cyan]{install_cmd}[/bold cyan]")
+        return False
+
+    auth_cmd, auth_hint = auth_checks[target]
+    result = subprocess.run(auth_cmd, capture_output=True, text=True)
+    if result.returncode != 0 or (target == "gcp" and not result.stdout.strip()):
+        console.print(f"  [red]{target.upper()} authentication not active.[/red] {auth_hint}")
+        return False
+
+    return True
+
+
 def _guide_cloud_deploy(target: str) -> None:
     """Interactive guide for deploying to AWS / GCP / Azure."""
     docs_url = CLOUD_DEPLOY_DOCS.get(target, "https://docs.agentbreeder.io")
@@ -893,6 +932,11 @@ def quickstart(
         "--dev",
         help="Build API/Dashboard images from source instead of using Docker Hub",
     ),
+    reset: bool = typer.Option(
+        False,
+        "--reset",
+        help="Tear down all volumes and restart from scratch",
+    ),
 ) -> None:
     """Full local platform bootstrap — one command to go from zero to running agents.
 
@@ -909,6 +953,15 @@ def quickstart(
         agentbreeder quickstart --skip-seed         # restart without re-seeding
     """
     total_steps = 9 if cloud else 8
+
+    if reset:
+        console.print(Panel("[bold yellow]Resetting quickstart — all local data will be erased[/bold yellow]", border_style="yellow"))
+        subprocess.run(
+            ["docker", "compose", "-f", str(QS_COMPOSE), "down", "-v", "--remove-orphans"],
+            check=False,
+            capture_output=True,
+        )
+        console.print("  [green]✓[/green] Volumes cleared — starting fresh")
 
     console.print()
     console.print(
@@ -1304,7 +1357,17 @@ def quickstart(
     # ── Step 8: Cloud deployment (optional) ──────────────────────────────────
     if cloud:
         _step(f"Cloud Deployment → {cloud.upper()}", 8, total_steps)
-        _guide_cloud_deploy(cloud)
+        if not _check_cloud_prerequisites(cloud):
+            console.print(
+                Panel(
+                    "[yellow]Cloud pre-flight checks failed — skipping cloud deploy.\n"
+                    "Local deployment succeeded. Fix the issues above and re-run with [bold cyan]--cloud "
+                    f"{cloud}[/bold cyan].[/yellow]",
+                    border_style="yellow",
+                )
+            )
+        else:
+            _guide_cloud_deploy(cloud)
 
     # ── Final summary ─────────────────────────────────────────────────────────
     _print_final_summary(services_ok, [p.stem for p in sorted(EXAMPLES_QS.glob("*.yaml"))])

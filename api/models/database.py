@@ -17,7 +17,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from api.models.enums import (
@@ -821,11 +821,35 @@ class MemoryMessage(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
+
     config: Mapped[MemoryConfig] = relationship("MemoryConfig", back_populates="messages")
 
     __table_args__ = (
         Index("ix_memory_messages_config_session", "config_id", "session_id"),
         Index("ix_memory_messages_config_created", "config_id", "created_at"),
+    )
+
+
+class MemoryEntity(Base):
+    """A named entity extracted from conversation history for entity-type memory configs."""
+
+    __tablename__ = "memory_entities"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    config_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("memory_configs.id", ondelete="CASCADE"), nullable=False
+    )
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    attributes: Mapped[dict] = mapped_column(JSONB, default=dict)
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_memory_entities_config_id", "config_id"),
+        Index("ix_memory_entities_entity_type", "config_id", "entity_type"),
     )
 
 

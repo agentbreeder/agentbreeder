@@ -6,8 +6,10 @@ Agents call POST /api/v1/approvals/ to pause and request human sign-off before
 executing a high-risk tool. Operators poll GET /api/v1/approvals/?status=pending
 and call /{id}/approve or /{id}/reject to unblock the agent.
 
-Note: The in-process dict is a v0 stub. Production should replace _approval_queue
-with a Redis-backed queue or database table (see models/ for the migration path).
+Storage: each approval is a Redis hash at key ``approval:{approval_id}``.
+Active IDs are tracked in the Redis set ``approvals:all``.
+Pending approvals expire after ``timeout_minutes`` seconds; decided approvals
+are kept for 24 h so the decision remains readable.
 """
 
 from __future__ import annotations
@@ -15,17 +17,20 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.auth import get_current_user
+from api.database import get_redis
 from api.middleware.rbac import require_role
 from api.models.database import User
 
 router = APIRouter(prefix="/api/v1/approvals", tags=["approvals"])
 
-# v0 in-process store — replace with Redis / DB in production
-_approval_queue: dict[str, dict] = {}
+# TTL constants
+_PENDING_TTL = 1800   # 30 minutes default; overridden per-request by timeout_minutes
+_DECIDED_TTL = 86400  # 24 hours — keep the decision readable after it is made
 
 
 class ApprovalRequest(BaseModel):
@@ -45,9 +50,39 @@ class ApprovalResponse(BaseModel):
     decided_at: datetime | None = None
 
 
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _redis_key(approval_id: str) -> str:
+    return f"approval:{approval_id}"
+
+
+def _build_response(data: dict) -> ApprovalResponse:
+    """Convert a Redis hash (all strings) back to an ApprovalResponse."""
+    decided_at: datetime | None = None
+    raw_decided_at = data.get("decided_at")
+    if raw_decided_at:
+        decided_at = datetime.fromisoformat(raw_decided_at)
+    return ApprovalResponse(
+        approval_id=data["approval_id"],
+        status=data["status"],
+        agent_name=data.get("agent_name") or None,
+        tool_name=data.get("tool_name") or None,
+        decided_by=data.get("decided_by") or None,
+        decided_at=decided_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
 @router.post("/", response_model=ApprovalResponse)
 async def request_approval(
-    request: ApprovalRequest, _user: User = Depends(get_current_user)
+    request: ApprovalRequest,
+    _user: User = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ) -> ApprovalResponse:
     """Submit a tool call for human approval.
 
@@ -55,18 +90,26 @@ async def request_approval(
     block execution until the status transitions out of 'pending'.
     """
     approval_id = str(uuid.uuid4())
-    _approval_queue[approval_id] = {
+    key = _redis_key(approval_id)
+    ttl_seconds = request.timeout_minutes * 60
+
+    mapping: dict[str, str] = {
         "approval_id": approval_id,
         "status": "pending",
         "agent_name": request.agent_name,
         "tool_name": request.tool_name,
-        "tool_args": request.tool_args,
+        "tool_args": str(request.tool_args),
         "requested_by": request.requested_by,
         "created_at": datetime.now(UTC).isoformat(),
-        "timeout_minutes": request.timeout_minutes,
-        "decided_by": None,
-        "decided_at": None,
+        "timeout_minutes": str(request.timeout_minutes),
+        "decided_by": "",
+        "decided_at": "",
     }
+
+    await redis.hset(key, mapping=mapping)
+    await redis.expire(key, ttl_seconds)
+    await redis.sadd("approvals:all", approval_id)
+
     return ApprovalResponse(
         approval_id=approval_id,
         status="pending",
@@ -77,84 +120,102 @@ async def request_approval(
 
 @router.get("/", response_model=list[ApprovalResponse])
 async def list_approvals(
-    status: str | None = None, _user: User = Depends(get_current_user)
+    status: str | None = None,
+    _user: User = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ) -> list[ApprovalResponse]:
-    """List approval requests, optionally filtered by status."""
-    items = list(_approval_queue.values())
-    if status:
-        items = [i for i in items if i["status"] == status]
-    return [
-        ApprovalResponse(
-            approval_id=i["approval_id"],
-            status=i["status"],
-            agent_name=i.get("agent_name"),
-            tool_name=i.get("tool_name"),
-            decided_by=i.get("decided_by"),
-            decided_at=i.get("decided_at"),
-        )
-        for i in items
-    ]
+    """List approval requests, optionally filtered by status.
+
+    IDs whose TTL has expired are silently pruned from the tracking set.
+    """
+    all_ids: set[str] = await redis.smembers("approvals:all")
+    results: list[ApprovalResponse] = []
+    expired_ids: list[str] = []
+
+    for approval_id in all_ids:
+        key = _redis_key(approval_id)
+        data: dict[str, str] = await redis.hgetall(key)
+        if not data:
+            # Key expired — clean up the tracking set lazily
+            expired_ids.append(approval_id)
+            continue
+        if status and data.get("status") != status:
+            continue
+        results.append(_build_response(data))
+
+    if expired_ids:
+        await redis.srem("approvals:all", *expired_ids)
+
+    return results
 
 
 @router.get("/{approval_id}", response_model=ApprovalResponse)
 async def get_approval(
-    approval_id: str, _user: User = Depends(get_current_user)
+    approval_id: str,
+    _user: User = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ) -> ApprovalResponse:
     """Get the current status of an approval request."""
-    if approval_id not in _approval_queue:
+    key = _redis_key(approval_id)
+    data: dict[str, str] = await redis.hgetall(key)
+    if not data:
         raise HTTPException(status_code=404, detail="Approval request not found")
-    i = _approval_queue[approval_id]
-    return ApprovalResponse(
-        approval_id=i["approval_id"],
-        status=i["status"],
-        agent_name=i.get("agent_name"),
-        tool_name=i.get("tool_name"),
-        decided_by=i.get("decided_by"),
-        decided_at=i.get("decided_at"),
-    )
+    return _build_response(data)
 
 
 @router.post("/{approval_id}/approve", response_model=ApprovalResponse)
 async def approve(
-    approval_id: str, _user: User = Depends(require_role("admin")), decided_by: str = "operator"
+    approval_id: str,
+    _user: User = Depends(require_role("admin")),
+    decided_by: str = "operator",
+    redis: aioredis.Redis = Depends(get_redis),
 ) -> ApprovalResponse:
     """Approve a pending tool call, unblocking the agent."""
-    if approval_id not in _approval_queue:
+    key = _redis_key(approval_id)
+    data: dict[str, str] = await redis.hgetall(key)
+    if not data:
         raise HTTPException(status_code=404, detail="Approval request not found")
-    entry = _approval_queue[approval_id]
-    if entry["status"] != "pending":
-        raise HTTPException(status_code=409, detail=f"Approval is already '{entry['status']}'")
-    entry["status"] = "approved"
-    entry["decided_by"] = decided_by
-    entry["decided_at"] = datetime.now(UTC).isoformat()
-    return ApprovalResponse(
-        approval_id=entry["approval_id"],
-        status=entry["status"],
-        agent_name=entry.get("agent_name"),
-        tool_name=entry.get("tool_name"),
-        decided_by=entry.get("decided_by"),
-        decided_at=entry.get("decided_at"),
-    )
+    if data["status"] != "pending":
+        raise HTTPException(
+            status_code=409, detail=f"Approval is already '{data['status']}'"
+        )
+
+    updates = {
+        "status": "approved",
+        "decided_by": decided_by,
+        "decided_at": datetime.now(UTC).isoformat(),
+    }
+    await redis.hset(key, mapping=updates)
+    await redis.expire(key, _DECIDED_TTL)
+
+    data.update(updates)
+    return _build_response(data)
 
 
 @router.post("/{approval_id}/reject", response_model=ApprovalResponse)
 async def reject(
-    approval_id: str, _user: User = Depends(require_role("admin")), decided_by: str = "operator"
+    approval_id: str,
+    _user: User = Depends(require_role("admin")),
+    decided_by: str = "operator",
+    redis: aioredis.Redis = Depends(get_redis),
 ) -> ApprovalResponse:
     """Reject a pending tool call — the agent will receive a rejection error."""
-    if approval_id not in _approval_queue:
+    key = _redis_key(approval_id)
+    data: dict[str, str] = await redis.hgetall(key)
+    if not data:
         raise HTTPException(status_code=404, detail="Approval request not found")
-    entry = _approval_queue[approval_id]
-    if entry["status"] != "pending":
-        raise HTTPException(status_code=409, detail=f"Approval is already '{entry['status']}'")
-    entry["status"] = "rejected"
-    entry["decided_by"] = decided_by
-    entry["decided_at"] = datetime.now(UTC).isoformat()
-    return ApprovalResponse(
-        approval_id=entry["approval_id"],
-        status=entry["status"],
-        agent_name=entry.get("agent_name"),
-        tool_name=entry.get("tool_name"),
-        decided_by=entry.get("decided_by"),
-        decided_at=entry.get("decided_at"),
-    )
+    if data["status"] != "pending":
+        raise HTTPException(
+            status_code=409, detail=f"Approval is already '{data['status']}'"
+        )
+
+    updates = {
+        "status": "rejected",
+        "decided_by": decided_by,
+        "decided_at": datetime.now(UTC).isoformat(),
+    }
+    await redis.hset(key, mapping=updates)
+    await redis.expire(key, _DECIDED_TTL)
+
+    data.update(updates)
+    return _build_response(data)

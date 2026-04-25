@@ -2,27 +2,57 @@
 
 Backed by PostgreSQL via SQLAlchemy. All data persists across API restarts
 and is consistent across replicas.
+
+Supported memory_type values (Phase 2):
+  buffer_window — sliding window of the last N messages (default)
+  buffer        — unlimited buffer, never truncated
+  summary       — auto-condenses old messages into a summary row when a threshold is reached
+  entity        — extracts named entities from messages and injects them as context on load
+  semantic      — stores per-message embeddings; load supports cosine-similarity ranking
+                  (Phase 2: embeddings are stored as None; real vectors are Phase 3)
+
+Supported scope values (Phase 2):
+  agent   — isolated per-agent (default)
+  team    — shared across agents in the same team; enforces team_id on load/save
+  global  — org-wide shared (future)
 """
 
 from __future__ import annotations
 
 import logging
+import math
+import re
 import uuid
 from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
 from api.database import async_session
 from api.models.database import MemoryConfig as MemoryConfigORM
+from api.models.database import MemoryEntity as MemoryEntityORM
 from api.models.database import MemoryMessage as MemoryMessageORM
 
 logger = logging.getLogger(__name__)
 
-_PHASE2_MEMORY_TYPES = {"summary", "entity", "semantic"}
-_PHASE2_SCOPES = {"team", "global"}
+_PHASE2_SCOPES = {"global"}  # "team" is now live; "global" remains Phase 3
+
+# Default threshold: condense into a summary when the session exceeds this many messages
+_DEFAULT_SUMMARY_TRIGGER = 20
+
+# Regex patterns used for lightweight entity extraction (no LLM required)
+_ENTITY_PATTERNS: list[tuple[str, str]] = [
+    # Quoted terms (product names, feature names, decision labels)
+    (r'"([A-Z][^"]{1,60})"', "product"),
+    (r"'([A-Z][^']{1,60})'", "product"),
+    # Proper nouns: Title Case word(s) not at sentence start
+    (r"(?<!\. )(?<!\n)\b([A-Z][a-z]+(?:\s[A-Z][a-z]+){0,2})\b", "person"),
+    # Dates: ISO-ish or natural language
+    (r"\b(\d{4}-\d{2}-\d{2})\b", "date"),
+    (r"\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{4})\b", "date"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +108,15 @@ class MemorySearchResult(BaseModel):
     highlight: str = ""
 
 
+class MemoryEntityModel(BaseModel):
+    id: str
+    config_id: str
+    entity_type: str
+    name: str
+    attributes: dict[str, Any] = Field(default_factory=dict)
+    last_seen_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # ORM helpers
 # ---------------------------------------------------------------------------
@@ -113,6 +152,35 @@ def _message_from_orm(row: MemoryMessageORM) -> MemoryMessage:
 
 
 # ---------------------------------------------------------------------------
+# Semantic memory helpers (module-level, no LLM required)
+# ---------------------------------------------------------------------------
+
+
+def _hash_embedding(text: str, dim: int = 64) -> list[float]:
+    """Produce a deterministic pseudo-embedding from *text* using a hash trick.
+
+    This is a Phase 2 stub — good enough for exact-duplicate detection and
+    approximate similarity when real embeddings are unavailable.  Phase 3 will
+    replace this with a real embedding model call.
+    """
+    vec = [0.0] * dim
+    for i, ch in enumerate(text):
+        vec[i % dim] += ord(ch)
+    norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+    return [v / norm for v in vec]
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Return cosine similarity between two equal-length vectors."""
+    if len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a)) or 1.0
+    norm_b = math.sqrt(sum(y * y for y in b)) or 1.0
+    return dot / (norm_a * norm_b)
+
+
+# ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
 
@@ -142,16 +210,10 @@ class MemoryService:
         owner: str = "",
         tags: list[str] | None = None,
     ) -> MemoryConfig:
-        if memory_type in _PHASE2_MEMORY_TYPES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"memory_type '{memory_type}' is planned for Phase 2 and not yet available. "
-                "Use 'buffer_window' or 'buffer'.",
-            )
         if scope in _PHASE2_SCOPES:
             raise HTTPException(
                 status_code=400,
-                detail=f"scope '{scope}' is planned for Phase 2 and not yet available. Use 'agent'.",
+                detail=f"scope '{scope}' is not yet available. Use 'agent' or 'team'.",
             )
 
         row = MemoryConfigORM(
@@ -265,6 +327,7 @@ class MemoryService:
         content: str,
         agent_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        requesting_team: str | None = None,
     ) -> MemoryMessage | None:
         async with async_session() as db:
             cid = uuid.UUID(config_id)
@@ -272,8 +335,14 @@ class MemoryService:
             if config_row is None:
                 return None
 
+            # Team-scope enforcement
+            if config_row.scope == "team" and requesting_team is not None:
+                if config_row.team != requesting_team:
+                    raise PermissionError("Team scope violation")
+
             cfg = config_row.config or {}
             max_messages = cfg.get("max_messages", 100)
+            memory_type = config_row.memory_type
 
             msg = MemoryMessageORM(
                 id=uuid.uuid4(),
@@ -286,8 +355,8 @@ class MemoryService:
             db.add(msg)
             await db.flush()
 
-            # buffer_window: keep only the latest max_messages per session
-            if config_row.memory_type == "buffer_window":
+            if memory_type == "buffer_window":
+                # Keep only the latest max_messages per session
                 count_result = await db.execute(
                     select(func.count())
                     .select_from(MemoryMessageORM)
@@ -312,6 +381,62 @@ class MemoryService:
                     await db.execute(
                         delete(MemoryMessageORM).where(MemoryMessageORM.id.in_(oldest_ids))
                     )
+
+            elif memory_type == "summary":
+                # Condense into a summary row when the session exceeds the threshold
+                trigger = cfg.get("summary_trigger_threshold", _DEFAULT_SUMMARY_TRIGGER)
+                count_result = await db.execute(
+                    select(func.count())
+                    .select_from(MemoryMessageORM)
+                    .where(
+                        MemoryMessageORM.config_id == cid,
+                        MemoryMessageORM.session_id == session_id,
+                        MemoryMessageORM.role != "summary",
+                    )
+                )
+                count = count_result.scalar_one()
+                if count >= trigger:
+                    # Gather all non-summary messages to condense
+                    old_result = await db.execute(
+                        select(MemoryMessageORM)
+                        .where(
+                            MemoryMessageORM.config_id == cid,
+                            MemoryMessageORM.session_id == session_id,
+                            MemoryMessageORM.role != "summary",
+                        )
+                        .order_by(MemoryMessageORM.created_at)
+                    )
+                    old_msgs = old_result.scalars().all()
+                    old_ids = [m.id for m in old_msgs]
+
+                    # Attempt an LLM-based summary; fall back to a stub string
+                    summary_text = await cls._generate_summary(old_msgs)
+
+                    # Delete old individual messages
+                    await db.execute(
+                        delete(MemoryMessageORM).where(MemoryMessageORM.id.in_(old_ids))
+                    )
+
+                    # Insert summary row
+                    summary_row = MemoryMessageORM(
+                        id=uuid.uuid4(),
+                        config_id=cid,
+                        session_id=session_id,
+                        role="summary",
+                        content=summary_text,
+                        metadata_={"condensed_count": len(old_ids)},
+                    )
+                    db.add(summary_row)
+
+            elif memory_type == "entity":
+                # Extract entities from the new message and upsert into memory_entities
+                await cls._extract_and_store_entities(db, cid, content)
+
+            elif memory_type == "semantic":
+                # Phase 2 stub: store None for embedding (real vectors are Phase 3)
+                # The flush above already added the row; update its embedding to None explicitly
+                # (it defaults to None — nothing extra needed for the stub)
+                pass
 
             await db.commit()
             await db.refresh(msg)
@@ -360,17 +485,98 @@ class MemoryService:
             )
 
     @classmethod
-    async def get_conversation(cls, config_id: str, session_id: str) -> list[MemoryMessage]:
+    async def get_conversation(
+        cls,
+        config_id: str,
+        session_id: str,
+        *,
+        requesting_team: str | None = None,
+        query: str | None = None,
+        max_messages: int | None = None,
+    ) -> list[MemoryMessage]:
         async with async_session() as db:
-            result = await db.execute(
+            cid = uuid.UUID(config_id)
+            config_row = await db.get(MemoryConfigORM, cid)
+            if config_row is None:
+                return []
+
+            # Team-scope enforcement
+            if config_row.scope == "team" and requesting_team is not None:
+                if config_row.team != requesting_team:
+                    raise PermissionError("Team scope violation")
+
+            memory_type = config_row.memory_type
+            cfg = config_row.config or {}
+            limit = max_messages or cfg.get("max_messages", 100)
+
+            # Fetch stored messages (excluding summary rows — prepended separately below)
+            q = (
                 select(MemoryMessageORM)
                 .where(
-                    MemoryMessageORM.config_id == uuid.UUID(config_id),
+                    MemoryMessageORM.config_id == cid,
                     MemoryMessageORM.session_id == session_id,
                 )
                 .order_by(MemoryMessageORM.created_at)
             )
-            return [_message_from_orm(r) for r in result.scalars().all()]
+            result = await db.execute(q)
+            all_msgs = result.scalars().all()
+
+            if memory_type == "summary":
+                # Separate summary rows from conversation rows
+                summary_rows = [m for m in all_msgs if m.role == "summary"]
+                conv_rows = [m for m in all_msgs if m.role != "summary"]
+                messages = [_message_from_orm(m) for m in summary_rows] + [
+                    _message_from_orm(m) for m in conv_rows
+                ]
+                return messages
+
+            elif memory_type == "entity":
+                # Prepend an entity-context system message
+                entities_result = await db.execute(
+                    select(MemoryEntityORM).where(MemoryEntityORM.config_id == cid)
+                )
+                entities = entities_result.scalars().all()
+                conv_messages = [_message_from_orm(m) for m in all_msgs]
+                if entities:
+                    entity_parts = [
+                        f"{e.name} ({e.entity_type})"
+                        + (f": {e.attributes}" if e.attributes else "")
+                        for e in entities
+                    ]
+                    context_content = "Known entities: " + "; ".join(entity_parts) + "."
+                    context_msg = MemoryMessage(
+                        id=str(uuid.uuid4()),
+                        config_id=config_id,
+                        session_id=session_id,
+                        role="system",
+                        content=context_content,
+                        metadata={},
+                        timestamp=datetime.utcnow(),
+                    )
+                    return [context_msg] + conv_messages
+                return conv_messages
+
+            elif memory_type == "semantic":
+                # If a query is provided and embeddings are available, rank by cosine similarity.
+                # Phase 2 stub: embeddings are None → fall back to most recent max_messages.
+                if query:
+                    rows_with_embeddings = [m for m in all_msgs if m.embedding is not None]
+                    if rows_with_embeddings:
+                        query_vec = _hash_embedding(query)
+                        scored = [
+                            (m, _cosine_similarity(query_vec, m.embedding))
+                            for m in rows_with_embeddings
+                        ]
+                        scored.sort(key=lambda x: x[1], reverse=True)
+                        top = [m for m, _ in scored[:limit]]
+                        top.sort(key=lambda m: m.created_at)
+                        return [_message_from_orm(m) for m in top]
+                # Fallback: most recent limit messages
+                return [_message_from_orm(m) for m in all_msgs[-limit:]]
+
+            else:
+                # buffer / buffer_window — plain chronological return
+                return [_message_from_orm(m) for m in all_msgs]
 
     # -- Delete conversations -----------------------------------------------
 
@@ -395,6 +601,83 @@ class MemoryService:
             deleted = result.rowcount
             logger.info("Deleted %d messages from config %s", deleted, config_id)
             return deleted
+
+    # -- Phase 2 helpers ----------------------------------------------------
+
+    @staticmethod
+    async def _generate_summary(messages: list[MemoryMessageORM]) -> str:
+        """Produce a condensed summary of the given messages.
+
+        Attempts an LLM call via the internal playground endpoint; falls back
+        to a plain stub string on any error so the caller never blocks.
+        """
+        try:
+            import httpx
+
+            api_base = "http://localhost:8000"
+            turns = "\n".join(
+                f"{m.role.upper()}: {m.content[:300]}" for m in messages[:40]
+            )
+            prompt = (
+                "Summarize the following conversation in 2-4 sentences, "
+                "preserving all key decisions and facts:\n\n" + turns
+            )
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"{api_base}/api/v1/playground/complete",
+                    json={"messages": [{"role": "user", "content": prompt}]},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    summary = data.get("content") or data.get("data", {}).get("content", "")
+                    if summary:
+                        return summary
+        except Exception:
+            logger.debug("Summary LLM call failed — using stub", exc_info=True)
+
+        return f"[Summary of {len(messages)} messages]"
+
+    @staticmethod
+    async def _extract_and_store_entities(
+        db: Any, config_id: uuid.UUID, content: str
+    ) -> None:
+        """Extract named entities from *content* using regex and upsert into memory_entities."""
+        extracted: dict[str, tuple[str, str]] = {}  # name → (entity_type, name)
+
+        for pattern, entity_type in _ENTITY_PATTERNS:
+            for match in re.finditer(pattern, content):
+                name = match.group(1).strip()
+                if len(name) < 2:
+                    continue
+                # Deduplicate; first match wins for a given name
+                if name not in extracted:
+                    extracted[name] = (entity_type, name)
+
+        for name, (entity_type, _) in extracted.items():
+            # Check if entity already exists for this config
+            existing_result = await db.execute(
+                select(MemoryEntityORM).where(
+                    MemoryEntityORM.config_id == config_id,
+                    MemoryEntityORM.name == name,
+                    MemoryEntityORM.entity_type == entity_type,
+                )
+            )
+            existing = existing_result.scalars().first()
+            if existing:
+                await db.execute(
+                    update(MemoryEntityORM)
+                    .where(MemoryEntityORM.id == existing.id)
+                    .values(last_seen_at=func.now())
+                )
+            else:
+                new_entity = MemoryEntityORM(
+                    id=uuid.uuid4(),
+                    config_id=config_id,
+                    entity_type=entity_type,
+                    name=name,
+                    attributes={},
+                )
+                db.add(new_entity)
 
     # -- Search -------------------------------------------------------------
 

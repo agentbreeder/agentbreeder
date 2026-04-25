@@ -16,7 +16,7 @@ from engine.runtimes.base import (
     RuntimeBuilder,
     RuntimeValidationResult,
     _get_litellm_requirements,
-    _is_litellm_model,
+    _should_add_litellm_sdk,
     build_env_block,
 )
 
@@ -145,6 +145,6 @@ class LangGraphRuntime(RuntimeBuilder):
             deps.append("langchain-google-genai>=2.0.0")
         else:
             deps.append("langchain-openai>=0.2.0")
-        if _is_litellm_model(model):
+        if _should_add_litellm_sdk(config):
             deps.extend(_get_litellm_requirements())
         return deps

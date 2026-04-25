@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import get_current_user
@@ -20,6 +25,24 @@ from api.models.team_schemas import (
     TeamUpdate,
 )
 from api.services.team_service import TeamService
+
+logger = logging.getLogger(__name__)
+
+_LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:4000")
+_LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "sk-agentbreeder-quickstart")
+
+
+async def _register_litellm_team(team_id: str, team_name: str) -> None:
+    """Fire-and-forget: register a new team budget group in LiteLLM."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{_LITELLM_BASE_URL}/team/new",
+                headers={"Authorization": f"Bearer {_LITELLM_MASTER_KEY}"},
+                json={"team_id": team_id, "team_alias": team_name, "max_budget": None},
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LiteLLM team registration failed for %s: %s", team_id, exc)
 
 router = APIRouter(prefix="/api/v1/teams", tags=["teams"])
 
@@ -67,6 +90,10 @@ async def create_team(
         )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from None
+
+    # Register team budget group in LiteLLM — fire-and-forget, never blocks team creation
+    asyncio.ensure_future(_register_litellm_team(team.id, team.name))
+
     return ApiResponse(
         data=TeamResponse(
             id=team.id,

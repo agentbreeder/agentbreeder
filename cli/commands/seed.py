@@ -72,6 +72,14 @@ def seed(
         "-l",
         help="Show what is currently seeded (no writes)",
     ),
+    embedding_model: str = typer.Option(
+        "default",
+        "--embedding-model",
+        help=(
+            "Embedding model for ChromaDB. "
+            "Options: default | openai:text-embedding-3-small | ollama:<model>"
+        ),
+    ),
 ) -> None:
     """Seed ChromaDB (vector store) and Neo4j (knowledge graph) with sample data.
 
@@ -101,10 +109,14 @@ def seed(
         spec.loader.exec_module(seed_mod)
     except Exception:
         # Fallback: call as subprocess
-        _run_via_subprocess(chromadb, neo4j, docs, collection, cypher, clear, list_)
+        _run_via_subprocess(
+            chromadb, neo4j, docs, collection, cypher, clear, list_, embedding_model
+        )
         return
 
-    _run_via_module(seed_mod, chromadb, neo4j, docs, collection, cypher, clear, list_)
+    _run_via_module(
+        seed_mod, chromadb, neo4j, docs, collection, cypher, clear, list_, embedding_model
+    )
 
 
 def _run_via_module(
@@ -116,6 +128,7 @@ def _run_via_module(
     cypher: Path | None,
     clear: bool,
     list_: bool,
+    embedding_model: str = "default",
 ) -> None:
     """Use the seed module directly (no subprocess)."""
     if list_:
@@ -140,7 +153,9 @@ def _run_via_module(
                 padding=(0, 2),
             )
         )
-        result = mod.seed_chromadb(docs_dir=docs, collection=collection, clear=clear)
+        result = mod.seed_chromadb(
+            docs_dir=docs, collection=collection, clear=clear, embedding_model=embedding_model
+        )
         if result["ok"]:
             console.print(
                 f"  [green]✓[/green] Seeded [bold]{result['documents_seeded']}[/bold] document chunks"
@@ -248,6 +263,7 @@ def _run_via_subprocess(
     cypher: Path | None,
     clear: bool,
     list_: bool,
+    embedding_model: str = "default",
 ) -> None:
     """Fall back to calling seed.py as a subprocess."""
     import subprocess
@@ -267,4 +283,6 @@ def _run_via_subprocess(
         args.append("--clear")
     if list_:
         args.append("--list")
+    if embedding_model != "default":
+        args += ["--embedding-model", embedding_model]
     subprocess.run(args)

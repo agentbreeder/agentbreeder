@@ -20,6 +20,7 @@ class ProviderType(enum.StrEnum):
     anthropic = "anthropic"
     google = "google"
     openrouter = "openrouter"
+    litellm = "litellm"
 
 
 class ToolFunction(BaseModel):

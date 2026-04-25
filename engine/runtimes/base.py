@@ -43,6 +43,18 @@ def _get_litellm_requirements() -> list[str]:
     return ["litellm>=1.40.0"]
 
 
+def _should_add_litellm_sdk(config: "AgentConfig") -> bool:
+    """Return True only when the LiteLLM Python SDK should be injected.
+
+    When ``model.gateway`` is ``"litellm"``, inference goes through the
+    LiteLLM proxy via HTTP and the in-process SDK must NOT be added to avoid
+    double-routing conflicts.  The SDK is only needed when the agent model
+    string carries a LiteLLM prefix (e.g. ``ollama/``, ``groq/``) but is
+    NOT routed through the proxy gateway.
+    """
+    return _is_litellm_model(config.model.primary) and config.model.gateway != "litellm"
+
+
 class RuntimeValidationResult(BaseModel):
     """Result of validating agent code for a specific framework."""
 

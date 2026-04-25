@@ -53,7 +53,7 @@
       "type": "string",
       "enum": ["buffer_window", "buffer", "summary", "entity", "semantic"],
       "default": "buffer_window",
-      "description": "Memory strategy type. 'summary', 'entity', and 'semantic' are Phase 2 — not yet available; the API will return HTTP 400 if used."
+      "description": "Memory strategy type. 'buffer_window' and 'buffer' are sliding/unlimited window types. 'summary' condenses old messages automatically. 'entity' extracts named entities and injects them as context. 'semantic' stores embeddings for similarity search (Phase 2: embeddings are stubbed; real vectors in Phase 3)."
     },
     "config": {
       "type": "object",
@@ -74,6 +74,12 @@
           "type": "string",
           "default": "{agent_id}:{session_id}",
           "description": "Pattern for memory namespace keys"
+        },
+        "summary_trigger_threshold": {
+          "type": "integer",
+          "minimum": 2,
+          "default": 20,
+          "description": "For memory_type=summary: condense into a summary row when the session reaches this many non-summary messages."
         }
       },
       "description": "Backend-specific configuration"
@@ -82,7 +88,7 @@
       "type": "string",
       "enum": ["agent", "team", "global"],
       "default": "agent",
-      "description": "Memory isolation scope. 'team' and 'global' are Phase 2 — not yet available; the API will return HTTP 400 if used."
+      "description": "Memory isolation scope. 'agent' is per-agent (default). 'team' shares memory across agents in the same team and enforces team ownership on load/save. 'global' is org-wide (Phase 3 — not yet available; the API will return HTTP 400 if used)."
     }
   }
 }

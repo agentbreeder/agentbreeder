@@ -7,14 +7,41 @@ for the AgentBreeder model gateway (LiteLLM + direct providers).
 from __future__ import annotations
 
 import logging
+import os
 import random
 import time
 
+import httpx
 from fastapi import APIRouter, Depends, Query
 
 from api.auth import get_current_user
 from api.models.database import User
 from api.models.schemas import ApiMeta, ApiResponse
+
+# ---------------------------------------------------------------------------
+# LiteLLM connection helpers
+# ---------------------------------------------------------------------------
+
+_LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:4000")
+_LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "sk-agentbreeder-quickstart")
+
+
+def _litellm_headers() -> dict:
+    return {"Authorization": f"Bearer {_LITELLM_MASTER_KEY}"}
+
+
+async def _fetch_litellm(path: str, fallback):
+    """GET a LiteLLM endpoint and return its JSON, or fallback on any error."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_LITELLM_BASE_URL}{path}", headers=_litellm_headers()
+            )
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception:
+        pass
+    return fallback
 
 logger = logging.getLogger(__name__)
 
@@ -291,9 +318,36 @@ def _generate_log_entries(count: int = 20) -> list[dict]:
 @router.get("/status", response_model=ApiResponse[list[dict]])
 async def gateway_status(_user: User = Depends(get_current_user)) -> ApiResponse[list[dict]]:
     """Return status of each gateway tier (LiteLLM, OpenRouter, Direct API)."""
+    _fallback_health = {
+        "status": "unknown",
+        "healthy_endpoints": [],
+        "unhealthy_endpoints": [],
+    }
+    health = await _fetch_litellm("/health", _fallback_health)
+
+    # Build a live LiteLLM tier entry from /health response
+    healthy = health.get("healthy_endpoints", [])
+    unhealthy = health.get("unhealthy_endpoints", [])
+    litellm_status = health.get("status", "unknown")
+    live_litellm_tier = {
+        "tier": "litellm",
+        "label": "LiteLLM Gateway",
+        "description": "Self-hosted LiteLLM proxy — routes to all configured providers",
+        "status": litellm_status,
+        "latency_ms": None,
+        "model_count": len(healthy),
+        "base_url": _LITELLM_BASE_URL,
+        "healthy_endpoints": healthy,
+        "unhealthy_endpoints": unhealthy,
+    }
+
+    # Merge live litellm tier with static non-litellm tiers
+    non_litellm = [t for t in _GATEWAY_TIERS if t["tier"] != "litellm"]
+    tiers = [live_litellm_tier, *non_litellm]
+
     return ApiResponse(
-        data=_GATEWAY_TIERS,
-        meta=ApiMeta(page=1, per_page=len(_GATEWAY_TIERS), total=len(_GATEWAY_TIERS)),
+        data=tiers,
+        meta=ApiMeta(page=1, per_page=len(tiers), total=len(tiers)),
     )
 
 
@@ -306,12 +360,40 @@ async def list_gateway_models(
     per_page: int = Query(50, ge=1, le=200),
 ) -> ApiResponse[list[dict]]:
     """List all models across all connected gateway providers."""
-    models = list(_GATEWAY_MODELS)
+    raw = await _fetch_litellm("/models", {"data": []})
+    litellm_model_ids = {m.get("id") for m in raw.get("data", []) if m.get("id")}
+
+    # Annotate the static model list with live availability from LiteLLM
+    models = [
+        {
+            **m,
+            "status": "active" if m["id"] in litellm_model_ids else m.get("status", "active"),
+        }
+        for m in _GATEWAY_MODELS
+    ]
+
+    # Also surface any LiteLLM models not in the static list
+    static_ids = {m["id"] for m in _GATEWAY_MODELS}
+    for raw_model in raw.get("data", []):
+        mid = raw_model.get("id", "")
+        if mid and mid not in static_ids:
+            models.append(
+                {
+                    "id": mid,
+                    "name": mid,
+                    "provider": raw_model.get("owned_by", "unknown"),
+                    "gateway_tier": "litellm",
+                    "context_window": None,
+                    "input_price_per_million": None,
+                    "output_price_per_million": None,
+                    "status": "active",
+                }
+            )
 
     if tier:
         models = [m for m in models if m["gateway_tier"] == tier]
     if provider:
-        models = [m for m in models if m["provider"].lower() == provider.lower()]
+        models = [m for m in models if str(m["provider"]).lower() == provider.lower()]
 
     total = len(models)
     start = (page - 1) * per_page
@@ -329,9 +411,57 @@ async def list_gateway_providers(
     _user: User = Depends(get_current_user),
 ) -> ApiResponse[list[dict]]:
     """List configured gateway providers with health status."""
+    _fallback_health = {
+        "status": "unknown",
+        "healthy_endpoints": [],
+        "unhealthy_endpoints": [],
+    }
+    health = await _fetch_litellm("/health", _fallback_health)
+
+    # Build a set of healthy provider names from LiteLLM /health
+    healthy_providers: set[str] = set()
+    for ep in health.get("healthy_endpoints", []):
+        pname = ep.get("model", "").split("/")[0].lower() if ep.get("model") else ""
+        if pname:
+            healthy_providers.add(pname)
+
+    now_str = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    providers = [
+        {
+            **p,
+            "status": "healthy" if p["id"] in healthy_providers else p.get("status", "unknown"),
+            "last_checked": now_str,
+        }
+        for p in _GATEWAY_PROVIDERS
+    ]
+
     return ApiResponse(
-        data=_GATEWAY_PROVIDERS,
-        meta=ApiMeta(page=1, per_page=len(_GATEWAY_PROVIDERS), total=len(_GATEWAY_PROVIDERS)),
+        data=providers,
+        meta=ApiMeta(page=1, per_page=len(providers), total=len(providers)),
+    )
+
+
+@router.get("/spend", response_model=ApiResponse[dict])
+async def gateway_spend(_user: User = Depends(get_current_user)) -> ApiResponse[dict]:
+    """Return global spend summary from the LiteLLM proxy."""
+    _fallback_spend = {"total_cost": 0, "spend_by_team": {}}
+    raw = await _fetch_litellm("/global/spend", _fallback_spend)
+    data = {
+        "total_cost": raw.get("total_cost", 0),
+        "spend_by_team": raw.get("spend_by_team", {}),
+    }
+    return ApiResponse(data=data, meta=ApiMeta(page=1, per_page=1, total=1))
+
+
+@router.get("/teams", response_model=ApiResponse[list[dict]])
+async def list_litellm_teams(_user: User = Depends(get_current_user)) -> ApiResponse[list[dict]]:
+    """Return the list of LiteLLM teams (budget groups)."""
+    _fallback_teams: dict = {"teams": []}
+    raw = await _fetch_litellm("/team/list", _fallback_teams)
+    teams: list[dict] = raw.get("teams", []) if isinstance(raw, dict) else []
+    return ApiResponse(
+        data=teams,
+        meta=ApiMeta(page=1, per_page=len(teams), total=len(teams)),
     )
 
 

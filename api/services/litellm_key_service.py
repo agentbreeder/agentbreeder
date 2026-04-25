@@ -162,11 +162,14 @@ async def get_or_create_agent_key(
     team_id: str,
     created_by: str = "deploy-engine",
     allowed_models: list[str] | None = None,
-) -> str:
+) -> tuple[str, str | None]:
     """Return an active key for an agent, creating one if it does not exist.
 
     Used by the deploy engine to mint a scoped key per agent automatically.
-    Returns just the key_alias (the secret is not re-exposed after creation).
+    Returns ``(key_alias, key_value)``.  ``key_value`` is ``None`` when an
+    existing key is returned because the plaintext secret is not stored after
+    initial creation.  The caller must inject ``key_value`` into the container
+    environment as ``LITELLM_VIRTUAL_KEY`` when it is not ``None``.
     """
     result = await db.execute(
         select(LiteLLMKeyRef).where(
@@ -177,7 +180,7 @@ async def get_or_create_agent_key(
     )
     existing = result.scalar_one_or_none()
     if existing:
-        return existing.key_alias
+        return existing.key_alias, None
 
     body = LiteLLMKeyCreate(
         key_alias=f"agent-{agent_name}",
@@ -189,4 +192,4 @@ async def get_or_create_agent_key(
         tags=["auto-provisioned", f"agent:{agent_name}", f"team:{team_id}"],
     )
     created = await create_key(db, body, created_by=created_by)
-    return created.key_alias
+    return created.key_alias, created.key_value

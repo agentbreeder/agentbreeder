@@ -21,7 +21,7 @@ from engine.runtimes.base import (
     RuntimeBuilder,
     RuntimeValidationResult,
     _get_litellm_requirements,
-    _is_litellm_model,
+    _should_add_litellm_sdk,
     build_env_block,
 )
 
@@ -235,6 +235,6 @@ class GoogleADKRuntime(RuntimeBuilder):
         # Add GCS dep when artifact_service=gcs
         if config.google_adk and config.google_adk.artifact_service.value == "gcs":
             deps.append("google-cloud-storage>=2.0.0")
-        if _is_litellm_model(config.model.primary):
+        if _should_add_litellm_sdk(config):
             deps.extend(_get_litellm_requirements())
         return deps

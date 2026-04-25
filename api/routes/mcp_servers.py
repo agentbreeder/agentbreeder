@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,53 @@ from api.models.schemas import (
 from registry.mcp_servers import McpServerRegistry
 
 router = APIRouter(prefix="/api/v1/mcp-servers", tags=["mcp-servers"])
+
+
+# ---------------------------------------------------------------------------
+# ACL enforcement helper
+# ---------------------------------------------------------------------------
+
+
+async def _enforce_acl(
+    db: AsyncSession,
+    user_email: str,
+    resource_id: uuid.UUID,
+    action: str,
+) -> None:
+    """Check ACL for an MCP server. Raises 403 if explicitly denied.
+
+    Passes silently if: no ACL rows exist, DB unavailable, or permission granted.
+    """
+    try:
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from api.models.database import ResourcePermission  # noqa: PLC0415
+        from api.services.rbac_service import check_permission  # noqa: PLC0415
+
+        allowed, reason = await check_permission(
+            db,
+            user_email=user_email,
+            resource_type="mcp_server",
+            resource_id=resource_id,
+            action=action,
+        )
+        result = await db.execute(
+            select(ResourcePermission)
+            .where(
+                ResourcePermission.resource_type == "mcp_server",
+                ResourcePermission.resource_id == resource_id,
+            )
+            .limit(1)
+        )
+        has_acl = result.scalar_one_or_none() is not None
+        if has_acl and not allowed:
+            from fastapi import HTTPException  # noqa: PLC0415
+
+            raise HTTPException(status_code=403, detail=f"Access denied: {reason}")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Fail open if DB unavailable
 
 
 @router.get("", response_model=ApiResponse[list[McpServerResponse]])
@@ -46,6 +95,12 @@ async def get_mcp_server(
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[McpServerResponse]:
     """Get a single MCP server by ID."""
+    try:
+        await _enforce_acl(db, _user.email, uuid.UUID(server_id), "read")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     server = await McpServerRegistry.get_by_id(db, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="MCP server not found")
@@ -76,6 +131,12 @@ async def update_mcp_server(
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[McpServerResponse]:
     """Update an MCP server."""
+    try:
+        await _enforce_acl(db, _user.email, uuid.UUID(server_id), "write")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     server = await McpServerRegistry.update(
         db,
         server_id,
@@ -96,6 +157,12 @@ async def delete_mcp_server(
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[dict]:
     """Delete an MCP server."""
+    try:
+        await _enforce_acl(db, _user.email, uuid.UUID(server_id), "delete")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     deleted = await McpServerRegistry.delete(db, server_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="MCP server not found")
@@ -112,6 +179,12 @@ async def test_mcp_server(
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[McpServerTestResult]:
     """Test connectivity to an MCP server."""
+    try:
+        await _enforce_acl(db, _user.email, uuid.UUID(server_id), "use")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     server = await McpServerRegistry.get_by_id(db, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="MCP server not found")
@@ -153,6 +226,12 @@ async def execute_mcp_tool(
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[dict]:
     """Execute a tool on an MCP server."""
+    try:
+        await _enforce_acl(db, _user.email, uuid.UUID(server_id), "use")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     server = await McpServerRegistry.get_by_id(db, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="MCP server not found")

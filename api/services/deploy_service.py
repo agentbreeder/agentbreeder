@@ -156,19 +156,48 @@ async def _run_pipeline(job_id: uuid.UUID, agent_name: str, target: str) -> None
             elif sk == "registering" and first_tick:
                 msg = "Registering agent in registry"
                 _append_log(job_id, "info", msg, step=sk)
-                # Auto-mint a scoped LiteLLM virtual key for this agent
+                # Auto-mint a scoped LiteLLM virtual key for this agent and
+                # inject it as LITELLM_VIRTUAL_KEY into the container env.
                 try:
                     async with async_session() as ks:
                         # Look up the agent to get team info
                         agent_row = await ks.execute(select(Agent).where(Agent.name == agent_name))
                         ag = agent_row.scalar_one_or_none()
                         if ag:
-                            await litellm_key_service.get_or_create_agent_key(
-                                ks,
-                                agent_name=agent_name,
-                                team_id=ag.team or "default",
-                                created_by="deploy-engine",
+                            _key_alias, _key_value = (
+                                await litellm_key_service.get_or_create_agent_key(
+                                    ks,
+                                    agent_name=agent_name,
+                                    team_id=ag.team or "default",
+                                    created_by="deploy-engine",
+                                )
                             )
+                            if _key_value:
+                                # Persist the virtual key into config_snapshot so that
+                                # the engine deployer can inject LITELLM_VIRTUAL_KEY
+                                # into the container environment at deploy time.
+                                snapshot: dict = ag.config_snapshot or {}
+                                env_overrides: dict = snapshot.get("env_overrides", {})
+                                env_overrides["LITELLM_VIRTUAL_KEY"] = _key_value
+                                snapshot["env_overrides"] = env_overrides
+                                ag.config_snapshot = snapshot
+                                await ks.commit()
+                                _append_log(
+                                    job_id,
+                                    "info",
+                                    f"LiteLLM virtual key minted for '{agent_name}' "
+                                    f"(alias: {_key_alias}); injected as "
+                                    "LITELLM_VIRTUAL_KEY",
+                                    step=sk,
+                                )
+                            else:
+                                _append_log(
+                                    job_id,
+                                    "info",
+                                    f"Reusing existing LiteLLM key for '{agent_name}' "
+                                    f"(alias: {_key_alias})",
+                                    step=sk,
+                                )
                 except Exception as _ke:
                     logger.warning("Could not mint LiteLLM key for %s: %s", agent_name, _ke)
 

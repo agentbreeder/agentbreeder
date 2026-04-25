@@ -22,6 +22,7 @@ Or via the CLI (preferred):
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -164,10 +165,51 @@ def _chunk_text(text: str, max_chars: int = 600) -> list[str]:
     return chunks if chunks else [text[:max_chars]]
 
 
+def _resolve_embedding_function(embedding_model: str):
+    """Return a ChromaDB embedding function for the given model spec.
+
+    Supported values:
+      "default"                         – ChromaDB built-in (all-MiniLM-L6-v2)
+      "openai:text-embedding-3-small"   – OpenAI via OPENAI_API_KEY
+      "openai:<any-openai-model>"       – any OpenAI embedding model
+      "ollama:<model>"                  – Ollama local embeddings
+    """
+    import chromadb.utils.embedding_functions as ef
+
+    if embedding_model == "default":
+        return None  # let ChromaDB use its default
+
+    if embedding_model.startswith("openai:"):
+        model_name = embedding_model[len("openai:"):]
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            print(
+                "  ⚠ OPENAI_API_KEY not set — falling back to default embedding model",
+                file=sys.stderr,
+            )
+            return None
+        return ef.OpenAIEmbeddingFunction(api_key=api_key, model_name=model_name)
+
+    if embedding_model.startswith("ollama:"):
+        model_name = embedding_model[len("ollama:"):]
+        return ef.OllamaEmbeddingFunction(
+            url="http://localhost:11434/api/embeddings",
+            model_name=model_name,
+        )
+
+    # Unknown spec — warn and fall back
+    print(
+        f"  ⚠ Unknown embedding model '{embedding_model}' — falling back to default",
+        file=sys.stderr,
+    )
+    return None
+
+
 def seed_chromadb(
     docs_dir: Path | None = None,
     collection: str = COLLECTION,
     clear: bool = False,
+    embedding_model: str = "default",
 ) -> dict:
     """Seed ChromaDB with documents from docs_dir. Returns a status dict."""
     if not _chroma_is_up():
@@ -184,7 +226,11 @@ def seed_chromadb(
             except Exception:
                 pass
 
-        col = client.get_or_create_collection(collection)
+        emb_fn = _resolve_embedding_function(embedding_model)
+        if emb_fn is not None:
+            col = client.get_or_create_collection(collection, embedding_function=emb_fn)
+        else:
+            col = client.get_or_create_collection(collection)
 
         docs = _load_docs_from_dir(source_dir)
         if not docs:
@@ -202,6 +248,7 @@ def seed_chromadb(
             "collection_id": col.id,
             "documents_seeded": len(docs),
             "source": str(source_dir),
+            "embedding_model": embedding_model,
         }
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
@@ -255,6 +302,40 @@ def _run_cypher(cypher_block: str) -> dict:
         return {"ok": False, "errors": [str(exc)], "statements_run": 0}
 
 
+def _apoc_is_available() -> bool:
+    """Return True if APOC is installed in Neo4j (probe with apoc.version())."""
+    url = f"{NEO4J_HTTP}/db/neo4j/tx/commit"
+    try:
+        resp = httpx.post(
+            url,
+            json={"statements": [{"statement": "RETURN apoc.version() AS version"}]},
+            auth=(NEO4J_USER, NEO4J_PASS),
+            timeout=5.0,
+        )
+        data = resp.json()
+        return resp.status_code == 200 and not data.get("errors")
+    except Exception:
+        return False
+
+
+def _strip_apoc_statements(cypher_block: str) -> tuple[str, int]:
+    """Remove CALL apoc.* statements from a Cypher block.
+
+    Returns (filtered_block, stripped_count).
+    """
+    import re
+
+    statements = [s.strip() for s in cypher_block.split(";") if s.strip()]
+    kept = []
+    skipped = 0
+    for stmt in statements:
+        if re.search(r"\bCALL\s+apoc\.", stmt, re.IGNORECASE):
+            skipped += 1
+        else:
+            kept.append(stmt)
+    return ";\n".join(kept), skipped
+
+
 def seed_neo4j(cypher_file: Path | None = None, clear: bool = False) -> dict:
     """Seed Neo4j with the knowledge graph. Returns a status dict."""
     if not _neo4j_is_up():
@@ -265,6 +346,17 @@ def seed_neo4j(cypher_file: Path | None = None, clear: bool = False) -> dict:
     else:
         cypher = NEO4J_SEED_CYPHER
 
+    apoc_available = _apoc_is_available()
+    apoc_skipped = 0
+    if not apoc_available:
+        cypher, apoc_skipped = _strip_apoc_statements(cypher)
+        if apoc_skipped:
+            print(
+                "  ⚠ APOC not available (common on arm64) — skipping"
+                f" {apoc_skipped} APOC-dependent seed step(s)",
+                file=sys.stderr,
+            )
+
     if clear:
         _run_cypher("MATCH (n:QuickstartNode) DETACH DELETE n")
 
@@ -272,6 +364,8 @@ def seed_neo4j(cypher_file: Path | None = None, clear: bool = False) -> dict:
     return {
         **result,
         "source": str(cypher_file) if cypher_file else "built-in",
+        "apoc_available": apoc_available,
+        "apoc_skipped": apoc_skipped,
     }
 
 
@@ -327,6 +421,14 @@ def main() -> None:
         default=COLLECTION,
         help=f"ChromaDB collection name (default: {COLLECTION})",
     )
+    parser.add_argument(
+        "--embedding-model",
+        default="default",
+        help=(
+            "Embedding model for ChromaDB. "
+            "Options: default | openai:text-embedding-3-small | ollama:<model>"
+        ),
+    )
     parser.add_argument("--cypher", type=Path, help="Custom .cypher file for Neo4j")
     parser.add_argument("--clear", action="store_true", help="Drop existing data before seeding")
     parser.add_argument("--list", action="store_true", help="Show what's currently seeded")
@@ -365,6 +467,7 @@ def main() -> None:
             docs_dir=args.docs,
             collection=args.collection,
             clear=args.clear,
+            embedding_model=args.embedding_model,
         )
         if result["ok"]:
             print(f"  ✓ Seeded {result['documents_seeded']} document chunks")

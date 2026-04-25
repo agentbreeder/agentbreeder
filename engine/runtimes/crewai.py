@@ -16,7 +16,7 @@ from engine.runtimes.base import (
     RuntimeBuilder,
     RuntimeValidationResult,
     _get_litellm_requirements,
-    _is_litellm_model,
+    _should_add_litellm_sdk,
     build_env_block,
 )
 
@@ -154,6 +154,6 @@ class CrewAIRuntime(RuntimeBuilder):
             "httpx>=0.27.0",
             "pydantic>=2.0.0",
         ]
-        if _is_litellm_model(config.model.primary):
+        if _should_add_litellm_sdk(config):
             deps.extend(_get_litellm_requirements())
         return deps

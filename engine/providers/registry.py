@@ -12,6 +12,7 @@ import os
 from engine.providers.anthropic_provider import AnthropicProvider
 from engine.providers.base import ProviderBase, ProviderError
 from engine.providers.google_provider import GoogleProvider
+from engine.providers.litellm_provider import LiteLLMProvider
 from engine.providers.models import (
     FallbackConfig,
     GenerateResult,
@@ -33,6 +34,8 @@ _PROVIDER_CLASSES: dict[ProviderType, type[ProviderBase]] = {
     ProviderType.google: GoogleProvider,
     # OpenRouter is OpenAI-compatible, use OpenAIProvider with a custom base_url
     ProviderType.openrouter: OpenAIProvider,
+    # LiteLLM proxy is OpenAI-compatible; uses LITELLM_BASE_URL + LITELLM_VIRTUAL_KEY
+    ProviderType.litellm: LiteLLMProvider,
 }
 
 
@@ -80,6 +83,9 @@ def create_provider_from_env(
     elif provider_type == ProviderType.openrouter:
         config.api_key = os.environ.get("OPENROUTER_API_KEY")
         config.base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    elif provider_type == ProviderType.litellm:
+        config.api_key = os.environ.get("LITELLM_VIRTUAL_KEY")
+        config.base_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
 
     return create_provider(config)
 

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
+from api.database import get_db
 from api.middleware.rbac import require_role
 from api.models.database import User
 from api.models.schemas import ApiMeta, ApiResponse
@@ -18,6 +21,53 @@ from registry.rag import BACKEND_IN_MEMORY, BACKEND_NEO4J, BACKEND_PGVECTOR, get
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/rag", tags=["rag"])
+
+
+# ---------------------------------------------------------------------------
+# ACL enforcement helper
+# ---------------------------------------------------------------------------
+
+
+async def _enforce_acl(
+    db: AsyncSession,
+    user_email: str,
+    resource_id: uuid.UUID,
+    action: str,
+) -> None:
+    """Check ACL for a knowledge base index. Raises 403 if explicitly denied.
+
+    Passes silently if: no ACL rows exist, DB unavailable, or permission granted.
+    """
+    try:
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from api.models.database import ResourcePermission  # noqa: PLC0415
+        from api.services.rbac_service import check_permission  # noqa: PLC0415
+
+        allowed, reason = await check_permission(
+            db,
+            user_email=user_email,
+            resource_type="knowledge_base",
+            resource_id=resource_id,
+            action=action,
+        )
+        result = await db.execute(
+            select(ResourcePermission)
+            .where(
+                ResourcePermission.resource_type == "knowledge_base",
+                ResourcePermission.resource_id == resource_id,
+            )
+            .limit(1)
+        )
+        has_acl = result.scalar_one_or_none() is not None
+        if has_acl and not allowed:
+            from fastapi import HTTPException  # noqa: PLC0415
+
+            raise HTTPException(status_code=403, detail=f"Access denied: {reason}")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Fail open if DB unavailable
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +162,18 @@ async def list_indexes(
 
 
 @router.get("/indexes/{index_id}")
-async def get_index(index_id: str, _user: User = Depends(get_current_user)) -> ApiResponse[dict]:
+async def get_index(
+    index_id: str,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[dict]:
     """Get a vector index by ID."""
+    try:
+        await _enforce_acl(db, _user.email, uuid.UUID(index_id), "read")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     store = get_rag_store()
     idx = store.get_index(index_id)
     if not idx:
@@ -123,9 +183,17 @@ async def get_index(index_id: str, _user: User = Depends(get_current_user)) -> A
 
 @router.delete("/indexes/{index_id}")
 async def delete_index(
-    index_id: str, _user: User = Depends(require_role("admin"))
+    index_id: str,
+    _user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[dict]:
     """Delete a vector index."""
+    try:
+        await _enforce_acl(db, _user.email, uuid.UUID(index_id), "delete")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     store = get_rag_store()
     deleted = store.delete_index(index_id)
     if not deleted:
@@ -143,12 +211,19 @@ async def ingest_files(
     index_id: str,
     _user: User = Depends(require_role("deployer")),
     files: list[UploadFile] = File(...),
+    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[dict]:
     """Upload and ingest files into a vector index.
 
     Accepted formats: PDF, TXT, MD, CSV, JSON.
     Files are chunked, embedded, and indexed in the background.
     """
+    try:
+        await _enforce_acl(db, _user.email, uuid.UUID(index_id), "write")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     store = get_rag_store()
     idx = store.get_index(index_id)
     if not idx:
@@ -195,7 +270,9 @@ async def get_ingest_job(
 
 @router.post("/search")
 async def search(
-    body: dict[str, Any], _user: User = Depends(get_current_user)
+    body: dict[str, Any],
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[dict]:
     """Search across a vector index using hybrid vector + text search, or graph/hybrid search.
 
@@ -214,6 +291,13 @@ async def search(
     query = body.get("query")
     if not index_id or not query:
         raise HTTPException(status_code=400, detail="index_id and query are required")
+
+    try:
+        await _enforce_acl(db, _user.email, uuid.UUID(index_id), "read")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
 
     idx = store.get_index(index_id)
     if not idx:

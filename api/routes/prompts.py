@@ -6,8 +6,10 @@ import logging
 import random
 import re
 import time
+import uuid
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
 from api.models.database import User
@@ -20,6 +22,56 @@ from api.models.schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/prompts", tags=["prompts"])
+
+
+# ---------------------------------------------------------------------------
+# ACL enforcement helper
+# NOTE: Full CRUD endpoints (GET /{id}, PUT /{id}, DELETE /{id}) are not yet
+# implemented in this file. Once added, call _enforce_acl() at the top of each
+# handler, following the same pattern used in api/routes/agents.py.
+# ---------------------------------------------------------------------------
+
+
+async def _enforce_acl(
+    db: AsyncSession,
+    user_email: str,
+    resource_id: uuid.UUID,
+    action: str,
+) -> None:
+    """Check ACL for a prompt. Raises 403 if explicitly denied.
+
+    Passes silently if: no ACL rows exist, DB unavailable, or permission granted.
+    """
+    try:
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from api.models.database import ResourcePermission  # noqa: PLC0415
+        from api.services.rbac_service import check_permission  # noqa: PLC0415
+
+        allowed, reason = await check_permission(
+            db,
+            user_email=user_email,
+            resource_type="prompt",
+            resource_id=resource_id,
+            action=action,
+        )
+        result = await db.execute(
+            select(ResourcePermission)
+            .where(
+                ResourcePermission.resource_type == "prompt",
+                ResourcePermission.resource_id == resource_id,
+            )
+            .limit(1)
+        )
+        has_acl = result.scalar_one_or_none() is not None
+        if has_acl and not allowed:
+            from fastapi import HTTPException  # noqa: PLC0415
+
+            raise HTTPException(status_code=403, detail=f"Access denied: {reason}")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Fail open if DB unavailable
 
 # ---------------------------------------------------------------------------
 # Simulated LLM responses for prompt testing
