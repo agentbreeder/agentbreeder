@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -206,3 +207,196 @@ class TestDeployEngine:
         for i in range(0, len(statuses), 2):
             assert statuses[i] == "running"
             assert statuses[i + 1] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Tests for _sync_to_api (issue #114 — dashboard API upsert)
+# ---------------------------------------------------------------------------
+
+
+def _make_minimal_config() -> MagicMock:
+    """Return a minimal AgentConfig-like mock."""
+    cfg = MagicMock()
+    cfg.name = "my-agent"
+    cfg.version = "1.2.0"
+    cfg.description = "A test agent"
+    cfg.team = "engineering"
+    cfg.owner = "dev@example.com"
+    cfg.framework.value = "langgraph"
+    cfg.model.primary = "gpt-4o"
+    cfg.model.fallback = None
+    cfg.tags = ["prod"]
+    return cfg
+
+
+class TestSyncToApiCreate:
+    """When no existing agent is found, POST /api/v1/agents should be called."""
+
+    def test_post_called_when_agent_not_found(self) -> None:
+        engine = DeployEngine()
+        config = _make_minimal_config()
+
+        search_response = MagicMock()
+        search_response.raise_for_status = MagicMock()
+        search_response.json.return_value = {"data": []}
+
+        post_response = MagicMock()
+        post_response.raise_for_status = MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.return_value = search_response
+        mock_client.post.return_value = post_response
+
+        with patch("engine.builder.httpx.Client", return_value=mock_client):
+            engine._sync_to_api(config, "http://agent:8080", "http://localhost:8000")
+
+        # GET search was called
+        mock_client.get.assert_called_once_with(
+            "http://localhost:8000/api/v1/agents/search",
+            params={"q": "my-agent"},
+        )
+
+        # POST create was called with correct payload
+        mock_client.post.assert_called_once()
+        post_call_kwargs = mock_client.post.call_args
+        assert post_call_kwargs[0][0] == "http://localhost:8000/api/v1/agents"
+        payload = post_call_kwargs[1]["json"]
+        assert payload["name"] == "my-agent"
+        assert payload["version"] == "1.2.0"
+        assert payload["framework"] == "langgraph"
+        assert payload["endpoint_url"] == "http://agent:8080"
+
+        # PUT was NOT called
+        mock_client.put.assert_not_called()
+
+    def test_post_called_when_search_returns_different_names(self) -> None:
+        """Results with different names should not count as a match."""
+        engine = DeployEngine()
+        config = _make_minimal_config()
+
+        search_response = MagicMock()
+        search_response.raise_for_status = MagicMock()
+        # Returns agents with different names
+        search_response.json.return_value = {
+            "data": [
+                {"id": "aaa", "name": "my-agent-v2"},
+                {"id": "bbb", "name": "other-agent"},
+            ]
+        }
+
+        post_response = MagicMock()
+        post_response.raise_for_status = MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.return_value = search_response
+        mock_client.post.return_value = post_response
+
+        with patch("engine.builder.httpx.Client", return_value=mock_client):
+            engine._sync_to_api(config, "http://agent:8080", "http://localhost:8000")
+
+        mock_client.post.assert_called_once()
+        mock_client.put.assert_not_called()
+
+
+class TestSyncToApiUpdate:
+    """When an existing agent is found by name, PUT /api/v1/agents/{id} should be called."""
+
+    def test_put_called_when_agent_found(self) -> None:
+        engine = DeployEngine()
+        config = _make_minimal_config()
+
+        search_response = MagicMock()
+        search_response.raise_for_status = MagicMock()
+        search_response.json.return_value = {
+            "data": [{"id": "existing-uuid-123", "name": "my-agent"}]
+        }
+
+        put_response = MagicMock()
+        put_response.raise_for_status = MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.return_value = search_response
+        mock_client.put.return_value = put_response
+
+        with patch("engine.builder.httpx.Client", return_value=mock_client):
+            engine._sync_to_api(config, "http://agent:9000", "http://localhost:8000")
+
+        # PUT was called with correct path and payload
+        mock_client.put.assert_called_once()
+        put_call = mock_client.put.call_args
+        assert put_call[0][0] == "http://localhost:8000/api/v1/agents/existing-uuid-123"
+        payload = put_call[1]["json"]
+        assert payload["version"] == "1.2.0"
+        assert payload["endpoint_url"] == "http://agent:9000"
+        assert payload["status"] == "running"
+        assert payload["tags"] == ["prod"]
+
+        # POST was NOT called
+        mock_client.post.assert_not_called()
+
+
+class TestSyncToApiBestEffort:
+    """API errors must never raise — _sync_to_api must always be a no-op on failure."""
+
+    def test_connection_error_is_swallowed(self) -> None:
+        engine = DeployEngine()
+        config = _make_minimal_config()
+
+        import httpx as real_httpx
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.side_effect = real_httpx.ConnectError("refused")
+
+        with patch("engine.builder.httpx.Client", return_value=mock_client):
+            # Should not raise
+            engine._sync_to_api(config, "http://agent:8080", "http://localhost:8000")
+
+    def test_http_error_response_is_swallowed(self) -> None:
+        engine = DeployEngine()
+        config = _make_minimal_config()
+
+        search_response = MagicMock()
+        search_response.raise_for_status.side_effect = Exception("500 Internal Server Error")
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.return_value = search_response
+
+        with patch("engine.builder.httpx.Client", return_value=mock_client):
+            # Should not raise
+            engine._sync_to_api(config, "http://agent:8080", "http://localhost:8000")
+
+    def test_env_var_sets_api_base(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """AGENTBREEDER_API_URL env var should be passed as api_base."""
+        monkeypatch.setenv("AGENTBREEDER_API_URL", "http://custom-api:9999")
+        engine = DeployEngine()
+        config = _make_minimal_config()
+
+        with patch.object(engine, "_sync_to_api") as mock_sync:
+            engine._register(config, "http://agent:8080")
+
+        mock_sync.assert_called_once_with(
+            config, "http://agent:8080", "http://custom-api:9999"
+        )
+
+    def test_default_api_base_is_localhost_8000(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When env var is absent, api_base should default to http://localhost:8000."""
+        monkeypatch.delenv("AGENTBREEDER_API_URL", raising=False)
+        engine = DeployEngine()
+        config = _make_minimal_config()
+
+        with patch.object(engine, "_sync_to_api") as mock_sync:
+            engine._register(config, "http://agent:8080")
+
+        mock_sync.assert_called_once_with(
+            config, "http://agent:8080", "http://localhost:8000"
+        )

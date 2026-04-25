@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from engine.config_parser import AgentConfig, CloudType, parse_config
 from engine.deployers import get_deployer
@@ -234,11 +237,15 @@ class DeployEngine:
         return result
 
     def _register(self, config: AgentConfig, endpoint_url: str) -> None:
-        """Register the agent in the local registry.
+        """Register the agent in the local registry and sync to the dashboard API.
 
-        For v0.1 this writes to a local JSON file.
-        PostgreSQL registry is planned for Milestone 2.
+        Step 1: Write to the local JSON file (original behaviour — always executed).
+        Step 2: Best-effort upsert to the dashboard API so that
+                http://localhost:3001/agents reflects the newly deployed agent.
+                If the API is offline this step logs a warning and continues —
+                it must never cause the deploy to fail.
         """
+        # ── Step 1: local JSON registry ──────────────────────────────────────
         REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
 
         registry_file = REGISTRY_DIR / "agents.json"
@@ -246,7 +253,7 @@ class DeployEngine:
         if registry_file.exists():
             registry = json.loads(registry_file.read_text())
 
-        registry[config.name] = {
+        entry: dict[str, Any] = {
             "name": config.name,
             "version": config.version,
             "description": config.description,
@@ -260,6 +267,86 @@ class DeployEngine:
             "status": "running",
             "registered_at": datetime.now().isoformat(),
         }
+        registry[config.name] = entry
 
         registry_file.write_text(json.dumps(registry, indent=2))
         logger.info("Registered agent '%s' in local registry", config.name)
+
+        # ── Step 2: dashboard API upsert (best-effort) ────────────────────────
+        api_base = os.environ.get("AGENTBREEDER_API_URL", "http://localhost:8000")
+        self._sync_to_api(config, endpoint_url, api_base)
+
+    def _sync_to_api(
+        self, config: AgentConfig, endpoint_url: str, api_base: str
+    ) -> None:
+        """Upsert the deployed agent into the dashboard API.
+
+        Uses a search-first strategy:
+          GET  /api/v1/agents/search?q={name}  — find existing record
+          PUT  /api/v1/agents/{id}             — update if found
+          POST /api/v1/agents                  — create if not found
+
+        All errors are caught so the deploy is never blocked.
+        """
+        base = api_base.rstrip("/")
+        try:
+            with httpx.Client(timeout=5.0) as client:
+                # Search for an existing agent with the exact name
+                search_resp = client.get(
+                    f"{base}/api/v1/agents/search",
+                    params={"q": config.name},
+                )
+                search_resp.raise_for_status()
+                results: list[dict[str, Any]] = search_resp.json().get("data", [])
+
+                # Filter to an exact name match (search is substring-based)
+                existing = next(
+                    (r for r in results if r.get("name") == config.name), None
+                )
+
+                if existing:
+                    agent_id = existing["id"]
+                    put_resp = client.put(
+                        f"{base}/api/v1/agents/{agent_id}",
+                        json={
+                            "version": config.version,
+                            "description": config.description or "",
+                            "endpoint_url": endpoint_url,
+                            "status": "running",
+                            "tags": config.tags,
+                        },
+                    )
+                    put_resp.raise_for_status()
+                    logger.info(
+                        "Updated agent '%s' (id=%s) in dashboard API",
+                        config.name,
+                        agent_id,
+                    )
+                else:
+                    post_resp = client.post(
+                        f"{base}/api/v1/agents",
+                        json={
+                            "name": config.name,
+                            "version": config.version,
+                            "description": config.description or "",
+                            "team": config.team,
+                            "owner": config.owner,
+                            "framework": config.framework.value,
+                            "model_primary": config.model.primary,
+                            "model_fallback": config.model.fallback,
+                            "endpoint_url": endpoint_url,
+                            "tags": config.tags,
+                        },
+                    )
+                    post_resp.raise_for_status()
+                    logger.info(
+                        "Created agent '%s' in dashboard API", config.name
+                    )
+
+        except Exception as exc:  # noqa: BLE001 — best-effort; never break deploy
+            logger.warning(
+                "Could not sync agent '%s' to dashboard API at %s: %s",
+                config.name,
+                api_base,
+                exc,
+            )
