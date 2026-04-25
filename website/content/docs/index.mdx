@@ -33,9 +33,13 @@ and share the same deploy pipeline.
 All three tiers compile to the same internal format and share the same deploy pipeline — start No Code,
 eject to YAML, eject to Full Code at any time.
 
-## Supported Frameworks
+## Supported Languages & Frameworks
 
-LangGraph · OpenAI Agents SDK · Anthropic Claude SDK · CrewAI · Google ADK · Custom (any Python/TS)
+**Python:** LangGraph · OpenAI Agents SDK · Anthropic Claude SDK · CrewAI · Google ADK · Custom
+
+**TypeScript/Node.js:** Vercel AI SDK · Mastra · LangChain.js · OpenAI Agents TS · Custom
+
+**Rust · Go** *(Phase 2)*
 
 ## Deploy Targets
 
@@ -46,7 +50,9 @@ Local (Docker Compose) · AWS ECS Fargate · AWS App Runner · GCP Cloud Run · 
 | Goal | Where to go |
 |------|-------------|
 | Build your first agent in 5 minutes | [Quickstart →](quickstart) |
+| TypeScript, Rust, Go agents | [Polyglot Agents →](polyglot-agents) |
 | Deploy to a specific cloud | [How-To →](how-to) |
+| Model gateway — budgets, guardrails, caching | [Model Gateway →](gateway) |
 | Agent YAML reference | [agent.yaml →](agent-yaml) |
 | Registry: prompts, tools, RAG, memory | [Registry Guide →](registry-guide) |
 | All CLI commands | [CLI Reference →](cli-reference) |

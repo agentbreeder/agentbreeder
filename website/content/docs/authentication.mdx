@@ -169,7 +169,11 @@ agentbreeder key create \
 
 ## Enterprise SSO
 
-AgentBreeder ships with a pluggable auth provider system. Set `auth_provider` in your org config to switch from local accounts to any of the following.
+<Callout type="warn" title="Coming soon — not yet available">
+  Enterprise SSO (Okta, Azure AD, AWS IAM, Google Workspace, SAML 2.0) is in development and not yet available. Tracked in [GitHub issue #133](https://github.com/agentbreeder/agentbreeder/issues/133). Until it ships, use local email + password authentication. The configuration reference below documents the planned API.
+</Callout>
+
+AgentBreeder will ship with a pluggable auth provider system. Set `auth_provider` in your org config to switch from local accounts to any of the following.
 
 <Tabs items={['Okta', 'Azure AD', 'AWS IAM', 'Google Workspace', 'SAML 2.0', 'Local (default)']}>
   <Tab value="Okta">

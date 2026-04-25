@@ -33,9 +33,9 @@ pip3 install agentbreeder-sdk      # lightweight SDK only
 
 ---
 
-## Use the Agent Architect (/agent-build)
+## Scaffold a new agent
 
-`/agent-build` is a Claude Code skill that acts as an AI Agent Architect. Run it inside Claude Code at the root of any directory where you want to scaffold a new agent project.
+Use `agentbreeder init` to create a new agent project interactively, or use the `/agent-build` Claude Code skill for a guided advisory experience.
 
 It supports two paths:
 
@@ -517,9 +517,36 @@ agentbreeder provider list
 ```yaml
 model:
   primary: claude-sonnet-4
-  fallback: gpt-4o
-  gateway: litellm          # 100+ models via LiteLLM
+  fallback: gpt-4o          # used if primary is unavailable or rate-limited
 ```
+
+---
+
+## Route Calls Through the Model Gateway
+
+AgentBreeder ships with a self-hosted [LiteLLM proxy](/docs/gateway) that adds budget enforcement, PII guardrails, Redis caching, and live spend tracking across all your agents. Set `model.gateway: litellm` in `agent.yaml` to opt in:
+
+```yaml
+model:
+  primary: claude-sonnet-4
+  fallback: gpt-4o
+  gateway: litellm            # route through the LiteLLM proxy at :4000
+```
+
+When the gateway is active:
+- Every LLM call goes through `http://litellm:4000/v1/chat/completions` using the agent's scoped virtual key
+- The LiteLLM proxy handles retries, fallbacks, rate limiting, and caching
+- Cost is tracked per agent and per team — visible in the **Costs** dashboard
+
+```bash
+# Check gateway health
+curl http://localhost:4000/health
+
+# View gateway status in the dashboard
+agentbreeder status --gateway
+```
+
+See [Model Gateway](/docs/gateway) for full configuration: provider routing, team budgets, Presidio PII guardrails, and OTEL traces.
 
 ---
 

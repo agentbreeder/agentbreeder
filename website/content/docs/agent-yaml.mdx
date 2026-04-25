@@ -120,16 +120,46 @@ access:
 
 ### `framework`
 
-One of:
+For **Python agents**, set `framework` directly (top-level field). For **TypeScript, Rust, and Go agents**, use the `runtime:` block instead — see below.
 
 | Value | Framework | Runtime |
 |-------|-----------|---------|
-| `langgraph` | LangGraph | ✅ Implemented |
-| `openai_agents` | OpenAI Agents SDK | ✅ Implemented |
-| `crewai` | CrewAI | ✅ Implemented |
-| `claude_sdk` | Anthropic Claude SDK | ✅ Implemented |
-| `google_adk` | Google Agent Development Kit | ✅ Implemented |
-| `custom` | Any Python/TS agent | ✅ Implemented |
+| `langgraph` | LangGraph | ✅ Available |
+| `openai_agents` | OpenAI Agents SDK | ✅ Available |
+| `crewai` | CrewAI | ✅ Available |
+| `claude_sdk` | Anthropic Claude SDK | ✅ Available |
+| `google_adk` | Google Agent Development Kit | ✅ Available |
+| `custom` | Any Python agent | ✅ Available |
+
+### `runtime:` block — Polyglot Agents (TypeScript, Rust, Go)
+
+For non-Python agents, replace the top-level `framework` field with a `runtime:` block. `framework` and `runtime:` are mutually exclusive.
+
+```yaml
+runtime:
+  language: node        # python | node | rust | go
+  framework: vercel-ai  # open string — validated against the plugin registry
+  version: "20"         # optional: language runtime version (e.g. Node.js major)
+  entrypoint: agent.ts  # optional: overrides the default entry file per language
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `language` | **Yes** | Language runtime: `python`, `node`, `rust`, `go` |
+| `framework` | No | Framework name. Defaults to `custom` if omitted. |
+| `version` | No | Language version (e.g. `"20"` for Node 20, `"1.78"` for Rust). |
+| `entrypoint` | No | Entry file. Defaults: `agent.ts` (node), `main.rs` (rust), `main.go` (go), `agent.py` (python). |
+
+**Supported `language` + `framework` combinations:**
+
+| Language | Available frameworks |
+|---|---|
+| `python` | Use top-level `framework` field — do not use `runtime:` |
+| `node` | `vercel-ai`, `mastra`, `langchain-js`, `openai-agents-ts`, `deepagent`, `custom` |
+| `rust` | `rig`, `custom` *(Phase 2)* |
+| `go` | `langchaingo`, `custom` *(Phase 2)* |
+
+See [Polyglot Agents](/docs/polyglot-agents) for full setup, APS sidecar wiring, and cross-language A2A calls.
 
 #### Framework-Specific Configuration
 

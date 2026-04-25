@@ -108,7 +108,7 @@ pip3 install agentbreeder
 agentbreeder deploy ./agent.yaml
 ```
 
-Eight atomic steps run in sequence: parse → RBAC → resolve deps → build container → provision infra → deploy → health check → register. If any step fails, the entire deploy rolls back.
+Eight atomic steps run in sequence: parse → RBAC check → *(approval gate if required)* → resolve deps → build container → provision infra → deploy → health check → register. If any step fails, the entire deploy rolls back.
 
 ---
 
@@ -138,7 +138,11 @@ agent.deploy()
 
 ## What's Supported
 
-**Frameworks** — LangGraph · OpenAI Agents · Claude SDK · CrewAI · Google ADK · Custom
+**Agent languages** — Python · TypeScript/Node.js *(Phase 1)* · Rust · Go *(Phase 2)*
+
+**Python frameworks** — LangGraph · OpenAI Agents · Claude SDK · CrewAI · Google ADK · Custom
+
+**TypeScript frameworks** *(Phase 1)* — Vercel AI SDK · Mastra · LangChain.js · OpenAI Agents TS · Custom
 
 **Cloud targets** — AWS (ECS Fargate, App Runner, EKS) · GCP (Cloud Run, GKE) · Azure Container Apps · Kubernetes (EKS/GKE/AKS/self-hosted) · Local Docker · Claude Managed Agents
 
@@ -281,6 +285,8 @@ Then open **http://localhost:3001** and log in (default: `admin@agentbreeder.loc
 
 ## Documentation
 
+**User docs** (guides, references, examples) — [agentbreeder.io/docs](https://www.agentbreeder.io/docs)
+
 | | |
 |---|---|
 | [Quickstart](https://www.agentbreeder.io/docs/quickstart) | Full local platform in one command |
@@ -288,11 +294,23 @@ Then open **http://localhost:3001** and log in (default: `admin@agentbreeder.loc
 | [agent.yaml reference](https://www.agentbreeder.io/docs/agent-yaml) | Every field, every option |
 | [CLI reference](https://www.agentbreeder.io/docs/cli-reference) | All commands and flags |
 | [How-To guides](https://www.agentbreeder.io/docs/how-to) | Install, deploy, orchestrate, evaluate |
+| [Model Gateway](https://www.agentbreeder.io/docs/gateway) | LiteLLM proxy — routing, budgets, guardrails, caching |
 | [RAG & GraphRAG](https://www.agentbreeder.io/docs/rag) | ChromaDB vector search + Neo4j knowledge graphs |
 | [MCP servers](https://www.agentbreeder.io/docs/mcp-servers) | MCP server registry + sidecar injection |
 | [A2A protocol](https://www.agentbreeder.io/docs/a2a-protocol) | Agent-to-Agent JSON-RPC communication |
 | [Comparisons](https://www.agentbreeder.io/docs/comparisons) | AgentBreeder vs Google, Anthropic, OpenAI, Azure, AWS |
 | [SDK reference](https://www.agentbreeder.io/docs/full-code) | Python + TypeScript full-code SDK |
+
+**For contributors** — internal engineering references in this repo:
+
+| | |
+|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Platform architecture — deploy pipeline, abstractions, data model |
+| [docs/design/](docs/design/) | Feature design docs — RBAC, LiteLLM gateway, polyglot agents |
+| [ROADMAP.md](ROADMAP.md) | Release plan and milestone status |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — setup, standards, PR process |
+| [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
 
 ---
 

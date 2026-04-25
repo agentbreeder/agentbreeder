@@ -80,7 +80,7 @@ That's it. The agent now has a sliding window of the last 50 messages per sessio
 | `memory_type` | `buffer_window` | Eviction strategy: `buffer_window` or `buffer` |
 | `max_messages` | `100` | Max messages to retain per session (buffer_window only) |
 | `namespace_pattern` | `{agent_id}:{session_id}` | Key template — controls memory isolation |
-| `scope` | `agent` | Who shares this memory: `agent`, `team`, or `global` |
+| `scope` | `agent` | Who shares this memory: `agent` (available now), `team` or `global` (Phase 2 — not yet available) |
 | `linked_agents` | `[]` | Other agents that can read from this memory config |
 
 ---
@@ -110,6 +110,10 @@ History is namespaced to `{agent_id}:{session_id}` by default — each session i
 ---
 
 ### Shared team memory
+
+<Callout type="warn" title="Phase 2 — not yet available">
+  `scope: team` and `scope: global` are planned for a future release. Tracked in [#134](https://github.com/agentbreeder/agentbreeder/issues/134). Only `scope: agent` is available today.
+</Callout>
 
 Multiple agents on a team share the same context (e.g., a triage agent and a billing agent both need to see conversation history).
 

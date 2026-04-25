@@ -26,7 +26,7 @@ When you run `agentbreeder deploy`, the engine:
 4. Injects an **AgentBreeder Platform Sidecar (APS)** next to your container
 5. Deploys both containers together — same pod, same task, same compose network
 
-The APS sidecar handles everything the platform needs to do: RAG retrieval, memory persistence, tool execution, A2A proxying, OpenTelemetry tracing, and cost recording. Your agent code calls the sidecar over a local HTTP connection on port 9001. **You write zero infrastructure code.**
+The APS sidecar handles everything the platform needs to do: RAG retrieval, memory persistence, tool execution, A2A proxying, and OpenTelemetry tracing. LLM cost is tracked automatically by the LiteLLM gateway using the per-agent virtual key — no explicit cost recording call needed. Your agent code calls the sidecar over a local HTTP connection on port 9001. **You write zero infrastructure code.**
 
 ```
 Your agent.ts / main.rs / main.go

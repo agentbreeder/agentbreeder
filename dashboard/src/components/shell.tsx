@@ -596,9 +596,7 @@ function ShellInner() {
 
           {/* Logo */}
           <div className="flex h-14 items-center gap-2.5 overflow-hidden px-3">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary">
-              <Bot className="size-4 text-primary-foreground" />
-            </div>
+            <img src="/logo.svg" alt="AgentBreeder" className="size-7 shrink-0 rounded-lg" />
             {!collapsed && (
               <span className="gradient-text truncate text-sm font-semibold tracking-tight">
                 AgentBreeder

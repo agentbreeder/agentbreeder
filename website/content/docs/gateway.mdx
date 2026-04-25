@@ -1,0 +1,264 @@
+---
+title: Model Gateway
+description: How AgentBreeder uses LiteLLM as its AI gateway — provider routing, virtual keys, cost tracking, and guardrails.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+# Model Gateway
+
+AgentBreeder uses **LiteLLM** as its model gateway — a self-hosted proxy that sits between your agents and every LLM provider. When you set `model.gateway: litellm` in your `agent.yaml`, all inference calls route through the gateway instead of calling providers directly.
+
+```yaml
+model:
+  primary: claude-sonnet-4
+  fallback: gpt-4o
+  gateway: litellm        # route through the proxy
+  temperature: 0.7
+```
+
+<Callout type="info">
+The gateway is optional. Omit `model.gateway` to call providers directly. The gateway adds ~12ms overhead and enables cost tracking, guardrails, caching, and team budget enforcement.
+</Callout>
+
+---
+
+## Why Use the Gateway
+
+Without the gateway, each deployed agent holds its own API keys and calls providers directly. With the gateway:
+
+| Without gateway | With gateway |
+|---|---|
+| API keys in each container | One master key; agents get scoped virtual keys |
+| No cost visibility | Live spend per agent, per team, per model |
+| No guardrails | PII detection + prompt injection blocking on every call |
+| No caching | Repeated prompts return cached responses |
+| Manual fallbacks | Automatic provider failover on errors |
+
+---
+
+## How It Works
+
+```
+agent.yaml (model.gateway: litellm)
+        │
+        ▼
+AgentBreeder engine
+  ├── RBAC check
+  ├── Mints per-agent virtual key (sk-agent-<name>)
+  └── Injects LITELLM_API_KEY + LITELLM_BASE_URL into container
+        │
+        ▼
+LiteLLM proxy (:4000)
+  ├── Validates virtual key
+  ├── Enforces team budget
+  ├── Runs PII guardrail
+  ├── Checks Redis cache
+  ├── Routes to provider (with retries + fallback)
+  └── Logs OTEL span → AgentBreeder tracing
+        │
+        ▼
+Provider (Anthropic / OpenAI / Google / Ollama / ...)
+```
+
+AgentBreeder owns **governance** (RBAC, audit, team budgets). LiteLLM handles **routing** (fallbacks, retries, caching, provider translation). Neither owns the other's domain.
+
+---
+
+## Supported Providers
+
+The gateway can route to any LiteLLM-supported provider. Out of the box, the quickstart config includes:
+
+| Model alias | Provider | Notes |
+|---|---|---|
+| `gpt-4o` | OpenAI | Requires `OPENAI_API_KEY` |
+| `gpt-4o-mini` | OpenAI | |
+| `claude-sonnet-4` | Anthropic | Requires `ANTHROPIC_API_KEY` |
+| `claude-haiku-4` | Anthropic | |
+| `gemini-2.0-flash` | Google | Requires `GOOGLE_API_KEY` |
+| `openrouter/auto` | OpenRouter | 300+ models via `OPENROUTER_API_KEY` |
+| `ollama/llama3.2` | Ollama (local) | Requires Ollama running locally |
+
+Add more models by editing `deploy/litellm_config.yaml`:
+
+```yaml
+model_list:
+  - model_name: my-custom-alias
+    litellm_params:
+      model: anthropic/claude-opus-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+```
+
+---
+
+## Virtual Keys
+
+Every agent gets a scoped virtual key (`sk-agent-<name>`) automatically minted at deploy time. The key:
+
+- Is injected into the deployed container as `LITELLM_API_KEY`
+- Is scoped to the agent's allowed models (from `agent.yaml`)
+- Is attributed to the agent's team for cost tracking
+- Can be revoked from the dashboard without redeploying the agent
+
+View and manage keys from the dashboard under **Settings → API Keys**, or via the CLI:
+
+```bash
+agentbreeder describe my-agent --keys
+```
+
+---
+
+## Cost Tracking
+
+Every LLM call through the gateway is tracked and attributed to the calling agent and its team. View spend in the dashboard under **Costs**, or via the API:
+
+```bash
+# Spend for a specific team
+GET /api/v1/costs?team=engineering
+
+# Spend by model
+GET /api/v1/costs?group_by=model
+```
+
+Set team budgets when creating a team:
+
+```bash
+agentbreeder team create engineering --budget 500 --budget-period 30d
+```
+
+The gateway sends alerts at 85% and 95% of the budget before enforcing the hard limit.
+
+---
+
+## Guardrails
+
+Two guardrails are enabled by default when the gateway is active:
+
+**Presidio PII detection** — scans every request for PII (names, emails, credit cards, SSNs) before the call reaches the LLM. Redacts or blocks based on configuration.
+
+**Lakera prompt injection** — detects attempts to hijack agent behavior through crafted user inputs.
+
+Configure guardrail behavior in `deploy/litellm_config.yaml`:
+
+```yaml
+guardrails:
+  - guardrail_name: presidio-pii
+    litellm_params:
+      guardrail: presidio
+      mode: pre_call          # scan before the LLM call
+      output_parse_pii: true  # also scan LLM output
+```
+
+To disable guardrails for a specific agent (not recommended for production):
+
+```yaml
+# agent.yaml
+guardrails: []
+```
+
+---
+
+## Caching
+
+The gateway caches LLM responses in Redis. Identical prompts return the cached response without making a provider call — reducing latency and cost.
+
+```yaml
+# deploy/litellm_config.yaml
+litellm_settings:
+  cache: true
+  cache_params:
+    type: redis
+    host: redis
+    port: 6379
+    ttl: 600   # 10 minutes
+```
+
+Per-request cache control (pass in the request body from your agent):
+
+```python
+# Force fresh call, don't use cache
+response = client.chat.completions.create(
+    model="claude-sonnet-4",
+    messages=[...],
+    extra_body={"cache": {"no-cache": True}}
+)
+```
+
+---
+
+## Fallbacks and Retries
+
+Set a fallback model in `agent.yaml` and the gateway handles automatic failover:
+
+```yaml
+model:
+  primary: claude-sonnet-4
+  fallback: gpt-4o
+  gateway: litellm
+```
+
+If the primary model returns a rate limit error or is unavailable, the gateway automatically retries with the fallback. No code change in your agent — the same `LITELLM_BASE_URL` endpoint works regardless of which provider responds.
+
+For more complex routing (load balancing across multiple deployments of the same model), configure routing strategies directly in `litellm_config.yaml`:
+
+```yaml
+router_settings:
+  routing_strategy: latency-based-routing  # route to fastest deployment
+```
+
+---
+
+## Running the Gateway Locally
+
+The gateway is included in the default Docker Compose stack:
+
+```bash
+docker compose up -d   # starts postgres, redis, API, dashboard, and litellm
+```
+
+The LiteLLM admin UI is available at `http://localhost:4000/ui`. The default master key is `sk-agentbreeder-quickstart` (set `LITELLM_MASTER_KEY` in `.env` for production).
+
+To verify the gateway is healthy:
+
+```bash
+curl http://localhost:4000/health
+```
+
+---
+
+## Observability
+
+Every gateway call emits an OpenTelemetry span with:
+- Model used, provider, latency
+- Token counts (input / output / total)
+- Cost in USD
+- Virtual key alias (agent attribution)
+- `x-litellm-call-id` — correlated to AgentBreeder audit log entries
+
+View traces in the dashboard under **Tracing**, or connect your own OTEL collector by updating the endpoint in `litellm_config.yaml`.
+
+---
+
+## Gateway Dashboard
+
+The **Gateway** page in the AgentBreeder dashboard shows:
+
+- Live status of each configured provider
+- Model catalog with pricing
+- Request log with latency, token counts, and cost per call
+- Cost comparison table across providers
+
+---
+
+## Skipping the Gateway
+
+If you need to bypass the gateway for a specific agent (e.g., a local dev agent that calls Ollama directly):
+
+```yaml
+model:
+  primary: ollama/llama3.2
+  # no gateway field — calls Ollama directly
+```
+
+Direct calls skip virtual key minting, budget enforcement, guardrails, and caching. Use only for local development.
