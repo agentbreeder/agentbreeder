@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import types
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -721,7 +722,7 @@ def _make_text_block(text: str) -> MagicMock:
 class TestAgenticLoop:
     """Tests for _run_agentic_loop — the new tool-use execution loop."""
 
-    def _setup(self, monkeypatch) -> "tuple[Any, Any]":
+    def _setup(self, monkeypatch) -> tuple[Any, Any]:
         """Return (srv, fake_tb) with the server module and a fake tool_bridge stub."""
         monkeypatch.setenv("AGENT_MODEL", "claude-sonnet-4-6")
         monkeypatch.setenv("AGENT_SYSTEM_PROMPT", "")
@@ -911,10 +912,10 @@ class TestAgenticLoop:
         monkeypatch.setenv("AGENT_MODEL", "claude-sonnet-4-6")
         monkeypatch.setenv("AGENT_SYSTEM_PROMPT", "")
         srv = _import_server()
-        import anthropic
-
         # Inject a fake tool_bridge.
         import sys as _sys
+
+        import anthropic
         fake_tb = MagicMock()
         fake_tb.execute.return_value = "tool result"
         _sys.modules["engine.tool_bridge"] = fake_tb

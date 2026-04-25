@@ -36,7 +36,7 @@ class Neo4jConfig:
         self,
         uri: str = "bolt://neo4j:7687",
         username: str = "neo4j",
-        password: str = "password",
+        password: str = "password",  # noqa: S107
         database: str = "neo4j",
     ) -> None:
         self.uri = uri
@@ -45,7 +45,7 @@ class Neo4jConfig:
         self.database = database
 
     @classmethod
-    def from_dict(cls, cfg: dict[str, Any]) -> "Neo4jConfig":
+    def from_dict(cls, cfg: dict[str, Any]) -> Neo4jConfig:
         """Construct from a raw rag.yaml ``config:`` dict."""
         return cls(
             uri=cfg.get("uri", "bolt://neo4j:7687"),
@@ -159,13 +159,13 @@ class Neo4jRAGBackend:
     def __init__(self, config: Neo4jConfig, index_id: str = "default") -> None:
         self._config = config
         self._index_id = index_id
-        self._driver: "AsyncDriver | None" = None
+        self._driver: AsyncDriver | None = None
 
     # ------------------------------------------------------------------
     # Driver lifecycle
     # ------------------------------------------------------------------
 
-    def _get_driver(self) -> "AsyncDriver":
+    def _get_driver(self) -> AsyncDriver:
         """Return (creating lazily) the async Neo4j driver."""
         if self._driver is None:
             try:

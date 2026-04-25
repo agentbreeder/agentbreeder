@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import random
 import time
 import uuid
 
@@ -192,7 +191,7 @@ async def _try_litellm_call(
         try:
             text, in_tok, out_tok = await _call_litellm(messages, model)
             return text, in_tok, out_tok, model
-        except Exception:
+        except Exception:  # noqa: S112
             continue
     return None
 

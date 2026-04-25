@@ -58,7 +58,6 @@ class TestResolveKnowledgeBases:
         """When the RAGStore contains a matching index, KB_INDEX_IDS is set in env_vars."""
         from unittest.mock import MagicMock
 
-        from engine.resolver import _resolve_kb_index_ids
 
         mock_idx = MagicMock()
         mock_idx.name = "product-docs"
@@ -70,11 +69,10 @@ class TestResolveKnowledgeBases:
         with __import__("unittest.mock", fromlist=["patch"]).patch(
             "engine.resolver.get_rag_store", return_value=mock_store, create=True
         ):
-            from engine.resolver import _resolve_kb_index_ids as _fn
+            import api.services.rag_service as _rag_mod
 
             # Monkey-patch the import inside resolver
-            import engine.resolver as _resolver_mod
-            import api.services.rag_service as _rag_mod
+            from engine.resolver import _resolve_kb_index_ids as _fn
             original = getattr(_rag_mod, "get_rag_store", None)
             _rag_mod.get_rag_store = lambda: mock_store
             try:
@@ -89,10 +87,9 @@ class TestResolveKnowledgeBases:
         """When the RAGStore has no matching index, the slug is returned as a pass-through."""
         from unittest.mock import MagicMock
 
-        from engine.resolver import _resolve_kb_index_ids
-
         # Simulate store not having the index (empty list)
         import api.services.rag_service as _rag_mod
+        from engine.resolver import _resolve_kb_index_ids
         original = _rag_mod.get_rag_store
 
         mock_store = MagicMock()
@@ -108,8 +105,9 @@ class TestResolveKnowledgeBases:
 
     def test_resolve_dependencies_injects_kb_index_ids_env_var(self, monkeypatch) -> None:
         """resolve_dependencies sets KB_INDEX_IDS in deploy.env_vars."""
-        import api.services.rag_service as _rag_mod
         from unittest.mock import MagicMock
+
+        import api.services.rag_service as _rag_mod
 
         mock_idx = MagicMock()
         mock_idx.name = "docs"
@@ -131,8 +129,9 @@ class TestResolveKnowledgeBases:
 
     def test_resolve_dependencies_multiple_kbs(self, monkeypatch) -> None:
         """Multiple KB refs produce a comma-separated KB_INDEX_IDS value."""
-        import api.services.rag_service as _rag_mod
         from unittest.mock import MagicMock
+
+        import api.services.rag_service as _rag_mod
 
         idx_a = MagicMock()
         idx_a.name = "docs"

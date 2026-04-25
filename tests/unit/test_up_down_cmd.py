@@ -919,241 +919,138 @@ class TestWaitForHealth:
 class TestDownCommand:
     """Tests for the 'agentbreeder down' CLI command."""
 
-    def test_compose_dir_not_found_exits_1(self) -> None:
-        """Should exit 1 when compose dir is not found."""
-        with patch(
-            "cli.commands.down._find_compose_dir",
-            return_value=None,
-        ):
-            result = runner.invoke(app, ["down"])
+    def _no_qs(self):
+        """Patch _qs_is_running to return False."""
+        from unittest.mock import patch
+        return patch("cli.commands.down._qs_is_running", return_value=False)
 
-        assert result.exit_code == 1
+    def _qs_running(self):
+        """Patch _qs_is_running to return True."""
+        from unittest.mock import patch
+        return patch("cli.commands.down._qs_is_running", return_value=True)
 
-    def test_successful_stop(self, tmp_path: Path) -> None:
-        """Should exit 0 on successful docker compose down."""
-        deploy = tmp_path / "deploy"
-        deploy.mkdir()
-        (deploy / "docker-compose.yml").write_text("version: '3'\n")
+    def _stop_qs_ok(self):
+        from unittest.mock import patch
+        return patch("cli.commands.down._stop_qs", return_value=0)
 
+    def _stop_qs_fail(self):
+        from unittest.mock import patch
+        return patch("cli.commands.down._stop_qs", return_value=1)
+
+    def test_nothing_running_exits_0(self) -> None:
+        """When nothing is running, exit 0 with a helpful message."""
         with (
-            patch(
-                "cli.commands.down._find_compose_dir",
-                return_value=deploy,
-            ),
-            patch(
-                "cli.commands.down.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    args=[],
-                    returncode=0,
-                ),
-            ),
+            patch("cli.commands.down._qs_is_running", return_value=False),
+            patch("cli.commands.up._find_compose_dir", return_value=None),
         ):
             result = runner.invoke(app, ["down"])
+        assert result.exit_code == 0
 
+    def test_quickstart_stopped_exits_0(self) -> None:
+        """Should exit 0 when quickstart stack stops successfully."""
+        with (
+            patch("cli.commands.down._qs_is_running", return_value=True),
+            patch("cli.commands.down._stop_qs", return_value=0),
+            patch("cli.commands.up._find_compose_dir", return_value=None),
+        ):
+            result = runner.invoke(app, ["down"])
         assert result.exit_code == 0
         assert "stopped" in result.output.lower()
 
-    def test_clean_flag_passes_volumes(self, tmp_path: Path) -> None:
-        """--clean should include --volumes in the docker command."""
-        deploy = tmp_path / "deploy"
-        deploy.mkdir()
-        (deploy / "docker-compose.yml").write_text("version: '3'\n")
-
-        mock_run = MagicMock(
-            return_value=subprocess.CompletedProcess(
-                args=[],
-                returncode=0,
-            ),
-        )
-
+    def test_clean_flag_passed_to_stop_qs(self) -> None:
+        """--clean should pass volumes=True to _stop_qs."""
+        mock_stop = MagicMock(return_value=0)
         with (
-            patch(
-                "cli.commands.down._find_compose_dir",
-                return_value=deploy,
-            ),
-            patch("cli.commands.down.subprocess.run", mock_run),
+            patch("cli.commands.down._qs_is_running", return_value=True),
+            patch("cli.commands.down._stop_qs", mock_stop),
+            patch("cli.commands.up._find_compose_dir", return_value=None),
         ):
-            result = runner.invoke(app, ["down", "--clean"])
+            runner.invoke(app, ["down", "--clean"])
+        mock_stop.assert_called_once_with(True)
 
-        assert result.exit_code == 0
-        cmd = mock_run.call_args[0][0]
-        assert "--volumes" in cmd
-
-    def test_no_clean_omits_volumes(self, tmp_path: Path) -> None:
-        """Without --clean, --volumes should not appear."""
-        deploy = tmp_path / "deploy"
-        deploy.mkdir()
-        (deploy / "docker-compose.yml").write_text("version: '3'\n")
-
-        mock_run = MagicMock(
-            return_value=subprocess.CompletedProcess(
-                args=[],
-                returncode=0,
-            ),
-        )
-
+    def test_no_clean_passes_false_to_stop_qs(self) -> None:
+        """Without --clean, _stop_qs should receive volumes=False."""
+        mock_stop = MagicMock(return_value=0)
         with (
-            patch(
-                "cli.commands.down._find_compose_dir",
-                return_value=deploy,
-            ),
-            patch("cli.commands.down.subprocess.run", mock_run),
+            patch("cli.commands.down._qs_is_running", return_value=True),
+            patch("cli.commands.down._stop_qs", mock_stop),
+            patch("cli.commands.up._find_compose_dir", return_value=None),
         ):
-            result = runner.invoke(app, ["down"])
+            runner.invoke(app, ["down"])
+        mock_stop.assert_called_once_with(False)
 
-        assert result.exit_code == 0
-        cmd = mock_run.call_args[0][0]
-        assert "--volumes" not in cmd
-
-    def test_json_output_on_success(self, tmp_path: Path) -> None:
+    def test_json_output_on_success(self) -> None:
         """--json should produce JSON output on success."""
-        deploy = tmp_path / "deploy"
-        deploy.mkdir()
-        (deploy / "docker-compose.yml").write_text("version: '3'\n")
-
         with (
-            patch(
-                "cli.commands.down._find_compose_dir",
-                return_value=deploy,
-            ),
-            patch(
-                "cli.commands.down.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    args=[],
-                    returncode=0,
-                ),
-            ),
+            patch("cli.commands.down._qs_is_running", return_value=True),
+            patch("cli.commands.down._stop_qs", return_value=0),
+            patch("cli.commands.up._find_compose_dir", return_value=None),
         ):
             result = runner.invoke(app, ["down", "--json"])
-
         assert result.exit_code == 0
         output = json.loads(result.output.strip())
         assert output["status"] == "stopped"
         assert output["clean"] is False
 
-    def test_json_output_with_clean(self, tmp_path: Path) -> None:
+    def test_json_output_with_clean(self) -> None:
         """--json --clean should show clean: true in output."""
-        deploy = tmp_path / "deploy"
-        deploy.mkdir()
-        (deploy / "docker-compose.yml").write_text("version: '3'\n")
-
         with (
-            patch(
-                "cli.commands.down._find_compose_dir",
-                return_value=deploy,
-            ),
-            patch(
-                "cli.commands.down.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    args=[],
-                    returncode=0,
-                ),
-            ),
+            patch("cli.commands.down._qs_is_running", return_value=True),
+            patch("cli.commands.down._stop_qs", return_value=0),
+            patch("cli.commands.up._find_compose_dir", return_value=None),
         ):
             result = runner.invoke(app, ["down", "--json", "--clean"])
-
         assert result.exit_code == 0
         output = json.loads(result.output.strip())
         assert output["status"] == "stopped"
         assert output["clean"] is True
 
-    def test_json_output_on_failure(self, tmp_path: Path) -> None:
-        """--json should produce JSON error output on failure."""
-        deploy = tmp_path / "deploy"
-        deploy.mkdir()
-        (deploy / "docker-compose.yml").write_text("version: '3'\n")
-
+    def test_json_output_when_nothing_running(self) -> None:
+        """--json should return not_running when nothing is up."""
         with (
-            patch(
-                "cli.commands.down._find_compose_dir",
-                return_value=deploy,
-            ),
-            patch(
-                "cli.commands.down.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    args=[],
-                    returncode=1,
-                ),
-            ),
+            patch("cli.commands.down._qs_is_running", return_value=False),
+            patch("cli.commands.up._find_compose_dir", return_value=None),
         ):
             result = runner.invoke(app, ["down", "--json"])
-
-        assert result.exit_code == 1
+        assert result.exit_code == 0
         output = json.loads(result.output.strip())
-        assert output["status"] == "error"
+        assert output["status"] == "not_running"
 
-    def test_failed_stop_exits_1(self, tmp_path: Path) -> None:
-        """Should exit 1 when docker compose down fails."""
-        deploy = tmp_path / "deploy"
-        deploy.mkdir()
-        (deploy / "docker-compose.yml").write_text("version: '3'\n")
-
+    def test_failed_qs_stop_continues(self) -> None:
+        """QS stop failure does not exit with error if nothing else stopped."""
         with (
-            patch(
-                "cli.commands.down._find_compose_dir",
-                return_value=deploy,
-            ),
-            patch(
-                "cli.commands.down.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    args=[],
-                    returncode=1,
-                ),
-            ),
+            patch("cli.commands.down._qs_is_running", return_value=True),
+            patch("cli.commands.down._stop_qs", return_value=1),
+            patch("cli.commands.up._find_compose_dir", return_value=None),
         ):
             result = runner.invoke(app, ["down"])
+        # Nothing stopped, so the "nothing running" message appears (exit 0)
+        assert result.exit_code == 0
 
-        assert result.exit_code == 1
-
-    def test_clean_shows_volumes_removed_message(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """--clean should mention volumes removal in output."""
-        deploy = tmp_path / "deploy"
-        deploy.mkdir()
-        (deploy / "docker-compose.yml").write_text("version: '3'\n")
-
+    def test_clean_shows_volumes_message(self) -> None:
+        """--clean should mention volumes in output."""
         with (
-            patch(
-                "cli.commands.down._find_compose_dir",
-                return_value=deploy,
-            ),
-            patch(
-                "cli.commands.down.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    args=[],
-                    returncode=0,
-                ),
-            ),
+            patch("cli.commands.down._qs_is_running", return_value=True),
+            patch("cli.commands.down._stop_qs", return_value=0),
+            patch("cli.commands.up._find_compose_dir", return_value=None),
         ):
             result = runner.invoke(app, ["down", "--clean"])
-
         assert result.exit_code == 0
         low = result.output.lower()
         assert "volume" in low or "deleted" in low
 
-    def test_down_uses_correct_compose_file(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """Should pass the correct -f flag to docker compose."""
+    def test_dev_stack_stopped_with_compose_file(self, tmp_path: Path) -> None:
+        """Dev stack stop should pass the correct -f flag to docker compose."""
         deploy = tmp_path / "deploy"
         deploy.mkdir()
         (deploy / "docker-compose.yml").write_text("version: '3'\n")
 
         mock_run = MagicMock(
-            return_value=subprocess.CompletedProcess(
-                args=[],
-                returncode=0,
-            ),
+            return_value=subprocess.CompletedProcess(args=[], returncode=0),
         )
-
         with (
-            patch(
-                "cli.commands.down._find_compose_dir",
-                return_value=deploy,
-            ),
+            patch("cli.commands.down._qs_is_running", return_value=False),
+            patch("cli.commands.up._find_compose_dir", return_value=deploy),
             patch("cli.commands.down.subprocess.run", mock_run),
         ):
             runner.invoke(app, ["down"])

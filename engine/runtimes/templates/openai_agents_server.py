@@ -131,7 +131,7 @@ async def startup() -> None:
                 tool_description: str = tool_spec.get("description") or f"A2A sub-agent: {tool_name}"
 
                 # Capture loop variables in the closure.
-                def _make_fn(name: str, tb: Any) -> Any:
+                def _make_fn(name: str, tb: Any, description: str) -> Any:
                     def _tool_fn(input: str) -> str:  # noqa: A002
                         try:
                             result = tb.execute(name, {"input": input})
@@ -140,10 +140,10 @@ async def startup() -> None:
                             return f"Error calling {name!r}: {exc}"
 
                     _tool_fn.__name__ = name
-                    _tool_fn.__doc__ = tool_description
+                    _tool_fn.__doc__ = description
                     return _tool_fn
 
-                fn = _make_fn(tool_name, _tb)
+                fn = _make_fn(tool_name, _tb, tool_description)
                 try:
                     sdk_tool = FunctionTool(fn)
                     if hasattr(_agent, "tools") and isinstance(_agent.tools, list):

@@ -1121,13 +1121,6 @@ def quickstart(
 
         result = _compose_run(compose_cmd, up_args, env=compose_env)
     if result.returncode != 0:
-        # Identify which containers from OUR stack are running (not external conflicts)
-        qs_containers = subprocess.run(
-            ["docker", "ps", "--filter", "name=agentbreeder-qs", "--format", "{{.Names}}"],
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-
         # Check for unhealthy containers to give a specific message
         unhealthy = subprocess.run(
             ["docker", "ps", "-a", "--filter", "name=agentbreeder-qs",

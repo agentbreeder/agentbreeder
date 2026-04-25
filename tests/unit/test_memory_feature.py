@@ -12,7 +12,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import types
@@ -21,8 +20,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
-
 
 # ---------------------------------------------------------------------------
 # Helpers

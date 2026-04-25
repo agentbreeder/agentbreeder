@@ -175,13 +175,18 @@ class TestGetYamlTool:
 class TestPlaygroundChat:
     def test_playground_chat(self) -> None:
         """POST /playground/chat returns a response with expected fields."""
-        resp = client.post(
-            "/api/v1/playground/chat",
-            json={
-                "agent_id": "agent-123",
-                "message": "Hello, how can you help?",
-            },
-        )
+        import unittest.mock as mock
+
+        import api.routes.playground as pg
+
+        with mock.patch.object(pg, "_try_litellm_call", return_value=("Hello!", 10, 5, "claude-sonnet-4")):
+            resp = client.post(
+                "/api/v1/playground/chat",
+                json={
+                    "agent_id": "agent-123",
+                    "message": "Hello, how can you help?",
+                },
+            )
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert "response" in data

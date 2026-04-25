@@ -23,7 +23,6 @@ from registry.rag import (
     list_backends,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -48,8 +47,8 @@ class _AsyncIter:
     async def __anext__(self):
         try:
             return next(self._iter)
-        except StopIteration:
-            raise StopAsyncIteration
+        except StopIteration as err:
+            raise StopAsyncIteration from err
 
 
 def _make_async_result(records: list | None = None) -> _AsyncIter:

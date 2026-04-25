@@ -906,12 +906,10 @@ class TestInvokeKbPreHook:
         srv._agent = mock_agent
         srv._kb_index_ids = ["test-index"]
 
-        captured_inputs: list[Any] = []
-
         async def fake_inject(query: str, ids: list, top_k: int = 5) -> str:
             return "<knowledge_base_context>\nsome relevant text\n</knowledge_base_context>"
 
-        with patch.object(srv, "_inject_kb_context", wraps=fake_inject) as mock_inject:
+        with patch.object(srv, "_inject_kb_context", wraps=fake_inject):
             async with AsyncClient(
                 transport=ASGITransport(app=srv.app), base_url="http://test"
             ) as client:
