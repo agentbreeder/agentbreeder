@@ -170,10 +170,8 @@ async def _litellm_headers() -> dict:
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
 
-async def _resolve_model(requested: str | None) -> str:
-    """Return a model that LiteLLM actually has available, preferring the requested one."""
-    if requested:
-        return requested
+async def _list_available_models() -> list[str]:
+    """Return model IDs that LiteLLM reports as available."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(
@@ -181,21 +179,38 @@ async def _resolve_model(requested: str | None) -> str:
                 headers=await _litellm_headers(),
             )
             resp.raise_for_status()
-            models = [m["id"] for m in resp.json().get("data", [])]
-            # prefer ollama models (free, local), then anything available
-            for m in models:
-                if m.startswith("ollama/"):
-                    return m
-            if models:
-                return models[0]
+            return [m["id"] for m in resp.json().get("data", [])]
     except Exception:
-        pass
-    return "ollama/llama3.2"
+        return []
 
 
-async def _call_litellm(messages: list[dict], model: str) -> tuple[str, int, int]:
+async def _try_litellm_call(
+    messages: list[dict], candidates: list[str]
+) -> tuple[str, int, int, str] | None:
+    """Try each candidate model in order. Returns (text, in_tok, out_tok, model) or None."""
+    for model in candidates:
+        try:
+            text, in_tok, out_tok = await _call_litellm(messages, model)
+            return text, in_tok, out_tok, model
+        except Exception:
+            continue
+    return None
+
+
+async def _resolve_model(requested: str | None) -> str:
+    """Return a model name (may not be available — callers should handle failures)."""
+    if requested:
+        return requested
+    models = await _list_available_models()
+    for m in models:
+        if m.startswith("ollama/"):
+            return m
+    return models[0] if models else "ollama/llama3.2"
+
+
+async def _call_litellm(messages: list[dict], model: str, timeout: float = 180.0) -> tuple[str, int, int]:
     """Call LiteLLM gateway. Returns (response_text, input_tokens, output_tokens)."""
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
             f"{settings.litellm_base_url}/v1/chat/completions",
             headers=await _litellm_headers(),
@@ -243,15 +258,18 @@ async def playground_chat(
     """Send a message to an agent and get a response via LiteLLM gateway."""
     start = time.monotonic()
 
-    # Load agent config to resolve model and system prompt
-    agent_model_override: str | None = body.model_override
+    # Load agent config to build system prompt and collect model candidates
     system_prompt: str | None = body.system_prompt_override
+    model_primary: str | None = body.model_override
+    model_fallback: str | None = None
 
     try:
         agent = await AgentRegistry.get_by_id(db, uuid.UUID(body.agent_id))
         if agent:
-            if not agent_model_override and agent.model_primary:
-                agent_model_override = agent.model_primary
+            if not model_primary and agent.model_primary:
+                model_primary = agent.model_primary
+            if agent.model_fallback:
+                model_fallback = agent.model_fallback
             if not system_prompt:
                 system_prompt = _build_system_prompt(
                     agent.name,
@@ -261,7 +279,21 @@ async def playground_chat(
     except Exception:
         pass  # agent_id may be a placeholder; proceed without agent context
 
-    model_used = await _resolve_model(agent_model_override)
+    # Build ordered candidate list: primary → fallback → any available ollama → any available
+    candidates: list[str] = []
+    if model_primary:
+        candidates.append(model_primary)
+    if model_fallback and model_fallback not in candidates:
+        candidates.append(model_fallback)
+    # Add any available models from LiteLLM as last-resort options
+    available = await _list_available_models()
+    for m in available:
+        if m not in candidates:
+            candidates.append(m)
+    if not candidates:
+        candidates = ["ollama/llama3.2"]
+
+    model_used = candidates[0]
 
     # Build message list
     messages: list[dict] = []
@@ -275,11 +307,19 @@ async def playground_chat(
     input_tokens: int
     output_tokens: int
 
-    try:
-        response_text, input_tokens, output_tokens = await _call_litellm(messages, model_used)
-    except Exception as exc:
-        logger.warning("LiteLLM call failed (%s) — falling back to simulation", exc)
-        response_text = random.choice(_SIMULATED_AGENT_RESPONSES)
+    result_tuple = await _try_litellm_call(messages, candidates)
+    if result_tuple:
+        response_text, input_tokens, output_tokens, model_used = result_tuple
+    else:
+        tried = ", ".join(candidates[:3]) + ("..." if len(candidates) > 3 else "")
+        logger.warning("All model candidates failed for playground chat: %s", tried)
+        response_text = (
+            f"⚠️ No model available to respond.\n\n"
+            f"Tried: `{tried}`\n\n"
+            f"To fix this, either:\n"
+            f"- Start Ollama locally: `ollama serve && ollama pull llama3.2`\n"
+            f"- Add an API key in the quickstart setup (OpenAI, Anthropic, Gemini, or OpenRouter)"
+        )
         input_text = body.message + " ".join(m.content for m in body.conversation_history)
         input_tokens = _estimate_tokens(input_text)
         output_tokens = _estimate_tokens(response_text)

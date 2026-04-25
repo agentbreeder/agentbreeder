@@ -24,14 +24,15 @@ function formatValue(value: unknown): string {
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") return String(value);
   if (typeof value === "string") {
-    if (value.includes("\n")) {
-      // Multi-line strings use literal block style
-      const lines = value.split("\n");
-      return "|\n" + lines.map((l) => "  " + l).join("\n");
-    }
+    // Multi-line strings are handled separately in jsonToYamlLines so they
+    // can be indented correctly relative to their parent key.
     return needsQuoting(value) ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value;
   }
   return String(value);
+}
+
+function isMultiLine(value: unknown): value is string {
+  return typeof value === "string" && value.includes("\n");
 }
 
 function jsonToYamlLines(obj: unknown, indent: number = 0): string[] {
@@ -90,7 +91,15 @@ function jsonToYamlLines(obj: unknown, indent: number = 0): string[] {
   }
 
   for (const [key, val] of entries) {
-    if (val !== null && typeof val === "object") {
+    if (isMultiLine(val)) {
+      // Literal block scalar: indent content one level deeper than the key
+      const contentPrefix = "  ".repeat(indent + 1);
+      lines.push(`${prefix}${key}: |`);
+      for (const contentLine of val.split("\n")) {
+        // Preserve empty lines in the block but don't add spurious trailing spaces
+        lines.push(contentLine === "" ? "" : `${contentPrefix}${contentLine}`);
+      }
+    } else if (val !== null && typeof val === "object") {
       if (Array.isArray(val) && val.length === 0) {
         lines.push(`${prefix}${key}: []`);
       } else if (!Array.isArray(val) && Object.keys(val as Record<string, unknown>).length === 0) {
@@ -172,17 +181,39 @@ export function validateYamlBasic(yaml: string): { valid: boolean; error: string
   }
 
   const lines = yaml.split("\n");
+  let blockScalarIndent = -1; // indent level of a block scalar's content, -1 = not in one
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // Skip empty lines and comments
-    if (!line.trim() || line.trim().startsWith("#")) continue;
+
+    // Skip empty lines
+    if (!line.trim()) continue;
+
+    const currentIndent = line.match(/^(\s*)/)?.[1].length ?? 0;
+
+    // Detect end of block scalar: a non-empty line at or before the block's indent
+    if (blockScalarIndent >= 0 && currentIndent <= blockScalarIndent) {
+      blockScalarIndent = -1;
+    }
+
+    // Inside block scalar content — skip structural checks
+    if (blockScalarIndent >= 0) continue;
+
+    // Comments
+    if (line.trim().startsWith("#")) continue;
 
     // Check for tabs (YAML uses spaces only)
     if (/^\t/.test(line)) {
       return { valid: false, error: `Line ${i + 1}: tabs are not allowed in YAML` };
     }
 
-    // Check for unclosed quotes
+    // Detect start of a block scalar (key: | or key: >)
+    if (/:\s*[|>][-+]?\s*$/.test(line)) {
+      blockScalarIndent = currentIndent;
+      continue;
+    }
+
+    // Check for unclosed quotes only on non-block-scalar lines
     const stripped = line.replace(/\\"/g, "").replace(/\\'/g, "");
     const doubleQuotes = (stripped.match(/"/g) || []).length;
     const singleQuotes = (stripped.match(/'/g) || []).length;
