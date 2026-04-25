@@ -13,12 +13,12 @@ import logging
 import os
 
 from engine.a2a.tool_generator import generate_subagent_tools
-from engine.config_parser import AgentConfig, ToolRef
+from engine.config_parser import AgentConfig, KnowledgeBaseRef, ToolRef
 
 logger = logging.getLogger(__name__)
 
 
-def _resolve_kb_index_ids(kb_refs: list[object]) -> list[str]:
+def _resolve_kb_index_ids(kb_refs: list[KnowledgeBaseRef]) -> list[str]:
     """Return RAG store index IDs for the given knowledge-base refs.
 
     Resolution order:
