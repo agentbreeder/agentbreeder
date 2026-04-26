@@ -651,3 +651,151 @@ class TestInitNextStepsRelPath:
 
         assert result.exit_code == 0, result.output
         assert "validation warnings" in result.output or "⚠" in result.output
+
+
+# ---------------------------------------------------------------------------
+# New polyglot flags: --language node, --type mcp-server
+# ---------------------------------------------------------------------------
+
+
+class TestInitPolyglot:
+    """Tests for --language and --type flags."""
+
+    def test_init_node_agent_creates_agent_ts(self) -> None:
+        """Scaffold with --language node --framework vercel-ai creates agent.ts."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "my-ts-agent"
+            # Node path prompts: cloud picker (1=local), then name/team/owner details
+            input_str = "1\nmy-ts-agent\nengineering\ntest@example.com\n"
+            result = runner.invoke(
+                app,
+                [
+                    "init",
+                    str(outdir),
+                    "--language",
+                    "node",
+                    "--framework",
+                    "vercel-ai",
+                ],
+                input=input_str,
+            )
+            assert result.exit_code == 0, result.output
+            assert (outdir / "agent.ts").exists()
+            assert (outdir / "agent.yaml").exists()
+            assert (outdir / "package.json").exists()
+            assert (outdir / "tsconfig.json").exists()
+            assert (outdir / ".gitignore").exists()
+
+            # agent.yaml should contain the runtime block
+            yaml_content = (outdir / "agent.yaml").read_text()
+            assert "language: node" in yaml_content
+            assert "framework: vercel-ai" in yaml_content
+
+            # agent.ts should be non-empty TypeScript
+            ts_content = (outdir / "agent.ts").read_text()
+            assert "export const model" in ts_content
+            assert "export const systemPrompt" in ts_content
+
+    def test_init_mcp_server_creates_tools_ts(self) -> None:
+        """Scaffold with --type mcp-server --language node creates tools.ts and mcp-server.yaml."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "my-tools"
+            # MCP server node path prompts only name/team/owner
+            input_str = "my-tools\nengineering\ntest@example.com\n"
+            result = runner.invoke(
+                app,
+                [
+                    "init",
+                    str(outdir),
+                    "--type",
+                    "mcp-server",
+                    "--language",
+                    "node",
+                ],
+                input=input_str,
+            )
+            assert result.exit_code == 0, result.output
+            assert (outdir / "tools.ts").exists()
+            assert (outdir / "mcp-server.yaml").exists()
+            assert (outdir / "package.json").exists()
+            assert (outdir / "tsconfig.json").exists()
+
+            # mcp-server.yaml should have correct type and runtime
+            yaml_content = (outdir / "mcp-server.yaml").read_text()
+            assert "type: mcp-server" in yaml_content
+            assert "language: node" in yaml_content
+            assert "framework: mcp-ts" in yaml_content
+
+            # tools.ts should export a function
+            ts_content = (outdir / "tools.ts").read_text()
+            assert "search_web" in ts_content
+
+    def test_init_python_agent_unchanged(self) -> None:
+        """--language python (default) with --framework langgraph produces unchanged Python output."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "my-agent"
+            result = runner.invoke(
+                app,
+                ["init", str(outdir), "--language", "python", "--framework", "langgraph"],
+                input=_make_init_input(framework=1, cloud=1),
+            )
+            assert result.exit_code == 0, result.output
+            assert (outdir / "agent.yaml").exists()
+            assert (outdir / "agent.py").exists()
+            assert (outdir / "requirements.txt").exists()
+            assert (outdir / ".env.example").exists()
+
+            yaml_content = (outdir / "agent.yaml").read_text()
+            assert "framework: langgraph" in yaml_content
+
+    def test_init_invalid_language_exits_nonzero(self) -> None:
+        """Unknown --language value should exit with code 1."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "bad"
+            result = runner.invoke(
+                app,
+                ["init", str(outdir), "--language", "ruby"],
+            )
+            assert result.exit_code == 1
+            assert "Unknown language" in result.output
+
+    def test_init_invalid_type_exits_nonzero(self) -> None:
+        """Unknown --type value should exit with code 1."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "bad"
+            result = runner.invoke(
+                app,
+                ["init", str(outdir), "--type", "plugin"],
+            )
+            assert result.exit_code == 1
+            assert "Unknown type" in result.output
+
+    def test_init_python_mcp_server_creates_tools_py(self) -> None:
+        """--type mcp-server --language python creates tools.py and mcp-server.yaml."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "my-py-tools"
+            input_str = "my-py-tools\nengineering\ntest@example.com\n"
+            result = runner.invoke(
+                app,
+                [
+                    "init",
+                    str(outdir),
+                    "--type",
+                    "mcp-server",
+                    "--language",
+                    "python",
+                ],
+                input=input_str,
+            )
+            assert result.exit_code == 0, result.output
+            assert (outdir / "tools.py").exists()
+            assert (outdir / "mcp-server.yaml").exists()
+
+            yaml_content = (outdir / "mcp-server.yaml").read_text()
+            assert "type: mcp-server" in yaml_content
+            assert "language: python" in yaml_content
+            assert "framework: mcp-py" in yaml_content
+
+            # tools.py should be valid Python syntax
+            py_content = (outdir / "tools.py").read_text()
+            compile(py_content, "tools.py", "exec")

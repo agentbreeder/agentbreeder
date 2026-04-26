@@ -72,6 +72,75 @@ FRAMEWORKS = [
     },
 ]
 
+# ─── Node.js framework metadata ─────────────────────────────────────
+
+NODE_FRAMEWORKS = [
+    {
+        "key": "vercel-ai",
+        "name": "Vercel AI SDK",
+        "icon": "▲",
+        "tagline": "Streaming-first AI framework by Vercel",
+        "model": "gpt-4o",
+    },
+    {
+        "key": "mastra",
+        "name": "Mastra",
+        "icon": "🔮",
+        "tagline": "TypeScript agent framework by Mastra",
+        "model": "gpt-4o",
+    },
+    {
+        "key": "langchain-js",
+        "name": "LangChain.js",
+        "icon": "🦜",
+        "tagline": "LangChain for TypeScript/JavaScript",
+        "model": "gpt-4o",
+    },
+    {
+        "key": "openai-agents-ts",
+        "name": "OpenAI Agents (TS)",
+        "icon": "🤖",
+        "tagline": "OpenAI Agents SDK for TypeScript",
+        "model": "gpt-4o",
+    },
+    {
+        "key": "deepagent",
+        "name": "DeepAgent",
+        "icon": "🔬",
+        "tagline": "Research-focused TypeScript agent framework",
+        "model": "gpt-4o",
+    },
+    {
+        "key": "custom",
+        "name": "Custom",
+        "icon": "⚙️",
+        "tagline": "Bring your own TypeScript agent code",
+        "model": "gpt-4o",
+    },
+]
+
+# ─── MCP server framework metadata ──────────────────────────────────
+
+MCP_FRAMEWORKS_NODE = [
+    {
+        "key": "mcp-ts",
+        "name": "MCP TypeScript SDK",
+        "icon": "🔧",
+        "tagline": "Official MCP SDK for TypeScript",
+        "model": "",
+    },
+]
+
+MCP_FRAMEWORKS_PYTHON = [
+    {
+        "key": "mcp-py",
+        "name": "MCP Python SDK",
+        "icon": "🔧",
+        "tagline": "Official MCP SDK for Python",
+        "model": "",
+    },
+]
+
 CLOUDS = [
     {"key": "local", "name": "Local", "icon": "💻", "tagline": "Docker Compose on your machine"},
     {"key": "aws", "name": "AWS", "icon": "☁️", "tagline": "ECS Fargate / Lambda / EKS"},
@@ -403,6 +472,195 @@ AGENT_PY_GENERATORS = {
 }
 
 
+# ─── Node agent template generators ─────────────────────────────────
+
+
+def _agent_ts(name: str, framework: str) -> str:
+    """Generate agent.ts for a Node agent."""
+    return """\
+// agent.ts — Your agent logic. This is the only file you need to edit.
+// Platform-managed files (server.ts, Dockerfile) are generated at deploy time.
+import { openai } from '@ai-sdk/openai'
+
+export const model = openai('gpt-4o')
+export const systemPrompt = `You are a helpful assistant.`
+// Optional additional tools beyond APS-injected tools
+export const tools = {}
+"""
+
+
+def _agent_yaml_node(name: str, framework: str, cloud: str) -> str:
+    """Generate agent.yaml for a Node agent."""
+    return f"""\
+name: {name}
+version: 1.0.0
+team: my-team
+owner: engineer@company.com
+
+model:
+  primary: gpt-4o
+
+runtime:
+  language: node
+  framework: {framework}
+  version: "20"
+
+deploy:
+  cloud: {cloud}
+"""
+
+
+def _package_json(name: str) -> str:
+    """Generate package.json for a Node agent."""
+    return (
+        """\
+{
+  "name": \""""
+        + name
+        + """\",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --loader ts-node/esm server.ts"
+  },
+  "dependencies": {
+    "@agentbreeder/aps-client": "^0.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}
+"""
+    )
+
+
+def _tsconfig_json() -> str:
+    """Generate tsconfig.json for a Node agent or MCP server."""
+    return """\
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true
+  }
+}
+"""
+
+
+def _gitignore_node() -> str:
+    """Generate .gitignore for a Node project."""
+    return """\
+node_modules/
+dist/
+.env
+*.js.map
+"""
+
+
+# ─── MCP server template generators ─────────────────────────────────
+
+
+def _tools_ts(name: str) -> str:
+    """Generate tools.ts for a TypeScript MCP server."""
+    return """\
+// tools.ts — Your MCP tool implementations.
+// Export one async function per tool.
+
+export async function search_web({ query }: { query: string }): Promise<string> {
+  // TODO: implement your search logic
+  return `Search results for: ${query}`
+}
+"""
+
+
+def _mcp_server_yaml_node(name: str) -> str:
+    """Generate mcp-server.yaml for a TypeScript MCP server."""
+    return f"""\
+name: {name}
+version: 1.0.0
+type: mcp-server
+team: my-team
+owner: engineer@company.com
+
+runtime:
+  language: node
+  framework: mcp-ts
+  version: "20"
+
+transport: http
+
+tools:
+  - name: search_web
+    description: "Search the web"
+    schema:
+      type: object
+      properties:
+        query: {{type: string}}
+      required: [query]
+"""
+
+
+def _tools_py(name: str) -> str:
+    """Generate tools.py for a Python MCP server."""
+    return f'''\
+"""tools.py — Your MCP tool implementations for {name}.
+
+Each function decorated with @mcp.tool() becomes an MCP tool.
+"""
+
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("{name}")
+
+
+@mcp.tool()
+def search_web(query: str) -> str:
+    """Search the web.
+
+    Args:
+        query: The search query string.
+
+    Returns:
+        A string with search results.
+    """
+    # TODO: implement your search logic
+    return f"Search results for: {{query}}"
+
+
+if __name__ == "__main__":
+    mcp.run()
+'''
+
+
+def _mcp_server_yaml_python(name: str) -> str:
+    """Generate mcp-server.yaml for a Python MCP server."""
+    return f"""\
+name: {name}
+version: 1.0.0
+type: mcp-server
+team: my-team
+owner: engineer@company.com
+
+runtime:
+  language: python
+  framework: mcp-py
+  version: "3.11"
+
+transport: http
+
+tools:
+  - name: search_web
+    description: "Search the web"
+    schema:
+      type: object
+      properties:
+        query: {{type: string}}
+      required: [query]
+"""
+
+
 def _readme(name: str, framework: str, cloud: str) -> str:
     fw = next((f for f in FRAMEWORKS if f["key"] == framework), FRAMEWORKS[0])
     return f"""\
@@ -624,57 +882,16 @@ def _prompt_model_suggestion(default_model: str) -> str:
         console.print(f"  [red]Please enter a number between 1 and {keep_num}[/red]")
 
 
-# ─── Main command ────────────────────────────────────────────────────
+# ─── Scaffold helpers ────────────────────────────────────────────────
 
 
-def init(
-    output_dir: str = typer.Argument(
-        None,
-        help="Directory to create the project in (defaults to agent name)",
-    ),
-    json_output: bool = typer.Option(
-        False,
-        "--json",
-        help="Output as JSON (for CI/scripting)",
-    ),
-) -> None:
-    """Scaffold a new agent project with an interactive wizard.
+def _gather_project_details(
+    output_dir: str | None, json_output: bool
+) -> tuple[str, str, str, Path]:
+    """Prompt for name, team, owner, and resolve project_dir.
 
-    Creates a complete, deployable agent project with:
-      - agent.yaml (configuration)
-      - agent.py (working example code)
-      - requirements.txt (dependencies)
-      - .env.example (environment template)
-      - README.md (getting started guide)
+    Returns (name, team, owner, project_dir).
     """
-    if not json_output:
-        console.print()
-        console.print(
-            Panel(
-                "[bold]New Agent Project[/bold]\n"
-                "[dim]Answer a few questions and you'll have a deployable agent in seconds.[/dim]",
-                title="[bold]AgentBreeder[/bold]",
-                border_style="blue",
-                padding=(1, 2),
-            )
-        )
-
-    # ── Step 1: Framework ────────────────────────────────────────
-    framework = _prompt_selection("What framework?", FRAMEWORKS)
-
-    # ── Step 2: Cloud ────────────────────────────────────────────
-    cloud = _prompt_selection("Where will it run?", CLOUDS)
-
-    # ── Step 2b: Model (optional local provider suggestions) ────
-    # For local deploys, prefer Ollama (no API key needed) if available.
-    if cloud["key"] == "local":
-        local_suggestions = _gather_model_suggestions()
-        if local_suggestions:
-            framework = {**framework, "model": local_suggestions[0]}
-    if not json_output:
-        framework["model"] = _prompt_model_suggestion(framework["model"])
-
-    # ── Step 3: Details ──────────────────────────────────────────
     console.print("\n  [bold]Project details[/bold]\n")
 
     cwd_name = Path.cwd().name
@@ -703,10 +920,14 @@ def init(
 
     owner = _prompt_text("Owner email", default=git_email, validate_fn=_validate_email)
 
-    # ── Step 4: Generate files ───────────────────────────────────
     project_dir = Path(output_dir) if output_dir else Path.cwd() / name
     project_dir = project_dir.resolve()
 
+    return name, team, owner, project_dir
+
+
+def _check_and_create_dir(project_dir: Path) -> None:
+    """Warn if project_dir is non-empty; abort or continue based on user input."""
     if project_dir.exists() and any(project_dir.iterdir()):
         console.print(
             f"\n  [yellow]Warning:[/yellow] Directory [bold]{project_dir}[/bold] is not empty."
@@ -718,21 +939,9 @@ def init(
 
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    files = {
-        "agent.yaml": _agent_yaml(
-            name=name,
-            framework=framework["key"],
-            cloud=cloud["key"],
-            model=framework["model"],
-            team=team,
-            owner=owner,
-        ),
-        "agent.py": AGENT_PY_GENERATORS[framework["key"]](name),
-        "requirements.txt": _requirements(framework["key"]),
-        ".env.example": _env_example(framework["key"]),
-        "README.md": _readme(name, framework["key"], cloud["key"]),
-    }
 
+def _write_files(files: dict[str, str], project_dir: Path, json_output: bool) -> list[str]:
+    """Write all files and return list of created file paths."""
     if not json_output:
         console.print()
         console.print(Rule(style="dim"))
@@ -745,8 +954,21 @@ def init(
         created_files.append(str(filepath))
         if not json_output:
             console.print(f"  [green]✓[/green] {filename}")
+    return created_files
 
-    # ── Step 5: Validate ─────────────────────────────────────────
+
+def _show_next_steps_python(
+    name: str,
+    framework: dict,
+    cloud: dict,
+    project_dir: Path,
+    validation: object,
+    json_output: bool,
+    created_files: list[str],
+    team: str,
+    owner: str,
+) -> None:
+    """Print validation result and next steps for Python agents."""
     yaml_path = project_dir / "agent.yaml"
     validation = validate_config(yaml_path)
 
@@ -778,9 +1000,7 @@ def init(
         for err in validation.errors:
             console.print(f"    [dim]- {err.path}: {err.message}[/dim]")
 
-    # ── Step 6: Next steps ───────────────────────────────────────
     rel_dir = os.path.relpath(project_dir, Path.cwd())
-    # Use relative path if simple (no ..), otherwise use absolute
     if rel_dir == ".":
         cd_cmd = ""
     elif rel_dir.startswith(".."):
@@ -805,3 +1025,317 @@ def init(
         )
     )
     console.print()
+
+
+def _show_next_steps_node(
+    name: str,
+    framework_key: str,
+    cloud_key: str,
+    project_dir: Path,
+    json_output: bool,
+    created_files: list[str],
+    agent_type: str,
+) -> None:
+    """Print next steps for Node agents and MCP servers (no YAML validation for these)."""
+    if json_output:
+        import json
+        import sys
+
+        output = {
+            "project_dir": str(project_dir),
+            "name": name,
+            "framework": framework_key,
+            "cloud": cloud_key,
+            "language": "node",
+            "type": agent_type,
+            "files": created_files,
+        }
+        sys.stdout.write(json.dumps(output, indent=2) + "\n")
+        return
+
+    console.print()
+
+    rel_dir = os.path.relpath(project_dir, Path.cwd())
+    if rel_dir == ".":
+        cd_cmd = ""
+    elif rel_dir.startswith(".."):
+        cd_cmd = f"cd {project_dir}\n  "
+    else:
+        cd_cmd = f"cd {rel_dir}\n  "
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold green]Project created![/bold green] {name}\n\n"
+            f"  [bold]Next steps:[/bold]\n\n"
+            f"  [dim]$[/dim] {cd_cmd}npm install\n"
+            f"  [dim]$[/dim] agentbreeder validate agent.yaml\n"
+            f"  [dim]$[/dim] agentbreeder deploy agent.yaml --target {cloud_key}",
+            title="Ready",
+            border_style="green",
+            padding=(1, 2),
+        )
+    )
+    console.print()
+
+
+def _scaffold_python(
+    output_dir: str | None,
+    framework_key: str | None,
+    agent_type: str,
+    json_output: bool,
+) -> None:
+    """Scaffold a Python agent (existing behavior, unchanged)."""
+    if not json_output:
+        console.print()
+        console.print(
+            Panel(
+                "[bold]New Agent Project[/bold]\n"
+                "[dim]Answer a few questions and you'll have a deployable agent in seconds.[/dim]",
+                title="[bold]AgentBreeder[/bold]",
+                border_style="blue",
+                padding=(1, 2),
+            )
+        )
+
+    # MCP server path
+    if agent_type == "mcp-server":
+        name, team, owner, project_dir = _gather_project_details(output_dir, json_output)
+        _check_and_create_dir(project_dir)
+
+        files = {
+            "tools.py": _tools_py(name),
+            "mcp-server.yaml": _mcp_server_yaml_python(name),
+            "requirements.txt": "mcp>=1.0.0\n",
+        }
+        created_files = _write_files(files, project_dir, json_output)
+
+        if json_output:
+            import json
+            import sys
+
+            output = {
+                "project_dir": str(project_dir),
+                "name": name,
+                "framework": "mcp-py",
+                "language": "python",
+                "type": "mcp-server",
+                "files": created_files,
+            }
+            sys.stdout.write(json.dumps(output, indent=2) + "\n")
+            return
+
+        console.print()
+        console.print(
+            Panel(
+                f"[bold green]MCP server created![/bold green] {name}\n\n"
+                f"  [bold]Next steps:[/bold]\n\n"
+                f"  [dim]$[/dim] pip install -r requirements.txt\n"
+                f"  [dim]$[/dim] python tools.py",
+                title="Ready",
+                border_style="green",
+                padding=(1, 2),
+            )
+        )
+        console.print()
+        return
+
+    # Standard Python agent path
+    # ── Step 1: Framework ────────────────────────────────────────
+    framework = _prompt_selection("What framework?", FRAMEWORKS)
+
+    # ── Step 2: Cloud ────────────────────────────────────────────
+    cloud = _prompt_selection("Where will it run?", CLOUDS)
+
+    # ── Step 2b: Model (optional local provider suggestions) ────
+    if cloud["key"] == "local":
+        local_suggestions = _gather_model_suggestions()
+        if local_suggestions:
+            framework = {**framework, "model": local_suggestions[0]}
+    if not json_output:
+        framework["model"] = _prompt_model_suggestion(framework["model"])
+
+    # ── Step 3: Details ──────────────────────────────────────────
+    name, team, owner, project_dir = _gather_project_details(output_dir, json_output)
+    _check_and_create_dir(project_dir)
+
+    files = {
+        "agent.yaml": _agent_yaml(
+            name=name,
+            framework=framework["key"],
+            cloud=cloud["key"],
+            model=framework["model"],
+            team=team,
+            owner=owner,
+        ),
+        "agent.py": AGENT_PY_GENERATORS[framework["key"]](name),
+        "requirements.txt": _requirements(framework["key"]),
+        ".env.example": _env_example(framework["key"]),
+        "README.md": _readme(name, framework["key"], cloud["key"]),
+    }
+
+    created_files = _write_files(files, project_dir, json_output)
+    _show_next_steps_python(
+        name=name,
+        framework=framework,
+        cloud=cloud,
+        project_dir=project_dir,
+        validation=None,
+        json_output=json_output,
+        created_files=created_files,
+        team=team,
+        owner=owner,
+    )
+
+
+def _scaffold_node(
+    output_dir: str | None,
+    framework_key: str | None,
+    agent_type: str,
+    json_output: bool,
+) -> None:
+    """Scaffold a Node.js agent or MCP server."""
+    if not json_output:
+        console.print()
+        console.print(
+            Panel(
+                "[bold]New Node.js Project[/bold]\n"
+                "[dim]Answer a few questions and you'll have a deployable TypeScript project in seconds.[/dim]",
+                title="[bold]AgentBreeder[/bold]",
+                border_style="blue",
+                padding=(1, 2),
+            )
+        )
+
+    if agent_type == "mcp-server":
+        # MCP server — use mcp-ts framework, no interactive framework picker needed
+        fw_key = framework_key or "mcp-ts"
+        cloud_key = "local"
+
+        name, _team, _owner, project_dir = _gather_project_details(output_dir, json_output)
+        _check_and_create_dir(project_dir)
+
+        files = {
+            "tools.ts": _tools_ts(name),
+            "mcp-server.yaml": _mcp_server_yaml_node(name),
+            "package.json": _package_json(name),
+            "tsconfig.json": _tsconfig_json(),
+            ".gitignore": _gitignore_node(),
+        }
+        created_files = _write_files(files, project_dir, json_output)
+        _show_next_steps_node(
+            name=name,
+            framework_key=fw_key,
+            cloud_key=cloud_key,
+            project_dir=project_dir,
+            json_output=json_output,
+            created_files=created_files,
+            agent_type=agent_type,
+        )
+        return
+
+    # Standard Node agent
+    if framework_key:
+        # Framework was passed via --framework flag; find it in NODE_FRAMEWORKS
+        fw = next((f for f in NODE_FRAMEWORKS if f["key"] == framework_key), None)
+        if fw is None:
+            console.print(
+                f"[red]Unknown Node framework: {framework_key}. "
+                f"Choose: {', '.join(f['key'] for f in NODE_FRAMEWORKS)}[/red]"
+            )
+            raise typer.Exit(code=1)
+    else:
+        fw = _prompt_selection("What Node.js framework?", NODE_FRAMEWORKS)
+
+    # ── Cloud ──────────────────────────────────────────────────
+    cloud = _prompt_selection("Where will it run?", CLOUDS)
+
+    name, _team, _owner, project_dir = _gather_project_details(output_dir, json_output)
+    _check_and_create_dir(project_dir)
+
+    files = {
+        "agent.ts": _agent_ts(name, fw["key"]),
+        "agent.yaml": _agent_yaml_node(name, fw["key"], cloud["key"]),
+        "package.json": _package_json(name),
+        "tsconfig.json": _tsconfig_json(),
+        ".gitignore": _gitignore_node(),
+    }
+    created_files = _write_files(files, project_dir, json_output)
+    _show_next_steps_node(
+        name=name,
+        framework_key=fw["key"],
+        cloud_key=cloud["key"],
+        project_dir=project_dir,
+        json_output=json_output,
+        created_files=created_files,
+        agent_type=agent_type,
+    )
+
+
+# ─── Main command ────────────────────────────────────────────────────
+
+
+def init(
+    output_dir: str = typer.Argument(
+        None,
+        help="Directory to create the project in (defaults to agent name)",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output as JSON (for CI/scripting)",
+    ),
+    language: str = typer.Option(
+        "python",
+        "--language",
+        help="Language runtime: python | node",
+    ),
+    agent_type: str = typer.Option(
+        "agent",
+        "--type",
+        help="Project type: agent | mcp-server",
+    ),
+    framework: str | None = typer.Option(
+        None,
+        "--framework",
+        help="Framework to use (skips interactive picker)",
+    ),
+) -> None:
+    """Scaffold a new agent or MCP server project.
+
+    Creates a complete, deployable project. Use --language to choose Python
+    (default) or Node.js. Use --type to scaffold an agent (default) or an
+    MCP server.
+
+    Examples:
+
+      agentbreeder init --name my-agent --framework langgraph
+
+      agentbreeder init --language node --framework vercel-ai --name my-ts-agent
+
+      agentbreeder init --type mcp-server --language node --name my-tools
+
+      agentbreeder init --type mcp-server --language python --name my-tools
+    """
+    if language not in ("python", "node"):
+        console.print(f"[red]Unknown language: {language}. Choose: python, node[/red]")
+        raise typer.Exit(code=1)
+
+    if agent_type not in ("agent", "mcp-server"):
+        console.print(f"[red]Unknown type: {agent_type}. Choose: agent, mcp-server[/red]")
+        raise typer.Exit(code=1)
+
+    if language == "node":
+        _scaffold_node(
+            output_dir=output_dir,
+            framework_key=framework,
+            agent_type=agent_type,
+            json_output=json_output,
+        )
+    else:
+        _scaffold_python(
+            output_dir=output_dir,
+            framework_key=framework,
+            agent_type=agent_type,
+            json_output=json_output,
+        )
