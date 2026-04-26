@@ -35,6 +35,10 @@ class Settings(BaseSettings):  # type: ignore[misc,unused-ignore]
     # Integrations
     litellm_base_url: str = "http://localhost:4000"
 
+    # AgentBreeder API — injected into deployed agent containers
+    agentbreeder_url: str = "http://agentbreeder-api:8000"
+    agentbreeder_api_key: str = ""
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 

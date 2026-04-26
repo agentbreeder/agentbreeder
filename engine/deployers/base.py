@@ -6,6 +6,7 @@ Cloud-specific logic MUST stay inside engine/deployers/ — never leak it elsewh
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from datetime import datetime
 
@@ -70,3 +71,14 @@ class BaseDeployer(ABC):
     async def get_logs(self, agent_name: str, since: datetime | None = None) -> list[str]:
         """Retrieve logs from a deployed agent."""
         ...
+
+    def get_aps_env_vars(self) -> dict[str, str]:
+        """Return AGENTBREEDER_URL + AGENTBREEDER_API_KEY for injection into agent containers.
+
+        Every deployed agent container receives these so the @agentbreeder/aps-client
+        can call the central AgentBreeder API for RAG, memory, cost tracking, and tracing.
+        """
+        return {
+            "AGENTBREEDER_URL": os.environ.get("AGENTBREEDER_URL", "http://agentbreeder-api:8000"),
+            "AGENTBREEDER_API_KEY": os.environ.get("AGENTBREEDER_API_KEY", ""),
+        }
