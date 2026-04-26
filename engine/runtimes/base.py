@@ -43,7 +43,7 @@ def _get_litellm_requirements() -> list[str]:
     return ["litellm>=1.40.0"]
 
 
-def _should_add_litellm_sdk(config: "AgentConfig") -> bool:
+def _should_add_litellm_sdk(config: AgentConfig) -> bool:
     """Return True only when the LiteLLM Python SDK should be injected.
 
     When ``model.gateway`` is ``"litellm"``, inference goes through the

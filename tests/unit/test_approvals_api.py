@@ -5,9 +5,25 @@ Issue #69: Human-in-the-loop approval patterns.
 
 from __future__ import annotations
 
+import pytest
+import fakeredis.aioredis
 from fastapi.testclient import TestClient
 
+from api.database import get_redis
 from api.main import app
+
+
+@pytest.fixture(autouse=True)
+def _fake_redis():
+    """Inject a fresh in-memory FakeRedis for every test — no real Redis needed."""
+    fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_redis] = _override
+    yield fake
+    app.dependency_overrides.pop(get_redis, None)
 
 client = TestClient(app)
 

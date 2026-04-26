@@ -50,6 +50,7 @@ dev = [
     "types-redis>=4.6.0",
     "types-PyYAML>=6.0.0",
     "aiosqlite>=0.20.0",
+    "fakeredis>=2.20.0",
 ]
 docs = [
     "mkdocs-material>=9.5.0",
