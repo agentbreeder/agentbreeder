@@ -324,7 +324,12 @@ class AzureContainerAppsDeployer(BaseDeployer):
         env_vars = [
             {"name": "AGENT_NAME", "value": config.name},
             {"name": "AGENT_VERSION", "value": config.version},
-            {"name": "AGENT_FRAMEWORK", "value": config.framework.value},
+            {
+                "name": "AGENT_FRAMEWORK",
+                "value": config.framework.value
+                if config.framework
+                else (config.runtime.framework if config.runtime else "unknown"),
+            },
         ]
         # Add user-defined env vars, excluding AZURE_ prefixed infra config vars
         for key, value in config.deploy.env_vars.items():

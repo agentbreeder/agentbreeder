@@ -1,4 +1,5 @@
 """Unit tests for mcp-server.schema.json."""
+
 from __future__ import annotations
 
 import json
@@ -25,11 +26,7 @@ def test_schema_validates_valid_config() -> None:
         "name": "my-search-tools",
         "version": "1.0.0",
         "type": "mcp-server",
-        "runtime": {
-            "language": "node",
-            "framework": "mcp-ts",
-            "version": "20"
-        },
+        "runtime": {"language": "node", "framework": "mcp-ts", "version": "20"},
         "transport": "http",
         "tools": [
             {
@@ -38,10 +35,10 @@ def test_schema_validates_valid_config() -> None:
                 "schema": {
                     "type": "object",
                     "properties": {"query": {"type": "string"}},
-                    "required": ["query"]
-                }
+                    "required": ["query"],
+                },
             }
-        ]
+        ],
     }
     jsonschema.validate(instance=config, schema=schema)
 
@@ -57,7 +54,7 @@ def test_schema_rejects_missing_tools() -> None:
         "name": "my-server",
         "version": "1.0.0",
         "type": "mcp-server",
-        "runtime": {"language": "node", "framework": "mcp-ts"}
+        "runtime": {"language": "node", "framework": "mcp-ts"},
         # tools is missing
     }
     with pytest.raises(jsonschema.ValidationError):
@@ -76,7 +73,7 @@ def test_schema_rejects_invalid_type() -> None:
         "version": "1.0.0",
         "type": "agent",  # wrong — must be "mcp-server"
         "runtime": {"language": "node", "framework": "mcp-ts"},
-        "tools": [{"name": "foo", "description": "bar"}]
+        "tools": [{"name": "foo", "description": "bar"}],
     }
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(instance=config, schema=schema)

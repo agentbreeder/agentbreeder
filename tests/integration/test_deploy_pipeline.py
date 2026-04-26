@@ -169,7 +169,7 @@ class TestFullDeployPipeline:
         engine = DeployEngine(on_step=on_step)
 
         with (
-            patch("engine.builder.get_runtime", return_value=runtime),
+            patch("engine.builder.get_runtime_from_config", return_value=runtime),
             patch("engine.builder.get_deployer", return_value=deployer),
         ):
             result = await engine.deploy(config_path, target="local", user="alice")
@@ -194,7 +194,7 @@ class TestFullDeployPipeline:
         engine = DeployEngine(on_step=on_step)
 
         with (
-            patch("engine.builder.get_runtime", return_value=_mock_runtime()),
+            patch("engine.builder.get_runtime_from_config", return_value=_mock_runtime()),
             patch("engine.builder.get_deployer", return_value=_mock_deployer()),
         ):
             await engine.deploy(agent_dir / "agent.yaml", target="local")
@@ -221,7 +221,7 @@ class TestFullDeployPipeline:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=runtime),
+            patch("engine.builder.get_runtime_from_config", return_value=runtime),
             patch("engine.builder.get_deployer", return_value=deployer) as mock_get_deployer,
         ):
             await engine.deploy(agent_dir / "agent.yaml", target="local")
@@ -239,7 +239,7 @@ class TestFullDeployPipeline:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=runtime),
+            patch("engine.builder.get_runtime_from_config", return_value=runtime),
             patch("engine.builder.get_deployer", return_value=deployer) as mock_get_deployer,
         ):
             await engine.deploy(agent_dir / "agent.yaml", target="cloud-run")
@@ -253,7 +253,7 @@ class TestFullDeployPipeline:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=_mock_runtime()),
+            patch("engine.builder.get_runtime_from_config", return_value=_mock_runtime()),
             patch("engine.builder.get_deployer", return_value=_mock_deployer()),
             patch("engine.builder.REGISTRY_DIR", Path(tempfile.mkdtemp())),
         ):
@@ -288,7 +288,7 @@ class TestRBACFailure:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=runtime),
+            patch("engine.builder.get_runtime_from_config", return_value=runtime),
             patch("engine.builder.get_deployer", return_value=deployer),
             patch(
                 "engine.builder.check_rbac",
@@ -317,7 +317,7 @@ class TestRBACFailure:
         engine = DeployEngine(on_step=on_step)
 
         with (
-            patch("engine.builder.get_runtime", return_value=_mock_runtime()),
+            patch("engine.builder.get_runtime_from_config", return_value=_mock_runtime()),
             patch("engine.builder.get_deployer", return_value=_mock_deployer()),
             patch(
                 "engine.builder.check_rbac",
@@ -415,7 +415,7 @@ deploy:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=runtime),
+            patch("engine.builder.get_runtime_from_config", return_value=runtime),
             patch("engine.builder.get_deployer", return_value=deployer),
         ):
             with pytest.raises(ConfigParseError):
@@ -508,7 +508,7 @@ class TestBuildFailure:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=runtime),
+            patch("engine.builder.get_runtime_from_config", return_value=runtime),
             patch("engine.builder.get_deployer", return_value=deployer),
         ):
             with pytest.raises(BuildError, match="Validation failed"):
@@ -529,7 +529,7 @@ class TestBuildFailure:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=runtime),
+            patch("engine.builder.get_runtime_from_config", return_value=runtime),
             patch("engine.builder.get_deployer", return_value=deployer),
         ):
             with pytest.raises(RuntimeError, match="Docker daemon not running"):
@@ -554,7 +554,7 @@ class TestBuildFailure:
         engine = DeployEngine(on_step=on_step)
 
         with (
-            patch("engine.builder.get_runtime", return_value=runtime),
+            patch("engine.builder.get_runtime_from_config", return_value=runtime),
             patch("engine.builder.get_deployer", return_value=_mock_deployer()),
         ):
             with pytest.raises(BuildError):
@@ -583,7 +583,7 @@ class TestDeployFailure:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=_mock_runtime()),
+            patch("engine.builder.get_runtime_from_config", return_value=_mock_runtime()),
             patch("engine.builder.get_deployer", return_value=deployer),
         ):
             with pytest.raises(DeployError, match="Health check failed"):
@@ -601,7 +601,7 @@ class TestDeployFailure:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=_mock_runtime()),
+            patch("engine.builder.get_runtime_from_config", return_value=_mock_runtime()),
             patch("engine.builder.get_deployer", return_value=deployer),
         ):
             with pytest.raises(RuntimeError, match="Insufficient quota"):
@@ -619,7 +619,7 @@ class TestDeployFailure:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=_mock_runtime()),
+            patch("engine.builder.get_runtime_from_config", return_value=_mock_runtime()),
             patch("engine.builder.get_deployer", return_value=deployer),
             patch("engine.builder.REGISTRY_DIR", Path(tempfile.mkdtemp())),
         ):
@@ -652,7 +652,7 @@ class TestRegistryRegistration:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=_mock_runtime()),
+            patch("engine.builder.get_runtime_from_config", return_value=_mock_runtime()),
             patch("engine.builder.get_deployer", return_value=_mock_deployer()),
             patch("engine.builder.REGISTRY_DIR", registry_dir),
         ):
@@ -680,7 +680,7 @@ class TestRegistryRegistration:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=_mock_runtime()),
+            patch("engine.builder.get_runtime_from_config", return_value=_mock_runtime()),
             patch("engine.builder.get_deployer", return_value=_mock_deployer()),
             patch("engine.builder.REGISTRY_DIR", registry_dir),
         ):
@@ -691,7 +691,7 @@ class TestRegistryRegistration:
         agent_dir2 = _make_agent_dir(v2_yaml)
 
         with (
-            patch("engine.builder.get_runtime", return_value=_mock_runtime()),
+            patch("engine.builder.get_runtime_from_config", return_value=_mock_runtime()),
             patch("engine.builder.get_deployer", return_value=_mock_deployer()),
             patch("engine.builder.REGISTRY_DIR", registry_dir),
         ):
@@ -709,7 +709,7 @@ class TestRegistryRegistration:
         engine = DeployEngine()
 
         with (
-            patch("engine.builder.get_runtime", return_value=_mock_runtime()),
+            patch("engine.builder.get_runtime_from_config", return_value=_mock_runtime()),
             patch("engine.builder.get_deployer", return_value=_mock_deployer()),
             patch("engine.builder.REGISTRY_DIR", registry_dir),
         ):

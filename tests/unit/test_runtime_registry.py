@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from engine.config_parser import AgentConfig, FrameworkType, LanguageType, RuntimeConfig
 
 

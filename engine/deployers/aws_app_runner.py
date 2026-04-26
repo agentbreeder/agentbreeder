@@ -88,7 +88,9 @@ def _build_env_vars(config: AgentConfig) -> list[dict[str, str]]:
     env_vars: dict[str, str] = {
         "AGENT_NAME": config.name,
         "AGENT_VERSION": config.version,
-        "AGENT_FRAMEWORK": config.framework.value,
+        "AGENT_FRAMEWORK": config.framework.value
+        if config.framework
+        else (config.runtime.framework if config.runtime else "unknown"),
     }
     for key, value in config.deploy.env_vars.items():
         if not key.startswith("AWS_"):

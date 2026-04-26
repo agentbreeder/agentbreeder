@@ -103,7 +103,12 @@ def _build_deployment_manifest(
     env_list: list[dict[str, str]] = [
         {"name": "AGENT_NAME", "value": config.name},
         {"name": "AGENT_VERSION", "value": config.version},
-        {"name": "AGENT_FRAMEWORK", "value": config.framework.value},
+        {
+            "name": "AGENT_FRAMEWORK",
+            "value": config.framework.value
+            if config.framework
+            else (config.runtime.framework if config.runtime else "unknown"),
+        },
     ]
     for key, val in config.deploy.env_vars.items():
         if not key.startswith("K8S_"):
