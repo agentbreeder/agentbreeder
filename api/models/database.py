@@ -17,7 +17,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from api.models.enums import (
@@ -821,7 +821,7 @@ class MemoryMessage(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
 
     config: Mapped[MemoryConfig] = relationship("MemoryConfig", back_populates="messages")
 
@@ -842,7 +842,7 @@ class MemoryEntity(Base):
     )
     entity_type: Mapped[str] = mapped_column(String, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    attributes: Mapped[dict] = mapped_column(JSONB, default=dict)
+    attributes: Mapped[dict] = mapped_column(JSON, default=dict)
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

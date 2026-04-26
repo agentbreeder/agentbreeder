@@ -645,7 +645,7 @@ class EvalStore:
             updated_at=now,
         )
         self._datasets[dataset_id] = dataset
-        logger.info("Eval dataset created", extra={"name": name, "team": team})
+        logger.info("Eval dataset created", extra={"resource_name": name, "team": team})
         self._save()
         return dataset.to_dict()
 

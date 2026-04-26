@@ -315,7 +315,7 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
                 pass
 
             active_module = _SyntheticModule()
-            active_module.crew = _crew  # type: ignore[attr-defined]
+            active_module.crew = _crew
 
         mode, obj = _detect_mode(active_module)
         result = await _dispatch(obj, mode, request.input)

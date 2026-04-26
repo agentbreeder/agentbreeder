@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from api.auth import get_current_user, get_optional_user
+from api.auth import get_current_user
 from api.main import app
 from api.models.enums import (
     AgentStatus,
@@ -43,8 +43,7 @@ async def _mock_get_optional_user():
     return _DEFAULT_USER
 
 
-app.dependency_overrides[get_current_user] = _mock_get_current_user
-app.dependency_overrides[get_optional_user] = _mock_get_optional_user
+# Auth is wired per-test via tests/integration/conftest.py _integration_auth fixture.
 
 client = TestClient(app)
 

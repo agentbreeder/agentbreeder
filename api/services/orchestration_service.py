@@ -178,7 +178,7 @@ class OrchestrationStore:
             updated_at=now,
         )
         self._orchestrations[orch_id] = record
-        logger.info("Orchestration created", extra={"name": name, "id": orch_id})
+        logger.info("Orchestration created", extra={"resource_name": name, "id": orch_id})
         return record.to_dict()
 
     def list(
@@ -242,7 +242,7 @@ class OrchestrationStore:
         record.status = "deployed"
         record.endpoint_url = f"http://localhost:8000/api/v1/orchestrations/{orch_id}/execute"
         record.updated_at = now
-        logger.info("Orchestration deployed", extra={"name": record.name, "id": orch_id})
+        logger.info("Orchestration deployed", extra={"resource_name": record.name, "id": orch_id})
         return record.to_dict()
 
     # --- Execute ---

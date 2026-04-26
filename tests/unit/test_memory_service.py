@@ -278,22 +278,25 @@ class TestConfigCRUD:
         assert config.memory_type == "buffer"
 
     @pytest.mark.asyncio
-    async def test_create_config_rejects_phase2_memory_type(self) -> None:
-        from fastapi import HTTPException
-
-        with pytest.raises(HTTPException) as exc_info:
-            await MemoryService.create_config(name="summary-mem", memory_type="summary")
-        assert exc_info.value.status_code == 400
-        assert "Phase 2" in exc_info.value.detail
+    async def test_create_config_accepts_phase2_memory_type(self) -> None:
+        # summary/entity/semantic are Phase 2 and now live — must be accepted
+        config = await MemoryService.create_config(name="summary-mem", memory_type="summary")
+        assert config.memory_type == "summary"
 
     @pytest.mark.asyncio
-    async def test_create_config_rejects_phase2_scope(self) -> None:
+    async def test_create_config_accepts_team_scope(self) -> None:
+        # team scope is now live (Phase 2) — must be accepted
+        config = await MemoryService.create_config(name="team-mem", scope="team")
+        assert config.scope == "team"
+
+    @pytest.mark.asyncio
+    async def test_create_config_rejects_global_scope(self) -> None:
         from fastapi import HTTPException
 
+        # global scope remains Phase 3 — must be rejected
         with pytest.raises(HTTPException) as exc_info:
-            await MemoryService.create_config(name="team-mem", scope="team")
+            await MemoryService.create_config(name="global-mem", scope="global")
         assert exc_info.value.status_code == 400
-        assert "Phase 2" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_get_config(self) -> None:
@@ -363,20 +366,16 @@ class TestMessageStorage:
 
 class TestPhase2Validation:
     @pytest.mark.asyncio
-    async def test_entity_type_rejected(self) -> None:
-        from fastapi import HTTPException
-
-        with pytest.raises(HTTPException) as exc:
-            await MemoryService.create_config(name="entity-mem", memory_type="entity")
-        assert exc.value.status_code == 400
+    async def test_entity_type_accepted(self) -> None:
+        # entity memory type is Phase 2 and now live
+        config = await MemoryService.create_config(name="entity-mem", memory_type="entity")
+        assert config.memory_type == "entity"
 
     @pytest.mark.asyncio
-    async def test_semantic_type_rejected(self) -> None:
-        from fastapi import HTTPException
-
-        with pytest.raises(HTTPException) as exc:
-            await MemoryService.create_config(name="sem-mem", memory_type="semantic")
-        assert exc.value.status_code == 400
+    async def test_semantic_type_accepted(self) -> None:
+        # semantic memory type is Phase 2 and now live
+        config = await MemoryService.create_config(name="sem-mem", memory_type="semantic")
+        assert config.memory_type == "semantic"
 
     @pytest.mark.asyncio
     async def test_global_scope_rejected(self) -> None:

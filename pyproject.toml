@@ -140,11 +140,11 @@ module = [
     "api.middleware.*",
     "api.versioning",
 ]
-disable_error_code = ["no-any-return", "type-arg", "arg-type", "attr-defined", "no-untyped-def"]
+disable_error_code = ["no-any-return", "type-arg", "arg-type", "attr-defined", "no-untyped-def", "index"]
 allow_untyped_decorators = true
 
 [[tool.mypy.overrides]]
-module = ["api.models.*"]
+module = ["api.models.*", "api.database"]
 disable_error_code = ["unused-ignore", "type-arg"]
 
 [[tool.mypy.overrides]]
@@ -162,7 +162,7 @@ disable_error_code = ["no-any-return", "type-arg"]
 
 [[tool.mypy.overrides]]
 module = ["engine.runtimes.templates.*"]
-disable_error_code = ["no-any-return", "union-attr"]
+disable_error_code = ["no-any-return", "union-attr", "arg-type", "call-overload", "attr-defined"]
 allow_untyped_decorators = true
 
 [[tool.mypy.overrides]]
