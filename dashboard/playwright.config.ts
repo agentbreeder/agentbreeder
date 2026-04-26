@@ -13,12 +13,13 @@ export default defineConfig({
     headless: true,
     screenshot: "only-on-failure",
   },
-  // Always start the dev server; reuseExistingServer skips it if already running.
+  // CI: serve the pre-built bundle (fast static files, no per-request compilation).
+  // Local: use the dev server (HMR, instant feedback).
   webServer: {
-    command: "npm run dev",
+    command: process.env.CI ? "npm run build && npm run preview" : "npm run dev",
     port: 3001,
-    reuseExistingServer: true,
-    timeout: 30_000,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
   },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
 });
