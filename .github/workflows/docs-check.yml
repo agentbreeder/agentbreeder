@@ -9,6 +9,7 @@ jobs:
   changelog-check:
     name: Changelog Updated
     runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v4
         with:
