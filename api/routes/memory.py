@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -228,3 +229,76 @@ async def search_messages(
             for r in results
         ]
     )
+
+
+# -- Thread convenience (used by @agentbreeder/aps-client) -------------------
+
+
+@router.get(
+    "/thread/{thread_id}",
+    response_model=ApiResponse[list[MemoryMessageResponse]],
+)
+async def get_thread_messages(
+    thread_id: str,
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[list[MemoryMessageResponse]]:
+    """Get all messages for a thread ID across all memory configs.
+
+    Convenience endpoint for the aps-client. Returns messages from the first
+    config that has this session_id. Returns empty list if not found.
+    """
+    configs, _ = await MemoryService.list_configs(page=1, per_page=100)
+    for config in configs:
+        msgs = await MemoryService.get_conversation(config.id, thread_id)
+        if msgs:
+            return ApiResponse(
+                data=[MemoryMessageResponse.model_validate(m.model_dump()) for m in msgs]
+            )
+    return ApiResponse(data=[])
+
+
+@router.post(
+    "/thread",
+    response_model=ApiResponse[dict],
+    status_code=201,
+)
+async def save_thread_messages(
+    body: dict[str, Any],
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[dict]:
+    """Save messages for a thread ID.
+
+    Convenience endpoint for the aps-client. Stores messages into the first
+    available memory config, or returns 404 if no configs exist.
+
+    Request body:
+    - thread_id: str (required)
+    - messages: list of {role, content} objects (required)
+    """
+    thread_id: str = body.get("thread_id", "")
+    messages_raw: list[dict] = body.get("messages", [])
+
+    if not thread_id:
+        raise HTTPException(status_code=400, detail="thread_id is required")
+    if not isinstance(messages_raw, list):
+        raise HTTPException(status_code=400, detail="messages must be a list")
+
+    configs, _ = await MemoryService.list_configs(page=1, per_page=1)
+    if not configs:
+        raise HTTPException(status_code=404, detail="No memory config found")
+
+    config = configs[0]
+    saved = 0
+    for msg in messages_raw:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if content:
+            await MemoryService.store_message(
+                config.id,
+                session_id=thread_id,
+                role=role,
+                content=content,
+            )
+            saved += 1
+
+    return ApiResponse(data={"saved": saved, "thread_id": thread_id})
