@@ -2,6 +2,12 @@ import { test as base, type Page } from "@playwright/test";
 
 /** Seed localStorage with a fake token and mock /me endpoint so route guards pass. */
 async function setupAuth(page: Page) {
+  // Inject the token before the first navigation so RequireAuth never sees an
+  // unauthenticated state — avoids a /login round-trip per test.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("ag-token", "test-token");
+  });
+
   // Mock /me to return a valid user
   await page.route("**/api/v1/auth/me", (route) =>
     route.fulfill({
@@ -37,10 +43,6 @@ async function setupAuth(page: Page) {
       }),
     }),
   );
-
-  // Set token before navigating
-  await page.goto("/login");
-  await page.evaluate(() => localStorage.setItem("ag-token", "test-token"));
 }
 
 /** Extended test fixture that pre-authenticates every test. */
