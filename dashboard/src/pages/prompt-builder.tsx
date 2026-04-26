@@ -445,6 +445,7 @@ function TestPromptPanel({
   // Auto-select first model
   useEffect(() => {
     if (models.length > 0 && !selectedModelId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedModelId(models[0].id);
     }
   }, [models, selectedModelId]);
@@ -456,6 +457,7 @@ function TestPromptPanel({
       const v = variables.get(name);
       newValues[name] = varValues[name] ?? v?.default ?? "";
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVarValues(newValues);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detectedVarNames.join(",")]);

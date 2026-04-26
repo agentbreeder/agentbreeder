@@ -13,6 +13,7 @@ from engine.runtimes.base import ContainerImage, RuntimeBuilder, RuntimeValidati
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates" / "node"
+APS_CLIENT_SRC = Path(__file__).parent.parent / "sidecar" / "client" / "ts" / "src" / "index.ts"
 
 FRAMEWORK_TEMPLATES: dict[str, str] = {
     "vercel-ai": "vercel_ai_server.ts",
@@ -61,7 +62,6 @@ def _build_package_json(agent_name: str, framework: str, extra_deps: list[str]) 
     import json
 
     deps: dict[str, str] = {
-        "@agentbreeder/aps-client": "^0.1.0",
         "ts-node": "^10.9.2",
         "typescript": "^5.4.0",
     }
@@ -146,6 +146,9 @@ class NodeRuntimeFamily(RuntimeBuilder):
             (TEMPLATES_DIR / "_shared_loader.ts").read_text(), config
         )
         (build_dir / "_shared_loader.ts").write_text(shared_content)
+
+        # Vendor aps-client locally so no npm registry lookup is needed
+        shutil.copy(APS_CLIENT_SRC, build_dir / "aps-client.ts")
 
         # Write package.json
         extra_deps = FRAMEWORK_DEPS.get(framework, [])

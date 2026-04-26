@@ -101,7 +101,7 @@ def test_node_runtime_build_produces_valid_dockerfile(vercel_ai_agent_dir: Path)
 
     # Verify package.json has aps-client
     pkg = json.loads((image.context_dir / "package.json").read_text())
-    assert "@agentbreeder/aps-client" in pkg["dependencies"]
+    assert (image.context_dir / "aps-client.ts").exists()
 
 
 def test_node_runtime_build_copies_developer_entrypoint(vercel_ai_agent_dir: Path) -> None:

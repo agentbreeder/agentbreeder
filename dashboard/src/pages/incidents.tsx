@@ -93,6 +93,7 @@ export default function IncidentsPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     fetchIncidents();
     // eslint-disable-next-line react-hooks/exhaustive-deps

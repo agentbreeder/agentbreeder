@@ -98,7 +98,7 @@ jobs:
           git config --global user.email "ci@agentbreeder.dev"
           git config --global user.name "AgentBreeder CI"
 
-      - name: Run unit tests with coverage
+      - name: Run unit + integration tests with coverage
         env:
           DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@localhost:5432/agentbreeder_test
           REDIS_URL: redis://localhost:6379
@@ -106,7 +106,7 @@ jobs:
           AGENTBREEDER_ENV: test
           JWT_SECRET_KEY: test-jwt-secret-for-ci
         run: |
-          pytest tests/unit/ \
+          pytest tests/unit/ tests/integration/ \
             --cov=api --cov=engine --cov=cli --cov=registry --cov=connectors \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \

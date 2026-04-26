@@ -8,6 +8,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Fixed
+- **Integration tests / Docker builds**: removed `@agentbreeder/aps-client` npm dep (package not yet published); vendor `aps-client.ts` source directly into Node.js Docker build context so `npm install` no longer fails with 404
+- **ESLint errors**: suppressed `react-hooks/set-state-in-effect` errors in `gateway.tsx`, `incidents.tsx`, `prompt-builder.tsx`; fixed root cause in `login.tsx` by initializing `mounted=true` (removes invisible form on first render — fixes E2E login tests)
+- **CI gate**: integration tests (`tests/integration/`) now run alongside unit tests in the `test-python` CI job
+
 ---
 
 ## [1.8.0] — 2026-04-16

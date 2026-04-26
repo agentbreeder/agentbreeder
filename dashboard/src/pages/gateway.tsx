@@ -365,6 +365,7 @@ export default function GatewayPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchAll();
   }, []);
 

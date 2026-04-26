@@ -1,6 +1,6 @@
 // _shared_loader.ts — shared APS client + server helpers
 // Platform-managed. Do not edit — regenerated on each deploy.
-import { APSClient } from '@agentbreeder/aps-client'
+import { APSClient } from './aps-client.js'
 
 export const aps = new APSClient()
 

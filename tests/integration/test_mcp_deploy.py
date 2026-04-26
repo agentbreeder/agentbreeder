@@ -131,7 +131,7 @@ def test_mcp_ts_build_includes_aps_client(mcp_ts_server_dir: Path) -> None:
     image = runtime.build(mcp_ts_server_dir, config)  # type: ignore[arg-type]
 
     pkg = json.loads((image.context_dir / "package.json").read_text())
-    assert "@agentbreeder/aps-client" in pkg["dependencies"]
+    assert (image.context_dir / "aps-client.ts").exists()
 
 
 def test_mcp_ts_build_copies_tools_ts(mcp_ts_server_dir: Path) -> None:

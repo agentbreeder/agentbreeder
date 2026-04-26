@@ -40,7 +40,7 @@ class TestNodeRuntimeFamily:
         runtime = NodeRuntimeFamily()
         image = runtime.build(tmp_path, config)
         pkg = json.loads((image.context_dir / "package.json").read_text())
-        assert "@agentbreeder/aps-client" in pkg["dependencies"]
+        assert (image.context_dir / "aps-client.ts").exists()
         assert "ai" in pkg["dependencies"]
 
     def test_unknown_framework_falls_back_to_custom(self, tmp_path: Path) -> None:
