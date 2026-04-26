@@ -23,7 +23,7 @@
 | **v1.6** | Framework Depth | Complete all 4 missing runtime builders + LangGraph/OpenAI Agents feature depth + runtime tracing | M34 | Done |
 | **v1.7** | Agent Architect Skill | `/agent-build` advisory mode: framework, model, RAG, memory, MCP/A2A, deploy, eval recommendations + IDE config generation | M35 | Done |
 | **v1.8** | Connectors & Scheduling | SMTP email connector, HackerNews/ArXiv/RSS news connectors, `agentbreeder schedule` cron command, Ollama + OpenRouter wired into `scan` and `init` | M37 | Done |
-| **v1.9** | TypeScript SDK Parity | memory.ts, mcp.ts, validation.ts; 10 missing Agent methods; Tool.fromFunction; TS examples + full README | M36 | Planned |
+| **v1.9** | Polyglot Runtime | Node.js/TypeScript first-class runtime — 8 TS framework templates, NodeRuntimeFamily, @agentbreeder/aps-client, mcp-server.schema.json, `agentbreeder init --language node` | #129 | Done |
 | **v2.0** | Quality & Testing | Exhaustive live Docker Playwright suite: providers, prompts, tools, RAG, MCP, agents (no-code + low-code), execution, tracing, evals, costs, RBAC — 104 tests, 15 spec files | M38 | Done |
 
 ---
@@ -3044,8 +3044,8 @@ agentbreeder/
 
 ---
 
-*Last updated: 2026-04-24 — 16 open issues, 59 closed*
-*Status: v0.1–v1.2 complete (M1–M23). v1.3–v1.7 done. v1.8 done (connectors + schedule + Ollama/OpenRouter). v1.9 planned (M36 TypeScript SDK Parity). v2.0 done (M38 E2E suite — 104 tests, 15 spec files). v2.1–v2.5 planned (Cloud integration modules — see above). Open issues: 16 | Closed: 59.*
+*Last updated: 2026-04-26 — 0 open issues, 82 closed*
+*Status: v0.1–v1.2 complete (M1–M23). v1.3–v1.7 done. v1.8 done (connectors + schedule + Ollama/OpenRouter). v1.9 done (Node.js polyglot runtime — 8 TS templates, NodeRuntimeFamily, @agentbreeder/aps-client, mcp-server.schema.json, agentbreeder init --language node). v2.0 done (M38 E2E suite — 104 tests, 15 spec files). v2.1–v2.5 planned (Cloud integration modules — see above). Open issues: 0 | Closed: 82.*
 
 ## Milestone M38 — Exhaustive Live Docker E2E Test Suite
 
@@ -3121,4 +3121,4 @@ The following issues were filed ahead of the HN launch targeting operational qua
 
 **Note:** Issue #79 is now closed — multi-cloud website copy fully corrected in commit 4901c83. Issue #83 is partially resolved — `agentbreeder validate` already exists in the CLI.
 
-**Issue tracker:** 16 open · 59 closed — *Last updated: April 24, 2026*
+**Issue tracker:** 0 open · 82 closed — *Last updated: April 26, 2026*
