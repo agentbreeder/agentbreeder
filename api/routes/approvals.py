@@ -29,7 +29,7 @@ from api.models.database import User
 router = APIRouter(prefix="/api/v1/approvals", tags=["approvals"])
 
 # TTL constants
-_PENDING_TTL = 1800   # 30 minutes default; overridden per-request by timeout_minutes
+_PENDING_TTL = 1800  # 30 minutes default; overridden per-request by timeout_minutes
 _DECIDED_TTL = 86400  # 24 hours — keep the decision readable after it is made
 
 
@@ -54,6 +54,7 @@ class ApprovalResponse(BaseModel):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _redis_key(approval_id: str) -> str:
     return f"approval:{approval_id}"
 
@@ -77,6 +78,7 @@ def _build_response(data: dict) -> ApprovalResponse:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.post("/", response_model=ApprovalResponse)
 async def request_approval(
@@ -176,9 +178,7 @@ async def approve(
     if not data:
         raise HTTPException(status_code=404, detail="Approval request not found")
     if data["status"] != "pending":
-        raise HTTPException(
-            status_code=409, detail=f"Approval is already '{data['status']}'"
-        )
+        raise HTTPException(status_code=409, detail=f"Approval is already '{data['status']}'")
 
     updates = {
         "status": "approved",
@@ -205,9 +205,7 @@ async def reject(
     if not data:
         raise HTTPException(status_code=404, detail="Approval request not found")
     if data["status"] != "pending":
-        raise HTTPException(
-            status_code=409, detail=f"Approval is already '{data['status']}'"
-        )
+        raise HTTPException(status_code=409, detail=f"Approval is already '{data['status']}'")
 
     updates = {
         "status": "rejected",

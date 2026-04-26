@@ -25,6 +25,7 @@ def _fake_redis():
     yield fake
     app.dependency_overrides.pop(get_redis, None)
 
+
 client = TestClient(app)
 
 _BASE_REQUEST = {

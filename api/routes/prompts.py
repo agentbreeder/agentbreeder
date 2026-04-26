@@ -73,6 +73,7 @@ async def _enforce_acl(
     except Exception:
         pass  # Fail open if DB unavailable
 
+
 # ---------------------------------------------------------------------------
 # Simulated LLM responses for prompt testing
 # ---------------------------------------------------------------------------

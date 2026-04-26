@@ -34,14 +34,13 @@ async def _fetch_litellm(path: str, fallback):
     """GET a LiteLLM endpoint and return its JSON, or fallback on any error."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{_LITELLM_BASE_URL}{path}", headers=_litellm_headers()
-            )
+            resp = await client.get(f"{_LITELLM_BASE_URL}{path}", headers=_litellm_headers())
             if resp.status_code == 200:
                 return resp.json()
     except Exception:
         pass
     return fallback
+
 
 logger = logging.getLogger(__name__)
 

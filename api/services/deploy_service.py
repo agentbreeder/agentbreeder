@@ -164,13 +164,14 @@ async def _run_pipeline(job_id: uuid.UUID, agent_name: str, target: str) -> None
                         agent_row = await ks.execute(select(Agent).where(Agent.name == agent_name))
                         ag = agent_row.scalar_one_or_none()
                         if ag:
-                            _key_alias, _key_value = (
-                                await litellm_key_service.get_or_create_agent_key(
-                                    ks,
-                                    agent_name=agent_name,
-                                    team_id=ag.team or "default",
-                                    created_by="deploy-engine",
-                                )
+                            (
+                                _key_alias,
+                                _key_value,
+                            ) = await litellm_key_service.get_or_create_agent_key(
+                                ks,
+                                agent_name=agent_name,
+                                team_id=ag.team or "default",
+                                created_by="deploy-engine",
                             )
                             if _key_value:
                                 # Persist the virtual key into config_snapshot so that

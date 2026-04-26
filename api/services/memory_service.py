@@ -615,9 +615,7 @@ class MemoryService:
             import httpx
 
             api_base = "http://localhost:8000"
-            turns = "\n".join(
-                f"{m.role.upper()}: {m.content[:300]}" for m in messages[:40]
-            )
+            turns = "\n".join(f"{m.role.upper()}: {m.content[:300]}" for m in messages[:40])
             prompt = (
                 "Summarize the following conversation in 2-4 sentences, "
                 "preserving all key decisions and facts:\n\n" + turns
@@ -638,9 +636,7 @@ class MemoryService:
         return f"[Summary of {len(messages)} messages]"
 
     @staticmethod
-    async def _extract_and_store_entities(
-        db: Any, config_id: uuid.UUID, content: str
-    ) -> None:
+    async def _extract_and_store_entities(db: Any, config_id: uuid.UUID, content: str) -> None:
         """Extract named entities from *content* using regex and upsert into memory_entities."""
         extracted: dict[str, tuple[str, str]] = {}  # name → (entity_type, name)
 

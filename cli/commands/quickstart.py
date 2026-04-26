@@ -561,7 +561,9 @@ def _check_cloud_prerequisites(target: str) -> bool:
 
     cli_binary, install_cmd = cli_checks[target]
     if not shutil.which(cli_binary):
-        console.print(f"  [red]{cli_binary} CLI not found.[/red] Install with: [bold cyan]{install_cmd}[/bold cyan]")
+        console.print(
+            f"  [red]{cli_binary} CLI not found.[/red] Install with: [bold cyan]{install_cmd}[/bold cyan]"
+        )
         return False
 
     auth_cmd, auth_hint = auth_checks[target]
@@ -955,7 +957,12 @@ def quickstart(
     total_steps = 9 if cloud else 8
 
     if reset:
-        console.print(Panel("[bold yellow]Resetting quickstart — all local data will be erased[/bold yellow]", border_style="yellow"))
+        console.print(
+            Panel(
+                "[bold yellow]Resetting quickstart — all local data will be erased[/bold yellow]",
+                border_style="yellow",
+            )
+        )
         subprocess.run(
             ["docker", "compose", "-f", str(QS_COMPOSE), "down", "-v", "--remove-orphans"],
             check=False,

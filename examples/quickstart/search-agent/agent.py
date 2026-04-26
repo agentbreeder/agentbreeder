@@ -50,7 +50,9 @@ def web_search(query: str, max_results: int = 5) -> str:
 
     except ImportError:
         return json.dumps(
-            {"error": "duckduckgo-search package not installed. Run: pip install duckduckgo-search"}
+            {
+                "error": "duckduckgo-search package not installed. Run: pip install duckduckgo-search"
+            }
         )
     except Exception as exc:
         return json.dumps({"error": str(exc)})

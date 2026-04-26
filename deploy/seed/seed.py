@@ -180,7 +180,7 @@ def _resolve_embedding_function(embedding_model: str):
         return None  # let ChromaDB use its default
 
     if embedding_model.startswith("openai:"):
-        model_name = embedding_model[len("openai:"):]
+        model_name = embedding_model[len("openai:") :]
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             print(
@@ -191,7 +191,7 @@ def _resolve_embedding_function(embedding_model: str):
         return ef.OpenAIEmbeddingFunction(api_key=api_key, model_name=model_name)
 
     if embedding_model.startswith("ollama:"):
-        model_name = embedding_model[len("ollama:"):]
+        model_name = embedding_model[len("ollama:") :]
         return ef.OllamaEmbeddingFunction(
             url="http://localhost:11434/api/embeddings",
             model_name=model_name,

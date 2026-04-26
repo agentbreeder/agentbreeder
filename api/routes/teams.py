@@ -44,6 +44,7 @@ async def _register_litellm_team(team_id: str, team_name: str) -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("LiteLLM team registration failed for %s: %s", team_id, exc)
 
+
 router = APIRouter(prefix="/api/v1/teams", tags=["teams"])
 
 
