@@ -38,25 +38,6 @@ Your company has 47 AI agents. Nobody knows what they cost, who approved them, o
 
 Write one `agent.yaml`. Run `agentbreeder deploy`. Your agent is live — with RBAC, cost tracking, audit trail, and org-wide discoverability. Automatic. Not optional.
 
-```
-╔═══════════════════════════════════════════════════════════════╗
-║                   AGENTBREEDER DEPLOY                         ║
-╠═══════════════════════════════════════════════════════════════╣
-║                                                               ║
-║  ✅  YAML parsed & validated                                  ║
-║  ✅  RBAC check passed (team: engineering)                    ║
-║  ✅  Dependencies resolved (3 tools, 1 prompt)                ║
-║  ✅  Container built (langgraph runtime)                      ║
-║  ✅  Deployed to GCP Cloud Run                                ║
-║  ✅  Health check passed                                      ║
-║  ✅  Registered in org registry                               ║
-║  ✅  Cost attribution: engineering / $0.12/hr                 ║
-║                                                               ║
-║  ENDPOINT: https://support-agent-a1b2c3.run.app              ║
-║  STATUS:   ✅ LIVE                                            ║
-║                                                               ║
-╚═══════════════════════════════════════════════════════════════╝
-```
 
 ---
 
