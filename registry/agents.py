@@ -238,7 +238,11 @@ class AgentRegistry:
             agent.description = config.description
             agent.team = config.team
             agent.owner = config.owner
-            agent.framework = config.framework.value
+            agent.framework = (
+                config.framework.value
+                if config.framework
+                else (config.runtime.framework if config.runtime else "custom")
+            )
             agent.model_primary = config.model.primary
             agent.model_fallback = config.model.fallback
             agent.endpoint_url = endpoint_url
@@ -253,7 +257,9 @@ class AgentRegistry:
                 description=config.description,
                 team=config.team,
                 owner=config.owner,
-                framework=config.framework.value,
+                framework=config.framework.value
+                if config.framework
+                else (config.runtime.framework if config.runtime else "custom"),
                 model_primary=config.model.primary,
                 model_fallback=config.model.fallback,
                 endpoint_url=endpoint_url,

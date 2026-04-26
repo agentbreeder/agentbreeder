@@ -102,7 +102,7 @@ def _build_dockerfile(node_version: str) -> str:
 FROM node:{node_version}-slim AS deps
 WORKDIR /app
 COPY package.json tsconfig.json ./
-RUN npm ci --only=production
+RUN npm install --omit=dev
 
 FROM node:{node_version}-slim AS runner
 WORKDIR /app
