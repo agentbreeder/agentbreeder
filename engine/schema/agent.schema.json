@@ -8,7 +8,6 @@
     "version",
     "team",
     "owner",
-    "framework",
     "model",
     "deploy"
   ],
@@ -55,6 +54,15 @@
       },
       "description": "Tags for discovery"
     },
+    "type": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "mcp-server"
+      ],
+      "default": "agent",
+      "description": "Agent type"
+    },
     "framework": {
       "type": "string",
       "enum": [
@@ -65,7 +73,38 @@
         "google_adk",
         "custom"
       ],
-      "description": "Agent framework"
+      "description": "Agent framework (Python agents)"
+    },
+    "runtime": {
+      "type": "object",
+      "required": [
+        "language",
+        "framework"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "language": {
+          "type": "string",
+          "enum": [
+            "python",
+            "node"
+          ],
+          "description": "Runtime language"
+        },
+        "framework": {
+          "type": "string",
+          "description": "Runtime framework (open string — any value accepted)"
+        },
+        "version": {
+          "type": "string",
+          "description": "Language runtime version (e.g. '20' for Node 20)"
+        },
+        "entrypoint": {
+          "type": "string",
+          "description": "Custom entrypoint command"
+        }
+      },
+      "description": "Polyglot runtime config (non-Python agents)"
     },
     "model": {
       "type": "object",

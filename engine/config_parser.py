@@ -28,6 +28,23 @@ class FrameworkType(enum.StrEnum):
     custom = "custom"
 
 
+class LanguageType(enum.StrEnum):
+    python = "python"
+    node = "node"
+
+
+class AgentType(enum.StrEnum):
+    agent = "agent"
+    mcp_server = "mcp-server"
+
+
+class RuntimeConfig(BaseModel):
+    language: LanguageType
+    framework: str
+    version: str | None = None
+    entrypoint: str | None = None
+
+
 class CloudType(enum.StrEnum):
     aws = "aws"
     azure = "azure"
@@ -247,7 +264,9 @@ class AgentConfig(BaseModel):
     team: str
     owner: EmailStr
     tags: list[str] = Field(default_factory=list)
-    framework: FrameworkType
+    type: AgentType = AgentType.agent
+    framework: FrameworkType | None = None
+    runtime: RuntimeConfig | None = None
     model: ModelConfig
     tools: list[ToolRef] = Field(default_factory=list)
     knowledge_bases: list[KnowledgeBaseRef] = Field(default_factory=list)
@@ -281,6 +300,17 @@ class AgentConfig(BaseModel):
             msg = f"Version '{v}' must be semantic versioning (e.g., '1.0.0')"
             raise ValueError(msg)
         return v
+
+    @model_validator(mode="after")
+    def validate_framework_or_runtime(self) -> AgentConfig:
+        has_framework = self.framework is not None
+        has_runtime = self.runtime is not None
+        if has_framework == has_runtime:
+            raise ValueError(
+                "Exactly one of 'framework' or 'runtime' must be set. "
+                "Use 'framework' for Python agents, 'runtime' for polyglot agents."
+            )
+        return self
 
 
 class ConfigValidationError(BaseModel):

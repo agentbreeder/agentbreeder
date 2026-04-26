@@ -168,8 +168,8 @@ deploy:
         assert any("version" in e.message for e in exc_info.value.errors)
 
     def test_missing_framework_raises(self) -> None:
-        yaml = """\
-name: test-agent
+        config_file = _write_yaml("""\
+name: my-agent
 version: 1.0.0
 team: engineering
 owner: test@example.com
@@ -177,10 +177,13 @@ model:
   primary: gpt-4o
 deploy:
   cloud: local
-"""
-        path = _write_yaml(yaml)
-        with pytest.raises(ConfigParseError):
-            parse_config(path)
+""")
+        result = validate_config(config_file)
+        assert not result.valid
+        assert any(
+            "framework" in e.message.lower() or "runtime" in e.message.lower()
+            for e in result.errors
+        )
 
     def test_missing_model_raises(self) -> None:
         yaml = """\
@@ -430,3 +433,136 @@ deploy:
         assert len(config.tools) == 2
         assert config.tools[0].ref == "tools/zendesk-mcp"
         assert config.tools[1].name == "search"
+
+
+class TestRuntimeConfig:
+    def test_valid_node_runtime(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "agent.yaml"
+        config_file.write_text("""\
+name: my-agent
+version: 1.0.0
+team: engineering
+owner: test@example.com
+type: agent
+runtime:
+  language: node
+  framework: vercel-ai
+  version: "20"
+model:
+  primary: gpt-4o
+deploy:
+  cloud: local
+""")
+        result = validate_config(config_file)
+        assert result.valid, result.errors
+        assert result.config is not None
+        assert result.config.runtime is not None
+        assert result.config.runtime.language == "node"
+        assert result.config.runtime.framework == "vercel-ai"
+        assert result.config.type.value == "agent"
+
+    def test_open_framework_string_accepted(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "agent.yaml"
+        config_file.write_text("""\
+name: my-agent
+version: 1.0.0
+team: engineering
+owner: test@example.com
+runtime:
+  language: node
+  framework: some-future-framework-not-in-schema
+model:
+  primary: gpt-4o
+deploy:
+  cloud: local
+""")
+        result = validate_config(config_file)
+        assert result.valid, result.errors
+
+    def test_unknown_language_rejected(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "agent.yaml"
+        config_file.write_text("""\
+name: my-agent
+version: 1.0.0
+team: engineering
+owner: test@example.com
+runtime:
+  language: cobol
+  framework: custom
+model:
+  primary: gpt-4o
+deploy:
+  cloud: local
+""")
+        result = validate_config(config_file)
+        assert not result.valid
+
+    def test_both_framework_and_runtime_rejected(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "agent.yaml"
+        config_file.write_text("""\
+name: my-agent
+version: 1.0.0
+team: engineering
+owner: test@example.com
+framework: langgraph
+runtime:
+  language: node
+  framework: vercel-ai
+model:
+  primary: gpt-4o
+deploy:
+  cloud: local
+""")
+        result = validate_config(config_file)
+        assert not result.valid
+
+    def test_neither_framework_nor_runtime_rejected(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "agent.yaml"
+        config_file.write_text("""\
+name: my-agent
+version: 1.0.0
+team: engineering
+owner: test@example.com
+model:
+  primary: gpt-4o
+deploy:
+  cloud: local
+""")
+        result = validate_config(config_file)
+        assert not result.valid
+
+    def test_existing_python_framework_still_works(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "agent.yaml"
+        config_file.write_text("""\
+name: my-agent
+version: 1.0.0
+team: engineering
+owner: test@example.com
+framework: langgraph
+model:
+  primary: gpt-4o
+deploy:
+  cloud: local
+""")
+        result = validate_config(config_file)
+        assert result.valid, result.errors
+
+    def test_mcp_server_type(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "agent.yaml"
+        config_file.write_text("""\
+name: my-tools
+version: 1.0.0
+team: engineering
+owner: test@example.com
+type: mcp-server
+runtime:
+  language: node
+  framework: mcp-ts
+model:
+  primary: gpt-4o
+deploy:
+  cloud: local
+""")
+        result = validate_config(config_file)
+        assert result.valid, result.errors
+        assert result.config.type.value == "mcp-server"
