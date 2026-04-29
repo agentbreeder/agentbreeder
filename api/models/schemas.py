@@ -274,6 +274,11 @@ class ModelResponse(BaseModel):
     input_price_per_million: float | None = None
     output_price_per_million: float | None = None
     capabilities: list[str] | None = None
+    # Track G — model lifecycle (#163). All nullable for legacy/manual rows.
+    discovered_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    deprecated_at: datetime | None = None
+    deprecation_replacement_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime | None = None
 

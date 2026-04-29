@@ -162,6 +162,16 @@ class Model(Base):
     output_price_per_million: Mapped[float | None] = mapped_column(Float, nullable=True)
     capabilities: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    # Track G — model lifecycle (#163). Status uses the existing ``status``
+    # column; values are: "active" | "beta" | "deprecated" | "retired".
+    discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deprecated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deprecation_replacement_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("models.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

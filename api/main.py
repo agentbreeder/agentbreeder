@@ -39,6 +39,9 @@ from api.routes import (
     tracing,
 )
 from api.routes import (
+    models as models_route,
+)
+from api.routes import (
     secrets as secrets_route,
 )
 from api.routes.v2 import agents as agents_v2
@@ -109,6 +112,7 @@ app.include_router(deploys.router)
 app.include_router(prompts.router)
 app.include_router(providers.router)
 app.include_router(mcp_servers.router)
+app.include_router(models_route.router)
 app.include_router(registry.router)
 app.include_router(sandbox.router)
 app.include_router(git.router)

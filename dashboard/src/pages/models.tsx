@@ -38,6 +38,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ColumnToggle, type ColumnDefinition } from "@/components/ui/column-toggle";
 import { ProviderCatalog } from "@/components/provider-catalog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 const PROVIDER_COLORS: Record<string, string> = {
   anthropic: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
@@ -59,12 +61,34 @@ const PROVIDER_TABS = ["All", "OpenAI", "Anthropic", "Google", "Ollama"] as cons
 const MODEL_COLUMNS: ColumnDefinition[] = [
   { key: "name", label: "Model", locked: true },
   { key: "provider", label: "Provider" },
+  { key: "status", label: "Status" },
   { key: "context_window", label: "Context" },
   { key: "price", label: "Price" },
   { key: "source", label: "Source" },
 ];
 
 const DEFAULT_MODEL_COLUMNS = new Set(MODEL_COLUMNS.map((c) => c.key));
+
+/** Track G — lifecycle status badge styling (active/beta/deprecated/retired). */
+const STATUS_BADGE_CLASSES: Record<string, string> = {
+  active: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  beta: "border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
+  deprecated: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  retired: "border-border bg-muted text-muted-foreground",
+};
+
+function ModelStatusBadge({ status }: { status: string }) {
+  const cls = STATUS_BADGE_CLASSES[status] ?? STATUS_BADGE_CLASSES.active;
+  return (
+    <Badge
+      variant="outline"
+      className={cn("text-[10px] font-medium capitalize", cls)}
+      data-testid={`model-status-${status}`}
+    >
+      {status}
+    </Badge>
+  );
+}
 
 /** Format a token count compactly: 128000 -> "128K", 1000000 -> "1M" */
 function formatContextWindow(tokens: number | null): string {
@@ -143,6 +167,10 @@ function ModelRow({
           >
             {model.provider}
           </Badge>
+        )}
+
+        {visibleColumns.has("status") && (
+          <ModelStatusBadge status={model.status || "active"} />
         )}
 
         {visibleColumns.has("context_window") && (
@@ -443,12 +471,43 @@ function CreateModelDialog() {
 
 export default function ModelsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const canSync = !!user && (user.role === "deployer" || user.role === "admin");
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(DEFAULT_MODEL_COLUMNS);
   const { showOnlyFavorites, favorites } = useFavorites();
+
+  // Track G — model lifecycle sync.
+  const syncMutation = useMutation({
+    mutationFn: () => api.models.sync([]),
+    onSuccess: (resp) => {
+      const totals = resp.data?.totals ?? { added: 0, deprecated: 0, retired: 0 };
+      queryClient.invalidateQueries({ queryKey: ["models"] });
+      queryClient.invalidateQueries({ queryKey: ["providers", "catalog", "status"] });
+      toast({
+        variant: "success",
+        title: "Model sync complete",
+        description: `+${totals.added} added · ~${totals.deprecated} deprecated · -${totals.retired} retired`,
+      });
+    },
+    onError: (err: Error) => {
+      const msg = err.message ?? "Sync failed";
+      if (/401|403|unauthorized|forbidden/i.test(msg)) {
+        toast({
+          variant: "error",
+          title: "Permission denied",
+          description: "Model sync requires the deployer role.",
+        });
+      } else {
+        toast({ variant: "error", title: "Sync failed", description: msg });
+      }
+    },
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["models", { providerFilter }],
@@ -567,13 +626,23 @@ export default function ModelsPage() {
             <Button
               size="sm"
               variant="outline"
-              disabled
-              title="Coming with Track G — model lifecycle (#163)"
-              className="h-7 text-xs"
+              disabled={!canSync || syncMutation.isPending}
+              onClick={() => canSync && syncMutation.mutate()}
+              title={
+                !canSync
+                  ? "Requires deployer role"
+                  : "Sync models from configured providers"
+              }
+              className={cn("h-7 text-xs", !canSync && "opacity-50")}
               data-testid="models-sync-btn"
             >
-              <RefreshCcw className="mr-1 size-3" />
-              Sync
+              <RefreshCcw
+                className={cn(
+                  "mr-1 size-3",
+                  syncMutation.isPending && "animate-spin",
+                )}
+              />
+              {syncMutation.isPending ? "Syncing..." : "Sync"}
             </Button>
           </div>
           <TabsContent value="direct">

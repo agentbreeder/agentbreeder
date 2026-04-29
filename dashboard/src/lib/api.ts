@@ -149,8 +149,33 @@ export interface Model {
   input_price_per_million: number | null;
   output_price_per_million: number | null;
   capabilities: string[] | null;
+  // Track G — model lifecycle (#163). Nullable for legacy/manual entries.
+  discovered_at: string | null;
+  last_seen_at: string | null;
+  deprecated_at: string | null;
+  deprecation_replacement_id: string | null;
   created_at: string;
   updated_at: string | null;
+}
+
+/** Per-provider result emitted by `POST /api/v1/models/sync`. */
+export interface ModelSyncProviderResult {
+  provider: string;
+  added: string[];
+  seen: string[];
+  deprecated: string[];
+  retired: string[];
+  error: string | null;
+  total_seen: number;
+}
+
+/** Top-level result of `POST /api/v1/models/sync`. */
+export interface ModelSyncResult {
+  started_at: string;
+  finished_at: string;
+  duration_seconds: number;
+  providers: ModelSyncProviderResult[];
+  totals: { added: number; deprecated: number; retired: number };
 }
 
 export interface ModelUsage {
@@ -1154,6 +1179,43 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ source: "manual", ...data }),
       }),
+    /**
+     * Track G — kick off a model lifecycle sync. Deployer role required.
+     * Pass an explicit list of provider names to scope the sync, or leave
+     * empty for "every configured provider".
+     */
+    sync: (providers: string[] = []) =>
+      request<ModelSyncResult>("/models/sync", {
+        method: "POST",
+        body: JSON.stringify({ providers }),
+      }),
+    /** Track G — manually mark a model deprecated. Deployer role required. */
+    deprecate: (name: string, replacement?: string) =>
+      request<{
+        id: string;
+        name: string;
+        status: string;
+        deprecated_at: string | null;
+        replacement: string | null;
+      }>(`/models/${encodeURIComponent(name)}/deprecate`, {
+        method: "POST",
+        body: JSON.stringify(replacement ? { replacement } : {}),
+      }),
+    /** Track G — list endpoint with lifecycle status filtering. */
+    listLifecycle: (params?: {
+      provider?: string;
+      status?: string;
+      page?: number;
+      per_page?: number;
+    }) => {
+      const sp = new URLSearchParams();
+      if (params?.provider) sp.set("provider", params.provider);
+      if (params?.status) sp.set("status", params.status);
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.per_page) sp.set("per_page", String(params.per_page));
+      const qs = sp.toString();
+      return request<Model[]>(`/models${qs ? `?${qs}` : ""}`);
+    },
   },
   prompts: {
     list: (params?: { team?: string; page?: number }) => {

@@ -702,6 +702,46 @@ agentbreeder provider list --json                                       # JSON o
 
 ---
 
+### `agentbreeder model`
+
+Manage the model registry — list, inspect, sync from configured providers, or manually deprecate a model.
+
+```
+agentbreeder model [SUBCOMMAND] [OPTIONS]
+```
+
+#### Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `list` | List models in the registry. Supports `--provider`, `--status`, `--per-page`, `--json`. |
+| `show NAME` | Show a single model's full record (id, status, context, pricing, lifecycle timestamps). |
+| `sync` | Discover models from each configured provider and reconcile the registry. Supports `--provider NAME` (repeatable). Deployer role required. |
+| `deprecate NAME` | Manually mark a model deprecated. Supports `--replacement NAME`. Deployer role required. |
+
+The `sync` and `deprecate` subcommands talk to `POST /api/v1/models/sync` and `POST /api/v1/models/{name}/deprecate` respectively. Status flips emit audit events: `model.added`, `model.deprecated`, `model.retired`. See [Providers → Model lifecycle](providers) for the full state machine.
+
+**Examples:**
+```bash
+# Inspect
+agentbreeder model list                                # All models, status badges
+agentbreeder model list --provider nvidia              # Restrict to one provider
+agentbreeder model list --status deprecated --json     # Machine-readable + filtered
+agentbreeder model show gpt-4o                         # Full record
+
+# Sync
+agentbreeder model sync                                # Every provider with an api-key
+agentbreeder model sync --provider nvidia --provider groq
+agentbreeder model sync --json                         # Machine-readable result
+
+# Manual deprecate (operator override)
+agentbreeder model deprecate gpt-3.5-turbo --replacement gpt-4o-mini
+```
+
+> **Note:** Models that disappear from a provider's `/models` endpoint are auto-deprecated on the next sync. After 30 days of continuous absence they're auto-retired. Set up a daily cron (`agentbreeder model sync`) so this stays current.
+
+---
+
 ### `agentbreeder chat`
 
 Interactive chat with a deployed agent in the terminal. Use `--local` to bypass the API server entirely and talk directly to a local Ollama model.
