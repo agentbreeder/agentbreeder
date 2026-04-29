@@ -4,23 +4,30 @@
 # direct curl against the running stack. No browser, no DOM polling — fast
 # and reliable on slow CI runners.
 #
-# Pre-reqs: docker compose stack already up and reachable at:
-#   API:       http://localhost:8000
-#   Dashboard: http://localhost:3001
+# Pre-reqs: the e2e docker compose stack must be up. In that stack only the
+# dashboard is exposed on the host (:3001) and nginx proxies /api/* to the
+# api service. So API endpoints are reached via http://localhost:3001/api/v1/*.
 #
 # Used by .github/workflows/ci.yml (E2E Tests (Docker) job) alongside the
 # slimmed-down Playwright health.spec.ts.
 set -euo pipefail
 
-API="${API_BASE_URL:-http://localhost:8000}"
+# The dashboard is the only host-exposed service in the e2e stack; its nginx
+# proxies /api/* through to the api container. Set API_BASE_URL explicitly
+# only for non-e2e setups where the api is exposed directly.
 DASH="${DASHBOARD_BASE_URL:-http://localhost:3001}"
+API="${API_BASE_URL:-$DASH}"
 
 pass() { printf "  \033[32m✓\033[0m  %s\n" "$*"; }
 fail() { printf "  \033[31m✗\033[0m  %s\n" "$*"; exit 1; }
 
 echo "════ Stack reachability ════"
-curl -sf "$API/api/v1/health" >/dev/null && pass "API /health 200" || fail "API not reachable"
-curl -sf "$DASH/" >/dev/null         && pass "Dashboard / 200"   || fail "Dashboard not reachable"
+curl -sf "$DASH/" >/dev/null && pass "Dashboard / 200"   || fail "Dashboard not reachable at $DASH"
+# The API health endpoint sits at /api/v1/health on the management server.
+# In the e2e stack we hit it through the dashboard's nginx proxy.
+curl -sf "$API/api/v1/health" >/dev/null \
+  && pass "API /api/v1/health 200 (via $API)" \
+  || fail "API not reachable via $API/api/v1/health"
 
 echo
 echo "════ Auth flow ════"
