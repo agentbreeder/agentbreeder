@@ -1,19 +1,27 @@
 name: gemini-assistant
-version: 0.1.0
-description: "A simple assistant agent built with the Google Agent Development Kit (ADK)"
+version: 0.2.0
+description: "A simple assistant agent built with the Google Agent Development Kit (ADK), demonstrating registry-resolved prompts + tools."
 team: examples
 owner: dev@agentbreeder.com
-tags: [example, google-adk, gemini]
+tags: [example, google-adk, gemini, registry-pattern]
 
 framework: google_adk
 
 model:
-  primary: gemini-2.0-flash
+  primary: gemini-2.5-flash
 
 tools:
-  - name: get_current_time
-    type: function
-    description: "Return the current UTC time"
+  # Registry references — resolved at startup via engine.tool_resolver:
+  #   1. ./tools/get_current_time.py (local override)
+  #   2. engine.tools.standard.get_current_time (not present — local wins here)
+  #   3. registry API metadata
+  - ref: tools/get-current-time
+
+prompts:
+  # Resolved via engine.prompt_resolver:
+  #   1. ./prompts/gemini-assistant-system.md (local file)
+  #   2. AGENTBREEDER_REGISTRY_URL /api/v1/registry/prompts
+  system: prompts/gemini-assistant-system
 
 deploy:
   cloud: gcp
@@ -21,3 +29,4 @@ deploy:
     LOG_LEVEL: info
   secrets:
     - GOOGLE_CLOUD_PROJECT
+    - AGENT_AUTH_TOKEN

@@ -1,0 +1,21 @@
+name: ts-greeter
+version: 0.1.0
+description: "Minimal TypeScript example demonstrating the AgentBreeder registry pattern (prompts + tools resolved via refs)."
+team: examples
+owner: dev@agentbreeder.com
+tags: [example, typescript, registry-pattern]
+
+framework: custom
+
+model:
+  primary: gemini-2.5-flash
+
+tools:
+  - ref: tools/get-utc-time
+
+prompts:
+  system: prompts/ts-greeter-system
+
+deploy:
+  cloud: local
+  runtime: docker-compose
