@@ -9,6 +9,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Fixed
+- **MDX deployment-doc parser failure**: escape `<1 sec` in `website/content/docs/deployment.mdx` (Turbopack/MDX parses `<1` as start of a JSX tag). Was blocking Vercel preview builds on every PR.
+- **E2E API smoke `.local` TLD rejected**: switch test email to `@example.com` (RFC 2606); pydantic `email-validator` now rejects `.local` as a special-use TLD, breaking the Docker E2E smoke on every PR.
 - **Integration tests / Docker builds**: removed `@agentbreeder/aps-client` npm dep (package not yet published); vendor `aps-client.ts` source directly into Node.js Docker build context so `npm install` no longer fails with 404
 - **ESLint errors**: suppressed `react-hooks/set-state-in-effect` errors in `gateway.tsx`, `incidents.tsx`, `prompt-builder.tsx`; fixed root cause in `login.tsx` by initializing `mounted=true` (removes invisible form on first render — fixes E2E login tests)
 - **CI gate**: integration tests (`tests/integration/`) now run alongside unit tests in the `test-python` CI job

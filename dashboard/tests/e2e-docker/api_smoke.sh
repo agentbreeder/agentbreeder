@@ -32,7 +32,7 @@ curl -sf "$API/health" >/dev/null \
 
 echo
 echo "════ Auth flow ════"
-EMAIL="e2e-$(date +%s%N | head -c12)@test.local"
+EMAIL="e2e-$(date +%s%N | head -c12)@example.com"
 PASSWORD="Test1234!"
 
 REG_BODY=$(printf '{"email":"%s","password":"%s","name":"E2E"}' "$EMAIL" "$PASSWORD")
