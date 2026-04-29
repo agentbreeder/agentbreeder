@@ -10,6 +10,7 @@ import {
   Plus,
   Star,
   ChevronLeft,
+  RefreshCcw,
 } from "lucide-react";
 import { api, type Model } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,7 @@ import { SkeletonTableRows } from "@/components/ui/skeleton-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ColumnToggle, type ColumnDefinition } from "@/components/ui/column-toggle";
 import { ProviderCatalog } from "@/components/provider-catalog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const PROVIDER_COLORS: Record<string, string> = {
   anthropic: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
@@ -538,11 +540,62 @@ export default function ModelsPage() {
         </div>
       </div>
 
-      {/* OpenAI-compatible provider catalog (Track F / issue #160).
-          Shows the built-in presets shipped in `engine/providers/catalog.yaml`
-          plus any user-local entries from `~/.agentbreeder/providers.local.yaml`. */}
+      {/* Provider source tabs (issue #175).
+          - Direct providers: built-in OpenAI-compatible catalog (Track F / #160).
+          - Gateways: LiteLLM / OpenRouter — content lands with Track H (#164).
+          - Local: Ollama / vLLM / etc. — content lands later.
+          Currently only "Direct providers" is enabled. Tabs scaffold ships
+          here so issue #164's PR can just enable the panel. */}
       <div className="mb-4">
-        <ProviderCatalog />
+        <Tabs defaultValue="direct" className="gap-3">
+          <div className="flex items-center justify-between">
+            <TabsList variant="line">
+              <TabsTrigger value="direct" className="text-xs">
+                Direct providers
+              </TabsTrigger>
+              <TabsTrigger
+                value="gateways"
+                className="text-xs"
+                disabled
+                title="Coming with Track H — issue #164"
+              >
+                Gateways
+              </TabsTrigger>
+              <TabsTrigger
+                value="local"
+                className="text-xs"
+                disabled
+                title="Coming soon — local model runtimes"
+              >
+                Local
+              </TabsTrigger>
+            </TabsList>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled
+              title="Coming with Track G — model lifecycle (#163)"
+              className="h-7 text-xs"
+              data-testid="models-sync-btn"
+            >
+              <RefreshCcw className="mr-1 size-3" />
+              Sync
+            </Button>
+          </div>
+          <TabsContent value="direct">
+            <ProviderCatalog />
+          </TabsContent>
+          <TabsContent value="gateways">
+            <div className="rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
+              Gateways tab content ships with Track H (#164).
+            </div>
+          </TabsContent>
+          <TabsContent value="local">
+            <div className="rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
+              Local model runtime support coming soon.
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Provider filter tabs */}

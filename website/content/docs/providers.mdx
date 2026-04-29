@@ -72,6 +72,20 @@ Test the connection without deploying:
 agentbreeder provider test nvidia
 ```
 
+#### Configure from the dashboard
+
+Prefer the UI? Open **/models** in the dashboard. The OpenAI-Compatible Catalog table lists every preset with a **Configure** button:
+
+1. Click **Configure** on the row for the provider you want to enable.
+2. Paste the API key value into the password input. The value is sent to `POST /api/v1/secrets` and written to your workspace's configured secrets backend (env / keychain / AWS / GCP / Vault) under the deterministic key `<provider>/api-key`. The plaintext value never persists in the database.
+3. The row flips to a green ✓ **Configured** badge. The same key is now resolvable at deploy time exactly as if you had set the env var manually.
+
+The button is gated by RBAC — viewers see a disabled button with a "Requires deployer role" tooltip, and the API responds with 403 if a viewer's token reaches it. Deployer or admin role is required to write secrets.
+
+<Callout type="info">
+The `/models` page also reserves tabs for **Gateways** (LiteLLM, OpenRouter — Track H, [#164](https://github.com/agentbreeder/agentbreeder/issues/164)) and **Local** runtimes, plus a **Sync** button that lights up with Track G ([#163](https://github.com/agentbreeder/agentbreeder/issues/163)). Until those tracks land they render disabled with explanatory tooltips.
+</Callout>
+
 ### Path B — User-local entry (no upstream change)
 
 Adding a private/internal provider — a self-hosted vLLM, an internal mirror, a partner endpoint — uses the **user-local catalog** at `~/.agentbreeder/providers.local.yaml`. User-local entries take precedence over built-in ones with the same name (so you can override `nvidia` to point at an internal proxy).

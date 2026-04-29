@@ -1,10 +1,10 @@
 """Secrets management API (Track K).
 
-Read-only at the workspace level: the dashboard never sees secret *values*,
-only names + metadata + mirror destinations. Mutating endpoints (rotate,
-sync) require an authenticated user; the actual value is never returned to
-the client — it must be supplied as request body and is forwarded to the
-backend.
+The dashboard never sees secret *values*, only names + metadata + mirror
+destinations. Mutating endpoints (create, rotate, sync) require an
+authenticated user with at least the ``deployer`` role; the actual value
+is never returned to the client — it must be supplied as request body and
+is forwarded to the configured workspace backend.
 """
 
 from __future__ import annotations
@@ -15,9 +15,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_current_user
+from api.middleware.rbac import require_role
 from api.models.database import User
 from api.models.schemas import ApiMeta, ApiResponse
-from engine.secrets.factory import SUPPORTED_BACKENDS, get_workspace_backend
+from engine.secrets.factory import SUPPORTED_BACKENDS, _instantiate, get_workspace_backend
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,19 @@ class WorkspaceBackendInfo(BaseModel):
 
 class RotateRequest(BaseModel):
     new_value: str = Field(..., min_length=1)
+
+
+class CreateSecretRequest(BaseModel):
+    """Body schema for ``POST /api/v1/secrets``.
+
+    ``backend`` is optional — when omitted, the workspace's configured
+    backend (resolved via ``get_workspace_backend``) is used. When provided
+    explicitly, it must be one of :data:`SUPPORTED_BACKENDS`.
+    """
+
+    name: str = Field(..., min_length=1, max_length=255)
+    value: str = Field(..., min_length=1)
+    backend: str | None = Field(default=None)
 
 
 class SyncRequest(BaseModel):
@@ -90,6 +104,71 @@ async def list_secrets(
         for e in entries
     ]
     return ApiResponse(data=summaries, meta=ApiMeta(total=len(summaries)))
+
+
+@router.post("", response_model=ApiResponse[SecretSummary], status_code=201)
+async def create_secret(
+    body: CreateSecretRequest,
+    workspace: str | None = Query(None),
+    user: User = Depends(require_role("deployer")),
+) -> ApiResponse[SecretSummary]:
+    """Create (or update) a secret in the configured workspace backend.
+
+    Used by the dashboard ``/models`` Configure modal (issue #175) to wire
+    a freshly-typed API key into the workspace secrets store. Values never
+    round-trip back to the client — only a masked summary is returned.
+
+    Requires the ``deployer`` role; viewers receive 403.
+    """
+    if body.backend is not None and body.backend not in SUPPORTED_BACKENDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported backend '{body.backend}'. "
+                f"Must be one of: {', '.join(SUPPORTED_BACKENDS)}"
+            ),
+        )
+
+    if body.backend is None:
+        # Use the workspace's configured backend (the common case).
+        backend, ws_cfg = get_workspace_backend(workspace=workspace)
+    else:
+        # Caller pinned a specific backend (e.g. "env" from the dashboard
+        # Configure modal). Wrap it in the workspace context so the
+        # response carries the workspace name.
+        _, ws_cfg = get_workspace_backend(workspace=workspace)
+        backend = _instantiate(body.backend, {})
+
+    try:
+        await backend.set(body.name, body.value)
+    except Exception as exc:  # backend errors are surfaced as 500
+        logger.error("secret.create failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to write secret: {exc}") from exc
+
+    # Audit
+    try:
+        from api.services.audit_service import AuditService
+
+        await AuditService.log_event(
+            actor=user.email,
+            action="secret.created",
+            resource_type="secret",
+            resource_name=body.name,
+            details={"workspace": ws_cfg.workspace, "backend": backend.backend_name},
+        )
+    except Exception as exc:  # pragma: no cover - audit is best-effort
+        logger.debug("audit emit failed for secret.created: %s", exc)
+
+    entries = {e.name: e for e in await backend.list()}
+    entry = entries.get(body.name)
+    summary = SecretSummary(
+        name=body.name,
+        masked_value=entry.masked_value if entry else "••••",
+        backend=backend.backend_name,
+        workspace=ws_cfg.workspace,
+        updated_at=entry.updated_at.isoformat() if (entry and entry.updated_at) else None,
+    )
+    return ApiResponse(data=summary)
 
 
 @router.post("/{name}/rotate", response_model=ApiResponse[SecretSummary])
