@@ -40,6 +40,31 @@ const FEATURES: Feature[] = [
     title: 'LLM-as-Judge Eval Hub',
     desc: 'Multi-criteria scoring (accuracy, helpfulness, safety, groundedness) via Claude, GPT-4o, or Gemini. Public leaderboard, regression detection, CSV export.',
   },
+  {
+    icon: '🛒',
+    title: 'Provider Catalog (v2.0)',
+    desc: '9 OpenAI-compatible presets out of the box — Nvidia NIM, Kimi K2, Groq, Together, Fireworks, DeepInfra, Cerebras, Hyperbolic, OpenRouter. `agentbreeder provider add` for any custom upstream.',
+  },
+  {
+    icon: '🛡️',
+    title: 'Sidecar Pattern (v2.0)',
+    desc: 'Single Go binary auto-injected next to every agent. Bearer auth, OTel tracing, cost attribution, PII guardrails, A2A JSON-RPC, MCP passthrough — zero per-language re-implementation.',
+  },
+  {
+    icon: '🔐',
+    title: 'Workspace Secrets (v2.0)',
+    desc: 'OS keychain · Vault · AWS · GCP — pick one per workspace. `agentbreeder deploy` auto-mirrors declared secrets to the target cloud and grants the runtime SA `secretAccessor`. No plaintext in the image.',
+  },
+  {
+    icon: '🌐',
+    title: 'Polyglot Runtime Contract (v2.0)',
+    desc: 'Versioned HTTP contract every agent satisfies. First-party Go SDK ships v2.0 (Kotlin, Rust, .NET on the way). Any language with an HTTP server is a Tier-3 citizen — generate from the OpenAPI.',
+  },
+  {
+    icon: '🔀',
+    title: 'Gateways as First-Class (v2.0)',
+    desc: 'LiteLLM and OpenRouter promoted to `type: gateway` providers. Three-segment refs route the request: `model: openrouter/moonshotai/kimi-k2`. Configure once per workspace; switch upstreams without touching code.',
+  },
 ];
 
 export function Features() {

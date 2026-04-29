@@ -1,0 +1,130 @@
+---
+title: Migrations
+description: How to upgrade between AgentBreeder versions. Each entry covers the minimum changes and the no-op default that lets v1.x configs keep working.
+---
+
+AgentBreeder is committed to **forward-only, additive changes** at the `agent.yaml` and engine layer. Every version below shows what's new, what's optional, and the smallest possible diff to take advantage.
+
+---
+
+## v1.x → v2.0
+
+> **TL;DR:** Existing v1.x deployments keep working without changes. v2 features are opt-in via additive `agent.yaml` fields, new CLI commands, and new dashboard pages.
+
+### What's new
+
+The full list is on [the v2.0.0 release notes](https://github.com/agentbreeder/agentbreeder/releases/tag/v2.0.0). The shipped tracks:
+
+| Track | What it is | Doc |
+|---|---|---|
+| **F** | 9-preset OpenAI-compatible provider catalog (Nvidia, Kimi, Groq, Together, Fireworks, DeepInfra, Cerebras, Hyperbolic, OpenRouter) | [Providers](/docs/providers) |
+| **G** | Model lifecycle — auto-discover from provider `/models`, status badges, 30-day-stale retire | [Providers § Lifecycle](/docs/providers#daily-cron-out-of-scope-for-this-pr) |
+| **H** | Gateways promoted to first-class `type: gateway`; 3-segment refs `openrouter/moonshotai/kimi-k2` | [Gateways](/docs/gateways) |
+| **I** | Polyglot runtime contract v1 + Go SDK; Kotlin/Rust/.NET coming | [Runtime contract](/docs/runtime-contract), [Go SDK](/docs/go-sdk) |
+| **J** | Sidecar — single Go binary auto-injected for guardrails, A2A, MCP, OTel, cost | [Sidecar](/docs/sidecar) |
+| **K** | Workspace-bound secrets backend (keychain/Vault/AWS/GCP) + auto-mirror to cloud at deploy | [Secrets](/docs/secrets) |
+
+### What you do **not** need to change
+
+Every v1.x `agent.yaml` continues to deploy unchanged. Specifically:
+
+- 2-segment model refs like `nvidia/llama-3.1-405b-instruct` keep resolving via the new catalog
+- `model.gateway: litellm` keeps working alongside the new `gateways:` block
+- Existing `secrets: [OPENAI_API_KEY]` still reads from env unless you migrate to a workspace backend
+- Deploy targets (`local`, `gcp`, `aws`, `azure`, `kubernetes`, `claude-managed`) — no schema changes
+
+### Recommended opt-in changes
+
+Pick the tracks you want; each is independent.
+
+#### Use the provider catalog
+
+No yaml change. Just configure the api-key once via the dashboard:
+
+1. Sign in as a `deployer`-role user
+2. Go to `/models`, click **Configure** on any preset (Nvidia, Kimi, Groq, etc.)
+3. Paste the api-key — stored in the workspace secrets backend, never the image
+
+Then point `model.primary` at the provider:
+
+```yaml
+model:
+  primary: nvidia/meta-llama-3.1-405b-instruct
+```
+
+#### Use a gateway
+
+Add a `gateways:` block to `agent.yaml` if you want to override the workspace default:
+
+```yaml
+model:
+  primary: openrouter/moonshotai/kimi-k2
+gateways:
+  openrouter:
+    api_key_env: OPENROUTER_API_KEY
+    fallback_policy: fastest
+```
+
+Or rely entirely on the workspace's gateway config (recommended once Track A workspace primitive ships).
+
+#### Migrate to the workspace secrets backend
+
+```bash
+# Local dev
+agentbreeder secret set OPENAI_API_KEY            # → OS keychain
+# Self-hosted team
+export AGENTBREEDER_INSTALL_MODE=team
+agentbreeder secret set OPENAI_API_KEY            # → env / Vault
+# Cloud SaaS
+agentbreeder secret set OPENAI_API_KEY            # → AWS Secrets Manager
+```
+
+At deploy time the engine auto-mirrors whatever is in `secrets:` to the target cloud's native store under `agentbreeder/<agent-name>/<secret>`.
+
+#### Try the Go SDK
+
+```bash
+agentbreeder init --lang go --framework custom my-go-agent
+cd my-go-agent && go test ./...
+agentbreeder deploy --target local
+```
+
+#### Get the sidecar features
+
+The sidecar auto-injects when `agent.yaml` declares any of `guardrails:`, MCP `tools:`, or `a2a:`. To bypass entirely (local dev convenience):
+
+```bash
+export AGENTBREEDER_SIDECAR=disabled
+```
+
+### Breaking changes
+
+**None.** The schema additions in v2.0 (`language:`, `gateways:`, `claude_sdk.thinking.enabled` clarification, `models.status`) are all forward-compatible with v1.x configs.
+
+### Deprecations
+
+- The legacy `engine/secrets/{aws,gcp,vault}_backend.py` direct factory call is still supported but no longer the default — `engine.secrets.factory.get_workspace_backend()` is the new entry point.
+- `models.status` is now mandatory in registry inserts. Existing rows backfill to `active` via Alembic migration `018_add_model_lifecycle_fields.py`.
+
+### CI / release
+
+- Tag-triggered releases now publish 4 PyPI artifacts and 3 Docker images. See `.github/workflows/release.yml`.
+- The Homebrew tap auto-update step requires a new PAT secret `HOMEBREW_TAP_TOKEN` ([#195](https://github.com/agentbreeder/agentbreeder/issues/195)).
+
+---
+
+## v1.9 → v1.10
+
+See [v1.10.0 release notes](https://github.com/agentbreeder/agentbreeder/releases/tag/v1.10.0).
+
+## v1.8 → v1.9
+
+See [v1.9.0 release notes](https://github.com/agentbreeder/agentbreeder/releases/tag/v1.9.0).
+
+## v1.7 → v1.8
+
+See [v1.8.0 release notes](https://github.com/agentbreeder/agentbreeder/releases/tag/v1.8.0). Adds Ollama / LiteLLM support across all runtimes.
+
+---
+
+Found a regression after upgrading? File at [github.com/agentbreeder/agentbreeder/issues](https://github.com/agentbreeder/agentbreeder/issues) with the `regression` label and we'll prioritise.
