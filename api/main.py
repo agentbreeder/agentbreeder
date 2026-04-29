@@ -26,7 +26,6 @@ from api.routes import (
     marketplace,
     mcp_servers,
     memory,
-    models as models_route,
     orchestrations,
     playground,
     prompts,
@@ -38,6 +37,9 @@ from api.routes import (
     teams,
     templates,
     tracing,
+)
+from api.routes import (
+    models as models_route,
 )
 from api.routes import (
     secrets as secrets_route,
