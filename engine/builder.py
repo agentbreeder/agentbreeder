@@ -276,9 +276,12 @@ class DeployEngine:
 
         # ── Step 2: dashboard API upsert (best-effort) ────────────────────────
         api_base = os.environ.get("AGENTBREEDER_API_URL", "http://localhost:8000")
-        self._sync_to_api(config, endpoint_url, api_base)
+        api_token = os.environ.get("AGENTBREEDER_API_TOKEN", "")
+        self._sync_to_api(config, endpoint_url, api_base, api_token)
 
-    def _sync_to_api(self, config: AgentConfig, endpoint_url: str, api_base: str) -> None:
+    def _sync_to_api(
+        self, config: AgentConfig, endpoint_url: str, api_base: str, api_token: str = ""
+    ) -> None:
         """Upsert the deployed agent into the dashboard API.
 
         Uses a search-first strategy:
@@ -286,11 +289,16 @@ class DeployEngine:
           PUT  /api/v1/agents/{id}             — update if found
           POST /api/v1/agents                  — create if not found
 
+        Auth: if ``AGENTBREEDER_API_TOKEN`` is set in the env, attach it as a
+        Bearer token. Without it the dashboard's auth gate (all 247 routes are
+        gated) returns 401 and the sync is best-effort/skipped.
+
         All errors are caught so the deploy is never blocked.
         """
         base = api_base.rstrip("/")
+        headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
         try:
-            with httpx.Client(timeout=5.0) as client:
+            with httpx.Client(timeout=5.0, headers=headers) as client:
                 # Search for an existing agent with the exact name
                 search_resp = client.get(
                     f"{base}/api/v1/agents/search",

@@ -35,8 +35,17 @@ services:
       DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@postgres:5432/agentbreeder
       REDIS_URL: redis://redis:6379
       AGENTBREEDER_ENV: development
+      AGENTBREEDER_INSTALL_MODE: team  # falls back to env backend (no keyring inside container)
       SECRET_KEY: docker-dev-secret-key-change-in-prod
       JWT_SECRET_KEY: docker-dev-jwt-key-change-in-prod
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-dev}
+      # Provider keys for /playground model chat (read by LiteLLM)
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,8 +85,15 @@ services:
     ports:
       - "4000:4000"
     environment:
-      DATABASE_URL: postgresql://agentbreeder:agentbreeder@postgres:5432/agentbreeder
-      STORE_MODEL_IN_DB: "True"
+      # Stateless mode — disabled DB-backed model registry to prevent LiteLLM's
+      # prisma migrations from corrupting the agentbreeder schema (they share
+      # one postgres instance). Re-enable with a separate DATABASE_URL when
+      # virtual keys / DB-stored configs are needed.
+      STORE_MODEL_IN_DB: "False"
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-dev}
     depends_on:
       postgres:
         condition: service_healthy

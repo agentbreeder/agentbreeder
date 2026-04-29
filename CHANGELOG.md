@@ -8,6 +8,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Fixed
+- **Local stack UX**: compose now wires `GOOGLE_API_KEY`, `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY`, `AGENTBREEDER_INSTALL_MODE=team` into the API container. `/playground` and `/api/v1/secrets` now work out of the box on `docker compose up`.
+- **LiteLLM trampling agentbreeder DB**: `STORE_MODEL_IN_DB: False` so LiteLLM's prisma migrations don't run against the shared database (which was wiping the `users` table). Stateless mode is fine for the playground; re-enable with a separate DB when virtual keys / DB-stored configs are needed.
+- **`gemini-2.5-flash` not in LiteLLM config**: added to `deploy/litellm_config.yaml` (also fixed `GOOGLE_AI_API_KEY` → `GOOGLE_API_KEY` typo on `gemini-2.5-pro`).
+- **Deploy → registry sync 401 (`endpoint_url` empty after deploy)**: `engine/builder.py` now attaches `AGENTBREEDER_API_TOKEN` as a Bearer header when set, so the post-deploy `PUT /api/v1/agents/{id}` succeeds and the registry record gets a real `endpoint_url` for cloud deploys.
+
 ### Added
 - **Generic OpenAI-compatible provider + 9-preset catalog** (#160): `engine/providers/openai_compatible.py` parameterised by `base_url`/`api_key_env`/`default_headers` replaces what would have been 9 hand-written classes. New `engine/providers/catalog.yaml` ships nvidia, openrouter, moonshot (Kimi K2), groq, together, fireworks, deepinfra, cerebras, hyperbolic — merged with `~/.agentbreeder/providers.local.yaml` overrides at load time. New CLI: `agentbreeder provider list/add/remove/test/publish`. New API route `GET /api/v1/providers/catalog`. Dashboard `/models` page lists catalog presets with a Configure stub. `model.primary: nvidia/<model>` resolves through the existing engine path.
 - **Sidecar — cross-cutting concerns layer** (#161): single Go binary auto-injected next to every agent that declares `guardrails:`, MCP `tools:`, or `a2a:`. Fronts the agent on `:8080` (bearer-token auth + guardrail egress checks → reverse proxy to `:8081`) and exposes `localhost:9090` helpers for A2A JSON-RPC, MCP HTTP/SSE passthrough, and cost emission. Auto-injection wired into docker-compose, GCP Cloud Run, and AWS ECS deployers. `AGENTBREEDER_SIDECAR=disabled` bypasses for local dev. New top-level `sidecar/` Go module (~89% test coverage), Dockerfile, image build target `rajits/agentbreeder-sidecar:<version>`, and docs at `website/content/docs/sidecar.mdx`.
