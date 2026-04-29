@@ -383,7 +383,9 @@ class TestSyncToApiBestEffort:
         with patch.object(engine, "_sync_to_api") as mock_sync:
             engine._register(config, "http://agent:8080")
 
-        mock_sync.assert_called_once_with(config, "http://agent:8080", "http://custom-api:9999")
+        mock_sync.assert_called_once_with(
+            config, "http://agent:8080", "http://custom-api:9999", ""
+        )
 
     def test_default_api_base_is_localhost_8000(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When env var is absent, api_base should default to http://localhost:8000."""
@@ -394,4 +396,4 @@ class TestSyncToApiBestEffort:
         with patch.object(engine, "_sync_to_api") as mock_sync:
             engine._register(config, "http://agent:8080")
 
-        mock_sync.assert_called_once_with(config, "http://agent:8080", "http://localhost:8000")
+        mock_sync.assert_called_once_with(config, "http://agent:8080", "http://localhost:8000", "")

@@ -70,6 +70,12 @@ def _mock_user(**kwargs):
 
 def _mock_obj(**kwargs):
     m = MagicMock()
+    # Track G ModelResponse lifecycle fields are typed UUID|None / datetime|None,
+    # so MagicMock auto-attrs would fail pydantic validation. Default to None.
+    m.discovered_at = None
+    m.last_seen_at = None
+    m.deprecated_at = None
+    m.deprecation_replacement_id = None
     for k, v in kwargs.items():
         setattr(m, k, v)
     return m
