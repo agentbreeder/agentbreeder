@@ -190,9 +190,84 @@ When you add a user-local entry that also needs custom headers, edit `~/.agentbr
 
 ---
 
+## Model lifecycle (Track G — issue #163)
+
+Once a provider has an api-key configured, AgentBreeder can **auto-discover** the models that provider exposes and track them through their full lifecycle.
+
+### Lifecycle states
+
+Every row in the `models` table has a `status`:
+
+| Status | Meaning |
+|---|---|
+| `active` | Provider currently lists this model. Default for new entries. |
+| `beta` | Operator-marked. Reserved for early-access model lines. |
+| `deprecated` | Either the upstream provider stopped listing the model, **or** an operator manually deprecated it. Still callable, but the dashboard surfaces a warning. |
+| `retired` | Has been `deprecated` for ≥ 30 days without re-appearing in any sync. The row is preserved for audit + cost-attribution; calls fail fast. |
+
+### Sync — three ways
+
+```bash
+# CLI — sync every configured provider
+agentbreeder model sync
+
+# CLI — restrict to one provider
+agentbreeder model sync --provider nvidia
+
+# CLI — operator override
+agentbreeder model deprecate gpt-3.5-turbo --replacement gpt-4o-mini
+
+# Dashboard — the Sync button on /models triggers the same flow
+```
+
+The API endpoint is `POST /api/v1/models/sync` (deployer role required). It accepts an optional `{providers: ["openai", "groq", ...]}` body; with an empty body, every provider that has an api-key in the environment (catalog presets + first-class Anthropic/Google/OpenAI + DB-configured providers with a `base_url`) is synced.
+
+### Diff rules
+
+For each provider, the lifecycle service:
+
+1. Queries discovery (`/models` for OpenAI-compatible, `/v1beta/models?key=…` for Google, hard-coded list for Anthropic).
+2. Loads every existing row in the registry for that provider.
+3. **New** model in the discovery payload → insert with `status="active"`, set `discovered_at` and `last_seen_at`, emit `model.added` audit event.
+4. **Still-present** model → bump `last_seen_at`. If it was `deprecated`/`retired` and re-appeared, flip back to `active` (provider un-retired it).
+5. **Absent** model with `status="active"` → flip to `deprecated`, set `deprecated_at`, emit `model.deprecated`.
+6. **Absent** model already `deprecated` for ≥ 30 days → flip to `retired`, emit `model.retired`.
+
+A discovery failure (network down, bad api-key) is **isolated per provider** — the failing adapter records the error on its `SyncProviderResult` and the others run normally. This prevents a transient outage at one provider from cascading into a mass deprecation across the registry.
+
+### Audit events
+
+Every state transition writes to the audit log under `resource_type="model"`:
+
+| Action | Triggered by |
+|---|---|
+| `model.added` | New model appears in a sync. |
+| `model.deprecated` | First sync that no longer lists the model, **or** `agentbreeder model deprecate`. |
+| `model.retired` | Sync that observes ≥ 30 days of continuous absence. |
+
+The `model.deprecated` event includes a `reason` field (`absent_from_discovery` for the auto path, `manual` for the CLI/API override).
+
+### Daily cron — out of scope for this PR
+
+The current PR ships the sync **endpoint** + CLI; running it on a schedule lands with the cloud workspaces track. For now, the simplest approach is a system cron in your workspace:
+
+```cron
+# /etc/cron.d/agentbreeder-model-sync
+0 4 * * * agentbreeder model sync >> /var/log/agentbreeder-sync.log 2>&1
+```
+
+> **TODO**: Cloud workspaces will get a managed daily cron once the workspace primitive lands (Track A). See `registry/model_lifecycle.py` for the service the cron will call.
+
+### Anthropic — curated list
+
+Anthropic does not expose a public `/models` endpoint, so AgentBreeder ships a hard-coded list at `engine/providers/discovery.py::ANTHROPIC_CURATED_MODELS`. Update this constant when Anthropic releases new models. The lifecycle diff still runs against it — adding a model to the curated list emits a `model.added` event on the next sync.
+
+---
+
 ## See also
 
 - [`agent.yaml` reference](agent-yaml) — full schema for `model.primary` / `model.fallback`
 - [Gateway](gateway) — when to route through LiteLLM instead of calling a provider directly
 - [How-To Guide → connect a provider](how-to)
 - [CLI reference → `provider` commands](cli-reference)
+- [CLI reference → `model` commands](cli-reference) — `agentbreeder model {list,sync,show,deprecate}`
