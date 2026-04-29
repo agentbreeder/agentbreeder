@@ -1,6 +1,6 @@
 ---
 title: MCP Server Authoring
-description: Build and deploy MCP servers in TypeScript, Go, Rust, or Python using AgentBreeder's scaffolding. Same deploy pipeline as agents — governance, registry, and RBAC included.
+description: Build and deploy MCP servers in TypeScript, Python, or Go using AgentBreeder's scaffolding. Same deploy pipeline as agents — governance, registry, and RBAC included.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -12,6 +12,10 @@ AgentBreeder lets you **author, deploy, and register MCP servers** in any suppor
 
 <Callout type="info">
   MCP servers are containers. They go through the same RBAC check, registry entry, and governance pipeline as agents. There is no separate "tool registry" — MCP servers appear in the main registry under the `tools/` namespace.
+</Callout>
+
+<Callout type="warn" title="Language status (v2.0)">
+  TypeScript, Python, and Go MCP-server scaffolds are shipped. **Rust** scaffolding is reserved but not yet wired (tracked at [#189](https://github.com/agentbreeder/agentbreeder/issues/189)) — the Rust tabs below show the planned shape; until then implement the MCP protocol by hand and deploy as `framework: custom`.
 </Callout>
 
 ---

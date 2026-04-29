@@ -251,7 +251,7 @@ The `model.deprecated` event includes a `reason` field (`absent_from_discovery` 
 
 The current PR ships the sync **endpoint** + CLI; running it on a schedule lands with the cloud workspaces track. For now, the simplest approach is a system cron in your workspace:
 
-```cron
+```bash
 # /etc/cron.d/agentbreeder-model-sync
 0 4 * * * agentbreeder model sync >> /var/log/agentbreeder-sync.log 2>&1
 ```

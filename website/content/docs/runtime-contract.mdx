@@ -130,13 +130,14 @@ info:
 
 ## Tiers
 
-| Tier | Languages | What we maintain |
-|---|---|---|
-| **1. First-party SDK + runtime** | Python, TypeScript | `agenthub` / `@agentbreeder/sdk` + container template + framework integrations |
-| **2. First-party SDK** | Go, Kotlin/Java, Rust, C#/.NET | Thin SDK per language (registry + deploy + auth + handlers) generated from the OpenAPI |
-| **3. BYO contract** | Anything (Swift, Ruby, PHP, Elixir, …) | Container build + governance + registry — language-blind |
+| Tier | Languages | Status (v2.0) | What we maintain |
+|---|---|---|---|
+| **1. First-party SDK + runtime** | Python, TypeScript | shipped | `agenthub` / `@agentbreeder/sdk` + container template + framework integrations |
+| **2. First-party SDK** | Go | **shipped (v2.0)** — see [Go SDK](go-sdk) | Thin SDK (registry + deploy + auth + handlers) hand-curated from the OpenAPI |
+| **2. First-party SDK** | Kotlin/Java, Rust, C#/.NET | **roadmap** — [#188](https://github.com/agentbreeder/agentbreeder/issues/188), [#189](https://github.com/agentbreeder/agentbreeder/issues/189), [#190](https://github.com/agentbreeder/agentbreeder/issues/190) | Same shape as Go — generated from `runtime-contract-v1.openapi.yaml` once codegen lands in CI |
+| **3. BYO contract** | Anything (Swift, Ruby, PHP, Elixir, …) | available today | Container build + governance + registry — language-blind |
 
-Tier 1 templates already conform to v1 (with minor v0 divergences documented in §4 of the spec). Tier 2 SDKs are generated from `runtime-contract-v1.openapi.yaml` in CI. Tier 3 is anyone implementing the contract by hand — declare `framework: custom`, `language: <lang>` in `agent.yaml`.
+Tier 1 templates already conform to v1 (with minor v0 divergences documented in §4 of the spec). Today only the Go SDK is generated from `runtime-contract-v1.openapi.yaml` (hand-curated for v2.0; codegen wires up with the next Tier-2 SDK). Tier 3 is anyone implementing the contract by hand — declare `framework: custom`, `language: <lang>` in `agent.yaml`.
 
 ---
 

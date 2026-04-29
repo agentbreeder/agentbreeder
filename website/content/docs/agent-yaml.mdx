@@ -120,7 +120,7 @@ access:
 
 ### `framework`
 
-For **Python agents**, set `framework` directly (top-level field). For **TypeScript, Rust, and Go agents**, use the `runtime:` block instead — see below.
+For **Python agents**, set `framework` directly (top-level field). For **TypeScript or Go agents**, use the `runtime:` block instead — see below. (Kotlin / Rust / .NET are roadmap — see [Polyglot Agents](polyglot-agents).)
 
 | Value | Framework | Runtime |
 |-------|-----------|---------|
@@ -142,7 +142,7 @@ framework: langgraph
 
 The `language:` field drives base-image and SDK selection. For Python agents you can omit it entirely. For everything else, set it (and use the `runtime:` block below for non-Python frameworks). See [Polyglot Agents](polyglot-agents) and the [Runtime Contract](runtime-contract) for the full picture.
 
-### `runtime:` block — Polyglot Agents (TypeScript, Rust, Go)
+### `runtime:` block — Polyglot Agents (TypeScript, Go)
 
 For non-Python agents, replace the top-level `framework` field with a `runtime:` block. `framework` and `runtime:` are mutually exclusive.
 
@@ -163,14 +163,14 @@ runtime:
 
 **Supported `language` + `framework` combinations:**
 
-| Language | Available frameworks |
-|---|---|
-| `python` | Use top-level `framework` field — do not use `runtime:` |
-| `node` | `vercel-ai`, `mastra`, `langchain-js`, `openai-agents-ts`, `deepagent`, `custom` |
-| `rust` | `rig`, `custom` *(Phase 2)* |
-| `go` | `langchaingo`, `custom` *(Phase 2)* |
+| Language | Available frameworks | Status |
+|---|---|---|
+| `python` | Use top-level `framework` field — do not use `runtime:` | shipped |
+| `node` | `vercel-ai`, `mastra`, `langchain-js`, `openai-agents-ts`, `custom` | shipped |
+| `go` | `custom` (with the [Go SDK](go-sdk)) | **shipped in v2.0** |
+| `kotlin` / `rust` / `csharp` | reserved enum values | **roadmap** — [#188](https://github.com/agentbreeder/agentbreeder/issues/188), [#189](https://github.com/agentbreeder/agentbreeder/issues/189), [#190](https://github.com/agentbreeder/agentbreeder/issues/190) |
 
-See [Polyglot Agents](/docs/polyglot-agents) for full setup, APS sidecar wiring, and cross-language A2A calls.
+See [Polyglot Agents](/docs/polyglot-agents) for full setup, sidecar wiring, and cross-language A2A calls.
 
 #### Framework-Specific Configuration
 
@@ -341,6 +341,28 @@ model:
   primary: ollama/llama3
   gateway: ollama
 ```
+
+---
+
+### `gateways` *(v2.0+, optional)*
+
+Workspace-level gateway overrides. Most agents do not need this block — the catalog defaults are correct. Use it when you need to point LiteLLM at a different proxy URL, or set a per-agent OpenRouter key:
+
+```yaml
+gateways:
+  litellm:
+    url: https://litellm.platform.example.com    # overrides catalog default
+    api_key_env: PLATFORM_LITELLM_KEY
+    fallback_policy: fastest                      # advisory; not enforced yet
+  openrouter:
+    api_key_env: TEAM_OPENROUTER_KEY
+    default_headers:                              # merged with catalog defaults
+      X-Tenant: my-team
+```
+
+Each top-level key is a gateway preset name from `engine/providers/catalog.yaml` (or your `~/.agentbreeder/providers.local.yaml`). Every nested field is optional and falls back to the catalog default. See [Gateways](gateways) for the full picture and `engine.providers.catalog.parse_gateway_ref` for the routing implementation.
+
+> **Note:** the long-term home for `gateways:` is `workspace.yaml`; per-agent overrides remain valid once Track A ([#146](https://github.com/agentbreeder/agentbreeder/issues/146)) ships.
 
 ---
 

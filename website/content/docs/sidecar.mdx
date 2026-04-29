@@ -24,6 +24,10 @@ The deploy pipeline auto-injects `rajits/agentbreeder-sidecar:<version>` wheneve
 
 If none of these are present the sidecar is **not** injected — the agent runs alone, and there's no overhead for simple agents.
 
+<Callout type="info" title="Auto-injection coverage in v2.0">
+  v2.0 wires sidecar auto-injection into **Docker Compose**, **GCP Cloud Run**, and **AWS ECS Fargate** deployers. **AWS App Runner**, **Azure Container Apps**, and **Kubernetes** deployers will land auto-injection in v2.x — for those targets today, run the sidecar as a separate task/container and point `AGENTBREEDER_SIDECAR_AGENT_URL` at your agent. Tracking issue: open one at [agentbreeder/agentbreeder/issues](https://github.com/agentbreeder/agentbreeder/issues) if you need a specific target prioritised.
+</Callout>
+
 To override behaviour locally, set `AGENTBREEDER_SIDECAR=disabled` in the environment. The injection helper short-circuits and the agent runs solo regardless of `agent.yaml`.
 
 ```yaml title="agent.yaml — triggers sidecar injection"

@@ -41,7 +41,7 @@ const LAYERS = [
       { icon: '✓', name: 'RBAC Check', desc: 'Fail fast if unauthorized', badge: 'step 2' },
       { icon: '✓', name: 'Dependency Resolution', desc: 'Fetch all registry refs', badge: 'step 3' },
       { icon: '✓', name: 'Container Build', desc: 'Framework-specific Dockerfile', badge: 'step 4' },
-      { icon: '✓', name: 'Infra Provision', desc: 'Pulumi cloud resources', badge: 'step 5' },
+      { icon: '✓', name: 'Infra Provision', desc: 'Cloud SDK calls (boto3 · gcloud · k8s)', badge: 'step 5' },
       { icon: '✓', name: 'Deploy & Health Check', desc: 'Rolling deploy + smoke test', badge: 'step 6' },
       { icon: '✓', name: 'Register in Org', desc: 'Auto-register in registry', badge: 'step 7' },
       { icon: '✓', name: 'Return Endpoint', desc: 'Live URL + deployment ID', badge: 'step 8' },
