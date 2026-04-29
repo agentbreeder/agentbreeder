@@ -14,7 +14,7 @@ framework: claude_sdk
 
 claude_sdk:
   thinking:
-    type: adaptive
+    enabled: true
     effort: medium
   prompt_caching: true
 

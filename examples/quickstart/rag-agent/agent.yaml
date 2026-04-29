@@ -29,10 +29,7 @@ tools:
       required: [query]
 
 knowledge_bases:
-  - name: agentbreeder-docs
-    type: chromadb
-    collection: agentbreeder_knowledge
-    url: http://chromadb:8000
+  - ref: kb/agentbreeder-knowledge
 
 prompts:
   system: |

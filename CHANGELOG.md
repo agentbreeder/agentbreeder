@@ -10,6 +10,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ### Fixed
 - **Release workflow PyPI propagation race** — `Build & Push CLI Image` and `Update Homebrew Tap` jobs now probe the PyPI `/simple/` index (via `pip index versions`) instead of the `/pypi/<pkg>/<ver>/json` Warehouse endpoint. The JSON endpoint returns 200 the moment a file is uploaded, but `pip install` reads `/simple/` through Fastly, which can lag by tens of seconds — long enough for the v2.0.1 CLI image build to fail with `Could not find a version that satisfies the requirement agentbreeder==2.0.1`.
+- **6 example/template `agent.yaml` files now pass schema validation** (#183) — `examples/quickstart/rag-agent/agent.yaml` switched from inline `knowledge_bases` to a registry `ref`; `examples/quickstart/search-agent/agent.yaml` dropped the unrecognized top-level `entrypoint`; the four `examples/templates/{competitor-monitor,github-pr-reviewer,meeting-summarizer,returns-processor}/agent.yaml` switched `claude_sdk.thinking.type: adaptive` to the schema-correct `claude_sdk.thinking.enabled: true`. All 44 example/template yamls now validate.
 
 ---
 

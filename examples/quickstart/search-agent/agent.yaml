@@ -12,8 +12,6 @@ model:
 
 framework: langgraph
 
-entrypoint: agent.py
-
 tools:
   - ref: tools/mcp-filesystem
   - ref: tools/mcp-memory
