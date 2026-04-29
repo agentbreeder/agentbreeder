@@ -31,6 +31,13 @@ class FrameworkType(enum.StrEnum):
 class LanguageType(enum.StrEnum):
     python = "python"
     node = "node"
+    # Tier-2 polyglot SDKs — Track I (#165). Go is shipped; Kotlin/Rust/.NET
+    # are in flight but accepted by the parser so the schema and parser stay
+    # in lock-step with engine/schema/agent.schema.json.
+    go = "go"
+    kotlin = "kotlin"
+    rust = "rust"
+    csharp = "csharp"
 
 
 class AgentType(enum.StrEnum):

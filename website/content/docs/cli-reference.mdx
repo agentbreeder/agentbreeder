@@ -119,34 +119,43 @@ agentbreeder seed --clear                           # Wipe and re-seed
 Scaffold a new agent project with an interactive wizard.
 
 ```
-agentbreeder init [OUTPUT_DIR] [--json]
+agentbreeder init [OUTPUT_DIR] [--lang LANG] [--framework FRAMEWORK] [--type TYPE] [--json]
 ```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `OUTPUT_DIR` | No | Directory to create (defaults to agent name) |
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `OUTPUT_DIR` | No | (agent name) | Directory to create |
+| `--lang`, `--language` | No | `python` | One of `python`, `node`, `go` |
+| `--framework` | No | (interactive) | Framework key — skips the picker |
+| `--type` | No | `agent` | One of `agent`, `mcp-server` |
+| `--json` | No | `false` | JSON output for CI |
 
-**What it creates:**
+**What it creates** (Python default):
 - `agent.yaml` — configuration file
 - `agent.py` — working example agent code
 - `requirements.txt` — Python dependencies
 - `.env.example` — environment variable template
 - `README.md` — getting started guide
 
+**Go scaffold (`--lang go --framework custom`)** writes `main.go`, `main_test.go`, `go.mod`, `agent.yaml`, `Dockerfile`, `.gitignore`, `.env.example`, `README.md`. The agent uses the [Go SDK](/docs/go-sdk) and satisfies Runtime Contract v1 out of the box.
+
 The wizard prompts for:
 1. Agent name (slug-friendly, validated)
-2. Framework (LangGraph, CrewAI, Claude SDK, OpenAI, ADK, Custom)
-3. Cloud target (Local, AWS ECS Fargate / App Runner, GCP Cloud Run, Azure Container Apps, Kubernetes, Claude-managed)
+2. Framework (Python: LangGraph, CrewAI, Claude SDK, OpenAI, ADK, Custom; Node: Vercel AI, Mastra, LangChain.js, OpenAI Agents TS, DeepAgent, Custom; Go: Custom)
+3. Cloud target (Local, AWS, GCP, Kubernetes)
 4. Team name
 5. Owner email (auto-detected from git config)
 
-Automatically runs `agentbreeder validate` after scaffolding.
+Automatically runs `agentbreeder validate` after scaffolding (Python only — Go and Node validation runs at deploy time).
 
 **Examples:**
 ```bash
-agentbreeder init                    # Interactive wizard, uses agent name as dir
-agentbreeder init my-agent           # Create in ./my-agent/
-agentbreeder init --json             # JSON output (for CI)
+agentbreeder init                                          # Interactive Python wizard
+agentbreeder init my-agent                                 # Create in ./my-agent/
+agentbreeder init --json                                   # JSON output (CI)
+agentbreeder init --lang node --framework vercel-ai my-ts  # TypeScript agent
+agentbreeder init --lang go --framework custom my-go       # Go agent
+agentbreeder init --type mcp-server --lang python tools    # Python MCP server
 ```
 
 ---

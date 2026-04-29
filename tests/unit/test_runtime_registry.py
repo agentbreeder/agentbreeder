@@ -54,5 +54,18 @@ class TestGetRuntimeFromConfig:
     def test_truly_unsupported_language_not_in_registry(self) -> None:
         from engine.runtimes.registry import LANGUAGE_REGISTRY
 
+        # Tier-2 polyglot landed Go in #165; Kotlin / Rust / .NET are
+        # follow-ups — they MUST stay out until their SDKs ship.
         assert "rust" not in LANGUAGE_REGISTRY
-        assert "go" not in LANGUAGE_REGISTRY
+        assert "kotlin" not in LANGUAGE_REGISTRY
+        assert "csharp" not in LANGUAGE_REGISTRY
+
+    def test_go_routes_to_go_runtime_family(self) -> None:
+        from engine.runtimes.go import GoRuntimeFamily
+        from engine.runtimes.registry import get_runtime_from_config
+
+        cfg = _make_node_config()
+        cfg.runtime.language = "go"  # type: ignore[assignment]
+        cfg.runtime.framework = "custom"
+        runtime = get_runtime_from_config(cfg)
+        assert isinstance(runtime, GoRuntimeFamily)

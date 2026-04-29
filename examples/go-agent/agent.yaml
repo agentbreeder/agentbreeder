@@ -1,0 +1,21 @@
+name: go-hello-agent
+version: 0.1.0
+description: "A minimal Go agent — calls Claude via the Anthropic Go SDK"
+team: examples
+owner: dev@agentbreeder.com
+tags: [example, go, anthropic, custom]
+
+runtime:
+  language: go
+  framework: custom
+  version: "1.22"
+
+model:
+  primary: claude-sonnet-4-20250514
+
+deploy:
+  cloud: local
+  env_vars:
+    LOG_LEVEL: info
+  secrets:
+    - ANTHROPIC_API_KEY

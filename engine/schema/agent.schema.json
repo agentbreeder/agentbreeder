@@ -87,9 +87,13 @@
           "type": "string",
           "enum": [
             "python",
-            "node"
+            "node",
+            "go",
+            "kotlin",
+            "rust",
+            "csharp"
           ],
-          "description": "Runtime language"
+          "description": "Runtime language. Tier 1 (full integrations): python, node. Tier 2 (SDK only): go (shipped), kotlin/rust/csharp (in-flight — Track I phase 1)."
         },
         "framework": {
           "type": "string",

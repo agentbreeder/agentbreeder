@@ -799,3 +799,117 @@ class TestInitPolyglot:
             # tools.py should be valid Python syntax
             py_content = (outdir / "tools.py").read_text()
             compile(py_content, "tools.py", "exec")
+
+
+class TestInitGoScaffold:
+    """Tests for `agentbreeder init --lang go --framework custom`.
+
+    Track I phase 1 — Go SDK + scaffold (#165). Today only `custom` is wired;
+    eino/genkit/dapr_agents/langchaingo are follow-up issues.
+    """
+
+    @staticmethod
+    def _go_input(name: str = "my-go-agent") -> str:
+        # cloud=1 (local), then name, team, owner — no framework prompt
+        # because there's only one Go framework.
+        return f"1\n{name}\nengineering\ntest@example.com\n"
+
+    def test_init_go_creates_all_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "my-go-agent"
+            result = runner.invoke(
+                app,
+                ["init", "--lang", "go", "--framework", "custom", str(outdir)],
+                input=self._go_input(),
+            )
+            assert result.exit_code == 0, result.output
+            for f in (
+                "main.go",
+                "main_test.go",
+                "go.mod",
+                "agent.yaml",
+                "Dockerfile",
+                "README.md",
+            ):
+                assert (outdir / f).exists(), f"missing {f}"
+
+    def test_init_go_yaml_uses_runtime_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "my-go-agent"
+            result = runner.invoke(
+                app,
+                ["init", "--lang", "go", "--framework", "custom", str(outdir)],
+                input=self._go_input(),
+            )
+            assert result.exit_code == 0, result.output
+            yaml = (outdir / "agent.yaml").read_text()
+            assert "language: go" in yaml
+            assert "framework: custom" in yaml
+            # Top-level `framework:` would belong to the Python schema; make
+            # sure the Go scaffold only uses the runtime block.
+            assert "\nframework: custom" not in yaml
+
+    def test_init_go_main_uses_sdk_import(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "my-go-agent"
+            result = runner.invoke(
+                app,
+                ["init", "--lang", "go", "--framework", "custom", str(outdir)],
+                input=self._go_input(),
+            )
+            assert result.exit_code == 0, result.output
+            main_go = (outdir / "main.go").read_text()
+            assert "github.com/agentbreeder/agentbreeder/sdk/go/agentbreeder" in main_go
+            assert "agentbreeder.NewServer" in main_go
+
+    def test_init_go_unknown_framework_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "my-go-agent"
+            result = runner.invoke(
+                app,
+                ["init", "--lang", "go", "--framework", "eino", str(outdir)],
+                input=self._go_input(),
+            )
+            assert result.exit_code != 0
+            assert "Unknown Go framework" in result.output
+
+    def test_init_go_mcp_server_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "tools"
+            result = runner.invoke(
+                app,
+                ["init", "--lang", "go", "--type", "mcp-server", str(outdir)],
+                input="1\ntools\nengineering\nt@e.c\n",
+            )
+            assert result.exit_code != 0
+            assert "MCP servers in Go" in result.output
+
+    def test_init_go_json_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir) / "my-go-agent"
+            result = runner.invoke(
+                app,
+                [
+                    "init",
+                    "--lang",
+                    "go",
+                    "--framework",
+                    "custom",
+                    "--json",
+                    str(outdir),
+                ],
+                input=self._go_input(),
+            )
+            assert result.exit_code == 0, result.output
+            import json as _json
+
+            # Strip the cloud-prompt prefix; JSON is on the last line
+            lines = [
+                ln for ln in result.output.splitlines() if ln.strip().startswith("{") or ln.strip()
+            ]
+            payload = _json.loads("\n".join(lines[lines.index("{") :])) if "{" in lines else None
+            # Fall back: just verify the substring is present.
+            if payload is None:
+                assert '"language": "go"' in result.output
+            else:
+                assert payload["language"] == "go"

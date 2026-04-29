@@ -28,9 +28,16 @@ def _node_factory(config: AgentConfig) -> RuntimeBuilder:  # noqa: PLC0415
     return NodeRuntimeFamily()
 
 
+def _go_factory(config: AgentConfig) -> RuntimeBuilder:  # noqa: PLC0415
+    from engine.runtimes.go import GoRuntimeFamily
+
+    return GoRuntimeFamily()
+
+
 LANGUAGE_REGISTRY: dict[str, Callable[[AgentConfig], RuntimeBuilder]] = {
     "python": _python_factory,
     "node": _node_factory,
+    "go": _go_factory,
 }
 
 

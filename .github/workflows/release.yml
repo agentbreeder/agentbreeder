@@ -191,6 +191,24 @@ jobs:
           cache-from: type=gha,scope=sidecar
           cache-to: type=gha,scope=sidecar,mode=max
 
+      # Track I phase 1: Go example agent image — proves the Go SDK can ship
+      # an image end-to-end. The example mounts the in-repo SDK via a `replace`
+      # in its go.mod, so the image is built from the repo root context.
+      - name: Build and push Go example agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./examples/go-agent/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ github.repository }}/go-agent-example:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/go-agent-example:latest
+            rajits/agentbreeder-go-agent-example:${{ steps.version.outputs.version }}
+            rajits/agentbreeder-go-agent-example:latest
+          cache-from: type=gha,scope=go-example
+          cache-to: type=gha,scope=go-example,mode=max
+
   # ── Build TypeScript SDK ────────────────────────────────────────────────────
   build-ts-sdk:
     name: Build TypeScript SDK
