@@ -1073,9 +1073,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ yaml_content: yamlContent }),
       }),
+    // Bearer token is resolved server-side from the workspace secrets backend
+    // (`agentbreeder/<agent-name>/auth-token`). Callers no longer supply it
+    // from the browser. See issue #176.
     invoke: (
       id: string,
-      body: { input: string; endpoint_url?: string; auth_token?: string; session_id?: string }
+      body: { input: string; endpoint_url?: string; session_id?: string }
     ) =>
       request<AgentInvokeResponse>(`/agents/${id}/invoke`, {
         method: "POST",
