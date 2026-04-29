@@ -1,6 +1,6 @@
 ---
-title: Polyglot Agents — TypeScript, Rust, Go
-description: Build and deploy AgentBreeder agents in TypeScript, Rust, and Go. Full RAG, memory, tools, and A2A parity with Python — zero Python required for non-Python stacks.
+title: Polyglot Agents — TypeScript, Go, Python
+description: Build and deploy AgentBreeder agents in TypeScript, Go, or Python. Full RAG, memory, tools, and A2A parity — wired by the platform, not written by you.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -8,10 +8,13 @@ import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
 # Polyglot Agents
 
-AgentBreeder agents can be written in **TypeScript, Rust, Go, or Python**. Every language gets the same first-class experience: automatic RAG injection, conversation memory, tool execution, A2A communication, tracing, and cost attribution — all wired by the platform, none of it written by you.
+AgentBreeder agents can be written in **Python, TypeScript, or Go** today. Every language gets the same first-class experience: automatic RAG injection, conversation memory, tool execution, A2A communication, tracing, and cost attribution — all wired by the platform, none of it written by you.
 
-<Callout type="info">
-  **Phase availability:** TypeScript is available now. Rust and Go ship in Phase 2. Kotlin/JVM is on the roadmap.
+<Callout type="info" title="Language status (v2.0)">
+  - **Python** — Tier 1, shipped (LangGraph, CrewAI, Claude SDK, OpenAI Agents, Google ADK, Custom).
+  - **TypeScript / Node.js** — Tier 1, shipped (Vercel AI SDK, Mastra, LangChain.js, OpenAI Agents TS, Custom).
+  - **Go** — Tier 2 SDK shipped in v2.0 — see [Go SDK](go-sdk).
+  - **Kotlin/JVM, Rust, .NET** — roadmap. Tracked at [#188](https://github.com/agentbreeder/agentbreeder/issues/188), [#189](https://github.com/agentbreeder/agentbreeder/issues/189), [#190](https://github.com/agentbreeder/agentbreeder/issues/190). The examples below show the planned shape; the `--language rust` / `--language kotlin` / `--language csharp` flags are reserved but not yet wired.
 </Callout>
 
 ---
@@ -39,13 +42,14 @@ Agent container  ←→  APS sidecar  ←→  Platform (RAG, memory, tools, regi
 
 ## Supported Languages and Frameworks
 
-| Language | Frameworks | APS Sidecar | Phase |
-|---|---|---|---|
-| **TypeScript / Node.js** | Vercel AI SDK, Mastra, LangChain.js, OpenAI Agents TS, DeepAgent, Custom | Node.js | 1 — available |
-| **Python** | LangGraph, CrewAI, Claude SDK, OpenAI Agents, Google ADK, Custom | Python | 1 — available |
-| **Rust** | Rig, Custom | Go binary | 2 |
-| **Go** | LangChain Go, Custom | Go binary | 2 |
-| **Kotlin / JVM** | Koog, Spring AI, LangChain4j | — | Roadmap |
+| Language | Frameworks | Status |
+|---|---|---|
+| **Python** | LangGraph, CrewAI, Claude SDK, OpenAI Agents, Google ADK, Custom | Tier 1 — shipped |
+| **TypeScript / Node.js** | Vercel AI SDK, Mastra, LangChain.js, OpenAI Agents TS, Custom | Tier 1 — shipped |
+| **Go** | Custom (with the [Go SDK](go-sdk)) | Tier 2 — shipped in v2.0 |
+| **Kotlin / JVM** | langchain4j, spring_ai, koog, anthropic_java_sdk | Roadmap — [#188](https://github.com/agentbreeder/agentbreeder/issues/188) |
+| **Rust** | rig, swiftide, anthropic_rust_sdk | Roadmap — [#189](https://github.com/agentbreeder/agentbreeder/issues/189) |
+| **C# / .NET** | semantic_kernel, autogen_net, anthropic_dotnet_sdk | Roadmap — [#190](https://github.com/agentbreeder/agentbreeder/issues/190) |
 
 <Callout type="info">
   **No Python in TypeScript/Rust/Go stacks.** The Node.js APS (Phase 1) and Go binary APS (Phase 2) contain no Python. A pure TypeScript stack is containers all the way down.
@@ -65,16 +69,19 @@ cd my-agent
 ```
 </Tab>
 <Tab value="Rust">
+> **Coming soon (v2.x)** — Rust scaffolding is tracked at [#189](https://github.com/agentbreeder/agentbreeder/issues/189). The shape below is the planned interface; until then implement Runtime Contract v1 by hand and declare `framework: custom`, `language: rust` (Tier-3 BYO).
 ```bash
-agentbreeder init --language rust --framework rig --name my-agent
+# Once #189 ships:
+agentbreeder init --lang rust --framework rig --name my-agent
 cd my-agent
 ```
 </Tab>
 <Tab value="Go">
 ```bash
-agentbreeder init --language go --name my-agent
+agentbreeder init --lang go --framework custom my-agent
 cd my-agent
 ```
+See the dedicated [Go SDK](go-sdk) page for the full surface.
 </Tab>
 <Tab value="Python">
 ```bash
