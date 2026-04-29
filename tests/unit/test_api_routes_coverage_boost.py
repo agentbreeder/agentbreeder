@@ -2641,6 +2641,11 @@ class TestRegistryModels:
         m.capabilities = ["chat"]
         m.created_at = _NOW
         m.updated_at = _NOW
+        # Track G lifecycle fields default to None
+        m.discovered_at = None
+        m.last_seen_at = None
+        m.deprecated_at = None
+        m.deprecation_replacement_id = None
         mock_reg.return_value = m
         resp = client.post(
             "/api/v1/registry/models",
@@ -2671,6 +2676,11 @@ class TestRegistryModels:
         m.capabilities = []
         m.created_at = _NOW
         m.updated_at = _NOW
+        # Track G lifecycle fields default to None
+        m.discovered_at = None
+        m.last_seen_at = None
+        m.deprecated_at = None
+        m.deprecation_replacement_id = None
         mock_get.return_value = m
         resp = client.get(f"/api/v1/registry/models/{m.id}")
         assert resp.status_code == 200
