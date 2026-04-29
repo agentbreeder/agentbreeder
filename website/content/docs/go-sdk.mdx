@@ -1,0 +1,163 @@
+---
+title: Go SDK
+description: Tier-2 polyglot SDK for AgentBreeder — runtime contract scaffolding + registry client in Go.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+# Go SDK
+
+Build deployable AgentBreeder agents in Go. The Go SDK is a **Tier-2 polyglot SDK**: thin and contract-first. It implements [Runtime Contract v1](/docs/runtime-contract) so the same observability, governance, and routing the Python/TypeScript runtimes get applies to Go agents automatically.
+
+<Callout type="info" title="Tier‑2 polyglot status">
+Go is the first polyglot SDK to ship under [Track I (#165)](https://github.com/agentbreeder/agentbreeder/issues/165). Kotlin, Rust, and .NET are tracked as follow-up issues.
+</Callout>
+
+---
+
+## Install
+
+```bash
+go get github.com/agentbreeder/agentbreeder/sdk/go/agentbreeder
+```
+
+Requires **Go 1.22+**.
+
+---
+
+## Hello world
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/agentbreeder/agentbreeder/sdk/go/agentbreeder"
+)
+
+func main() {
+    invoke := func(ctx context.Context, req agentbreeder.InvokeRequest, resp *agentbreeder.InvokeResponse) error {
+        prompt, _ := req.Input.AsString()
+        return resp.SetOutput("you said: " + prompt)
+    }
+
+    srv := agentbreeder.NewServer(invoke,
+        agentbreeder.WithName("my-agent"),
+        agentbreeder.WithVersion("0.1.0"),
+    )
+    if err := srv.ListenAndServe(context.Background(), ":8080"); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+`NewServer` returns an `http.Handler` that auto-wires:
+
+| Endpoint                  | Purpose                                       |
+| ------------------------- | --------------------------------------------- |
+| `GET  /health`            | Liveness/readiness — open                     |
+| `GET  /openapi.json`      | Self-describing schema — open                 |
+| `GET  /.well-known/agent.json` | A2A agent card — open                    |
+| `POST /invoke`            | Synchronous run — bearer-auth                 |
+| `POST /stream`            | SSE streaming run — bearer-auth               |
+| `POST /resume`            | HITL resume (opt-in) — bearer-auth            |
+
+Bearer-token auth comes from the `AGENT_AUTH_TOKEN` env var. Disabled when unset (local dev).
+
+---
+
+## Scaffold a project
+
+```bash
+agentbreeder init --lang go --framework custom my-agent
+cd my-agent
+go mod tidy
+go run .
+```
+
+The scaffolder writes `main.go`, `main_test.go`, `go.mod`, `agent.yaml`, `Dockerfile`, `.gitignore`, `.env.example`, and `README.md`.
+
+---
+
+## Streaming (SSE)
+
+```go
+stream := func(ctx context.Context, req agentbreeder.InvokeRequest, out chan<- agentbreeder.StreamEvent) error {
+    out <- agentbreeder.StreamEvent{Data: agentbreeder.SseTextDelta{Delta: "hello "}}
+    out <- agentbreeder.StreamEvent{Data: agentbreeder.SseTextDelta{Delta: "world"}}
+    return nil
+}
+
+srv := agentbreeder.NewServer(invoke, agentbreeder.WithStream(stream))
+```
+
+The SDK frames each event as either `data: {…}` (when `Name` is empty) or `event: <name>\ndata: {…}\n\n`, and always emits the mandatory `data: [DONE]` terminator.
+
+---
+
+## Registry client
+
+The `Client` talks to the central AgentBreeder API:
+
+```go
+c := agentbreeder.NewClient("https://api.agentbreeder.io", os.Getenv("AGENTBREEDER_API_KEY"))
+agents, err := c.ListAgents(ctx)
+_, err = c.RegisterAgent(ctx, agentbreeder.AgentRegistration{
+    Name: "my-agent", Version: "0.1.0", Team: "eng", Owner: "a@b.c",
+    Language: "go", Framework: "custom",
+})
+secrets, err := c.ListSecrets(ctx)
+```
+
+The client is intentionally narrow: agents, models, secrets. Wider coverage stays with the Python SDK.
+
+---
+
+## Deploying
+
+The Go runtime builder (`engine/runtimes/go/`) packages your agent with a multi-stage Dockerfile (`golang:1.22-alpine` builder → `gcr.io/distroless/static` final, < 20 MB). Reference your project from `agent.yaml` with the runtime block:
+
+```yaml
+name: my-agent
+version: 0.1.0
+team: engineering
+owner: alice@company.com
+
+runtime:
+  language: go
+  framework: custom
+  version: "1.22"
+
+model:
+  primary: claude-sonnet-4-20250514
+
+deploy:
+  cloud: aws
+```
+
+Then run `agentbreeder deploy agent.yaml --target aws` — the deploy pipeline is identical to Python and Node agents.
+
+---
+
+## Regenerating types
+
+The hand-curated types in `types.go` are kept in lock-step with [`engine/schema/runtime-contract-v1.openapi.yaml`](https://github.com/agentbreeder/agentbreeder/blob/main/engine/schema/runtime-contract-v1.openapi.yaml). To regenerate the raw `oapi-codegen` package:
+
+```bash
+go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.4.1 \
+    -generate types,client,server \
+    -package gen \
+    -o gen/runtime_contract.gen.go \
+    ../../../engine/schema/runtime-contract-v1.openapi.yaml
+```
+
+---
+
+## See also
+
+- [Runtime Contract v1 spec](https://github.com/agentbreeder/agentbreeder/blob/main/engine/schema/runtime-contract-v1.md)
+- [Example: examples/go-agent](https://github.com/agentbreeder/agentbreeder/tree/main/examples/go-agent)
+- [Track I phase 1 PR](https://github.com/agentbreeder/agentbreeder/issues/165) — Polyglot Go SDK rollout
