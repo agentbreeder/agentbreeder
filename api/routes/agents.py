@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
@@ -29,7 +30,44 @@ from api.models.schemas import (
 )
 from registry.agents import AgentRegistry, create_from_yaml, validate_config_yaml
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
+
+
+def _agent_auth_token_secret_name(agent_name: str) -> str:
+    """Return the deterministic secret name for an agent's auth token.
+
+    Format: ``agentbreeder/<agent-name>/auth-token``. The dashboard's Invoke
+    panel relies on this convention so the API can resolve the token
+    server-side and the user never has to paste it.
+    """
+    return f"agentbreeder/{agent_name}/auth-token"
+
+
+async def _resolve_agent_auth_token(agent_name: str) -> str | None:
+    """Look up an agent's ``AGENT_AUTH_TOKEN`` from the workspace secrets backend.
+
+    Returns the token string if the secret exists, or ``None`` if the secret
+    is missing or the backend lookup fails. Failures are logged but never
+    raised — the caller falls through to "no token" and the runtime will
+    return 401 if it requires auth.
+    """
+    secret_name = _agent_auth_token_secret_name(agent_name)
+    try:
+        from engine.secrets.factory import get_workspace_backend
+
+        backend, _ws = get_workspace_backend()
+        value = await backend.get(secret_name)
+        if value:
+            return value.strip() or None
+        return None
+    except Exception as exc:  # noqa: BLE001 — secrets backend errors must not 500 the proxy
+        logger.warning(
+            "Failed to resolve auth token from workspace secrets",
+            extra={"agent": agent_name, "secret": secret_name, "error": str(exc)},
+        )
+        return None
 
 
 async def _enforce_acl(
@@ -277,9 +315,20 @@ async def invoke_agent(
     """Proxy a chat invocation through to the agent's deployed runtime.
 
     Resolves the target endpoint in this order: ``body.endpoint_url`` →
-    ``agent.endpoint_url`` (from the registry record). Uses the bearer token
-    from ``body.auth_token`` if provided, falling back to the env var
-    ``AGENT_<UPPER_SNAKE>_TOKEN`` (so callers can keep the secret server-side).
+    ``agent.endpoint_url`` (from the registry record).
+
+    The bearer token is resolved server-side in this order:
+
+    1. ``body.auth_token`` — explicit override (kept for power users / tests).
+    2. The workspace secrets backend, keyed by
+       ``agentbreeder/<agent-name>/auth-token`` — set by
+       ``agentbreeder secret set <agent>/auth-token``.
+    3. The legacy env var ``AGENT_<UPPER_SNAKE>_TOKEN`` (deprecated; kept for
+       back-compat with installs that pre-date Track K).
+
+    If none resolve we proxy without an ``Authorization`` header and let the
+    runtime return 401 — that surfaces a clear "set the secret" message to
+    the caller without leaking 500s on missing secrets.
 
     The request is POSTed to ``<endpoint>/invoke`` with the standard
     InvokeRequest body shape that all framework runtime templates accept.
@@ -299,7 +348,12 @@ async def invoke_agent(
             ),
         )
 
-    token = body.auth_token
+    # 1. Explicit override from request body (kept for backwards-compat).
+    token = (body.auth_token or "").strip() or None
+    # 2. Workspace secrets backend (post-Track K).
+    if not token:
+        token = await _resolve_agent_auth_token(agent.name)
+    # 3. Legacy env var (deprecated).
     if not token:
         env_var = "AGENT_" + agent.name.upper().replace("-", "_") + "_TOKEN"
         token = os.environ.get(env_var, "").strip() or None
