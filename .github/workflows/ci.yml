@@ -274,11 +274,17 @@ jobs:
         working-directory: dashboard
         run: npx playwright install --with-deps chromium
 
-      - name: Run Docker E2E tests
+      - name: Run Docker E2E tests (Playwright — health + page-load only)
         working-directory: dashboard
         run: npx playwright test --config=playwright.docker.config.ts
         env:
           PLAYWRIGHT_DOCKER_BASE_URL: http://localhost:3001
+
+      - name: Run Docker E2E API smoke (auth + agents + auth gates)
+        run: bash dashboard/tests/e2e-docker/api_smoke.sh
+        env:
+          API_BASE_URL: http://localhost:8000
+          DASHBOARD_BASE_URL: http://localhost:3001
 
       - name: Show docker logs on failure
         if: failure()
