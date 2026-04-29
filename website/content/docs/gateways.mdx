@@ -1,138 +1,187 @@
 ---
-title: Gateways
-description: Route LLM calls through a single proxy — LiteLLM (self-hosted) or OpenRouter (managed) — with budget enforcement, fallbacks, and cost attribution.
+title: Gateways (LiteLLM & OpenRouter)
+description: Use a model gateway as a first-class provider — fan out to many upstreams behind a single API key, with 3-segment model refs.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
 # Gateways
 
-A **gateway** is a proxy that sits between your agents and the underlying LLM providers. Gateways speak the OpenAI Chat Completions wire format on the inbound side and route to many upstream providers on the outbound side. AgentBreeder treats gateways as a first-class provider type alongside direct OpenAI-compatible providers.
+A **gateway** is a provider that fans out to many upstream LLMs behind a single API key.
+AgentBreeder ships with two built-in gateway presets — **LiteLLM** (self-hosted) and **OpenRouter** (SaaS) — surfaced alongside direct providers in the **`/models` → Gateways** tab.
 
-```yaml
-# agent.yaml — direct provider
-model:
-  primary: nvidia/meta-llama-3.1-405b-instruct
-
-# agent.yaml — through OpenRouter
-model:
-  primary: openrouter/moonshotai/kimi-k2
-
-# agent.yaml — through self-hosted LiteLLM
-model:
-  primary: litellm/anthropic/claude-sonnet-4
-  gateway: litellm
-```
-
-When the engine sees a `<gateway>/<provider>/<model>` triple, it resolves `<gateway>` against the catalog, reads the gateway's URL and key from the workspace's `gateways:` block, and routes the call through the proxy.
+This page covers when to use which, how to configure them, and how 3-segment model refs work.
 
 <Callout type="info">
-This page is the v2 narrative. The dedicated [Model Gateway](gateway) page documents the LiteLLM proxy in depth — virtual keys, cost tracking, guardrails, caching, and the AgentBreeder-specific bridges.
+Gateways have always existed in AgentBreeder — Track H (#164) just promoted them to first-class onboarding. Existing `model.gateway: litellm` configs continue to work; they're now equivalent to using the 3-segment ref form.
 </Callout>
 
 ---
 
-## Catalog entries
+## Direct provider vs. gateway — at a glance
 
-LiteLLM and OpenRouter ship as `type: gateway` entries in [`engine/providers/catalog.yaml`](https://github.com/agentbreeder/agentbreeder/blob/main/engine/providers/catalog.yaml). The catalog distinguishes them from direct OpenAI-compatible providers via the `type` field:
-
-| Provider type | Behaviour | Examples |
+| | Direct provider | Gateway |
 |---|---|---|
-| `openai_compatible` | Talks to one upstream provider's models | `nvidia`, `groq`, `together`, `fireworks` |
-| `gateway` | Talks to many upstream providers; user picks the upstream with `<gateway>/<provider>/<model>` | `litellm`, `openrouter` |
+| Catalog `type` | `openai_compatible` | `gateway` |
+| Models per entry | One upstream | Many upstreams |
+| Model ref shape | `<provider>/<model>`<br/>e.g. `groq/llama-3.1-70b` | `<gateway>/<upstream>/<model>`<br/>e.g. `openrouter/anthropic/claude-sonnet-4` |
+| API key | Provider's own | Gateway's master / virtual key |
+| Examples | Nvidia NIM, Groq, Together, Moonshot | LiteLLM proxy, OpenRouter |
+
+Both kinds use the same `OpenAICompatibleProvider` under the hood — the only difference is parsing.
 
 ---
 
-## When to use which
+## When to pick which
 
-| Need | Pick |
-|---|---|
-| One key, 200+ models, hosted | **OpenRouter** — managed, no infra |
-| Self-hosted, team budgets, virtual keys per agent, PII guardrails | **LiteLLM** — full control, integrates deeply with AgentBreeder governance |
-| Direct provider, lowest latency, no proxy | **Direct OpenAI-compatible** ([providers](providers)) |
-| Local inference | **Ollama** (direct) or LiteLLM in front of Ollama |
+**LiteLLM** — choose when you want to **self-host**, enforce per-agent **virtual keys** + **budgets**, run **caching** locally, or unify cost tracking across your own pool of provider keys. AgentBreeder's docker-compose stack ships a LiteLLM proxy on `:4000`. See [Model Gateway](/docs/gateway) for the full LiteLLM setup.
 
-OpenRouter is the fastest way to evaluate a brand-new model. LiteLLM is the production answer when you need budget enforcement, cost attribution per agent, and guardrail enforcement.
+**OpenRouter** — choose when you want **zero infrastructure**, **per-token pay-as-you-go pricing across 100+ models**, or rapid model evaluation. One key, every model. The catalog ships `default_headers` for `HTTP-Referer` and `X-Title` so OpenRouter attributes calls to your AgentBreeder workspace.
+
+**Direct providers** — choose for **lowest latency** and **simplest billing** when you only need one upstream. Skip the gateway hop entirely.
+
+You can mix all three in the same workspace — gateways and direct providers coexist in the catalog.
 
 ---
 
-## Workspace configuration
+## 3-segment model refs
 
-Gateway credentials and policies live in the workspace config (`~/.agentbreeder/workspace.yaml` for single-user installs; one per workspace in team / cloud installs):
+Once a gateway is configured, reference its models in `agent.yaml` using a 3-segment ref:
 
 ```yaml
-workspace: default
+# OpenRouter — pick any model from openrouter.ai/models
+model:
+  primary: openrouter/moonshotai/kimi-k2
+
+# LiteLLM — model_name is whatever you defined in litellm_config.yaml
+model:
+  primary: litellm/anthropic/claude-sonnet-4
+  fallback: litellm/openai/gpt-4o
+```
+
+The parser splits on `/` exactly **twice**:
+
+* segment 1 → gateway name (must be a `type: gateway` catalog entry)
+* segment 2 → upstream provider (forwarded to the gateway as the `<upstream>/` prefix)
+* segment 3 → model id (rest of the string, may contain extra `/`)
+
+The wire-level `model` field sent to the gateway is `<segment-2>/<segment-3>`, which is the canonical form both LiteLLM and OpenRouter expect.
+
+<Callout type="warn">
+Two-segment refs like `openrouter/auto` still resolve via the legacy `parse_model_ref` path and are forwarded as-is. Prefer the 3-segment form for clarity.
+</Callout>
+
+---
+
+## Configuring a gateway from the dashboard
+
+1. Open `/models` and switch to the **Gateways** tab.
+2. Find **litellm** or **openrouter** and click **Configure**.
+3. Paste the API key. It is written to your workspace secrets backend (keychain locally, AWS Secrets Manager / Vault when self-hosted) under the deterministic name `<gateway>/api-key` — never to the database.
+4. The row flips to a green **Configured** badge.
+
+Configure flow is identical to direct providers — the only visible difference on a gateway row is the small **gateway** badge.
+
+---
+
+## Configuring a gateway from `agent.yaml`
+
+Catalog defaults are usually correct. To override (e.g. point LiteLLM at a remote proxy), use the optional `gateways:` block:
+
+```yaml
+name: my-agent
+version: 1.0.0
+team: platform
+owner: alice@example.com
+
+model:
+  primary: litellm/anthropic/claude-sonnet-4
 
 gateways:
   litellm:
-    url: http://litellm:4000             # or https://litellm.company.internal
-    api_key_env: LITELLM_MASTER_KEY
-    fallback_policy: fastest             # fastest | cheapest | most-reliable
+    url: https://litellm.platform.example.com
+    api_key_env: PLATFORM_LITELLM_KEY
+    fallback_policy: fastest          # advisory; not enforced yet
   openrouter:
-    api_key_env: OPENROUTER_API_KEY
+    api_key_env: TEAM_OPENROUTER_KEY  # override the catalog default
+
+deploy:
+  cloud: aws
 ```
 
-The `api_key_env` field declares the environment variable name — values are resolved at deploy time from the [workspace secrets backend](secrets), never persisted in the workspace YAML.
+Each field is optional and falls back to the catalog default. `fallback_policy` is advisory — it'll be enforced once Track A's workspace primitive lands (#146).
+
+<Callout type="info">
+The long-term home for `gateways:` is `workspace.yaml`, not `agent.yaml`. Track A (#146) introduces workspace-scoped configuration; once it ships you'll set gateway URLs once per workspace instead of per agent. The per-agent block stays valid as an override.
+</Callout>
 
 ---
 
-## OpenRouter
+## Environment variables
 
-Sign up at [openrouter.ai](https://openrouter.ai), grab an API key, and stash it:
+Each gateway entry declares an env var for its api key in `engine/providers/catalog.yaml`:
 
-```bash
-agentbreeder secret set OPENROUTER_API_KEY
+| Gateway | API-key env | Base-URL override env |
+|---|---|---|
+| `litellm` | `LITELLM_MASTER_KEY` | `LITELLM_BASE_URL` |
+| `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_BASE_URL` |
+
+Setting `<NAME>_BASE_URL` (uppercase) overrides the catalog `base_url` at runtime — handy for swapping a local LiteLLM proxy for a managed one without editing the catalog.
+
+---
+
+## How it routes
+
+```
+agent.yaml model.primary: openrouter/moonshotai/kimi-k2
+        │
+        ▼
+engine/providers/catalog.parse_gateway_ref
+  → GatewayModelRef(gateway="openrouter", upstream="moonshotai", model="kimi-k2")
+        │
+        ▼
+engine/providers/openai_compatible.from_catalog
+  → OpenAICompatibleProvider(
+        base_url=https://openrouter.ai/api/v1,
+        api_key=$OPENROUTER_API_KEY,
+        default_headers={HTTP-Referer, X-Title},
+        default_model="moonshotai/kimi-k2",
+    )
+        │
+        ▼
+POST https://openrouter.ai/api/v1/chat/completions
+  body: {"model": "moonshotai/kimi-k2", "messages": [...]}
 ```
 
-Reference any of OpenRouter's 200+ models from `agent.yaml`:
+LiteLLM follows the same path — it just terminates at your proxy on `:4000` instead of OpenRouter's edge.
+
+---
+
+## Adding a custom gateway
+
+Drop a `~/.agentbreeder/providers.local.yaml` entry:
 
 ```yaml
-model:
-  primary: openrouter/moonshotai/kimi-k2
-  fallback: openrouter/anthropic/claude-sonnet-4
+version: 1
+providers:
+  myproxy:
+    type: gateway
+    base_url: https://gw.internal.example.com/v1
+    api_key_env: MYPROXY_KEY
+    default_headers:
+      X-Tenant: agentbreeder
 ```
 
-The catalog entry ships the required `HTTP-Referer` and `X-Title` headers automatically. List available models:
-
-```bash
-agentbreeder provider test openrouter   # GET /models against the gateway
-```
+Restart the API server. `myproxy` now appears on the Gateways tab and accepts 3-segment refs (`myproxy/anthropic/claude-sonnet-4`).
 
 ---
 
-## LiteLLM
+## Reference
 
-LiteLLM is a self-hosted proxy. The local stack started by `agentbreeder quickstart` includes a LiteLLM container at `:4000` out of the box. For self-hosted production, point your `gateways.litellm.url` at your own deployment.
-
-```yaml
-model:
-  primary: litellm/anthropic/claude-sonnet-4
-  gateway: litellm
-```
-
-When `model.gateway: litellm` is set, AgentBreeder mints a per-agent virtual key (`sk-agent-<name>`) at deploy time, attributes spend to the agent's team, and the [APS sidecar](sidecar) holds the key on behalf of the agent container. The agent itself never sees raw provider credentials.
-
-The full feature matrix — virtual keys, team budgets, Redis caching, fallback chains, OTEL bridge, Prometheus metrics — is on the [Model Gateway](gateway) page.
-
----
-
-## Dashboard
-
-The `/models` page shows three tabs:
-
-| Tab | Contents |
-|---|---|
-| **Direct providers** | OpenAI-compatible catalog entries (Track F) |
-| **Gateways** | LiteLLM + OpenRouter |
-| **Local** | Ollama / vLLM / other local runtimes |
-
-Each row shows configuration status (✓ Configured when the workspace has a key for it) and a **Configure** dialog that writes the key to the workspace secrets backend under the deterministic key `<provider>/api-key`.
-
----
-
-## See also
-
-- [Providers](providers) — the OpenAI-compatible catalog (Track F)
-- [Model Gateway](gateway) — LiteLLM proxy reference
-- [Secrets](secrets) — workspace-bound secret storage
-- [`agent.yaml` reference](agent-yaml) — `model.primary`, `model.fallback`, `model.gateway`
+* Catalog source: [`engine/providers/catalog.yaml`](https://github.com/agentbreeder/agentbreeder/blob/main/engine/providers/catalog.yaml)
+* 3-segment parser: `engine.providers.catalog.parse_gateway_ref`
+* JSON Schema: `engine/schema/agent.schema.json` → `gateways`
+* Issue: [#164 — feat(gateways): LiteLLM + OpenRouter as first-class](https://github.com/agentbreeder/agentbreeder/issues/164)
+* Companion: [Model Gateway](/docs/gateway) — deep dive on the LiteLLM proxy specifically
+* Companion: [Providers](/docs/providers) — direct OpenAI-compatible providers

@@ -8,6 +8,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Added
+- **Gateways as first-class providers — LiteLLM + OpenRouter** (#164, Track H): the catalog schema now distinguishes `type: openai_compatible` (one upstream) from `type: gateway` (many upstreams). `engine/providers/catalog.yaml` ships `litellm` and `openrouter` as built-in `gateway` presets, and `model.primary` accepts a 3-segment ref `<gateway>/<upstream>/<model>` (e.g. `openrouter/moonshotai/kimi-k2`, `litellm/anthropic/claude-sonnet-4`) — parsed by the new `engine.providers.catalog.parse_gateway_ref`. The wire-level `model` field is shaped as `<upstream>/<model>` so both LiteLLM and OpenRouter accept it as-is. New optional `gateways:` block on `agent.yaml` lets you override the catalog `url` / `api_key_env` / `fallback_policy` / `default_headers` per-gateway (the long-term home is `workspace.yaml` once Track A / #146 ships). The dashboard `/models` page now has a working **Gateways** tab — same Configure flow as Direct providers, with a small `gateway` badge per row. Backwards-compat: existing 2-segment direct refs (`nvidia/llama-…`) and `model.gateway: litellm` configs keep working unchanged. New docs page at `website/content/docs/gateways.mdx` covering when to pick which gateway and how 3-segment refs route end-to-end.
+
 ### Fixed
 - **Local stack UX**: compose now wires `GOOGLE_API_KEY`, `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY`, `AGENTBREEDER_INSTALL_MODE=team` into the API container. `/playground` and `/api/v1/secrets` now work out of the box on `docker compose up`.
 - **LiteLLM trampling agentbreeder DB**: `STORE_MODEL_IN_DB: False` so LiteLLM's prisma migrations don't run against the shared database (which was wiping the `users` table). Stateless mode is fine for the playground; re-enable with a separate DB when virtual keys / DB-stored configs are needed.

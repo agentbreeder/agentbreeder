@@ -44,9 +44,28 @@ const VIEWER_TOOLTIP = "Requires deployer role";
 interface ProviderCatalogProps {
   /** Optional override callback — when omitted, the built-in modal is used. */
   onConfigure?: (provider: CatalogProvider) => void;
+  /**
+   * Filter the catalog by entry kind. Defaults to ``"openai_compatible"``
+   * so the existing Direct providers tab keeps the same content. Set to
+   * ``"gateway"`` for the Track H Gateways tab; ``"all"`` returns every
+   * preset.
+   */
+  filter?: "openai_compatible" | "gateway" | "all";
+  /** Heading shown above the catalog rows. */
+  heading?: string;
+  /** Helper copy shown to the right of the heading. */
+  hint?: string;
 }
 
-export function ProviderCatalog({ onConfigure }: ProviderCatalogProps) {
+const DEFAULT_HINT =
+  "Click Configure to connect — keys live in your workspace secrets backend, never the database";
+
+export function ProviderCatalog({
+  onConfigure,
+  filter = "openai_compatible",
+  heading = "OpenAI-Compatible Catalog",
+  hint = DEFAULT_HINT,
+}: ProviderCatalogProps) {
   const { user } = useAuth();
   const canConfigure = !!user && DEPLOYER_ROLES.has(user.role);
   const [activeProvider, setActiveProvider] = useState<CatalogProvider | null>(null);
@@ -79,9 +98,17 @@ export function ProviderCatalog({ onConfigure }: ProviderCatalogProps) {
     );
   }
 
-  const presets = catalogQuery.data?.data ?? [];
+  const allPresets = catalogQuery.data?.data ?? [];
+  const presets =
+    filter === "all"
+      ? allPresets
+      : allPresets.filter((p) => p.type === filter);
   if (presets.length === 0) {
-    return null;
+    return (
+      <div className="rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
+        No {filter === "gateway" ? "gateways" : "providers"} in the catalog yet.
+      </div>
+    );
   }
 
   const statuses = statusQuery.data?.data ?? {};
@@ -100,15 +127,13 @@ export function ProviderCatalog({ onConfigure }: ProviderCatalogProps) {
         <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
           <div className="flex items-center gap-2">
             <Server className="size-3.5 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">OpenAI-Compatible Catalog</h3>
+            <h3 className="text-sm font-semibold">{heading}</h3>
             <Badge variant="outline" className="text-[10px]">
-              {presets.length} providers
+              {presets.length} {filter === "gateway" ? "gateways" : "providers"}
             </Badge>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-[11px] text-muted-foreground">
-              Click Configure to connect — keys live in your workspace secrets backend, never the database
-            </span>
+            <span className="text-[11px] text-muted-foreground">{hint}</span>
             {canConfigure ? (
               <Button
                 size="sm"
@@ -167,11 +192,21 @@ interface CatalogRowProps {
 
 function CatalogRow({ preset, configured, canConfigure, onConfigure }: CatalogRowProps) {
   const isUserLocal = preset.source === "user-local";
+  const isGateway = preset.type === "gateway";
 
   return (
     <div className="flex items-center gap-4 px-4 py-3">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <div className="font-medium text-sm capitalize">{preset.name}</div>
+        {isGateway && (
+          <Badge
+            variant="outline"
+            className="border-violet-500/30 bg-violet-500/10 text-[10px] text-violet-600 dark:text-violet-400"
+            data-testid={`catalog-type-gateway-${preset.name}`}
+          >
+            gateway
+          </Badge>
+        )}
         {isUserLocal && (
           <Badge variant="secondary" className="text-[10px]">
             user-local

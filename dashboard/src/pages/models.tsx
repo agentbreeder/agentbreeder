@@ -540,12 +540,11 @@ export default function ModelsPage() {
         </div>
       </div>
 
-      {/* Provider source tabs (issue #175).
+      {/* Provider source tabs (issues #175 + #164).
           - Direct providers: built-in OpenAI-compatible catalog (Track F / #160).
-          - Gateways: LiteLLM / OpenRouter — content lands with Track H (#164).
-          - Local: Ollama / vLLM / etc. — content lands later.
-          Currently only "Direct providers" is enabled. Tabs scaffold ships
-          here so issue #164's PR can just enable the panel. */}
+          - Gateways: LiteLLM + OpenRouter (Track H / #164) — same configure
+            flow as Direct, plus 3-segment model refs `<gateway>/<upstream>/<model>`.
+          - Local: Ollama / vLLM / etc. — content lands later. */}
       <div className="mb-4">
         <Tabs defaultValue="direct" className="gap-3">
           <div className="flex items-center justify-between">
@@ -553,12 +552,7 @@ export default function ModelsPage() {
               <TabsTrigger value="direct" className="text-xs">
                 Direct providers
               </TabsTrigger>
-              <TabsTrigger
-                value="gateways"
-                className="text-xs"
-                disabled
-                title="Coming with Track H — issue #164"
-              >
+              <TabsTrigger value="gateways" className="text-xs">
                 Gateways
               </TabsTrigger>
               <TabsTrigger
@@ -583,12 +577,14 @@ export default function ModelsPage() {
             </Button>
           </div>
           <TabsContent value="direct">
-            <ProviderCatalog />
+            <ProviderCatalog filter="openai_compatible" />
           </TabsContent>
           <TabsContent value="gateways">
-            <div className="rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
-              Gateways tab content ships with Track H (#164).
-            </div>
+            <ProviderCatalog
+              filter="gateway"
+              heading="Model Gateways"
+              hint="Reference gateway models in agent.yaml as <gateway>/<upstream>/<model>"
+            />
           </TabsContent>
           <TabsContent value="local">
             <div className="rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
