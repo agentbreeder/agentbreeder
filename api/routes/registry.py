@@ -17,6 +17,8 @@ from api.models.schemas import (
     ModelUsageResponse,
     PromptContentUpdate,
     PromptCreate,
+    PromptRenderRequest,
+    PromptRenderResponse,
     PromptResponse,
     PromptUpdate,
     PromptVersionCreate,
@@ -25,9 +27,13 @@ from api.models.schemas import (
     SearchResult,
     ToolCreate,
     ToolDetailResponse,
+    ToolExecuteRequest,
+    ToolExecuteResponse,
     ToolResponse,
     ToolUsageResponse,
 )
+from engine.prompt_runner import run_prompt
+from engine.tool_runner import UnsupportedToolEndpointError, execute_tool
 from registry.agents import AgentRegistry
 from registry.models import ModelRegistry
 from registry.prompts import PromptRegistry
@@ -85,6 +91,45 @@ async def get_tool(
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
     return ApiResponse(data=ToolDetailResponse.model_validate(tool))
+
+
+@router.post(
+    "/tools/{tool_id}/execute",
+    response_model=ApiResponse[ToolExecuteResponse],
+)
+async def execute_tool_endpoint(
+    tool_id: str,
+    body: ToolExecuteRequest,
+    _user: User = Depends(require_role("deployer")),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[ToolExecuteResponse]:
+    """Run a registered tool with the given args and return its result.
+
+    Dispatches by the ``endpoint`` field on the tool record. See
+    ``engine.tool_runner.execute_tool`` for supported endpoint prefixes.
+    """
+    tool = await ToolRegistry.get_by_id(db, tool_id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    if not tool.endpoint:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tool '{tool.name}' has no endpoint set; cannot execute.",
+        )
+    try:
+        result = await execute_tool(tool.endpoint, tool.name, body.args or {})
+    except UnsupportedToolEndpointError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ApiResponse(
+        data=ToolExecuteResponse(
+            output=result.output,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            exit_code=result.exit_code,
+            duration_ms=result.duration_ms,
+            error=result.error,
+        )
+    )
 
 
 @router.get(
@@ -242,6 +287,7 @@ async def list_prompts(
 @router.post("/prompts", response_model=ApiResponse[PromptResponse], status_code=201)
 async def register_prompt(
     body: PromptCreate,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PromptResponse]:
     """Register a prompt template."""
@@ -259,6 +305,7 @@ async def register_prompt(
 @router.get("/prompts/{prompt_id}", response_model=ApiResponse[PromptResponse])
 async def get_prompt(
     prompt_id: str,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PromptResponse]:
     """Get a single prompt by ID."""
@@ -272,6 +319,7 @@ async def get_prompt(
 async def update_prompt(
     prompt_id: str,
     body: PromptUpdate,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PromptResponse]:
     """Update a prompt's content or description."""
@@ -290,6 +338,7 @@ async def update_prompt(
 async def update_prompt_content(
     prompt_id: str,
     body: PromptContentUpdate,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PromptResponse]:
     """Update just the prompt content and auto-create a version snapshot."""
@@ -305,9 +354,44 @@ async def update_prompt_content(
     return ApiResponse(data=PromptResponse.model_validate(prompt))
 
 
+@router.post(
+    "/prompts/{prompt_id}/render",
+    response_model=ApiResponse[PromptRenderResponse],
+)
+async def render_prompt(
+    prompt_id: str,
+    body: PromptRenderRequest,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[PromptRenderResponse]:
+    """Render a registered prompt by sending it to a real LLM.
+
+    Loads the prompt content by ID, sends it as the system instruction along
+    with the (optional) user message, and returns the model's response.
+    """
+    prompt = await PromptRegistry.get_by_id(db, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    result = await run_prompt(
+        system_prompt=prompt.content,
+        user_message=body.user_message,
+        model=body.model,
+        temperature=body.temperature,
+    )
+    return ApiResponse(
+        data=PromptRenderResponse(
+            output=result.output,
+            model=result.model,
+            duration_ms=result.duration_ms,
+            error=result.error,
+        )
+    )
+
+
 @router.delete("/prompts/{prompt_id}", response_model=ApiResponse[dict])
 async def delete_prompt(
     prompt_id: str,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[dict]:
     """Delete a prompt."""
@@ -323,6 +407,7 @@ async def delete_prompt(
 )
 async def list_prompt_versions(
     prompt_id: str,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[list[PromptResponse]]:
     """List all versions of a prompt by name (looked up via the given id)."""
@@ -342,6 +427,7 @@ async def list_prompt_versions(
 )
 async def duplicate_prompt(
     prompt_id: str,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PromptResponse]:
     """Duplicate a prompt as a new version."""
@@ -360,6 +446,7 @@ async def duplicate_prompt(
 )
 async def list_prompt_version_history(
     prompt_id: str,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[list[PromptVersionResponse]]:
     """List all content-version snapshots for a prompt."""
@@ -381,6 +468,7 @@ async def list_prompt_version_history(
 async def create_prompt_version_snapshot(
     prompt_id: str,
     body: PromptVersionCreate,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PromptVersionResponse]:
     """Create a new version snapshot for a prompt."""
@@ -405,6 +493,7 @@ async def create_prompt_version_snapshot(
 async def get_prompt_version_snapshot(
     prompt_id: str,
     version_id: str,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PromptVersionResponse]:
     """Get a specific version snapshot."""
@@ -422,6 +511,7 @@ async def diff_prompt_version_snapshots(
     prompt_id: str,
     v1: str,
     v2: str,
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PromptVersionDiffResponse]:
     """Compute a unified diff between two prompt version snapshots."""
@@ -442,6 +532,7 @@ async def search_registry(
     q: str = Query(..., min_length=1),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[list[SearchResult]]:
     """Search across all registry entities (agents, tools)."""

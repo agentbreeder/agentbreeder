@@ -202,6 +202,47 @@ class ToolUsageResponse(BaseModel):
     agent_status: str
 
 
+class ToolExecuteRequest(BaseModel):
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolExecuteResponse(BaseModel):
+    output: Any = None
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int = 0
+    duration_ms: int = 0
+    error: str | None = None
+
+
+class PromptRenderRequest(BaseModel):
+    user_message: str = ""
+    model: str = "gemini-2.5-flash"
+    temperature: float = 0.4
+
+
+class PromptRenderResponse(BaseModel):
+    output: str = ""
+    model: str = ""
+    duration_ms: int = 0
+    error: str | None = None
+
+
+class AgentInvokeRequest(BaseModel):
+    input: str
+    endpoint_url: str | None = None
+    auth_token: str | None = None
+    session_id: str | None = None
+
+
+class AgentInvokeResponse(BaseModel):
+    output: str = ""
+    session_id: str | None = None
+    duration_ms: int = 0
+    error: str | None = None
+    status_code: int = 0
+
+
 # --- Model Schemas ---
 
 

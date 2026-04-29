@@ -289,6 +289,7 @@ async def approve_pr(
 async def reject_pr(
     pr_id: uuid.UUID,
     body: GitPRRejectRequest,
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[GitPRResponse]:
     """Reject a pull request."""
     try:
@@ -303,6 +304,7 @@ async def reject_pr(
 async def merge_pr(
     pr_id: uuid.UUID,
     body: GitPRMergeRequest | None = None,
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[GitPRResponse]:
     """Merge an approved pull request into main."""
     try:
@@ -322,6 +324,7 @@ async def merge_pr(
 async def add_comment(
     pr_id: uuid.UUID,
     body: GitPRCommentRequest,
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[GitPRCommentResponse]:
     """Add a comment to a pull request."""
     try:

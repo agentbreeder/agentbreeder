@@ -126,7 +126,9 @@ async def create_incident(
 
 
 @router.get("/incidents/{incident_id}")
-async def get_incident(incident_id: str) -> ApiResponse[dict]:
+async def get_incident(
+    incident_id: str, _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """Get a single incident by ID."""
     store = get_agentops_store()
     incident = store.get_incident(incident_id)
@@ -136,7 +138,9 @@ async def get_incident(incident_id: str) -> ApiResponse[dict]:
 
 
 @router.put("/incidents/{incident_id}")
-async def update_incident(incident_id: str, body: dict[str, Any]) -> ApiResponse[dict]:
+async def update_incident(
+    incident_id: str, body: dict[str, Any], _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """Update an incident (status transition or add timeline message)."""
     store = get_agentops_store()
     incident = store.update_incident(
@@ -150,7 +154,9 @@ async def update_incident(incident_id: str, body: dict[str, Any]) -> ApiResponse
 
 
 @router.post("/incidents/{incident_id}/actions")
-async def execute_action(incident_id: str, body: dict[str, Any]) -> ApiResponse[dict]:
+async def execute_action(
+    incident_id: str, body: dict[str, Any], _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """Execute a remediation action: restart | rollback | scale | disable."""
     store = get_agentops_store()
     action = body.get("action")
@@ -169,7 +175,9 @@ async def execute_action(incident_id: str, body: dict[str, Any]) -> ApiResponse[
 
 
 @router.post("/canary", status_code=201)
-async def start_canary(body: dict[str, Any]) -> ApiResponse[dict]:
+async def start_canary(
+    body: dict[str, Any], _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """Start a new canary deployment."""
     store = get_agentops_store()
 
@@ -189,7 +197,9 @@ async def start_canary(body: dict[str, Any]) -> ApiResponse[dict]:
 
 
 @router.put("/canary/{canary_id}")
-async def update_canary(canary_id: str, body: dict[str, Any]) -> ApiResponse[dict]:
+async def update_canary(
+    canary_id: str, body: dict[str, Any], _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """Update canary traffic split or abort."""
     store = get_agentops_store()
     canary = store.update_canary(
@@ -203,7 +213,7 @@ async def update_canary(canary_id: str, body: dict[str, Any]) -> ApiResponse[dic
 
 
 @router.get("/canary/{canary_id}")
-async def get_canary(canary_id: str) -> ApiResponse[dict]:
+async def get_canary(canary_id: str, _user: User = Depends(get_current_user)) -> ApiResponse[dict]:
     """Get a canary deployment by ID."""
     store = get_agentops_store()
     canary = store.get_canary(canary_id)
@@ -218,14 +228,16 @@ async def get_canary(canary_id: str) -> ApiResponse[dict]:
 
 
 @router.get("/costs/forecast")
-async def get_cost_forecast(days: int = Query(30, ge=1, le=90)) -> ApiResponse[dict]:
+async def get_cost_forecast(
+    days: int = Query(30, ge=1, le=90), _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """30-day spend projection."""
     store = get_agentops_store()
     return ApiResponse(data=store.get_cost_forecast(days=days))
 
 
 @router.get("/costs/anomalies")
-async def get_cost_anomalies() -> ApiResponse[list]:
+async def get_cost_anomalies(_user: User = Depends(get_current_user)) -> ApiResponse[list]:
     """Cost spike alerts."""
     store = get_agentops_store()
     anomalies = store.get_cost_anomalies()
@@ -233,7 +245,7 @@ async def get_cost_anomalies() -> ApiResponse[list]:
 
 
 @router.get("/costs/suggestions")
-async def get_cost_suggestions() -> ApiResponse[list]:
+async def get_cost_suggestions(_user: User = Depends(get_current_user)) -> ApiResponse[list]:
     """Model swap recommendations."""
     store = get_agentops_store()
     suggestions = store.get_cost_suggestions()
@@ -246,7 +258,7 @@ async def get_cost_suggestions() -> ApiResponse[list]:
 
 
 @router.get("/compliance/status")
-async def get_compliance_status() -> ApiResponse[dict]:
+async def get_compliance_status(_user: User = Depends(get_current_user)) -> ApiResponse[dict]:
     """SOC2 compliance checks overview."""
     store = get_agentops_store()
     return ApiResponse(data=store.get_compliance_status())
@@ -255,6 +267,7 @@ async def get_compliance_status() -> ApiResponse[dict]:
 @router.get("/compliance/report")
 async def generate_compliance_report(
     report_format: str = Query("json", description="Report format: json | csv | pdf"),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """Generate a SOC2 evidence export."""
     store = get_agentops_store()

@@ -22,7 +22,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -72,6 +72,27 @@ class HealthResponse(BaseModel):
     status: str
     agent_name: str
     version: str
+
+
+def _verify_auth(authorization: str | None = Header(default=None)) -> None:
+    """Bearer token auth for protected endpoints.
+
+    Behavior:
+      - If AGENT_AUTH_TOKEN env var is unset/empty -> auth disabled (local dev).
+      - If set, every request to a protected endpoint must include
+        ``Authorization: Bearer <token>`` and the token must match exactly.
+
+    /health is intentionally NOT protected so Cloud Run / k8s liveness probes
+    can hit it without credentials.
+    """
+    expected = os.getenv("AGENT_AUTH_TOKEN", "").strip()
+    if not expected:
+        return  # auth disabled
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    presented = authorization.removeprefix("Bearer ").strip()
+    if presented != expected:
+        raise HTTPException(status_code=403, detail="Invalid bearer token")
 
 
 def _load_agent() -> Any:
@@ -321,7 +342,7 @@ async def health() -> HealthResponse:
     )
 
 
-@app.post("/invoke", response_model=InvokeResponse)
+@app.post("/invoke", response_model=InvokeResponse, dependencies=[Depends(_verify_auth)])
 async def invoke(request: InvokeRequest) -> InvokeResponse:
     if _agent is None or _runner is None or _session_service is None:
         raise HTTPException(status_code=503, detail="Agent not loaded yet")
@@ -341,7 +362,7 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.post("/stream")
+@app.post("/stream", dependencies=[Depends(_verify_auth)])
 async def stream(request: InvokeRequest) -> StreamingResponse:
     """Stream Google ADK execution as Server-Sent Events."""
     if _agent is None or _runner is None or _session_service is None:

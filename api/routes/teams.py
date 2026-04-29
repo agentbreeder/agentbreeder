@@ -323,7 +323,9 @@ async def set_api_key(
 
 
 @router.delete("/{team_id}/api-keys/{key_id}", response_model=ApiResponse[dict])
-async def delete_api_key(team_id: str, key_id: str) -> ApiResponse[dict]:
+async def delete_api_key(
+    team_id: str, key_id: str, _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """Delete an API key."""
     deleted = await TeamService.delete_api_key(key_id)
     if not deleted:
@@ -335,7 +337,9 @@ async def delete_api_key(team_id: str, key_id: str) -> ApiResponse[dict]:
     "/{team_id}/api-keys/{key_id}/test",
     response_model=ApiResponse[dict],
 )
-async def test_api_key(team_id: str, key_id: str) -> ApiResponse[dict]:
+async def test_api_key(
+    team_id: str, key_id: str, _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """Test an API key by attempting a simple validation."""
     result = await TeamService.test_api_key(key_id)
     return ApiResponse(data=result)

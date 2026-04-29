@@ -37,6 +37,7 @@ router = APIRouter(prefix="/api/v1/providers", tags=["providers"])
 @router.get("/status", response_model=ApiResponse[ProviderStatusSummary])
 async def provider_status(
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[ProviderStatusSummary]:
     """First-run detection: returns provider/model counts for the dashboard."""
     from sqlalchemy import func, select
@@ -108,6 +109,7 @@ async def list_providers(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[list[ProviderResponse]]:
     """List registered providers."""
     providers, total = await ProviderRegistry.list(
@@ -123,6 +125,7 @@ async def list_providers(
 async def get_provider(
     provider_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[ProviderResponse]:
     """Get provider details by ID."""
     provider = await ProviderRegistry.get(db, provider_id)
