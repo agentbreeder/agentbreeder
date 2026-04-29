@@ -8,6 +8,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Added
+- **Dashboard "Coming soon" badges** — the dashboard now visibly marks features that are scaffolded but not yet wired to real backends. New `<ComingSoonBadge>` component plus per-page top banners on agentops, incidents, compliance, activity, orchestration-builder. Per-feature badges on agent-detail (version compare), gateway (logs / cost compare), settings (Ollama Pull), settings-secrets (backend chooser), models (Local tab), playground (tool-call rendering). Each badge links to the GitHub issue tracking the gap (#206-#216).
+
 ---
 
 ## [2.0.0] — 2026-04-29

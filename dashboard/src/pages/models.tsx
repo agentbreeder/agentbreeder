@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { ComingSoonBadge } from "@/components/coming-soon-badge";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ExportDropdown } from "@/components/export-dropdown";
 import { useFavorites } from "@/hooks/use-favorites";
@@ -656,8 +657,9 @@ export default function ModelsPage() {
             />
           </TabsContent>
           <TabsContent value="local">
-            <div className="rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
-              Local model runtime support coming soon.
+            <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
+              <ComingSoonBadge feature="Local model runtimes (Ollama / llama.cpp / vLLM)" issue="#216" />
+              <p>Pull and run models locally directly from the dashboard. Tracking issue covers per-model run-locally action and runtime detection.</p>
             </div>
           </TabsContent>
         </Tabs>

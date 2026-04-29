@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, type SecretSummary } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { ComingSoonBadge } from "@/components/coming-soon-badge";
 
 /**
  * /settings/secrets — Track K dashboard view.
@@ -75,9 +76,12 @@ export default function SettingsSecretsPage() {
               </span>
             </div>
           </div>
-          <div className="text-xs text-muted-foreground">
-            Backend chooser coming soon — switch via{" "}
-            <code className="rounded bg-muted px-1">~/.agentbreeder/workspace.yaml</code>.
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <ComingSoonBadge feature="Switch secrets backend from UI" issue="#213" />
+            <span>
+              Currently switch backends via{" "}
+              <code className="rounded bg-muted px-1">~/.agentbreeder/workspace.yaml</code>.
+            </span>
           </div>
         </div>
       )}

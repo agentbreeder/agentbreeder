@@ -98,7 +98,7 @@ function persistMode(mode: PlaygroundMode): void {
 // Build a single-string `input` payload for the agent runtime by
 // concatenating prior turns with role labels. Agent runtimes vary in how
 // they handle history; this is the simplest portable shape.
-// TODO(#177): once runtimes standardise on a structured history field
+// TODO(#215): once runtimes standardise on a structured history field
 // (e.g. `metadata.conversation_history`), prefer that and only fall back
 // to this single-string concat for legacy agents.
 function buildAgentInput(history: ChatMessage[], current: string): string {

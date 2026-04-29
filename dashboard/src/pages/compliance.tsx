@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { CheckCircle, XCircle, AlertCircle, Download, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ComingSoonBanner } from "@/components/coming-soon-badge";
 
 const API = "/api/v1/agentops";
 
@@ -101,6 +102,11 @@ export default function CompliancePage() {
 
   return (
     <div className="space-y-6 p-6">
+      <ComingSoonBanner
+        feature="Real compliance scanning"
+        issue="#208"
+        description="Control statuses and the downloadable evidence report are currently rendered from a fixed seed list. Real per-control checks and persisted scan history are still in progress."
+      />
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>

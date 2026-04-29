@@ -9,6 +9,7 @@ import { SupervisorNode } from "@/components/orchestration-builder/SupervisorNod
 import { MergeNode } from "@/components/orchestration-builder/MergeNode";
 import { orchestrationGraphToYaml } from "@/lib/orchestration-graph-to-yaml";
 import type { OrchestrationStrategy, OrchNode, OrchNodeData } from "@/components/orchestration-builder/types";
+import { ComingSoonBanner } from "@/components/coming-soon-badge";
 
 function NodeRenderer({ node }: { node: OrchNode }) {
   const { data } = node;
@@ -66,6 +67,11 @@ export default function OrchestrationBuilderPage() {
 
   return (
     <div className="space-y-6">
+      <ComingSoonBanner
+        feature="Save & deploy from canvas"
+        issue="#211"
+        description="The orchestration canvas is currently local-only. Saving, validating, and deploying the resulting orchestration.yaml from this UI (the backend endpoints already exist) is in progress."
+      />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Orchestration Builder</h1>

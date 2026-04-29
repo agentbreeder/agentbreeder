@@ -52,6 +52,7 @@ import { DeployPipeline } from "@/components/deploy-pipeline";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { ConfigDiffViewer } from "@/components/config-diff-viewer";
 import { VersionSelector, type VersionEntry } from "@/components/version-selector";
+import { ComingSoonBadge } from "@/components/coming-soon-badge";
 import { cn } from "@/lib/utils";
 import { jsonToYaml, highlightYaml, validateYamlBasic } from "@/lib/yaml";
 import { useState, useMemo, useCallback, useRef } from "react";
@@ -678,6 +679,7 @@ function ConfigurationTab({ agent }: { agent: Agent }) {
               onChange={setDiffVersionB}
               label="After"
             />
+            <ComingSoonBadge feature="Real version history" issue="#210" />
           </div>
           <ConfigDiffViewer
             before={MOCK_VERSION_YAML[diffVersionA]?.replace("{agent}", agent.name) ?? ""}

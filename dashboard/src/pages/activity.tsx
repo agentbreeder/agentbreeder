@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { cn } from "@/lib/utils";
 import { useUrlState } from "@/hooks/use-url-state";
+import { ComingSoonBanner } from "@/components/coming-soon-badge";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -431,6 +432,11 @@ export default function ActivityPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-6">
+      <ComingSoonBanner
+        feature="Real activity feed"
+        issue="#209"
+        description="The activity feed currently renders a hardcoded MOCK_EVENTS array. Wiring to the real /api/v1/audit endpoint (which already returns live audit-log entries) is in progress."
+      />
       <div className="mb-6 flex items-end justify-between">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Activity</h1>

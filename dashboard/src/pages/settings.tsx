@@ -41,6 +41,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ComingSoonBadge } from "@/components/coming-soon-badge";
 import { cn } from "@/lib/utils";
 import { useState, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -445,9 +446,12 @@ function ProviderCard({
                 {provider.status === "disabled" ? "Enable" : "Disable"}
               </Button>
               {isOllama && (
-                <Button variant="outline" size="xs" disabled title="Coming soon">
-                  Pull Model
-                </Button>
+                <span className="inline-flex items-center gap-1">
+                  <Button variant="outline" size="xs" disabled title="Coming soon">
+                    Pull Model
+                  </Button>
+                  <ComingSoonBadge feature="Ollama pull from dashboard" issue="#214" />
+                </span>
               )}
               <div className="flex-1" />
               <Button

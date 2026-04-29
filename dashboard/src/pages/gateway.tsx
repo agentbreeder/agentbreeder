@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { ComingSoonBadge } from "@/components/coming-soon-badge";
 
 const API_BASE = "/api/v1/gateway";
 
@@ -470,8 +471,28 @@ export default function GatewayPage() {
           </div>
 
           {activeSection === "routing" && <RoutingTable models={models} />}
-          {activeSection === "costs" && <CostTable rows={costRows} />}
-          {activeSection === "logs" && <LogTable entries={logs} />}
+          {activeSection === "costs" && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <ComingSoonBadge feature="Real cross-tier cost comparison" issue="#212" />
+                <span className="text-[11px] text-muted-foreground">
+                  Currently shows hardcoded comparison rows; live aggregation in progress.
+                </span>
+              </div>
+              <CostTable rows={costRows} />
+            </div>
+          )}
+          {activeSection === "logs" && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <ComingSoonBadge feature="Real gateway logs" issue="#212" />
+                <span className="text-[11px] text-muted-foreground">
+                  Entries below are synthetic and regenerate every minute. Live LiteLLM spend-log integration is in progress.
+                </span>
+              </div>
+              <LogTable entries={logs} />
+            </div>
+          )}
         </>
       )}
     </div>

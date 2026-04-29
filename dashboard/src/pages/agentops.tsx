@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Activity, AlertTriangle, DollarSign, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ComingSoonBanner } from "@/components/coming-soon-badge";
 
 const API = "/api/v1/agentops";
 
@@ -161,6 +162,11 @@ export default function AgentOpsPage() {
 
   return (
     <div className="space-y-6 p-6">
+      <ComingSoonBanner
+        feature="Real fleet telemetry"
+        issue="#206"
+        description="Fleet health, top-agents, events, and team comparisons are currently served from an in-memory seed store. Persistence to real deploy + cost + trace data is in progress."
+      />
       {/* Header */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">AgentOps — Fleet Control</h1>
