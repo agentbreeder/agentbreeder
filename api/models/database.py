@@ -164,15 +164,9 @@ class Model(Base):
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     # Track G — model lifecycle (#163). Status uses the existing ``status``
     # column; values are: "active" | "beta" | "deprecated" | "retired".
-    discovered_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    last_seen_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    deprecated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deprecated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deprecation_replacement_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("models.id", ondelete="SET NULL"),

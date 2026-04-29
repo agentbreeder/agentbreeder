@@ -120,9 +120,7 @@ async def test_db_provider_failure_is_swallowed(monkeypatch) -> None:
     bad.is_enabled = True
 
     db = MagicMock()
-    db.execute = AsyncMock(
-        return_value=MagicMock(scalars=lambda: MagicMock(all=lambda: [bad]))
-    )
+    db.execute = AsyncMock(return_value=MagicMock(scalars=lambda: MagicMock(all=lambda: [bad])))
     # Should not raise; should return an empty dict (anthropic is gated on env above).
     out = await _build_discoveries(db, [])
     assert "ghost" not in out
