@@ -75,7 +75,7 @@ def _normalise_kwargs(backend: str, **kwargs: Any) -> dict[str, Any]:
     return out
 
 
-def _make_backend(backend: str, **kwargs: Any) -> SecretsBackend:
+def _get_backend(backend: str, **kwargs: Any) -> SecretsBackend:
     _validate_backend(backend)
     try:
         return get_backend(backend, **_normalise_kwargs(backend, **kwargs))
@@ -85,13 +85,6 @@ def _make_backend(backend: str, **kwargs: Any) -> SecretsBackend:
     except (ValueError, PermissionError) as exc:
         console.print(f"[red]Backend init failed: {exc}[/red]")
         raise typer.Exit(code=1) from exc
-
-
-# Backwards-compat shim: pre-Track-K tests in test_cli_commands_extended.py
-# and test_cli_coverage_boost.py import this name. Kept so legacy coverage
-# (which exercises real behaviour, not a deprecated path) keeps passing.
-def _get_backend(backend: str, **kwargs: Any) -> SecretsBackend:
-    return _make_backend(backend, **kwargs)
 
 
 def _resolve_backend(
@@ -113,7 +106,7 @@ def _resolve_backend(
             kwargs["prefix"] = prefix
         if explicit_backend == "keychain" and workspace is not None:
             kwargs["workspace"] = workspace
-        backend = _make_backend(explicit_backend, **kwargs)
+        backend = _get_backend(explicit_backend, **kwargs)
         return backend, workspace or "default"
 
     try:
@@ -472,7 +465,7 @@ def secret_sync(
         raise typer.Exit(code=2)
 
     src, ws = _resolve_backend(None, workspace=workspace)
-    dst = _make_backend(target, prefix=prefix)
+    dst = _get_backend(target, prefix=prefix)
 
     entries = _run(src.list())
     candidates: dict[str, str] = {}
@@ -606,8 +599,8 @@ def secret_migrate(
         console.print("[red]Source and target backends must be different.[/red]")
         raise typer.Exit(code=2)
 
-    src = _make_backend(from_backend)
-    dst = _make_backend(to_backend, prefix=prefix)
+    src = _get_backend(from_backend)
+    dst = _get_backend(to_backend, prefix=prefix)
 
     if from_backend == "env":
         from engine.secrets.env_backend import EnvBackend
