@@ -134,6 +134,39 @@ async def list_catalog_providers(
     return ApiResponse(data=payload)
 
 
+@router.get("/catalog/status", response_model=ApiResponse[dict[str, bool]])
+async def catalog_status(
+    workspace: str | None = Query(None),
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[dict[str, bool]]:
+    """Per-catalog-provider configuration status (issue #175).
+
+    Returns ``{<provider_name>: <bool>}`` indicating whether the provider's
+    api-key secret has been set in the workspace's configured secrets
+    backend. The dashboard ``/models`` page uses this to render a green
+    "Configured" badge or a "Configure" CTA on each row.
+
+    The lookup checks for *both* the deterministic dashboard key
+    (``<provider>/api-key``) and the legacy env-var name
+    (``<entry.api_key_env>``) so that secrets imported via the CLI before
+    Track K landed are still recognised as configured.
+    """
+    from engine.providers.catalog import list_entries
+    from engine.secrets.factory import get_workspace_backend
+
+    entries = list_entries()
+    backend, _ws = get_workspace_backend(workspace=workspace)
+    existing_names = {e.name for e in await backend.list()}
+
+    statuses: dict[str, bool] = {}
+    for name, entry in entries.items():
+        dashboard_key = f"{name}/api-key"
+        env_key = entry.api_key_env
+        statuses[name] = dashboard_key in existing_names or env_key in existing_names
+
+    return ApiResponse(data=statuses)
+
+
 @router.get("", response_model=ApiResponse[list[ProviderResponse]])
 async def list_providers(
     provider_type: ProviderType | None = Query(None),
