@@ -89,15 +89,16 @@ async def run_prompt(
         )
         resp = await client.aio.models.generate_content(
             model=model,
-            contents=contents,
+            contents=contents,  # type: ignore[arg-type]
             config=config,
         )
         text_out = ""
         for cand in resp.candidates or []:
             if cand.content and cand.content.parts:
                 for p in cand.content.parts:
-                    if getattr(p, "text", None):
-                        text_out += p.text
+                    text = getattr(p, "text", None)
+                    if text:
+                        text_out += text
         duration_ms = int((time.perf_counter() - started) * 1000)
         return PromptRunResult(output=text_out, model=model, duration_ms=duration_ms)
     except Exception as exc:  # noqa: BLE001 — surface exact error to the UI
