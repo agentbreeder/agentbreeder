@@ -1,0 +1,62 @@
+# AgentBreeder provider catalog
+#
+# Built-in OpenAI-compatible providers. Each entry parameterises the generic
+# OpenAICompatibleProvider with a base_url, api_key_env, and optional headers.
+#
+# Adding a new built-in preset: open a PR that appends an entry below. Most
+# providers ship the OpenAI Chat Completions shape, so no engine code changes
+# are needed.
+#
+# User-local overrides live in `~/.agentbreeder/providers.local.yaml` and are
+# merged on top of this catalog at load time.
+#
+# TODO(track-a): workspace-scoped catalogs (`<workspace>/providers.yaml`) ship
+# with Track A — the workspace primitive.
+version: 1
+providers:
+  nvidia:
+    type: openai_compatible
+    base_url: https://integrate.api.nvidia.com/v1
+    api_key_env: NVIDIA_API_KEY
+    docs: https://build.nvidia.com/models
+    discovery: openai-models-list
+  openrouter:
+    type: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    default_headers:
+      HTTP-Referer: https://agentbreeder.io
+      X-Title: AgentBreeder
+    docs: https://openrouter.ai/models
+    discovery: openai-models-list
+  moonshot:
+    type: openai_compatible
+    base_url: https://api.moonshot.cn/v1
+    api_key_env: MOONSHOT_API_KEY
+    notable_models:
+      - moonshot-v1-128k
+      - kimi-k2-instruct
+  groq:
+    type: openai_compatible
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+  together:
+    type: openai_compatible
+    base_url: https://api.together.xyz/v1
+    api_key_env: TOGETHER_API_KEY
+  fireworks:
+    type: openai_compatible
+    base_url: https://api.fireworks.ai/inference/v1
+    api_key_env: FIREWORKS_API_KEY
+  deepinfra:
+    type: openai_compatible
+    base_url: https://api.deepinfra.com/v1/openai
+    api_key_env: DEEPINFRA_API_KEY
+  cerebras:
+    type: openai_compatible
+    base_url: https://api.cerebras.ai/v1
+    api_key_env: CEREBRAS_API_KEY
+  hyperbolic:
+    type: openai_compatible
+    base_url: https://api.hyperbolic.xyz/v1
+    api_key_env: HYPERBOLIC_API_KEY
