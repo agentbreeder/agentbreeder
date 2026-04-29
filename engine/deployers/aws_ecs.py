@@ -22,6 +22,11 @@ from pydantic import BaseModel
 from engine.config_parser import AgentConfig
 from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
 from engine.runtimes.base import ContainerImage
+from engine.secrets.auto_mirror import (
+    CloudSecretRef,
+    MirrorResult,
+    mirror_secrets_to_cloud,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +136,7 @@ class AWSECSDeployer(BaseDeployer):
         self._aws_config: AWSECSConfig | None = None
         self._image_uri: str | None = None
         self._task_definition_arn: str | None = None
+        self._mirror_result: MirrorResult | None = None
 
     def _get_boto3_client(self, service: str) -> Any:
         """Get a boto3 client for the given AWS service.
@@ -218,6 +224,36 @@ class AWSECSDeployer(BaseDeployer):
                     exc,
                 )
 
+    async def _mirror_workspace_secrets(self, config: AgentConfig, aws: AWSECSConfig) -> None:
+        """Mirror ``deploy.secrets`` to AWS Secrets Manager (Track K).
+
+        Stores ``self._mirror_result`` for the task-definition builder.
+        Failures are logged but never abort the deploy.
+        """
+        secret_names = list(config.deploy.secrets or [])
+        if not secret_names:
+            self._mirror_result = MirrorResult()
+            return
+
+        runtime_principal = aws.task_role_arn
+        try:
+            self._mirror_result = await mirror_secrets_to_cloud(
+                agent_name=config.name,
+                secret_names=secret_names,
+                target_cloud="aws",
+                runtime_service_account=runtime_principal,
+                target_options={"region": aws.region},
+            )
+        except Exception as exc:
+            logger.error(
+                "Track K: secret mirror to AWS failed for agent '%s': %s",
+                config.name,
+                exc,
+            )
+            self._mirror_result = MirrorResult(
+                errors={"_": f"mirror call raised: {exc}"},
+            )
+
     async def _push_image(self, image: ContainerImage, image_uri: str) -> None:
         """Tag and push the container image to ECR.
 
@@ -281,6 +317,7 @@ class AWSECSDeployer(BaseDeployer):
         self,
         config: AgentConfig,
         image_uri: str,
+        mirrored_refs: list[CloudSecretRef] | None = None,
     ) -> dict[str, Any]:
         """Build the ECS container definition dict."""
         # Resource config — ECS uses CPU units (1 vCPU = 1024 units)
@@ -307,7 +344,24 @@ class AWSECSDeployer(BaseDeployer):
             if not key.startswith("AWS_"):
                 env_vars[key] = value
 
-        return {
+        # ECS secrets section: each entry references an AWS Secrets Manager
+        # secret ARN-like name. The container receives the value as an env var.
+        ecs_secrets: list[dict[str, str]] = []
+        if mirrored_refs:
+            assert self._aws_config is not None
+            account_id = self._aws_config.account_id
+            region = self._aws_config.region
+            for ref in mirrored_refs:
+                ecs_secrets.append(
+                    {
+                        "name": ref.logical_name,
+                        "valueFrom": (
+                            f"arn:aws:secretsmanager:{region}:{account_id}:secret:{ref.cloud_name}"
+                        ),
+                    }
+                )
+
+        container: dict[str, Any] = {
             "name": config.name,
             "image": image_uri,
             "cpu": int(cpu_str),
@@ -339,6 +393,9 @@ class AWSECSDeployer(BaseDeployer):
                 "startPeriod": 15,
             },
         }
+        if ecs_secrets:
+            container["secrets"] = ecs_secrets
+        return container
 
     async def _register_task_definition(self, config: AgentConfig, image_uri: str) -> str:
         """Register an ECS task definition and return its ARN."""
@@ -355,7 +412,10 @@ class AWSECSDeployer(BaseDeployer):
             or DEFAULT_MEMORY
         )
 
-        container_def = self._build_container_definition(config, image_uri)
+        mirrored_refs = list(self._mirror_result.refs) if self._mirror_result else []
+        container_def = self._build_container_definition(
+            config, image_uri, mirrored_refs=mirrored_refs
+        )
 
         # Track J: stub auto-injection. The full ECS task-def reshape (port
         # remapping + extra capacity) needs follow-up work; for now we delegate
@@ -485,6 +545,9 @@ class AWSECSDeployer(BaseDeployer):
         # Step 1: Push image to ECR
         assert image is not None, "ContainerImage required for ECS deployer"
         await self._push_image(image, self._image_uri)
+
+        # Step 1b (Track K): mirror workspace secrets → AWS Secrets Manager
+        await self._mirror_workspace_secrets(config, aws)
 
         # Step 2: Register task definition
         self._task_definition_arn = await self._register_task_definition(config, self._image_uri)

@@ -38,6 +38,7 @@ dependencies = [
     "PyJWT[crypto]>=2.8.0",
     "bcrypt>=4.0.0",
     "python-multipart>=0.0.26",
+    "keyring>=24.0.0",
 ]
 
 [project.optional-dependencies]

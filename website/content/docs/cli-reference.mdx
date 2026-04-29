@@ -1004,7 +1004,32 @@ Prompts for confirmation unless `--force` is passed.
 agentbreeder secret rotate NAME [--value NEW_VALUE] [--backend BACKEND] [--json]
 ```
 
-Prompts for the new value with confirmation if `--value` is omitted.
+Prompts for the new value with confirmation if `--value` is omitted. Emits a
+`secret.rotated` audit event.
+
+#### `agentbreeder secret sync`
+
+```
+agentbreeder secret sync --target {aws,gcp,vault} [--workspace NAME] [--include KEY] [--exclude KEY] [--prefix PREFIX] [--dry-run] [--json]
+```
+
+Mirrors workspace secrets to a cloud secrets manager. This is the same
+operation that runs implicitly inside `agentbreeder deploy` when the agent
+declares `deploy.secrets` and targets `aws` or `gcp`. Run it manually to
+pre-populate a new environment. Each mirrored secret emits a
+`secret.mirrored` audit event.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--target` | Yes | Target cloud: `aws`, `gcp`, or `vault` |
+| `--workspace` | No | Workspace name (default: workspace config) |
+| `--include` | No | Restrict to specific secret names (repeatable) |
+| `--exclude` | No | Skip these secret names (repeatable) |
+| `--prefix` | No | Prefix in target backend (default: `agentbreeder/`) |
+| `--dry-run` | No | Preview without writing |
+| `--json` | No | Output as JSON |
+
+See the [Secrets guide](./secrets.mdx) for full workspace + auto-mirror docs.
 
 #### `agentbreeder secret migrate`
 

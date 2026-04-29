@@ -30,6 +30,7 @@ import ApprovalsPage from "@/pages/approvals";
 import PRDetailPage from "@/pages/pr-detail";
 import PlaygroundPage from "@/pages/playground";
 import SettingsPage from "@/pages/settings";
+import SettingsSecretsPage from "@/pages/settings-secrets";
 import TracesPage from "@/pages/traces";
 import TraceDetailPage from "@/pages/trace-detail";
 import TeamsPage from "@/pages/teams";
@@ -123,6 +124,7 @@ export default function App() {
               <Route path="activity" element={<ActivityPage />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="settings/secrets" element={<SettingsSecretsPage />} />
               <Route path="traces" element={<TracesPage />} />
               <Route path="traces/:traceId" element={<TraceDetailPage />} />
               <Route path="teams" element={<TeamsPage />} />

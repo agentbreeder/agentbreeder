@@ -2049,4 +2049,38 @@ export const api = {
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),
   health: () => fetch("/health").then((r) => r.json()),
+  secrets: {
+    workspace: (workspace?: string) =>
+      request<WorkspaceBackendInfo>(
+        `/secrets/workspace${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+      ),
+    list: (workspace?: string) =>
+      request<SecretSummary[]>(
+        `/secrets${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+      ),
+    rotate: (name: string, newValue: string, workspace?: string) =>
+      request<SecretSummary>(
+        `/secrets/${encodeURIComponent(name)}/rotate${
+          workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""
+        }`,
+        { method: "POST", body: JSON.stringify({ new_value: newValue }) },
+      ),
+  },
 };
+
+// --- Secrets types (Track K) ---
+
+export interface SecretSummary {
+  name: string;
+  masked_value: string;
+  backend: string;
+  workspace: string;
+  updated_at: string | null;
+  mirror_destinations: string[];
+}
+
+export interface WorkspaceBackendInfo {
+  workspace: string;
+  backend: string;
+  supported_backends: string[];
+}

@@ -38,6 +38,9 @@ from api.routes import (
     templates,
     tracing,
 )
+from api.routes import (
+    secrets as secrets_route,
+)
 from api.routes.v2 import agents as agents_v2
 from api.versioning import APIVersionMiddleware
 
@@ -126,6 +129,7 @@ app.include_router(gateway.router)
 app.include_router(compliance.router)
 app.include_router(approvals.router)
 app.include_router(rbac.router)
+app.include_router(secrets_route.router)
 
 # v2 routes (preview)
 app.include_router(agents_v2.router)

@@ -329,7 +329,7 @@ class TestSecretCLI:
 
     def test_list_shows_table(self, runner, cli_app, env_file):
         # With a custom env_file we'd need to pass it — test via JSON instead
-        result = runner.invoke(cli_app, ["list", "--json"])
+        result = runner.invoke(cli_app, ["list", "--backend", "env", "--json"])
         assert result.exit_code == 0
 
     def test_set_and_get_json(self, runner, cli_app, tmp_path, monkeypatch):
@@ -339,13 +339,18 @@ class TestSecretCLI:
 
         monkeypatch.setattr(eb, "_find_env_file", lambda: env_file)
 
-        result = runner.invoke(cli_app, ["set", "TEST_KEY", "--value", "test-val", "--json"])
+        result = runner.invoke(
+            cli_app,
+            ["set", "TEST_KEY", "--value", "test-val", "--backend", "env", "--json"],
+        )
         assert result.exit_code == 0
         out = json.loads(result.stdout)
         assert out["name"] == "TEST_KEY"
         assert out["status"] == "ok"
 
-        result = runner.invoke(cli_app, ["get", "TEST_KEY", "--reveal", "--json"])
+        result = runner.invoke(
+            cli_app, ["get", "TEST_KEY", "--reveal", "--backend", "env", "--json"]
+        )
         assert result.exit_code == 0
         out = json.loads(result.stdout)
         assert out["value"] == "test-val"
@@ -357,7 +362,9 @@ class TestSecretCLI:
 
         monkeypatch.setattr(eb, "_find_env_file", lambda: env_file)
 
-        result = runner.invoke(cli_app, ["delete", "DEL_KEY", "--force", "--json"])
+        result = runner.invoke(
+            cli_app, ["delete", "DEL_KEY", "--force", "--backend", "env", "--json"]
+        )
         assert result.exit_code == 0
         out = json.loads(result.stdout)
         assert out["deleted"] is True
@@ -368,7 +375,9 @@ class TestSecretCLI:
 
         monkeypatch.setattr(eb, "_find_env_file", lambda: env_file)
 
-        result = runner.invoke(cli_app, ["delete", "NO_SUCH_KEY", "--force", "--json"])
+        result = runner.invoke(
+            cli_app, ["delete", "NO_SUCH_KEY", "--force", "--backend", "env", "--json"]
+        )
         assert result.exit_code == 1
 
     def test_migrate_dry_run(self, runner, cli_app, tmp_path, monkeypatch):
@@ -395,5 +404,5 @@ class TestSecretCLI:
         import engine.secrets.env_backend as eb
 
         monkeypatch.setattr(eb, "_find_env_file", lambda: env_file)
-        result = runner.invoke(cli_app, ["get", "NO_SUCH_KEY", "--json"])
+        result = runner.invoke(cli_app, ["get", "NO_SUCH_KEY", "--backend", "env", "--json"])
         assert result.exit_code == 1
