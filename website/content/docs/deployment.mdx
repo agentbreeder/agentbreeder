@@ -32,8 +32,8 @@ CLI, the secrets backend, and the IAM model.
 | Stage | Command | Time |
 |---|---|---|
 | 1. Enable APIs | `gcloud services enable run + artifactregistry + cloudbuild + secretmanager` | ~5 sec (first run only) |
-| 2. Ensure Artifact Registry repo | `gcloud artifacts repositories create` (idempotent) | <1 sec |
-| 3. Push secrets to Secret Manager | `gcloud secrets create / versions add` | <1 sec |
+| 2. Ensure Artifact Registry repo | `gcloud artifacts repositories create` (idempotent) | &lt;1 sec |
+| 3. Push secrets to Secret Manager | `gcloud secrets create / versions add` | &lt;1 sec |
 | 4. Build + push image | `gcloud builds submit . --config <generated cloudbuild.yaml>` | ~3 min (first build) |
 | 5. Deploy to Cloud Run | `gcloud run deploy --update-secrets ...` | ~1 min |
 
