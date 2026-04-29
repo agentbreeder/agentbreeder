@@ -8,8 +8,8 @@ Skipped automatically if either key is missing. Run with:
     pytest tests/test_live.py -v -m live
 """
 import os
-import pytest
 
+import pytest
 
 pytestmark = pytest.mark.live
 
@@ -53,10 +53,10 @@ def test_agent_end_to_end_via_runner():
     This is the closest local equivalent to the production /invoke endpoint.
     """
     import asyncio
-    from google.adk.runners import InMemoryRunner
-    from google.genai import types as genai_types
 
     from agent import root_agent
+    from google.adk.runners import InMemoryRunner
+    from google.genai import types as genai_types
 
     async def _run() -> str:
         runner = InMemoryRunner(agent=root_agent, app_name="microlearning-test")

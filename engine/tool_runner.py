@@ -199,7 +199,7 @@ async def _spawn(cmd: list[str], stdin_payload: str) -> ToolExecutionResult:
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(stdin_payload.encode()), timeout=_DEFAULT_TIMEOUT_S,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         return ToolExecutionResult(
             output=None, stdout="", stderr="",

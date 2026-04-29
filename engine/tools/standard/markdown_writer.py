@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +55,7 @@ def markdown_writer(title: str, content: str, subdir: str = "") -> dict[str, Any
     out_dir.mkdir(parents=True, exist_ok=True)
 
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "document"
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     filename = f"{slug}-{timestamp}.md"
     out_path = out_dir / filename
 

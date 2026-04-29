@@ -26,7 +26,6 @@ from pathlib import Path
 
 import httpx
 import typer
-import yaml
 from rich.console import Console
 from rich.table import Table
 

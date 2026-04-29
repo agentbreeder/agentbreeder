@@ -93,6 +93,7 @@ def test_render_ebook_writes_file(tmp_path, monkeypatch):
     monkeypatch.setenv("EBOOK_OUTPUT_DIR", str(tmp_path))
     # Re-import so the module picks up the new env
     import importlib
+
     import tools.render_ebook
     importlib.reload(tools.render_ebook)
     from tools.render_ebook import render_ebook
