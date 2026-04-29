@@ -1598,8 +1598,9 @@ export default function AgentDetailPage() {
 
 // ────────────────────────────────────────────────────────────────────────────
 // Invoke panel — chat with the agent's deployed runtime via the API proxy
-// (POST /api/v1/agents/{id}/invoke). Endpoint + bearer token are user-supplied
-// so the dashboard can hit any deployed runtime (local, Cloud Run, ECS, etc.).
+// (POST /api/v1/agents/{id}/invoke). The bearer token is resolved server-side
+// from the workspace secrets backend (key: agentbreeder/<agent>/auth-token)
+// — see issue #176. The user only supplies the endpoint URL + the message.
 // ────────────────────────────────────────────────────────────────────────────
 function InvokePanel({
   agentId,
@@ -1611,7 +1612,6 @@ function InvokePanel({
   agentName: string;
 }) {
   const [endpoint, setEndpoint] = useState<string>(defaultEndpoint || "http://localhost:8080");
-  const [token, setToken] = useState<string>("");
   const [input, setInput] = useState<string>("");
   const [sessionId, setSessionId] = useState<string>("");
   const [running, setRunning] = useState(false);
@@ -1625,7 +1625,6 @@ function InvokePanel({
       const resp = await api.agents.invoke(agentId, {
         input,
         endpoint_url: endpoint || undefined,
-        auth_token: token || undefined,
         session_id: sessionId || undefined,
       });
       const result = resp.data;
@@ -1660,15 +1659,13 @@ function InvokePanel({
             Where the agent's <code className="rounded bg-muted px-1">/invoke</code> endpoint is reachable.
           </p>
         </div>
-        <div className="space-y-2">
-          <label className="text-xs font-medium">Bearer token</label>
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="AGENT_AUTH_TOKEN value"
-            className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
-          />
+        <div className="rounded-md border border-input bg-muted/30 p-2 text-[10px] leading-relaxed text-muted-foreground">
+          Authentication token is resolved server-side from your workspace secrets.
+          Set with{" "}
+          <code className="rounded bg-muted px-1 font-mono">
+            agentbreeder secret set {agentName}/auth-token
+          </code>
+          .
         </div>
         <div className="space-y-2">
           <label className="text-xs font-medium">Session ID <span className="text-muted-foreground">(auto-filled after first turn)</span></label>

@@ -231,6 +231,9 @@ class PromptRenderResponse(BaseModel):
 class AgentInvokeRequest(BaseModel):
     input: str
     endpoint_url: str | None = None
+    # Optional explicit override. When omitted (the default for the dashboard's
+    # Invoke panel) the API resolves the token from the workspace secrets
+    # backend keyed by ``agentbreeder/<agent-name>/auth-token``.
     auth_token: str | None = None
     session_id: str | None = None
 
