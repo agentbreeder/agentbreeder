@@ -1,0 +1,155 @@
+---
+title: Runtime Contract v1
+description: The HTTP contract every AgentBreeder agent container satisfies, regardless of language or framework.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+# Runtime Contract v1
+
+Every AgentBreeder agent container — whether it is written in Python, TypeScript, Go, Kotlin, Rust, or .NET — exposes the **same HTTP surface**. That surface is the runtime contract. It is the only thing the platform (CLI, sidecar, A2A peers, dashboard playground) assumes about an agent.
+
+The full machine-checkable spec lives at [`engine/schema/runtime-contract-v1.md`](https://github.com/agentbreeder/agentbreeder/blob/main/engine/schema/runtime-contract-v1.md), with a companion OpenAPI 3.1 document at [`engine/schema/runtime-contract-v1.openapi.yaml`](https://github.com/agentbreeder/agentbreeder/blob/main/engine/schema/runtime-contract-v1.openapi.yaml). This page is the user-facing summary.
+
+<Callout type="info">
+The contract is **frozen at v1** for the entire v1.x and v2.x line. Additive, non-breaking changes (new optional fields, new optional headers) MAY land in minor revisions. Breaking changes require v2 of the contract — bumped independently of the platform version.
+</Callout>
+
+---
+
+## Endpoints
+
+| Method | Path | Auth | Required | Purpose |
+|---|---|---|---|---|
+| `GET` | `/health` | open | yes | Liveness/readiness probe |
+| `POST` | `/invoke` | bearer | yes | Synchronous run |
+| `POST` | `/stream` | bearer | yes | Streaming run via SSE |
+| `POST` | `/resume` | bearer | optional | Resume a paused (HITL) run — LangGraph today |
+| `GET` | `/openapi.json` | open | optional | Self-describing OpenAPI schema |
+| `GET` | `/.well-known/agent.json` | open | optional | A2A agent card (when A2A is enabled) |
+
+Endpoints not listed here MUST NOT be assumed by callers. In particular `/cancel`, `/health/ready`, `/metrics`, `/mcp`, and `/runs/&#123;id&#125;` are explicitly out of scope for v1.
+
+---
+
+## Authentication
+
+Bearer token via the `Authorization` header. The expected token is read from the `AGENT_AUTH_TOKEN` environment variable.
+
+```
+Authorization: Bearer <token>
+```
+
+| `AGENT_AUTH_TOKEN` | Behaviour |
+|---|---|
+| unset / empty | auth disabled (local-dev path — no ceremony for `docker compose up`) |
+| set, non-empty | required on every protected endpoint; 401 on missing, 403 on mismatch |
+
+`/health`, `/openapi.json`, and `/.well-known/agent.json` always stay open so cloud platform probes and discovery work without credentials.
+
+---
+
+## Invoke shape
+
+`POST /invoke` request:
+
+```json
+{
+  "input": "What is the status of order 123?",
+  "session_id": "thread-abc-123",
+  "config": { "configurable": { "user_id": "alice" } }
+}
+```
+
+`POST /invoke` response:
+
+```json
+{
+  "output": "Order 123 shipped on 2026-04-26.",
+  "session_id": "thread-abc-123",
+  "metadata": { "interrupted": false }
+}
+```
+
+`input` accepts a string for chat-style agents, an object for graph-style agents (e.g. LangGraph `&#123; "messages": [...] &#125;`). SDKs MUST support both.
+
+### Reserved sidecar fields
+
+When the [Track J sidecar](sidecar) is in front of the agent, it attaches the following keys to the response after the agent returns. Agents MUST NOT populate them in v1; the sidecar owns them.
+
+| Field | Owner | Purpose |
+|---|---|---|
+| `trace_id` | sidecar | OpenTelemetry trace id |
+| `tokens` | sidecar | `&#123;input, output, total&#125;` token counts |
+| `cost_usd` | sidecar | USD cost attributed to this invocation |
+| `model` | sidecar | Model id used for the invocation |
+| `latency_ms` | sidecar | End-to-end latency |
+
+---
+
+## Streaming
+
+`POST /stream` returns Server-Sent Events. Two event forms are valid:
+
+```
+data: {"delta": "Hello"}
+
+data: {"delta": " world"}
+```
+
+```
+event: step
+data: {"description": "search the web", "result": "..."}
+
+event: result
+data: {"output": "..."}
+```
+
+Every successful or failed stream MUST end with the ASCII sentinel:
+
+```
+data: [DONE]
+```
+
+SDKs MUST accept both `delta` and `text` for streamed text chunks. v1 canonicalises on `delta`; `text` is accepted for backward compatibility with v0 templates.
+
+---
+
+## Versioning
+
+Every v1 server emits the response header `X-Runtime-Contract-Version: 1` so clients can validate they're talking to a compatible runtime. SDK clients SHOULD warn when the header is missing or higher than the version they were generated against.
+
+The OpenAPI document also self-advertises:
+
+```yaml
+info:
+  x-agentbreeder-runtime-contract: "1"
+```
+
+---
+
+## Tiers
+
+| Tier | Languages | What we maintain |
+|---|---|---|
+| **1. First-party SDK + runtime** | Python, TypeScript | `agenthub` / `@agentbreeder/sdk` + container template + framework integrations |
+| **2. First-party SDK** | Go, Kotlin/Java, Rust, C#/.NET | Thin SDK per language (registry + deploy + auth + handlers) generated from the OpenAPI |
+| **3. BYO contract** | Anything (Swift, Ruby, PHP, Elixir, …) | Container build + governance + registry — language-blind |
+
+Tier 1 templates already conform to v1 (with minor v0 divergences documented in §4 of the spec). Tier 2 SDKs are generated from `runtime-contract-v1.openapi.yaml` in CI. Tier 3 is anyone implementing the contract by hand — declare `framework: custom`, `language: <lang>` in `agent.yaml`.
+
+---
+
+## Conformance
+
+A future `agentbreeder validate-contract` command will verify a built image end-to-end (boot, hit `/health`, `/invoke`, `/stream`, probe auth + version header). Spec-only for v2.0; CI gates Tier 2 SDKs on it once it ships.
+
+---
+
+## See also
+
+- [`engine/schema/runtime-contract-v1.md`](https://github.com/agentbreeder/agentbreeder/blob/main/engine/schema/runtime-contract-v1.md) — full spec
+- [`engine/schema/runtime-contract-v1.openapi.yaml`](https://github.com/agentbreeder/agentbreeder/blob/main/engine/schema/runtime-contract-v1.openapi.yaml) — OpenAPI 3.1 source of truth
+- [Polyglot Agents](polyglot-agents) — language-by-language scaffolding
+- [Sidecar](sidecar) — the cross-cutting concerns layer that fronts every agent
+- [Authentication](authentication) — bearer token model end-to-end

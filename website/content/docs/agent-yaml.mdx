@@ -131,6 +131,17 @@ For **Python agents**, set `framework` directly (top-level field). For **TypeScr
 | `google_adk` | Google Agent Development Kit | ✅ Available |
 | `custom` | Any Python agent | ✅ Available |
 
+### `language:` field
+
+Top-level optional. Declares the agent's implementation language. Defaults to `python` for back-compat with v1 configs that omit it. Closed enum:
+
+```yaml
+language: python    # python | typescript | node | go | kotlin | java | rust | csharp | custom
+framework: langgraph
+```
+
+The `language:` field drives base-image and SDK selection. For Python agents you can omit it entirely. For everything else, set it (and use the `runtime:` block below for non-Python frameworks). See [Polyglot Agents](polyglot-agents) and the [Runtime Contract](runtime-contract) for the full picture.
+
 ### `runtime:` block — Polyglot Agents (TypeScript, Rust, Go)
 
 For non-Python agents, replace the top-level `framework` field with a `runtime:` block. `framework` and `runtime:` are mutually exclusive.
@@ -494,7 +505,7 @@ Deployment configuration.
 | `scaling` | object | No | See below | Auto-scaling configuration. Not used for `claude-managed`. |
 | `resources` | object | No | See below | CPU and memory allocation. Not used for `claude-managed`. |
 | `env_vars` | map | No | — | Non-secret environment variables. |
-| `secrets` | string[] | No | — | Secret references (from cloud secret managers). |
+| `secrets` | string[] | No | — | Secret names. Resolved at deploy time from your [workspace secrets backend](secrets) and auto-mirrored to the target cloud's native store under `agentbreeder/&#123;agent&#125;/&#123;secret&#125;`. The container env wires to the cloud-native secret reference — plaintext never lands on disk. |
 
 **Supported runtimes by cloud:**
 

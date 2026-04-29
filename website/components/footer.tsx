@@ -80,7 +80,7 @@ export function Footer() {
               color: 'var(--accent)',
             }}
           >
-            v1.9.0
+            v2.0.0
           </span>
         </div>
       </div>

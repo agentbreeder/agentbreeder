@@ -117,6 +117,16 @@ agentbreeder setup
 
 Interactive wizard that guides you through Ollama installation (with model picker) and cloud API key configuration (with live key validation).
 
+Or, in v2, work with the provider catalog and workspace secrets directly:
+
+```bash
+agentbreeder provider list             # all 9 OpenAI-compatible presets + legacy providers
+agentbreeder provider test nvidia      # GET /models against the catalog entry
+agentbreeder secret set NVIDIA_API_KEY # prompted securely; stored in OS keychain by default
+```
+
+See [Providers](providers) for the full catalog and [Secrets](secrets) for the workspace backends.
+
 ### 2. Scaffold a New Agent
 
 ```bash

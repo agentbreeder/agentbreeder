@@ -1,29 +1,80 @@
 # Architecture
 
 > AgentBreeder is a deployment platform. A developer writes `agent.yaml`, runs `agentbreeder deploy`, and the platform handles container building, infrastructure provisioning, governance, and registry registration — automatically, regardless of framework, language, or cloud target.
+>
+> **As of v2.0**, AgentBreeder is a full **platform substrate**: anything above the substrate (frameworks, clouds, languages, providers) plugs in without engine changes. The deploy pipeline contract is unchanged from v1.
 
 ---
 
 ## Contents
 
-1. [Three-Tier Builder Model](#three-tier-builder-model)
-2. [System Overview](#system-overview)
-3. [The Deploy Pipeline](#the-deploy-pipeline)
-4. [Polyglot Agent Runtime](#polyglot-agent-runtime)
-5. [AgentBreeder Platform Sidecar (APS)](#agentbreeder-platform-sidecar-aps)
-6. [Model Gateway & LiteLLM](#model-gateway--litellm)
-7. [Key Abstractions](#key-abstractions)
-8. [Multi-Agent Orchestration](#multi-agent-orchestration)
-9. [Agent-to-Agent (A2A) Protocol](#agent-to-agent-a2a-protocol)
-10. [Observability](#observability)
-11. [Memory & RAG](#memory--rag)
-12. [Evaluation Framework](#evaluation-framework)
-13. [Governance](#governance)
-14. [Data Model](#data-model)
-15. [API Layer](#api-layer)
-16. [Full Code SDK](#full-code-sdk)
-17. [Design Principles](#design-principles)
-18. [Authentication Model](#authentication-model)
+1. [v2 Platform Substrate](#v2-platform-substrate)
+2. [Three-Tier Builder Model](#three-tier-builder-model)
+3. [System Overview](#system-overview)
+4. [The Deploy Pipeline](#the-deploy-pipeline)
+5. [Polyglot Agent Runtime](#polyglot-agent-runtime)
+6. [AgentBreeder Platform Sidecar (APS)](#agentbreeder-platform-sidecar-aps)
+7. [Model Gateway & LiteLLM](#model-gateway--litellm)
+8. [Key Abstractions](#key-abstractions)
+9. [Multi-Agent Orchestration](#multi-agent-orchestration)
+10. [Agent-to-Agent (A2A) Protocol](#agent-to-agent-a2a-protocol)
+11. [Observability](#observability)
+12. [Memory & RAG](#memory--rag)
+13. [Evaluation Framework](#evaluation-framework)
+14. [Governance](#governance)
+15. [Data Model](#data-model)
+16. [API Layer](#api-layer)
+17. [Full Code SDK](#full-code-sdk)
+18. [Design Principles](#design-principles)
+19. [Authentication Model](#authentication-model)
+
+---
+
+## v2 Platform Substrate
+
+v2 is structured around six tracks (F–K) that share one rule: every new framework, cloud, language, or provider plugs in without changing the deploy pipeline.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     dashboard / CLI / SDK                           │
+└────────────────────────────────┬────────────────────────────────────┘
+                                 │
+┌────────────────────────────────▼────────────────────────────────────┐
+│                          API server                                  │
+└────┬──────────────┬───────────────┬────────────┬───────────────┬────┘
+     │              │               │            │               │
+     ▼              ▼               ▼            ▼               ▼
+┌────────┐  ┌──────────────┐  ┌─────────┐  ┌─────────┐   ┌────────────┐
+│ Track F│  │   Track G    │  │ Track H │  │ Track K │   │  Track I   │
+│provider│  │    model     │  │ gateway │  │workspace│   │  runtime   │
+│catalog │  │  lifecycle   │  │ catalog │  │ secrets │   │ contract v1│
+└────────┘  └──────────────┘  └─────────┘  └─────────┘   └─────┬──────┘
+                                                               │
+                                                               ▼
+                                                       ┌──────────────┐
+                                                       │  Track J     │
+                                                       │   sidecar    │
+                                                       │ (Go binary,  │
+                                                       │  per agent)  │
+                                                       └──────┬───────┘
+                                                              │
+                                                              ▼
+                                                       agent containers
+                                                       (any language)
+```
+
+| Track | Substrate adds | Source |
+|---|---|---|
+| **F — Provider catalog** | Generic `OpenAICompatibleProvider` + checked-in `engine/providers/catalog.yaml` (9 presets) + user-local `~/.agentbreeder/providers.local.yaml`. New providers = one YAML entry, no Python class. | `engine/providers/openai_compatible.py`, `engine/providers/catalog.yaml` |
+| **G — Model lifecycle** | Per-provider `/models` discovery + curated overlay + status enum (`active`/`beta`/`deprecated`/`retired`). Daily diff produces `model.added`/`model.deprecated` audit events. | `engine/providers/discovery.py` (lands with #163) |
+| **H — Gateways first-class** | `type: gateway` distinction in catalog. LiteLLM + OpenRouter promoted from connectors to catalog presets. Workspace `gateways:` block with fallback policy. | `connectors/litellm/`, `connectors/openrouter/`, catalog.yaml |
+| **I — Polyglot runtime contract** | `engine/schema/runtime-contract-v1.md` (markdown + OpenAPI). New `language:` field in `agent.yaml`. Tier 1 SDKs (Python/TS) + thin Tier 2 SDKs (Go/Kotlin/Rust/.NET) generated from the OpenAPI. | `engine/schema/runtime-contract-v1.{md,openapi.yaml}` |
+| **J — Sidecar** | Single Go binary auto-injected next to every agent that declares `guardrails:`/MCP `tools:`/`a2a:`. Inbound bearer auth + guardrails on `:8080`; localhost helpers on `:9090` for A2A, MCP, and cost emission. | `sidecar/` (top-level Go module), `engine/deployers/mcp_sidecar.py` |
+| **K — Workspace secrets** | Per-workspace backend selection (keychain default; Vault on team; AWS/GCP on cloud). New `agentbreeder secret set/list/rotate/sync`. Auto-mirror to cloud secrets store at deploy under `agentbreeder/<agent>/<secret>`. | `engine/secrets/{keychain_backend,workspace,auto_mirror}.py` |
+
+**Backward compatibility.** v1 `agent.yaml` files run unmodified through v2. New fields (`language:`, `runtime:`) are optional; v1 hand-written providers are unchanged; secrets backends gain a workspace selector but keep the same interface.
+
+The full v2 spec lives at [`docs/architecture/platform-v2.md`](docs/architecture/platform-v2.md).
 
 ---
 
@@ -889,5 +940,11 @@ bearer for the agent runtime out, and never exposes the bearer to the browser.
 ---
 
 *See [CLAUDE.md](CLAUDE.md) for coding standards, the full `agent.yaml` spec, and development commands.*
+*See [docs/architecture/platform-v2.md](docs/architecture/platform-v2.md) for the v2 substrate spec.*
+*See [engine/schema/runtime-contract-v1.md](engine/schema/runtime-contract-v1.md) for the runtime contract every agent satisfies.*
 *See [ROADMAP.md](ROADMAP.md) for the release plan and milestone status.*
 *See [docs/design/](docs/design/) for feature-level design documents (RBAC, LiteLLM gateway, polyglot agents).*
+
+---
+
+*Last updated: April 2026 — AgentBreeder v2.0*

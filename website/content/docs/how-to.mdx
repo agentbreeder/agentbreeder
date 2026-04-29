@@ -33,6 +33,59 @@ pip3 install agentbreeder-sdk      # lightweight SDK only
 
 ---
 
+## Configure a provider from the v2 catalog
+
+v2 ships nine OpenAI-compatible providers as catalog presets — Nvidia NIM, OpenRouter, Moonshot/Kimi, Groq, Together, Fireworks, DeepInfra, Cerebras, Hyperbolic. To use any of them, you only need to set the API key.
+
+```bash
+# 1. List the catalog (built-in presets + your user-local entries)
+agentbreeder provider list
+
+# 2. Stash the key in your workspace secrets backend (OS keychain by default)
+agentbreeder secret set NVIDIA_API_KEY
+
+# 3. (Optional) Validate the connection
+agentbreeder provider test nvidia
+```
+
+Reference any provider/model from `agent.yaml`:
+
+```yaml
+model:
+  primary: nvidia/meta-llama-3.1-405b-instruct
+  fallback: groq/mixtral-8x7b-32768
+```
+
+For private or self-hosted endpoints (vLLM, internal mirrors), add a user-local entry:
+
+```bash
+agentbreeder provider add my-vllm \
+  --type openai_compatible \
+  --base-url https://vllm.internal/v1 \
+  --api-key-env COMPANY_VLLM_KEY
+```
+
+Full reference: [Providers](providers) · [Gateways](gateways) · [Secrets](secrets).
+
+---
+
+## Manage workspace secrets
+
+v2 binds secrets to the workspace, not to environment variables. The default backend is the OS keychain on local CLI installs; cloud and team installs default to AWS Secrets Manager and Vault respectively.
+
+```bash
+agentbreeder secret set OPENAI_API_KEY    # prompted securely; never echoed
+agentbreeder secret list                  # names + masked metadata; values are NEVER printed
+agentbreeder secret rotate OPENAI_API_KEY # paste the new value when prompted
+agentbreeder secret sync --target gcp     # mirror to the target cloud's native store
+```
+
+`agentbreeder deploy` automatically mirrors the secrets your `agent.yaml` declares (`deploy.secrets:`) into the target cloud's secret store under `agentbreeder/&#123;agent&#125;/&#123;secret&#125;`, grants the runtime SA scoped read access, and wires the container env to the cloud-native secret reference. Plaintext never lives on disk in the deploy bundle.
+
+Full reference: [Secrets](secrets).
+
+---
+
 ## Scaffold a new agent
 
 Use `agentbreeder init` to create a new agent project interactively, or use the `/agent-build` Claude Code skill for a guided advisory experience.

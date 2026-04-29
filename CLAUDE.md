@@ -861,4 +861,4 @@ Every time a feature or CLI command changes, update the matching doc page(s) bef
 
 ---
 
-*Last updated: April 2026 — AgentBreeder v1.9*
+*Last updated: April 2026 — AgentBreeder v2.0*
