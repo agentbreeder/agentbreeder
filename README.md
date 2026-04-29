@@ -1,10 +1,10 @@
 <div align="center">
 
-# AgentBreeder™
+# AgentBreeder™ — v2.0
 
 ### Stop wrangling agents. Start shipping them.
 
-**One YAML file. Any framework. Any cloud. Governance built in.**
+**One YAML file. Any framework. Any language. Any cloud. Governance built in.**
 
 [![PyPI](https://img.shields.io/pypi/v/agentbreeder?color=blue&label=PyPI)](https://pypi.org/project/agentbreeder/)
 [![PyPI Downloads](https://img.shields.io/pypi/dm/agentbreeder?color=green&label=Downloads)](https://pypi.org/project/agentbreeder/)
@@ -38,6 +38,22 @@ Your company has 47 AI agents. Nobody knows what they cost, who approved them, o
 
 Write one `agent.yaml`. Run `agentbreeder deploy`. Your agent is live — with RBAC, cost tracking, audit trail, and org-wide discoverability. Automatic. Not optional.
 
+---
+
+## What's new in v2.0
+
+> v2 turns AgentBreeder from a CLI + engine into a full **platform substrate**. Six tracks ship together; the deploy pipeline contract is unchanged.
+
+| Track | Ships | Docs |
+|---|---|---|
+| **F — 9-provider catalog** | Generic OpenAI-compatible provider + presets for Nvidia · OpenRouter · Moonshot/Kimi · Groq · Together · Fireworks · DeepInfra · Cerebras · Hyperbolic. New `agentbreeder provider list/add/test/publish`. | [providers](https://www.agentbreeder.io/docs/providers) |
+| **G — Model lifecycle** | Auto-discover models from each provider's `/models` endpoint; daily diff; status badges (`active`/`deprecated`/`retired`); `agentbreeder model sync`. | [providers](https://www.agentbreeder.io/docs/providers) |
+| **H — Gateways as first-class** | LiteLLM + OpenRouter promoted into the catalog; `<gateway>/<provider>/<model>` syntax; workspace-level gateway config. | [gateways](https://www.agentbreeder.io/docs/gateways) |
+| **I — Polyglot SDKs** | Stable HTTP runtime contract v1; `language:` field in `agent.yaml`; thin SDK targets for Go, Kotlin, Rust, .NET. | [runtime contract](https://www.agentbreeder.io/docs/runtime-contract) · [polyglot agents](https://www.agentbreeder.io/docs/polyglot-agents) |
+| **J — Sidecar** | Single Go binary auto-injected next to every agent; handles tracing, cost attribution, guardrails, A2A, MCP, bearer-token auth. | [sidecar](https://www.agentbreeder.io/docs/sidecar) |
+| **K — Workspace secrets** | OS keychain default; `agentbreeder secret set/list/rotate/sync`; auto-mirror to AWS Secrets Manager / GCP Secret Manager at deploy. | [secrets](https://www.agentbreeder.io/docs/secrets) |
+
+Backward-compatible: every v1 `agent.yaml` continues to work unchanged. v1 providers (openai/anthropic/google/ollama) keep their hand-written classes — the catalog is purely additive.
 
 ---
 
@@ -119,21 +135,27 @@ agent.deploy()
 
 ## What's Supported
 
-**Agent languages** — Python · TypeScript/Node.js *(Phase 1)* · Rust · Go *(Phase 2)*
+**Agent languages** — Python · TypeScript/Node.js · Go · Kotlin/Java · Rust · .NET *(via runtime contract v1, Track I)*
 
 **Python frameworks** — LangGraph · OpenAI Agents · Claude SDK · CrewAI · Google ADK · Custom
 
-**TypeScript frameworks** *(Phase 1)* — Vercel AI SDK · Mastra · LangChain.js · OpenAI Agents TS · Custom
+**TypeScript frameworks** — Vercel AI SDK · Mastra · LangChain.js · OpenAI Agents TS · DeepAgent · Custom
 
 **Cloud targets** — AWS (ECS Fargate, App Runner, EKS) · GCP (Cloud Run, GKE) · Azure Container Apps · Kubernetes (EKS/GKE/AKS/self-hosted) · Local Docker · Claude Managed Agents
 
-**LLM providers** — Anthropic · OpenAI · Google · Ollama (local, free) · LiteLLM · OpenRouter
+**LLM providers — direct** — Anthropic · OpenAI · Google · Ollama (local, free)
+
+**LLM providers — OpenAI-compatible catalog (v2)** — Nvidia NIM · Moonshot/Kimi · Groq · Together · Fireworks · DeepInfra · Cerebras · Hyperbolic *(plus your own user-local entries)*
+
+**LLM gateways** — LiteLLM (self-hosted proxy) · OpenRouter (200+ models) — see [`gateways`](https://www.agentbreeder.io/docs/gateways)
+
+**Secrets backends** — OS keychain *(default)* · `.env` · AWS Secrets Manager · GCP Secret Manager · HashiCorp Vault — auto-mirrored to the cloud at deploy
 
 **RAG & memory** — ChromaDB (vector search) · Neo4j (knowledge graph / GraphRAG) · MCP memory server
 
 **MCP & A2A** — MCP server registry · MCP sidecar injection · Agent-to-Agent (A2A) JSON-RPC protocol · multi-level orchestration
 
-**Platform** — RBAC · cost tracking · audit trail · org registry · MCP hub · multi-agent orchestration · RAG · evaluations · A2A protocol · AgentOps fleet dashboard · community marketplace
+**Platform** — RBAC · cost tracking · audit trail · org registry · MCP hub · multi-agent orchestration · RAG · evaluations · A2A protocol · AgentOps fleet dashboard · community marketplace · v2 platform sidecar
 
 Full feature matrix and supported versions → [docs/features](https://www.agentbreeder.io/docs/features)
 
@@ -164,9 +186,9 @@ Full feature matrix and supported versions → [docs/features](https://www.agent
 | `agentbreeder review` | Review a pending agent PR |
 | `agentbreeder publish` | Merge an approved agent PR |
 | `agentbreeder schedule` | Create cron-based scheduled agent runs |
-| `agentbreeder provider` | Manage LLM provider connections and API keys |
+| `agentbreeder provider` | List/add/test/publish LLM providers — including the v2 OpenAI-compatible catalog (Nvidia, Groq, Together, …) |
 | `agentbreeder scan` | Auto-discover Ollama models and MCP servers on your network |
-| `agentbreeder secret` | Manage secrets across backends (env, AWS, GCP, Vault) |
+| `agentbreeder secret` | Workspace-bound secrets (keychain default) with auto-mirror to AWS / GCP / Vault at deploy |
 | `agentbreeder template` | Browse and apply agent templates from the marketplace |
 | `agentbreeder orchestration` | Manage multi-agent orchestrations |
 | `agentbreeder compliance` | Generate SOC 2 / HIPAA / GDPR / ISO 27001 evidence reports |
@@ -272,12 +294,16 @@ agentbreeder quickstart --cloud azure         # local + deploy to Azure Containe
 
 ```bash
 pip3 install agentbreeder
-agentbreeder setup                # configure Ollama + API keys (interactive wizard)
-agentbreeder init                 # scaffold a new agent project
-agentbreeder validate             # validate agent.yaml
-agentbreeder deploy --target local       # deploy locally with Docker
-agentbreeder deploy --target aws         # deploy to AWS ECS Fargate
-agentbreeder deploy --target gcp         # deploy to GCP Cloud Run
+
+# v2: pick a provider from the catalog and stash the key in your workspace backend
+agentbreeder provider list                # see all 9 OpenAI-compatible presets + legacy providers
+agentbreeder secret set NVIDIA_API_KEY    # prompted securely; stored in OS keychain by default
+
+agentbreeder init                         # scaffold a new agent project
+agentbreeder validate                     # validate agent.yaml
+agentbreeder deploy --target local        # deploy locally with Docker
+agentbreeder deploy --target aws          # deploy to AWS ECS Fargate (secrets auto-mirrored)
+agentbreeder deploy --target gcp          # deploy to GCP Cloud Run   (secrets auto-mirrored)
 ```
 
 Full quickstart guide → [agentbreeder.io/docs/quickstart](https://www.agentbreeder.io/docs/quickstart) · [How AgentBreeder compares →](https://www.agentbreeder.io/docs/comparisons)
