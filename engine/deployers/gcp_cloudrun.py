@@ -22,6 +22,11 @@ from pydantic import BaseModel
 from engine.config_parser import AgentConfig
 from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
 from engine.runtimes.base import ContainerImage
+from engine.secrets.auto_mirror import (
+    CloudSecretRef,
+    MirrorResult,
+    mirror_secrets_to_cloud,
+)
 from engine.sidecar import SidecarConfig, should_inject
 
 logger = logging.getLogger(__name__)
@@ -104,6 +109,7 @@ def _build_service_template(
     gcp_config: CloudRunConfig,
     image_uri: str,
     deployer: GCPCloudRunDeployer | None = None,
+    mirrored_refs: list[CloudSecretRef] | None = None,
 ) -> dict[str, Any]:
     """Build the Cloud Run service revision template.
 
@@ -161,6 +167,28 @@ def _build_service_template(
             )
         else:
             env_list.append({"name": k, "value": v})
+
+    # Auto-mirrored secrets (Track K). Each entry was already mirrored to GCP
+    # Secret Manager under a deterministic name; wire the runtime container's
+    # env var to a SecretKeyRef pointing at it.
+    if mirrored_refs:
+        already_set = {entry["name"] for entry in env_list}
+        for ref in mirrored_refs:
+            if ref.logical_name in already_set:
+                continue
+            env_list.append(
+                {
+                    "name": ref.logical_name,
+                    "value_source": {
+                        "secret_key_ref": {
+                            "secret": (
+                                f"projects/{gcp_config.project_id}/secrets/{ref.cloud_name}"
+                            ),
+                            "version": ref.version,
+                        }
+                    },
+                }
+            )
 
     container = {
         "image": image_uri,
@@ -272,6 +300,7 @@ class GCPCloudRunDeployer(BaseDeployer):
     def __init__(self) -> None:
         self._gcp_config: CloudRunConfig | None = None
         self._image_uri: str | None = None
+        self._mirror_result: MirrorResult | None = None
 
     def _get_run_client(self) -> Any:
         """Get the Cloud Run v2 Services client.
@@ -380,6 +409,37 @@ class GCPCloudRunDeployer(BaseDeployer):
                 gcp.project_id,
             )
 
+    async def _mirror_workspace_secrets(self, config: AgentConfig, gcp: CloudRunConfig) -> None:
+        """Mirror ``deploy.secrets`` to GCP Secret Manager (Track K).
+
+        Stores ``self._mirror_result`` for the template builder. Failures are
+        logged but never abort the deploy — the secrets are optional context
+        for the agent (each will surface as a missing env var if needed).
+        """
+        secret_names = list(config.deploy.secrets or [])
+        if not secret_names:
+            self._mirror_result = MirrorResult()
+            return
+
+        runtime_sa = gcp.service_account
+        try:
+            self._mirror_result = await mirror_secrets_to_cloud(
+                agent_name=config.name,
+                secret_names=secret_names,
+                target_cloud="gcp",
+                runtime_service_account=runtime_sa,
+                target_options={"project_id": gcp.project_id},
+            )
+        except Exception as exc:
+            logger.error(
+                "Track K: secret mirror to GCP failed for agent '%s': %s",
+                config.name,
+                exc,
+            )
+            self._mirror_result = MirrorResult(
+                errors={"_": f"mirror call raised: {exc}"},
+            )
+
     async def _push_image(self, image: ContainerImage, image_uri: str) -> None:
         """Tag and push the container image to Artifact Registry.
 
@@ -444,6 +504,9 @@ class GCPCloudRunDeployer(BaseDeployer):
         assert image is not None, "ContainerImage required for GCP Cloud Run deployer"
         await self._push_image(image, self._image_uri)
 
+        # Step 1b (Track K): mirror workspace secrets → GCP Secret Manager
+        await self._mirror_workspace_secrets(config, gcp)
+
         # Step 2: Create or update Cloud Run service
         service_url = await self._create_or_update_service(config, gcp, self._image_uri)
 
@@ -484,7 +547,10 @@ class GCPCloudRunDeployer(BaseDeployer):
         parent = f"projects/{gcp.project_id}/locations/{gcp.region}"
         service_name = f"{parent}/services/{config.name}"
 
-        template_dict = _build_service_template(config, gcp, image_uri, self)
+        mirrored_refs = list(self._mirror_result.refs) if self._mirror_result else []
+        template_dict = _build_service_template(
+            config, gcp, image_uri, self, mirrored_refs=mirrored_refs
+        )
 
         # Fix #118: Service.Ingress enum does not exist in the Python SDK v2.
         # Use IngressTraffic instead.
