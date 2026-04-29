@@ -8,8 +8,22 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+---
+
+## [2.0.1] — 2026-04-29
+
+> **Honesty patch.** Reviews every dashboard page + every website page against shipped reality and marks unshipped features as "Coming soon" with linked issues. No new features; no breaking changes.
+
 ### Added
-- **Dashboard "Coming soon" badges** — the dashboard now visibly marks features that are scaffolded but not yet wired to real backends. New `<ComingSoonBadge>` component plus per-page top banners on agentops, incidents, compliance, activity, orchestration-builder. Per-feature badges on agent-detail (version compare), gateway (logs / cost compare), settings (Ollama Pull), settings-secrets (backend chooser), models (Local tab), playground (tool-call rendering). Each badge links to the GitHub issue tracking the gap (#206-#216).
+- **Dashboard "Coming soon" badges** — the dashboard now visibly marks features that are scaffolded but not yet wired to real backends. New `<ComingSoonBadge>` component plus per-page top banners on agentops, incidents, compliance, activity, orchestration-builder. Per-feature badges on agent-detail (version compare), gateway (logs / cost compare), settings (Ollama Pull), settings-secrets (backend chooser), models (Local tab), playground (tool-call rendering). Each badge links to the GitHub issue tracking the gap (#206–#216).
+- **Page-by-page website audit** — every docs page, homepage component, and blog post audited against shipped code. Unshipped features re-scoped as "Coming soon" with linked issues. Notable rewrites: 5-layer architecture step 5 ("Pulumi" → "Cloud SDK calls"), runtime-contract codegen scope (Go ships, Kotlin/Rust/.NET roadmap), sidecar auto-injection scope (compose/Cloud Run/ECS today; Azure/App Runner/K8s deferred), secrets auto-mirror scope (AWS ECS + GCP Cloud Run today), agent-yaml `gateways:` block now documented.
+- **Migrations doc page** at `website/content/docs/migrations.mdx` — fixes a 404 in the docs nav and explains the v1.x → v2.0 upgrade path.
+- **v2.0 launch blog post** at `website/content/blog/v2-platform-substrate.mdx` with an honest "what didn't ship yet" section.
+- **Homepage feature cards for v2 tracks** — Provider Catalog, Sidecar, Workspace Secrets, Polyglot Runtime Contract, Gateways added alongside the v1 features.
+
+### Tracked gaps (filed during the audit)
+
+Backend / infra: #196–#205. Dashboard data wiring: #206–#216. Release infra: #195.
 
 ---
 
