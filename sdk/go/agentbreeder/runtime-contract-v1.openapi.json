@@ -1,0 +1,26 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AgentBreeder Runtime Contract",
+    "version": "1",
+    "summary": "HTTP contract that every AgentBreeder agent container exposes.",
+    "x-agentbreeder-runtime-contract": "1"
+  },
+  "servers": [
+    {"url": "http://localhost:8080", "description": "Local dev"}
+  ],
+  "paths": {
+    "/health":            {"get":  {"summary": "Liveness/readiness probe", "security": []}},
+    "/openapi.json":      {"get":  {"summary": "Self-describing schema",   "security": []}},
+    "/.well-known/agent.json": {"get": {"summary": "A2A agent card",      "security": []}},
+    "/invoke":            {"post": {"summary": "Synchronous run"}},
+    "/stream":            {"post": {"summary": "Streaming run via SSE"}},
+    "/resume":            {"post": {"summary": "Resume a paused (HITL) run"}}
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "opaque"}
+    }
+  },
+  "security": [{"bearerAuth": []}]
+}
