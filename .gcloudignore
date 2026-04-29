@@ -1,0 +1,57 @@
+# Repo-root .gcloudignore for `gcloud builds submit` from agent deploy scripts.
+# Keep the upload tarball small by excluding all the per-example venvs and
+# transient artifacts.
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+
+# Per-project virtualenvs across examples
+**/venv/
+**/.venv/
+**/node_modules/
+
+# Worktrees + stashed branches
+.worktrees/
+.claude/worktrees/
+
+# Dashboard build artifacts
+dashboard/dist/
+dashboard/.vite/
+
+# Docs site
+website/.next/
+website/out/
+website/node_modules/
+
+# Local outputs + scratch
+**/output/
+.e2e-state.json
+.auth/
+.remember/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Big binaries / fixtures
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.mov
+*.zip
+*.tar.gz
+
+# Local env files
+**/.env
+**/.env.local
+**/.env.*.local

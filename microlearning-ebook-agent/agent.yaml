@@ -1,0 +1,63 @@
+name: microlearning-ebook-agent
+version: 0.1.0
+description: "Researches a user-supplied topic and produces a structured microlearning ebook (intro, lessons, quizzes, summary) for corporate L&D teams."
+team: engineering
+owner: saha.rajit@gmail.com
+tags: [microlearning, l-and-d, content-generation, research, ebook]
+
+model:
+  primary: gemini-2.5-flash
+  temperature: 0.4
+  max_tokens: 8192
+
+framework: google_adk
+
+tools:
+  # Registry references — resolved at agent startup via engine.tool_resolver.
+  # Resolution order: ./tools/<name>.py (local override) -> engine.tools.standard
+  # -> registry API metadata. See scripts/register_tools.sh to push the metadata
+  # for these tools to the registry so they are discoverable in the dashboard.
+  - ref: tools/web-search
+  - ref: tools/markdown-writer
+
+prompts:
+  # Registry reference. Resolved at agent startup via engine.prompt_resolver:
+  #   1. ./prompts/microlearning-system.md (local file — primary path)
+  #   2. AGENTBREEDER_REGISTRY_URL / api/v1/registry/prompts (production fallback)
+  # See scripts/register_prompt.sh to push the local file to the registry API.
+  system: prompts/microlearning-system
+
+guardrails:
+  - pii_detection
+  - content_filter
+
+deploy:
+  cloud: gcp
+  runtime: cloud-run
+  region: us-central1
+  scaling:
+    min: 0
+    max: 5
+    target_cpu: 70
+  resources:
+    cpu: "2"
+    memory: "4Gi"
+  env_vars:
+    LOG_LEVEL: info
+    AGENTBREEDER_ENV: production
+  secrets:
+    - GOOGLE_API_KEY
+    - TAVILY_API_KEY
+    - AGENT_AUTH_TOKEN
+
+access:
+  visibility: team
+  allowed_callers:
+    - team:engineering
+    - team:learning-and-development
+  require_approval: false
+
+google_adk:
+  session_backend: memory
+  memory_service: memory
+  artifact_service: memory

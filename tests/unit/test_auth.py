@@ -246,12 +246,10 @@ class TestProtectedAgentRoutes:
         res = client.delete(f"/api/v1/agents/{uuid.uuid4()}")
         assert res.status_code == 401
 
-    def test_list_agents_public(self):
-        """GET endpoints should remain accessible without auth."""
-        with patch("registry.agents.AgentRegistry.list", new_callable=AsyncMock) as mock_list:
-            mock_list.return_value = ([], 0)
-            res = client.get("/api/v1/agents")
-            assert res.status_code == 200
+    def test_list_agents_requires_auth(self):
+        """GET /api/v1/agents now requires JWT — part of the 247/247 auth gating."""
+        res = client.get("/api/v1/agents")
+        assert res.status_code == 401
 
 
 # ── Auth Service — async DB functions ──

@@ -456,23 +456,20 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-const MOCK_RESPONSES: Record<string, string> = {
-  "gpt-4o":
-    "Based on the prompt provided, I would approach this task by first analyzing the key requirements and then structuring a comprehensive response. The system prompt establishes clear guidelines for interaction, and I will adhere to those parameters while providing helpful, accurate information tailored to the user's needs.",
-  "claude-sonnet-4":
-    "I understand the context established by this prompt. Let me work through the request systematically. The prompt provides a well-structured framework for interaction, and I will respond within those boundaries while offering thorough, nuanced analysis of the topic at hand.",
-  "llama3.2":
-    "Following the instructions in the prompt, I will provide a focused and relevant response. The guidelines are clear, and I aim to deliver practical, actionable information that aligns with the stated objectives and constraints.",
-};
-
-const TEST_MODELS = ["gpt-4o", "claude-sonnet-4", "llama3.2"] as const;
+// Models the Test tab routes to the real /render endpoint via api.prompts.render.
+// gemini-* hits Google AI Studio directly; other providers will be wired through
+// the gateway in a follow-up.
+const TEST_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gpt-4o", "claude-sonnet-4"] as const;
 
 /** Prompt Test Panel component. */
-function PromptTestPanel({ content }: { content: string }) {
+function PromptTestPanel({ content, promptId }: { content: string; promptId: string }) {
   const [selectedModel, setSelectedModel] = useState<string>(TEST_MODELS[0]);
   const [variables, setVariables] = useState<Record<string, string>>({});
+  const [userMessage, setUserMessage] = useState<string>("");
   const [isRunning, setIsRunning] = useState(false);
   const [testResponse, setTestResponse] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testDurationMs, setTestDurationMs] = useState<number | null>(null);
   const [showRendered, setShowRendered] = useState(false);
 
   const templateVars = useMemo(() => extractVariables(content), [content]);
@@ -482,18 +479,30 @@ function PromptTestPanel({ content }: { content: string }) {
   );
   const tokenEstimate = useMemo(() => estimateTokens(renderedContent), [renderedContent]);
 
-  const handleRunTest = useCallback(() => {
+  const handleRunTest = useCallback(async () => {
     setIsRunning(true);
     setTestResponse(null);
-    // Simulate a 1.5s delay for mock LLM response
-    setTimeout(() => {
-      setTestResponse(
-        MOCK_RESPONSES[selectedModel] ??
-          "Response generated successfully. This is a placeholder response since LLM integration is not yet configured."
-      );
+    setTestError(null);
+    setTestDurationMs(null);
+    try {
+      const resp = await api.prompts.render(promptId, {
+        user_message: userMessage,
+        model: selectedModel,
+        temperature: 0.4,
+      });
+      const result = resp.data;
+      if (result.error) {
+        setTestError(result.error);
+      } else {
+        setTestResponse(result.output || "(empty response)");
+      }
+      setTestDurationMs(result.duration_ms);
+    } catch (e) {
+      setTestError(e instanceof Error ? e.message : String(e));
+    } finally {
       setIsRunning(false);
-    }, 1500);
-  }, [selectedModel]);
+    }
+  }, [promptId, selectedModel, userMessage]);
 
   return (
     <div className="mt-4 space-y-4">
@@ -549,6 +558,20 @@ function PromptTestPanel({ content }: { content: string }) {
             </div>
           )}
 
+          {/* User message — sent as the chat input alongside the rendered system prompt */}
+          <div className="rounded-lg border border-border p-4">
+            <label className="mb-2 block text-xs font-medium">
+              User message <span className="text-muted-foreground">(optional)</span>
+            </label>
+            <textarea
+              value={userMessage}
+              onChange={(e) => setUserMessage(e.target.value)}
+              placeholder="What should the user ask? Leave blank to test the system prompt alone."
+              spellCheck={false}
+              className="h-24 w-full resize-none rounded-md border border-input bg-background p-2 font-mono text-xs leading-relaxed outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
           {/* Token estimate & run button */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
@@ -591,14 +614,19 @@ function PromptTestPanel({ content }: { content: string }) {
         </div>
       </div>
 
-      {/* Test response */}
-      {(testResponse || isRunning) && (
+      {/* Test response (real LLM call via /registry/prompts/{id}/render) */}
+      {(testResponse || testError || isRunning) && (
         <div className="rounded-lg border border-border">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
             <span className="text-xs font-medium">Response</span>
             <Badge variant="outline" className="text-[9px]">
               {selectedModel}
             </Badge>
+            {testDurationMs !== null && (
+              <Badge variant="outline" className="text-[9px]">
+                {testDurationMs} ms
+              </Badge>
+            )}
             {testResponse && (
               <span className="ml-auto text-[10px] text-muted-foreground">
                 ~{estimateTokens(testResponse).toLocaleString()} tokens
@@ -611,8 +639,12 @@ function PromptTestPanel({ content }: { content: string }) {
                 <Loader2 className="size-3 animate-spin" />
                 Generating response...
               </div>
+            ) : testError ? (
+              <pre className="whitespace-pre-wrap font-mono text-xs text-destructive">
+                {testError}
+              </pre>
             ) : (
-              <p className="text-sm leading-relaxed text-foreground">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
                 {testResponse}
               </p>
             )}
@@ -1217,7 +1249,7 @@ export default function PromptDetailPage() {
 
         {/* Test Tab */}
         <TabsContent value="test">
-          <PromptTestPanel content={content} />
+          <PromptTestPanel content={content} promptId={id!} />
         </TabsContent>
 
         {/* Compare Tab */}

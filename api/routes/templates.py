@@ -34,6 +34,7 @@ async def list_templates(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[list[TemplateResponse]]:
     templates, total = await TemplateRegistry.list(
         db,
@@ -78,6 +79,7 @@ async def create_template(
 async def get_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[TemplateResponse]:
     template = await TemplateRegistry.get_by_id(db, template_id)
     if not template:
@@ -125,6 +127,7 @@ async def instantiate_template(
     template_id: uuid.UUID,
     body: TemplateInstantiateRequest,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[TemplateInstantiateResponse]:
     """Fill in template parameters to generate agent.yaml content."""
     template = await TemplateRegistry.get_by_id(db, template_id)

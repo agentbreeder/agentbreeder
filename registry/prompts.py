@@ -13,6 +13,18 @@ from api.models.database import Prompt, PromptVersion
 logger = logging.getLogger(__name__)
 
 
+def _bump_patch(version: str) -> str:
+    """Bump the patch component of a semver string (1.0.0 -> 1.0.1).
+
+    Falls back to appending ``.1`` for non-semver inputs so the value still
+    changes visibly in the UI rather than failing silently.
+    """
+    parts = version.split(".")
+    if len(parts) == 3 and parts[2].isdigit():
+        return f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}"
+    return f"{version}.1"
+
+
 class PromptRegistry:
     """Service class for prompt CRUD operations."""
 
@@ -120,7 +132,12 @@ class PromptRegistry:
         change_summary: str = "",
         author: str = "",
     ) -> Prompt | None:
-        """Update a prompt's content and auto-create a version snapshot in one transaction."""
+        """Update a prompt's content and auto-create a version snapshot in one transaction.
+
+        Bumps ``prompt.version`` patch (1.0.0 -> 1.0.1) on every save so the UI
+        shows the change. To bump minor or major, callers should use
+        ``duplicate()`` to create a new Prompt row with the desired version.
+        """
         stmt = select(Prompt).where(Prompt.id == prompt_id)
         result = await session.execute(stmt)
         prompt = result.scalar_one_or_none()
@@ -128,6 +145,7 @@ class PromptRegistry:
             return None
 
         prompt.content = content
+        prompt.version = _bump_patch(prompt.version)
         await session.flush()
 
         count_stmt = select(func.count()).select_from(

@@ -1,0 +1,258 @@
+---
+title: Deployment
+description: Ship a registered agent to a public cloud — covers the GCP Cloud Run path end-to-end, plus the IAM grants, secrets, and CI/CD wiring you need.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+# Deployment
+
+Once your agent runs locally and is registered (prompts + tools + agent record), the
+deploy step packages the agent + the AgentBreeder runtime into a container, pushes it
+to your cloud's image registry, and rolls it out as a managed service with secrets and
+auth wired in.
+
+This page covers the **Cloud Run** path end-to-end (verified live). The same pattern
+applies to AWS ECS / App Runner and Kubernetes — the only differences are the cloud
+CLI, the secrets backend, and the IAM model.
+
+<Callout type="info" title="Reference deploy">
+  The microlearning-ebook-agent example is **deployed and serving** at
+  `https://microlearning-ebook-agent-sizukgalta-uc.a.run.app`. Every snippet on
+  this page was generated from that deploy.
+</Callout>
+
+---
+
+## What the deploy script does
+
+`microlearning-ebook-agent/scripts/deploy_gcp.sh` automates five stages:
+
+| Stage | Command | Time |
+|---|---|---|
+| 1. Enable APIs | `gcloud services enable run + artifactregistry + cloudbuild + secretmanager` | ~5 sec (first run only) |
+| 2. Ensure Artifact Registry repo | `gcloud artifacts repositories create` (idempotent) | <1 sec |
+| 3. Push secrets to Secret Manager | `gcloud secrets create / versions add` | <1 sec |
+| 4. Build + push image | `gcloud builds submit . --config <generated cloudbuild.yaml>` | ~3 min (first build) |
+| 5. Deploy to Cloud Run | `gcloud run deploy --update-secrets ...` | ~1 min |
+
+Total: ~5 minutes from scratch.
+
+---
+
+## Prerequisites
+
+```bash
+# 1. Authenticate
+gcloud auth login
+gcloud auth application-default login
+
+# 2. Set the target project
+gcloud config set project <PROJECT_ID>
+
+# 3. .env in your agent project with the runtime secrets
+cat > microlearning-ebook-agent/.env <<EOF
+GOOGLE_API_KEY=AIza...
+TAVILY_API_KEY=tvly-...
+AGENT_AUTH_TOKEN=$(openssl rand -hex 16)
+EOF
+```
+
+---
+
+## One-time IAM grants
+
+Cloud Build and Cloud Run both default to the same service account
+(`<project-number>-compute@developer.gserviceaccount.com`). You need four roles
+on it the first time you deploy from a project:
+
+```bash
+PROJECT=$(gcloud config get-value project)
+SA="$(gcloud projects describe $PROJECT --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+
+for role in \
+  roles/storage.objectViewer \
+  roles/cloudbuild.builds.builder \
+  roles/logging.logWriter \
+  roles/secretmanager.secretAccessor
+do
+  gcloud projects add-iam-policy-binding "$PROJECT" \
+    --member="serviceAccount:$SA" --role="$role" --condition=None
+done
+```
+
+| Role | Why |
+|---|---|
+| `storage.objectViewer` | Cloud Build reads the source tarball it just uploaded |
+| `cloudbuild.builds.builder` | Run builds + write logs |
+| `logging.logWriter` | Write build logs to Cloud Logging |
+| `secretmanager.secretAccessor` | Cloud Run mounts secrets as env vars |
+
+<Callout type="warn" title="Skip these and you'll see errors that are hard to map">
+  Missing `storage.objectViewer` shows up as `403: ... does not have storage.objects.get
+  access` during `gcloud builds submit`. Missing `secretmanager.secretAccessor` shows up
+  during `gcloud run deploy` as `Permission denied on secret: ...`. Both are one-time
+  fixes — grant once per project.
+</Callout>
+
+---
+
+## Run the deploy
+
+```bash
+cd microlearning-ebook-agent
+bash scripts/deploy_gcp.sh
+```
+
+The first run will print the public service URL when it's done:
+
+```
+════════════════════════════════════════════════════════════════
+  Deployed: https://microlearning-ebook-agent-sizukgalta-uc.a.run.app
+════════════════════════════════════════════════════════════════
+```
+
+---
+
+## What gets deployed
+
+The container is built from `microlearning-ebook-agent/Dockerfile.cloudrun`,
+which bundles:
+
+- **The AgentBreeder engine** (`engine/`, `registry/`, `api/`) — so
+  `engine.prompt_resolver` and `engine.tool_resolver` can read the agent's
+  registered prompts + tools at startup.
+- **The agent project** (`microlearning-ebook-agent/`) including its `agent.py`,
+  `agent.yaml`, local `tools/` and `prompts/` directories.
+- **The runtime wrapper**
+  (`engine/runtimes/templates/google_adk_server.py`) which serves
+  `/health`, `/invoke`, `/stream` with bearer-token auth.
+
+```dockerfile
+# Excerpt from Dockerfile.cloudrun
+COPY engine /app/engine
+COPY registry /app/registry
+COPY api /app/api
+COPY microlearning-ebook-agent /app/agent
+
+ENV PYTHONPATH="/app:/app/agent"
+WORKDIR /app/agent
+CMD exec uvicorn engine.runtimes.templates.google_adk_server:app \
+    --host 0.0.0.0 --port "${PORT:-8080}"
+```
+
+The `.gcloudignore` at the repo root keeps the build context lean — without it
+the source tarball is **578 MB** (from venvs + worktrees + node_modules);
+with it the upload is **22 MB**.
+
+---
+
+## Cloud Run defaults
+
+The deploy script picks production-friendly defaults you can override via env:
+
+| Setting | Value | Override |
+|---|---|---|
+| Region | `us-central1` | `REGION=us-east1 bash scripts/deploy_gcp.sh` |
+| Memory | 2 GiB | edit script |
+| CPU | 2 vCPU | edit script |
+| Min instances | 0 (scale-to-zero) | — |
+| Max instances | 5 | edit script |
+| Concurrency | 10 | edit script |
+| Request timeout | 300 s | edit script |
+| Public access | `--allow-unauthenticated` | auth happens at the bearer-token layer |
+
+---
+
+## Verify the deploy
+
+The deploy is bearer-gated at the agent layer. Use the same `AGENT_AUTH_TOKEN`
+you put in `.env` (now stored in Secret Manager):
+
+```bash
+URL=$(gcloud run services describe microlearning-ebook-agent \
+  --region us-central1 --format='value(status.url)')
+TOKEN=$(grep '^AGENT_AUTH_TOKEN=' microlearning-ebook-agent/.env | cut -d= -f2)
+
+# /health is open by design (Cloud Run liveness probe)
+curl $URL/health
+# {"status":"healthy","agent_name":"microlearning-ebook-agent","version":"0.1.0"}
+
+# /invoke is gated
+curl -X POST $URL/invoke \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"input":"What is your job?"}'
+# {"output":"My job is to turn any topic the user supplies into a polished
+#           microlearning ebook a learner can complete in 20-40 minutes.",
+#  "session_id":"...","metadata":null}
+
+# Without the token → 401
+curl -X POST $URL/invoke -d '{"input":"x"}' -H "Content-Type: application/json"
+# {"detail":"Missing bearer token"}
+```
+
+---
+
+## Production checklist
+
+| Concern | What to do |
+|---|---|
+| **Don't use the default compute SA** | Create a dedicated agent SA with the 4 roles, pass `--service-account` to `gcloud run deploy`. |
+| **Rotate `AGENT_AUTH_TOKEN`** | `gcloud secrets versions add AGENT_AUTH_TOKEN --data-file=-` then redeploy (Cloud Run picks up the new version on the next revision). |
+| **Lock down `--allow-unauthenticated`** | Replace with `--no-allow-unauthenticated` and put a Cloud Load Balancer + IAP in front, or call from a peer service via the metadata-server identity token. |
+| **Persistent sessions** | Switch the agent's `google_adk.session_backend` from `memory` to `database` and point at Cloud SQL. The runtime wrapper already supports it. |
+| **Outputs to GCS** | Set `EBOOK_OUTPUT_DIR=/tmp` in env and have a tool upload to GCS. The container filesystem is ephemeral — Cloud Run wipes it between requests. |
+| **Cold-start latency** | Bump `--min-instances 1`. Cost trade-off: ~$5–10/month per always-on instance vs. ~3 s warm-up on first request. |
+
+---
+
+## Other deploy targets
+
+The same `agent.yaml` deploys to other clouds with one-line changes:
+
+```yaml
+# Cloud Run (default for GCP)
+deploy:
+  cloud: gcp
+  runtime: cloud-run
+
+# AWS ECS Fargate
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+
+# AWS App Runner (zero-config alternative)
+deploy:
+  cloud: aws
+  runtime: app-runner
+
+# Azure Container Apps  (planned — currently maps to Cloud Run for now)
+deploy:
+  cloud: azure
+  runtime: container-apps
+
+# Kubernetes (any conformant cluster)
+deploy:
+  cloud: kubernetes
+  runtime: deployment
+```
+
+`agentbreeder deploy` reads the cloud + runtime fields and dispatches to the
+matching deployer in `engine/deployers/`. Each deployer has the same contract
+(build → push → provision → register), so the rest of the lifecycle is
+identical across targets.
+
+See [Architecture → Deploy Pipeline](https://github.com/agentbreeder/agentbreeder/blob/main/ARCHITECTURE.md#the-deploy-pipeline)
+for the full flow.
+
+---
+
+## Related
+
+- [How-To → Deploy to GCP Cloud Run](how-to#gcp-cloud-run) — the recipe-style version of this page
+- [Authentication](authentication) — the auth model end-to-end (management API JWT + agent runtime bearer)
+- [CLI Reference → `agentbreeder deploy`](cli-reference) — flags + alternatives
+- [Local Development](local-development) — get to a working local build before you deploy

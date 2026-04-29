@@ -1,0 +1,54 @@
+# Cloud Run-friendly image for the microlearning-ebook-agent.
+#
+# Bundles BOTH the agent project AND the AgentBreeder engine package so the
+# runtime wrapper (engine/runtimes/templates/google_adk_server.py) can import
+# `engine.prompt_resolver` / `engine.tool_resolver` and resolve the agent's
+# prompts + tools.
+#
+# Build context expected: the AgentBreeder repo root (so we can COPY both
+# `engine/` and `microlearning-ebook-agent/`).
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps for psycopg, ssl etc.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy agentbreeder engine + the agent project. PYTHONPATH=/app makes both
+# importable (engine.* + agent + tools.*).
+COPY engine /app/engine
+COPY registry /app/registry
+COPY api /app/api
+COPY microlearning-ebook-agent /app/agent
+COPY pyproject.toml /app/pyproject.toml
+
+# Install runtime deps from the agent project's requirements + a few
+# api-server transitive deps the runtime wrapper needs.
+RUN pip install --no-cache-dir -r /app/agent/requirements.txt \
+    && pip install --no-cache-dir \
+        ruamel.yaml \
+        "pydantic[email]" \
+        sqlalchemy \
+        "psycopg[binary]" \
+        google-cloud-storage \
+        google-cloud-secret-manager
+
+ENV PYTHONPATH="/app:/app/agent"
+ENV AGENT_NAME="microlearning-ebook-agent"
+ENV AGENT_VERSION="0.1.0"
+ENV AGENTBREEDER_ADK_CONFIG='{"session_backend":"memory","memory_service":"memory","artifact_service":"memory"}'
+
+# Cloud Run sets PORT via env. Default 8080 for local parity.
+ENV PORT=8080
+EXPOSE 8080
+
+# Health probe — tiny Python to import the agent module without starting the server
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request as u; u.urlopen(f'http://localhost:{__import__(\"os\").environ.get(\"PORT\",\"8080\")}/health', timeout=5).read()"
+
+WORKDIR /app/agent
+
+CMD exec uvicorn engine.runtimes.templates.google_adk_server:app \
+    --host 0.0.0.0 --port "${PORT:-8080}"

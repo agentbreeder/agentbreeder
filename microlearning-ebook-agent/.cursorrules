@@ -1,0 +1,10 @@
+# microlearning-ebook-agent Cursor Rules — Google ADK
+- Tools need `@adk.tool` decorator with Google-style docstrings (Args/Returns)
+- Session backend set in `agent.yaml` (google_adk.session_backend), not in code
+- Serve with `adk api_server`, not `python agent.py`
+- Memory service configured in `agent.yaml` (google_adk.memory_service)
+- Test with `adk run` locally before containerizing
+- Never hardcode project ID or region — use env vars
+- Pipeline order is research_web -> extract_concepts -> structure_modules -> generate_quiz -> render_ebook. Do not reorder.
+- HITL approval pause MUST persist to PostgreSQL — never in-memory
+- Every factual claim in generated content must carry a citation back to research_web output

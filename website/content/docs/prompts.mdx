@@ -81,15 +81,28 @@ Response:
   </Tab>
   <Tab value="CLI">
 ```bash
-# List all prompts
-agentbreeder list prompts
+# Push a prompt file to the registry (auth-gated — requires AGENTBREEDER_API_TOKEN)
+agentbreeder registry prompt push prompts/microlearning-system.md \
+  --version 1.0.0 \
+  --team eng \
+  --description "Microlearning ebook system prompt"
 
-# List prompts for a specific team
-agentbreeder list prompts --team customer-success
+# List all prompts (optionally filter by team)
+agentbreeder registry prompt list
+agentbreeder registry prompt list --team eng
+
+# Try a registered prompt against a real LLM (Gemini)
+agentbreeder registry prompt try microlearning-system \
+  --input "What's your job?" \
+  --model gemini-2.5-flash
 
 # Search across all registry entities (including prompts)
-agentbreeder search "support system"
+agentbreeder search "microlearning"
 ```
+
+<Callout type="info" title="Auto patch bump on save">
+  Pushing or saving a prompt with the same `name` auto-bumps the patch version: `1.0.0` → `1.0.1` → `1.0.2`. Drive minor/major bumps explicitly with `--version`.
+</Callout>
   </Tab>
 </Tabs>
 
@@ -100,13 +113,13 @@ agentbreeder search "support system"
 Reference by name. AgentBreeder resolves the latest version at deploy time.
 
 ```yaml
-name: support-agent
+name: microlearning-ebook-agent
 version: 1.0.0
-team: customer-success
-framework: langgraph
+team: eng
+framework: google_adk
 
 prompts:
-  system: prompts/support-system        # ← registry reference
+  system: prompts/microlearning-system  # ← registry reference
 
 # Alternatively, inline for quick prototypes:
 # prompts:
@@ -117,10 +130,39 @@ prompts:
 
 ```yaml
 prompts:
-  system: prompts/support-system@1.0.0  # pins to this exact version
+  system: prompts/microlearning-system@1.0.2  # pins to this exact version
 ```
 
 Variables are passed at runtime via your agent's context or via explicit `variables` config on the agent.
+
+### Resolver chain (file → registry → inline)
+
+`prompts.system` is resolved by `engine.prompt_resolver.resolve_prompt()` in this order:
+
+1. **Local file** — `<project>/prompts/<name>.md` (primary; lets you edit prompts in-repo)
+2. **Registry API** — `${AGENTBREEDER_REGISTRY_URL}/api/v1/registry/prompts` (DB-backed fallback)
+3. **Inline literal** — the value of `prompts.system` is used as the prompt itself (backward compat)
+
+The TypeScript counterpart is `resolvePrompt()` in `engine/runtimes/templates/node/_shared_loader.ts` — same precedence, same semantics.
+
+### Wiring `agent.py`
+
+The runtime wrapper (`google_adk_server.py`, etc.) imports your agent module and reads its `INSTRUCTION`. Use the resolver so the same code works locally, in CI, and in deployed containers:
+
+```python
+# agent.py
+from pathlib import Path
+
+try:
+    from engine.prompt_resolver import resolve_prompt
+    INSTRUCTION = resolve_prompt(
+        "prompts/microlearning-system",
+        project_root=Path(__file__).parent,
+    )
+except ImportError:
+    # Fallback when the engine isn't on the path (e.g., editor IntelliSense)
+    INSTRUCTION = (Path(__file__).parent / "prompts" / "microlearning-system.md").read_text()
+```
 
 ### SDK Usage
 
@@ -169,20 +211,16 @@ claude_sdk:
 
 ## Step 4 — Test Before Deploying
 
-Use the test endpoint to render variable substitution and preview the simulated model response before wiring the prompt to an agent.
+The **Test** tab now executes a **real LLM call** (Google AI Studio / `gemini-*`) — not a simulation. The endpoint pairs your registered prompt as the system message with a user message you supply, and returns the model's actual output.
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/prompts/test \
+curl -X POST http://localhost:8000/api/v1/registry/prompts/{prompt_id}/render \
+  -H "Authorization: Bearer $AGENTBREEDER_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt_text": "You are a {{role}} agent. Handle {{topic}} tickets.",
-    "model_name": "claude-sonnet-4",
-    "variables": {
-      "role": "billing specialist",
-      "topic": "subscription cancellation"
-    },
-    "temperature": 0.7,
-    "max_tokens": 512
+    "user_message": "Make me a 30-minute ebook on transformer attention.",
+    "model": "gemini-2.5-flash",
+    "temperature": 0.7
   }'
 ```
 
@@ -190,21 +228,25 @@ Response:
 ```json
 {
   "data": {
-    "rendered_prompt": "You are a billing specialist agent. Handle subscription cancellation tickets.",
-    "response_text": "I understand you'd like to cancel your subscription...",
-    "model_name": "claude-sonnet-4",
-    "input_tokens": 14,
-    "output_tokens": 43,
-    "total_tokens": 57,
-    "latency_ms": 312,
-    "temperature": 0.7
+    "output": "# Transformer Attention in 30 Minutes\n\n## Module 1 — Why attention?...",
+    "model": "gemini-2.5-flash",
+    "duration_ms": 1842,
+    "error": null
   }
 }
 ```
 
 <Callout type="info" title="Test panel in the dashboard">
-  The dashboard has a built-in **Prompt Test Panel** — open any prompt in Registry → Prompts, then click the **Test** tab. Fill in variable values and click Run — you see the rendered prompt, token counts, and a simulated response in real time.
+  Open any prompt in **Registry → Prompts** and click the **Test** tab. Type a user message, pick a model, hit **Run** — you see the actual model response, the model name, and the round-trip duration. Auth is required (any authenticated user; no role gate).
 </Callout>
+
+You can also drive the same flow from the CLI:
+
+```bash
+agentbreeder registry prompt try microlearning-system \
+  --input "Make me a 30-minute ebook on transformer attention." \
+  --model gemini-2.5-flash
+```
 
 ---
 
@@ -289,7 +331,8 @@ Diff response includes unified diff lines you can display in any UI or terminal:
 | `GET` | `/api/v1/registry/prompts/{id}/versions/history` | List all snapshots |
 | `POST` | `/api/v1/registry/prompts/{id}/versions/history` | Create a manual snapshot |
 | `GET` | `/api/v1/registry/prompts/{id}/versions/history/{v1}/diff/{v2}` | Diff two snapshots |
-| `POST` | `/api/v1/prompts/test` | Test prompt with variable substitution |
+| `POST` | `/api/v1/registry/prompts/{id}/render` | Render a registered prompt against a real LLM (Gemini) |
+| `POST` | `/api/v1/prompts/test` | Test prompt with variable substitution (legacy) |
 
 ---
 

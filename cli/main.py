@@ -38,6 +38,7 @@ from cli.commands import (
     provider,
     publish,
     quickstart,
+    registry_cmd,
     review,
     scan,
     schedule,
@@ -106,6 +107,7 @@ app.add_typer(orchestration.orchestration_app, name="orchestration")
 app.add_typer(template.template_app, name="template")
 app.add_typer(secret.secret_app, name="secret")
 app.add_typer(compliance.compliance_app, name="compliance")
+app.add_typer(registry_cmd.registry_app, name="registry")
 
 
 if __name__ == "__main__":

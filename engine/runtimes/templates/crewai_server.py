@@ -15,9 +15,27 @@ import sys
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+
+def _verify_auth(authorization: str | None = Header(default=None)) -> None:
+    """Bearer-token auth for protected endpoints.
+
+    Disabled (no-op) when AGENT_AUTH_TOKEN env var is unset/empty so local dev
+    works without ceremony. /health is intentionally NOT protected so Cloud Run
+    and k8s liveness probes can hit it without credentials.
+    """
+    expected = os.getenv("AGENT_AUTH_TOKEN", "").strip()
+    if not expected:
+        return
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    presented = authorization.removeprefix("Bearer ").strip()
+    if presented != expected:
+        raise HTTPException(status_code=403, detail="Invalid bearer token")
+
 
 # Capture engine.tool_bridge at import time using sys.modules.get so that test stubs
 # injected via patch.dict(sys.modules) are picked up correctly (the `import a.b as x`
@@ -234,7 +252,7 @@ async def health() -> HealthResponse:
     )
 
 
-@app.post("/stream")
+@app.post("/stream", dependencies=[Depends(_verify_auth)])
 async def stream(request: InvokeRequest) -> StreamingResponse:
     """Stream CrewAI execution as Server-Sent Events."""
     if _crew is None and _module is None:
@@ -302,7 +320,7 @@ async def _stream_crew_sse(crew: Any, inputs: dict[str, Any]) -> AsyncGenerator[
     yield "data: [DONE]\n\n"
 
 
-@app.post("/invoke", response_model=InvokeResponse)
+@app.post("/invoke", response_model=InvokeResponse, dependencies=[Depends(_verify_auth)])
 async def invoke(request: InvokeRequest) -> InvokeResponse:
     if _module is None and _crew is None:
         raise HTTPException(status_code=503, detail="Crew not loaded yet")

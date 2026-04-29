@@ -201,6 +201,58 @@ agentbreeder chat support-agent --local          # chat via Ollama — no server
 
 ---
 
+## Talk to your agent
+
+Once your agent is deployed (locally or to Cloud Run / ECS / Container Apps), there are three ways to invoke it. All three hit the same `POST /invoke` endpoint on the agent runtime — gated by a bearer token from the `AGENT_AUTH_TOKEN` env var.
+
+### From the dashboard
+
+Open `http://localhost:3001/agents/:id`, click the **Invoke** tab, and fill in:
+
+| Field | Value |
+|-------|-------|
+| Endpoint URL | `https://<your-agent>.run.app` (or `http://localhost:8080`) |
+| Bearer token | Value of `AGENT_AUTH_TOKEN` |
+| Message | Anything — e.g. `"What is your job?"` |
+
+Hit **Send** and the response appears inline. The dashboard proxies through `POST /api/v1/agents/{id}/invoke` so the bearer token never touches the browser network tab.
+
+### From the CLI
+
+```bash
+agentbreeder registry agent invoke <name> \
+  --input "What is your job?" \
+  --endpoint https://microlearning-ebook-agent-sizukgalta-uc.a.run.app \
+  --token $AGENT_AUTH_TOKEN
+```
+
+Pass `--session <SID>` to continue an existing conversation. See the [CLI reference](cli-reference#agentbreeder-registry) for the full flag list.
+
+### With curl
+
+```bash
+URL=https://microlearning-ebook-agent-sizukgalta-uc.a.run.app
+TOKEN=$AGENT_AUTH_TOKEN
+
+curl -X POST $URL/invoke \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"input":"What is your job?"}'
+# {"output":"My job is to turn any topic the user supplies into a polished microlearning ebook a learner can complete in 20-40 minutes.","session_id":"…","metadata":null}
+```
+
+`/health` is intentionally left open (no bearer required) so Kubernetes / Cloud Run probes work without secrets.
+
+<Callout type="info" title="Prompts and tools live in a registry">
+  Agents reference **prompts** and **tools** from a shared registry instead of inlining them. Browse, version, and test them in the dashboard at `/prompts`, `/tools`, and `/agents` — or push from the CLI with [`agentbreeder registry`](cli-reference#agentbreeder-registry). See [Prompts →](prompts), [MCP Servers / Tools →](mcp-servers), and the agent registry for the full surface.
+</Callout>
+
+<Callout type="warn" title="Management API is auth-gated">
+  All 247/247 routes under `/api/v1/*` require a JWT — only `POST /api/v1/auth/login` and `POST /api/v1/auth/register` are open by design. Log in to mint a token, then export it as `AGENTBREEDER_API_TOKEN` for any CLI command that talks to the registry.
+</Callout>
+
+---
+
 ## FAQ
 
 <Accordions>

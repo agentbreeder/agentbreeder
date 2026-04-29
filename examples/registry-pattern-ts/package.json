@@ -1,0 +1,13 @@
+{
+  "name": "registry-pattern-ts",
+  "version": "0.1.0",
+  "description": "Minimal TS agent demonstrating the AgentBreeder registry resolver pattern.",
+  "type": "module",
+  "scripts": {
+    "start": "tsx agent.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

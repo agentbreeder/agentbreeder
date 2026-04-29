@@ -1,0 +1,17 @@
+# gcloud builds submit ignores these — keeps the upload tarball small.
+.git/
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+node_modules/
+.env
+.env.*
+output/
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+.DS_Store

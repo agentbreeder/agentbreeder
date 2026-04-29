@@ -23,6 +23,7 @@
 15. [API Layer](#api-layer)
 16. [Full Code SDK](#full-code-sdk)
 17. [Design Principles](#design-principles)
+18. [Authentication Model](#authentication-model)
 
 ---
 
@@ -467,9 +468,51 @@ Native provider implementations used when `model.gateway` is not set:
 Central catalog for all organizational AI assets. Entries are only created or updated by:
 1. `agentbreeder deploy` (primary path)
 2. Connectors (passive ingestion)
-3. `agentbreeder register` (operator override)
+3. `agentbreeder registry [prompt|tool|agent] push` (operator override)
 
 **Tracked entity types:** Agents, A2A Agents, Tools, Models, Prompts, Providers, MCP Servers, Templates, Deploys, Marketplace listings.
+
+#### Registry-ref pattern (prompts + tools)
+
+Agents reference prompts and tools by name from `agent.yaml` instead of inlining
+them in code:
+
+```yaml
+prompts:
+  system: prompts/<agent-name>-system     # resolved by engine.prompt_resolver
+tools:
+  - ref: tools/<kebab-tool-name>          # resolved by engine.tool_resolver
+```
+
+Both resolvers follow a **file-first** chain: local file in the project →
+DB-backed registry API at `${AGENTBREEDER_REGISTRY_URL}/api/v1/registry/...` →
+inline literal fallback. Local files win so per-agent overrides work without
+touching the registry; the API is the source of truth across agents and across
+deploys.
+
+| Resolver | Python | TypeScript |
+|---|---|---|
+| Prompts | `engine.prompt_resolver.resolve_prompt()` | `resolvePrompt()` in `_shared_loader.ts` |
+| Tools   | `engine.tool_resolver.resolve_tool()` | `resolveTool()` in `_shared_loader.ts` |
+
+**Tool dispatch** (set by the `endpoint` field on the tool record, populated
+automatically by `agentbreeder registry tool push`):
+
+| Endpoint prefix | Dispatcher |
+|---|---|
+| `engine.tools.standard.<name>` | In-process Python import — for first-party stdlib tools |
+| `python:<abs_path>`             | Python subprocess — local `.py` tool file |
+| `node:<abs_path>`               | Node subprocess via `npx tsx` — TypeScript / JS tool file |
+| `http(s)://...`                 | HTTP POST with JSON body — remote / MCP-style tool |
+
+**Try-it / Run / Invoke endpoints** — every registered entity is executable
+from CLI + UI:
+
+| Endpoint | What it does |
+|---|---|
+| `POST /api/v1/registry/prompts/{id}/render` | Send the prompt + a user message to a real LLM, return the response |
+| `POST /api/v1/registry/tools/{id}/execute` | Dispatch the tool by endpoint prefix, return `{output, stdout, stderr, exit_code, duration_ms, error}` |
+| `POST /api/v1/agents/{id}/invoke` | Server-side proxy that forwards to the agent's deployed `/invoke` with bearer auth — solves CORS, keeps secrets server-side |
 
 ### Connectors (`connectors/`)
 
@@ -782,6 +825,66 @@ Full YAML round-trip: `agent.to_yaml()` → valid `agent.yaml`; `Agent.from_yaml
 9. **Three tiers, one pipeline** — No Code, Low Code, and Full Code all compile to the same internal format. Tier-specific logic never appears in the engine, deployers, or registry.
 
 10. **Tier mobility** — users move between tiers without losing work. No Code generates valid YAML. Low Code ejects to Full Code. No lock-in at any abstraction level.
+
+---
+
+## Authentication Model
+
+AgentBreeder enforces auth at two distinct layers:
+
+### Layer 1 — Management API (`/api/v1/*`)
+
+JWT-based, gated at the route level via FastAPI dependencies. **247 of 247
+routes** require authentication; only `auth/login` and `auth/register` are open
+by design (needed to bootstrap a session).
+
+```python
+# Default: any authenticated user
+async def list_agents(
+    user: User = Depends(get_current_user),
+    ...
+)
+
+# Stricter: role-based gate
+async def register_tool(
+    user: User = Depends(require_role("deployer")),
+    ...
+)
+```
+
+Roles: `viewer` < `deployer` < `admin`. Mutating the registry (push prompt /
+tool / agent, run tool, deploy) requires `deployer` or higher.
+
+### Layer 2 — Agent Runtime (`/invoke`, `/stream`, `/resume`, `/mcp`)
+
+Bearer-token auth via the `AGENT_AUTH_TOKEN` env var on the deployed agent
+container. Every framework runtime template (6 Python servers, 9 Node servers)
+implements the same contract:
+
+| Endpoint | Authenticated |
+|---|---|
+| `GET /health` | No (Cloud Run / k8s liveness probes) |
+| `GET /.well-known/agent.json` (Node only) | No (A2A discovery) |
+| `POST /invoke`, `POST /stream`, `POST /resume`, `POST /mcp` | Yes (`Authorization: Bearer <AGENT_AUTH_TOKEN>`) |
+
+When the env var is unset/empty, auth is disabled — for local development
+ergonomics. Production deploys always set it (via Secret Manager, AWS Secrets
+Manager, Vault, etc.) and list it in `agent.yaml`'s `deploy.secrets` so the
+deploy pipeline mounts it automatically.
+
+### Why two layers
+
+The management API and the agent runtime are independent failure domains:
+
+- **Management API** owns the registry — accessed by humans (dashboard) and
+  CI (CLI commands). Its threat model is internal abuse + RBAC.
+- **Agent runtime** owns inference — accessed by end-user clients or peer
+  services. Its threat model is public exposure + token compromise.
+
+Mixing them would force the dashboard to issue runtime tokens (insecure) or
+force end users to obtain platform JWTs (wrong audience). The proxy endpoint
+`POST /api/v1/agents/{id}/invoke` bridges them: takes a JWT in, attaches the
+bearer for the agent runtime out, and never exposes the bearer to the browser.
 
 ---
 

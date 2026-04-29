@@ -36,6 +36,7 @@ async def browse_marketplace(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[list[MarketplaceBrowseItem]]:
     listings, total = await MarketplaceRegistry.browse(
         db,
@@ -96,6 +97,7 @@ async def submit_listing(
 async def get_listing(
     listing_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[MarketplaceListingResponse]:
     listing = await MarketplaceRegistry.get_by_id(db, listing_id)
     if not listing:
@@ -172,6 +174,7 @@ async def list_reviews(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[list[ListingReviewResponse]]:
     reviews, total = await MarketplaceRegistry.get_reviews(
         db, listing_id, page=page, per_page=per_page
@@ -186,6 +189,7 @@ async def list_reviews(
 async def install_from_listing(
     listing_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[dict[str, bool]]:
     """Increment install count (called after one-click deploy)."""
     await MarketplaceRegistry.increment_install_count(db, listing_id)

@@ -170,6 +170,9 @@ Full feature matrix and supported versions → [docs/features](https://www.agent
 | `agentbreeder template` | Browse and apply agent templates from the marketplace |
 | `agentbreeder orchestration` | Manage multi-agent orchestrations |
 | `agentbreeder compliance` | Generate SOC 2 / HIPAA / GDPR / ISO 27001 evidence reports |
+| `agentbreeder registry prompt push|list|try` | Push, list, and **render** prompts via a real LLM |
+| `agentbreeder registry tool push|list|run` | Push (auto-detects Python vs TS), list, and **execute** tools |
+| `agentbreeder registry agent push|list|invoke` | Push, list, and **chat** with deployed agents |
 | `agentbreeder --version` | Print the installed version |
 
 Full CLI reference → [agentbreeder.io/docs/cli-reference](https://www.agentbreeder.io/docs/cli-reference)
@@ -208,6 +211,37 @@ agentbreeder chat my-agent    # chat with a deployed agent
 pip3 install agentbreeder
 agentbreeder quickstart
 ```
+
+After it boots, every prompt, tool, and agent lives in the registry — accessible
+from CLI, the API, or the dashboard:
+
+```bash
+# Login + export the JWT (CLI commands need it)
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@agentbreeder.local","password":"…"}' \
+  | jq -r '.data.access_token')
+export AGENTBREEDER_API_TOKEN=$TOKEN
+
+# Browse and execute
+agentbreeder registry prompt list
+agentbreeder registry prompt try gemini-assistant-system --input "Greet me"
+
+agentbreeder registry tool list
+agentbreeder registry tool run web-search --args '{"query":"What is RAG?"}'
+
+agentbreeder registry agent list
+agentbreeder registry agent invoke gemini-assistant \
+  --input "What time is it?" \
+  --endpoint http://localhost:8080 --token $AGENT_AUTH_TOKEN
+```
+
+The dashboard at **http://localhost:3001** has the same affordances under
+`/prompts`, `/tools`, and `/agents` — including a **Try it** tab on every tool,
+a **Test** tab on every prompt that calls a real LLM, and an **Invoke** tab on
+every agent that chats with the deployed runtime.
+
+
 
 That single command:
 - Detects and guides Docker/Podman install if needed
@@ -261,6 +295,30 @@ agentbreeder ui
 Then open **http://localhost:3001** and log in (default: `admin@agentbreeder.local` / `plant`). Deployed agents appear automatically in the **Agents** tab.
 
 > **Docker networking note:** Agent containers reach the API at `http://host.docker.internal:8000` (macOS/Windows with Docker Desktop) or `http://172.17.0.1:8000` (Linux). Use `localhost:8000` only from your host terminal.
+
+---
+
+## Deploying to production
+
+The reference `microlearning-ebook-agent` is **deployed and serving** at
+`https://microlearning-ebook-agent-sizukgalta-uc.a.run.app`. The deploy script
+at `microlearning-ebook-agent/scripts/deploy_gcp.sh` automates the full flow:
+
+1. Enable GCP APIs (Cloud Run, Artifact Registry, Cloud Build, Secret Manager)
+2. Create the image repository
+3. Push secrets (`GOOGLE_API_KEY`, `TAVILY_API_KEY`, `AGENT_AUTH_TOKEN`) to Secret Manager
+4. Build + push the container via Cloud Build (~3 min)
+5. Deploy to Cloud Run with min=0 (scale-to-zero), max=5
+
+```bash
+cd microlearning-ebook-agent
+bash scripts/deploy_gcp.sh
+# → Deployed: https://<service>-<hash>-uc.a.run.app
+```
+
+Auth, config, and verification details — [agentbreeder.io/docs/deployment](https://www.agentbreeder.io/docs/deployment)
+
+The same pattern (`agentbreeder deploy`) works for AWS ECS Fargate, App Runner, Azure Container Apps, and Kubernetes — set `deploy.cloud:` in `agent.yaml`.
 
 ---
 

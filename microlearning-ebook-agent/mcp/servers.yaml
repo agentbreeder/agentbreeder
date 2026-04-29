@@ -1,0 +1,10 @@
+# MCP server references for microlearning-ebook-agent
+# Register with: agentbreeder scan
+mcp_servers:
+  # Web research provider — pick one and uncomment.
+  # - name: tavily-mcp
+  #   registry_ref: tools/tavily-mcp
+  #   description: Tavily web search MCP for sourcing authoritative material.
+  # - name: fetch-mcp
+  #   registry_ref: tools/fetch-mcp
+  #   description: Generic URL fetcher for downloading article content cited by Tavily.

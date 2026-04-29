@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import os
+import time
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import get_current_user, get_optional_user
+from api.auth import get_current_user
 from api.database import get_db
 from api.models.database import Agent, User
 from api.models.enums import AgentStatus
 from api.models.schemas import (
     AgentCloneRequest,
     AgentCreate,
+    AgentInvokeRequest,
+    AgentInvokeResponse,
     AgentResponse,
     AgentUpdate,
     AgentValidationErrorItem,
@@ -78,6 +83,7 @@ async def list_agents(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[list[AgentResponse]]:
     """List agents from the registry."""
     agents, total = await AgentRegistry.list(
@@ -92,6 +98,7 @@ async def list_agents(
 @router.post("/validate", response_model=ApiResponse[AgentValidationResponse])
 async def validate_agent_yaml(
     body: AgentYamlRequest,
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[AgentValidationResponse]:
     """Validate raw YAML against the agent schema, returning errors and warnings."""
     result = validate_config_yaml(body.yaml_content)
@@ -130,6 +137,7 @@ async def search_agents(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[list[AgentResponse]]:
     """Search agents by name, description, team, or framework."""
     agents, total = await AgentRegistry.search(db, query=q, page=page, per_page=per_page)
@@ -143,7 +151,7 @@ async def search_agents(
 async def get_agent(
     agent_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[AgentResponse]:
     """Get agent details by ID.
 
@@ -257,6 +265,84 @@ async def clone_agent(
     db.add(cloned)
     await db.flush()
     return ApiResponse(data=AgentResponse.model_validate(cloned))
+
+
+@router.post("/{agent_id}/invoke", response_model=ApiResponse[AgentInvokeResponse])
+async def invoke_agent(
+    agent_id: uuid.UUID,
+    body: AgentInvokeRequest,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[AgentInvokeResponse]:
+    """Proxy a chat invocation through to the agent's deployed runtime.
+
+    Resolves the target endpoint in this order: ``body.endpoint_url`` →
+    ``agent.endpoint_url`` (from the registry record). Uses the bearer token
+    from ``body.auth_token`` if provided, falling back to the env var
+    ``AGENT_<UPPER_SNAKE>_TOKEN`` (so callers can keep the secret server-side).
+
+    The request is POSTed to ``<endpoint>/invoke`` with the standard
+    InvokeRequest body shape that all framework runtime templates accept.
+    """
+    agent = await AgentRegistry.get_by_id(db, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    endpoint = (body.endpoint_url or agent.endpoint_url or "").rstrip("/")
+    if not endpoint:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Agent '{agent.name}' has no endpoint_url and the request did "
+                "not provide one. Set endpoint_url on the agent record or pass "
+                "it in the request body."
+            ),
+        )
+
+    token = body.auth_token
+    if not token:
+        env_var = "AGENT_" + agent.name.upper().replace("-", "_") + "_TOKEN"
+        token = os.environ.get(env_var, "").strip() or None
+
+    payload: dict = {"input": body.input}
+    if body.session_id:
+        payload["session_id"] = body.session_id
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    started = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(f"{endpoint}/invoke", json=payload, headers=headers)
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        if resp.status_code >= 400:
+            return ApiResponse(
+                data=AgentInvokeResponse(
+                    output="",
+                    duration_ms=duration_ms,
+                    status_code=resp.status_code,
+                    error=resp.text[:2000],
+                )
+            )
+        data = resp.json()
+        return ApiResponse(
+            data=AgentInvokeResponse(
+                output=data.get("output", ""),
+                session_id=data.get("session_id"),
+                duration_ms=duration_ms,
+                status_code=resp.status_code,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 — surface to UI
+        return ApiResponse(
+            data=AgentInvokeResponse(
+                output="",
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                status_code=0,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        )
 
 
 @router.delete("/{agent_id}", response_model=ApiResponse[dict])

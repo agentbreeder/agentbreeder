@@ -13,7 +13,15 @@ model:
   max_tokens: 4096
 
 tools:
-  - ref: tools/news-digest-tools
+  # Registry refs — resolved via engine.tool_resolver from local files in ./tools/
+  - ref: tools/fetch-hackernews
+  - ref: tools/fetch-arxiv
+  - ref: tools/fetch-rss
+  - ref: tools/send-email
+
+prompts:
+  # Resolved via engine.prompt_resolver from ./prompts/ai-news-digest-system.md
+  system: prompts/ai-news-digest-system
 
 deploy:
   cloud: local

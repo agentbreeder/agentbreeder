@@ -1,0 +1,7 @@
+# Local override for stack startup when host ports conflict with other projects.
+# `!reset` replaces (rather than appends to) the base ports list — required in
+# Docker Compose v2.20+ to override list-typed fields.
+services:
+  redis:
+    ports: !reset
+      - "6380:6379"

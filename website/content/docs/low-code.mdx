@@ -92,19 +92,21 @@ model:
   temperature: 0.7
   max_tokens: 4096
 
-# Tools & MCP Servers
+# Tools & MCP Servers — always reference by registry ref. Never inline.
+# Local files at tools/<snake_name>.py override the registry automatically.
 tools:
-  - ref: tools/zendesk-mcp      # from your org's tool registry
-  - ref: tools/order-lookup
+  - ref: tools/web-search       # resolves engine.tools.standard.web_search
+  - ref: tools/markdown-writer  # resolves engine.tools.standard.markdown_writer
 
 # Knowledge Bases (RAG)
 knowledge_bases:
   - ref: kb/product-docs
   - ref: kb/return-policy
 
-# Versioned Prompts
+# Versioned Prompts — always reference by registry ref. Never inline.
+# The actual prompt body lives at prompts/<name>.md in the project.
 prompts:
-  system: prompts/support-system-v3   # registry ref (versioned, cached)
+  system: prompts/microlearning-system   # file-first; falls back to registry API
 
 # Guardrails
 guardrails:
@@ -140,6 +142,16 @@ access:
 ```
 
 For the full field reference see [agent.yaml Reference →](agent-yaml).
+
+<Callout type="info" title="Resolver chain">
+  Both `prompts:` and `tools:` use a **file-first** resolution chain so you can iterate locally without touching the registry. AgentBreeder's runtime calls `engine.prompt_resolver.resolve_prompt("prompts/<name>", project_root)` and `engine.tool_resolver.resolve_tool("tools/<kebab>", project_root)` at startup.
+
+  **Prompt:** local file (`<project>/prompts/<name>.md`) → registry API (`${AGENTBREEDER_REGISTRY_URL}/api/v1/registry/prompts`) → inline literal (backward compat).
+
+  **Tool:** local file (`<project>/tools/<snake_name>.py`) → first-party stdlib (`engine.tools.standard.<snake_name>`) → registry API metadata.
+
+  TypeScript agents (sdk-ts) get the same precedence via `resolvePrompt()` and `resolveTool()` in `engine/runtimes/templates/node/_shared_loader.ts`, including local `.ts/.js/.mjs` files.
+</Callout>
 
 ### 4. Validate
 
@@ -267,6 +279,69 @@ claude_managed:
 ---
 
 ## Common Workflows
+
+### Push your agent to the registry
+
+Before (or instead of) deploying, push the agent and its dependent entities to your org's registry so they can be re-used, versioned, and deployed from the dashboard.
+
+```bash
+# Push the prompt — versioned. Auto-bumps semver patch on update.
+agentbreeder registry prompt push prompts/microlearning-system.md \
+    --version 1.0.0 \
+    --team eng \
+    --description "Microlearning ebook author"
+
+# Push the tools. The CLI auto-detects dispatch type:
+#   .py file → python:<abs_path>
+#   .ts/.js  → node:<abs_path>
+#   module path → kept for in-process import
+agentbreeder registry tool push tools/web_search.py
+agentbreeder registry tool push tools/markdown_writer.py
+
+# Push the agent record itself (refs the prompt + tools above)
+agentbreeder registry agent push agent.yaml
+```
+
+List anything in the registry:
+
+```bash
+agentbreeder registry prompt list --team eng
+agentbreeder registry tool list
+agentbreeder registry agent list --team eng
+```
+
+<Callout type="info" title="Auth">
+  All `registry` commands are auth-gated. Set `AGENTBREEDER_API_TOKEN` to a JWT obtained from `POST /api/v1/auth/login`.
+</Callout>
+
+### Test before deploy
+
+Run a prompt or a tool against the registry directly from your terminal — no agent, no container build.
+
+```bash
+# Render a prompt with a real Gemini call (POST /api/v1/registry/prompts/{id}/render)
+agentbreeder registry prompt try microlearning-system \
+    --input "What is your job?" \
+    --model gemini-2.5-flash
+
+# Run a tool with structured args (POST /api/v1/registry/tools/{tool_id}/execute)
+agentbreeder registry tool run web-search \
+    --args '{"query": "agentbreeder docs"}'
+
+agentbreeder registry tool run markdown-writer \
+    --args '{"path": "out.md", "content": "# Hello"}'
+```
+
+Once the agent is deployed, you can chat with it through the same registry-aware CLI:
+
+```bash
+agentbreeder registry agent invoke microlearning-ebook-agent \
+    --input "What is your job?" \
+    --endpoint https://microlearning-ebook-agent-sizukgalta-uc.a.run.app \
+    --token "$AGENT_MICROLEARNING_EBOOK_AGENT_TOKEN"
+```
+
+The CLI calls `POST /api/v1/agents/{agent_id}/invoke`, which proxies server-side and attaches the bearer token from `--token` or the `AGENT_<UPPER_SNAKE>_TOKEN` env var.
 
 ### Check status and interact
 

@@ -412,6 +412,7 @@ async def list_index_relationships(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
     predicate: str | None = Query(None),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[list[dict]]:
     """List extracted relationships for a graph/hybrid index (paginated).
 

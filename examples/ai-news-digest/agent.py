@@ -1,9 +1,12 @@
 """Google ADK agent for the AI news digest.
 
-Exports `root_agent` — picked up by AgentBreeder's server wrapper at runtime.
+Demonstrates the **registry pattern** with multiple tools:
+  - System prompt resolved from prompts/ai-news-digest-system.md
+  - Each of the four tools resolved via local override files in tools/
+    (fetch_hackernews.py, fetch_arxiv.py, fetch_rss.py, send_email.py).
+    Each thin file delegates to tools/impl.py for the actual logic.
 
-WORKAROUND: This file exists because AgentBreeder issue #66 is not yet resolved.
-Once #66 lands, delete agent.py and use root_agent.yaml alone (Low Code tier).
+Exports `root_agent` — picked up by AgentBreeder's server wrapper at runtime.
 
 Run directly for local development:
     python agent.py --once        # fetch and email now
@@ -17,70 +20,31 @@ import logging
 import os
 import time
 from datetime import date
+from pathlib import Path
 
 import schedule
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm as LiteLlmModel
-from tools.impl import fetch_arxiv, fetch_hackernews, fetch_rss, send_email
+
+try:
+    from engine.prompt_resolver import resolve_prompt
+    from engine.tool_resolver import resolve_tool
+except ImportError as exc:  # pragma: no cover
+    raise ImportError(
+        "engine.prompt_resolver and engine.tool_resolver are required. "
+        "Install the agentbreeder package: pip install -e <agentbreeder-repo>"
+    ) from exc
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# System prompt (mirrors root_agent.yaml instruction)
-# ---------------------------------------------------------------------------
+_PROJECT_ROOT = Path(__file__).resolve().parent
 
-_SYSTEM_PROMPT = """\
-You are an AI news curator. When the user asks for the daily digest, follow these steps:
-
-1. Call fetch_hackernews, fetch_arxiv, and fetch_rss to gather stories.
-   Use limit = NEWS_COUNT / 3 for each (default: 5 each).
-
-2. Write a digest with exactly three labelled sections:
-
-   ## Hacker News Picks
-   ## Research Papers (ArXiv)
-   ## Industry News (RSS)
-
-3. For each item write 2-3 sentences: what it is and why it matters for AI practitioners.
-   Include the URL at the end of each item.
-
-4. Call send_email with:
-   - subject: "AI News Digest — {today's date}"
-   - body: the full digest text
-
-Be direct. No preamble. No filler phrases. Prioritise novelty and practical impact.
-If a source returned no results, note it briefly and continue.
-"""
-
-# ---------------------------------------------------------------------------
-# Tool wrappers (same impl, ADK-compatible signatures)
-# ---------------------------------------------------------------------------
-
-
-def _fetch_hackernews(limit: int = 5) -> list[dict]:
-    """Fetch top AI stories from Hacker News."""
-    return fetch_hackernews(limit=limit)
-
-
-def _fetch_arxiv(limit: int = 5) -> list[dict]:
-    """Fetch latest AI/ML papers from ArXiv cs.AI + cs.LG."""
-    return fetch_arxiv(limit=limit)
-
-
-def _fetch_rss(limit: int = 5) -> list[dict]:
-    """Fetch AI industry news from TechCrunch, Wired, VentureBeat RSS."""
-    return fetch_rss(limit=limit)
-
-
-def _send_email(subject: str, body: str) -> dict:
-    """Send digest to RECIPIENT_EMAILS via Gmail SMTP."""
-    return send_email(subject=subject, body=body)
-
-
-# ---------------------------------------------------------------------------
-# root_agent — exported for AgentBreeder's server wrapper
-# ---------------------------------------------------------------------------
+INSTRUCTION = resolve_prompt("prompts/ai-news-digest-system", project_root=_PROJECT_ROOT)
+fetch_hackernews = resolve_tool("tools/fetch-hackernews", project_root=_PROJECT_ROOT)
+fetch_arxiv = resolve_tool("tools/fetch-arxiv", project_root=_PROJECT_ROOT)
+fetch_rss = resolve_tool("tools/fetch-rss", project_root=_PROJECT_ROOT)
+send_email = resolve_tool("tools/send-email", project_root=_PROJECT_ROOT)
 
 root_agent = Agent(
     name="ai_news_digest",
@@ -89,8 +53,8 @@ root_agent = Agent(
         api_base=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
     ),
     description="Daily AI news digest — HN + ArXiv + RSS, emailed via Gmail",
-    instruction=_SYSTEM_PROMPT,
-    tools=[_fetch_hackernews, _fetch_arxiv, _fetch_rss, _send_email],
+    instruction=INSTRUCTION,
+    tools=[fetch_hackernews, fetch_arxiv, fetch_rss, send_email],
 )
 
 # ---------------------------------------------------------------------------

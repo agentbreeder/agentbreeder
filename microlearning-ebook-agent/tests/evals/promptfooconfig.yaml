@@ -1,0 +1,22 @@
+description: "microlearning-ebook-agent evals"
+prompts: ["{{input}}"]
+providers:
+  - id: http
+    config:
+      url: http://localhost:8080/run
+      method: POST
+      body: { input: "{{input}}" }
+tests:
+  - vars: { input: "Create a microlearning ebook on Zero Trust networking for non-technical managers." }
+    assert:
+      - { type: contains, value: "learning objective" }
+      - { type: contains, value: "quiz" }
+      - { type: javascript, value: "JSON.stringify(output).match(/https?:\\/\\//) !== null" }
+  - vars: { input: "Build a microlearning module on SOC 2 controls for new engineers." }
+    assert:
+      - { type: contains, value: "module" }
+      - { type: llm-rubric, value: "Output cites at least one authoritative source for every claim" }
+  - vars: { input: "Topic: Negotiation tactics for first-time managers." }
+    assert:
+      - { type: llm-rubric, value: "Lessons follow Bloom's taxonomy (remember -> understand -> apply)" }
+      - { type: llm-rubric, value: "Quizzes have correct answers with non-trivial distractors" }

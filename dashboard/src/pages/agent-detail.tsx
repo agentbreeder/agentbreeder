@@ -31,8 +31,10 @@ import {
   AlertCircle,
   CheckCircle2,
   GitCompareArrows,
+  Play,
+  Loader2,
 } from "lucide-react";
-import { api, type Agent, type AgentStatus, type DeployJob } from "@/lib/api";
+import { api, type Agent, type AgentStatus, type DeployJob, type AgentInvokeResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1561,6 +1563,10 @@ export default function AgentDetailPage() {
           <TabsTrigger value="logs" className={TAB_TRIGGER_CLASS}>
             Logs
           </TabsTrigger>
+          <TabsTrigger value="invoke" className={TAB_TRIGGER_CLASS}>
+            <Play className="size-3" />
+            Invoke
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
           <OverviewTab agent={agent} />
@@ -1582,7 +1588,163 @@ export default function AgentDetailPage() {
             <p className="text-sm text-muted-foreground">Live logs coming in M4.2</p>
           </div>
         </TabsContent>
+        <TabsContent value="invoke">
+          <InvokePanel agentId={id!} defaultEndpoint={agent.endpoint_url || ""} agentName={agent.name} />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Invoke panel — chat with the agent's deployed runtime via the API proxy
+// (POST /api/v1/agents/{id}/invoke). Endpoint + bearer token are user-supplied
+// so the dashboard can hit any deployed runtime (local, Cloud Run, ECS, etc.).
+// ────────────────────────────────────────────────────────────────────────────
+function InvokePanel({
+  agentId,
+  defaultEndpoint,
+  agentName,
+}: {
+  agentId: string;
+  defaultEndpoint: string;
+  agentName: string;
+}) {
+  const [endpoint, setEndpoint] = useState<string>(defaultEndpoint || "http://localhost:8080");
+  const [token, setToken] = useState<string>("");
+  const [input, setInput] = useState<string>("");
+  const [sessionId, setSessionId] = useState<string>("");
+  const [running, setRunning] = useState(false);
+  const [response, setResponse] = useState<AgentInvokeResponse | null>(null);
+
+  const handleSend = async (): Promise<void> => {
+    if (!input.trim()) return;
+    setRunning(true);
+    setResponse(null);
+    try {
+      const resp = await api.agents.invoke(agentId, {
+        input,
+        endpoint_url: endpoint || undefined,
+        auth_token: token || undefined,
+        session_id: sessionId || undefined,
+      });
+      const result = resp.data;
+      setResponse(result);
+      if (result.session_id) setSessionId(result.session_id);
+    } catch (e) {
+      setResponse({
+        output: "",
+        session_id: null,
+        duration_ms: 0,
+        status_code: 0,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 grid gap-6 md:grid-cols-2">
+      <div className="space-y-3">
+        <div className="space-y-2">
+          <label className="text-xs font-medium">Endpoint URL</label>
+          <input
+            type="text"
+            value={endpoint}
+            onChange={(e) => setEndpoint(e.target.value)}
+            placeholder="http://localhost:8080"
+            className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Where the agent's <code className="rounded bg-muted px-1">/invoke</code> endpoint is reachable.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-medium">Bearer token</label>
+          <input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="AGENT_AUTH_TOKEN value"
+            className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-medium">Session ID <span className="text-muted-foreground">(auto-filled after first turn)</span></label>
+          <input
+            type="text"
+            value={sessionId}
+            onChange={(e) => setSessionId(e.target.value)}
+            placeholder="(empty = new session)"
+            className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-medium">Message</label>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={`Ask ${agentName} something…`}
+            spellCheck={false}
+            className="h-32 w-full resize-none rounded-md border border-input bg-background p-2 text-xs leading-relaxed outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        <div className="flex items-center justify-end">
+          <Button
+            size="sm"
+            onClick={handleSend}
+            disabled={running || !input.trim() || !endpoint.trim()}
+          >
+            {running ? <Loader2 className="size-3 animate-spin" /> : <Play className="size-3" />}
+            {running ? "Sending..." : "Send"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Response
+        </h3>
+        {response === null && !running && (
+          <div className="flex h-72 items-center justify-center rounded-md border border-dashed border-input text-xs text-muted-foreground">
+            Send a message to see the agent's reply.
+          </div>
+        )}
+        {running && (
+          <div className="flex h-72 items-center justify-center rounded-md border border-input text-xs text-muted-foreground">
+            <Loader2 className="mr-2 size-4 animate-spin" />
+            Calling /invoke through the proxy…
+          </div>
+        )}
+        {response && (
+          <div className="space-y-2">
+            <div
+              className={
+                "flex items-center gap-2 rounded-md border p-2 text-xs " +
+                (response.error
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400")
+              }
+            >
+              <span className="font-mono">
+                status={response.status_code} • {response.duration_ms} ms
+                {response.session_id && ` • session=${response.session_id.slice(0, 8)}`}
+              </span>
+            </div>
+            {response.error && (
+              <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-md border border-destructive/30 bg-destructive/5 p-2 font-mono text-xs text-destructive">
+                {response.error}
+              </pre>
+            )}
+            {response.output && (
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-input bg-muted/40 p-3 text-xs leading-relaxed">
+                {response.output}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

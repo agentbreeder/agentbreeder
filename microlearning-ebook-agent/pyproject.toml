@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "live: tests that hit real external APIs (Gemini, Tavily). Skipped if keys missing.",
+]
+addopts = "-m 'not live'"

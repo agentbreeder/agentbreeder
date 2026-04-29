@@ -1,7 +1,7 @@
 // langchain_js_server.ts — LangChain.js server template
 // Platform-managed. Do not edit — regenerated on each deploy.
 import { createServer } from 'node:http'
-import { aps, buildAgentCard, buildHealthResponse } from './_shared_loader.js'
+import { aps, buildAgentCard, buildHealthResponse, verifyAuth } from './_shared_loader.js'
 import { chain } from './agent.js'
 
 const PORT = parseInt(process.env.PORT ?? '{{PORT}}', 10)
@@ -24,6 +24,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && url.pathname === '/invoke') {
+    if (!verifyAuth(req, res)) return
     const chunks: Buffer[] = []
     for await (const chunk of req) chunks.push(chunk as Buffer)
     const body = JSON.parse(Buffer.concat(chunks).toString())
@@ -35,6 +36,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && url.pathname === '/stream') {
+    if (!verifyAuth(req, res)) return
     const chunks: Buffer[] = []
     for await (const chunk of req) chunks.push(chunk as Buffer)
     const body = JSON.parse(Buffer.concat(chunks).toString())

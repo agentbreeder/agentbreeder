@@ -7,6 +7,7 @@ import HomePage from "@/pages/home";
 import AgentsPage from "@/pages/agents";
 import AgentDetailPage from "@/pages/agent-detail";
 import AgentBuilderPage from "@/pages/agent-builder";
+import AgentRegisterPage from "@/pages/agent-register";
 import ToolsPage from "@/pages/tools";
 import ToolDetailPage from "@/pages/tool-detail";
 import ModelsPage from "@/pages/models";
@@ -96,6 +97,7 @@ export default function App() {
               <Route path="agents" element={<AgentsPage />} />
               <Route path="agents/builder" element={<AgentBuilderPage />} />
               <Route path="agents/builder/:id" element={<AgentBuilderPage />} />
+              <Route path="agents/register" element={<AgentRegisterPage />} />
               <Route path="agents/:id" element={<AgentDetailPage />} />
               <Route path="tools" element={<ToolsPage />} />
               <Route path="tools/builder" element={<ToolBuilderPage />} />

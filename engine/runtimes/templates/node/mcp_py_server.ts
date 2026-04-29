@@ -2,7 +2,7 @@
 // Platform-managed. Do not edit — regenerated on each deploy.
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
-import { buildAgentCard, buildHealthResponse } from './_shared_loader.js'
+import { buildAgentCard, buildHealthResponse, verifyAuth } from './_shared_loader.js'
 
 const PORT = parseInt(process.env.PORT ?? '{{PORT}}', 10)
 const PYTHON_MCP_ENTRY = process.env.PYTHON_MCP_ENTRY ?? 'tools.py'
@@ -54,6 +54,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && url.pathname === '/mcp') {
+    if (!verifyAuth(req, res)) return
     const chunks: Buffer[] = []
     for await (const chunk of req) chunks.push(chunk as Buffer)
     const request = JSON.parse(Buffer.concat(chunks).toString())

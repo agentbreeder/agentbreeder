@@ -202,7 +202,9 @@ async def update_budget(
 
 
 @router.get("/costs/forecast")
-async def get_cost_forecast(days: int = Query(30, ge=1, le=90)) -> ApiResponse[dict]:
+async def get_cost_forecast(
+    days: int = Query(30, ge=1, le=90), _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """30-day spend projection."""
     from api.services.agentops_service import get_agentops_store
 
@@ -210,7 +212,7 @@ async def get_cost_forecast(days: int = Query(30, ge=1, le=90)) -> ApiResponse[d
 
 
 @router.get("/costs/anomalies")
-async def get_cost_anomalies() -> ApiResponse[list]:
+async def get_cost_anomalies(_user: User = Depends(get_current_user)) -> ApiResponse[list]:
     """Cost spike alerts."""
     from api.services.agentops_service import get_agentops_store
 
@@ -218,7 +220,7 @@ async def get_cost_anomalies() -> ApiResponse[list]:
 
 
 @router.get("/costs/suggestions")
-async def get_cost_suggestions() -> ApiResponse[list]:
+async def get_cost_suggestions(_user: User = Depends(get_current_user)) -> ApiResponse[list]:
     """Model swap recommendations."""
     from api.services.agentops_service import get_agentops_store
 
@@ -226,7 +228,9 @@ async def get_cost_suggestions() -> ApiResponse[list]:
 
 
 @router.get("/costs/chargeback")
-async def get_cost_chargeback(days: int = Query(30, ge=1, le=90)) -> ApiResponse[list]:
+async def get_cost_chargeback(
+    days: int = Query(30, ge=1, le=90), _user: User = Depends(get_current_user)
+) -> ApiResponse[list]:
     """Team-level cost chargeback report."""
     from api.services.agentops_service import get_agentops_store
 

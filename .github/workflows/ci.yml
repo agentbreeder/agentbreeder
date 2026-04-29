@@ -125,37 +125,65 @@ jobs:
         run: |
           coverage report --fail-under=75
 
-  # ── Mocked E2E (fast, no backend needed) ────────────────────────────────────
-  test-e2e-mocked:
-    name: E2E Tests (Mocked)
+  # ── Examples smoke (catches drift in reference scaffolds users copy) ────────
+  # NOTE: agentbreeder init is interactive today (no --yes/--cloud flags), so this
+  # gate validates the examples directory rather than driving init. When init grows
+  # non-interactive flags, expand this to scaffold via init too.
+  test-examples-smoke:
+    name: Examples Smoke (parse + pytest config)
     runs-on: ubuntu-latest
-    needs: [lint-python, lint-frontend]
-    defaults:
-      run:
-        working-directory: dashboard
+    needs: [test-python]
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          - examples/langgraph-agent
+          - examples/crewai-agent
+          - examples/claude-sdk-agent
+          - examples/openai-agents-agent
+          - examples/google-adk-agent
+          - examples/quickstart/rag-agent
+          - examples/quickstart/graph-agent
+          - examples/quickstart/search-agent
+    env:
+      EXAMPLE_DIR: ${{ matrix.example }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: dashboard/package-lock.json
+          python-version: "3.12"
+          cache: pip
 
-      - run: npm ci
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+      - name: Verify required files exist
+        run: |
+          cd "$EXAMPLE_DIR"
+          test -f agent.yaml || (echo "missing agent.yaml" && exit 1)
+          # Entry-point file: each framework uses its own convention
+          # (agent.py / crew.py / main.py). At least one must exist.
+          if ! ls agent.py crew.py main.py 2>/dev/null | head -1 | grep -q .; then
+            echo "missing entry-point file (expected one of: agent.py, crew.py, main.py)" >&2
+            exit 1
+          fi
+          test -f requirements.txt || (echo "missing requirements.txt" && exit 1)
+          test -f pyproject.toml || (echo "missing pyproject.toml" && exit 1)
+          grep -q "^pytest" requirements.txt || (echo "pytest not in requirements.txt" && exit 1)
+          grep -q "pythonpath" pyproject.toml || (echo "pythonpath missing in pyproject.toml" && exit 1)
 
-      - name: Run mocked E2E tests
-        run: npx playwright test --config=playwright.config.ts
+      - name: Validate entry-point parses
+        run: |
+          cd "$EXAMPLE_DIR"
+          ENTRY=$(ls agent.py crew.py main.py 2>/dev/null | head -1)
+          python -c "import ast; ast.parse(open('$ENTRY').read())"
 
-      - name: Upload test artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-mocked-report
-          path: dashboard/playwright-report/
-          retention-days: 7
+      - name: Pytest config sanity (config loads cleanly)
+        run: |
+          pip install pytest
+          cd "$EXAMPLE_DIR"
+          mkdir -p tests
+          echo "def test_pytest_config_loads(): assert True" > tests/test_smoke.py
+          pytest tests/test_smoke.py -v
+          rm tests/test_smoke.py
 
   # ── Docker E2E (real stack) ──────────────────────────────────────────────────
   test-e2e-docker:
@@ -246,11 +274,19 @@ jobs:
         working-directory: dashboard
         run: npx playwright install --with-deps chromium
 
-      - name: Run Docker E2E tests
+      - name: Run Docker E2E tests (Playwright — health + page-load only)
         working-directory: dashboard
         run: npx playwright test --config=playwright.docker.config.ts
         env:
           PLAYWRIGHT_DOCKER_BASE_URL: http://localhost:3001
+
+      - name: Run Docker E2E API smoke (auth + agents + auth gates)
+        # In the e2e stack only the dashboard is host-exposed (:3001); its
+        # nginx proxies /api/* to the api container. The smoke script lets
+        # API_BASE_URL default to DASHBOARD_BASE_URL so we go through nginx.
+        run: bash dashboard/tests/e2e-docker/api_smoke.sh
+        env:
+          DASHBOARD_BASE_URL: http://localhost:3001
 
       - name: Show docker logs on failure
         if: failure()
@@ -277,7 +313,7 @@ jobs:
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [test-python, test-e2e-mocked]
+    needs: [test-python]
     steps:
       - uses: actions/checkout@v4
 

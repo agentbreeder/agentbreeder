@@ -206,7 +206,7 @@ async def list_runs(
 
 
 @router.get("/runs/{run_id}")
-async def get_run(run_id: str) -> ApiResponse[dict]:
+async def get_run(run_id: str, _user: User = Depends(get_current_user)) -> ApiResponse[dict]:
     """Get a run with its results."""
     store = get_eval_store()
     run = store.get_run(run_id)
@@ -219,7 +219,7 @@ async def get_run(run_id: str) -> ApiResponse[dict]:
 
 
 @router.delete("/runs/{run_id}")
-async def cancel_run(run_id: str) -> ApiResponse[dict]:
+async def cancel_run(run_id: str, _user: User = Depends(get_current_user)) -> ApiResponse[dict]:
     """Cancel a run (mark as cancelled)."""
     store = get_eval_store()
     run = store.get_run(run_id)
@@ -244,6 +244,7 @@ async def get_score_trend(
     agent_name: str = Query(..., description="Agent name to get trend for"),
     metric: str = Query("correctness"),
     limit: int = Query(20, ge=1, le=100),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[list]:
     """Get score trend for an agent over recent runs."""
     store = get_eval_store()
@@ -255,6 +256,7 @@ async def get_score_trend(
 async def compare_runs(
     run_a: str = Query(..., description="First run ID"),
     run_b: str = Query(..., description="Second run ID"),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """Compare two eval runs side-by-side."""
     store = get_eval_store()
@@ -313,7 +315,7 @@ def _generate_badge_svg(label: str, value: str, color: str) -> str:
 
 
 @router.get("/badge/{agent_name}")
-async def get_eval_badge(agent_name: str) -> Response:
+async def get_eval_badge(agent_name: str, _user: User = Depends(get_current_user)) -> Response:
     """Return an SVG badge with the latest eval score for an agent."""
     store = get_eval_store()
 
@@ -361,7 +363,9 @@ async def get_eval_badge(agent_name: str) -> Response:
 
 
 @router.post("/schedules", status_code=201)
-async def create_schedule(body: dict) -> ApiResponse[dict]:
+async def create_schedule(
+    body: dict, _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """Create a scheduled evaluation."""
     store = get_eval_store()
 
@@ -385,7 +389,7 @@ async def create_schedule(body: dict) -> ApiResponse[dict]:
 
 
 @router.get("/schedules")
-async def list_schedules() -> ApiResponse[list]:
+async def list_schedules(_user: User = Depends(get_current_user)) -> ApiResponse[list]:
     """List all scheduled evaluations."""
     store = get_eval_store()
     schedules = store.list_schedules()
@@ -393,7 +397,9 @@ async def list_schedules() -> ApiResponse[list]:
 
 
 @router.delete("/schedules/{schedule_id}")
-async def delete_schedule(schedule_id: str) -> ApiResponse[dict]:
+async def delete_schedule(
+    schedule_id: str, _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """Delete a scheduled evaluation."""
     store = get_eval_store()
     deleted = store.delete_schedule(schedule_id)
@@ -412,6 +418,7 @@ async def get_leaderboard(
     dataset_id: str | None = Query(None),
     metric: str = Query("correctness"),
     limit: int = Query(20, ge=1, le=100),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[list]:
     """Return ranked leaderboard of agents by mean metric score.
 
@@ -424,7 +431,9 @@ async def get_leaderboard(
 
 
 @router.get("/reports/{run_id}")
-async def get_public_report(run_id: str) -> ApiResponse[dict]:
+async def get_public_report(
+    run_id: str, _user: User = Depends(get_current_user)
+) -> ApiResponse[dict]:
     """Get a public shareable eval report for a completed run."""
     store = get_eval_store()
     run = store.get_run(run_id)
@@ -443,7 +452,7 @@ async def get_public_report(run_id: str) -> ApiResponse[dict]:
 
 
 @router.get("/runs/{run_id}/export/csv")
-async def export_run_csv(run_id: str) -> Response:
+async def export_run_csv(run_id: str, _user: User = Depends(get_current_user)) -> Response:
     """Export run results as a CSV file."""
     store = get_eval_store()
     try:
@@ -459,7 +468,9 @@ async def export_run_csv(run_id: str) -> Response:
 
 
 @router.post("/datasets/seed-community", status_code=201)
-async def seed_community_benchmark_datasets() -> ApiResponse[dict]:
+async def seed_community_benchmark_datasets(
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[dict]:
     """Seed the 3 community benchmark datasets (customer support, SQL analyst, code reviewer).
 
     Safe to call multiple times — skips datasets that already exist.
@@ -475,7 +486,7 @@ async def seed_community_benchmark_datasets() -> ApiResponse[dict]:
 
 
 @router.post("/promote-check")
-async def promote_check(body: dict) -> ApiResponse[dict]:
+async def promote_check(body: dict, _user: User = Depends(get_current_user)) -> ApiResponse[dict]:
     """Check if an agent passes the eval gate for promotion.
 
     Input: { agent_name, min_score, required_metrics }

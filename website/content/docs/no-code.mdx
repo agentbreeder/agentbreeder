@@ -122,6 +122,81 @@ You can also run `agentbreeder scan` from the CLI to discover locally running MC
 
 ---
 
+## Register an agent from YAML
+
+If you already have an `agent.yaml` (handed over from an engineer, or pasted from another project), you can register it without ever leaving the dashboard.
+
+1. Go to `http://localhost:3001/agents`
+2. Click **Register from YAML** — the button sits next to **Create Agent** at the top right
+3. The page at `http://localhost:3001/agents/register` opens with a YAML editor
+4. Paste your `agent.yaml`, click **Validate** (parses + JSON Schema check), then **Submit**
+
+The agent record is persisted via `POST /api/v1/agents/from-yaml` and stores the name, version, framework, deploy config, and refs to prompts + tools. Once registered, the agent appears in the registry and can be deployed from the dashboard like any other agent.
+
+Cross-references inside the YAML resolve from the same registry the dashboard uses:
+
+- Prompts: `prompts: {system: prompts/microlearning-system}` resolves to the prompt managed at [Prompts →](prompts)
+- Tools: `tools: [{ref: tools/web-search}, {ref: tools/markdown-writer}]` resolves to entries in the [tools registry](mcp-servers)
+
+---
+
+## Try a prompt without code
+
+The **Test** tab on a prompt page now uses a real Gemini call (it was simulated previously).
+
+1. Go to `http://localhost:3001/prompts/<id>` — for example, the `microlearning-system` prompt
+2. Click the **Test** tab
+3. Enter a user message in the chat box (e.g. "What is your job?")
+4. Click **Send Test**
+
+Behind the scenes the dashboard calls `POST /api/v1/registry/prompts/{id}/render` with `{user_message, model, temperature}` and renders the live LLM response. The default model is `gemini-2.5-flash` and the response includes the model used and total duration in milliseconds.
+
+<Callout type="info" title="Versioned prompts">
+  Saving a change to the prompt body auto-bumps the semver patch (e.g. `1.0.0` → `1.0.1`). The Test tab always renders the version currently shown in the editor.
+</Callout>
+
+---
+
+## Run a tool from the dashboard
+
+Every registered tool gets an auto-generated form and runner UI.
+
+1. Go to `http://localhost:3001/tools/<id>` — for example, the `web-search` or `markdown-writer` tool
+2. Click the **Try it** tab
+3. The form is auto-generated from the tool's JSON schema — fill the fields
+4. Click **Run tool**
+
+The result panel shows:
+
+- `output` — the structured tool result
+- `stdout` / `stderr` — raw process streams (for `python:` and `node:` dispatch)
+- `exit_code` — process exit code (`0` on success)
+- `duration_ms` — wall-clock duration (e.g. ~25 ms for in-process Python, ~1.5 s for a cold Node tool)
+
+Calls go through `POST /api/v1/registry/tools/{tool_id}/execute`, which dispatches by the tool's `endpoint` field (`engine.tools.standard.<name>`, `python:<abs_path>`, `node:<abs_path>`, or HTTP).
+
+---
+
+## Chat with a deployed agent
+
+Once an agent is deployed (locally or to Cloud Run / ECS / etc.), the dashboard talks to it through a server-side proxy — no CORS pain, and bearer tokens stay server-side.
+
+1. Go to `http://localhost:3001/agents/<id>` — for example, `microlearning-ebook-agent`
+2. Click the **Invoke** tab
+3. Fill in:
+   - **Endpoint** — e.g. `https://microlearning-ebook-agent-sizukgalta-uc.a.run.app`
+   - **Bearer token** — pasted directly, or pulled from `AGENT_<UPPER_SNAKE>_TOKEN` env var server-side
+   - **Message** — the user input (e.g. "What is your job?")
+4. Click **Send**
+
+You get back the agent's `output`, the `session_id` (auto-filled into the form for the next turn so multi-turn chat just works), and the `duration_ms` and `status_code` from the upstream call. The proxy is `POST /api/v1/agents/{agent_id}/invoke`.
+
+<Callout type="info" title="Multi-turn">
+  The session id is preserved across turns until you clear the form. Backend memory and conversation state are managed by the agent runtime, not the dashboard.
+</Callout>
+
+---
+
 ## Multi-Agent Orchestration (Visual Canvas)
 
 The dashboard includes a ReactFlow-based drag-and-drop canvas for building multi-agent pipelines — no code required.

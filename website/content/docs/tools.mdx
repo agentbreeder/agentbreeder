@@ -17,6 +17,17 @@ Tools are functions agents can call during a conversation. AgentBreeder supports
 
 Both kinds are stored in the shared org tool registry and referenced the same way in `agent.yaml`.
 
+### Standard library (shipped)
+
+AgentBreeder ships a small first-party stdlib at `engine.tools.standard.*`. Two tools are available out of the box:
+
+| Tool | Module | Purpose |
+|------|--------|---------|
+| `web-search` | `engine.tools.standard.web_search` | Tavily-backed web search |
+| `markdown-writer` | `engine.tools.standard.markdown_writer` | Write a Markdown file to disk |
+
+Reference these from `agent.yaml` exactly like any other registered tool: `tools: [{ref: tools/web-search}, {ref: tools/markdown-writer}]`.
+
 ---
 
 ## Concepts
@@ -82,7 +93,7 @@ Define the JSON Schema for the tool's inputs:
 
 ## Step 2 — Register
 
-<Tabs items={['Dashboard', 'API', 'Python SDK', 'TypeScript SDK']}>
+<Tabs items={['Dashboard', 'API', 'CLI', 'Python SDK', 'TypeScript SDK']}>
   <Tab value="Dashboard">
 Go to **Registry → Tools → New Tool**. Fill in:
 - **Name** — slug-friendly (e.g., `order-lookup`)
@@ -92,6 +103,28 @@ Go to **Registry → Tools → New Tool**. Fill in:
 - **Endpoint** — URL if the tool is hosted (optional for function tools)
 
 Click **Register**. The tool is now available as `tools/order-lookup`.
+  </Tab>
+  <Tab value="CLI">
+```bash
+# Push a tool — auto-detects language from the input:
+#   .py file       → endpoint = python:<abs_path>
+#   .ts/.js/.mjs   → endpoint = node:<abs_path>
+#   module path    → kept as-is for in-process import (e.g., engine.tools.standard.web_search)
+agentbreeder registry tool push tools/order_lookup.py \
+  --description "Look up an order by ID, with optional tracking info"
+
+agentbreeder registry tool push engine.tools.standard.web_search \
+  --description "Tavily web search"
+
+# List tools
+agentbreeder registry tool list
+
+# Run a tool with structured args
+agentbreeder registry tool run order-lookup \
+  --args '{"order_id": "ORD-123456", "include_tracking": true}'
+```
+
+All `registry tool` commands require `AGENTBREEDER_API_TOKEN` (a JWT from `POST /api/v1/auth/login`). `tool run` requires the `deployer` role.
   </Tab>
   <Tab value="API">
 ```bash
@@ -210,17 +243,64 @@ Response:
 
 ---
 
+## Step 3b — Execute / Try it (registered tools)
+
+Once a tool is registered, run it directly without the sandbox. The execute endpoint dispatches based on the `endpoint` field stored on the tool record:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/registry/tools/{tool_id}/execute \
+  -H "Authorization: Bearer $AGENTBREEDER_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "args": { "query": "transformer attention", "max_results": 3 }
+  }'
+```
+
+Response:
+```json
+{
+  "data": {
+    "output": { "results": [ /* ... */ ] },
+    "stdout": "",
+    "stderr": "",
+    "exit_code": 0,
+    "duration_ms": 412,
+    "error": null
+  }
+}
+```
+
+### Endpoint dispatch
+
+`engine/tool_runner.py` picks a dispatcher from the `endpoint` prefix:
+
+| Prefix | Dispatcher | Example |
+|---|---|---|
+| `engine.tools.standard.<name>` | In-process Python import | `markdown-writer`, ~25 ms |
+| `python:<abs_path>` | Python subprocess | `get-current-time`, ~50 ms |
+| `node:<abs_path>` | Node subprocess via `npx tsx` | `get-utc-time`, ~1.5 s cold |
+| `http(s)://...` | HTTP POST with JSON body | (configurable) |
+
+Auth: requires the `deployer` role.
+
+<Callout type="info" title="Try it tab in the dashboard">
+  Open any tool at `/tools/:id` and switch to the **Try it** tab. The dashboard auto-generates a form from the tool's `SCHEMA`, you fill in the inputs, hit **Run**, and the result panel shows `output`, `stdout`/`stderr`, exit code, and duration inline.
+</Callout>
+
+---
+
 ## Step 4 — Use in agent.yaml
 
 <Tabs items={['Registry reference', 'Inline definition', 'Mix both']}>
   <Tab value="Registry reference">
 ```yaml
-name: support-agent
-framework: langgraph
+name: microlearning-ebook-agent
+framework: google_adk
 
 tools:
-  - ref: tools/order-lookup       # ← resolves from registry at deploy time
-  - ref: tools/zendesk-mcp
+  - ref: tools/web-search         # engine.tools.standard.web_search
+  - ref: tools/markdown-writer    # engine.tools.standard.markdown_writer
+  - ref: tools/order-lookup       # your own registered tool
   - ref: mcp-servers/slack        # MCP server also referenced as a tool
 ```
   </Tab>
@@ -255,6 +335,34 @@ tools:
 ```
   </Tab>
 </Tabs>
+
+### Resolver chain (local → stdlib → registry)
+
+`tools[].ref` is resolved by `engine.tool_resolver.resolve_tool()` in this order:
+
+1. **Local override** — `<project>/tools/<snake_name>.py` (a file in your project always wins)
+2. **Standard library** — `engine.tools.standard.<snake_name>` (first-party, e.g., `web_search`, `markdown_writer`)
+3. **Registry API** — metadata fetched from `/api/v1/registry/tools` (the caller wraps the returned dict into a callable)
+
+The TypeScript counterpart is `resolveTool()` in `engine/runtimes/templates/node/_shared_loader.ts` — same precedence, with local `.ts` / `.js` / `.mjs` files first, then registry metadata.
+
+### Wiring `agent.py`
+
+```python
+# agent.py
+from pathlib import Path
+from engine.tool_resolver import resolve_tool
+
+web_search = resolve_tool("tools/web-search", project_root=Path(__file__).parent)
+markdown_writer = resolve_tool("tools/markdown-writer", project_root=Path(__file__).parent)
+
+# Use them with whatever framework you're on:
+TOOLS = [web_search, markdown_writer]
+```
+
+<Callout type="warning" title="Import-shadow gotcha (stdlib tools)">
+  `engine/tools/standard/__init__.py` must **not** re-export tool functions. If it does, `import engine.tools.standard.web_search as ws_mod` returns the **function**, not the module — and any registry-seed script that reads `ws_mod.SCHEMA` breaks at startup. Keep `__init__.py` empty (or limit it to package metadata).
+</Callout>
 
 ---
 
@@ -331,6 +439,7 @@ network_access: false
 | `GET` | `/api/v1/registry/tools` | List tools (filter by `tool_type`, `source`) |
 | `GET` | `/api/v1/registry/tools/{id}` | Get tool with full schema |
 | `GET` | `/api/v1/registry/tools/{id}/usage` | List agents using this tool |
+| `POST` | `/api/v1/registry/tools/{id}/execute` | Run a registered tool (dispatches by `endpoint` prefix; requires `deployer` role) |
 | `POST` | `/api/v1/tools/sandbox/execute` | Execute tool code in isolated sandbox |
 
 ---
