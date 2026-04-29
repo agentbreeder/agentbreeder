@@ -8,6 +8,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Added
+- **Generic OpenAI-compatible provider + 9-preset catalog** (#160): `engine/providers/openai_compatible.py` parameterised by `base_url`/`api_key_env`/`default_headers` replaces what would have been 9 hand-written classes. New `engine/providers/catalog.yaml` ships nvidia, openrouter, moonshot (Kimi K2), groq, together, fireworks, deepinfra, cerebras, hyperbolic — merged with `~/.agentbreeder/providers.local.yaml` overrides at load time. New CLI: `agentbreeder provider list/add/remove/test/publish`. New API route `GET /api/v1/providers/catalog`. Dashboard `/models` page lists catalog presets with a Configure stub. `model.primary: nvidia/<model>` resolves through the existing engine path.
+
 ### Fixed
 - **Integration tests / Docker builds**: removed `@agentbreeder/aps-client` npm dep (package not yet published); vendor `aps-client.ts` source directly into Node.js Docker build context so `npm install` no longer fails with 404
 - **ESLint errors**: suppressed `react-hooks/set-state-in-effect` errors in `gateway.tsx`, `incidents.tsx`, `prompt-builder.tsx`; fixed root cause in `login.tsx` by initializing `mounted=true` (removes invisible form on first render — fixes E2E login tests)
