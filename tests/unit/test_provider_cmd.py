@@ -23,15 +23,21 @@ def providers_file(tmp_path):
 
 class TestProviderList:
     def test_list_empty(self, providers_file):
+        # With Track F's catalog landed, `provider list` always shows the built-in
+        # OpenAI-compatible catalog table even when no providers are configured.
         result = runner.invoke(app, ["provider", "list"])
         assert result.exit_code == 0
-        assert "No providers configured" in result.output
+        assert "OpenAI-Compatible Catalog" in result.output
 
     def test_list_empty_json(self, providers_file):
         result = runner.invoke(app, ["provider", "list", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data == []
+        # Track F: top-level shape is {"configured": [...], "catalog": [...]}.
+        assert data["configured"] == []
+        catalog_names = {entry["name"] for entry in data["catalog"]}
+        assert "nvidia" in catalog_names
+        assert "groq" in catalog_names
 
     def test_list_with_providers(self, providers_file):
         providers = {
@@ -67,8 +73,9 @@ class TestProviderList:
         result = runner.invoke(app, ["provider", "list", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert len(data) == 1
-        assert data[0]["name"] == "OpenAI"
+        # Track F: top-level shape is {"configured": [...], "catalog": [...]}.
+        assert len(data["configured"]) == 1
+        assert data["configured"][0]["name"] == "OpenAI"
 
 
 class TestProviderAdd:

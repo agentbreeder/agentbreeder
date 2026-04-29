@@ -1,18 +1,30 @@
 """agentbreeder provider — manage LLM provider connections and API keys.
 
 Subcommands:
-    agentbreeder provider list                  — list configured providers
-    agentbreeder provider add <type>            — add a new provider (interactive)
+    agentbreeder provider list                  — list catalog + configured providers
+    agentbreeder provider add <name>            — add a provider (legacy types or
+                                                  ``--type openai_compatible``)
     agentbreeder provider test <name>           — test provider connection
     agentbreeder provider models <name>         — list models from a provider
     agentbreeder provider remove <name>         — remove a provider
     agentbreeder provider disable <name>        — disable a provider without removing
     agentbreeder provider enable <name>         — re-enable a disabled provider
+    agentbreeder provider publish <name>        — promote a user-local entry to a
+                                                  PR against the upstream catalog
+
+For the OpenAI-compatible catalog (Nvidia, Groq, Together, Fireworks, …), use
+``--type openai_compatible``:
+
+    agentbreeder provider add my-vllm \\
+      --type openai_compatible \\
+      --base-url https://vllm.internal.company.com/v1 \\
+      --api-key-env COMPANY_VLLM_KEY
 """
 
 from __future__ import annotations
 
 import json
+import os
 import platform
 import sys
 import time
@@ -206,14 +218,37 @@ provider_app = typer.Typer(
 def provider_list(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
-    """List all configured providers."""
+    """List all configured providers and catalog presets."""
+    from engine.providers.catalog import list_entries
+
     providers = _load_providers()
+    catalog_entries = list_entries()
 
     if json_output:
-        sys.stdout.write(json.dumps(list(providers.values()), indent=2) + "\n")
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "configured": list(providers.values()),
+                    "catalog": [
+                        {
+                            "name": name,
+                            "type": entry.type,
+                            "base_url": str(entry.base_url),
+                            "api_key_env": entry.api_key_env,
+                            "source": entry.source,
+                            "configured": bool(os.environ.get(entry.api_key_env)),
+                            "docs": str(entry.docs) if entry.docs else None,
+                        }
+                        for name, entry in sorted(catalog_entries.items())
+                    ],
+                },
+                indent=2,
+            )
+            + "\n"
+        )
         return
 
-    if not providers:
+    if not providers and not catalog_entries:
         console.print()
         console.print(
             Panel(
@@ -229,29 +264,50 @@ def provider_list(
         console.print()
         return
 
-    table = Table(title="Configured Providers")
-    table.add_column("Name", style="cyan")
-    table.add_column("Type", style="yellow")
-    table.add_column("Status", style="green")
-    table.add_column("Models")
-    table.add_column("API Key", style="dim")
-    table.add_column("Base URL", style="dim")
+    if providers:
+        table = Table(title="Configured Providers")
+        table.add_column("Name", style="cyan")
+        table.add_column("Type", style="yellow")
+        table.add_column("Status", style="green")
+        table.add_column("Models")
+        table.add_column("API Key", style="dim")
+        table.add_column("Base URL", style="dim")
 
-    for p in providers.values():
-        status = p.get("status", "active")
-        status_style = {"active": "green", "disabled": "yellow", "error": "red"}.get(status, "dim")
+        for p in providers.values():
+            status = p.get("status", "active")
+            status_style = {"active": "green", "disabled": "yellow", "error": "red"}.get(
+                status, "dim"
+            )
+            table.add_row(
+                p.get("name", ""),
+                p.get("provider_type", ""),
+                f"[{status_style}]{status}[/{status_style}]",
+                str(p.get("model_count", 0)),
+                p.get("masked_key", "—"),
+                p.get("base_url", "") or "—",
+            )
+        console.print()
+        console.print(table)
 
-        table.add_row(
-            p.get("name", ""),
-            p.get("provider_type", ""),
-            f"[{status_style}]{status}[/{status_style}]",
-            str(p.get("model_count", 0)),
-            p.get("masked_key", "—"),
-            p.get("base_url", "") or "—",
-        )
+    if catalog_entries:
+        catalog_table = Table(title="OpenAI-Compatible Catalog")
+        catalog_table.add_column("Name", style="cyan")
+        catalog_table.add_column("Source", style="yellow")
+        catalog_table.add_column("Configured", style="green")
+        catalog_table.add_column("API Key Env", style="dim")
+        catalog_table.add_column("Base URL", style="dim")
 
-    console.print()
-    console.print(table)
+        for name, entry in sorted(catalog_entries.items()):
+            configured = bool(os.environ.get(entry.api_key_env))
+            catalog_table.add_row(
+                name,
+                entry.source,
+                "[green]yes[/green]" if configured else "[dim]no[/dim]",
+                entry.api_key_env,
+                str(entry.base_url),
+            )
+        console.print()
+        console.print(catalog_table)
     console.print()
 
 
@@ -259,13 +315,45 @@ def provider_list(
 def provider_add(
     provider_type: str = typer.Argument(
         ...,
-        help="Provider type: openai, anthropic, google, ollama, litellm, openrouter",
+        help=(
+            "Either a built-in type (openai, anthropic, google, ollama, "
+            "litellm, openrouter) or a catalog name (with --type openai_compatible)"
+        ),
     ),
     api_key: str | None = typer.Option(None, "--api-key", help="API key (non-interactive)"),
     base_url: str | None = typer.Option(None, "--base-url", help="Custom base URL"),
+    api_key_env: str | None = typer.Option(
+        None,
+        "--api-key-env",
+        help="Env var name for the API key (used with --type openai_compatible)",
+    ),
+    type_: str | None = typer.Option(
+        None,
+        "--type",
+        help="Set to 'openai_compatible' to add a generic OpenAI-compatible provider",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
-    """Add and configure a new LLM provider."""
+    """Add and configure a new LLM provider.
+
+    Two modes:
+
+    1. **Built-in type** — ``provider add openai`` runs the interactive wizard
+       for one of the hand-written providers.
+    2. **Catalog (OpenAI-compatible)** — ``provider add my-vllm
+       --type openai_compatible --base-url URL --api-key-env ENV`` writes a new
+       entry to ``~/.agentbreeder/providers.local.yaml`` so it can be referenced
+       in ``agent.yaml`` as ``my-vllm/<model>``.
+    """
+    if type_ == "openai_compatible":
+        _add_openai_compatible(
+            name=provider_type,
+            base_url=base_url,
+            api_key_env=api_key_env,
+            json_output=json_output,
+        )
+        return
+
     provider_type = provider_type.lower()
 
     if provider_type not in PROVIDER_TYPES:
@@ -453,10 +541,33 @@ def provider_add(
 
 @provider_app.command(name="test")
 def provider_test(
-    name: str = typer.Argument(..., help="Provider to test: openai, anthropic, etc."),
+    name: str = typer.Argument(..., help="Provider to test"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
-    """Test a provider connection and verify the API key works."""
+    """Test a provider connection and verify the API key works.
+
+    For catalog providers (Nvidia, Groq, …) this hits ``GET /models`` against
+    the configured ``base_url`` using the API key from the entry's
+    ``api_key_env``. For legacy interactive providers it falls back to the
+    simulated check.
+    """
+    from engine.providers.catalog import get_entry
+
+    catalog_entry = get_entry(name)
+    if catalog_entry is not None:
+        result = _test_catalog_provider(name, catalog_entry, json_output)
+        if json_output:
+            sys.stdout.write(json.dumps(result, indent=2) + "\n")
+            return
+        if result["success"]:
+            console.print(f"  [green]✓[/green] {name} is healthy")
+            console.print(f"    Models discovered: {result['model_count']}")
+        else:
+            console.print(f"  [red]✗[/red] {name}: {result['error']}")
+            raise typer.Exit(code=1)
+        console.print()
+        return
+
     name = name.lower()
     providers = _load_providers()
 
@@ -534,7 +645,39 @@ def provider_remove(
     name: str = typer.Argument(..., help="Provider to remove"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
-    """Remove a provider and its API key."""
+    """Remove a provider and its API key.
+
+    Looks first in the user-local catalog (added via
+    ``provider add ... --type openai_compatible``); falls back to the legacy
+    interactive provider registry for built-in types.
+    """
+    # Catalog-style user-local entry takes precedence
+    from engine.providers.catalog import (
+        load_user_local,
+        reset_cache,
+        write_user_local,
+    )
+
+    user_catalog = load_user_local()
+    if name in user_catalog.providers:
+        if not json_output:
+            confirm = (
+                console.input(f"  [bold]Remove user-local catalog entry '{name}'? (y/N): [/bold]")
+                .strip()
+                .lower()
+            )
+            if confirm != "y":
+                console.print("  [dim]Cancelled.[/dim]")
+                raise typer.Exit(code=0)
+        del user_catalog.providers[name]
+        write_user_local(user_catalog)
+        reset_cache()
+        if json_output:
+            sys.stdout.write(json.dumps({"removed": name, "source": "user-local"}) + "\n")
+            return
+        console.print(f"  [green]✓[/green] Removed user-local entry '{name}'\n")
+        return
+
     name = name.lower()
     providers = _load_providers()
 
@@ -622,3 +765,206 @@ def provider_enable(
 
     console.print(f"  [green]✓[/green] {providers[name]['name']} re-enabled")
     console.print()
+
+
+# ─── OpenAI-compatible catalog helpers ─────────────────────────────────────
+
+
+def _add_openai_compatible(
+    *,
+    name: str,
+    base_url: str | None,
+    api_key_env: str | None,
+    json_output: bool,
+) -> None:
+    """Add a user-local OpenAI-compatible catalog entry."""
+    from engine.providers.catalog import (
+        CatalogEntry,
+        CatalogError,
+        load_user_local,
+        write_user_local,
+    )
+
+    if not base_url:
+        console.print("[red]--base-url is required for --type openai_compatible[/red]")
+        raise typer.Exit(code=1)
+    if not api_key_env:
+        console.print("[red]--api-key-env is required for --type openai_compatible[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        entry = CatalogEntry(
+            type="openai_compatible",
+            base_url=base_url,
+            api_key_env=api_key_env,
+            source="user-local",
+        )
+    except Exception as exc:  # pydantic ValidationError
+        console.print(f"[red]Invalid catalog entry: {exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    try:
+        catalog = load_user_local()
+    except CatalogError as exc:
+        console.print(f"[red]Could not load user-local catalog: {exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    catalog.providers[name] = entry
+    path = write_user_local(catalog)
+
+    if json_output:
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "name": name,
+                    "type": "openai_compatible",
+                    "base_url": str(entry.base_url),
+                    "api_key_env": api_key_env,
+                    "source": "user-local",
+                    "file": str(path),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        return
+
+    console.print()
+    console.print(
+        Panel(
+            f"  [green]✓[/green] Added user-local provider [cyan]{name}[/cyan]\n\n"
+            f"  Base URL:    [dim]{entry.base_url}[/dim]\n"
+            f"  API key env: [dim]{api_key_env}[/dim]\n"
+            f"  File:        [dim]{path}[/dim]\n\n"
+            f"  Use in agent.yaml:\n"
+            f"    [dim]model:\n"
+            f"      primary: {name}/<model-id>[/dim]\n\n"
+            f"  Test with: [bold cyan]agentbreeder provider test {name}[/bold cyan]\n"
+            f"  Promote to upstream catalog: "
+            f"[bold cyan]agentbreeder provider publish {name}[/bold cyan]",
+            border_style="green",
+            padding=(1, 2),
+        )
+    )
+    console.print()
+
+
+def _test_catalog_provider(
+    name: str,
+    entry: object,  # CatalogEntry — typed loosely to avoid import at module load
+    json_output: bool,
+) -> dict[str, object]:
+    """Run ``GET /models`` against a catalog provider and report results.
+
+    Mocks of ``httpx.AsyncClient`` are honoured — see tests.
+    """
+    import asyncio
+
+    from engine.providers.base import (
+        AuthenticationError,
+        ProviderError,
+    )
+    from engine.providers.openai_compatible import from_catalog
+
+    if not json_output:
+        console.print(f"\n  [dim]Testing {name}...[/dim]")
+
+    api_key_env = getattr(entry, "api_key_env", "")
+    if api_key_env and not os.environ.get(api_key_env):
+        return {
+            "success": False,
+            "model_count": 0,
+            "error": f"{api_key_env} not set in environment",
+        }
+
+    async def _run() -> dict[str, object]:
+        try:
+            provider = from_catalog(name)
+        except (KeyError, AuthenticationError) as exc:
+            return {"success": False, "model_count": 0, "error": str(exc)}
+        try:
+            models = await provider.list_models()
+            return {"success": True, "model_count": len(models), "error": None}
+        except ProviderError as exc:
+            return {"success": False, "model_count": 0, "error": str(exc)}
+        finally:
+            await provider.close()
+
+    return asyncio.run(_run())
+
+
+@provider_app.command(name="publish")
+def provider_publish(
+    name: str = typer.Argument(..., help="User-local catalog name to promote"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """Promote a user-local provider entry to a PR against the upstream catalog.
+
+    Currently this prints the equivalent ``catalog.yaml`` patch and exits
+    non-zero — actual PR opening will land alongside ``cli/commands/git.py``
+    integration. Until then, copy the printed YAML into a PR by hand.
+    """
+    from engine.providers.catalog import load_user_local
+
+    catalog = load_user_local()
+    entry = catalog.providers.get(name)
+    if entry is None:
+        console.print(
+            f"[red]No user-local provider named '{name}'.[/red] "
+            f"Add one first with [bold]agentbreeder provider add[/bold]."
+        )
+        raise typer.Exit(code=1)
+
+    payload = {
+        name: {
+            "type": entry.type,
+            "base_url": str(entry.base_url),
+            "api_key_env": entry.api_key_env,
+        }
+    }
+    if entry.default_headers:
+        payload[name]["default_headers"] = entry.default_headers  # type: ignore[assignment]
+    if entry.docs:
+        payload[name]["docs"] = str(entry.docs)
+    if entry.notable_models:
+        payload[name]["notable_models"] = entry.notable_models  # type: ignore[assignment]
+
+    import yaml
+
+    snippet = yaml.safe_dump({"providers": payload}, sort_keys=False)
+
+    if json_output:
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "status": "not_implemented",
+                    "name": name,
+                    "snippet": snippet,
+                    "next_steps": [
+                        "Append snippet to engine/providers/catalog.yaml",
+                        "Open a PR against agentbreeder/agentbreeder",
+                    ],
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        raise typer.Exit(code=2)
+
+    console.print()
+    console.print(
+        Panel(
+            "[yellow]provider publish[/yellow] would open a PR against "
+            "[cyan]engine/providers/catalog.yaml[/cyan].\n\n"
+            "  [dim]Automatic PR opening is not yet implemented "
+            "(TODO: integrate with cli/commands/git.py).[/dim]\n\n"
+            "  [bold]Patch to apply manually:[/bold]\n\n"
+            f"[dim]{snippet}[/dim]\n"
+            "  Then submit a PR to [cyan]https://github.com/agentbreeder/agentbreeder[/cyan].",
+            title=f"Promote '{name}' to upstream",
+            border_style="yellow",
+            padding=(1, 2),
+        )
+    )
+    console.print()
+    raise typer.Exit(code=2)
