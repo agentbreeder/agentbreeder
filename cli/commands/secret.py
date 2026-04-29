@@ -33,7 +33,6 @@ from engine.secrets.base import SecretsBackend
 from engine.secrets.factory import (
     SUPPORTED_BACKENDS,
     get_backend,
-    get_workspace_backend,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,8 +108,18 @@ def _resolve_backend(
         backend = _get_backend(explicit_backend, **kwargs)
         return backend, workspace or "default"
 
+    # Workspace path also routes through _get_backend so test mocks that
+    # patch cli.commands.secret._get_backend intercept this code path too.
     try:
-        backend, ws = get_workspace_backend(workspace=workspace)
+        from engine.secrets.workspace import load_workspace_secrets_config
+
+        ws = load_workspace_secrets_config(workspace=workspace)
+        backend_kwargs: dict[str, Any] = dict(ws.options)
+        if ws.backend == "keychain" and "workspace" not in backend_kwargs:
+            backend_kwargs["workspace"] = ws.workspace
+        if prefix is not None and ws.backend in ("aws", "gcp", "vault"):
+            backend_kwargs.setdefault("prefix", prefix)
+        backend = _get_backend(ws.backend, **backend_kwargs)
     except ImportError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
