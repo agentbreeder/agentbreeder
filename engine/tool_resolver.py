@@ -25,11 +25,12 @@ Kebab-case in the ref maps to snake_case for the Python module/function name.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast
 
 import httpx
 
@@ -74,7 +75,7 @@ def _resolve_from_local(snake_name: str, project_root: Path) -> Callable[..., An
     fn = getattr(module, snake_name, None)
     if callable(fn):
         logger.info("Resolved tool '%s' from local override: %s", snake_name, candidate_module)
-        return fn
+        return cast(Callable[..., Any], fn)
     return None
 
 
@@ -86,7 +87,7 @@ def _resolve_from_standard(snake_name: str) -> Callable[..., Any] | None:
     fn = getattr(module, snake_name, None)
     if callable(fn):
         logger.info("Resolved tool '%s' from engine.tools.standard", snake_name)
-        return fn
+        return cast(Callable[..., Any], fn)
     return None
 
 
@@ -113,7 +114,7 @@ def _resolve_from_registry(name: str) -> dict[str, Any] | None:
     if not matches:
         return None
     logger.info("Resolved tool '%s' metadata from registry %s", name, base_url)
-    return matches[0]
+    return cast(dict[str, Any], matches[0])
 
 
 def resolve_tool(

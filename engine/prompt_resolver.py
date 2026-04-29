@@ -106,7 +106,7 @@ def _resolve_from_registry(name: str, version: str | None) -> str | None:
         chosen.get("version", "?"),
         base_url,
     )
-    return content
+    return str(content)
 
 
 def resolve_prompt(value: str, project_root: Path | str | None = None) -> str:
