@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
-import { Bot, Search, Filter, Circle, Star, Plus } from "lucide-react";
+import { Bot, Search, Filter, Circle, Star, Plus, FileCode } from "lucide-react";
 import { api, type Agent, type AgentStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -192,6 +192,12 @@ export default function AgentsPage() {
             visibleKeys={visibleColumns}
             onChange={setVisibleColumns}
           />
+          <Link to="/agents/register">
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
+              <FileCode className="size-3.5" />
+              Register from YAML
+            </Button>
+          </Link>
           <Link to="/agents/builder">
             <Button size="sm" className="h-8 gap-1.5 text-xs">
               <Plus className="size-3.5" />

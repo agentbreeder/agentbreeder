@@ -111,6 +111,30 @@ export interface ToolHealth {
   latency_ms: number | null;
 }
 
+export interface ToolRunResponse {
+  output: unknown;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  duration_ms: number;
+  error: string | null;
+}
+
+export interface PromptRenderResponse {
+  output: string;
+  model: string;
+  duration_ms: number;
+  error: string | null;
+}
+
+export interface AgentInvokeResponse {
+  output: string;
+  session_id: string | null;
+  duration_ms: number;
+  status_code: number;
+  error: string | null;
+}
+
 // --- Model types ---
 
 export interface Model {
@@ -1030,6 +1054,14 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ yaml_content: yamlContent }),
       }),
+    invoke: (
+      id: string,
+      body: { input: string; endpoint_url?: string; auth_token?: string; session_id?: string }
+    ) =>
+      request<AgentInvokeResponse>(`/agents/${id}/invoke`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
   tools: {
     list: (params?: { tool_type?: string; source?: string; page?: number }) => {
@@ -1067,6 +1099,11 @@ export const api = {
       request<ToolDetail>(`/registry/tools/${id}`, {
         method: "PUT",
         body: JSON.stringify(body),
+      }),
+    run: (id: string, args: Record<string, unknown> = {}) =>
+      request<ToolRunResponse>(`/registry/tools/${id}/execute`, {
+        method: "POST",
+        body: JSON.stringify({ args }),
       }),
   },
   models: {
@@ -1152,6 +1189,14 @@ export const api = {
       }),
     test: (data: PromptTestRequest) =>
       request<PromptTestResponse>("/prompts/test", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    render: (
+      id: string,
+      data: { user_message: string; model: string; temperature?: number }
+    ) =>
+      request<PromptRenderResponse>(`/registry/prompts/${id}/render`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
