@@ -86,6 +86,11 @@ def _get_backend(backend: str, **kwargs: Any) -> SecretsBackend:
         raise typer.Exit(code=1) from exc
 
 
+# Alias kept so K's own test_secrets_keychain.py (which patches _make_backend)
+# continues to work alongside the older fixtures that patch _get_backend.
+_make_backend = _get_backend
+
+
 def _resolve_backend(
     explicit_backend: str | None,
     *,
