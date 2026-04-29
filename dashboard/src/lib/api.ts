@@ -1302,6 +1302,12 @@ export const api = {
         method: "POST",
       }),
     catalog: () => request<CatalogProvider[]>("/providers/catalog"),
+    catalogStatus: (workspace?: string) =>
+      request<Record<string, boolean>>(
+        `/providers/catalog/status${
+          workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""
+        }`,
+      ),
   },
   mcpServers: {
     list: (params?: { page?: number; per_page?: number }) => {
@@ -2060,6 +2066,14 @@ export const api = {
     list: (workspace?: string) =>
       request<SecretSummary[]>(
         `/secrets${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+      ),
+    create: (
+      body: { name: string; value: string; backend?: string },
+      workspace?: string,
+    ) =>
+      request<SecretSummary>(
+        `/secrets${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+        { method: "POST", body: JSON.stringify(body) },
       ),
     rotate: (name: string, newValue: string, workspace?: string) =>
       request<SecretSummary>(
