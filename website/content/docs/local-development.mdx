@@ -76,6 +76,79 @@ agentbreeder --help
 agentbreeder list agents
 ```
 
+## Auth
+
+All **247/247** management API routes under `/api/v1/*` are auth-gated via `Depends(get_current_user)` or `Depends(require_role(...))`. Only `auth/login` and `auth/register` are open by design.
+
+Bootstrap a token once per development session:
+
+```bash
+# 1. Register an account (first time only)
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@company.com","password":"…","name":"You"}'
+
+# 2. Login → JWT
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@company.com","password":"…"}'
+# → {"access_token": "eyJ…", "token_type": "bearer"}
+
+# 3. Export — the CLI picks this up automatically
+export AGENTBREEDER_API_TOKEN=eyJ…
+```
+
+Without `AGENTBREEDER_API_TOKEN` set, registry CLI commands will fail with 401.
+
+### Agent runtime auth (`AGENT_AUTH_TOKEN`)
+
+Deployed agent runtimes use a separate bearer token, supplied via the `AGENT_AUTH_TOKEN` env var on the runtime container. It gates `/invoke` and `/stream`; `/health` stays open for k8s and Cloud Run probes. Both Python (6 servers) and Node (9 servers) runtime templates ship with the same auth contract.
+
+## Use the registry CLI
+
+The registry CLI manages prompts, tools, and agents — the three entities resolved at agent startup (file-first, with the registry as DB-backed fallback).
+
+```bash
+# Prompts
+agentbreeder registry prompt push <file.md> [--name --version --team --description]
+agentbreeder registry prompt list [--team]
+agentbreeder registry prompt try <name> --input "..." [--model gemini-2.5-flash]
+
+# Tools — auto-detects .py → python:<abs>, .ts/.js → node:<abs>, module path → as-is
+agentbreeder registry tool push <module-or-file> [--description]
+agentbreeder registry tool list
+agentbreeder registry tool run <name> [--args '{"key":"value"}']
+
+# Agents
+agentbreeder registry agent push agent.yaml
+agentbreeder registry agent list [--team]
+agentbreeder registry agent invoke <name> --input "..." [--endpoint URL --token T --session SID]
+```
+
+All commands require `AGENTBREEDER_API_TOKEN`. See the [How-To Guide → Push prompts and tools](how-to#push-prompts-and-tools-to-the-registry) for end-to-end examples.
+
+## Reference example agents
+
+Several reference agents demonstrate the full registry + auth + deploy chain end-to-end. Use them when migrating an existing agent into the AgentBreeder pattern:
+
+| Example | What it shows |
+|---|---|
+| `examples/google-adk-agent` | Google ADK runtime, registry-backed prompt + tools, local + Cloud Run deploy |
+| `examples/ai-news-digest` | Scheduled agent, multiple stdlib tools, prompt versioning |
+| `examples/registry-pattern-ts` | TypeScript runtime — `resolvePrompt()` / `resolveTool()` from `engine/runtimes/templates/node/_shared_loader.ts` |
+
+The canonical reference is `microlearning-ebook-agent`: 1 prompt registered (`microlearning-system v1.0.2`), 2 stdlib tools (`web-search`, `markdown-writer`), all `/health` `/invoke` `/stream` endpoints gated by `AGENT_AUTH_TOKEN`, deployed to Cloud Run with secrets in Secret Manager.
+
+### End-to-end verification script
+
+`microlearning-ebook-agent/scripts/e2e_test.sh` runs **7 verifications** against a running stack — auth gates, prompt versioning, tool registry, runtime auth, real-tool-chat — and exits non-zero on any failure. Use it as a smoke test after schema changes:
+
+```bash
+cd microlearning-ebook-agent/
+./scripts/e2e_test.sh
+# 7/7 pass
+```
+
 ## Full Stack (Docker Compose)
 
 To run everything in Docker (API + Dashboard + Postgres + Redis + migrations):

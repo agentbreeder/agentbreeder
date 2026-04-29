@@ -194,6 +194,40 @@ deploy:
     - OPENAI_API_KEY    # must exist in GCP Secret Manager
 ```
 
+#### One-shot script (verified end-to-end)
+
+The reference example `microlearning-ebook-agent` ships a `scripts/deploy_gcp.sh` that automates the full chain — APIs, Artifact Registry, Secret Manager, Cloud Build, Cloud Run — in a single command. The script bundles the agentbreeder engine alongside the agent project via `Dockerfile.cloudrun`.
+
+```bash
+cd microlearning-ebook-agent/
+./scripts/deploy_gcp.sh
+```
+
+What the script does:
+
+1. `gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com`
+2. Ensures the Artifact Registry repo (default `hippokit`) exists in the configured region
+3. Pushes secrets (`GOOGLE_API_KEY`, `TAVILY_API_KEY`, `AGENT_AUTH_TOKEN`) to Secret Manager
+4. `gcloud builds submit . --config <generated cloudbuild.yaml>` (~3 min build)
+5. `gcloud run deploy <name> --image <image> --update-secrets ...`
+
+#### IAM grants (one-time per project)
+
+| Service account | Role | Why |
+|---|---|---|
+| Cloud Build SA (`<project-num>-compute@developer.gserviceaccount.com`) | `roles/storage.objectViewer` | Read source tarball |
+| Cloud Build SA | `roles/cloudbuild.builds.builder` | Create builds |
+| Cloud Build SA | `roles/logging.logWriter` | Write build logs |
+| Cloud Run runtime SA (same default SA) | `roles/secretmanager.secretAccessor` | Mount secrets as env vars |
+
+#### Cloud Run defaults
+
+Region `us-central1`, 2 GiB memory, 2 vCPU, scaling `min=0` / `max=5`, concurrency 10, port 8080, `--allow-unauthenticated` (auth happens at the agent layer via bearer token — see [chat with a deployed agent](#chat-with-a-deployed-agent) below).
+
+<Callout type="info" title="Shrink your upload">
+  Add a `.gcloudignore` at the repo root to drop venvs, build artifacts, and worktrees from the source upload. On the reference project this took the upload from **578 MB to 22 MB**.
+</Callout>
+
 ### AWS ECS Fargate
 
 ```bash
@@ -250,6 +284,178 @@ claude_managed:
     networking: unrestricted
   tools:
     - type: agent_toolset_20260401
+```
+
+---
+
+## Push prompts and tools to the registry
+
+Agents reference **prompts** and **tools** from the registry instead of inlining them. Each entity has a kebab-case name, is versioned, and is resolved at agent startup (file-first — local override always wins).
+
+### 1. Get a JWT and export it
+
+Every management API route under `/api/v1/*` is auth-gated (247/247 routes). Bootstrap a token once per session.
+
+```bash
+# Login (or POST /api/v1/auth/register first if you don't have an account)
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@company.com","password":"…"}'
+# → {"access_token": "eyJ…", "token_type": "bearer"}
+
+export AGENTBREEDER_API_TOKEN=eyJ…
+```
+
+The CLI reads `AGENTBREEDER_API_TOKEN` automatically.
+
+### 2. Push a prompt
+
+```bash
+agentbreeder registry prompt push prompts/microlearning-system.md \
+  --version 1.0.0 \
+  --team eng \
+  --description "System prompt for the microlearning ebook agent"
+
+agentbreeder registry prompt list --team eng
+```
+
+Versions auto-bump on save — calling `update_content` on an existing prompt bumps the semver patch (e.g. `1.0.0 → 1.0.1`).
+
+### 3. Push a tool — Python or TypeScript
+
+The CLI auto-detects the file extension and sets the right endpoint prefix on the registry record. You don't have to specify it.
+
+<Tabs items={['Python', 'TypeScript', 'Module path']}>
+  <Tab value="Python">
+```bash
+agentbreeder registry tool push tools/my_tool.py \
+  --description "Look up orders by ID"
+# Endpoint stored as:  python:/abs/path/to/tools/my_tool.py
+```
+  </Tab>
+  <Tab value="TypeScript">
+```bash
+agentbreeder registry tool push tools/my_tool.ts \
+  --description "Order lookup (Node)"
+# Endpoint stored as:  node:/abs/path/to/tools/my_tool.ts
+```
+  </Tab>
+  <Tab value="Module path">
+```bash
+agentbreeder registry tool push engine.tools.standard.web_search
+# Endpoint stored as-is for in-process Python import
+```
+  </Tab>
+</Tabs>
+
+```bash
+agentbreeder registry tool list
+```
+
+### 4. Verify in the dashboard
+
+| Page | What you'll see |
+|---|---|
+| `/prompts` | All registered prompts, with versions and a **Test** tab that runs a real Gemini call |
+| `/prompts/:id` | Versioned content, render history |
+| `/tools` | All registered tools, with endpoint type badges |
+| `/tools/:id` | Tool detail with the **Try it** tab — see [next recipe](#run-a-registered-tool-from-cli-or-dashboard) |
+
+---
+
+## Run a registered tool from CLI or dashboard
+
+Once a tool is in the registry, you can execute it with structured args from anywhere — CLI, dashboard, or directly via the API.
+
+### CLI
+
+```bash
+agentbreeder registry tool run web-search \
+  --args '{"query":"What is RAG?","max_results":2}'
+```
+
+### Dashboard
+
+Navigate to `/tools/<id>` → **Try it** tab. The form is auto-generated from the tool's `SCHEMA`. Fill in arguments → click **Run** → the result panel shows `output`, `stdout`, `stderr`, `exit_code`, `duration_ms`, and any `error`.
+
+### API (under the hood)
+
+```
+POST /api/v1/registry/tools/{tool_id}/execute
+```
+
+Auth: `deployer` role required. Returns `{output, stdout, stderr, exit_code, duration_ms, error}`.
+
+### Endpoint dispatch — four flavors
+
+`engine/tool_runner.py` dispatches the call based on the `endpoint` field on the tool record:
+
+| Prefix | Dispatcher | Example tool | Typical latency |
+|---|---|---|---|
+| `engine.tools.standard.<name>` | In-process Python import | `markdown-writer` | ~25 ms |
+| `python:<abs_path>` | Python subprocess | `get-current-time` | ~50 ms |
+| `node:<abs_path>` | Node subprocess via `npx tsx` | `get-utc-time` | ~1.5 s cold |
+| `http(s)://...` | HTTP POST with JSON body | (configurable) | network-bound |
+
+The standard library ships with `web_search` (Tavily) and `markdown_writer` out of the box.
+
+---
+
+## Chat with a deployed agent
+
+Once your agent is deployed, you can invoke it three ways: CLI, dashboard, or direct curl. Whichever path you use, runtime auth is enforced via a bearer token (`AGENT_AUTH_TOKEN`) — `/health` stays open for probes, but `/invoke` and `/stream` are gated.
+
+### Server-side proxy (preferred)
+
+```
+POST /api/v1/agents/{id}/invoke
+```
+
+This is a thin proxy that POSTs to the agent's deployed runtime `/invoke` endpoint, attaching the bearer token from the request body or the env var `AGENT_<UPPER_SNAKE>_TOKEN`. It solves CORS and keeps secrets server-side.
+
+Body:
+```json
+{
+  "input": "What is your job?",
+  "endpoint_url": "https://microlearning-ebook-agent-sizukgalta-uc.a.run.app",
+  "auth_token": "mle-local-dev-3f7b8c2e",
+  "session_id": "optional-session-id"
+}
+```
+
+Returns `{output, session_id, duration_ms, status_code, error}`.
+
+### CLI
+
+```bash
+agentbreeder registry agent invoke microlearning-ebook-agent \
+  --input "What is your job?" \
+  --endpoint https://microlearning-ebook-agent-sizukgalta-uc.a.run.app \
+  --token $AGENT_AUTH_TOKEN
+```
+
+### Dashboard
+
+Navigate to `/agents/:id` → **Invoke** tab. Fill in the endpoint, bearer token, and message → response panel renders the output and auto-fills `session_id` for the next turn (so multi-turn conversations stay coherent).
+
+The `/agents` page also has a **Register from YAML** button — paste an `agent.yaml`, validate, register.
+
+### Direct curl against the runtime
+
+Verified live against `https://microlearning-ebook-agent-sizukgalta-uc.a.run.app`:
+
+```bash
+URL=https://microlearning-ebook-agent-sizukgalta-uc.a.run.app
+TOKEN=mle-local-dev-3f7b8c2e
+
+curl $URL/health
+# {"status":"healthy","agent_name":"microlearning-ebook-agent","version":"0.1.0"}
+
+curl -X POST $URL/invoke \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"input":"What is your job?"}'
+# {"output":"My job is to turn any topic the user supplies into a polished microlearning ebook a learner can complete in 20-40 minutes.","session_id":"…","metadata":null}
 ```
 
 ---

@@ -319,6 +319,242 @@ agentbreeder scan --json
 
 ---
 
+### `agentbreeder registry`
+
+Push, list, and exercise prompts, tools, and agents in the AgentBreeder registry. Each entity has a kebab-case name, is resolved at agent startup via the file-first chain documented in the runtime, and is versioned in Postgres.
+
+```
+agentbreeder registry [prompt|tool|agent] SUBCOMMAND [OPTIONS]
+```
+
+> **Auth required.** Every `registry` subcommand calls `/api/v1/registry/*` and needs a JWT. Mint one with `POST /api/v1/auth/login`, then export it:
+> ```bash
+> export AGENTBREEDER_API_TOKEN=eyJhbGciOi...    # JWT from auth/login
+> export AGENTBREEDER_API_URL=http://localhost:8000   # default if unset
+> ```
+> Only `auth/login` and `auth/register` are open — all 247 other management routes are gated.
+
+---
+
+#### `agentbreeder registry prompt push`
+
+Upload a Markdown prompt file to the registry. Auto-bumps the semver patch (e.g. `1.0.0 → 1.0.1`) on every save unless `--version` is given.
+
+```
+agentbreeder registry prompt push FILE [--name NAME] [--version SEMVER] [--team TEAM] [--description TEXT]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `FILE` | path | — | `.md` file containing the prompt body |
+| `--name` | str | filename stem | Kebab-case registry name (e.g. `microlearning-system`) |
+| `--version` | semver | auto-bump | Explicit version. Omit to auto-bump patch. |
+| `--team` | str | current user's team | Team that owns the prompt |
+| `--description` | str | — | Short summary shown in the dashboard |
+
+**Example:**
+```bash
+agentbreeder registry prompt push ./prompts/microlearning-system.md \
+  --name microlearning-system --team learning --description "Turns a topic into a 20-40 min ebook"
+# ✓ Pushed prompt microlearning-system v1.0.2 (id: prm_a1b2…)
+```
+
+---
+
+#### `agentbreeder registry prompt list`
+
+List registered prompts.
+
+```
+agentbreeder registry prompt list [--team TEAM] [--json]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--team` | str | — | Filter by team name |
+| `--json` | flag | off | JSON output |
+
+**Example:**
+```bash
+agentbreeder registry prompt list --team learning
+# NAME                       VERSION  TEAM      UPDATED
+# microlearning-system       1.0.2    learning  2026-04-28T14:02Z
+```
+
+---
+
+#### `agentbreeder registry prompt try`
+
+Render a registered prompt against a real LLM (Google AI Studio / `gemini-*` currently) — the same path the dashboard's **Test** tab uses.
+
+```
+agentbreeder registry prompt try NAME --input "..." [--model MODEL] [--temperature FLOAT]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `NAME` | str | — | Registered prompt name |
+| `--input` | str | — | User message to send |
+| `--model` | str | `gemini-2.5-flash` | Any `gemini-*` model |
+| `--temperature` | float | `0.4` | Sampling temperature |
+
+Calls `POST /api/v1/registry/prompts/{prompt_id}/render` and returns `{output, model, duration_ms, error}`.
+
+**Example:**
+```bash
+agentbreeder registry prompt try microlearning-system \
+  --input "Pick a topic for a beginner ebook." \
+  --model gemini-2.5-flash --temperature 0.4
+# model: gemini-2.5-flash  duration: 1842ms
+# output: How about "Spaced repetition for language learners"? It's narrow…
+```
+
+---
+
+#### `agentbreeder registry tool push`
+
+Register a tool in the registry. The CLI **auto-detects** how to dispatch the tool based on what you pass:
+
+| You pass… | Stored `endpoint` | Dispatcher at run time |
+|-----------|-------------------|------------------------|
+| `./tools/get_time.py` | `python:<abs_path>` | Python subprocess (~50 ms) |
+| `./tools/get_time.ts` | `node:<abs_path>` | Node subprocess via `npx tsx` (~1.5 s cold) |
+| `engine.tools.standard.web_search` | kept as-is | In-process Python import (~25 ms) |
+
+```
+agentbreeder registry tool push MODULE_OR_FILE [--description TEXT]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `MODULE_OR_FILE` | path or dotted module | — | `.py` / `.ts` / `.js` file, or dotted module path |
+| `--description` | str | — | Short summary shown in the dashboard |
+
+**Example:**
+```bash
+agentbreeder registry tool push ./tools/get_current_time.py \
+  --description "Returns ISO 8601 UTC time"
+# ✓ Pushed tool get-current-time (endpoint: python:/abs/tools/get_current_time.py)
+```
+
+---
+
+#### `agentbreeder registry tool list`
+
+List registered tools and their dispatch endpoints.
+
+```
+agentbreeder registry tool list [--json]
+```
+
+**Example:**
+```bash
+agentbreeder registry tool list
+# NAME                ENDPOINT                                        TYPE
+# web-search          engine.tools.standard.web_search                in-process
+# markdown-writer     engine.tools.standard.markdown_writer           in-process
+# get-current-time    python:/abs/tools/get_current_time.py           subprocess
+# get-utc-time        node:/abs/tools/get_utc_time.ts                 subprocess
+```
+
+---
+
+#### `agentbreeder registry tool run`
+
+Execute a registered tool with structured args. Calls `POST /api/v1/registry/tools/{tool_id}/execute` (requires `deployer` role).
+
+```
+agentbreeder registry tool run NAME [--args JSON] [--json]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `NAME` | str | — | Registered tool name |
+| `--args` | JSON string | `{}` | Tool arguments as JSON |
+| `--json` | flag | off | Print raw response JSON |
+
+Returns `{output, stdout, stderr, exit_code, duration_ms, error}`.
+
+**Example:**
+```bash
+agentbreeder registry tool run web-search --args '{"query":"spaced repetition"}'
+# exit_code: 0  duration: 612ms
+# output: [{"title":"Spaced repetition - Wikipedia","url":"…"}, …]
+```
+
+---
+
+#### `agentbreeder registry agent push`
+
+Persist an `agent.yaml` in the registry via `POST /api/v1/agents/from-yaml`. The record stores name, version, framework, deploy config, and refs to the prompts + tools the agent uses.
+
+```
+agentbreeder registry agent push agent.yaml [--json]
+```
+
+**Example:**
+```bash
+agentbreeder registry agent push ./agent.yaml
+# ✓ Registered microlearning-ebook-agent v0.1.0 (framework: google_adk)
+#   prompts: microlearning-system@1.0.2
+#   tools:   web-search, markdown-writer
+```
+
+---
+
+#### `agentbreeder registry agent list`
+
+List registered agents.
+
+```
+agentbreeder registry agent list [--team TEAM] [--json]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--team` | str | — | Filter by team name |
+
+**Example:**
+```bash
+agentbreeder registry agent list --team learning
+# NAME                          VERSION  FRAMEWORK   DEPLOY
+# microlearning-ebook-agent     0.1.0    google_adk  cloud-run / us-central1
+```
+
+---
+
+#### `agentbreeder registry agent invoke`
+
+Send a message to a deployed agent's `/invoke` endpoint via the server-side proxy (`POST /api/v1/agents/{id}/invoke`). The proxy attaches the bearer token from `--token` (or env var `AGENT_<UPPER_SNAKE>_TOKEN`) so secrets never leave the API host.
+
+```
+agentbreeder registry agent invoke NAME --input "..." [--endpoint URL] [--token TOKEN] [--session SID] [--json]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `NAME` | str | — | Registered agent name |
+| `--input` | str | — | User message |
+| `--endpoint` | URL | registry value | Override the agent's runtime URL |
+| `--token` | str | env `AGENT_<NAME>_TOKEN` | Bearer for the runtime `/invoke` route |
+| `--session` | str | — | Continue an existing session |
+| `--json` | flag | off | Raw response JSON |
+
+Returns `{output, session_id, duration_ms, status_code, error}`.
+
+**Example:**
+```bash
+agentbreeder registry agent invoke microlearning-ebook-agent \
+  --input "What is your job?" \
+  --endpoint https://microlearning-ebook-agent-sizukgalta-uc.a.run.app \
+  --token $AGENT_AUTH_TOKEN
+# status: 200  duration: 1.4s  session: 7c3f…
+# output: My job is to turn any topic the user supplies into a polished microlearning
+#         ebook a learner can complete in 20-40 minutes.
+```
+
+---
+
 ### `agentbreeder logs`
 
 Show logs from a deployed agent.
