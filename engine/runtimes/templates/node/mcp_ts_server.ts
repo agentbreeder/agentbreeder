@@ -1,7 +1,7 @@
 // mcp_ts_server.ts — MCP TypeScript server template
 // Platform-managed. Do not edit — regenerated on each deploy.
 import { createServer } from 'node:http'
-import { buildAgentCard, buildHealthResponse } from './_shared_loader.js'
+import { buildAgentCard, buildHealthResponse, verifyAuth } from './_shared_loader.js'
 
 // Developer's tools.ts exports named async tool functions
 import * as tools from './tools.js'
@@ -41,6 +41,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && url.pathname === '/mcp') {
+    if (!verifyAuth(req, res)) return
     const chunks: Buffer[] = []
     for await (const chunk of req) chunks.push(chunk as Buffer)
     const rpc: McpRequest = JSON.parse(Buffer.concat(chunks).toString())

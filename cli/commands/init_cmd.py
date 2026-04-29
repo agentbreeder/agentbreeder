@@ -199,7 +199,7 @@ def _env_example(framework: str) -> str:
 
 
 def _requirements(framework: str) -> str:
-    base = ["agentbreeder-sdk>=0.1.0"]
+    base = ["agentbreeder-sdk>=0.1.0", "pytest>=8.0.0"]
 
     deps = {
         "langgraph": ["langgraph>=0.2.0", "langchain-openai>=0.1.0"],
@@ -211,6 +211,12 @@ def _requirements(framework: str) -> str:
     }
 
     return "\n".join(base + deps.get(framework, [])) + "\n"
+
+
+def _pyproject_toml() -> str:
+    """Generate pyproject.toml so `import agent` works in tests and pytest does
+    not inherit config from any parent repo when scaffolded inside one."""
+    return '[tool.pytest.ini_options]\npythonpath = ["."]\ntestpaths = ["tests"]\n'
 
 
 def _agent_py_langgraph(name: str) -> str:
@@ -417,13 +423,19 @@ def _agent_py_google_adk(name: str) -> str:
 """{name} — Google ADK agent.
 
 A simple agent using Google's Agent Development Kit.
+
+The AgentBreeder runtime wrapper looks for the symbol ``root_agent`` at startup,
+so we export under that name. ``gemini-2.5-flash`` is the recommended default
+model -- it is free-tier-eligible on Google AI Studio API keys, while
+``gemini-2.0-flash`` is deprecated for new users and ``gemini-2.5-pro`` requires
+billing to be enabled.
 """
 
 from google.adk.agents import Agent
 
 
-agent = Agent(
-    model="gemini-2.0-flash",
+root_agent = Agent(
+    model="gemini-2.5-flash",
     name="{name}",
     instruction="You are a helpful assistant. Be concise and accurate.",
 )
@@ -431,7 +443,7 @@ agent = Agent(
 
 if __name__ == "__main__":
     # ADK agents are typically served via `adk web` or `adk api_server`
-    print(f"Agent '{{agent.name}}' ready. Run with: adk web")
+    print(f"Agent '{{root_agent.name}}' ready. Run with: adk web")
 '''
 
 
@@ -1170,6 +1182,7 @@ def _scaffold_python(
         ),
         "agent.py": AGENT_PY_GENERATORS[framework["key"]](name),
         "requirements.txt": _requirements(framework["key"]),
+        "pyproject.toml": _pyproject_toml(),
         ".env.example": _env_example(framework["key"]),
         "README.md": _readme(name, framework["key"], cloud["key"]),
     }

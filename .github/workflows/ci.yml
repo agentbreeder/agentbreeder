@@ -125,6 +125,60 @@ jobs:
         run: |
           coverage report --fail-under=75
 
+  # ── Examples smoke (catches drift in reference scaffolds users copy) ────────
+  # NOTE: agentbreeder init is interactive today (no --yes/--cloud flags), so this
+  # gate validates the examples directory rather than driving init. When init grows
+  # non-interactive flags, expand this to scaffold via init too.
+  test-examples-smoke:
+    name: Examples Smoke (parse + pytest config)
+    runs-on: ubuntu-latest
+    needs: [test-python]
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          - examples/langgraph-agent
+          - examples/crewai-agent
+          - examples/claude-sdk-agent
+          - examples/openai-agents-agent
+          - examples/google-adk-agent
+          - examples/quickstart/rag-agent
+          - examples/quickstart/graph-agent
+          - examples/quickstart/search-agent
+    env:
+      EXAMPLE_DIR: ${{ matrix.example }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Verify required files exist
+        run: |
+          cd "$EXAMPLE_DIR"
+          test -f agent.yaml || (echo "missing agent.yaml" && exit 1)
+          test -f agent.py || (echo "missing agent.py" && exit 1)
+          test -f requirements.txt || (echo "missing requirements.txt" && exit 1)
+          test -f pyproject.toml || (echo "missing pyproject.toml" && exit 1)
+          grep -q "^pytest" requirements.txt || (echo "pytest not in requirements.txt" && exit 1)
+          grep -q "pythonpath" pyproject.toml || (echo "pythonpath missing in pyproject.toml" && exit 1)
+
+      - name: Validate agent.py parses
+        run: |
+          cd "$EXAMPLE_DIR"
+          python -c "import ast; ast.parse(open('agent.py').read())"
+
+      - name: Pytest config sanity (config loads cleanly)
+        run: |
+          pip install pytest
+          cd "$EXAMPLE_DIR"
+          mkdir -p tests
+          echo "def test_pytest_config_loads(): assert True" > tests/test_smoke.py
+          pytest tests/test_smoke.py -v
+          rm tests/test_smoke.py
+
   # ── Docker E2E (real stack) ──────────────────────────────────────────────────
   test-e2e-docker:
     name: E2E Tests (Docker)
