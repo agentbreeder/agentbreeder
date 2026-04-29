@@ -3,6 +3,7 @@
 These tests verify the project structure and that the agent module loads cleanly.
 They do NOT make external API calls -- see tests/test_live.py for that.
 """
+
 import importlib
 from pathlib import Path
 
@@ -95,6 +96,7 @@ def test_render_ebook_writes_file(tmp_path, monkeypatch):
     import importlib
 
     import tools.render_ebook
+
     importlib.reload(tools.render_ebook)
     from tools.render_ebook import render_ebook
 

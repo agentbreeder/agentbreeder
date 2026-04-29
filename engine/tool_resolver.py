@@ -21,6 +21,7 @@ A reference looks like:
 
 Kebab-case in the ref maps to snake_case for the Python module/function name.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -57,7 +58,7 @@ def _kebab_to_snake(name: str) -> str:
 
 
 def _strip_ref(ref: str) -> str:
-    return ref[len(_REF_PREFIX):]
+    return ref[len(_REF_PREFIX) :]
 
 
 def _resolve_from_local(snake_name: str, project_root: Path) -> Callable[..., Any] | None:
@@ -136,9 +137,7 @@ def resolve_tool(
             standard-library tool, or registry metadata.
     """
     if not is_tool_ref(ref):
-        raise ToolNotFoundError(
-            f"'{ref}' is not a tool reference (must start with 'tools/')"
-        )
+        raise ToolNotFoundError(f"'{ref}' is not a tool reference (must start with 'tools/')")
 
     kebab = _strip_ref(ref)
     snake = _kebab_to_snake(kebab)

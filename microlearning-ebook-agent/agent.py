@@ -22,6 +22,7 @@ Run interactively:
 Run via the AgentBreeder runtime wrapper (matches production):
     bash scripts/serve.sh
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,7 +39,7 @@ except ImportError:  # pragma: no cover -- file-only fallback when engine pkg un
     def resolve_prompt(value: str, project_root: _Path | str | None = None) -> str:
         if not value.startswith("prompts/"):
             return value
-        name = value[len("prompts/"):].split("@", 1)[0]
+        name = value[len("prompts/") :].split("@", 1)[0]
         root = _Path(project_root) if project_root else _Path.cwd()
         candidate = root / "prompts" / f"{name}.md"
         if candidate.is_file():

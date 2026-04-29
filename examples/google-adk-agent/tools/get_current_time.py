@@ -3,6 +3,7 @@
 Resolved via ``engine.tool_resolver.resolve_tool('tools/get-current-time')``
 from agent.py at module load.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

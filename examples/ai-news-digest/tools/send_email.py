@@ -1,4 +1,5 @@
 """Local override: send the digest email via Gmail SMTP."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -7,6 +7,7 @@ Currently supports the Google AI Studio API (any ``gemini-*`` model) using
 ``GOOGLE_API_KEY``. Other providers can be added behind the same
 ``run_prompt`` interface.
 """
+
 from __future__ import annotations
 
 import os
@@ -92,7 +93,7 @@ async def run_prompt(
             config=config,
         )
         text_out = ""
-        for cand in (resp.candidates or []):
+        for cand in resp.candidates or []:
             if cand.content and cand.content.parts:
                 for p in cand.content.parts:
                     if getattr(p, "text", None):

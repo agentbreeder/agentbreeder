@@ -23,6 +23,7 @@ The function never raises on a "not found" condition for the inline-literal
 path; it returns the input unchanged. It does raise ``PromptNotFoundError``
 for refs that look like registry refs but cannot be resolved anywhere.
 """
+
 from __future__ import annotations
 
 import logging
@@ -51,7 +52,7 @@ def is_prompt_ref(value: str) -> bool:
 
 def _split_ref(ref: str) -> tuple[str, str | None]:
     """Split ``prompts/<name>[@<version>]`` -> ``(name, version | None)``."""
-    body = ref[len(_REF_PREFIX):]
+    body = ref[len(_REF_PREFIX) :]
     if _VERSION_SEP in body:
         name, version = body.split(_VERSION_SEP, 1)
         return name, version

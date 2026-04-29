@@ -15,6 +15,7 @@ Examples:
     agentbreeder registry agent push agent.yaml
     agentbreeder registry agent list
 """
+
 from __future__ import annotations
 
 import importlib
@@ -31,7 +32,9 @@ from rich.table import Table
 
 console = Console()
 
-registry_app = typer.Typer(no_args_is_help=True, help="Push and list AgentBreeder registry entities")
+registry_app = typer.Typer(
+    no_args_is_help=True, help="Push and list AgentBreeder registry entities"
+)
 prompt_app = typer.Typer(no_args_is_help=True, help="Manage prompts in the registry")
 tool_app = typer.Typer(no_args_is_help=True, help="Manage tools in the registry")
 agent_app = typer.Typer(no_args_is_help=True, help="Manage agents in the registry")
@@ -80,8 +83,12 @@ def _get(path: str) -> dict:
 
 @prompt_app.command("push")
 def prompt_push(
-    file: Path = typer.Argument(..., help="Path to the prompt markdown file (e.g. prompts/foo.md)"),
-    name: str | None = typer.Option(None, "--name", help="Override prompt name (defaults to filename without extension)"),
+    file: Path = typer.Argument(
+        ..., help="Path to the prompt markdown file (e.g. prompts/foo.md)"
+    ),
+    name: str | None = typer.Option(
+        None, "--name", help="Override prompt name (defaults to filename without extension)"
+    ),
     version: str = typer.Option("1.0.0", "--version", help="Semver version"),
     team: str = typer.Option("engineering", "--team", help="Owning team"),
     description: str = typer.Option("", "--description", help="One-line description"),
@@ -194,7 +201,10 @@ def _extract_node_metadata(target: str) -> dict:
     )
     result = subprocess.run(  # noqa: S603 — argv list, no shell
         ["npx", "--yes", "tsx", "--eval", inspector],
-        capture_output=True, text=True, timeout=60.0, check=False,
+        capture_output=True,
+        text=True,
+        timeout=60.0,
+        check=False,
     )
     if result.returncode != 0:
         raise RuntimeError(f"node metadata read failed: {result.stderr[:500]}")
@@ -203,10 +213,17 @@ def _extract_node_metadata(target: str) -> dict:
 
 @tool_app.command("push")
 def tool_push(
-    target: str = typer.Argument(..., help="Tool module to register (e.g. 'engine.tools.standard.web_search' or 'tools/foo.py')"),
-    name: str | None = typer.Option(None, "--name", help="Override tool name (defaults to module basename, kebab-cased)"),
+    target: str = typer.Argument(
+        ...,
+        help="Tool module to register (e.g. 'engine.tools.standard.web_search' or 'tools/foo.py')",
+    ),
+    name: str | None = typer.Option(
+        None, "--name", help="Override tool name (defaults to module basename, kebab-cased)"
+    ),
     description: str = typer.Option("", "--description", help="One-line description"),
-    tool_type: str = typer.Option("function", "--type", help="Tool type: function | mcp_server | http"),
+    tool_type: str = typer.Option(
+        "function", "--type", help="Tool type: function | mcp_server | http"
+    ),
 ) -> None:
     """Push tool metadata + JSON schema to the registry from a Python module.
 
@@ -220,7 +237,9 @@ def tool_push(
             console.print(f"[red]{target} does not export a function[/red]")
             raise typer.Exit(code=1)
         if not isinstance(meta.get("schema"), dict):
-            console.print(f"[yellow]warning:[/yellow] {target} has no SCHEMA export — using empty schema")
+            console.print(
+                f"[yellow]warning:[/yellow] {target} has no SCHEMA export — using empty schema"
+            )
         func_name = meta["name"]
         schema = meta.get("schema") or {"type": "object", "properties": {}, "required": []}
         docstring = ""  # TS doesn't surface docstrings the same way; rely on --description
@@ -309,7 +328,9 @@ def tool_list() -> None:
 
 @agent_app.command("push")
 def agent_push(
-    yaml_file: Path = typer.Argument(Path("agent.yaml"), help="Path to agent.yaml (default: ./agent.yaml)"),
+    yaml_file: Path = typer.Argument(
+        Path("agent.yaml"), help="Path to agent.yaml (default: ./agent.yaml)"
+    ),
 ) -> None:
     """Push an agent definition to the registry from agent.yaml.
 
@@ -323,7 +344,7 @@ def agent_push(
     yaml_text = yaml_file.read_text(encoding="utf-8")
     payload = _post("/api/v1/agents/from-yaml", {"yaml_content": yaml_text})
     data = payload["data"]
-    console.print(f"[green]✓[/green] {data['name']} v{data.get('version','?')}  id={data['id']}")
+    console.print(f"[green]✓[/green] {data['name']} v{data.get('version', '?')}  id={data['id']}")
 
 
 @agent_app.command("invoke")

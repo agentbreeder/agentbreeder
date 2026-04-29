@@ -7,6 +7,7 @@ Usage:
 The script runs the same code path the production /invoke endpoint uses
 (the AgentBreeder runtime wraps Runner + InMemorySessionService the same way).
 """
+
 from __future__ import annotations
 
 import asyncio

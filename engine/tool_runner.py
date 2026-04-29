@@ -18,6 +18,7 @@ red panel).
 All subprocess invocations use ``asyncio.create_subprocess_exec`` (the
 shell-free, argv-list variant) — never shell-string interpolation.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -64,9 +65,9 @@ async def execute_tool(endpoint: str, name: str, args: dict[str, Any]) -> ToolEx
     if endpoint.startswith("engine.tools.standard."):
         result = await _run_in_process(endpoint, args)
     elif endpoint.startswith("python:"):
-        result = await _run_python_subprocess(endpoint[len("python:"):], name, args)
+        result = await _run_python_subprocess(endpoint[len("python:") :], name, args)
     elif endpoint.startswith("node:"):
-        result = await _run_node_subprocess(endpoint[len("node:"):], name, args)
+        result = await _run_node_subprocess(endpoint[len("node:") :], name, args)
     elif endpoint.startswith(("http://", "https://")):
         result = await _run_http(endpoint, args)
     else:
@@ -91,8 +92,11 @@ async def _run_in_process(import_path: str, args: dict[str, Any]) -> ToolExecuti
         fn = getattr(module, func_name, None)
         if not callable(fn):
             return ToolExecutionResult(
-                output=None, stdout="", stderr="",
-                exit_code=2, duration_ms=0,
+                output=None,
+                stdout="",
+                stderr="",
+                exit_code=2,
+                duration_ms=0,
                 error=f"{import_path} does not export callable '{func_name}'",
             )
         if inspect.iscoroutinefunction(fn):
@@ -103,19 +107,27 @@ async def _run_in_process(import_path: str, args: dict[str, Any]) -> ToolExecuti
         return ToolExecutionResult(output=output, stdout="", stderr="", exit_code=0, duration_ms=0)
     except Exception as exc:  # noqa: BLE001 — surface the exact error to the UI
         return ToolExecutionResult(
-            output=None, stdout="", stderr="",
-            exit_code=1, duration_ms=0,
+            output=None,
+            stdout="",
+            stderr="",
+            exit_code=1,
+            duration_ms=0,
             error=f"{type(exc).__name__}: {exc}",
         )
 
 
-async def _run_python_subprocess(file_path: str, name: str, args: dict[str, Any]) -> ToolExecutionResult:
+async def _run_python_subprocess(
+    file_path: str, name: str, args: dict[str, Any]
+) -> ToolExecutionResult:
     """Spawn a Python child process to load the file and call its function."""
     abs_path = Path(file_path).resolve()
     if not abs_path.is_file():
         return ToolExecutionResult(
-            output=None, stdout="", stderr="",
-            exit_code=2, duration_ms=0,
+            output=None,
+            stdout="",
+            stderr="",
+            exit_code=2,
+            duration_ms=0,
             error=f"Python file not found: {abs_path}",
         )
     snake = name.replace("-", "_")
@@ -131,13 +143,18 @@ async def _run_python_subprocess(file_path: str, name: str, args: dict[str, Any]
     return await _spawn(["python3", "-c", code], json.dumps(args))
 
 
-async def _run_node_subprocess(file_path: str, name: str, args: dict[str, Any]) -> ToolExecutionResult:
+async def _run_node_subprocess(
+    file_path: str, name: str, args: dict[str, Any]
+) -> ToolExecutionResult:
     """Spawn a Node child process to load a TS/JS tool and call it."""
     abs_path = Path(file_path).resolve()
     if not abs_path.is_file():
         return ToolExecutionResult(
-            output=None, stdout="", stderr="",
-            exit_code=2, duration_ms=0,
+            output=None,
+            stdout="",
+            stderr="",
+            exit_code=2,
+            duration_ms=0,
             error=f"Node tool file not found: {abs_path}",
         )
     snake = name.replace("-", "_")
@@ -174,14 +191,20 @@ async def _run_http(url: str, args: dict[str, Any]) -> ToolExecutionResult:
             except Exception:  # noqa: BLE001
                 payload = text
         return ToolExecutionResult(
-            output=payload, stdout=text[:2000], stderr="",
-            exit_code=0 if resp.is_success else 1, duration_ms=0,
+            output=payload,
+            stdout=text[:2000],
+            stderr="",
+            exit_code=0 if resp.is_success else 1,
+            duration_ms=0,
             error=None if resp.is_success else f"HTTP {resp.status_code}",
         )
     except Exception as exc:  # noqa: BLE001
         return ToolExecutionResult(
-            output=None, stdout="", stderr="",
-            exit_code=1, duration_ms=0,
+            output=None,
+            stdout="",
+            stderr="",
+            exit_code=1,
+            duration_ms=0,
             error=f"{type(exc).__name__}: {exc}",
         )
 
@@ -197,13 +220,17 @@ async def _spawn(cmd: list[str], stdin_payload: str) -> ToolExecutionResult:
     )
     try:
         stdout_b, stderr_b = await asyncio.wait_for(
-            proc.communicate(stdin_payload.encode()), timeout=_DEFAULT_TIMEOUT_S,
+            proc.communicate(stdin_payload.encode()),
+            timeout=_DEFAULT_TIMEOUT_S,
         )
     except TimeoutError:
         proc.kill()
         return ToolExecutionResult(
-            output=None, stdout="", stderr="",
-            exit_code=124, duration_ms=0,
+            output=None,
+            stdout="",
+            stderr="",
+            exit_code=124,
+            duration_ms=0,
             error=f"Timeout after {_DEFAULT_TIMEOUT_S}s running: {' '.join(shlex.quote(c) for c in cmd)}",
         )
 
@@ -220,6 +247,10 @@ async def _spawn(cmd: list[str], stdin_payload: str) -> ToolExecutionResult:
         err = (stderr or stdout)[-2000:]
 
     return ToolExecutionResult(
-        output=output, stdout=stdout, stderr=stderr,
-        exit_code=proc.returncode or 0, duration_ms=0, error=err,
+        output=output,
+        stdout=stdout,
+        stderr=stderr,
+        exit_code=proc.returncode or 0,
+        duration_ms=0,
+        error=err,
     )

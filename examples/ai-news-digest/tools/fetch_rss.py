@@ -1,4 +1,5 @@
 """Local override: fetch AI industry news from configured RSS feeds."""
+
 from __future__ import annotations
 
 from typing import Any

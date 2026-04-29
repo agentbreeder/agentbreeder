@@ -1,4 +1,5 @@
 """Local override: fetch top AI stories from Hacker News (Algolia API)."""
+
 from __future__ import annotations
 
 from typing import Any

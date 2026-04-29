@@ -1,4 +1,5 @@
 """Local override: fetch latest AI/ML papers from ArXiv."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -6,6 +6,7 @@ only handles I/O — it does NOT generate or transform content.
 
 Configurable via env: ``DOCUMENT_OUTPUT_DIR`` (default: ``./output``).
 """
+
 from __future__ import annotations
 
 import os

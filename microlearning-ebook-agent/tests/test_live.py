@@ -7,6 +7,7 @@ These tests make REAL external API calls and require:
 Skipped automatically if either key is missing. Run with:
     pytest tests/test_live.py -v -m live
 """
+
 import os
 
 import pytest
@@ -19,6 +20,7 @@ def _load_dotenv():
     """Load .env so the keys are available even when running pytest barefoot."""
     try:
         from dotenv import load_dotenv
+
         load_dotenv()
     except ImportError:
         pass
