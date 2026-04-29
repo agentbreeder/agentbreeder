@@ -68,6 +68,28 @@ class ModelConfig(BaseModel):
     max_tokens: int | None = None
 
 
+class GatewayConfig(BaseModel):
+    """Per-gateway configuration block (Track H / #164).
+
+    Lets ``agent.yaml`` (and Track A's ``workspace.yaml``) override the
+    catalog default for a gateway — typically the URL of a self-hosted
+    LiteLLM proxy or a regional OpenRouter endpoint.
+
+    All fields are optional. Missing fields fall back to the catalog
+    default and the env-var declared in ``catalog.yaml``.
+
+    TODO(track-a): the canonical home for this block is ``workspace.yaml``;
+    repeating it per-agent is a stop-gap until Track A ships #146.
+    """
+
+    url: str | None = None
+    api_key_env: str | None = None
+    fallback_policy: str | None = (
+        None  # "fastest" | "cheapest" | "first" — advisory, not enforced yet
+    )
+    default_headers: dict[str, str] = Field(default_factory=dict)
+
+
 class ToolRef(BaseModel):
     ref: str | None = None
     name: str | None = None
@@ -277,6 +299,10 @@ class AgentConfig(BaseModel):
     memory: MemoryConfig | None = None
     deploy: DeployConfig
     access: AccessConfig = Field(default_factory=AccessConfig)
+    # Track H (#164) — per-agent override of catalog gateway settings.
+    # Long-term home is workspace.yaml (Track A / #146); accepting it here
+    # too means agents can be self-contained for now.
+    gateways: dict[str, GatewayConfig] = Field(default_factory=dict)
     crewai: CrewAIConfig | None = None
     google_adk: GoogleADKConfig | None = None
     claude_sdk: ClaudeSDKConfig = Field(default_factory=ClaudeSDKConfig)

@@ -545,6 +545,33 @@
         }
       }
     },
+    "gateways": {
+      "type": "object",
+      "description": "Per-gateway overrides for the catalog defaults (Track H / #164). Maps gateway name -> {url, api_key_env, fallback_policy, default_headers}. Long-term home is workspace.yaml (Track A / #146).",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Override the catalog base_url for this gateway."
+          },
+          "api_key_env": {
+            "type": "string",
+            "description": "Override the env var the gateway reads its api key from."
+          },
+          "fallback_policy": {
+            "type": "string",
+            "enum": ["fastest", "cheapest", "first"],
+            "description": "Advisory routing hint when the gateway supports multiple upstreams. Not enforced yet."
+          },
+          "default_headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    },
     "crewai": {
       "type": "object",
       "description": "CrewAI-specific configuration. Only relevant when framework is crewai.",

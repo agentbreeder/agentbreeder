@@ -569,3 +569,59 @@ deploy:
         result = validate_config(config_file)
         assert result.valid, result.errors
         assert result.config.type.value == "mcp-server"
+
+
+# ─── Gateways block (Track H / #164) ─────────────────────────────────────────
+
+
+class TestGatewaysConfig:
+    """The optional `gateways:` block lets agent.yaml override catalog defaults."""
+
+    def test_gateways_block_parses(self) -> None:
+        path = _write_yaml("""\
+name: gw-agent
+version: 1.0.0
+team: platform
+owner: alice@example.com
+framework: langgraph
+model:
+  primary: openrouter/moonshotai/kimi-k2
+gateways:
+  openrouter:
+    api_key_env: TEAM_OPENROUTER_KEY
+  litellm:
+    url: https://litellm.platform.example.com/v1
+    fallback_policy: fastest
+    default_headers:
+      X-Tenant: agentbreeder
+deploy:
+  cloud: local
+""")
+        config = parse_config(path)
+        assert "openrouter" in config.gateways
+        assert config.gateways["openrouter"].api_key_env == "TEAM_OPENROUTER_KEY"
+        assert config.gateways["litellm"].url == "https://litellm.platform.example.com/v1"
+        assert config.gateways["litellm"].fallback_policy == "fastest"
+        assert config.gateways["litellm"].default_headers["X-Tenant"] == "agentbreeder"
+
+    def test_gateways_default_to_empty_dict(self) -> None:
+        path = _write_yaml(VALID_YAML)
+        config = parse_config(path)
+        assert config.gateways == {}
+
+    def test_three_segment_model_primary_accepted(self) -> None:
+        # The parser should not reject 3-segment refs — the catalog resolver
+        # handles the actual validation.
+        path = _write_yaml("""\
+name: gw-agent
+version: 1.0.0
+team: platform
+owner: alice@example.com
+framework: langgraph
+model:
+  primary: litellm/anthropic/claude-sonnet-4
+deploy:
+  cloud: local
+""")
+        config = parse_config(path)
+        assert config.model.primary == "litellm/anthropic/claude-sonnet-4"
