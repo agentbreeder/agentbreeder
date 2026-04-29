@@ -1,0 +1,87 @@
+---
+title: Playground — Chat with Models and Agents
+description: The dashboard's /playground page lets you test a model directly via the LiteLLM gateway, or chat with a deployed agent's runtime through the API proxy.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+# Playground — Chat with Models and Agents
+
+The dashboard's `/playground` page is the fastest way to test a model or a deployed agent without writing any code. It exposes two modes:
+
+| Mode | What it does | Backed by |
+|------|---------------|-----------|
+| **Model** (default) | Chat with a model directly. Pick an agent for system-prompt context, optionally override the model, and chat. | `POST /api/v1/playground/chat` (LiteLLM gateway) |
+| **Agent** | Chat with a deployed agent's actual runtime — the same code that runs in production. | `POST /api/v1/agents/{id}/invoke` (API proxy) |
+
+Mode is persisted per browser in `localStorage` (`agentbreeder.playground.mode`), so reloading keeps you where you left off.
+
+---
+
+## Model mode
+
+Model mode is the original Playground experience. It runs the agent's system prompt + your input through the **LiteLLM gateway**, returning the raw model completion plus token counts, costs, latency, and any tool calls the playground was able to elicit.
+
+Use Model mode when you want to:
+
+- Iterate on prompts without redeploying
+- Compare models for the same prompt (use the **Default model** dropdown to override the agent's configured `model.primary`)
+- Save a turn as an eval case via the **Save** button on any assistant message
+
+---
+
+## Agent mode
+
+Agent mode chats with a **deployed** agent — i.e. an agent in the registry that has a non-empty `endpoint_url`. The dashboard:
+
+1. Lists every deployed agent in your workspace in a dropdown
+2. Sends your messages to `POST /api/v1/agents/{id}/invoke`, which proxies to the agent's runtime
+3. Resolves the agent's `AGENT_AUTH_TOKEN` server-side from the workspace secrets backend keyed by `agentbreeder/<agent>/auth-token` — **you never paste a token in the browser**
+4. Round-trips `session_id` so the runtime can stitch turns together
+
+<Callout type="info">
+  No deployed agents in your workspace yet? Run <code>agentbreeder deploy</code>{' '}
+  on an agent — once the registry record gets a real <code>endpoint_url</code>{' '}
+  it will appear in the Agent mode dropdown.
+</Callout>
+
+### Conversation history
+
+Today, prior turns are sent as a single concatenated `input` string with role labels (`User: ...` / `Assistant: ...`). This is the lowest-common-denominator shape that every runtime understands.
+
+Future enhancement: structured history via `metadata.conversation_history` for runtimes that support it. Track this via [issue #177](https://github.com/agentbreeder/agentbreeder/issues/177).
+
+### Session reset
+
+Switching agents in the dropdown clears the session and message history — `session_id` from agent A is meaningless to agent B. The **Trash** icon does the same on demand.
+
+---
+
+## Auth-token setup
+
+Agent mode requires the agent's runtime auth token to live in your workspace secrets backend. After you deploy:
+
+```bash
+agentbreeder secret set <agent-name>/auth-token
+# (paste the token at the prompt)
+```
+
+The dashboard now resolves it automatically. See [Secrets — Per-agent auth tokens](./secrets.mdx) for details on the backend lookup.
+
+---
+
+## When to use which
+
+| Question | Use |
+|----------|-----|
+| "Does this prompt produce the right output?" | Model mode |
+| "Does my deployed agent actually work end-to-end (tools, MCP, guardrails)?" | Agent mode |
+| "Will my CI eval suite pass?" | Either — but Agent mode tests the live runtime |
+
+---
+
+## Related
+
+- [`/api/v1/agents/{id}/invoke`](./api-stability.mdx) — the proxy endpoint Agent mode uses
+- [Secrets backend](./secrets.mdx) — how `AGENT_AUTH_TOKEN` is resolved
+- [Evaluations](./evaluations.mdx) — turning a Playground turn into a regression test
