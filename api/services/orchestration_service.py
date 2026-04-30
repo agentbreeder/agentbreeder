@@ -48,6 +48,7 @@ class OrchestrationRecord:
         tags: list[str],
         created_at: str,
         updated_at: str,
+        layout: dict[str, Any] | None = None,
     ) -> None:
         self.id = orch_id
         self.name = name
@@ -65,6 +66,9 @@ class OrchestrationRecord:
         self.tags = tags
         self.created_at = created_at
         self.updated_at = updated_at
+        # Visual builder layout — node positions keyed by node id.
+        # Equivalent to .agentbreeder/layout.json on the CLI side.
+        self.layout = layout or {}
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +86,7 @@ class OrchestrationRecord:
             "endpoint_url": self.endpoint_url,
             "config_snapshot": self.config_snapshot,
             "tags": self.tags,
+            "layout": self.layout,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -145,6 +150,7 @@ class OrchestrationStore:
         shared_state: dict[str, Any] | None = None,
         deploy: dict[str, Any] | None = None,
         tags: list[str] | None = None,
+        layout: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a new orchestration."""
         now = datetime.now(UTC).isoformat()
@@ -174,6 +180,7 @@ class OrchestrationStore:
                 "agents": agents,
             },
             tags=tags or [],
+            layout=layout,
             created_at=now,
             updated_at=now,
         )

@@ -75,6 +75,7 @@ async def create_orchestration(
         shared_state=body.get("shared_state"),
         deploy=body.get("deploy"),
         tags=body.get("tags"),
+        layout=body.get("layout"),
     )
     return ApiResponse(data=result)
 

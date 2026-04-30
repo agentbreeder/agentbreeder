@@ -453,6 +453,70 @@ export interface MarketplaceBrowseItem {
   published_at: string | null;
 }
 
+// --- Orchestration types ---
+
+export type OrchestrationStrategy =
+  | "router"
+  | "sequential"
+  | "parallel"
+  | "hierarchical"
+  | "supervisor"
+  | "fan_out_fan_in";
+
+export type OrchestrationStatus = "draft" | "deployed" | "archived";
+
+export interface OrchestrationAgentRef {
+  ref: string;
+  routes?: { condition: string; target: string }[];
+  fallback?: string;
+  endpoint_url?: string;
+}
+
+export interface Orchestration {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  team: string | null;
+  owner: string | null;
+  strategy: OrchestrationStrategy;
+  agents_config: Record<string, OrchestrationAgentRef>;
+  shared_state_config: Record<string, unknown>;
+  deploy_config: Record<string, unknown>;
+  status: OrchestrationStatus;
+  endpoint_url: string | null;
+  config_snapshot: Record<string, unknown>;
+  tags: string[];
+  layout: Record<string, { x: number; y: number }>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrchestrationCreate {
+  name: string;
+  version: string;
+  description?: string;
+  team?: string;
+  owner?: string;
+  strategy: OrchestrationStrategy;
+  agents: Record<string, OrchestrationAgentRef>;
+  shared_state?: Record<string, unknown>;
+  deploy?: Record<string, unknown>;
+  tags?: string[];
+  layout?: Record<string, { x: number; y: number }>;
+}
+
+export interface OrchestrationValidationError {
+  path: string;
+  message: string;
+  suggestion?: string;
+}
+
+export interface OrchestrationValidationResult {
+  valid: boolean;
+  errors: OrchestrationValidationError[];
+}
+
 // --- Prompt Test types ---
 
 export interface PromptTestRequest {
@@ -2116,6 +2180,40 @@ export const api = {
     },
     install: (listingId: string) =>
       request<{ installed: boolean }>(`/marketplace/listings/${listingId}/install`, { method: "POST" }),
+  },
+  orchestrations: {
+    list: (params?: { team?: string; status?: string }) => {
+      const sp = new URLSearchParams();
+      if (params?.team) sp.set("team", params.team);
+      if (params?.status) sp.set("status", params.status);
+      const qs = sp.toString();
+      return request<Orchestration[]>(`/orchestrations${qs ? `?${qs}` : ""}`);
+    },
+    get: (id: string) => request<Orchestration>(`/orchestrations/${id}`),
+    create: (body: OrchestrationCreate) =>
+      request<Orchestration>("/orchestrations", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (id: string, body: Partial<OrchestrationCreate>) =>
+      request<Orchestration>(`/orchestrations/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    delete: (id: string) =>
+      request<{ deleted: string }>(`/orchestrations/${id}`, { method: "DELETE" }),
+    validate: (yamlContent: string) =>
+      request<OrchestrationValidationResult>("/orchestrations/validate", {
+        method: "POST",
+        body: JSON.stringify({ yaml_content: yamlContent }),
+      }),
+    deploy: (id: string) =>
+      request<Orchestration>(`/orchestrations/${id}/deploy`, { method: "POST" }),
+    execute: (id: string, body: { input_message: string; context?: Record<string, unknown> }) =>
+      request<Record<string, unknown>>(`/orchestrations/${id}/execute`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),

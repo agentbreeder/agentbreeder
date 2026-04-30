@@ -40,6 +40,7 @@ import BudgetsPage from "@/pages/budgets";
 import AuditPage from "@/pages/audit";
 import LineagePage from "@/pages/lineage";
 import OrchestrationBuilderPage from "@/pages/orchestration-builder";
+import OrchestrationsPage from "@/pages/orchestrations";
 import TemplatesPage from "@/pages/templates";
 import TemplateDetailPage from "@/pages/template-detail";
 import MarketplacePage from "@/pages/marketplace";
@@ -133,6 +134,7 @@ export default function App() {
               <Route path="budgets" element={<BudgetsPage />} />
               <Route path="audit" element={<AuditPage />} />
               <Route path="lineage" element={<LineagePage />} />
+              <Route path="orchestrations" element={<OrchestrationsPage />} />
               <Route path="orchestrations/builder" element={<OrchestrationBuilderPage />} />
               <Route path="templates" element={<TemplatesPage />} />
               <Route path="templates/:id" element={<TemplateDetailPage />} />
