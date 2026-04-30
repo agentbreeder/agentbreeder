@@ -361,6 +361,16 @@ chore: bump FastAPI to 0.110
 
 PRs are reviewed within 48 hours. Changes to `engine/` require two maintainer approvals. All other changes require one.
 
+### Contributor License Agreement (CLA)
+
+External contributors sign the **Apache ICLA** (or **CCLA** for corporate
+contributions) once before their first PR can be merged. The
+[CLA Assistant](https://cla-assistant.io/) bot prompts you on your PR — one
+click signs it for all future contributions. Contributors who merged before
+**2026-04-30** are grandfathered and don't need to sign.
+
+Full rationale and process: see [CLA.md](CLA.md).
+
 ---
 
 ## Extension Points
@@ -436,6 +446,7 @@ Add templates to `examples/templates/` and open a PR with the label `marketplace
 |---|---|
 | `good first issue` | Approachable for new contributors |
 | `help wanted` | Maintainers want community input |
+| `needs design` | Discussion required before implementation; do not open a PR yet |
 | `deployer:aws` / `deployer:gcp` / `deployer:azure` | Cloud deployer work |
 | `runtime:langgraph` / `runtime:crewai` / `runtime:claude-sdk` | Framework runtime work |
 | `area:cli` / `area:dashboard` / `area:registry` / `area:engine` | Component area |
@@ -447,9 +458,12 @@ Add templates to `examples/templates/` and open a PR with the label `marketplace
 
 ## Code of Conduct
 
-We follow the [Contributor Covenant](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). Be constructive, be kind, assume good intent. Harassment or discrimination of any kind will not be tolerated.
+We adopt the [Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) as
+our community standard. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for the
+full text and enforcement process. Be constructive, be kind, assume good intent.
 
-Report conduct issues to **saha.rajit@gmail.com**.
+Report Code of Conduct issues to **saha.rajit@gmail.com** with the subject
+line `[CoC] <topic>`.
 
 ---
 

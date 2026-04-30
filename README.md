@@ -2,9 +2,10 @@
 
 # AgentBreeder™ — v2.0
 
-### Stop wrangling agents. Start shipping them.
+### The only agent platform that doesn't pick a winner.
 
-**One YAML file. Any framework. Any language. Any cloud. Governance built in.**
+**Build with anyone's framework. Deploy to anyone's cloud. Govern automatically.**
+One YAML, one command — Apache 2.0, no vendor lock-in.
 
 [![PyPI](https://img.shields.io/pypi/v/agentbreeder?color=blue&label=PyPI)](https://pypi.org/project/agentbreeder/)
 [![PyPI Downloads](https://img.shields.io/pypi/dm/agentbreeder?color=green&label=Downloads)](https://pypi.org/project/agentbreeder/)
@@ -375,8 +376,29 @@ The same pattern (`agentbreeder deploy`) works for AWS ECS Fargate, App Runner, 
 | [ROADMAP.md](ROADMAP.md) | Release plan and milestone status |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — setup, standards, PR process |
+| [GOVERNANCE.md](GOVERNANCE.md) | Project governance, decision-making, maintainer ladder |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards (Contributor Covenant 2.1) |
+| [CLA.md](CLA.md) | Contributor License Agreement (Apache ICLA / CCLA) |
+| [TRADEMARK.md](TRADEMARK.md) | AgentBreeder™ trademark policy and permitted uses |
 | [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
 
 ---
 
-[Contributing](CONTRIBUTING.md) · [Issues](https://github.com/agentbreeder/agentbreeder/issues) · [Discussions](https://github.com/agentbreeder/agentbreeder/discussions) · [Apache 2.0](LICENSE)
+## Want us to run it?
+
+AgentBreeder is fully self-hostable — that's the point. But operating it in
+production means running Postgres, ClickHouse, Redis, the control plane,
+sidecars, autoscaling, and on-call across five clouds.
+
+If you'd rather skip that, **[AgentBreeder Cloud](https://www.agentbreeder.io/cloud)**
+is the same Apache 2.0 platform, run by us, with multi-tenant SSO, cross-cloud
+cost rollups, compliance attestations, and a 99.95% SLA.
+
+Either way, the runtime is the same code. Switch at any time. **No data
+lock-in. No feature lock-out.**
+
+[Try Cloud →](https://www.agentbreeder.io/cloud) &nbsp;·&nbsp; [Self-host docs →](https://www.agentbreeder.io/docs/quickstart)
+
+---
+
+[Contributing](CONTRIBUTING.md) · [Issues](https://github.com/agentbreeder/agentbreeder/issues) · [Discussions](https://github.com/agentbreeder/agentbreeder/discussions) · [Apache 2.0](LICENSE) · [Trademark](TRADEMARK.md)
