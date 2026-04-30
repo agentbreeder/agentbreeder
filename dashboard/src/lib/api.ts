@@ -127,12 +127,23 @@ export interface PromptRenderResponse {
   error: string | null;
 }
 
+export interface AgentInvokeToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  result: string;
+  duration_ms: number;
+  started_at: string;
+}
+
 export interface AgentInvokeResponse {
   output: string;
   session_id: string | null;
   duration_ms: number;
   status_code: number;
   error: string | null;
+  // Structured tool-call timeline (#215). Always present; empty when the
+  // runtime did not surface tool telemetry naturally.
+  history: AgentInvokeToolCall[];
 }
 
 export interface AgentVersionEntry {

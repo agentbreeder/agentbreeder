@@ -944,3 +944,87 @@ class TestAgenticLoop:
         fake_tb.execute.assert_called_once_with("weather", {"city": "NYC"})
 
         srv._agent = None
+
+
+# ---------------------------------------------------------------------------
+# Structured tool-call history (#215)
+# ---------------------------------------------------------------------------
+
+
+class TestInvokeHistoryField:
+    """The /invoke response should include a top-level `history` field, populated
+    with one ToolCall per tool execution from the agentic loop.
+    """
+
+    @pytest.mark.asyncio
+    async def test_history_populated_from_tool_use_blocks(self, monkeypatch):
+        """A tool_use → tool_result iteration should produce one ToolCall entry."""
+        monkeypatch.setenv("AGENT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("AGENT_SYSTEM_PROMPT", "")
+        monkeypatch.setenv("AGENT_MAX_TOKENS", "512")
+
+        srv = _import_server()
+        srv._tools = []
+        srv._thinking_config = None
+        srv._prompt_caching_enabled = False
+
+        fake_tb = MagicMock()
+        fake_tb.execute.return_value = "hit"
+        import sys as _sys
+
+        _sys.modules["engine.tool_bridge"] = fake_tb
+
+        tool_block = _make_tool_use_block("call_1", "lookup", {"id": "42"})
+        resp1 = MagicMock()
+        resp1.content = [tool_block]
+        text_block = _make_text_block("Done.")
+        resp2 = MagicMock()
+        resp2.content = [text_block]
+
+        # Use an AsyncAnthropic-typed agent so _run_agent dispatches to the loop.
+        import anthropic
+
+        fake_client = MagicMock(spec=anthropic.AsyncAnthropic)
+        fake_client.__class__ = anthropic.AsyncAnthropic
+        fake_client.messages = MagicMock()
+        fake_client.messages.create = AsyncMock(side_effect=[resp1, resp2])
+        srv._agent = fake_client
+
+        history: list[Any] = []
+        result = await srv._run_agent("look up 42", history=history)
+
+        assert result == "Done."
+        assert len(history) == 1
+        assert history[0].name == "lookup"
+        assert history[0].args == {"id": "42"}
+        assert history[0].result == "hit"
+
+        _sys.modules.pop("engine.tool_bridge", None)
+
+    @pytest.mark.asyncio
+    async def test_history_empty_when_no_tools_used(self, monkeypatch):
+        """Plain-text response should yield an empty history list."""
+        monkeypatch.setenv("AGENT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("AGENT_SYSTEM_PROMPT", "")
+        monkeypatch.setenv("AGENT_MAX_TOKENS", "512")
+
+        srv = _import_server()
+        srv._tools = []
+        srv._thinking_config = None
+        srv._prompt_caching_enabled = False
+
+        text_block = _make_text_block("hi")
+        resp = MagicMock()
+        resp.content = [text_block]
+
+        import anthropic
+
+        fake_client = MagicMock(spec=anthropic.AsyncAnthropic)
+        fake_client.__class__ = anthropic.AsyncAnthropic
+        fake_client.messages = MagicMock()
+        fake_client.messages.create = AsyncMock(return_value=resp)
+        srv._agent = fake_client
+
+        history: list[Any] = []
+        await srv._run_agent("hi", history=history)
+        assert history == []

@@ -19,12 +19,14 @@ import json
 import logging
 import os
 import sys
+import time
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("agentbreeder.agent")
@@ -59,9 +61,26 @@ class InvokeRequest(BaseModel):
     config: dict[str, Any] | None = None
 
 
+class ToolCall(BaseModel):
+    """Structured record of a single tool invocation during agent execution.
+
+    Emitted by every runtime template as part of ``InvokeResponse.history`` so
+    the dashboard playground (#215) can render tool-call timelines without
+    regex-scraping message bodies.
+    """
+
+    name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    result: str = ""
+    duration_ms: int = 0
+    started_at: str = ""
+
+
 class InvokeResponse(BaseModel):
     output: Any
     metadata: dict[str, Any] | None = None
+    # Structured tool-call timeline (#215). Always present, may be empty.
+    history: list[ToolCall] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):
@@ -203,8 +222,9 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
         raise HTTPException(status_code=503, detail="Agent not loaded yet")
 
     try:
-        result = await _run_agent(request.input)
-        return InvokeResponse(output=result)
+        history: list[ToolCall] = []
+        result = await _run_agent(request.input, history=history)
+        return InvokeResponse(output=result, history=history)
     except Exception as e:
         logger.exception("Agent invocation failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -218,6 +238,7 @@ async def _run_agentic_loop(
     model: str,
     system_prompt: str,
     messages: list[dict[str, Any]],
+    history: list[ToolCall] | None = None,
 ) -> str:
     """Drive a full agentic tool-use loop for an AsyncAnthropic client.
 
@@ -293,6 +314,8 @@ async def _run_agentic_loop(
         for block in tool_use_blocks:
             tool_name: str = block.name
             tool_input: dict[str, Any] = block.id and block.input or {}
+            started_at = datetime.now(UTC).isoformat()
+            tool_started = time.perf_counter()
             try:
                 tool_output = _tb.execute(tool_name, tool_input)
                 content = str(tool_output)
@@ -301,6 +324,18 @@ async def _run_agentic_loop(
                 logger.error("Tool %r execution error: %s", tool_name, exc)
                 content = f"Error: {exc}"
                 is_error = True
+            tool_duration_ms = int((time.perf_counter() - tool_started) * 1000)
+
+            if history is not None:
+                history.append(
+                    ToolCall(
+                        name=tool_name,
+                        args=tool_input if isinstance(tool_input, dict) else {},
+                        result=content,
+                        duration_ms=tool_duration_ms,
+                        started_at=started_at,
+                    )
+                )
 
             tool_results.append(
                 {
@@ -318,8 +353,13 @@ async def _run_agentic_loop(
     return ""  # pragma: no cover
 
 
-async def _run_agent(input_data: str) -> str:
-    """Run the agent, dispatching based on the type of object loaded from agent.py."""
+async def _run_agent(input_data: str, history: list[ToolCall] | None = None) -> str:
+    """Run the agent, dispatching based on the type of object loaded from agent.py.
+
+    When *history* is provided it is populated in-place with one ``ToolCall``
+    entry per tool invocation made during this run (#215).  Custom callable
+    agents that do not surface tool-call telemetry naturally append nothing.
+    """
     import anthropic
 
     model = os.getenv("AGENT_MODEL", "claude-sonnet-4-6")
@@ -328,7 +368,7 @@ async def _run_agent(input_data: str) -> str:
 
     # anthropic.AsyncAnthropic client — full agentic tool-use loop
     if isinstance(_agent, anthropic.AsyncAnthropic):
-        return await _run_agentic_loop(_agent, model, system_prompt, messages)
+        return await _run_agentic_loop(_agent, model, system_prompt, messages, history=history)
 
     # anthropic.Anthropic (sync) client — run in thread to avoid blocking
     if isinstance(_agent, anthropic.Anthropic):

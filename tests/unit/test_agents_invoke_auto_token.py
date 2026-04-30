@@ -416,3 +416,104 @@ class TestInvokeProxyTokenResolution:
         body = resp.json()
         assert body["data"]["status_code"] == 401
         assert "Unauthorized" in body["data"]["error"]
+
+
+# ---------------------------------------------------------------------------
+# Structured tool-call history forwarding (#215)
+# ---------------------------------------------------------------------------
+
+
+def test_invoke_proxy_forwards_history_field():
+    """The invoke proxy should forward the runtime's `history` field unchanged.
+
+    Every runtime template emits ``InvokeResponse.history`` as a list of
+    ``ToolCall`` objects with ``{name, args, result, duration_ms, started_at}``
+    fields.  The proxy must coerce those into ``AgentInvokeToolCall`` and
+    surface them on ``AgentInvokeResponse.history`` so the dashboard
+    playground can render the timeline.
+    """
+    app = _make_test_app()
+    client = TestClient(app)
+    agent = _make_mock_agent()
+
+    runtime_payload = {
+        "output": "answer",
+        "session_id": "s-1",
+        "history": [
+            {
+                "name": "search",
+                "args": {"query": "AI"},
+                "result": "results",
+                "duration_ms": 12,
+                "started_at": "2026-04-29T00:00:00+00:00",
+            },
+            {
+                "name": "lookup",
+                "args": {"id": "42"},
+                "result": "row",
+                "duration_ms": 4,
+                "started_at": "2026-04-29T00:00:01+00:00",
+            },
+        ],
+    }
+    mock_client = _patch_runtime_response(status_code=200, payload=runtime_payload)
+
+    with (
+        patch(
+            "registry.agents.AgentRegistry.get_by_id",
+            AsyncMock(return_value=agent),
+        ),
+        patch(
+            "api.routes.agents._resolve_agent_auth_token",
+            AsyncMock(return_value=None),
+        ),
+        patch("api.routes.agents.httpx.AsyncClient") as mock_cls,
+    ):
+        mock_cls.return_value = mock_client
+        resp = client.post(
+            f"/api/v1/agents/{agent.id}/invoke",
+            json={"input": "hi"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data"]["output"] == "answer"
+    history = body["data"]["history"]
+    assert len(history) == 2
+    assert history[0]["name"] == "search"
+    assert history[0]["args"] == {"query": "AI"}
+    assert history[0]["result"] == "results"
+    assert history[0]["duration_ms"] == 12
+    assert history[1]["name"] == "lookup"
+
+
+def test_invoke_proxy_history_defaults_empty_when_runtime_omits_it():
+    """Runtimes that don't include `history` should produce `history: []` (not 500)."""
+    app = _make_test_app()
+    client = TestClient(app)
+    agent = _make_mock_agent()
+
+    # Legacy runtime payload: no `history` key.
+    runtime_payload = {"output": "answer", "session_id": "s-1"}
+    mock_client = _patch_runtime_response(status_code=200, payload=runtime_payload)
+
+    with (
+        patch(
+            "registry.agents.AgentRegistry.get_by_id",
+            AsyncMock(return_value=agent),
+        ),
+        patch(
+            "api.routes.agents._resolve_agent_auth_token",
+            AsyncMock(return_value=None),
+        ),
+        patch("api.routes.agents.httpx.AsyncClient") as mock_cls,
+    ):
+        mock_cls.return_value = mock_client
+        resp = client.post(
+            f"/api/v1/agents/{agent.id}/invoke",
+            json={"input": "hi"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data"]["history"] == []

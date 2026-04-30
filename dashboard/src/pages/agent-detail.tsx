@@ -1680,6 +1680,7 @@ function InvokePanel({
         duration_ms: 0,
         status_code: 0,
         error: e instanceof Error ? e.message : String(e),
+        history: [],
       });
     } finally {
       setRunning(false);

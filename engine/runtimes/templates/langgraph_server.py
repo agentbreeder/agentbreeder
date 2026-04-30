@@ -7,6 +7,7 @@ It wraps any LangGraph agent as a FastAPI server with /invoke, /resume, and /hea
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import os
 import sys
@@ -14,7 +15,7 @@ import uuid
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("agentbreeder.agent")
@@ -50,10 +51,29 @@ class InvokeRequest(BaseModel):
     thread_id: str | None = None
 
 
+class ToolCall(BaseModel):
+    """Structured record of a single tool invocation (#215).
+
+    Shared shape across all runtime templates so the dashboard playground can
+    render a tool-call timeline without regex-scraping message bodies.
+    """
+
+    name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    result: str = ""
+    duration_ms: int = 0
+    started_at: str = ""
+
+
 class InvokeResponse(BaseModel):
     output: Any
     metadata: dict[str, Any] | None = None
     thread_id: str | None = None
+    # Structured tool-call timeline (#215). Pulled from the LangGraph state's
+    # ``messages`` array — pairs each ``AIMessage.tool_calls[*]`` with the
+    # matching ``ToolMessage`` content.  Empty when the graph emitted no tool
+    # calls.
+    history: list[ToolCall] = Field(default_factory=list)
 
 
 class ResumeRequest(BaseModel):
@@ -335,9 +355,14 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
                     },
                     thread_id=thread_id,
                     metadata={"interrupted": True},
+                    history=_extract_tool_history(result),
                 )
 
-        return InvokeResponse(output=result, thread_id=thread_id)
+        return InvokeResponse(
+            output=result,
+            thread_id=thread_id,
+            history=_extract_tool_history(result),
+        )
     except Exception as e:
         logger.exception("Agent invocation failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -354,7 +379,11 @@ async def resume(request: ResumeRequest) -> InvokeResponse:
         from langgraph.types import Command
 
         result = await _agent.ainvoke(Command(resume=request.human_input), config=config)
-        return InvokeResponse(output=result, thread_id=request.thread_id)
+        return InvokeResponse(
+            output=result,
+            thread_id=request.thread_id,
+            history=_extract_tool_history(result),
+        )
     except Exception as e:
         logger.exception("Agent resume failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -426,3 +455,82 @@ async def _run_agent(input_data: dict[str, Any], config: dict[str, Any]) -> Any:
     else:
         msg = "Agent does not have invoke or ainvoke method"
         raise TypeError(msg)
+
+
+def _extract_tool_history(result: Any) -> list[ToolCall]:
+    """Pair AIMessage.tool_calls with their ToolMessage outputs from the graph state (#215).
+
+    LangGraph graphs that use the standard ``MessagesState`` (or any state with
+    a ``messages`` list) record tool invocations as:
+        - an ``AIMessage`` whose ``tool_calls`` field carries one or more
+          ``{name, args, id}`` entries, and
+        - one ``ToolMessage`` per invocation, keyed by the matching
+          ``tool_call_id`` and carrying the result string in ``.content``.
+
+    This walk pairs them up by id and produces one ``ToolCall`` per entry.
+    Graphs whose state has no ``messages`` array (e.g. custom dict-only state)
+    return an empty history — explicit telemetry can be added in user code.
+    """
+    if not isinstance(result, dict):
+        return []
+    messages = result.get("messages") or []
+    if not isinstance(messages, list):
+        return []
+
+    by_id: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+
+    def _msg_attr(msg: Any, key: str, default: Any = None) -> Any:
+        if isinstance(msg, dict):
+            return msg.get(key, default)
+        return getattr(msg, key, default)
+
+    for msg in messages:
+        # Accept both LangChain BaseMessage objects and plain dicts.
+        msg_type = _msg_attr(msg, "type") or msg.__class__.__name__
+        # 1) AIMessage carrying tool_calls.
+        tool_calls = _msg_attr(msg, "tool_calls") or []
+        if tool_calls:
+            for tc in tool_calls:
+                tc_id = (
+                    tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                ) or f"_anon_{len(order)}"
+                tc_name = (
+                    tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                ) or ""
+                tc_args = (
+                    tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", None)
+                ) or {}
+                if not isinstance(tc_args, dict):
+                    tc_args = {"raw": str(tc_args)}
+                entry = by_id.setdefault(tc_id, {"name": tc_name, "args": tc_args, "result": ""})
+                entry["name"] = tc_name or entry.get("name", "")
+                entry["args"] = tc_args or entry.get("args", {})
+                if tc_id not in order:
+                    order.append(tc_id)
+        # 2) ToolMessage carrying the result string for one tool_call_id.
+        if msg_type in ("tool", "ToolMessage") or _msg_attr(msg, "tool_call_id"):
+            tc_id = _msg_attr(msg, "tool_call_id")
+            content = _msg_attr(msg, "content", "")
+            if not tc_id:
+                continue
+            entry = by_id.setdefault(tc_id, {"name": "", "args": {}, "result": ""})
+            if isinstance(content, list):
+                # Some message contents are lists of content blocks; stringify.
+                try:
+                    entry["result"] = json.dumps(content)
+                except (TypeError, ValueError):
+                    entry["result"] = str(content)
+            else:
+                entry["result"] = str(content) if content is not None else ""
+            if tc_id not in order:
+                order.append(tc_id)
+
+    return [
+        ToolCall(
+            name=str(by_id[i].get("name", "") or ""),
+            args=by_id[i].get("args", {}) or {},
+            result=str(by_id[i].get("result", "") or ""),
+        )
+        for i in order
+    ]
