@@ -736,6 +736,7 @@ agentbreeder model [SUBCOMMAND] [OPTIONS]
 | `list` | List models in the registry. Supports `--provider`, `--status`, `--per-page`, `--json`. |
 | `show NAME` | Show a single model's full record (id, status, context, pricing, lifecycle timestamps). |
 | `sync` | Discover models from each configured provider and reconcile the registry. Supports `--provider NAME` (repeatable). Deployer role required. |
+| `sync-now` | Run the daily sync sweep immediately, in-process (bypasses the API server). Talks directly to the database; useful for testing the cron and for self-hosted environments without the daily loop. Supports `--json`. |
 | `deprecate NAME` | Manually mark a model deprecated. Supports `--replacement NAME`. Deployer role required. |
 
 The `sync` and `deprecate` subcommands talk to `POST /api/v1/models/sync` and `POST /api/v1/models/{name}/deprecate` respectively. Status flips emit audit events: `model.added`, `model.deprecated`, `model.retired`. See [Providers → Model lifecycle](providers) for the full state machine.
@@ -753,11 +754,15 @@ agentbreeder model sync                                # Every provider with an 
 agentbreeder model sync --provider nvidia --provider groq
 agentbreeder model sync --json                         # Machine-readable result
 
+# Sync immediately, in-process (no API server required)
+agentbreeder model sync-now                            # Same sweep as the daily cron
+agentbreeder model sync-now --json                     # Machine-readable summary
+
 # Manual deprecate (operator override)
 agentbreeder model deprecate gpt-3.5-turbo --replacement gpt-4o-mini
 ```
 
-> **Note:** Models that disappear from a provider's `/models` endpoint are auto-deprecated on the next sync. After 30 days of continuous absence they're auto-retired. Set up a daily cron (`agentbreeder model sync`) so this stays current.
+> **Daily cron.** Cloud workspaces (`AGENTBREEDER_INSTALL_MODE=cloud`) run a built-in daily sweep that auto-deprecates absent models and emits a `model.sync.scheduled` audit event. Self-hosted users opt in via `AGENTBREEDER_MODELS_DAILY_SYNC=true`. Models that disappear from a provider's `/models` endpoint are auto-deprecated on the next sweep; after 30 days of continuous absence they're auto-retired.
 
 ---
 
