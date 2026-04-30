@@ -216,6 +216,38 @@ class OllamaProvider(ProviderBase):
             payload["stream"] = True
         return payload
 
+    async def pull_model(self, model_name: str) -> AsyncIterator[dict[str, Any]]:
+        """Pull a model into the local Ollama runtime, yielding progress events.
+
+        Wraps Ollama's ``POST /api/pull`` which returns an NDJSON stream of
+        status events. Each event is a dict with at least a ``status`` field
+        (e.g. ``"pulling manifest"``, ``"downloading <digest>"``, ``"success"``)
+        and optionally ``digest``, ``total``, ``completed`` for byte-progress.
+
+        The dashboard's Pull-Model button (#214) consumes this via SSE.
+        """
+        if not model_name.strip():
+            raise ProviderError("model_name is required")
+
+        async with self._client.stream(
+            "POST",
+            "/api/pull",
+            json={"name": model_name, "stream": True},
+        ) as resp:
+            if resp.status_code == 404:
+                raise ModelNotFoundError(
+                    f"Ollama could not find model '{model_name}' in the registry."
+                )
+            self._check_status(resp.status_code)
+            async for line in resp.aiter_lines():
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                yield event
+
     async def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
         try:
             if method == "GET":

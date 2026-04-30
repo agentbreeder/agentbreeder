@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
@@ -31,7 +35,15 @@ from api.services import litellm_key_service
 from api.tasks.provider_health import check_all_providers
 from registry.providers import ProviderRegistry
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/providers", tags=["providers"])
+
+
+class PullModelRequest(BaseModel):
+    """Body schema for ``POST /api/v1/providers/{id}/pull-model`` (#214)."""
+
+    model: str = Field(..., min_length=1, max_length=255)
 
 
 @router.get("/status", response_model=ApiResponse[ProviderStatusSummary])
@@ -291,6 +303,63 @@ async def discover_models(
             models=discovered,
             total=len(discovered),
         )
+    )
+
+
+@router.post("/{provider_id}/pull-model")
+async def pull_ollama_model(
+    provider_id: uuid.UUID,
+    body: PullModelRequest,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Stream Ollama's pull progress over Server-Sent Events (#214).
+
+    The dashboard's ``Pull Model`` button (settings.tsx) consumes this as
+    SSE — each event is a JSON object from Ollama's ``/api/pull`` NDJSON
+    stream (``{"status": "downloading", "digest": "...", "total": ..., "completed": ...}``)
+    plus a final ``{"status": "success"}`` or ``{"status": "error", "message": ...}``.
+
+    Only Ollama providers are supported; calling this on any other type
+    returns 400.
+    """
+    provider = await ProviderRegistry.get(db, provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    if provider.provider_type != ProviderType.ollama:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"pull-model only supported on Ollama providers; this provider is "
+                f"'{provider.provider_type}'."
+            ),
+        )
+
+    from engine.providers.models import ProviderConfig
+    from engine.providers.ollama_provider import OllamaProvider, ProviderError
+
+    cfg = ProviderConfig(
+        provider_type=ProviderType.ollama,
+        api_key=None,
+        base_url=provider.base_url,
+        timeout=600.0,
+    )
+    ollama = OllamaProvider(cfg)
+
+    async def event_stream():
+        try:
+            async for event in ollama.pull_model(body.model):
+                yield f"data: {json.dumps(event)}\n\n"
+        except ProviderError as exc:
+            payload = json.dumps({"status": "error", "message": str(exc)})
+            yield f"data: {payload}\n\n"
+        finally:
+            await ollama.close()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

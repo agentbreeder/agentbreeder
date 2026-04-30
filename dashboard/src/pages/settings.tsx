@@ -41,7 +41,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { ComingSoonBadge } from "@/components/coming-soon-badge";
 import { cn } from "@/lib/utils";
 import { useState, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -177,6 +176,180 @@ interface DiscoveredModel {
   input_price?: number;
   output_price?: number;
 }
+
+// --- Ollama Pull Model Dialog (#214) ---
+
+interface PullEvent {
+  status?: string;
+  digest?: string;
+  total?: number;
+  completed?: number;
+  message?: string;
+}
+
+const POPULAR_OLLAMA_MODELS = [
+  "llama3.2",
+  "llama3.1",
+  "mistral",
+  "mixtral",
+  "qwen2.5",
+  "phi3",
+  "gemma2",
+  "codellama",
+];
+
+function PullModelDialog({ providerId }: { providerId: string }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [model, setModel] = useState("");
+  const [events, setEvents] = useState<PullEvent[]>([]);
+  const [pulling, setPulling] = useState(false);
+
+  const lastEvent = events[events.length - 1];
+  const percent =
+    lastEvent?.total && lastEvent?.completed
+      ? Math.round((lastEvent.completed / lastEvent.total) * 100)
+      : null;
+  const finalSuccess = lastEvent?.status === "success";
+  const finalError = lastEvent?.status === "error";
+
+  async function startPull() {
+    if (!model.trim()) {
+      toast({ title: "Enter a model name", variant: "error" });
+      return;
+    }
+    setEvents([]);
+    setPulling(true);
+    try {
+      const resp = await api.providers.pullModel(providerId, model.trim());
+      if (!resp.ok || !resp.body) {
+        const text = await resp.text().catch(() => "");
+        throw new Error(text || `Pull failed (${resp.status})`);
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE events are separated by double newlines; each line begins
+        // with `data: ` followed by JSON.
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+        for (const part of parts) {
+          const line = part.split("\n").find((l) => l.startsWith("data: "));
+          if (!line) continue;
+          try {
+            const evt: PullEvent = JSON.parse(line.slice(6));
+            setEvents((prev) => [...prev, evt]);
+            if (evt.status === "success") {
+              toast({ title: `Pulled ${model.trim()}`, variant: "success" });
+              queryClient.invalidateQueries({ queryKey: ["models"] });
+            } else if (evt.status === "error") {
+              toast({
+                title: "Pull failed",
+                description: evt.message,
+                variant: "error",
+              });
+            }
+          } catch {
+            // ignore unparsable lines
+          }
+        }
+      }
+    } catch (err) {
+      toast({ title: "Pull failed", description: (err as Error).message, variant: "error" });
+    } finally {
+      setPulling(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !pulling && setOpen(o)}>
+      <Button
+        variant="outline"
+        size="xs"
+        onClick={() => {
+          setEvents([]);
+          setOpen(true);
+        }}
+      >
+        Pull Model
+      </Button>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Pull Ollama Model</DialogTitle>
+          <DialogDescription>
+            Streams progress from <code className="font-mono">ollama pull</code> on this provider.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground">Model name</label>
+            <Input
+              value={model}
+              disabled={pulling}
+              placeholder="llama3.2"
+              onChange={(e) => setModel(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {POPULAR_OLLAMA_MODELS.map((m) => (
+              <button
+                key={m}
+                onClick={() => setModel(m)}
+                disabled={pulling}
+                className="rounded bg-muted px-2 py-0.5 text-[11px] hover:bg-muted/70 disabled:opacity-50"
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+
+          {events.length > 0 && (
+            <div className="rounded-md border border-border bg-muted/30 p-3 text-xs">
+              {percent !== null && !finalSuccess && !finalError && (
+                <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${percent}%` }}
+                  />
+                </div>
+              )}
+              <div className="font-mono">
+                {finalSuccess
+                  ? "✓ Pull complete."
+                  : finalError
+                    ? `✗ ${lastEvent?.message ?? "error"}`
+                    : `${lastEvent?.status ?? "starting…"}${
+                        percent !== null ? ` — ${percent}%` : ""
+                      }`}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => setOpen(false)}
+            disabled={pulling}
+          >
+            {finalSuccess || finalError ? "Close" : "Cancel"}
+          </Button>
+          <Button onClick={startPull} disabled={pulling || !model.trim()}>
+            {pulling ? "Pulling…" : "Pull"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 // --- Provider Card ---
 
@@ -445,14 +618,7 @@ function ProviderCard({
                 <Power className="size-3" />
                 {provider.status === "disabled" ? "Enable" : "Disable"}
               </Button>
-              {isOllama && (
-                <span className="inline-flex items-center gap-1">
-                  <Button variant="outline" size="xs" disabled title="Coming soon">
-                    Pull Model
-                  </Button>
-                  <ComingSoonBadge feature="Ollama pull from dashboard" issue="#214" />
-                </span>
-              )}
+              {isOllama && <PullModelDialog providerId={provider.id} />}
               <div className="flex-1" />
               <Button
                 variant="destructive"

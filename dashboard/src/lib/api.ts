@@ -1363,6 +1363,18 @@ export const api = {
       request<ProviderDiscoverResult>(`/providers/${id}/discover`, {
         method: "POST",
       }),
+    /**
+     * Pull an Ollama model. Returns the raw Response so callers can stream
+     * SSE events. The body is a stream of JSON events from Ollama's
+     * /api/pull (status / digest / total / completed), terminated by
+     * `{"status":"success"}` or `{"status":"error","message":"..."}`.
+     */
+    pullModel: (id: string, model: string) =>
+      fetch(`${BASE}/providers/${id}/pull-model`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ model }),
+      }),
     catalog: () => request<CatalogProvider[]>("/providers/catalog"),
     catalogStatus: (workspace?: string) =>
       request<Record<string, boolean>>(

@@ -2577,6 +2577,86 @@ class TestProviderActions:
         assert resp.status_code == 200
 
 
+class TestPullOllamaModel:
+    """Tests for ``POST /api/v1/providers/{id}/pull-model`` (#214)."""
+
+    @patch("api.routes.providers.ProviderRegistry.get", new_callable=AsyncMock)
+    @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
+    def test_returns_404_when_provider_missing(self, mock_gu, mock_get):
+        mock_gu.return_value = _make_mock_user()
+        mock_get.return_value = None
+        resp = client.post(
+            f"/api/v1/providers/{uuid.uuid4()}/pull-model",
+            json={"model": "llama3.2"},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 404
+
+    @patch("api.routes.providers.ProviderRegistry.get", new_callable=AsyncMock)
+    @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
+    def test_returns_400_when_provider_not_ollama(self, mock_gu, mock_get):
+        mock_gu.return_value = _make_mock_user()
+        # _provider_mock defaults to provider_type="openai"
+        mock_get.return_value = _provider_mock()
+        resp = client.post(
+            f"/api/v1/providers/{uuid.uuid4()}/pull-model",
+            json={"model": "llama3.2"},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 400
+        assert "ollama" in resp.json()["detail"].lower()
+
+    @patch("api.routes.providers.ProviderRegistry.get", new_callable=AsyncMock)
+    @patch("api.auth.get_user_by_id", new_callable=AsyncMock)
+    def test_streams_pull_events_for_ollama_provider(self, mock_gu, mock_get):
+        from api.models.enums import ProviderType
+
+        mock_gu.return_value = _make_mock_user()
+        mock_get.return_value = _provider_mock(
+            provider_type=ProviderType.ollama, base_url="http://localhost:11434"
+        )
+
+        async def fake_pull(self, model_name):
+            yield {"status": "pulling manifest"}
+            yield {"status": "downloading", "digest": "abc", "total": 1000, "completed": 500}
+            yield {"status": "success"}
+
+        async def fake_close(self):
+            return None
+
+        with (
+            patch(
+                "engine.providers.ollama_provider.OllamaProvider.pull_model",
+                fake_pull,
+            ),
+            patch(
+                "engine.providers.ollama_provider.OllamaProvider.close",
+                fake_close,
+            ),
+        ):
+            resp = client.post(
+                f"/api/v1/providers/{uuid.uuid4()}/pull-model",
+                json={"model": "llama3.2"},
+                headers=_auth_headers(),
+            )
+        assert resp.status_code == 200
+        body = resp.text
+        # SSE format: each event prefixed with "data: " and terminated by blank line
+        assert "data: " in body
+        assert "pulling manifest" in body
+        assert "downloading" in body
+        assert "success" in body
+
+    def test_validates_empty_model_field(self):
+        # Pydantic validation should reject empty string before we hit the route
+        resp = client.post(
+            f"/api/v1/providers/{uuid.uuid4()}/pull-model",
+            json={"model": ""},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 422
+
+
 class TestProviderStatus:
     @patch(
         "api.routes.providers.ProviderRegistry.list",
