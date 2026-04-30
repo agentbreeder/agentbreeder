@@ -2,19 +2,23 @@
 canary deploys, cost forecasting, and compliance.
 
 Provides:
-- Fleet overview and health heatmap
-- Top-N agent rankings by cost, errors, latency, invocations
-- Real-time operations event stream
-- Incident management (CRUD + actions) — DB-backed via ``IncidentService``
-- Canary deploy management
-- Cost forecasting and anomaly detection
-- SOC2 compliance status and reporting
-- Team comparison metrics
+- Fleet overview and health heatmap (DB-backed — ``FleetService``, #206)
+- Top-N agent rankings by cost, errors, latency, invocations (DB-backed)
+- Real-time operations event stream (DB-backed: ``audit_events`` + ``cost_events``)
+- Incident management (CRUD + actions) — DB-backed via ``IncidentService`` (#207)
+- Canary deploy management (in-memory; tracked separately)
+- Cost forecasting and anomaly detection (anchored on ``cost_events``)
+- SOC2 compliance status and reporting (still seeded; tracked under #208)
+- Team comparison metrics (DB-backed — ``cost_events`` + ``IncidentService``)
+
+Fleet / events / top-agents / teams previously read from in-memory
+``_SEED_AGENTS`` and ``_SEED_EVENTS`` constants. Both were removed in #206 —
+see ``FleetService`` for the DB-backed replacement that joins ``agents``,
+``traces``, ``cost_events``, and ``audit_events``.
 
 Incidents previously lived in an in-process dict (``_incidents``) seeded from
-``_SEED_INCIDENTS``. Both are removed as of #207 — see ``IncidentService``
-below for the DB-backed replacement and migration ``020_incidents_table.py``
-for the schema.
+``_SEED_INCIDENTS``. Both were removed as of #207 — see ``IncidentService``
+for the DB-backed replacement and migration ``020_incidents_table.py``.
 """
 
 from __future__ import annotations
@@ -24,204 +28,24 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.models.audit import AuditEvent
+from api.models.costs import CostEvent
 from api.models.database import Agent, Incident
-from api.models.enums import IncidentSeverity, IncidentStatus
+from api.models.enums import AgentStatus, IncidentSeverity, IncidentStatus
+from api.models.tracing import Trace
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Seed Data — fleet / events / cost / compliance
+# Seed Data — cost / compliance (still in-memory; tracked for follow-up)
 # ---------------------------------------------------------------------------
-# These remain as in-memory demo seed data because they back read-only views
-# (fleet snapshot, recent events, cost forecasts, SOC2 demo). They will move
-# to real backends in their own follow-up issues. Incidents are the only
-# AgentOps surface that supported user writes, so they are the only one that
-# needed PostgreSQL persistence in #207.
-
-_SEED_AGENTS = [
-    {
-        "id": "agent-001",
-        "name": "customer-support-agent",
-        "team": "customer-success",
-        "status": "healthy",
-        "health_score": 97,
-        "invocations_24h": 4820,
-        "error_rate_pct": 0.4,
-        "avg_latency_ms": 320,
-        "cost_24h_usd": 28.50,
-        "last_deploy": "2026-03-12T10:00:00+00:00",
-        "model": "claude-sonnet-4.6",
-        "framework": "langgraph",
-    },
-    {
-        "id": "agent-002",
-        "name": "code-review-agent",
-        "team": "engineering",
-        "status": "healthy",
-        "health_score": 91,
-        "invocations_24h": 2100,
-        "error_rate_pct": 1.2,
-        "avg_latency_ms": 870,
-        "cost_24h_usd": 61.20,
-        "last_deploy": "2026-03-11T14:30:00+00:00",
-        "model": "claude-opus-4.6",
-        "framework": "openai_agents",
-    },
-    {
-        "id": "agent-003",
-        "name": "data-pipeline-agent",
-        "team": "data",
-        "status": "degraded",
-        "health_score": 63,
-        "invocations_24h": 980,
-        "error_rate_pct": 7.8,
-        "avg_latency_ms": 1450,
-        "cost_24h_usd": 14.30,
-        "last_deploy": "2026-03-10T09:00:00+00:00",
-        "model": "gpt-4o",
-        "framework": "crewai",
-    },
-    {
-        "id": "agent-004",
-        "name": "sales-outreach-agent",
-        "team": "sales",
-        "status": "healthy",
-        "health_score": 88,
-        "invocations_24h": 3400,
-        "error_rate_pct": 2.1,
-        "avg_latency_ms": 510,
-        "cost_24h_usd": 19.80,
-        "last_deploy": "2026-03-12T08:00:00+00:00",
-        "model": "gpt-4o",
-        "framework": "langgraph",
-    },
-    {
-        "id": "agent-005",
-        "name": "doc-generation-agent",
-        "team": "engineering",
-        "status": "healthy",
-        "health_score": 95,
-        "invocations_24h": 1560,
-        "error_rate_pct": 0.8,
-        "avg_latency_ms": 620,
-        "cost_24h_usd": 42.70,
-        "last_deploy": "2026-03-11T16:00:00+00:00",
-        "model": "claude-sonnet-4.6",
-        "framework": "claude_sdk",
-    },
-    {
-        "id": "agent-006",
-        "name": "fraud-detection-agent",
-        "team": "security",
-        "status": "healthy",
-        "health_score": 99,
-        "invocations_24h": 8750,
-        "error_rate_pct": 0.1,
-        "avg_latency_ms": 180,
-        "cost_24h_usd": 9.60,
-        "last_deploy": "2026-03-09T12:00:00+00:00",
-        "model": "gpt-4.1",
-        "framework": "custom",
-    },
-    {
-        "id": "agent-007",
-        "name": "hr-onboarding-agent",
-        "team": "hr",
-        "status": "down",
-        "health_score": 12,
-        "invocations_24h": 0,
-        "error_rate_pct": 100.0,
-        "avg_latency_ms": 0,
-        "cost_24h_usd": 0.0,
-        "last_deploy": "2026-03-08T11:00:00+00:00",
-        "model": "claude-haiku-4.5",
-        "framework": "langgraph",
-    },
-    {
-        "id": "agent-008",
-        "name": "market-research-agent",
-        "team": "sales",
-        "status": "healthy",
-        "health_score": 82,
-        "invocations_24h": 720,
-        "error_rate_pct": 3.5,
-        "avg_latency_ms": 940,
-        "cost_24h_usd": 37.90,
-        "last_deploy": "2026-03-12T06:00:00+00:00",
-        "model": "claude-opus-4.6",
-        "framework": "crewai",
-    },
-]
-
-_SEED_EVENTS = [
-    {
-        "id": "evt-001",
-        "timestamp": "2026-03-13T08:15:00+00:00",
-        "type": "deploy",
-        "agent_name": "customer-support-agent",
-        "message": "Deployed v2.3.1 to production (ECS Fargate, us-east-1)",
-        "severity": "info",
-    },
-    {
-        "id": "evt-002",
-        "timestamp": "2026-03-13T07:42:00+00:00",
-        "type": "alert",
-        "agent_name": "data-pipeline-agent",
-        "message": "Error rate exceeded 5% threshold (currently 7.8%)",
-        "severity": "warning",
-    },
-    {
-        "id": "evt-003",
-        "timestamp": "2026-03-13T07:00:00+00:00",
-        "type": "cost_spike",
-        "agent_name": "code-review-agent",
-        "message": "Cost spike detected: $61.20 vs $22.00 expected (24h)",
-        "severity": "warning",
-    },
-    {
-        "id": "evt-004",
-        "timestamp": "2026-03-13T06:30:00+00:00",
-        "type": "restart",
-        "agent_name": "hr-onboarding-agent",
-        "message": "Agent went down — auto-restart failed (container OOM)",
-        "severity": "critical",
-    },
-    {
-        "id": "evt-005",
-        "timestamp": "2026-03-13T05:00:00+00:00",
-        "type": "deploy",
-        "agent_name": "market-research-agent",
-        "message": "Deployed v1.0.2 — canary at 25% traffic",
-        "severity": "info",
-    },
-    {
-        "id": "evt-006",
-        "timestamp": "2026-03-13T04:20:00+00:00",
-        "type": "alert",
-        "agent_name": "data-pipeline-agent",
-        "message": "P95 latency exceeded 2000ms SLA (measured: 2340ms)",
-        "severity": "warning",
-    },
-    {
-        "id": "evt-007",
-        "timestamp": "2026-03-12T22:10:00+00:00",
-        "type": "deploy",
-        "agent_name": "code-review-agent",
-        "message": "Deployed v3.1.0 to production",
-        "severity": "info",
-    },
-    {
-        "id": "evt-008",
-        "timestamp": "2026-03-12T18:00:00+00:00",
-        "type": "alert",
-        "agent_name": "sales-outreach-agent",
-        "message": "Budget threshold at 85% for team 'sales'",
-        "severity": "warning",
-    },
-]
+# Fleet/events/top-agents/teams seeds (``_SEED_AGENTS``, ``_SEED_EVENTS``)
+# were removed in #206 — see ``FleetService`` below for the DB-backed
+# replacement. Cost anomalies / suggestions and SOC2 compliance are still
+# seeded; they are tracked under the cost-uplift work and #208 respectively.
 
 _SEED_COST_ANOMALIES = [
     {
@@ -633,41 +457,185 @@ class IncidentService:
 
 
 # ---------------------------------------------------------------------------
-# AgentOps Store (read-only fleet / events / cost / compliance)
+# Fleet Service (DB-backed, #206)
 # ---------------------------------------------------------------------------
 
 
-class AgentOpsStore:
-    """In-memory store for the read-only AgentOps surfaces (fleet snapshot,
-    recent events, cost forecasts, SOC2 demo, team comparison).
+def _agent_status_to_health(
+    status: AgentStatus | str,
+    error_rate_pct: float,
+) -> tuple[str, int]:
+    """Map a registry ``AgentStatus`` + recent error rate to the
+    ``healthy / degraded / down`` triage the dashboard expects, plus a
+    ``health_score`` in [0, 100].
 
-    Incident persistence has moved to ``IncidentService`` + the ``incidents``
-    table (#207). This class no longer holds any user-mutable state.
+    Heuristic:
+      - ``failed`` agents are always ``down`` (score 0).
+      - ``stopped`` agents are ``down`` (score 10) — no traffic flowing.
+      - ``deploying`` agents are ``degraded`` (score 50) until they're
+        live and start emitting traces.
+      - ``running`` agents are scored from observed error rate over the
+        last 24h: ``health = max(0, 100 - error_rate_pct * 4)``.
+            * < 5%  → healthy (≥ 80 score)
+            * 5–25% → degraded
+            * ≥ 25% → down
+    """
+    raw = status.value if hasattr(status, "value") else str(status)
+    if raw == AgentStatus.failed.value:
+        return "down", 0
+    if raw == AgentStatus.stopped.value:
+        return "down", 10
+    if raw == AgentStatus.deploying.value:
+        return "degraded", 50
+
+    # running — derive from recent error rate
+    score = max(0, min(100, int(round(100 - error_rate_pct * 4))))
+    if error_rate_pct >= 25.0:
+        return "down", score
+    if error_rate_pct >= 5.0:
+        return "degraded", score
+    return "healthy", score
+
+
+def _trace_metrics_24h_subquery() -> Any:
+    """Per-agent trace stats over the last 24h (invocations, errors,
+    avg latency). Joined against ``agents`` to build the fleet snapshot.
+    """
+    cutoff = datetime.now(UTC) - timedelta(hours=24)
+    error_case = case((Trace.status == "error", 1), else_=0)
+    return (
+        select(
+            Trace.agent_name.label("agent_name"),
+            func.count(Trace.id).label("invocations_24h"),
+            func.sum(error_case).label("errors_24h"),
+            func.avg(Trace.duration_ms).label("avg_latency_ms"),
+        )
+        .where(Trace.created_at >= cutoff)
+        .group_by(Trace.agent_name)
+        .subquery()
+    )
+
+
+def _cost_metrics_24h_subquery() -> Any:
+    """Per-agent cost spend over the last 24 hours."""
+    cutoff = datetime.now(UTC) - timedelta(hours=24)
+    return (
+        select(
+            CostEvent.agent_name.label("agent_name"),
+            func.sum(CostEvent.cost_usd).label("cost_24h_usd"),
+        )
+        .where(CostEvent.created_at >= cutoff)
+        .group_by(CostEvent.agent_name)
+        .subquery()
+    )
+
+
+async def _build_fleet_rows(db: AsyncSession) -> list[dict[str, Any]]:
+    """Compose the per-agent fleet snapshot from ``agents`` joined to
+    24h trace + cost aggregates.
+
+    Agents with no trace activity in the window get zeroed metrics —
+    this is the empty-state behaviour required by #206 (``traces`` may
+    be sparse on a fresh deploy and we never seed fakes).
+    """
+    trace_sq = _trace_metrics_24h_subquery()
+    cost_sq = _cost_metrics_24h_subquery()
+
+    stmt = (
+        select(
+            Agent.id,
+            Agent.name,
+            Agent.team,
+            Agent.status,
+            Agent.framework,
+            Agent.model_primary,
+            Agent.updated_at,
+            trace_sq.c.invocations_24h,
+            trace_sq.c.errors_24h,
+            trace_sq.c.avg_latency_ms,
+            cost_sq.c.cost_24h_usd,
+        )
+        .outerjoin(trace_sq, trace_sq.c.agent_name == Agent.name)
+        .outerjoin(cost_sq, cost_sq.c.agent_name == Agent.name)
+        .order_by(Agent.name)
+    )
+
+    result = await db.execute(stmt)
+    rows: list[dict[str, Any]] = []
+    for r in result.all():
+        invocations = int(r.invocations_24h or 0)
+        errors = int(r.errors_24h or 0)
+        latency = float(r.avg_latency_ms or 0.0)
+        cost = float(r.cost_24h_usd or 0.0)
+        error_rate = round((errors / invocations) * 100.0, 2) if invocations else 0.0
+        status, health = _agent_status_to_health(r.status, error_rate)
+        rows.append(
+            {
+                "id": str(r.id),
+                "name": r.name,
+                "team": r.team,
+                "status": status,
+                "health_score": health,
+                "invocations_24h": invocations,
+                "error_rate_pct": error_rate,
+                "avg_latency_ms": int(round(latency)),
+                "cost_24h_usd": round(cost, 2),
+                "last_deploy": r.updated_at.isoformat() if r.updated_at else "",
+                "model": r.model_primary or "",
+                "framework": r.framework or "",
+            }
+        )
+    return rows
+
+
+def _classify_audit_event(event: AuditEvent) -> tuple[str, str, str]:
+    """Map an ``AuditEvent`` row to ``(type, severity, message)`` for the
+    operations event stream.
+
+    The dotted ``action`` namespace from #209 (e.g. ``deploy.created``,
+    ``incident.opened``, ``secret.rotated``) drives the bucketing.
+    """
+    action = (event.action or "").lower()
+    rtype = (event.resource_type or "").lower()
+    name = event.resource_name or ""
+    actor = event.actor or "system"
+    details = event.details or {}
+
+    if action.startswith("deploy") or rtype == "deploy":
+        msg = details.get("message") or f"{actor} {action} {name}".strip()
+        return "deploy", "info", msg
+    if action.startswith("incident") or rtype == "incident":
+        sev_raw = str(details.get("severity", "")).lower()
+        sev = "critical" if sev_raw in {"critical", "high"} else "warning"
+        msg = details.get("title") or details.get("message") or f"{action} {name}".strip()
+        return "alert", sev, msg
+    if "rollback" in action or "restart" in action:
+        return "restart", "warning", f"{actor} {action} {name}".strip()
+    if "guardrail" in action or "alert" in action:
+        return "alert", "warning", details.get("message") or f"{action} {name}".strip()
+    return "audit", "info", f"{actor} {action} {name}".strip()
+
+
+class FleetService:
+    """DB-backed read service for fleet / events / top-agents / teams.
+
+    Replaces the old in-memory ``_SEED_AGENTS`` / ``_SEED_EVENTS`` constants
+    (#206). All methods take an ``AsyncSession`` and aggregate over the
+    registry (``agents``), the trace store (``traces``), the cost ledger
+    (``cost_events``), and the audit log (``audit_events``).
     """
 
-    def __init__(self) -> None:
-        self._agents: list[dict[str, Any]] = list(_SEED_AGENTS)
-        self._events: list[dict[str, Any]] = list(_SEED_EVENTS)
-        self._canaries: dict[str, dict[str, Any]] = {}
-        self._cost_anomalies: list[dict[str, Any]] = list(_SEED_COST_ANOMALIES)
-        self._cost_suggestions: list[dict[str, Any]] = list(_SEED_COST_SUGGESTIONS)
-        self._compliance_controls: list[dict[str, Any]] = list(_SEED_COMPLIANCE_CONTROLS)
-
-    # -----------------------------------------------------------------------
-    # Fleet Overview
-    # -----------------------------------------------------------------------
-
-    def get_fleet_overview(self) -> dict[str, Any]:
-        """Return all agents with health, cost, and last deploy info."""
-        total = len(self._agents)
-        healthy = sum(1 for a in self._agents if a["status"] == "healthy")
-        degraded = sum(1 for a in self._agents if a["status"] == "degraded")
-        down = sum(1 for a in self._agents if a["status"] == "down")
-        avg_health = (
-            round(sum(a["health_score"] for a in self._agents) / total, 1) if total else 0.0
-        )
+    @staticmethod
+    async def get_fleet_overview(db: AsyncSession) -> dict[str, Any]:
+        """All agents with 24h health, cost, latency, and last-deploy info."""
+        agents = await _build_fleet_rows(db)
+        total = len(agents)
+        healthy = sum(1 for a in agents if a["status"] == "healthy")
+        degraded = sum(1 for a in agents if a["status"] == "degraded")
+        down = sum(1 for a in agents if a["status"] == "down")
+        avg_health = round(sum(a["health_score"] for a in agents) / total, 1) if total else 0.0
         return {
-            "agents": list(self._agents),
+            "agents": agents,
             "summary": {
                 "total": total,
                 "healthy": healthy,
@@ -677,8 +645,10 @@ class AgentOpsStore:
             },
         }
 
-    def get_fleet_heatmap(self) -> dict[str, Any]:
-        """Return health heatmap grid data for visualization."""
+    @staticmethod
+    async def get_fleet_heatmap(db: AsyncSession) -> dict[str, Any]:
+        """Health heatmap grid — one cell per registered agent."""
+        agents = await _build_fleet_rows(db)
         grid = [
             {
                 "agent_id": a["id"],
@@ -687,12 +657,24 @@ class AgentOpsStore:
                 "health_score": a["health_score"],
                 "status": a["status"],
             }
-            for a in self._agents
+            for a in agents
         ]
         return {"grid": grid, "total": len(grid)}
 
-    def get_top_agents(self, metric: str = "cost", limit: int = 5) -> list[dict[str, Any]]:
-        """Top N agents by cost | errors | latency | invocations."""
+    @staticmethod
+    async def get_top_agents(
+        db: AsyncSession,
+        *,
+        metric: str = "cost",
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Top-N agents by cost | errors | latency | invocations.
+
+        Ranking sorts the same row set used by ``get_fleet_overview``, so
+        cost / invocations / latency / error rate all line up with what
+        the user sees on the fleet table. Agents with no traces in the
+        window land at the bottom by construction.
+        """
         sort_key: dict[str, str] = {
             "cost": "cost_24h_usd",
             "errors": "error_rate_pct",
@@ -700,21 +682,184 @@ class AgentOpsStore:
             "invocations": "invocations_24h",
         }
         key = sort_key.get(metric, "cost_24h_usd")
-        agents = sorted(self._agents, key=lambda a: a[key], reverse=True)
-        return agents[:limit]
+        rows = await _build_fleet_rows(db)
+        rows.sort(key=lambda r: r[key], reverse=True)
+        return rows[: max(0, int(limit))]
 
-    # -----------------------------------------------------------------------
-    # Events
-    # -----------------------------------------------------------------------
+    @staticmethod
+    async def get_events(
+        db: AsyncSession,
+        *,
+        limit: int = 50,
+        since: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Recent operations events, newest-first.
 
-    def get_events(self, limit: int = 50, since: str | None = None) -> list[dict[str, Any]]:
-        """Return recent operations events, newest-first."""
-        events = self._events
+        Sourced from two tables:
+          - ``audit_events`` — deploys, incidents, restarts, rollbacks
+          - ``cost_events`` — single requests >= $1.00 surfaced as
+            ``cost_spike`` events (a soft anomaly threshold).
+
+        Returns ``[]`` cleanly when both tables are empty.
+        """
+        since_dt: datetime | None = None
         if since:
-            events = [e for e in events if e["timestamp"] > since]
-        # Sort newest first
-        events = sorted(events, key=lambda e: e["timestamp"], reverse=True)
+            try:
+                parsed = datetime.fromisoformat(since)
+                since_dt = parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+            except ValueError:
+                since_dt = None
+
+        audit_stmt = select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(limit)
+        if since_dt is not None:
+            audit_stmt = audit_stmt.where(AuditEvent.created_at > since_dt)
+        audit_rows = (await db.execute(audit_stmt)).scalars().all()
+
+        cost_stmt = (
+            select(CostEvent)
+            .where(CostEvent.cost_usd >= 1.0)
+            .order_by(CostEvent.created_at.desc())
+            .limit(limit)
+        )
+        if since_dt is not None:
+            cost_stmt = cost_stmt.where(CostEvent.created_at > since_dt)
+        cost_rows = (await db.execute(cost_stmt)).scalars().all()
+
+        events: list[dict[str, Any]] = []
+        for ae in audit_rows:
+            etype, sev, msg = _classify_audit_event(ae)
+            events.append(
+                {
+                    "id": f"audit-{ae.id}",
+                    "timestamp": ae.created_at.isoformat() if ae.created_at else "",
+                    "type": etype,
+                    "agent_name": ae.resource_name if ae.resource_type == "agent" else "",
+                    "message": msg or f"{ae.actor} {ae.action} {ae.resource_name}".strip(),
+                    "severity": sev,
+                }
+            )
+        for ce in cost_rows:
+            events.append(
+                {
+                    "id": f"cost-{ce.id}",
+                    "timestamp": ce.created_at.isoformat() if ce.created_at else "",
+                    "type": "cost_spike",
+                    "agent_name": ce.agent_name,
+                    "message": (
+                        f"Cost spike: ${ce.cost_usd:.2f} on {ce.model_name} "
+                        f"({ce.total_tokens} tokens)"
+                    ),
+                    "severity": "warning" if ce.cost_usd < 10.0 else "critical",
+                }
+            )
+
+        events.sort(key=lambda e: e["timestamp"], reverse=True)
         return events[:limit]
+
+    @staticmethod
+    async def get_team_comparison(
+        db: AsyncSession,
+        *,
+        open_incidents_by_agent: dict[str, int] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Team-level metrics — agent count, 24h spend, avg health, open
+        incidents.
+
+        Spend is aggregated directly over ``cost_events.team`` (preserving
+        spend recorded against agents that may since have been deleted).
+        Health and agent counts derive from live ``agents`` rows. The
+        ``open_incidents_by_agent`` mapping is the dict produced by
+        :py:meth:`IncidentService.open_count_by_agent_name` — passed in
+        rather than re-queried so the route can reuse it (preserves the
+        #207 IncidentService integration).
+        """
+        per_agent = open_incidents_by_agent or {}
+        fleet = await _build_fleet_rows(db)
+
+        cutoff = datetime.now(UTC) - timedelta(hours=24)
+        cost_stmt = (
+            select(
+                CostEvent.team.label("team"),
+                func.sum(CostEvent.cost_usd).label("cost_usd"),
+            )
+            .where(CostEvent.created_at >= cutoff)
+            .group_by(CostEvent.team)
+        )
+        cost_rows = (await db.execute(cost_stmt)).all()
+        cost_by_team: dict[str, float] = {
+            row.team: float(row.cost_usd or 0.0) for row in cost_rows
+        }
+
+        teams: dict[str, dict[str, Any]] = {}
+        for agent in fleet:
+            team = agent["team"]
+            bucket = teams.setdefault(
+                team,
+                {
+                    "team": team,
+                    "agent_count": 0,
+                    "total_cost_24h": 0.0,
+                    "_health_scores": [],
+                    "incidents_open": 0,
+                },
+            )
+            bucket["agent_count"] += 1
+            bucket["_health_scores"].append(agent["health_score"])
+            bucket["incidents_open"] += per_agent.get(agent["name"], 0)
+
+        for team, total_cost in cost_by_team.items():
+            bucket = teams.setdefault(
+                team,
+                {
+                    "team": team,
+                    "agent_count": 0,
+                    "total_cost_24h": 0.0,
+                    "_health_scores": [],
+                    "incidents_open": 0,
+                },
+            )
+            bucket["total_cost_24h"] = total_cost
+
+        out: list[dict[str, Any]] = []
+        for bucket in teams.values():
+            scores = bucket.pop("_health_scores")
+            avg = round(sum(scores) / len(scores), 1) if scores else 0.0
+            out.append(
+                {
+                    **bucket,
+                    "total_cost_24h": round(float(bucket["total_cost_24h"]), 2),
+                    "avg_health_score": avg,
+                }
+            )
+
+        out.sort(key=lambda t: t["team"])
+        return out
+
+
+# ---------------------------------------------------------------------------
+# AgentOps Store (in-memory — canary / cost-anomaly / compliance only)
+# ---------------------------------------------------------------------------
+
+
+class AgentOpsStore:
+    """In-memory store for the remaining read-only AgentOps surfaces that
+    aren't yet wired to real backends:
+
+    - Canary deploys (no canary table yet — tracked separately)
+    - Cost forecasts / anomalies / suggestions (the cost-uplift work)
+    - SOC2 compliance demo (tracked under #208)
+
+    Fleet / events / top-agents / teams moved to ``FleetService`` (#206).
+    Incidents moved to ``IncidentService`` (#207). The cost forecast still
+    lives here but is now anchored on a real ``cost_events`` aggregate
+    passed in from the route.
+    """
+
+    def __init__(self) -> None:
+        self._canaries: dict[str, dict[str, Any]] = {}
+        self._cost_anomalies: list[dict[str, Any]] = list(_SEED_COST_ANOMALIES)
+        self._cost_suggestions: list[dict[str, Any]] = list(_SEED_COST_SUGGESTIONS)
+        self._compliance_controls: list[dict[str, Any]] = list(_SEED_COMPLIANCE_CONTROLS)
 
     # -----------------------------------------------------------------------
     # Canary Deploys
@@ -783,15 +928,25 @@ class AgentOpsStore:
     # Cost Forecasting
     # -----------------------------------------------------------------------
 
-    def get_cost_forecast(self, days: int = 30) -> dict[str, Any]:
-        """30-day spend projection using simulated trend data."""
-        base_daily_cost = sum(a["cost_24h_usd"] for a in self._agents)
+    def get_cost_forecast(self, days: int = 30, base_daily_cost: float = 0.0) -> dict[str, Any]:
+        """30-day spend projection.
+
+        ``base_daily_cost`` is the most-recent 24h spend (passed in by the
+        route from a ``cost_events`` query). The forecast applies a small
+        upward trend + deterministic noise on top of that anchor — when
+        ``base_daily_cost`` is 0 the forecast collapses to all zeros, which
+        is the correct empty-state behaviour for a fresh deploy.
+
+        The full spend forecasting pipeline (regression on historical
+        cost_events, anomaly detection, etc.) is tracked under the
+        cost-uplift work; this method intentionally stays simple — the
+        cost dashboard surfaces (``/api/v1/costs/*``) own the real model.
+        """
         today = datetime.now(UTC).date()
 
         forecast_points = []
         for i in range(days):
             date = today + timedelta(days=i)
-            # Slight upward trend + noise simulation
             trend_factor = 1.0 + (i * 0.005)
             noise = (((i * 7) % 11) - 5) * 0.01  # deterministic "noise"
             projected = round(base_daily_cost * trend_factor * (1 + noise), 2)
@@ -804,8 +959,8 @@ class AgentOpsStore:
             "current_month_spend": round(current_month_spend, 2),
             "projected_month_spend": round(projected_month_spend, 2),
             "forecast_points": forecast_points,
-            "confidence": "medium",
-            "trend": "increasing",
+            "confidence": "medium" if base_daily_cost > 0 else "low",
+            "trend": "increasing" if base_daily_cost > 0 else "flat",
         }
 
     def get_cost_anomalies(self) -> list[dict[str, Any]]:
@@ -873,55 +1028,6 @@ class AgentOpsStore:
             "controls_total": len(controls),
             "evidence": evidence,
         }
-
-    # -----------------------------------------------------------------------
-    # Team Comparison
-    # -----------------------------------------------------------------------
-
-    def get_team_comparison(
-        self, open_incidents_by_agent: dict[str, int] | None = None
-    ) -> list[dict[str, Any]]:
-        """Return team-level metrics comparison.
-
-        ``open_incidents_by_agent`` is an optional mapping from
-        ``agent_name`` to the count of open + investigating incidents,
-        usually produced by ``IncidentService.open_count_by_agent_name``.
-        Defaults to an empty mapping (incidents_open will be 0 for all teams)
-        so this method remains callable without a DB session — useful for
-        unit tests that exercise the in-memory fleet seed only.
-        """
-        per_agent = open_incidents_by_agent or {}
-        teams: dict[str, dict[str, Any]] = {}
-
-        for agent in self._agents:
-            team = agent["team"]
-            if team not in teams:
-                teams[team] = {
-                    "team": team,
-                    "agent_count": 0,
-                    "total_cost_24h": 0.0,
-                    "health_scores": [],
-                    "incidents_open": 0,
-                }
-            teams[team]["agent_count"] += 1
-            teams[team]["total_cost_24h"] += agent["cost_24h_usd"]
-            teams[team]["health_scores"].append(agent["health_score"])
-            teams[team]["incidents_open"] += per_agent.get(agent["name"], 0)
-
-        result = []
-        for team_data in teams.values():
-            scores = team_data.pop("health_scores")
-            avg_score = round(sum(scores) / len(scores), 1) if scores else 0.0
-            result.append(
-                {
-                    **team_data,
-                    "total_cost_24h": round(team_data["total_cost_24h"], 2),
-                    "avg_health_score": avg_score,
-                }
-            )
-
-        result.sort(key=lambda t: t["team"])
-        return result
 
 
 # ---------------------------------------------------------------------------
