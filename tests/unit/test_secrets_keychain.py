@@ -467,3 +467,57 @@ def test_secret_entry_to_dict_handles_naive_datetime(fake_keyring):
 # Reference to satisfy lint when Path import is unused on platforms that
 # cannot import keyring.
 _ = Path
+
+
+class TestSaveWorkspaceSecretsConfig:
+    """Tests for ``save_workspace_secrets_config`` (issue #213)."""
+
+    def test_writes_yaml_with_backend_choice(self, tmp_path, monkeypatch):
+        from engine.secrets.workspace import (
+            load_workspace_secrets_config,
+            save_workspace_secrets_config,
+        )
+
+        f = tmp_path / "workspace.yaml"
+        monkeypatch.setenv("AGENTBREEDER_WORKSPACE_FILE", str(f))
+
+        saved = save_workspace_secrets_config(backend="aws", options={"region": "us-east-1"})
+        assert saved.backend == "aws"
+        assert saved.options == {"region": "us-east-1"}
+        assert saved.source == "config"
+        assert f.exists()
+
+        roundtrip = load_workspace_secrets_config()
+        assert roundtrip.backend == "aws"
+        assert roundtrip.options == {"region": "us-east-1"}
+        assert roundtrip.source == "config"
+
+    def test_preserves_existing_workspace_name(self, tmp_path, monkeypatch):
+        from engine.secrets.workspace import save_workspace_secrets_config
+
+        f = tmp_path / "workspace.yaml"
+        f.write_text("workspace: prod\nsecrets:\n  backend: keychain\n")
+        monkeypatch.setenv("AGENTBREEDER_WORKSPACE_FILE", str(f))
+
+        saved = save_workspace_secrets_config(backend="vault", options={"mount": "secret"})
+        assert saved.workspace == "prod"
+        assert saved.backend == "vault"
+
+    def test_creates_parent_directory(self, tmp_path, monkeypatch):
+        from engine.secrets.workspace import save_workspace_secrets_config
+
+        f = tmp_path / "nested" / "deeper" / "workspace.yaml"
+        monkeypatch.setenv("AGENTBREEDER_WORKSPACE_FILE", str(f))
+
+        save_workspace_secrets_config(backend="env")
+        assert f.exists()
+
+    def test_workspace_override_overrides_existing(self, tmp_path, monkeypatch):
+        from engine.secrets.workspace import save_workspace_secrets_config
+
+        f = tmp_path / "workspace.yaml"
+        f.write_text("workspace: old\nsecrets:\n  backend: env\n")
+        monkeypatch.setenv("AGENTBREEDER_WORKSPACE_FILE", str(f))
+
+        saved = save_workspace_secrets_config(backend="env", workspace="new")
+        assert saved.workspace == "new"

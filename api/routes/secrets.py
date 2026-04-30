@@ -19,6 +19,7 @@ from api.middleware.rbac import require_role
 from api.models.database import User
 from api.models.schemas import ApiMeta, ApiResponse
 from engine.secrets.factory import SUPPORTED_BACKENDS, _instantiate, get_workspace_backend
+from engine.secrets.workspace import save_workspace_secrets_config
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,17 @@ class SyncRequest(BaseModel):
     secret_names: list[str] | None = None
 
 
+class SetBackendRequest(BaseModel):
+    """Body schema for ``PUT /api/v1/secrets/workspace``.
+
+    Switches the workspace's configured secrets backend. ``options`` is the
+    backend-specific kwargs block (e.g. ``{"region": "us-east-1"}`` for AWS).
+    """
+
+    backend: str = Field(..., min_length=1)
+    options: dict[str, str] | None = Field(default=None)
+
+
 # ── routes ──────────────────────────────────────────────────────────────────
 
 
@@ -79,6 +91,67 @@ async def get_workspace_info(
         data=WorkspaceBackendInfo(
             workspace=ws_cfg.workspace,
             backend=backend.backend_name,
+            supported_backends=list(SUPPORTED_BACKENDS),
+        )
+    )
+
+
+@router.put("/workspace", response_model=ApiResponse[WorkspaceBackendInfo])
+async def set_workspace_backend(
+    body: SetBackendRequest,
+    workspace: str | None = Query(None),
+    user: User = Depends(require_role("admin")),
+) -> ApiResponse[WorkspaceBackendInfo]:
+    """Switch the workspace's configured secrets backend.
+
+    Persists the choice to ``~/.agentbreeder/workspace.yaml`` (the same file
+    consulted by ``load_workspace_secrets_config``). Existing secrets in the
+    *previous* backend are NOT migrated automatically — operators should
+    re-mirror or re-set them under the new backend. Admin role required.
+    """
+    if body.backend not in SUPPORTED_BACKENDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported backend '{body.backend}'. "
+                f"Must be one of: {', '.join(SUPPORTED_BACKENDS)}"
+            ),
+        )
+
+    # Validate that the new backend can actually be instantiated before we
+    # persist the change — surfaces ImportError for missing optional deps
+    # (e.g. boto3) instead of silently breaking the workspace.
+    try:
+        _instantiate(body.backend, dict(body.options or {}))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot initialize '{body.backend}' backend: {exc}",
+        ) from exc
+
+    saved = save_workspace_secrets_config(
+        backend=body.backend,
+        options=body.options or {},
+        workspace=workspace,
+    )
+
+    try:
+        from api.services.audit_service import AuditService
+
+        await AuditService.log_event(
+            actor=user.email,
+            action="secret.backend_changed",
+            resource_type="workspace",
+            resource_name=saved.workspace,
+            details={"backend": saved.backend, "options": saved.options},
+        )
+    except Exception as exc:  # pragma: no cover - audit is best-effort
+        logger.debug("audit emit failed for secret.backend_changed: %s", exc)
+
+    return ApiResponse(
+        data=WorkspaceBackendInfo(
+            workspace=saved.workspace,
+            backend=saved.backend,
             supported_backends=list(SUPPORTED_BACKENDS),
         )
     )

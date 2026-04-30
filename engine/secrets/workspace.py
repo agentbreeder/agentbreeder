@@ -144,6 +144,54 @@ def _parse_workspace_yaml(path: Path, *, workspace_override: str | None) -> Work
     )
 
 
+def save_workspace_secrets_config(
+    *,
+    backend: str,
+    options: dict[str, Any] | None = None,
+    workspace: str | None = None,
+    path: Path | str | None = None,
+) -> WorkspaceSecretsConfig:
+    """Persist the workspace's secrets backend choice to disk.
+
+    Writes (or rewrites) ``~/.agentbreeder/workspace.yaml`` with the supplied
+    backend + options, preserving the existing workspace name when one is
+    already on disk. Returns the resulting config (``source=config``) so the
+    caller can echo it back to the user.
+
+    Used by the dashboard backend chooser (``PUT /api/v1/secrets/workspace``)
+    and by ``agentbreeder secret init``.
+    """
+    import yaml
+
+    file_path = Path(path) if path else _workspace_file_path()
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Preserve the workspace name from the existing file unless the caller
+    # explicitly overrides it.
+    existing_name: str | None = None
+    if file_path.exists():
+        try:
+            existing = yaml.safe_load(file_path.read_text()) or {}
+            if isinstance(existing, dict):
+                existing_name = existing.get("workspace")
+        except Exception as exc:
+            logger.warning("Failed to read existing workspace file %s: %s", file_path, exc)
+
+    final_name = workspace or existing_name or DEFAULT_WORKSPACE_NAME
+    body: dict[str, Any] = {
+        "workspace": final_name,
+        "secrets": {"backend": backend, "options": options or {}},
+    }
+    file_path.write_text(yaml.safe_dump(body, sort_keys=False))
+    logger.info("Persisted workspace secrets backend → %s (%s)", backend, file_path)
+    return WorkspaceSecretsConfig(
+        workspace=final_name,
+        backend=backend,
+        options=options or {},
+        source="config",
+    )
+
+
 def env_fallback_warning_once() -> None:
     """Emit the env-backend fallback deprecation warning at most once."""
     global _warned_env_fallback

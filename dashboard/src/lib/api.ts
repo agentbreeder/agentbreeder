@@ -2246,6 +2246,14 @@ export const api = {
       request<WorkspaceBackendInfo>(
         `/secrets/workspace${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
       ),
+    setBackend: (
+      body: { backend: string; options?: Record<string, string> },
+      workspace?: string,
+    ) =>
+      request<WorkspaceBackendInfo>(
+        `/secrets/workspace${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+        { method: "PUT", body: JSON.stringify(body) },
+      ),
     list: (workspace?: string) =>
       request<SecretSummary[]>(
         `/secrets${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
