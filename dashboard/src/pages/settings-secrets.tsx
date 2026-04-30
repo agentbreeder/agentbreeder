@@ -4,7 +4,14 @@ import { useState } from "react";
 import { api, type SecretSummary } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { ComingSoonBadge } from "@/components/coming-soon-badge";
+
+const BACKEND_LABELS: Record<string, string> = {
+  env: "Environment variables (.env)",
+  keychain: "OS Keychain",
+  aws: "AWS Secrets Manager",
+  gcp: "GCP Secret Manager",
+  vault: "HashiCorp Vault",
+};
 
 /**
  * /settings/secrets — Track K dashboard view.
@@ -18,10 +25,29 @@ export default function SettingsSecretsPage() {
   const queryClient = useQueryClient();
   const [rotating, setRotating] = useState<string | null>(null);
   const [newValue, setNewValue] = useState("");
+  const [pendingBackend, setPendingBackend] = useState<string | null>(null);
 
   const workspaceQuery = useQuery({
     queryKey: ["secrets", "workspace"],
     queryFn: () => api.secrets.workspace().then((r) => r.data),
+  });
+
+  const setBackendMut = useMutation({
+    mutationFn: (backend: string) => api.secrets.setBackend({ backend }),
+    onSuccess: (resp) => {
+      toast({
+        title: `Backend switched to ${resp.data.backend}`,
+        description:
+          "Existing secrets in the previous backend were not migrated. Re-set or re-mirror them under the new backend.",
+        variant: "success",
+      });
+      queryClient.invalidateQueries({ queryKey: ["secrets"] });
+      setPendingBackend(null);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Backend switch failed", description: err.message, variant: "error" });
+      setPendingBackend(null);
+    },
   });
 
   const secretsQuery = useQuery({
@@ -69,19 +95,40 @@ export default function SettingsSecretsPage() {
               <span className="font-medium">Workspace:</span>{" "}
               <span className="text-muted-foreground">{workspace.workspace}</span>
             </div>
-            <div className="text-sm">
-              <span className="font-medium">Backend:</span>{" "}
-              <span className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
-                {workspace.backend}
-              </span>
-            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <ComingSoonBadge feature="Switch secrets backend from UI" issue="#213" />
-            <span>
-              Currently switch backends via{" "}
-              <code className="rounded bg-muted px-1">~/.agentbreeder/workspace.yaml</code>.
-            </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="backend-select" className="text-xs font-medium text-muted-foreground">
+              Backend
+            </label>
+            <select
+              id="backend-select"
+              value={pendingBackend ?? workspace.backend}
+              disabled={setBackendMut.isPending}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (next === workspace.backend) return;
+                const ok = window.confirm(
+                  `Switch the workspace secrets backend from "${workspace.backend}" to "${next}"?\n\n` +
+                    `Existing secrets stored in "${workspace.backend}" will NOT be migrated automatically. ` +
+                    `You'll need to re-set them under the new backend (or re-mirror from a source of truth).\n\n` +
+                    `This change is admin-only and is persisted to ~/.agentbreeder/workspace.yaml.`,
+                );
+                if (!ok) {
+                  e.target.value = workspace.backend;
+                  return;
+                }
+                setPendingBackend(next);
+                setBackendMut.mutate(next);
+              }}
+              className="rounded-md border border-border bg-background px-2 py-1 font-mono text-xs outline-none focus:border-primary disabled:opacity-50"
+            >
+              {workspace.supported_backends.map((b) => (
+                <option key={b} value={b}>
+                  {BACKEND_LABELS[b] ?? b}
+                </option>
+              ))}
+            </select>
+            {setBackendMut.isPending && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
           </div>
         </div>
       )}

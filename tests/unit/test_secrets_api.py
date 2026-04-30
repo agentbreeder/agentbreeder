@@ -265,3 +265,142 @@ class TestCreateSecret:
         finally:
             for p in patches:
                 p.stop()
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/v1/secrets/workspace — backend chooser (issue #213)
+# ---------------------------------------------------------------------------
+
+
+def _admin_headers(user_id: uuid.UUID) -> dict:
+    return {
+        "Authorization": f"Bearer {create_access_token(str(user_id), 'adm@example.com', 'admin')}"
+    }
+
+
+class TestSetWorkspaceBackend:
+    @pytest.mark.no_auto_auth
+    def test_unauthenticated_returns_401(self) -> None:
+        resp = client.put("/api/v1/secrets/workspace", json={"backend": "env"})
+        assert resp.status_code == 401
+
+    @pytest.mark.no_auto_auth
+    def test_viewer_forbidden_403(self, tmp_path) -> None:
+        backend = _FakeBackend()
+        patches, uid = _patch_auth(UserRole.viewer, backend)
+        save = MagicMock()
+        patches.append(patch("api.routes.secrets.save_workspace_secrets_config", save))
+        for p in patches:
+            p.start()
+        try:
+            resp = client.put(
+                "/api/v1/secrets/workspace",
+                json={"backend": "env"},
+                headers=_viewer_headers(uid),
+            )
+            assert resp.status_code == 403
+            save.assert_not_called()
+        finally:
+            for p in patches:
+                p.stop()
+
+    @pytest.mark.no_auto_auth
+    def test_deployer_forbidden_403(self) -> None:
+        """Backend swap is admin-only; deployers cannot change it."""
+        backend = _FakeBackend()
+        patches, uid = _patch_auth(UserRole.deployer, backend)
+        save = MagicMock()
+        patches.append(patch("api.routes.secrets.save_workspace_secrets_config", save))
+        for p in patches:
+            p.start()
+        try:
+            resp = client.put(
+                "/api/v1/secrets/workspace",
+                json={"backend": "env"},
+                headers=_deployer_headers(uid),
+            )
+            assert resp.status_code == 403
+            save.assert_not_called()
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_admin_persists_and_returns_workspace_info(self) -> None:
+        backend = _FakeBackend()
+        patches, uid = _patch_auth(UserRole.admin, backend)
+        saved_cfg = MagicMock()
+        saved_cfg.workspace = "default"
+        saved_cfg.backend = "env"
+        saved_cfg.options = {}
+        save = MagicMock(return_value=saved_cfg)
+        patches.append(patch("api.routes.secrets.save_workspace_secrets_config", save))
+        for p in patches:
+            p.start()
+        try:
+            resp = client.put(
+                "/api/v1/secrets/workspace",
+                json={"backend": "env"},
+                headers=_admin_headers(uid),
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()["data"]
+            assert body["backend"] == "env"
+            assert body["workspace"] == "default"
+            assert "supported_backends" in body
+            save.assert_called_once()
+            # Backend kwarg passed through correctly
+            assert save.call_args.kwargs["backend"] == "env"
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_unsupported_backend_rejected_400(self) -> None:
+        backend = _FakeBackend()
+        patches, uid = _patch_auth(UserRole.admin, backend)
+        save = MagicMock()
+        patches.append(patch("api.routes.secrets.save_workspace_secrets_config", save))
+        for p in patches:
+            p.start()
+        try:
+            resp = client.put(
+                "/api/v1/secrets/workspace",
+                json={"backend": "nonsense_backend"},
+                headers=_admin_headers(uid),
+            )
+            assert resp.status_code == 400
+            save.assert_not_called()
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_audit_event_emitted_on_swap(self) -> None:
+        backend = _FakeBackend()
+        patches, uid = _patch_auth(UserRole.admin, backend)
+        saved_cfg = MagicMock()
+        saved_cfg.workspace = "default"
+        saved_cfg.backend = "env"
+        saved_cfg.options = {}
+        patches.append(
+            patch(
+                "api.routes.secrets.save_workspace_secrets_config",
+                MagicMock(return_value=saved_cfg),
+            )
+        )
+        log_event = AsyncMock()
+        patches.append(patch("api.services.audit_service.AuditService.log_event", log_event))
+        for p in patches:
+            p.start()
+        try:
+            resp = client.put(
+                "/api/v1/secrets/workspace",
+                json={"backend": "env"},
+                headers=_admin_headers(uid),
+            )
+            assert resp.status_code == 200
+            assert log_event.await_count == 1
+            kwargs = log_event.await_args.kwargs
+            assert kwargs["action"] == "secret.backend_changed"
+            assert kwargs["resource_type"] == "workspace"
+        finally:
+            for p in patches:
+                p.stop()
