@@ -233,6 +233,63 @@ def sync_cmd(
     console.print(table)
 
 
+@model_app.command("sync-now")
+def sync_now_cmd(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Run the daily sync sweep immediately, in-process.
+
+    Bypasses the API server and the background scheduler — talks directly
+    to ``api.tasks.models_sync_cron.run_sync_once``. Useful for testing
+    the cron and for self-hosted deployments that don't run the daily
+    loop. Requires the same env vars as the API process (``DATABASE_URL``
+    plus the provider api-key vars).
+    """
+    import asyncio as _asyncio
+
+    from api.tasks.models_sync_cron import run_sync_once
+
+    try:
+        summary = _asyncio.run(run_sync_once(actor="cli:sync-now"))
+    except Exception as exc:  # noqa: BLE001 — surface to operator
+        console.print(f"[red]sync-now failed:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        console.print(_json.dumps(summary, indent=2, default=str))
+        return
+
+    totals = summary.get("totals") or {}
+    skipped = summary.get("skipped_reason")
+    if skipped:
+        console.print(f"[yellow]Sync skipped:[/yellow] {skipped}")
+        return
+    console.print(
+        f"[green]Sync complete.[/green]  "
+        f"+{totals.get('added', 0)} added  "
+        f"~{totals.get('deprecated', 0)} deprecated  "
+        f"-{totals.get('retired', 0)} retired"
+    )
+
+    table = Table(title="Per-provider results")
+    table.add_column("Provider", style="bold")
+    table.add_column("Seen")
+    table.add_column("Added")
+    table.add_column("Deprecated")
+    table.add_column("Retired")
+    table.add_column("Error", style="red")
+    for prov in summary.get("providers") or []:
+        table.add_row(
+            str(prov.get("provider", "")),
+            str(prov.get("total_seen", 0)),
+            str(len(prov.get("added") or [])),
+            str(len(prov.get("deprecated") or [])),
+            str(len(prov.get("retired") or [])),
+            str(prov.get("error") or ""),
+        )
+    console.print(table)
+
+
 @model_app.command("deprecate")
 def deprecate_cmd(
     name: str = typer.Argument(..., help="Model name to deprecate."),
