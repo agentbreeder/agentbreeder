@@ -79,10 +79,21 @@ async def _seed_default_admin() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
+    from api.tasks.models_sync_cron import start_background_task as _start_models_sync_cron
+
     logger.info("AgentBreeder API starting up")
     await _seed_default_admin()
-    yield
-    logger.info("AgentBreeder API shutting down")
+    models_sync_task = _start_models_sync_cron()
+    try:
+        yield
+    finally:
+        logger.info("AgentBreeder API shutting down")
+        if models_sync_task is not None and not models_sync_task.done():
+            models_sync_task.cancel()
+            try:
+                await models_sync_task
+            except BaseException:  # noqa: BLE001 — clean shutdown
+                pass
 
 
 app = FastAPI(
