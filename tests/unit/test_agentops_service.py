@@ -525,39 +525,129 @@ class TestCostForecast:
 
 
 class TestCompliance:
-    def test_get_compliance_status(self, store: AgentOpsStore) -> None:
-        result = store.get_compliance_status()
-        assert "overall_status" in result
-        assert "controls" in result
-        assert len(result["controls"]) > 0
-        assert result["controls_total"] == len(result["controls"])
+    """DB-backed compliance scanner — replaces the old in-memory seed list.
 
-    def test_compliance_controls_have_required_keys(self, store: AgentOpsStore) -> None:
-        result = store.get_compliance_status()
-        for ctrl in result["controls"]:
-            assert "id" in ctrl
-            assert "name" in ctrl
-            assert "category" in ctrl
-            assert "status" in ctrl
-            assert ctrl["status"] in ("pass", "fail", "partial")
+    Each test runs a real scan against the in-memory SQLite session provided
+    by the ``db_session`` fixture. The control registry is exercised through
+    ``ComplianceService.run_and_persist`` so the wire shape rendered by the
+    API is the same shape verified here.
+    """
 
-    def test_compliance_overall_non_compliant_when_failures(self, store: AgentOpsStore) -> None:
-        result = store.get_compliance_status()
-        if result["controls_failed"] > 0:
-            assert result["overall_status"] == "non_compliant"
+    @pytest.mark.asyncio
+    async def test_run_and_persist_writes_one_row(self, db_session: AsyncSession) -> None:
+        from api.services.agentops_service import ComplianceService
 
-    def test_generate_compliance_report(self, store: AgentOpsStore) -> None:
-        report = store.generate_compliance_report()
+        row = await ComplianceService.run_and_persist(db_session)
+        assert row.id is not None
+        assert row.overall_status in ("compliant", "partial", "non_compliant")
+        assert isinstance(row.results, list)
+        assert len(row.results) == 6  # six controls ship in #208
+
+    @pytest.mark.asyncio
+    async def test_status_payload_shape(self, db_session: AsyncSession) -> None:
+        from api.services.agentops_service import ComplianceService
+
+        row = await ComplianceService.run_and_persist(db_session)
+        payload = ComplianceService.status_payload(row)
+        assert "overall_status" in payload
+        assert "controls" in payload
+        assert "scan_id" in payload
+        assert payload["controls_total"] == len(payload["controls"])
+        for ctrl in payload["controls"]:
+            assert {"id", "name", "category", "status", "last_checked"}.issubset(ctrl.keys())
+            assert ctrl["status"] in ("pass", "fail", "partial", "skipped")
+
+    @pytest.mark.asyncio
+    async def test_report_payload_cites_real_evidence(self, db_session: AsyncSession) -> None:
+        from api.services.agentops_service import ComplianceService
+
+        row = await ComplianceService.run_and_persist(db_session)
+        report = ComplianceService.report_payload(row, report_format="json")
         assert "report_id" in report
-        assert "generated_at" in report
-        assert "controls_passed" in report
-        assert "controls_failed" in report
-        assert "evidence" in report
-        assert len(report["evidence"]) > 0
+        assert "scan_id" in report
+        assert report["format"] == "json"
+        assert len(report["evidence"]) == 6
+        # Every control must cite its own evidence dict (not the old
+        # placeholder string "Automated compliance check for X").
+        for ev in report["evidence"]:
+            assert "evidence" in ev
+            assert isinstance(ev["evidence"], dict)
+            assert ev["details"]
+            assert "Automated compliance check for" not in ev["details"]
 
-    def test_compliance_report_format(self, store: AgentOpsStore) -> None:
-        report = store.generate_compliance_report(report_format="csv")
-        assert report["format"] == "csv"
+    @pytest.mark.asyncio
+    async def test_get_or_run_latest_caches_recent_scan(self, db_session: AsyncSession) -> None:
+        from api.services.agentops_service import ComplianceService
+
+        first = await ComplianceService.get_or_run_latest(db_session, max_age_seconds=3600)
+        second = await ComplianceService.get_or_run_latest(db_session, max_age_seconds=3600)
+        assert first.id == second.id  # cached, no new scan
+
+    @pytest.mark.asyncio
+    async def test_get_or_run_latest_runs_when_stale(self, db_session: AsyncSession) -> None:
+        from api.services.agentops_service import ComplianceService
+
+        first = await ComplianceService.get_or_run_latest(db_session, max_age_seconds=3600)
+        # max_age=0 forces a fresh scan even though the previous row is < 1s old
+        second = await ComplianceService.get_or_run_latest(db_session, max_age_seconds=0)
+        assert first.id != second.id
+
+    @pytest.mark.asyncio
+    async def test_overall_status_rolls_up_correctly(self, db_session: AsyncSession) -> None:
+        from api.services.agentops_service import ComplianceService
+
+        row = await ComplianceService.run_and_persist(db_session)
+        results = list(row.results)
+        has_fail = any(r["status"] == "fail" for r in results)
+        has_partial = any(r["status"] == "partial" for r in results)
+        if has_fail:
+            assert row.overall_status == "non_compliant"
+        elif has_partial:
+            assert row.overall_status == "partial"
+        else:
+            assert row.overall_status == "compliant"
+
+    @pytest.mark.asyncio
+    async def test_summary_counts_match_results(self, db_session: AsyncSession) -> None:
+        from api.services.agentops_service import ComplianceService
+
+        row = await ComplianceService.run_and_persist(db_session)
+        summary = dict(row.summary)
+        results = list(row.results)
+        assert summary["controls_total"] == len(results)
+        assert summary["controls_passed"] == sum(1 for r in results if r["status"] == "pass")
+        assert summary["controls_failed"] == sum(1 for r in results if r["status"] == "fail")
+        assert summary["controls_partial"] == sum(1 for r in results if r["status"] == "partial")
+        assert summary["controls_skipped"] == sum(1 for r in results if r["status"] == "skipped")
+
+    @pytest.mark.asyncio
+    async def test_scan_persists_across_session_recycle(self) -> None:
+        """A scan written in session A must be readable from session B."""
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from api.models.database import Base, ComplianceScan
+        from api.services.agentops_service import ComplianceService
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        SessionFactory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        async with SessionFactory() as session_a:
+            written = await ComplianceService.run_and_persist(session_a)
+            written_id = written.id
+
+        async with SessionFactory() as session_b:
+            from sqlalchemy import select
+
+            res = await session_b.execute(
+                select(ComplianceScan).where(ComplianceScan.id == written_id)
+            )
+            row = res.scalar_one()
+            assert row.overall_status == written.overall_status
+            assert len(row.results) == 6
+
+        await engine.dispose()
 
 
 # ---------------------------------------------------------------------------
