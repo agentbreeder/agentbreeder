@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { ComingSoonBadge } from "@/components/coming-soon-badge";
 
 const API_BASE = "/api/v1/gateway";
 
@@ -334,6 +333,7 @@ export default function GatewayPage() {
   const [models, setModels] = useState<GatewayModel[]>([]);
   const [providers, setProviders] = useState<GatewayProvider[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logsError, setLogsError] = useState<string | null>(null);
   const [costRows, setCostRows] = useState<CostRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -344,18 +344,29 @@ export default function GatewayPage() {
     else setLoading(true);
 
     try {
-      const [statusRes, modelsRes, providersRes, logsRes, costsRes] = await Promise.all([
+      const [statusRes, modelsRes, providersRes, logsRaw, costsRes] = await Promise.all([
         fetch(`${API_BASE}/status`).then((r) => r.json()),
         fetch(`${API_BASE}/models?per_page=200`).then((r) => r.json()),
         fetch(`${API_BASE}/providers`).then((r) => r.json()),
-        fetch(`${API_BASE}/logs?per_page=20`).then((r) => r.json()),
+        fetch(`${API_BASE}/logs?per_page=20`).then(async (r) => ({
+          status: r.status,
+          body: await r.json().catch(() => ({})),
+        })),
         fetch(`${API_BASE}/costs/comparison`).then((r) => r.json()),
       ]);
 
       setTiers(statusRes.data ?? []);
       setModels(modelsRes.data ?? []);
       setProviders(providersRes.data ?? []);
-      setLogs(logsRes.data ?? []);
+      setLogs(logsRaw.body?.data ?? []);
+      if (logsRaw.status === 503) {
+        setLogsError(
+          (logsRaw.body?.errors?.[0] as string) ||
+            "LiteLLM proxy unreachable; spend logs unavailable."
+        );
+      } else {
+        setLogsError(null);
+      }
       setCostRows(costsRes.data ?? []);
     } catch (err) {
       console.error("Failed to load gateway data", err);
@@ -473,24 +484,30 @@ export default function GatewayPage() {
           {activeSection === "routing" && <RoutingTable models={models} />}
           {activeSection === "costs" && (
             <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <ComingSoonBadge feature="Real cross-tier cost comparison" issue="#212" />
-                <span className="text-[11px] text-muted-foreground">
-                  Currently shows hardcoded comparison rows; live aggregation in progress.
-                </span>
-              </div>
-              <CostTable rows={costRows} />
+              {costRows.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">
+                  No cost events recorded yet. Comparison rows will appear here once
+                  agents start logging real usage to the cost_events table.
+                </div>
+              ) : (
+                <CostTable rows={costRows} />
+              )}
             </div>
           )}
           {activeSection === "logs" && (
             <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <ComingSoonBadge feature="Real gateway logs" issue="#212" />
-                <span className="text-[11px] text-muted-foreground">
-                  Entries below are synthetic and regenerate every minute. Live LiteLLM spend-log integration is in progress.
-                </span>
-              </div>
-              <LogTable entries={logs} />
+              {logsError ? (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
+                  <div className="font-medium">LiteLLM proxy unreachable</div>
+                  <div className="mt-1 text-muted-foreground">
+                    {logsError} — set <code className="font-mono text-[10px]">LITELLM_BASE_URL</code>{" "}
+                    and <code className="font-mono text-[10px]">LITELLM_MASTER_KEY</code>, then
+                    refresh.
+                  </div>
+                </div>
+              ) : (
+                <LogTable entries={logs} />
+              )}
             </div>
           )}
         </>

@@ -1559,39 +1559,159 @@ class TestGatewayProviders:
         assert "openai" in ids
 
 
+def _fake_spend_logs() -> list[dict]:
+    """Return a list of already-normalized LogEntry dicts for tests.
+
+    The route uses ``fetch_spend_logs`` directly (it both calls LiteLLM and
+    normalizes the response), so when we patch it we return the post-
+    normalization shape. ``test_normalize_entry`` covers raw-row parsing.
+    """
+    return [
+        {
+            "id": "abc-123",
+            "timestamp": "2026-04-29T10:00:00+00:00",
+            "agent": "support-agent",
+            "model": "gpt-4o",
+            "provider": "openai",
+            "gateway_tier": "direct",
+            "input_tokens": 500,
+            "output_tokens": 100,
+            "latency_ms": 1000,
+            "cost_usd": 0.0035,
+            "status": "success",
+        },
+        {
+            "id": "def-456",
+            "timestamp": "2026-04-29T10:00:02+00:00",
+            "agent": "review-agent",
+            "model": "anthropic/claude-sonnet-4-6",
+            "provider": "anthropic",
+            "gateway_tier": "litellm",
+            "input_tokens": 1000,
+            "output_tokens": 250,
+            "latency_ms": 2000,
+            "cost_usd": 0.0075,
+            "status": "success",
+        },
+    ]
+
+
 class TestGatewayLogs:
-    def test_logs_default(self) -> None:
+    """Verify /api/v1/gateway/logs queries LiteLLM /spend/logs (no synthetic data)."""
+
+    @patch("api.routes.gateway.fetch_spend_logs", new_callable=AsyncMock)
+    def test_logs_default(self, mock_fetch) -> None:
+        mock_fetch.return_value = _fake_spend_logs()
         resp = client.get("/api/v1/gateway/logs")
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert isinstance(data, list)
-        assert len(data) <= 20  # default per_page
+        assert len(data) <= 20
+        # Real LiteLLM rows were normalized into LogEntry dicts.
+        assert {"id", "model", "provider", "gateway_tier", "cost_usd"} <= set(data[0].keys())
+        mock_fetch.assert_awaited()
 
-    def test_logs_pagination(self) -> None:
+    @patch("api.routes.gateway.fetch_spend_logs", new_callable=AsyncMock)
+    def test_logs_pagination(self, mock_fetch) -> None:
+        mock_fetch.return_value = _fake_spend_logs()
         resp = client.get(
             "/api/v1/gateway/logs",
-            params={"page": 1, "per_page": 5},
+            params={"page": 1, "per_page": 1},
         )
         assert resp.status_code == 200
-        assert len(resp.json()["data"]) <= 5
+        assert len(resp.json()["data"]) == 1
 
-    def test_logs_filter_by_model(self) -> None:
+    @patch("api.routes.gateway.fetch_spend_logs", new_callable=AsyncMock)
+    def test_logs_filter_by_model(self, mock_fetch) -> None:
+        mock_fetch.return_value = _fake_spend_logs()
         resp = client.get(
             "/api/v1/gateway/logs",
             params={"model": "gpt-4o"},
         )
         assert resp.status_code == 200
-        for entry in resp.json()["data"]:
-            assert entry["model"] == "gpt-4o"
+        rows = resp.json()["data"]
+        assert len(rows) == 1
+        assert rows[0]["model"] == "gpt-4o"
+
+    @patch("api.routes.gateway.fetch_spend_logs", new_callable=AsyncMock)
+    def test_logs_returns_503_when_litellm_unreachable(self, mock_fetch) -> None:
+        from api.services.gateway_logs_service import GatewayLogsUnavailableError
+
+        mock_fetch.side_effect = GatewayLogsUnavailableError(
+            "LiteLLM proxy unreachable: connection refused"
+        )
+        resp = client.get("/api/v1/gateway/logs")
+        # 503 with empty data + error message — never synthetic logs.
+        assert resp.status_code == 503
+        body = resp.json()
+        assert body["data"] == []
+        assert any("LiteLLM" in e for e in body["errors"])
 
 
 class TestGatewayCostComparison:
-    def test_cost_comparison(self) -> None:
+    """Verify /api/v1/gateway/costs/comparison aggregates real cost_events."""
+
+    def test_cost_comparison_empty_when_no_events(self) -> None:
+        # The conftest's auto-auth doesn't populate cost_events, so the
+        # endpoint should return an empty list (not the old hardcoded fixture).
         resp = client.get("/api/v1/gateway/costs/comparison")
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert isinstance(data, list)
-        assert len(data) >= 1
-        # Sorted by input price ascending
+        # No cost_events in the test DB → empty list (not hardcoded fixture rows).
+        assert data == []
+
+    def test_cost_comparison_aggregates_cost_events(self) -> None:
+        # Build a fake AsyncSession.execute() result containing two grouped rows.
+        row_openai = MagicMock()
+        row_openai.provider = "openai"
+        row_openai.model_name = "gpt-4o"
+        row_openai.input_tokens = 1_000_000
+        row_openai.output_tokens = 500_000
+        row_openai.cost_usd = 7.50
+        row_openai.requests = 42
+
+        row_anthropic = MagicMock()
+        row_anthropic.provider = "anthropic"
+        row_anthropic.model_name = "claude-sonnet-4-6"
+        row_anthropic.input_tokens = 2_000_000
+        row_anthropic.output_tokens = 1_000_000
+        row_anthropic.cost_usd = 21.00
+        row_anthropic.requests = 17
+
+        mock_result = MagicMock()
+        mock_result.all.return_value = [row_openai, row_anthropic]
+
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        from api.database import get_db
+        from api.main import app
+
+        async def _override_db():
+            yield mock_session
+
+        app.dependency_overrides[get_db] = _override_db
+        try:
+            resp = client.get("/api/v1/gateway/costs/comparison")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert len(data) == 2
+
+        # Sorted by input_per_million ascending
         prices = [d["input_per_million"] for d in data]
         assert prices == sorted(prices)
+
+        # OpenAI: tier inferred from provider == "openai" → "direct"
+        # Anthropic: same → "direct"
+        # Verify required fields are present + provider/model populated from DB.
+        for row in data:
+            assert row["provider"] in {"openai", "anthropic"}
+            assert row["model"] in {"gpt-4o", "claude-sonnet-4-6"}
+            assert row["gateway_tier"] in {"litellm", "direct"}
+            assert "input_per_million" in row
+            assert "output_per_million" in row
+            assert row["requests"] >= 1
