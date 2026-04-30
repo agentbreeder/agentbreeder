@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -94,10 +95,46 @@ class Agent(Base):
     deploy_jobs: Mapped[list[DeployJob]] = relationship(
         back_populates="agent", cascade="all, delete-orphan"
     )
+    versions: Mapped[list[AgentVersion]] = relationship(
+        back_populates="agent",
+        cascade="all, delete-orphan",
+        order_by="AgentVersion.created_at.desc()",
+    )
 
     __table_args__ = (
         Index("ix_agents_team_status", "team", "status"),
         Index("ix_agents_framework", "framework"),
+    )
+
+
+class AgentVersion(Base):
+    """Append-only historical snapshot of an agent's config.
+
+    A new row is inserted each time ``AgentRegistry.register`` sees a
+    previously-unseen ``(agent_id, version)`` pair. Re-registering the same
+    version updates the existing row's snapshot/yaml so the latest YAML
+    rendering wins. See migration 019 (#210).
+    """
+
+    __tablename__ = "agent_versions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    version: Mapped[str] = mapped_column(String(20), nullable=False)
+    config_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    config_yaml: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    agent: Mapped[Agent] = relationship(back_populates="versions")
+
+    __table_args__ = (
+        UniqueConstraint("agent_id", "version", name="uq_agent_versions_agent_id_version"),
+        Index("ix_agent_versions_agent_created_at", "agent_id", "created_at"),
     )
 
 

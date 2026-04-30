@@ -12,7 +12,7 @@ from ruamel.yaml import YAML
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models.database import Agent
+from api.models.database import Agent, AgentVersion
 from api.models.enums import AgentStatus
 from engine.config_parser import AgentConfig, FrameworkType
 
@@ -226,8 +226,15 @@ class AgentRegistry:
         session: AsyncSession,
         config: AgentConfig,
         endpoint_url: str,
+        actor_email: str | None = None,
     ) -> Agent:
-        """Register or update an agent after successful deployment."""
+        """Register or update an agent after successful deployment.
+
+        Also records a snapshot in ``agent_versions`` keyed on
+        ``(agent_id, version)`` so the dashboard can show real version
+        history (#210). Re-registering the same version updates the
+        existing snapshot row in place.
+        """
         # Check if agent already exists
         stmt = select(Agent).where(Agent.name == config.name)
         result = await session.execute(stmt)
@@ -271,7 +278,67 @@ class AgentRegistry:
             logger.info("Registered new agent '%s' in registry", config.name)
 
         await session.flush()
+        await AgentRegistry._record_version(session, agent, config, actor_email)
         return agent
+
+    @staticmethod
+    async def _record_version(
+        session: AsyncSession,
+        agent: Agent,
+        config: AgentConfig,
+        actor_email: str | None,
+    ) -> None:
+        """Insert (or update) an ``agent_versions`` row for this snapshot."""
+        snapshot = config.model_dump(mode="json")
+        try:
+            yaml_text = AgentRegistry._render_config_yaml(snapshot)
+        except Exception as exc:  # pragma: no cover - YAML rendering is best-effort
+            logger.warning("Failed to render YAML for agent_versions: %s", exc)
+            yaml_text = ""
+
+        stmt = select(AgentVersion).where(
+            AgentVersion.agent_id == agent.id,
+            AgentVersion.version == agent.version,
+        )
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+        if existing:
+            existing.config_snapshot = snapshot
+            existing.config_yaml = yaml_text
+            if actor_email:
+                existing.created_by = actor_email
+            return
+
+        session.add(
+            AgentVersion(
+                agent_id=agent.id,
+                version=agent.version,
+                config_snapshot=snapshot,
+                config_yaml=yaml_text,
+                created_by=actor_email,
+            )
+        )
+
+    @staticmethod
+    def _render_config_yaml(snapshot: dict[str, Any]) -> str:
+        """Render an AgentConfig snapshot as YAML using the project's writer."""
+        import io
+
+        yaml = YAML()
+        yaml.default_flow_style = False
+        buf = io.StringIO()
+        yaml.dump(snapshot, buf)
+        return buf.getvalue()
+
+    @staticmethod
+    async def list_versions(session: AsyncSession, agent_id: uuid.UUID) -> list[AgentVersion]:
+        """Return the agent's version history, newest-first."""
+        stmt = (
+            select(AgentVersion)
+            .where(AgentVersion.agent_id == agent_id)
+            .order_by(AgentVersion.created_at.desc())
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
 
     @staticmethod
     async def get(session: AsyncSession, name: str) -> Agent | None:

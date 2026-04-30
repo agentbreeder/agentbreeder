@@ -34,7 +34,7 @@ import {
   Play,
   Loader2,
 } from "lucide-react";
-import { api, type Agent, type AgentStatus, type DeployJob, type AgentInvokeResponse } from "@/lib/api";
+import { api, type Agent, type AgentStatus, type DeployJob, type AgentInvokeResponse, type AgentVersionEntry } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,10 +52,9 @@ import { DeployPipeline } from "@/components/deploy-pipeline";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { ConfigDiffViewer } from "@/components/config-diff-viewer";
 import { VersionSelector, type VersionEntry } from "@/components/version-selector";
-import { ComingSoonBadge } from "@/components/coming-soon-badge";
 import { cn } from "@/lib/utils";
 import { jsonToYaml, highlightYaml, validateYamlBasic } from "@/lib/yaml";
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useToast } from "@/hooks/use-toast";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
@@ -432,18 +431,23 @@ function OverviewTab({ agent }: { agent: Agent }) {
 // Configuration (YAML Viewer + Inline Editor) Tab
 // ---------------------------------------------------------------------------
 
-// Mock version data for compare feature
-const MOCK_VERSIONS: VersionEntry[] = [
-  { version: "v1.2.0", date: "2026-03-10", author: "alice" },
-  { version: "v1.1.0", date: "2026-03-05", author: "bob" },
-  { version: "v1.0.0", date: "2026-02-28", author: "alice" },
-];
-
-const MOCK_VERSION_YAML: Record<string, string> = {
-  "v1.0.0": `name: ${"{agent}"}\nversion: "1.0.0"\nframework: langgraph\nmodel:\n  primary: claude-3-5-sonnet\n  temperature: 0.7\n  max_tokens: 4096\ntools:\n  - ref: tools/web-search\ndeploy:\n  cloud: local\n  runtime: docker-compose\n  scaling:\n    min: 1\n    max: 3`,
-  "v1.1.0": `name: ${"{agent}"}\nversion: "1.1.0"\nframework: langgraph\nmodel:\n  primary: claude-sonnet-4\n  temperature: 0.7\n  max_tokens: 4096\ntools:\n  - ref: tools/web-search\n  - ref: tools/database-query\ndeploy:\n  cloud: local\n  runtime: docker-compose\n  scaling:\n    min: 1\n    max: 5`,
-  "v1.2.0": `name: ${"{agent}"}\nversion: "1.2.0"\nframework: langgraph\nmodel:\n  primary: claude-sonnet-4\n  fallback: gpt-4o\n  temperature: 0.5\n  max_tokens: 8192\ntools:\n  - ref: tools/web-search\n  - ref: tools/database-query\n  - ref: tools/slack-notify\nguardrails:\n  - pii_detection\n  - content_filter\ndeploy:\n  cloud: gcp\n  runtime: cloud-run\n  scaling:\n    min: 2\n    max: 10`,
-};
+// AgentVersionEntry comes from /api/v1/agents/{id}/versions and is reshaped
+// into VersionEntry (the existing display contract) by adaptVersions().
+function adaptVersions(rows: AgentVersionEntry[]): {
+  versions: VersionEntry[];
+  yamlByVersion: Record<string, string>;
+} {
+  const versions: VersionEntry[] = rows.map((r) => ({
+    version: r.version,
+    date: r.created_at ? r.created_at.slice(0, 10) : "",
+    author: r.created_by ?? "—",
+  }));
+  const yamlByVersion: Record<string, string> = {};
+  for (const r of rows) {
+    yamlByVersion[r.version] = r.config_yaml ?? "";
+  }
+  return { versions, yamlByVersion };
+}
 
 function ConfigurationTab({ agent }: { agent: Agent }) {
   const [copied, setCopied] = useState(false);
@@ -451,11 +455,32 @@ function ConfigurationTab({ agent }: { agent: Agent }) {
   const [editContent, setEditContent] = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
-  const [diffVersionA, setDiffVersionA] = useState("v1.0.0");
-  const [diffVersionB, setDiffVersionB] = useState("v1.1.0");
+  const [diffVersionA, setDiffVersionA] = useState<string>("");
+  const [diffVersionB, setDiffVersionB] = useState<string>("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
   const unsaved = useUnsavedChanges();
+
+  const versionsQuery = useQuery({
+    queryKey: ["agent-versions", agent.id],
+    queryFn: () => api.agents.versions(agent.id),
+    enabled: showDiff,
+  });
+  const { versions: versionList, yamlByVersion } = useMemo(
+    () => adaptVersions(versionsQuery.data?.data ?? []),
+    [versionsQuery.data],
+  );
+
+  // Default the diff selectors to the two newest versions when data arrives.
+  useEffect(() => {
+    if (versionList.length === 0) return;
+    if (!diffVersionA || !versionList.find((v) => v.version === diffVersionA)) {
+      setDiffVersionA(versionList[Math.min(1, versionList.length - 1)].version);
+    }
+    if (!diffVersionB || !versionList.find((v) => v.version === diffVersionB)) {
+      setDiffVersionB(versionList[0].version);
+    }
+  }, [versionList, diffVersionA, diffVersionB]);
 
   const yamlStr = useMemo(() => {
     const snapshot = agent.config_snapshot;
@@ -665,28 +690,45 @@ function ConfigurationTab({ agent }: { agent: Agent }) {
       {/* Compare Versions Panel */}
       {showDiff && (
         <div className="mt-4 space-y-3">
-          <div className="flex items-center gap-3">
-            <VersionSelector
-              versions={MOCK_VERSIONS}
-              selected={diffVersionA}
-              onChange={setDiffVersionA}
-              label="Before"
-            />
-            <span className="text-xs text-muted-foreground">vs</span>
-            <VersionSelector
-              versions={MOCK_VERSIONS}
-              selected={diffVersionB}
-              onChange={setDiffVersionB}
-              label="After"
-            />
-            <ComingSoonBadge feature="Real version history" issue="#210" />
-          </div>
-          <ConfigDiffViewer
-            before={MOCK_VERSION_YAML[diffVersionA]?.replace("{agent}", agent.name) ?? ""}
-            after={MOCK_VERSION_YAML[diffVersionB]?.replace("{agent}", agent.name) ?? ""}
-            beforeLabel={diffVersionA}
-            afterLabel={diffVersionB}
-          />
+          {versionsQuery.isLoading ? (
+            <div className="text-sm text-muted-foreground">Loading version history…</div>
+          ) : versionsQuery.error ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              Failed to load versions: {(versionsQuery.error as Error).message}
+            </div>
+          ) : versionList.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+              No prior versions yet. A snapshot is recorded each time this agent is registered with a new <code className="font-mono">version:</code>.
+            </div>
+          ) : versionList.length === 1 ? (
+            <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+              Only one version on record ({versionList[0].version}). Re-register with a bumped <code className="font-mono">version:</code> to compare.
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <VersionSelector
+                  versions={versionList}
+                  selected={diffVersionA}
+                  onChange={setDiffVersionA}
+                  label="Before"
+                />
+                <span className="text-xs text-muted-foreground">vs</span>
+                <VersionSelector
+                  versions={versionList}
+                  selected={diffVersionB}
+                  onChange={setDiffVersionB}
+                  label="After"
+                />
+              </div>
+              <ConfigDiffViewer
+                before={yamlByVersion[diffVersionA] ?? ""}
+                after={yamlByVersion[diffVersionB] ?? ""}
+                beforeLabel={diffVersionA}
+                afterLabel={diffVersionB}
+              />
+            </>
+          )}
         </div>
       )}
 

@@ -135,6 +135,15 @@ export interface AgentInvokeResponse {
   error: string | null;
 }
 
+export interface AgentVersionEntry {
+  id: string;
+  version: string;
+  config_yaml: string;
+  config_snapshot: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string | null;
+}
+
 // --- Model types ---
 
 export interface Model {
@@ -1173,6 +1182,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    versions: (id: string) =>
+      request<AgentVersionEntry[]>(`/agents/${id}/versions`),
   },
   tools: {
     list: (params?: { tool_type?: string; source?: string; page?: number }) => {

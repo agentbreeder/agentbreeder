@@ -718,3 +718,107 @@ class TestDeployJobCascadeDelete:
             assert await DeployRegistry.get(session, jid) is None, (
                 f"DeployJob {jid} should have been cascade-deleted with its agent"
             )
+
+
+# ─── AgentRegistry version history (#210) ───────────────────────────────────
+
+from api.models.database import AgentVersion  # noqa: E402
+from engine.config_parser import AgentConfig, FrameworkType  # noqa: E402
+from registry.agents import AgentRegistry  # noqa: E402
+
+
+def _make_agent_config(version: str = "1.0.0", **overrides) -> AgentConfig:
+    defaults = {
+        "name": "billing-agent",
+        "version": version,
+        "team": "engineering",
+        "owner": "alice@example.com",
+        "framework": FrameworkType.langgraph,
+        "model": {"primary": "claude-sonnet-4"},
+        "deploy": {"cloud": "local"},
+    }
+    defaults.update(overrides)
+    return AgentConfig(**defaults)
+
+
+class TestAgentRegistryVersionHistory:
+    """Tests for the agent_versions table population (#210)."""
+
+    @pytest.mark.asyncio
+    async def test_first_register_creates_version_row(self, session: AsyncSession) -> None:
+        agent = await AgentRegistry.register(
+            session, _make_agent_config(version="1.0.0"), endpoint_url="http://x"
+        )
+        await session.flush()
+        rows = await AgentRegistry.list_versions(session, agent.id)
+        assert len(rows) == 1
+        assert rows[0].version == "1.0.0"
+        assert "name: billing-agent" in rows[0].config_yaml
+        assert "billing-agent" in rows[0].config_yaml
+
+    @pytest.mark.asyncio
+    async def test_bumping_version_appends_new_row(self, session: AsyncSession) -> None:
+        await AgentRegistry.register(
+            session, _make_agent_config(version="1.0.0"), endpoint_url="http://x"
+        )
+        agent = await AgentRegistry.register(
+            session, _make_agent_config(version="1.1.0"), endpoint_url="http://x"
+        )
+        await session.flush()
+        rows = await AgentRegistry.list_versions(session, agent.id)
+        assert {r.version for r in rows} == {"1.0.0", "1.1.0"}
+
+    @pytest.mark.asyncio
+    async def test_re_registering_same_version_updates_in_place(
+        self, session: AsyncSession
+    ) -> None:
+        agent = await AgentRegistry.register(
+            session,
+            _make_agent_config(version="1.0.0", description="first"),
+            endpoint_url="http://x",
+        )
+        await AgentRegistry.register(
+            session,
+            _make_agent_config(version="1.0.0", description="second"),
+            endpoint_url="http://x",
+        )
+        await session.flush()
+        rows = await AgentRegistry.list_versions(session, agent.id)
+        assert len(rows) == 1
+        assert "second" in rows[0].config_yaml
+
+    @pytest.mark.asyncio
+    async def test_actor_email_is_recorded(self, session: AsyncSession) -> None:
+        agent = await AgentRegistry.register(
+            session,
+            _make_agent_config(version="1.0.0"),
+            endpoint_url="http://x",
+            actor_email="alice@example.com",
+        )
+        await session.flush()
+        rows = await AgentRegistry.list_versions(session, agent.id)
+        assert rows[0].created_by == "alice@example.com"
+
+    @pytest.mark.asyncio
+    async def test_versions_cascade_delete_with_agent(self, session: AsyncSession) -> None:
+        agent = await AgentRegistry.register(
+            session, _make_agent_config(version="1.0.0"), endpoint_url="http://x"
+        )
+        await AgentRegistry.register(
+            session, _make_agent_config(version="2.0.0"), endpoint_url="http://x"
+        )
+        await session.flush()
+        agent_id = agent.id
+        await session.delete(agent)
+        await session.flush()
+        rows = await AgentRegistry.list_versions(session, agent_id)
+        assert rows == []
+        # Confirm via raw query as well
+        from sqlalchemy import select
+
+        remaining = (
+            (await session.execute(select(AgentVersion).where(AgentVersion.agent_id == agent_id)))
+            .scalars()
+            .all()
+        )
+        assert remaining == []

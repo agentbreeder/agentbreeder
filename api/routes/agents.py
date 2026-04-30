@@ -399,6 +399,37 @@ async def invoke_agent(
         )
 
 
+@router.get("/{agent_id}/versions", response_model=ApiResponse[list[dict]])
+async def list_agent_versions(
+    agent_id: uuid.UUID,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[list[dict]]:
+    """Return the agent's version history (newest-first).
+
+    Each entry exposes ``version``, ``config_yaml``, ``created_by``, and
+    ``created_at`` so the dashboard's Versions / Compare panels can show
+    real history instead of MOCK_VERSIONS (#210).
+    """
+    agent = await AgentRegistry.get_by_id(db, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    versions = await AgentRegistry.list_versions(db, agent_id)
+    payload = [
+        {
+            "id": str(v.id),
+            "version": v.version,
+            "config_yaml": v.config_yaml,
+            "config_snapshot": v.config_snapshot,
+            "created_by": v.created_by,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+        }
+        for v in versions
+    ]
+    return ApiResponse(data=payload, meta=ApiMeta(total=len(payload)))
+
+
 @router.delete("/{agent_id}", response_model=ApiResponse[dict])
 async def delete_agent(
     agent_id: uuid.UUID,
