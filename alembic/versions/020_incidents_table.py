@@ -62,9 +62,30 @@ _STATUS_ENUM = sa.Enum(
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    _SEVERITY_ENUM.create(bind, checkfirst=True)
-    _STATUS_ENUM.create(bind, checkfirst=True)
+    # PostgreSQL CREATE TYPE has no IF NOT EXISTS; SQLAlchemy's
+    # ``checkfirst=True`` is unreliable in async-bound alembic contexts
+    # (the existence query runs in a separate scope). Use a DO block
+    # that swallows the duplicate_object SQLSTATE so the migration is
+    # idempotent against persisted DB volumes (e.g. CI's docker compose
+    # stack reusing a postgres volume across runs).
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE incidentseverity AS ENUM ('critical', 'high', 'medium', 'low');
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
+        """
+    )
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE incidentstatus AS ENUM ('open', 'investigating', 'mitigated', 'resolved');
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
+        """
+    )
 
     op.create_table(
         "incidents",
