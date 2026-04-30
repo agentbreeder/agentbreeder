@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.auth import get_current_user
 from api.database import get_db
 from api.middleware.rbac import require_role
+from api.models.costs import CostEvent
 from api.models.database import User
 from api.models.schemas import ApiMeta, ApiResponse
-from api.services.agentops_service import IncidentService, get_agentops_store
+from api.services.agentops_service import FleetService, IncidentService, get_agentops_store
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +27,17 @@ router = APIRouter(prefix="/api/v1/agentops", tags=["agentops"])
 
 
 @router.get("/fleet")
-async def get_fleet_overview(_user: User = Depends(get_current_user)) -> ApiResponse[dict]:
-    """Return all agents with health, cost, and last deploy info."""
-    store = get_agentops_store()
-    overview = store.get_fleet_overview()
+async def get_fleet_overview(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[dict]:
+    """Return all agents with health, cost, and last deploy info.
+
+    Joins the registry (``agents``) with 24h aggregates over ``traces``
+    and ``cost_events``. Agents with no recent traffic show zeroed
+    metrics — never seed fakes.
+    """
+    overview = await FleetService.get_fleet_overview(db)
     return ApiResponse(
         data=overview,
         meta=ApiMeta(total=overview["summary"]["total"]),
@@ -37,10 +45,12 @@ async def get_fleet_overview(_user: User = Depends(get_current_user)) -> ApiResp
 
 
 @router.get("/fleet/heatmap")
-async def get_fleet_heatmap(_user: User = Depends(get_current_user)) -> ApiResponse[dict]:
+async def get_fleet_heatmap(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[dict]:
     """Return health heatmap grid data for visualization."""
-    store = get_agentops_store()
-    heatmap = store.get_fleet_heatmap()
+    heatmap = await FleetService.get_fleet_heatmap(db)
     return ApiResponse(data=heatmap, meta=ApiMeta(total=heatmap["total"]))
 
 
@@ -48,11 +58,16 @@ async def get_fleet_heatmap(_user: User = Depends(get_current_user)) -> ApiRespo
 async def get_top_agents(
     metric: str = Query("cost", description="One of: cost | errors | latency | invocations"),
     limit: int = Query(5, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> ApiResponse[list]:
-    """Top N agents by cost, errors, latency, or invocations."""
-    store = get_agentops_store()
-    agents = store.get_top_agents(metric=metric, limit=limit)
+    """Top N agents by cost, errors, latency, or invocations.
+
+    Ranking is computed over the same ``agents`` × ``traces`` × ``cost_events``
+    join used by ``/fleet``. Cost ranks by ``cost_events.cost_usd`` summed
+    over the last 24h; invocations / errors / latency rank from ``traces``.
+    """
+    agents = await FleetService.get_top_agents(db, metric=metric, limit=limit)
     return ApiResponse(data=agents, meta=ApiMeta(total=len(agents)))
 
 
@@ -65,11 +80,16 @@ async def get_top_agents(
 async def get_events(
     limit: int = Query(50, ge=1, le=500),
     since: str | None = Query(None, description="ISO timestamp — return events after this time"),
+    db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> ApiResponse[list]:
-    """Recent operations events (deploys, alerts, restarts, cost spikes)."""
-    store = get_agentops_store()
-    events = store.get_events(limit=limit, since=since)
+    """Recent operations events (deploys, alerts, restarts, cost spikes).
+
+    Derived from ``audit_events`` (deploys, incidents, restarts) and
+    ``cost_events`` (single requests over $1.00 surfaced as cost
+    spikes). Returns ``[]`` cleanly on a fresh deploy.
+    """
+    events = await FleetService.get_events(db, limit=limit, since=since)
     return ApiResponse(data=events, meta=ApiMeta(total=len(events)))
 
 
@@ -83,10 +103,15 @@ async def get_team_comparison(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> ApiResponse[list]:
-    """Team-level metrics comparison."""
-    store = get_agentops_store()
+    """Team-level metrics comparison.
+
+    Reuses the #207 ``IncidentService`` to count open incidents per
+    agent, then aggregates 24h spend from ``cost_events`` directly so
+    the team total stays consistent with what the gateway/cost views
+    show.
+    """
     open_by_agent = await IncidentService.open_count_by_agent_name(db)
-    teams = store.get_team_comparison(open_incidents_by_agent=open_by_agent)
+    teams = await FleetService.get_team_comparison(db, open_incidents_by_agent=open_by_agent)
     return ApiResponse(data=teams, meta=ApiMeta(total=len(teams)))
 
 
@@ -254,11 +279,23 @@ async def get_canary(canary_id: str, _user: User = Depends(get_current_user)) ->
 
 @router.get("/costs/forecast")
 async def get_cost_forecast(
-    days: int = Query(30, ge=1, le=90), _user: User = Depends(get_current_user)
+    days: int = Query(30, ge=1, le=90),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
-    """30-day spend projection."""
+    """30-day spend projection anchored on the last 24h of real spend."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import func, select
+
+    cutoff = datetime.now(UTC) - timedelta(hours=24)
+    stmt = select(func.coalesce(func.sum(CostEvent.cost_usd), 0.0)).where(
+        CostEvent.created_at >= cutoff
+    )
+    base = float((await db.execute(stmt)).scalar() or 0.0)
+
     store = get_agentops_store()
-    return ApiResponse(data=store.get_cost_forecast(days=days))
+    return ApiResponse(data=store.get_cost_forecast(days=days, base_daily_cost=base))
 
 
 @router.get("/costs/anomalies")

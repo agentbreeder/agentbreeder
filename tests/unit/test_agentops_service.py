@@ -1,18 +1,27 @@
 """Unit tests for the AgentOps service.
 
-Incidents are now DB-backed (#207) — tests for ``IncidentService`` use an
-in-memory SQLite engine so the same test file exercises both the read-only
-``AgentOpsStore`` and the persistence layer.
+Both ``IncidentService`` (#207) and ``FleetService`` (#206) are DB-backed;
+tests use an in-memory SQLite engine to exercise the queries without a
+live PostgreSQL. The remaining ``AgentOpsStore`` only holds canary /
+cost-anomaly / compliance state in memory and is tested directly.
 """
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from api.models.database import Base
+from api.models.audit import AuditEvent
+from api.models.costs import CostEvent
+from api.models.database import Agent, Base
+from api.models.enums import AgentStatus
+from api.models.tracing import Trace
 from api.services.agentops_service import (
     AgentOpsStore,
+    FleetService,
     IncidentService,
     get_agentops_store,
 )
@@ -39,116 +48,309 @@ async def db_session():
 
 
 # ---------------------------------------------------------------------------
-# Fleet Overview
+# Fleet Overview / Top Agents / Events / Team Comparison (DB-backed, #206)
 # ---------------------------------------------------------------------------
+
+
+async def _seed_agent(
+    db: AsyncSession,
+    *,
+    name: str,
+    team: str = "engineering",
+    status: AgentStatus = AgentStatus.running,
+    framework: str = "langgraph",
+    model: str = "claude-sonnet-4.6",
+) -> Agent:
+    """Insert a registry row used by every fleet test."""
+    agent = Agent(
+        id=uuid.uuid4(),
+        name=name,
+        version="1.0.0",
+        description="",
+        team=team,
+        owner="alice@example.com",
+        framework=framework,
+        model_primary=model,
+        status=status,
+    )
+    db.add(agent)
+    await db.flush()
+    return agent
+
+
+async def _seed_trace(
+    db: AsyncSession,
+    *,
+    agent: Agent,
+    duration_ms: int = 100,
+    status: str = "success",
+    minutes_ago: int = 5,
+) -> None:
+    """Insert a recent trace row."""
+    db.add(
+        Trace(
+            id=uuid.uuid4(),
+            trace_id=str(uuid.uuid4()),
+            agent_id=agent.id,
+            agent_name=agent.name,
+            status=status,
+            duration_ms=duration_ms,
+            total_tokens=100,
+            input_tokens=50,
+            output_tokens=50,
+            cost_usd=0.01,
+            model_name=agent.model_primary,
+            created_at=datetime.now(UTC) - timedelta(minutes=minutes_ago),
+        )
+    )
+    await db.flush()
+
+
+async def _seed_cost_event(
+    db: AsyncSession,
+    *,
+    agent: Agent,
+    cost: float = 1.5,
+    minutes_ago: int = 5,
+) -> CostEvent:
+    """Insert a recent cost event."""
+    ce = CostEvent(
+        id=uuid.uuid4(),
+        agent_id=agent.id,
+        agent_name=agent.name,
+        team=agent.team,
+        model_name=agent.model_primary,
+        provider="anthropic",
+        input_tokens=100,
+        output_tokens=200,
+        total_tokens=300,
+        cost_usd=cost,
+        request_type="chat",
+        created_at=datetime.now(UTC) - timedelta(minutes=minutes_ago),
+    )
+    db.add(ce)
+    await db.flush()
+    return ce
 
 
 class TestFleetOverview:
-    def test_get_fleet_overview_returns_agents(self, store: AgentOpsStore) -> None:
-        result = store.get_fleet_overview()
-        assert "agents" in result
-        assert "summary" in result
-        assert len(result["agents"]) > 0
-
-        agent = result["agents"][0]
-        required_keys = {
-            "id",
-            "name",
-            "team",
-            "status",
-            "health_score",
-            "invocations_24h",
-            "error_rate_pct",
-            "avg_latency_ms",
-            "cost_24h_usd",
-            "last_deploy",
-            "model",
-            "framework",
+    @pytest.mark.asyncio
+    async def test_empty_db_returns_empty_summary(self, db_session: AsyncSession) -> None:
+        result = await FleetService.get_fleet_overview(db_session)
+        assert result["agents"] == []
+        assert result["summary"] == {
+            "total": 0,
+            "healthy": 0,
+            "degraded": 0,
+            "down": 0,
+            "avg_health_score": 0.0,
         }
-        assert required_keys.issubset(agent.keys())
 
-    def test_fleet_overview_summary_counts(self, store: AgentOpsStore) -> None:
-        result = store.get_fleet_overview()
-        summary = result["summary"]
-        agents = result["agents"]
+    @pytest.mark.asyncio
+    async def test_agent_with_no_traces_shows_zero_metrics(self, db_session: AsyncSession) -> None:
+        await _seed_agent(db_session, name="ghost-bot")
+        result = await FleetService.get_fleet_overview(db_session)
+        assert len(result["agents"]) == 1
+        a = result["agents"][0]
+        assert a["name"] == "ghost-bot"
+        assert a["invocations_24h"] == 0
+        assert a["error_rate_pct"] == 0.0
+        assert a["avg_latency_ms"] == 0
+        assert a["cost_24h_usd"] == 0.0
+        # running + 0% error rate → healthy
+        assert a["status"] == "healthy"
 
-        assert summary["total"] == len(agents)
-        assert summary["healthy"] + summary["degraded"] + summary["down"] == summary["total"]
-        assert 0.0 <= summary["avg_health_score"] <= 100.0
+    @pytest.mark.asyncio
+    async def test_failed_agent_is_down(self, db_session: AsyncSession) -> None:
+        await _seed_agent(db_session, name="dead-bot", status=AgentStatus.failed)
+        result = await FleetService.get_fleet_overview(db_session)
+        assert result["agents"][0]["status"] == "down"
+        assert result["agents"][0]["health_score"] == 0
+        assert result["summary"]["down"] == 1
 
-    def test_get_fleet_heatmap_returns_grid(self, store: AgentOpsStore) -> None:
-        result = store.get_fleet_heatmap()
-        assert "grid" in result
-        assert "total" in result
-        assert result["total"] == len(result["grid"])
+    @pytest.mark.asyncio
+    async def test_high_error_rate_is_down(self, db_session: AsyncSession) -> None:
+        a = await _seed_agent(db_session, name="bad-bot")
+        # 4 successful, 16 errors = 80% error → down
+        for _ in range(4):
+            await _seed_trace(db_session, agent=a, status="success")
+        for _ in range(16):
+            await _seed_trace(db_session, agent=a, status="error")
+        result = await FleetService.get_fleet_overview(db_session)
+        agent = result["agents"][0]
+        assert agent["error_rate_pct"] == 80.0
+        assert agent["status"] == "down"
 
-        cell = result["grid"][0]
-        assert "agent_id" in cell
-        assert "name" in cell
-        assert "health_score" in cell
-        assert "status" in cell
+    @pytest.mark.asyncio
+    async def test_aggregates_match_seeded_data(self, db_session: AsyncSession) -> None:
+        a = await _seed_agent(db_session, name="busy-bot")
+        await _seed_trace(db_session, agent=a, duration_ms=200, status="success")
+        await _seed_trace(db_session, agent=a, duration_ms=400, status="success")
+        await _seed_cost_event(db_session, agent=a, cost=2.5)
+        await _seed_cost_event(db_session, agent=a, cost=3.5)
+        result = await FleetService.get_fleet_overview(db_session)
+        agent = result["agents"][0]
+        assert agent["invocations_24h"] == 2
+        assert agent["error_rate_pct"] == 0.0
+        assert agent["avg_latency_ms"] == 300
+        assert agent["cost_24h_usd"] == 6.0
+        assert agent["status"] == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_traces_outside_24h_window_are_ignored(self, db_session: AsyncSession) -> None:
+        a = await _seed_agent(db_session, name="old-bot")
+        # > 24h ago — should not be counted
+        db_session.add(
+            Trace(
+                id=uuid.uuid4(),
+                trace_id=str(uuid.uuid4()),
+                agent_id=a.id,
+                agent_name=a.name,
+                status="error",
+                duration_ms=999,
+                total_tokens=0,
+                input_tokens=0,
+                output_tokens=0,
+                cost_usd=0.0,
+                created_at=datetime.now(UTC) - timedelta(hours=48),
+            )
+        )
+        await db_session.flush()
+        result = await FleetService.get_fleet_overview(db_session)
+        assert result["agents"][0]["invocations_24h"] == 0
 
 
-# ---------------------------------------------------------------------------
-# Top Agents
-# ---------------------------------------------------------------------------
+class TestFleetHeatmap:
+    @pytest.mark.asyncio
+    async def test_empty_returns_empty_grid(self, db_session: AsyncSession) -> None:
+        result = await FleetService.get_fleet_heatmap(db_session)
+        assert result == {"grid": [], "total": 0}
+
+    @pytest.mark.asyncio
+    async def test_one_cell_per_agent(self, db_session: AsyncSession) -> None:
+        await _seed_agent(db_session, name="bot-a", team="alpha")
+        await _seed_agent(db_session, name="bot-b", team="beta")
+        result = await FleetService.get_fleet_heatmap(db_session)
+        assert result["total"] == 2
+        cells = {c["name"]: c for c in result["grid"]}
+        assert set(cells) == {"bot-a", "bot-b"}
+        for cell in result["grid"]:
+            assert {"agent_id", "name", "team", "health_score", "status"} <= set(cell)
 
 
 class TestTopAgents:
-    def test_get_top_agents_by_cost(self, store: AgentOpsStore) -> None:
-        agents = store.get_top_agents(metric="cost", limit=5)
-        assert len(agents) <= 5
-        costs = [a["cost_24h_usd"] for a in agents]
-        assert costs == sorted(costs, reverse=True)
+    @pytest.mark.asyncio
+    async def test_empty_returns_empty(self, db_session: AsyncSession) -> None:
+        assert await FleetService.get_top_agents(db_session) == []
 
-    def test_get_top_agents_by_errors(self, store: AgentOpsStore) -> None:
-        agents = store.get_top_agents(metric="errors", limit=5)
-        assert len(agents) <= 5
-        rates = [a["error_rate_pct"] for a in agents]
-        assert rates == sorted(rates, reverse=True)
+    @pytest.mark.asyncio
+    async def test_ranked_by_cost(self, db_session: AsyncSession) -> None:
+        cheap = await _seed_agent(db_session, name="cheap-bot")
+        pricey = await _seed_agent(db_session, name="pricey-bot")
+        await _seed_cost_event(db_session, agent=cheap, cost=1.0)
+        await _seed_cost_event(db_session, agent=pricey, cost=50.0)
+        ranked = await FleetService.get_top_agents(db_session, metric="cost", limit=5)
+        assert [a["name"] for a in ranked][:2] == ["pricey-bot", "cheap-bot"]
+        assert ranked[0]["cost_24h_usd"] == 50.0
 
-    def test_get_top_agents_by_latency(self, store: AgentOpsStore) -> None:
-        agents = store.get_top_agents(metric="latency", limit=5)
-        assert len(agents) <= 5
-        latencies = [a["avg_latency_ms"] for a in agents]
-        assert latencies == sorted(latencies, reverse=True)
+    @pytest.mark.asyncio
+    async def test_ranked_by_invocations(self, db_session: AsyncSession) -> None:
+        chatty = await _seed_agent(db_session, name="chatty-bot")
+        quiet = await _seed_agent(db_session, name="quiet-bot")
+        for _ in range(5):
+            await _seed_trace(db_session, agent=chatty)
+        await _seed_trace(db_session, agent=quiet)
+        ranked = await FleetService.get_top_agents(db_session, metric="invocations", limit=5)
+        assert ranked[0]["name"] == "chatty-bot"
+        assert ranked[0]["invocations_24h"] == 5
 
-    def test_get_top_agents_by_invocations(self, store: AgentOpsStore) -> None:
-        agents = store.get_top_agents(metric="invocations", limit=5)
-        assert len(agents) <= 5
-        invocations = [a["invocations_24h"] for a in agents]
-        assert invocations == sorted(invocations, reverse=True)
-
-    def test_top_agents_respects_limit(self, store: AgentOpsStore) -> None:
-        agents = store.get_top_agents(metric="cost", limit=3)
-        assert len(agents) <= 3
-
-
-# ---------------------------------------------------------------------------
-# Events
-# ---------------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_respects_limit(self, db_session: AsyncSession) -> None:
+        for i in range(5):
+            agent = await _seed_agent(db_session, name=f"bot-{i}")
+            await _seed_cost_event(db_session, agent=agent, cost=float(i))
+        ranked = await FleetService.get_top_agents(db_session, metric="cost", limit=2)
+        assert len(ranked) == 2
 
 
 class TestEvents:
-    def test_get_events_returns_list(self, store: AgentOpsStore) -> None:
-        events = store.get_events()
-        assert isinstance(events, list)
-        assert len(events) > 0
+    @pytest.mark.asyncio
+    async def test_empty_db_returns_empty(self, db_session: AsyncSession) -> None:
+        assert await FleetService.get_events(db_session) == []
 
-        evt = events[0]
-        required_keys = {"id", "timestamp", "type", "agent_name", "message", "severity"}
-        assert required_keys.issubset(evt.keys())
+    @pytest.mark.asyncio
+    async def test_audit_event_classified_as_deploy(self, db_session: AsyncSession) -> None:
+        db_session.add(
+            AuditEvent(
+                actor="alice@example.com",
+                action="deploy.created",
+                resource_type="agent",
+                resource_name="my-bot",
+                details={"message": "Deployed v1.0.0"},
+            )
+        )
+        await db_session.flush()
+        events = await FleetService.get_events(db_session)
+        assert len(events) == 1
+        assert events[0]["type"] == "deploy"
+        assert events[0]["severity"] == "info"
+        assert events[0]["agent_name"] == "my-bot"
+        assert "Deployed v1.0.0" in events[0]["message"]
 
-    def test_get_events_with_limit(self, store: AgentOpsStore) -> None:
-        all_events = store.get_events(limit=1000)
-        limited = store.get_events(limit=2)
-        assert len(limited) <= 2
-        assert len(all_events) >= len(limited)
+    @pytest.mark.asyncio
+    async def test_cost_spike_emitted_for_expensive_event(self, db_session: AsyncSession) -> None:
+        a = await _seed_agent(db_session, name="spendy-bot")
+        await _seed_cost_event(db_session, agent=a, cost=15.0)
+        events = await FleetService.get_events(db_session)
+        spike = [e for e in events if e["type"] == "cost_spike"]
+        assert len(spike) == 1
+        assert spike[0]["severity"] == "critical"
+        assert spike[0]["agent_name"] == "spendy-bot"
 
-    def test_get_events_sorted_newest_first(self, store: AgentOpsStore) -> None:
-        events = store.get_events(limit=100)
-        timestamps = [e["timestamp"] for e in events]
-        assert timestamps == sorted(timestamps, reverse=True)
+    @pytest.mark.asyncio
+    async def test_cost_below_threshold_not_emitted(self, db_session: AsyncSession) -> None:
+        a = await _seed_agent(db_session, name="cheap-bot")
+        await _seed_cost_event(db_session, agent=a, cost=0.50)  # under $1
+        events = await FleetService.get_events(db_session)
+        assert all(e["type"] != "cost_spike" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_events_newest_first(self, db_session: AsyncSession) -> None:
+        old = AuditEvent(
+            actor="x",
+            action="deploy.created",
+            resource_type="agent",
+            resource_name="a",
+            details={},
+            created_at=datetime.now(UTC) - timedelta(hours=2),
+        )
+        new = AuditEvent(
+            actor="x",
+            action="incident.opened",
+            resource_type="agent",
+            resource_name="b",
+            details={},
+            created_at=datetime.now(UTC),
+        )
+        db_session.add_all([old, new])
+        await db_session.flush()
+        events = await FleetService.get_events(db_session)
+        assert events[0]["timestamp"] > events[1]["timestamp"]
+
+    @pytest.mark.asyncio
+    async def test_limit_caps_returned(self, db_session: AsyncSession) -> None:
+        for i in range(10):
+            db_session.add(
+                AuditEvent(
+                    actor="x",
+                    action="deploy.created",
+                    resource_type="agent",
+                    resource_name=f"a-{i}",
+                    details={},
+                )
+            )
+        await db_session.flush()
+        assert len(await FleetService.get_events(db_session, limit=3)) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -476,21 +678,28 @@ class TestCanaryDeploys:
 
 
 class TestCostForecast:
-    def test_get_cost_forecast(self, store: AgentOpsStore) -> None:
+    def test_empty_forecast_when_no_recent_spend(self, store: AgentOpsStore) -> None:
+        # base_daily_cost defaults to 0 — forecast collapses to zeros.
         result = store.get_cost_forecast(days=30)
         assert "current_month_spend" in result
         assert "projected_month_spend" in result
-        assert "forecast_points" in result
-        assert "confidence" in result
-        assert "trend" in result
+        assert result["current_month_spend"] == 0.0
+        assert result["projected_month_spend"] == 0.0
+        assert result["confidence"] == "low"
+        assert result["trend"] == "flat"
+
+    def test_forecast_with_real_anchor(self, store: AgentOpsStore) -> None:
+        result = store.get_cost_forecast(days=30, base_daily_cost=10.0)
         assert result["projected_month_spend"] > 0
+        assert result["confidence"] == "medium"
+        assert result["trend"] == "increasing"
 
     def test_forecast_has_correct_number_of_points(self, store: AgentOpsStore) -> None:
-        result = store.get_cost_forecast(days=14)
+        result = store.get_cost_forecast(days=14, base_daily_cost=5.0)
         assert len(result["forecast_points"]) == 14
 
     def test_forecast_points_have_required_keys(self, store: AgentOpsStore) -> None:
-        result = store.get_cost_forecast(days=5)
+        result = store.get_cost_forecast(days=5, base_daily_cost=10.0)
         for point in result["forecast_points"]:
             assert "date" in point
             assert "projected_cost" in point
@@ -566,29 +775,38 @@ class TestCompliance:
 
 
 class TestTeamComparison:
-    def test_get_team_comparison(self, store: AgentOpsStore) -> None:
-        teams = store.get_team_comparison()
-        assert isinstance(teams, list)
-        assert len(teams) > 0
+    @pytest.mark.asyncio
+    async def test_empty_db_returns_empty(self, db_session: AsyncSession) -> None:
+        assert await FleetService.get_team_comparison(db_session) == []
 
-        t = teams[0]
-        assert "team" in t
-        assert "agent_count" in t
-        assert "total_cost_24h" in t
-        assert "avg_health_score" in t
-        assert "incidents_open" in t
+    @pytest.mark.asyncio
+    async def test_aggregates_across_agents_and_costs(self, db_session: AsyncSession) -> None:
+        a1 = await _seed_agent(db_session, name="bot-a", team="alpha")
+        a2 = await _seed_agent(db_session, name="bot-b", team="alpha")
+        await _seed_agent(db_session, name="bot-c", team="beta")
+        await _seed_cost_event(db_session, agent=a1, cost=2.0)
+        await _seed_cost_event(db_session, agent=a2, cost=3.0)
+        teams = await FleetService.get_team_comparison(db_session)
+        by_team = {t["team"]: t for t in teams}
+        assert by_team["alpha"]["agent_count"] == 2
+        assert by_team["alpha"]["total_cost_24h"] == 5.0
+        assert by_team["beta"]["agent_count"] == 1
+        assert by_team["beta"]["total_cost_24h"] == 0.0
 
-    def test_team_comparison_agent_counts_match_fleet(self, store: AgentOpsStore) -> None:
-        fleet = store.get_fleet_overview()
-        teams = store.get_team_comparison()
+    @pytest.mark.asyncio
+    async def test_open_incidents_passed_through(self, db_session: AsyncSession) -> None:
+        await _seed_agent(db_session, name="bot-a", team="alpha")
+        teams = await FleetService.get_team_comparison(
+            db_session, open_incidents_by_agent={"bot-a": 3}
+        )
+        assert teams[0]["incidents_open"] == 3
 
-        total_from_teams = sum(t["agent_count"] for t in teams)
-        assert total_from_teams == fleet["summary"]["total"]
-
-    def test_team_comparison_sorted_by_team_name(self, store: AgentOpsStore) -> None:
-        teams = store.get_team_comparison()
-        names = [t["team"] for t in teams]
-        assert names == sorted(names)
+    @pytest.mark.asyncio
+    async def test_sorted_by_team_name(self, db_session: AsyncSession) -> None:
+        for team in ["zulu", "alpha", "mike"]:
+            await _seed_agent(db_session, name=f"bot-{team}", team=team)
+        teams = await FleetService.get_team_comparison(db_session)
+        assert [t["team"] for t in teams] == ["alpha", "mike", "zulu"]
 
 
 # ---------------------------------------------------------------------------

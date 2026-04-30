@@ -756,47 +756,81 @@ class TestGitPRs:
 # ===================================================================
 
 
+def _override_db_dep():
+    """Override ``get_db`` with a stub session.
+
+    Fleet / events / top-agents / teams are DB-backed as of #206, so the
+    routes need a session even when ``FleetService`` is mocked.
+    """
+    from api.database import get_db
+
+    async def _stub():
+        return AsyncMock()
+
+    app.dependency_overrides[get_db] = _stub
+
+
+def _restore_db_dep():
+    from api.database import get_db
+
+    app.dependency_overrides.pop(get_db, None)
+
+
 class TestAgentOpsFleet:
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_fleet_overview(self, mock_gs):
-        store = _eval_store()
-        store.get_fleet_overview.return_value = {
-            "summary": {"total": 3},
-            "agents": [],
-        }
-        mock_gs.return_value = store
-        resp = client.get("/api/v1/agentops/fleet")
-        assert resp.status_code == 200
-        assert resp.json()["meta"]["total"] == 3
+    @patch(
+        "api.routes.agentops.FleetService.get_fleet_overview",
+        new_callable=AsyncMock,
+    )
+    def test_fleet_overview(self, mock_fleet):
+        mock_fleet.return_value = {"summary": {"total": 3}, "agents": []}
+        _override_db_dep()
+        try:
+            resp = client.get("/api/v1/agentops/fleet")
+            assert resp.status_code == 200
+            assert resp.json()["meta"]["total"] == 3
+        finally:
+            _restore_db_dep()
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_fleet_heatmap(self, mock_gs):
-        store = _eval_store()
-        store.get_fleet_heatmap.return_value = {"total": 2, "cells": []}
-        mock_gs.return_value = store
-        resp = client.get("/api/v1/agentops/fleet/heatmap")
-        assert resp.status_code == 200
+    @patch(
+        "api.routes.agentops.FleetService.get_fleet_heatmap",
+        new_callable=AsyncMock,
+    )
+    def test_fleet_heatmap(self, mock_heatmap):
+        mock_heatmap.return_value = {"total": 2, "grid": []}
+        _override_db_dep()
+        try:
+            resp = client.get("/api/v1/agentops/fleet/heatmap")
+            assert resp.status_code == 200
+        finally:
+            _restore_db_dep()
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_top_agents(self, mock_gs):
-        store = _eval_store()
-        store.get_top_agents.return_value = [{"name": "bot", "cost": 10}]
-        mock_gs.return_value = store
-        resp = client.get(
-            "/api/v1/agentops/top-agents",
-            params={"metric": "cost", "limit": 3},
-        )
-        assert resp.status_code == 200
+    @patch(
+        "api.routes.agentops.FleetService.get_top_agents",
+        new_callable=AsyncMock,
+    )
+    def test_top_agents(self, mock_top):
+        mock_top.return_value = [{"name": "bot", "cost_24h_usd": 10}]
+        _override_db_dep()
+        try:
+            resp = client.get(
+                "/api/v1/agentops/top-agents",
+                params={"metric": "cost", "limit": 3},
+            )
+            assert resp.status_code == 200
+        finally:
+            _restore_db_dep()
 
 
 class TestAgentOpsEvents:
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_get_events(self, mock_gs):
-        store = _eval_store()
-        store.get_events.return_value = []
-        mock_gs.return_value = store
-        resp = client.get("/api/v1/agentops/events")
-        assert resp.status_code == 200
+    @patch("api.routes.agentops.FleetService.get_events", new_callable=AsyncMock)
+    def test_get_events(self, mock_events):
+        mock_events.return_value = []
+        _override_db_dep()
+        try:
+            resp = client.get("/api/v1/agentops/events")
+            assert resp.status_code == 200
+        finally:
+            _restore_db_dep()
 
 
 class TestAgentOpsTeams:
@@ -804,24 +838,21 @@ class TestAgentOpsTeams:
         "api.routes.agentops.IncidentService.open_count_by_agent_name",
         new_callable=AsyncMock,
     )
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_team_comparison(self, mock_gs, mock_counts):
-        from api.database import get_db
-
-        store = _eval_store()
-        store.get_team_comparison.return_value = []
-        mock_gs.return_value = store
+    @patch(
+        "api.routes.agentops.FleetService.get_team_comparison",
+        new_callable=AsyncMock,
+    )
+    def test_team_comparison(self, mock_teams, mock_counts):
+        # Preserves the #207 IncidentService integration on the teams route.
+        mock_teams.return_value = []
         mock_counts.return_value = {}
-
-        async def _stub_db():
-            return AsyncMock()
-
-        app.dependency_overrides[get_db] = _stub_db
+        _override_db_dep()
         try:
             resp = client.get("/api/v1/agentops/teams")
             assert resp.status_code == 200
+            mock_counts.assert_awaited_once()
         finally:
-            app.dependency_overrides.pop(get_db, None)
+            _restore_db_dep()
 
 
 class TestAgentOpsIncidents:
@@ -1051,11 +1082,27 @@ class TestAgentOpsCanary:
 class TestAgentOpsCosts:
     @patch("api.routes.agentops.get_agentops_store")
     def test_cost_forecast(self, mock_gs):
+        from api.database import get_db
+
         store = _eval_store()
         store.get_cost_forecast.return_value = {"projected": 100}
         mock_gs.return_value = store
-        resp = client.get("/api/v1/agentops/costs/forecast")
-        assert resp.status_code == 200
+
+        # Route now also queries cost_events for the spend anchor; stub
+        # the session so .execute(...).scalar() returns 0.
+        async def _stub_db():
+            session = AsyncMock()
+            scalar_result = MagicMock()
+            scalar_result.scalar.return_value = 0.0
+            session.execute = AsyncMock(return_value=scalar_result)
+            return session
+
+        app.dependency_overrides[get_db] = _stub_db
+        try:
+            resp = client.get("/api/v1/agentops/costs/forecast")
+            assert resp.status_code == 200
+        finally:
+            app.dependency_overrides.pop(get_db, None)
 
     @patch("api.routes.agentops.get_agentops_store")
     def test_cost_anomalies(self, mock_gs):

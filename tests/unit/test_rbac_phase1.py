@@ -361,18 +361,36 @@ class TestViewerCanReadPublicEndpoints:
     """Viewer-role users should be able to hit read-only (GET) endpoints."""
 
     def test_agentops_fleet_viewer_ok(self):
+        # /agentops/fleet became DB-backed in #206 — patching ``api.database.get_db``
+        # no longer intercepts the FastAPI dependency, so we override it directly
+        # on the app and stub ``FleetService.get_fleet_overview`` to avoid a real
+        # PostgreSQL hit. RBAC behaviour (viewer can read) is unchanged.
+        from api.database import get_db
+        from api.main import app
+
         user_id = uuid.uuid4()
         viewer = _make_user(role=UserRole.viewer, user_id=user_id)
-        with (
-            patch("api.auth.decode_access_token", return_value={"sub": str(user_id)}),
-            patch("api.auth.get_user_by_id", new_callable=AsyncMock, return_value=viewer),
-            patch("api.database.get_db", return_value=_mock_db()),
-        ):
-            headers = _viewer_headers(user_id)
-            resp = client.get("/api/v1/agentops/fleet", headers=headers)
-            # 200 or a non-auth error (could be service error in test env)
-            assert resp.status_code != 401
-            assert resp.status_code != 403
+
+        async def _stub_db():
+            return AsyncMock()
+
+        app.dependency_overrides[get_db] = _stub_db
+        try:
+            with (
+                patch("api.auth.decode_access_token", return_value={"sub": str(user_id)}),
+                patch("api.auth.get_user_by_id", new_callable=AsyncMock, return_value=viewer),
+                patch(
+                    "api.routes.agentops.FleetService.get_fleet_overview",
+                    new_callable=AsyncMock,
+                    return_value={"agents": [], "summary": {"total": 0}},
+                ),
+            ):
+                headers = _viewer_headers(user_id)
+                resp = client.get("/api/v1/agentops/fleet", headers=headers)
+                assert resp.status_code != 401
+                assert resp.status_code != 403
+        finally:
+            app.dependency_overrides.pop(get_db, None)
 
     def test_gateway_status_viewer_ok(self):
         user_id = uuid.uuid4()
