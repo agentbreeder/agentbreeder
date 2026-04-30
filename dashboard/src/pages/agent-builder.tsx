@@ -30,6 +30,8 @@ import {
   Cpu,
   Shield,
   Workflow,
+  Globe,
+  Languages,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,10 +46,22 @@ import {
 } from "@/components/ui/dialog";
 import { DeployDialog } from "@/components/deploy/DeployDialog";
 import { SubmitForReview } from "@/components/submit-for-review";
-import { RegistryPicker, getMockModels, getMockTools } from "@/components/registry-picker";
+import {
+  RegistryPicker,
+  getMockModels,
+  getMockTools,
+  filterModelsByStatus,
+} from "@/components/registry-picker";
 import { VisualBuilder } from "@/components/visual-builder/VisualBuilder";
 import type { CanvasNodeData } from "@/components/visual-builder/types";
 import { graphToYaml, yamlToGraph } from "@/lib/graph-to-yaml";
+import {
+  formDataToYaml,
+  yamlToFormData,
+  type AgentFormData,
+  type AgentLanguage,
+  type GatewayOverride,
+} from "@/lib/agent-yaml-emit";
 import { cn } from "@/lib/utils";
 import { highlightYaml, validateYamlBasic } from "@/lib/yaml";
 import { api } from "@/lib/api";
@@ -117,33 +131,6 @@ const FRAMEWORK_COLORS: Record<string, string> = {
 // Types
 // ---------------------------------------------------------------------------
 
-interface AgentFormData {
-  name: string;
-  version: string;
-  description: string;
-  team: string;
-  owner: string;
-  tags: string[];
-  model: {
-    primary: string;
-    fallback: string;
-    temperature: number;
-    max_tokens: number;
-  };
-  framework: string;
-  tools: string[];
-  prompts: {
-    system: string;
-  };
-  guardrails: string[];
-  deploy: {
-    cloud: string;
-    runtime: string;
-    scalingMin: number;
-    scalingMax: number;
-  };
-}
-
 interface ValidationItem {
   key: string;
   label: string;
@@ -154,174 +141,6 @@ interface ValidationItem {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function formDataToYaml(data: AgentFormData): string {
-  const lines: string[] = [];
-  lines.push(`name: ${data.name || "my-agent"}`);
-  lines.push(`version: "${data.version || "0.1.0"}"`);
-  lines.push(`description: "${data.description}"`);
-  lines.push(`team: ${data.team || "engineering"}`);
-  lines.push(`owner: ${data.owner || "user@example.com"}`);
-
-  if (data.tags.length > 0) {
-    lines.push(`tags: [${data.tags.join(", ")}]`);
-  }
-
-  lines.push("");
-  lines.push("model:");
-  lines.push(`  primary: ${data.model.primary || "claude-sonnet-4"}`);
-  if (data.model.fallback) {
-    lines.push(`  fallback: ${data.model.fallback}`);
-  }
-  lines.push(`  temperature: ${data.model.temperature}`);
-  lines.push(`  max_tokens: ${data.model.max_tokens}`);
-
-  lines.push("");
-  lines.push(`framework: ${data.framework || "langgraph"}`);
-
-  lines.push("");
-  if (data.tools.length === 0) {
-    lines.push("tools: []");
-  } else {
-    lines.push("tools:");
-    for (const tool of data.tools) {
-      lines.push(`  - ref: ${tool}`);
-    }
-  }
-
-  lines.push("");
-  lines.push("prompts:");
-  if (data.prompts.system.startsWith("prompts/")) {
-    lines.push(`  system: ${data.prompts.system}`);
-  } else {
-    lines.push(`  system: "${data.prompts.system.replace(/"/g, '\\"')}"`);
-  }
-
-  lines.push("");
-  if (data.guardrails.length === 0) {
-    lines.push("guardrails: []");
-  } else {
-    lines.push("guardrails:");
-    for (const g of data.guardrails) {
-      lines.push(`  - ${g}`);
-    }
-  }
-
-  lines.push("");
-  lines.push("deploy:");
-  lines.push(`  cloud: ${data.deploy.cloud}`);
-  lines.push(`  runtime: ${data.deploy.runtime}`);
-  lines.push("  scaling:");
-  lines.push(`    min: ${data.deploy.scalingMin}`);
-  lines.push(`    max: ${data.deploy.scalingMax}`);
-
-  return lines.join("\n");
-}
-
-function yamlToFormData(yaml: string): AgentFormData {
-  const data: AgentFormData = {
-    name: "",
-    version: "0.1.0",
-    description: "",
-    team: "engineering",
-    owner: "user@example.com",
-    tags: [],
-    model: { primary: "claude-sonnet-4", fallback: "", temperature: 0.7, max_tokens: 4096 },
-    framework: "langgraph",
-    tools: [],
-    prompts: { system: "" },
-    guardrails: [],
-    deploy: { cloud: "local", runtime: "docker-compose", scalingMin: 1, scalingMax: 10 },
-  };
-
-  const lines = yaml.split("\n");
-  let currentSection = "";
-
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-
-    // Top-level fields (no leading whitespace)
-    if (!line.startsWith(" ") && !line.startsWith("\t")) {
-      const colonIdx = trimmed.indexOf(":");
-      if (colonIdx === -1) continue;
-      const key = trimmed.slice(0, colonIdx).trim();
-      const val = trimmed.slice(colonIdx + 1).trim().replace(/^"|"$/g, "");
-      currentSection = key;
-
-      switch (key) {
-        case "name": data.name = val; break;
-        case "version": data.version = val; break;
-        case "description": data.description = val; break;
-        case "team": data.team = val; break;
-        case "owner": data.owner = val; break;
-        case "framework": data.framework = val; break;
-        case "tags": {
-          const tagMatch = val.match(/\[([^\]]*)\]/);
-          if (tagMatch) {
-            data.tags = tagMatch[1].split(",").map((t) => t.trim()).filter(Boolean);
-          }
-          break;
-        }
-        case "tools":
-          if (val === "[]") data.tools = [];
-          break;
-        case "guardrails":
-          if (val === "[]") data.guardrails = [];
-          break;
-      }
-    } else {
-      // Nested fields
-      const colonIdx = trimmed.indexOf(":");
-      if (colonIdx === -1) {
-        // Array item like "- ref: xxx" or "- pii_detection"
-        if (trimmed.startsWith("- ")) {
-          const itemVal = trimmed.slice(2).trim();
-          if (currentSection === "tools") {
-            const refMatch = itemVal.match(/^ref:\s*(.+)$/);
-            if (refMatch) data.tools.push(refMatch[1].trim());
-          } else if (currentSection === "guardrails") {
-            data.guardrails.push(itemVal);
-          }
-        }
-        continue;
-      }
-
-      const key = trimmed.slice(0, colonIdx).trim().replace(/^- /, "");
-      const val = trimmed.slice(colonIdx + 1).trim().replace(/^"|"$/g, "");
-
-      if (key.startsWith("- ref") && currentSection === "tools") {
-        data.tools.push(val);
-        continue;
-      }
-      if (key.startsWith("- ") && currentSection === "guardrails") {
-        data.guardrails.push(key.slice(2));
-        continue;
-      }
-
-      if (currentSection === "model") {
-        switch (key) {
-          case "primary": data.model.primary = val; break;
-          case "fallback": data.model.fallback = val; break;
-          case "temperature": data.model.temperature = parseFloat(val) || 0.7; break;
-          case "max_tokens": data.model.max_tokens = parseInt(val) || 4096; break;
-        }
-      } else if (currentSection === "prompts") {
-        if (key === "system") data.prompts.system = val;
-      } else if (currentSection === "deploy") {
-        switch (key) {
-          case "cloud": data.deploy.cloud = val; break;
-          case "runtime": data.deploy.runtime = val; break;
-          case "min": data.deploy.scalingMin = parseInt(val) || 1; break;
-          case "max": data.deploy.scalingMax = parseInt(val) || 10; break;
-        }
-      }
-    }
-  }
-
-  return data;
-}
 
 function validateAgentYaml(yaml: string): ValidationItem[] {
   const items: ValidationItem[] = [];
@@ -594,6 +413,195 @@ function YamlEditor({
 // Visual Builder
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Gateways Panel — per-gateway override editor (Track H / #164).
+// Most agents leave gateways empty; the panel is collapsed by default and
+// only emits YAML for gateways that have at least one override field set.
+// ---------------------------------------------------------------------------
+
+const KNOWN_GATEWAYS = ["litellm", "openrouter", "vllm", "bedrock"] as const;
+const FALLBACK_POLICIES = ["fastest", "cheapest", "first"] as const;
+
+function GatewaysPanel({
+  gateways,
+  onChange,
+}: {
+  gateways: Record<string, GatewayOverride>;
+  onChange: (gateways: Record<string, GatewayOverride>) => void;
+}) {
+  const [open, setOpen] = useState(Object.keys(gateways).length > 0);
+  const [newGatewayName, setNewGatewayName] = useState("");
+
+  const addGateway = useCallback(
+    (name: string) => {
+      const trimmed = name.trim().toLowerCase();
+      if (!trimmed || gateways[trimmed]) return;
+      onChange({ ...gateways, [trimmed]: {} });
+    },
+    [gateways, onChange],
+  );
+
+  const removeGateway = useCallback(
+    (name: string) => {
+      const next = { ...gateways };
+      delete next[name];
+      onChange(next);
+    },
+    [gateways, onChange],
+  );
+
+  const updateGateway = useCallback(
+    (name: string, patch: Partial<GatewayOverride>) => {
+      const current = gateways[name] ?? {};
+      onChange({ ...gateways, [name]: { ...current, ...patch } });
+    },
+    [gateways, onChange],
+  );
+
+  const entries = Object.entries(gateways);
+
+  return (
+    <section data-testid="gateways-section">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="mb-3 flex w-full items-center justify-between text-sm font-semibold"
+      >
+        <span className="flex items-center gap-2">
+          <Globe className="size-4" />
+          Gateways{" "}
+          <span className="text-[10px] font-normal text-muted-foreground">
+            ({entries.length} configured)
+          </span>
+        </span>
+        <span className="text-[10px] text-muted-foreground">{open ? "Hide" : "Show"}</span>
+      </button>
+
+      {open && (
+        <div className="space-y-3">
+          <p className="text-[11px] text-muted-foreground">
+            Override the catalog defaults for a gateway (URL, api-key env var, fallback policy).
+            Most agents leave this empty and inherit the org-level catalog.
+          </p>
+
+          {entries.map(([name, override]) => (
+            <div
+              key={name}
+              data-testid={`gateway-${name}`}
+              className="space-y-2 rounded-lg border border-border bg-muted/20 p-3"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs font-medium">{name}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-1.5 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeGateway(name)}
+                  aria-label={`Remove ${name} override`}
+                >
+                  <Trash2 className="size-3" />
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-[10px] font-medium text-muted-foreground">URL</label>
+                  <Input
+                    value={override.url ?? ""}
+                    onChange={(e) => updateGateway(name, { url: e.target.value || undefined })}
+                    placeholder="http://litellm.local:4000"
+                    className="h-7 text-[11px]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] font-medium text-muted-foreground">
+                    API key env var
+                  </label>
+                  <Input
+                    value={override.api_key_env ?? ""}
+                    onChange={(e) =>
+                      updateGateway(name, { api_key_env: e.target.value || undefined })
+                    }
+                    placeholder="LITELLM_API_KEY"
+                    className="h-7 text-[11px]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-medium text-muted-foreground">
+                  Fallback policy
+                </label>
+                <select
+                  value={override.fallback_policy ?? ""}
+                  onChange={(e) =>
+                    updateGateway(name, {
+                      fallback_policy:
+                        (e.target.value as GatewayOverride["fallback_policy"]) || undefined,
+                    })
+                  }
+                  className="h-7 w-full rounded-md border border-input bg-background px-2 text-[11px] outline-none"
+                >
+                  <option value="">(none)</option>
+                  {FALLBACK_POLICIES.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ))}
+
+          <div className="flex items-center gap-2">
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) addGateway(e.target.value);
+              }}
+              className="h-7 flex-1 rounded-md border border-input bg-background px-2 text-[11px] outline-none"
+              aria-label="Add a known gateway override"
+            >
+              <option value="">Add a known gateway…</option>
+              {KNOWN_GATEWAYS.filter((g) => !gateways[g]).map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+            <Input
+              value={newGatewayName}
+              onChange={(e) => setNewGatewayName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (newGatewayName.trim()) {
+                    addGateway(newGatewayName);
+                    setNewGatewayName("");
+                  }
+                }
+              }}
+              placeholder="custom name"
+              className="h-7 flex-1 text-[11px]"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-[11px]"
+              onClick={() => {
+                if (newGatewayName.trim()) {
+                  addGateway(newGatewayName);
+                  setNewGatewayName("");
+                }
+              }}
+            >
+              <Plus className="size-3" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function VisualBuilderForm({
   formData,
   onChange,
@@ -601,9 +609,25 @@ function VisualBuilderForm({
   formData: AgentFormData;
   onChange: (data: AgentFormData) => void;
 }) {
-  const models = useMemo(() => getMockModels(), []);
+  const allModels = useMemo(() => getMockModels(), []);
   const tools = useMemo(() => getMockTools(), []);
   const [tagInput, setTagInput] = useState("");
+  const [showDeprecatedModels, setShowDeprecatedModels] = useState(false);
+  // Always include the currently-selected model in the dropdown so existing
+  // configs with a deprecated/retired model don't silently drop the value.
+  const visibleModels = useMemo(() => {
+    const filtered = filterModelsByStatus(allModels, showDeprecatedModels);
+    const selected = allModels.find((m) => m.name === formData.model.primary);
+    if (selected && !filtered.some((m) => m.id === selected.id)) {
+      return [...filtered, selected];
+    }
+    return filtered;
+  }, [allModels, showDeprecatedModels, formData.model.primary]);
+  const selectedModel = useMemo(
+    () => allModels.find((m) => m.name === formData.model.primary),
+    [allModels, formData.model.primary],
+  );
+  const selectedModelStatus = selectedModel?.status ?? "active";
 
   const update = useCallback(
     (patch: Partial<AgentFormData>) => {
@@ -751,19 +775,51 @@ function VisualBuilderForm({
           </h3>
           <div className="space-y-3">
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Primary Model</label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="block text-[11px] font-medium text-muted-foreground">Primary Model</label>
+                <label className="flex cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={showDeprecatedModels}
+                    onChange={(e) => setShowDeprecatedModels(e.target.checked)}
+                    className="size-3 rounded accent-foreground"
+                  />
+                  Show deprecated
+                </label>
+              </div>
               <select
                 value={formData.model.primary}
                 onChange={(e) => update({ model: { ...formData.model, primary: e.target.value } })}
                 className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none"
               >
                 <option value="">Select a model...</option>
-                {models.map((m) => (
-                  <option key={m.id} value={m.name}>
-                    {m.name} ({m.provider})
-                  </option>
-                ))}
+                {visibleModels.map((m) => {
+                  const status = m.status ?? "active";
+                  const suffix =
+                    status === "deprecated"
+                      ? " · deprecated"
+                      : status === "retired"
+                        ? " · retired"
+                        : status === "beta"
+                          ? " · beta"
+                          : "";
+                  return (
+                    <option key={m.id} value={m.name}>
+                      {m.name} ({m.provider}){suffix}
+                    </option>
+                  );
+                })}
               </select>
+              {(selectedModelStatus === "deprecated" || selectedModelStatus === "retired") && (
+                <div
+                  role="alert"
+                  data-testid="model-status-warning"
+                  className="mt-1.5 flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-700 dark:text-amber-400"
+                >
+                  <AlertTriangle className="size-3" />
+                  Selected model is {selectedModelStatus}. Consider switching to an active model.
+                </div>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
@@ -775,7 +831,7 @@ function VisualBuilderForm({
                 className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs outline-none"
               >
                 <option value="">None</option>
-                {models
+                {visibleModels
                   .filter((m) => m.name !== formData.model.primary)
                   .map((m) => (
                     <option key={m.id} value={m.name}>
@@ -814,6 +870,35 @@ function VisualBuilderForm({
                 />
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Language — Track I (#165). Maps to top-level `framework:` for python,
+            or `runtime: { language, framework }` for typescript/node. */}
+        <section data-testid="language-section">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <Languages className="size-4" />
+            Language
+          </h3>
+          <div className="grid grid-cols-2 gap-2">
+            {(["python", "typescript"] as const).map((lang) => (
+              <button
+                key={lang}
+                data-testid={`language-${lang}`}
+                onClick={() => update({ language: lang })}
+                className={cn(
+                  "rounded-lg border p-3 text-left transition-all",
+                  formData.language === lang
+                    ? "border-foreground/30 bg-foreground/5 ring-1 ring-foreground/10"
+                    : "border-border hover:border-border/80 hover:bg-muted/30",
+                )}
+              >
+                <div className="text-xs font-medium capitalize">{lang}</div>
+                <div className="mt-0.5 text-[10px] text-muted-foreground">
+                  {lang === "python" ? "Default Python runtime" : "Polyglot Node.js / TypeScript"}
+                </div>
+              </button>
+            ))}
           </div>
         </section>
 
@@ -944,6 +1029,13 @@ function VisualBuilderForm({
           </div>
         </section>
 
+        {/* Gateways — Track H (#164). Optional per-gateway overrides for the
+            org-level catalog. Most agents leave this empty. */}
+        <GatewaysPanel
+          gateways={formData.gateways}
+          onChange={(gateways) => update({ gateways })}
+        />
+
         {/* Deploy */}
         <section>
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
@@ -1049,6 +1141,12 @@ export default function AgentBuilderPage() {
       const config = agent.config_snapshot;
       if (config && Object.keys(config).length > 0) {
         // Build YAML from config_snapshot
+        const runtimeBlock = config.runtime as Record<string, unknown> | undefined;
+        const runtimeLang = runtimeBlock?.language as string | undefined;
+        const language: AgentLanguage =
+          runtimeLang === "node" || runtimeLang === "typescript" ? "typescript" : "python";
+        const gateways =
+          (config.gateways as Record<string, GatewayOverride> | undefined) ?? {};
         const loadedFormData: AgentFormData = {
           name: agent.name,
           version: agent.version,
@@ -1056,6 +1154,7 @@ export default function AgentBuilderPage() {
           team: agent.team,
           owner: agent.owner,
           tags: agent.tags ?? [],
+          language,
           model: {
             primary: agent.model_primary,
             fallback: agent.model_fallback ?? "",
@@ -1070,6 +1169,7 @@ export default function AgentBuilderPage() {
             system: ((config.prompts as Record<string, unknown>)?.system as string) ?? "",
           },
           guardrails: ((config.guardrails as string[]) ?? []),
+          gateways,
           deploy: {
             cloud: ((config.deploy as Record<string, unknown>)?.cloud as string) ?? "local",
             runtime: ((config.deploy as Record<string, unknown>)?.runtime as string) ?? "docker-compose",

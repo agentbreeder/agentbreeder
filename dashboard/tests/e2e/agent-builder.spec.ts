@@ -67,3 +67,72 @@ test("submit for review button visible", async ({ authedPage: page }) => {
     .first();
   await expect(reviewBtn).toBeVisible();
 });
+
+// ---------------------------------------------------------------------------
+// Issue #204 — v2 fields in the visual builder
+// ---------------------------------------------------------------------------
+
+test("visual builder exposes language radio (python/typescript)", async ({
+  authedPage: page,
+}) => {
+  await page.goto(BUILDER_URL);
+  await page.waitForTimeout(500);
+
+  const visualToggle = page.getByRole("button", { name: /^visual$/i }).first();
+  await visualToggle.click();
+  await page.waitForTimeout(200);
+
+  await expect(page.getByTestId("language-section")).toBeVisible();
+  await expect(page.getByTestId("language-python")).toBeVisible();
+  await expect(page.getByTestId("language-typescript")).toBeVisible();
+});
+
+test("selecting typescript emits runtime block in YAML", async ({ authedPage: page }) => {
+  await page.goto(BUILDER_URL);
+  await page.waitForTimeout(500);
+
+  // Switch to visual mode and pick typescript
+  await page.getByRole("button", { name: /^visual$/i }).first().click();
+  await page.waitForTimeout(200);
+  await page.getByTestId("language-typescript").click();
+
+  // Switch back to YAML and verify the runtime block was emitted
+  await page.getByRole("button", { name: /^yaml$/i }).first().click();
+  await page.waitForTimeout(200);
+
+  const body = await page.textContent("body");
+  expect(body).toContain("runtime:");
+  expect(body).toContain("language: node");
+});
+
+test("visual builder exposes gateways panel", async ({ authedPage: page }) => {
+  await page.goto(BUILDER_URL);
+  await page.waitForTimeout(500);
+
+  await page.getByRole("button", { name: /^visual$/i }).first().click();
+  await page.waitForTimeout(200);
+
+  await expect(page.getByTestId("gateways-section")).toBeVisible();
+});
+
+test("model picker hides deprecated by default and toggles back", async ({
+  authedPage: page,
+}) => {
+  await page.goto(BUILDER_URL);
+  await page.waitForTimeout(500);
+  await page.getByRole("button", { name: /^visual$/i }).first().click();
+  await page.waitForTimeout(200);
+
+  const showDeprecated = page.getByLabel(/show deprecated/i);
+  await expect(showDeprecated).toBeVisible();
+
+  // Off by default => no "deprecated" option in primary model dropdown.
+  const primary = page.locator("select").first();
+  let optionsText = await primary.allTextContents();
+  expect(optionsText.join(" ").toLowerCase()).not.toContain("deprecated");
+
+  // Toggle on => now the deprecated entries appear.
+  await showDeprecated.check();
+  optionsText = await primary.allTextContents();
+  expect(optionsText.join(" ").toLowerCase()).toContain("deprecated");
+});

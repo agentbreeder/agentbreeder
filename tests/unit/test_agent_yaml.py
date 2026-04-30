@@ -180,3 +180,156 @@ class TestCreateFromYaml:
     async def test_create_empty_raises(self, session: AsyncSession) -> None:
         with pytest.raises(ValueError, match="Validation failed"):
             await create_from_yaml(session, "")
+
+
+# ---------------------------------------------------------------------------
+# Issue #204 — verify the dashboard's agent-builder YAML emit format is
+# accepted by the engine parser. The dashboard emits:
+#   - python agents:     top-level `framework: <fw>`
+#   - typescript agents: top-level `runtime: { language: node, framework: <fw> }`
+#   - per-gateway overrides under top-level `gateways:`
+# We exercise the deeper engine parser (which reads the JSON Schema and
+# applies the framework-XOR-runtime rule) — not just `validate_config_yaml`,
+# which still requires `framework`.
+# ---------------------------------------------------------------------------
+
+
+class TestDashboardEmitFormat:
+    """The visual builder's YAML must round-trip cleanly through the parser."""
+
+    PYTHON_YAML = """\
+name: test-agent
+version: "1.0.0"
+description: "py agent"
+team: engineering
+owner: alice@example.com
+
+model:
+  primary: claude-sonnet-4
+  temperature: 0.7
+  max_tokens: 4096
+
+framework: langgraph
+
+tools: []
+
+prompts:
+  system: "You are helpful."
+
+guardrails: []
+
+deploy:
+  cloud: local
+  runtime: docker-compose
+  scaling:
+    min: 1
+    max: 10
+"""
+
+    TYPESCRIPT_YAML = """\
+name: ts-agent
+version: "1.0.0"
+description: "ts agent"
+team: engineering
+owner: alice@example.com
+
+model:
+  primary: claude-sonnet-4
+  temperature: 0.7
+  max_tokens: 4096
+
+runtime:
+  language: node
+  framework: openai-agents-js
+
+tools: []
+
+prompts:
+  system: "You are helpful."
+
+guardrails: []
+
+deploy:
+  cloud: local
+  runtime: docker-compose
+  scaling:
+    min: 1
+    max: 10
+"""
+
+    GATEWAYS_YAML = """\
+name: gw-agent
+version: "1.0.0"
+description: "agent with gateway override"
+team: engineering
+owner: alice@example.com
+
+model:
+  primary: claude-sonnet-4
+  temperature: 0.7
+  max_tokens: 4096
+
+framework: langgraph
+
+tools: []
+
+prompts:
+  system: "You are helpful."
+
+guardrails: []
+
+gateways:
+  litellm:
+    url: http://litellm.local:4000
+    api_key_env: LITELLM_API_KEY
+    fallback_policy: fastest
+
+deploy:
+  cloud: local
+  runtime: docker-compose
+  scaling:
+    min: 1
+    max: 10
+"""
+
+    def _parse(self, tmp_path, yaml_str: str):
+        from engine.config_parser import parse_config
+
+        path = tmp_path / "agent.yaml"
+        path.write_text(yaml_str)
+        return parse_config(path)
+
+    def test_python_emit_is_valid(self, tmp_path) -> None:
+        """Default python emit (top-level framework) parses cleanly."""
+        cfg = self._parse(tmp_path, self.PYTHON_YAML)
+        assert cfg.name == "test-agent"
+        assert cfg.framework is not None
+        assert str(cfg.framework) == "langgraph"
+        assert cfg.runtime is None
+
+    def test_typescript_emit_uses_runtime_block(self, tmp_path) -> None:
+        """Typescript emit (runtime block with language=node) parses cleanly."""
+        cfg = self._parse(tmp_path, self.TYPESCRIPT_YAML)
+        assert cfg.name == "ts-agent"
+        assert cfg.framework is None
+        assert cfg.runtime is not None
+        assert str(cfg.runtime.language) == "node"
+        assert cfg.runtime.framework == "openai-agents-js"
+
+    def test_gateways_block_round_trips(self, tmp_path) -> None:
+        """Top-level gateways: { litellm: {...} } parses cleanly."""
+        cfg = self._parse(tmp_path, self.GATEWAYS_YAML)
+        assert "litellm" in cfg.gateways
+        gw = cfg.gateways["litellm"]
+        assert gw.url == "http://litellm.local:4000"
+        assert gw.api_key_env == "LITELLM_API_KEY"
+        assert gw.fallback_policy == "fastest"
+
+    def test_top_level_language_is_rejected(self, tmp_path) -> None:
+        """Confirm the parser still rejects top-level `language:` so the
+        emitter must use `runtime: { language }` for non-python agents."""
+        from engine.config_parser import ConfigParseError
+
+        bad_yaml = self.PYTHON_YAML + "\nlanguage: typescript\n"
+        with pytest.raises(ConfigParseError):
+            self._parse(tmp_path, bad_yaml)

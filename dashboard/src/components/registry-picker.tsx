@@ -22,6 +22,15 @@ import { cn } from "@/lib/utils";
 // Mock registry data
 // ---------------------------------------------------------------------------
 
+/**
+ * Model lifecycle status (Track G — #163).
+ * - active: GA model, picker shows it by default
+ * - beta: usable but warn user
+ * - deprecated: hidden from picker unless `Show deprecated` toggled
+ * - retired: hidden from picker unless `Show deprecated` toggled
+ */
+export type ModelStatus = "active" | "beta" | "deprecated" | "retired";
+
 export interface RegistryModel {
   id: string;
   name: string;
@@ -30,6 +39,8 @@ export interface RegistryModel {
   version: string;
   inputPrice: string;
   outputPrice: string;
+  /** Track G — lifecycle status. Defaults to "active" if absent. */
+  status?: ModelStatus;
 }
 
 export interface RegistryTool {
@@ -49,14 +60,32 @@ export interface RegistryPrompt {
 }
 
 const MOCK_MODELS: RegistryModel[] = [
-  { id: "m1", name: "claude-sonnet-4", provider: "anthropic", description: "Fast, balanced model for everyday tasks", version: "2025-06", inputPrice: "$3.00", outputPrice: "$15.00" },
-  { id: "m2", name: "claude-opus-4", provider: "anthropic", description: "Most capable model for complex reasoning", version: "2025-04", inputPrice: "$15.00", outputPrice: "$75.00" },
-  { id: "m3", name: "gpt-4o", provider: "openai", description: "Multimodal flagship model", version: "2025-02", inputPrice: "$2.50", outputPrice: "$10.00" },
-  { id: "m4", name: "gpt-4o-mini", provider: "openai", description: "Affordable small model for fast tasks", version: "2025-02", inputPrice: "$0.15", outputPrice: "$0.60" },
-  { id: "m5", name: "gemini-2.5-pro", provider: "google", description: "Google thinking model with deep research", version: "2025-03", inputPrice: "$1.25", outputPrice: "$10.00" },
-  { id: "m6", name: "llama-3.3-70b", provider: "ollama", description: "Open-weight model, self-hosted", version: "3.3", inputPrice: "Free", outputPrice: "Free" },
-  { id: "m7", name: "deepseek-r1", provider: "openrouter", description: "Reasoning model via OpenRouter", version: "2025-01", inputPrice: "$0.55", outputPrice: "$2.19" },
+  { id: "m1", name: "claude-sonnet-4", provider: "anthropic", description: "Fast, balanced model for everyday tasks", version: "2025-06", inputPrice: "$3.00", outputPrice: "$15.00", status: "active" },
+  { id: "m2", name: "claude-opus-4", provider: "anthropic", description: "Most capable model for complex reasoning", version: "2025-04", inputPrice: "$15.00", outputPrice: "$75.00", status: "active" },
+  { id: "m3", name: "gpt-4o", provider: "openai", description: "Multimodal flagship model", version: "2025-02", inputPrice: "$2.50", outputPrice: "$10.00", status: "active" },
+  { id: "m4", name: "gpt-4o-mini", provider: "openai", description: "Affordable small model for fast tasks", version: "2025-02", inputPrice: "$0.15", outputPrice: "$0.60", status: "active" },
+  { id: "m5", name: "gemini-2.5-pro", provider: "google", description: "Google thinking model with deep research", version: "2025-03", inputPrice: "$1.25", outputPrice: "$10.00", status: "active" },
+  { id: "m6", name: "llama-3.3-70b", provider: "ollama", description: "Open-weight model, self-hosted", version: "3.3", inputPrice: "Free", outputPrice: "Free", status: "active" },
+  { id: "m7", name: "deepseek-r1", provider: "openrouter", description: "Reasoning model via OpenRouter", version: "2025-01", inputPrice: "$0.55", outputPrice: "$2.19", status: "beta" },
+  // Deprecated/retired examples — hidden from picker unless `Show deprecated` toggled.
+  { id: "m8", name: "claude-3-opus", provider: "anthropic", description: "Superseded by claude-opus-4", version: "2024-02", inputPrice: "$15.00", outputPrice: "$75.00", status: "deprecated" },
+  { id: "m9", name: "gpt-3.5-turbo", provider: "openai", description: "Retired — use gpt-4o-mini", version: "2023-11", inputPrice: "$0.50", outputPrice: "$1.50", status: "retired" },
 ];
+
+/**
+ * Filter out deprecated/retired models unless the caller wants them shown.
+ * Used by the agent-builder model picker — see issue #204 / Track G (#163).
+ */
+export function filterModelsByStatus(
+  models: RegistryModel[],
+  showDeprecated: boolean,
+): RegistryModel[] {
+  if (showDeprecated) return models;
+  return models.filter((m) => {
+    const status = m.status ?? "active";
+    return status !== "deprecated" && status !== "retired";
+  });
+}
 
 const MOCK_TOOLS: RegistryTool[] = [
   { id: "t1", name: "web-search", toolType: "mcp", description: "Search the web using Brave Search API", version: "1.2.0" },
