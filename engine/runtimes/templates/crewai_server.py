@@ -17,7 +17,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 def _verify_auth(authorization: str | None = Header(default=None)) -> None:
@@ -78,11 +78,29 @@ class InvokeRequest(BaseModel):
     config: dict[str, Any] | None = None
 
 
+class ToolCall(BaseModel):
+    """Structured record of a single tool invocation (#215).
+
+    Shared shape across all runtime templates so the dashboard playground can
+    render a tool-call timeline without regex-scraping message bodies.
+    """
+
+    name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    result: str = ""
+    duration_ms: int = 0
+    started_at: str = ""
+
+
 class InvokeResponse(BaseModel):
     output: Any
     mode: str | None = None
     metadata: dict[str, Any] | None = None
     output_schema_errors: list[str] | None = None
+    # Structured tool-call timeline (#215). CrewAI does not surface per-tool
+    # telemetry through ``Crew.kickoff`` natively, so this is best-effort and
+    # may be empty for runs that did not use callbacks to capture tool steps.
+    history: list[ToolCall] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):
@@ -339,7 +357,57 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
         result = await _dispatch(obj, mode, request.input)
         output_schema = (request.config or {}).get("output_schema")
         schema_errors = _validate_output(str(result), schema=output_schema)
-        return InvokeResponse(output=result, mode=mode, output_schema_errors=schema_errors)
+        history = _extract_tool_history(result)
+        return InvokeResponse(
+            output=result,
+            mode=mode,
+            output_schema_errors=schema_errors,
+            history=history,
+        )
     except Exception as e:
         logger.exception("Crew invocation failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _extract_tool_history(crew_result: Any) -> list[ToolCall]:
+    """Best-effort extraction of tool calls from a CrewOutput (#215).
+
+    CrewAI does not surface tool-call telemetry through the standard
+    ``CrewOutput`` shape — per-tool spans live on ``tasks_output`` only when a
+    callback captures them.  Walk whatever metadata happens to be present so
+    crews that do attach step callbacks get a populated history; everything
+    else returns an empty list.
+    """
+    history: list[ToolCall] = []
+    tasks_output = getattr(crew_result, "tasks_output", None) or []
+    for task in tasks_output:
+        # Some CrewAI versions expose a ``tools_used`` / ``tool_calls`` list
+        # on the per-task output; tolerate both shapes.
+        for attr in ("tool_calls", "tools_used"):
+            entries = getattr(task, attr, None)
+            if not entries:
+                continue
+            for entry in entries:
+                name = ""
+                args: dict[str, Any] = {}
+                result_val = ""
+                if isinstance(entry, dict):
+                    name = str(entry.get("tool", entry.get("name", "")))
+                    args = entry.get("input", entry.get("args", {})) or {}
+                    if not isinstance(args, dict):
+                        args = {"raw": str(args)}
+                    result_val = str(entry.get("result", entry.get("output", "")))
+                else:
+                    name = str(getattr(entry, "tool", getattr(entry, "name", "")))
+                    raw_args = getattr(entry, "input", None) or getattr(entry, "args", None)
+                    if isinstance(raw_args, dict):
+                        args = raw_args
+                    elif raw_args is not None:
+                        args = {"raw": str(raw_args)}
+                    result_val = str(
+                        getattr(entry, "result", "") or getattr(entry, "output", "") or ""
+                    )
+                if not name:
+                    continue
+                history.append(ToolCall(name=name, args=args, result=result_val))
+    return history

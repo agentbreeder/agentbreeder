@@ -951,3 +951,71 @@ class TestInvokeKbPreHook:
         assert resp.status_code == 200
         mock_inject.assert_not_called()
         srv._agent = None
+
+
+# ---------------------------------------------------------------------------
+# Structured tool-call history (#215)
+# ---------------------------------------------------------------------------
+
+
+class TestInvokeHistoryField:
+    """The /invoke response should include a `history` field populated by
+    pairing AIMessage.tool_calls entries with their matching ToolMessage outputs.
+    """
+
+    @pytest.mark.asyncio
+    async def test_history_pairs_ai_message_tool_calls_with_tool_message(self):
+        srv = _import_server()
+
+        # Result state matches what a typical LangGraph MessagesState graph
+        # returns: a list of messages where one is an AIMessage with tool_calls
+        # and one is a ToolMessage carrying the result for that call.
+        ai_msg = {
+            "type": "ai",
+            "tool_calls": [
+                {"id": "tc_1", "name": "search", "args": {"query": "AI"}},
+            ],
+        }
+        tool_msg = {
+            "type": "tool",
+            "tool_call_id": "tc_1",
+            "content": "results",
+        }
+        result_state = {"messages": [ai_msg, tool_msg]}
+
+        mock_agent = MagicMock()
+        mock_agent.ainvoke = AsyncMock(return_value=result_state)
+        mock_agent.aget_state = AsyncMock(return_value=MagicMock(next=[]))
+        srv._agent = mock_agent
+
+        async with AsyncClient(
+            transport=ASGITransport(app=srv.app), base_url="http://test"
+        ) as client:
+            resp = await client.post("/invoke", json={"input": {"query": "AI"}})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "history" in data
+        assert len(data["history"]) == 1
+        assert data["history"][0]["name"] == "search"
+        assert data["history"][0]["args"] == {"query": "AI"}
+        assert data["history"][0]["result"] == "results"
+        srv._agent = None
+
+    @pytest.mark.asyncio
+    async def test_history_empty_when_no_tool_messages(self):
+        srv = _import_server()
+
+        mock_agent = MagicMock()
+        mock_agent.ainvoke = AsyncMock(return_value={"answer": "42"})
+        mock_agent.aget_state = AsyncMock(return_value=MagicMock(next=[]))
+        srv._agent = mock_agent
+
+        async with AsyncClient(
+            transport=ASGITransport(app=srv.app), base_url="http://test"
+        ) as client:
+            resp = await client.post("/invoke", json={"input": {"query": "what?"}})
+
+        assert resp.status_code == 200
+        assert resp.json()["history"] == []
+        srv._agent = None

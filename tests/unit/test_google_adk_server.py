@@ -1016,7 +1016,7 @@ class TestRunAgent:
         srv._session_service = mock_ss
         srv._runner = mock_runner
 
-        result_text, result_sess = await srv._run_agent(
+        result_text, result_sess, _history = await srv._run_agent(
             input_text="question", user_id="user1", session_id=None
         )
 
@@ -1050,7 +1050,7 @@ class TestRunAgent:
         srv._session_service = mock_ss
         srv._runner = mock_runner
 
-        result_text, result_sess = await srv._run_agent(
+        result_text, result_sess, _history = await srv._run_agent(
             input_text="question", user_id="user1", session_id="existing-run-sess"
         )
 
@@ -1081,7 +1081,7 @@ class TestRunAgent:
         srv._session_service = mock_ss
         srv._runner = mock_runner
 
-        result_text, result_sess = await srv._run_agent(
+        result_text, result_sess, _history = await srv._run_agent(
             input_text="question", user_id="user1", session_id="stale-sess"
         )
 
@@ -1118,7 +1118,7 @@ class TestRunAgent:
         srv._session_service = mock_ss
         srv._runner = mock_runner
 
-        result_text, _ = await srv._run_agent(
+        result_text, _, _history = await srv._run_agent(
             input_text="question", user_id="user1", session_id=None
         )
 
@@ -1156,7 +1156,7 @@ class TestRunAgent:
         srv._session_service = mock_ss
         srv._runner = mock_runner
 
-        result_text, _ = await srv._run_agent(
+        result_text, _, _history = await srv._run_agent(
             input_text="question", user_id="user1", session_id=None
         )
 
