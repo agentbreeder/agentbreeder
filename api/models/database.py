@@ -26,6 +26,8 @@ from api.models.enums import (
     BudgetDuration,
     DeployJobStatus,
     EvalRunStatus,
+    IncidentSeverity,
+    IncidentStatus,
     KeyScopeType,
     ListingStatus,
     OrchestrationStatus,
@@ -884,4 +886,48 @@ class PrincipalGroup(Base):
     __table_args__ = (
         Index("ix_principal_groups_team", "team_id"),
         Index("ix_principal_groups_team_name", "team_id", "name", unique=True),
+    )
+
+
+class Incident(Base):
+    """An operational incident affecting one or more agents.
+
+    Replaces the in-memory ``_incidents`` dict in ``api.services.agentops_service``.
+    Persisted via Alembic migration ``020_incidents_table``.
+    """
+
+    __tablename__ = "incidents"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    severity: Mapped[IncidentSeverity] = mapped_column(
+        Enum(IncidentSeverity), default=IncidentSeverity.medium, nullable=False
+    )
+    status: Mapped[IncidentStatus] = mapped_column(
+        Enum(IncidentStatus), default=IncidentStatus.open, nullable=False
+    )
+    affected_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("agents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # ``timeline`` is a list of {timestamp, actor, action, note} dicts
+    timeline: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    # ``metadata`` is a free-form JSON bag (mapped column name avoids the
+    # SQLAlchemy reserved attribute name ``metadata``).
+    incident_metadata: Mapped[dict] = mapped_column(
+        "incident_metadata", JSON, default=dict, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_incidents_status", "status"),
+        Index("ix_incidents_severity", "severity"),
+        Index("ix_incidents_created_at", "created_at"),
+        Index("ix_incidents_affected_agent_id", "affected_agent_id"),
     )

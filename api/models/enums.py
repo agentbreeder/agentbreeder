@@ -114,3 +114,24 @@ class BudgetDuration(enum.StrEnum):
     weekly = "weekly"
     monthly = "monthly"
     yearly = "yearly"
+
+
+class IncidentSeverity(enum.StrEnum):
+    """Severity level for an operational incident."""
+
+    critical = "critical"
+    high = "high"
+    medium = "medium"
+    low = "low"
+
+
+class IncidentStatus(enum.StrEnum):
+    """Lifecycle status for an incident.
+
+    Valid forward transitions: open → investigating → mitigated → resolved.
+    """
+
+    open = "open"
+    investigating = "investigating"
+    mitigated = "mitigated"
+    resolved = "resolved"

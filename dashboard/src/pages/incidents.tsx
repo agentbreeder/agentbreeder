@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, RefreshCw, RotateCcw, TrendingDown, Power } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ComingSoonBanner } from "@/components/coming-soon-badge";
 
 const API = "/api/v1/agentops";
 
@@ -134,11 +133,6 @@ export default function IncidentsPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <ComingSoonBanner
-        feature="Persistent incidents"
-        issue="#207"
-        description="Incidents are currently stored in memory and seeded with sample data. Created incidents will not survive an API restart, and remediation actions do not yet trigger real rollback or restart."
-      />
       {/* Header */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Incidents</h1>

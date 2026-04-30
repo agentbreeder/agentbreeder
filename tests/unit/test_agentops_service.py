@@ -1,16 +1,41 @@
-"""Unit tests for the AgentOps service."""
+"""Unit tests for the AgentOps service.
+
+Incidents are now DB-backed (#207) — tests for ``IncidentService`` use an
+in-memory SQLite engine so the same test file exercises both the read-only
+``AgentOpsStore`` and the persistence layer.
+"""
 
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from api.services.agentops_service import AgentOpsStore, get_agentops_store
+from api.models.database import Base
+from api.services.agentops_service import (
+    AgentOpsStore,
+    IncidentService,
+    get_agentops_store,
+)
 
 
 @pytest.fixture
 def store() -> AgentOpsStore:
     """Return a fresh AgentOpsStore for each test."""
     return AgentOpsStore()
+
+
+@pytest.fixture
+async def db_session():
+    """Provide a fresh in-memory SQLite session per test."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    SessionFactory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with SessionFactory() as session:
+        yield session
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -132,8 +157,17 @@ class TestEvents:
 
 
 class TestIncidents:
-    def test_create_incident(self, store: AgentOpsStore) -> None:
-        incident = store.create_incident(
+    """DB-backed IncidentService — replaces the old in-memory ``_incidents`` dict.
+
+    Each test gets a fresh sqlite-backed session via the ``db_session`` fixture.
+    Persistence-across-restart behaviour is verified explicitly in
+    ``TestIncidentPersistence`` below.
+    """
+
+    @pytest.mark.asyncio
+    async def test_create_incident(self, db_session: AsyncSession) -> None:
+        incident = await IncidentService.create_incident(
+            db_session,
             agent_name="test-agent",
             title="Test incident",
             severity="high",
@@ -143,86 +177,245 @@ class TestIncidents:
         assert incident["title"] == "Test incident"
         assert incident["severity"] == "high"
         assert incident["status"] == "open"
-        assert incident["id"].startswith("inc-")
+        assert incident["id"]
         assert len(incident["timeline"]) == 1
 
-    def test_get_incident_found(self, store: AgentOpsStore) -> None:
-        inc = store.create_incident(
+    @pytest.mark.asyncio
+    async def test_create_incident_invalid_severity_defaults_to_medium(
+        self, db_session: AsyncSession
+    ) -> None:
+        incident = await IncidentService.create_incident(
+            db_session,
+            agent_name="x",
+            title="x",
+            severity="not-a-real-severity",
+            description="",
+        )
+        assert incident["severity"] == "medium"
+
+    @pytest.mark.asyncio
+    async def test_get_incident_found(self, db_session: AsyncSession) -> None:
+        inc = await IncidentService.create_incident(
+            db_session,
             agent_name="a1",
             title="t1",
             severity="low",
             description="d1",
         )
-        found = store.get_incident(inc["id"])
+        found = await IncidentService.get_incident(db_session, inc["id"])
         assert found is not None
         assert found["id"] == inc["id"]
 
-    def test_get_incident_not_found(self, store: AgentOpsStore) -> None:
-        result = store.get_incident("nonexistent-id")
+    @pytest.mark.asyncio
+    async def test_get_incident_not_found(self, db_session: AsyncSession) -> None:
+        result = await IncidentService.get_incident(
+            db_session, "00000000-0000-0000-0000-000000000000"
+        )
         assert result is None
 
-    def test_update_incident_status(self, store: AgentOpsStore) -> None:
-        inc = store.create_incident(
+    @pytest.mark.asyncio
+    async def test_get_incident_invalid_uuid(self, db_session: AsyncSession) -> None:
+        # The old API used "inc-001" string IDs — those should now cleanly
+        # 404 instead of crashing the route.
+        assert await IncidentService.get_incident(db_session, "inc-001") is None
+        assert await IncidentService.get_incident(db_session, "") is None
+
+    @pytest.mark.asyncio
+    async def test_update_incident_status(self, db_session: AsyncSession) -> None:
+        inc = await IncidentService.create_incident(
+            db_session,
             agent_name="a1",
             title="t1",
             severity="medium",
             description="d1",
         )
-        updated = store.update_incident(inc["id"], status="investigating")
+        updated = await IncidentService.update_incident(
+            db_session, inc["id"], status="investigating"
+        )
         assert updated is not None
         assert updated["status"] == "investigating"
-        # Timeline should have 2 entries now (create + status change)
         assert len(updated["timeline"]) == 2
 
-    def test_update_incident_not_found(self, store: AgentOpsStore) -> None:
-        result = store.update_incident("nonexistent-id", status="resolved")
+    @pytest.mark.asyncio
+    async def test_update_incident_resolved_sets_resolved_at(
+        self, db_session: AsyncSession
+    ) -> None:
+        inc = await IncidentService.create_incident(
+            db_session, agent_name="a1", title="t", severity="low", description=""
+        )
+        updated = await IncidentService.update_incident(db_session, inc["id"], status="resolved")
+        assert updated is not None
+        assert updated["status"] == "resolved"
+        assert updated["resolved_at"] is not None
+
+    @pytest.mark.asyncio
+    async def test_update_incident_not_found(self, db_session: AsyncSession) -> None:
+        result = await IncidentService.update_incident(
+            db_session,
+            "00000000-0000-0000-0000-000000000000",
+            status="resolved",
+        )
         assert result is None
 
-    def test_update_incident_message_only(self, store: AgentOpsStore) -> None:
-        inc = store.create_incident(
+    @pytest.mark.asyncio
+    async def test_update_incident_message_only(self, db_session: AsyncSession) -> None:
+        inc = await IncidentService.create_incident(
+            db_session,
             agent_name="a1",
             title="t1",
             severity="low",
             description="d1",
         )
-        updated = store.update_incident(inc["id"], message="Added a note")
+        updated = await IncidentService.update_incident(
+            db_session, inc["id"], message="Added a note"
+        )
         assert updated is not None
         assert updated["status"] == "open"  # unchanged
         assert updated["timeline"][-1]["message"] == "Added a note"
 
-    def test_list_incidents_filter_by_status(self, store: AgentOpsStore) -> None:
-        store.create_incident(agent_name="a1", title="t1", severity="high", description="d1")
-        store.create_incident(agent_name="a2", title="t2", severity="low", description="d2")
+    @pytest.mark.asyncio
+    async def test_update_incident_invalid_status(self, db_session: AsyncSession) -> None:
+        inc = await IncidentService.create_incident(
+            db_session, agent_name="a1", title="t", severity="low", description=""
+        )
+        result = await IncidentService.update_incident(
+            db_session, inc["id"], status="not-a-real-status"
+        )
+        assert result is None
 
-        open_incidents = store.list_incidents(status="open")
-        # Should include newly created ones (all created as "open")
+    @pytest.mark.asyncio
+    async def test_list_incidents_filter_by_status(self, db_session: AsyncSession) -> None:
+        await IncidentService.create_incident(
+            db_session, agent_name="a1", title="t1", severity="high", description="d1"
+        )
+        await IncidentService.create_incident(
+            db_session, agent_name="a2", title="t2", severity="low", description="d2"
+        )
+        open_incidents = await IncidentService.list_incidents(db_session, status="open")
+        assert len(open_incidents) == 2
         for inc in open_incidents:
             assert inc["status"] == "open"
 
-    def test_list_incidents_filter_by_severity(self, store: AgentOpsStore) -> None:
-        store.create_incident(agent_name="a1", title="t1", severity="critical", description="d1")
-        store.create_incident(agent_name="a2", title="t2", severity="low", description="d2")
+    @pytest.mark.asyncio
+    async def test_list_incidents_filter_by_severity(self, db_session: AsyncSession) -> None:
+        await IncidentService.create_incident(
+            db_session, agent_name="a1", title="t1", severity="critical", description="d1"
+        )
+        await IncidentService.create_incident(
+            db_session, agent_name="a2", title="t2", severity="low", description="d2"
+        )
+        critical = await IncidentService.list_incidents(db_session, severity="critical")
+        assert len(critical) == 1
+        assert critical[0]["severity"] == "critical"
 
-        critical = store.list_incidents(severity="critical")
-        for inc in critical:
-            assert inc["severity"] == "critical"
+    @pytest.mark.asyncio
+    async def test_list_incidents_sorted_newest_first(self, db_session: AsyncSession) -> None:
+        first = await IncidentService.create_incident(
+            db_session, agent_name="a1", title="t1", severity="low", description=""
+        )
+        second = await IncidentService.create_incident(
+            db_session, agent_name="a2", title="t2", severity="low", description=""
+        )
+        results = await IncidentService.list_incidents(db_session)
+        assert [r["id"] for r in results] == [second["id"], first["id"]]
 
-    def test_execute_action_restart(self, store: AgentOpsStore) -> None:
-        inc = store.create_incident(
+    @pytest.mark.asyncio
+    async def test_list_incidents_empty(self, db_session: AsyncSession) -> None:
+        # No SEED_INCIDENTS — fresh DB starts empty.
+        assert await IncidentService.list_incidents(db_session) == []
+
+    @pytest.mark.asyncio
+    async def test_execute_action_restart(self, db_session: AsyncSession) -> None:
+        inc = await IncidentService.create_incident(
+            db_session,
             agent_name="test-agent",
             title="t1",
             severity="high",
             description="d1",
         )
-        result = store.execute_action(inc["id"], "restart")
+        result = await IncidentService.execute_action(db_session, inc["id"], "restart")
         assert result["success"] is True
         assert result["action"] == "restart"
         assert "restart" in result["message"].lower()
 
-    def test_execute_action_invalid_incident(self, store: AgentOpsStore) -> None:
-        result = store.execute_action("nonexistent-id", "restart")
+    @pytest.mark.asyncio
+    async def test_execute_action_appends_timeline(self, db_session: AsyncSession) -> None:
+        inc = await IncidentService.create_incident(
+            db_session, agent_name="a1", title="t", severity="low", description=""
+        )
+        await IncidentService.execute_action(db_session, inc["id"], "rollback")
+        fetched = await IncidentService.get_incident(db_session, inc["id"])
+        assert fetched is not None
+        assert len(fetched["timeline"]) == 2
+        assert "rolling back" in fetched["timeline"][-1]["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_execute_action_invalid_incident(self, db_session: AsyncSession) -> None:
+        result = await IncidentService.execute_action(
+            db_session, "00000000-0000-0000-0000-000000000000", "restart"
+        )
         assert result["success"] is False
         assert "error" in result
+
+
+class TestIncidentPersistence:
+    """Verify the bug from #207: incidents must survive across sessions."""
+
+    @pytest.mark.asyncio
+    async def test_incident_survives_session_recycle(self) -> None:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        SessionFactory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        # Session A — write
+        async with SessionFactory() as session_a:
+            inc = await IncidentService.create_incident(
+                session_a,
+                agent_name="restart-test",
+                title="Survives restart",
+                severity="high",
+                description="If this round-trips, persistence is wired.",
+            )
+            await session_a.commit()
+            inc_id = inc["id"]
+
+        # Session B — read (simulates a fresh request after restart)
+        async with SessionFactory() as session_b:
+            fetched = await IncidentService.get_incident(session_b, inc_id)
+            assert fetched is not None
+            assert fetched["title"] == "Survives restart"
+            assert fetched["agent_name"] == "restart-test"
+
+        await engine.dispose()
+
+
+class TestOpenCountByAgentName:
+    @pytest.mark.asyncio
+    async def test_counts_open_and_investigating(self, db_session: AsyncSession) -> None:
+        a1 = await IncidentService.create_incident(
+            db_session, agent_name="bot-1", title="t", severity="high", description=""
+        )
+        await IncidentService.create_incident(
+            db_session, agent_name="bot-1", title="t", severity="low", description=""
+        )
+        await IncidentService.create_incident(
+            db_session, agent_name="bot-2", title="t", severity="low", description=""
+        )
+        # Move one to investigating and one to resolved.
+        await IncidentService.update_incident(db_session, a1["id"], status="investigating")
+        # Resolved one should NOT count.
+        resolved = await IncidentService.create_incident(
+            db_session, agent_name="bot-1", title="t", severity="low", description=""
+        )
+        await IncidentService.update_incident(db_session, resolved["id"], status="resolved")
+
+        counts = await IncidentService.open_count_by_agent_name(db_session)
+        assert counts == {"bot-1": 2, "bot-2": 1}
+
+    @pytest.mark.asyncio
+    async def test_empty_when_no_incidents(self, db_session: AsyncSession) -> None:
+        assert await IncidentService.open_count_by_agent_name(db_session) == {}
 
 
 # ---------------------------------------------------------------------------

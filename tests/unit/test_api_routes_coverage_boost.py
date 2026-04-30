@@ -800,113 +800,192 @@ class TestAgentOpsEvents:
 
 
 class TestAgentOpsTeams:
+    @patch(
+        "api.routes.agentops.IncidentService.open_count_by_agent_name",
+        new_callable=AsyncMock,
+    )
     @patch("api.routes.agentops.get_agentops_store")
-    def test_team_comparison(self, mock_gs):
+    def test_team_comparison(self, mock_gs, mock_counts):
+        from api.database import get_db
+
         store = _eval_store()
         store.get_team_comparison.return_value = []
         mock_gs.return_value = store
-        resp = client.get("/api/v1/agentops/teams")
-        assert resp.status_code == 200
+        mock_counts.return_value = {}
+
+        async def _stub_db():
+            return AsyncMock()
+
+        app.dependency_overrides[get_db] = _stub_db
+        try:
+            resp = client.get("/api/v1/agentops/teams")
+            assert resp.status_code == 200
+        finally:
+            app.dependency_overrides.pop(get_db, None)
 
 
 class TestAgentOpsIncidents:
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_list_incidents(self, mock_gs):
-        store = _eval_store()
-        store.list_incidents.return_value = []
-        mock_gs.return_value = store
-        resp = client.get("/api/v1/agentops/incidents")
-        assert resp.status_code == 200
+    """Incident routes are DB-backed as of #207. We patch the
+    ``IncidentService`` static methods (the routes call them directly) and
+    override the ``get_db`` dependency with a stub session — neither the
+    session nor its return value matters because the service is mocked."""
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_create_incident(self, mock_gs):
-        store = _eval_store()
-        store.create_incident.return_value = {"id": "inc-1", "title": "Down"}
-        mock_gs.return_value = store
-        resp = client.post(
-            "/api/v1/agentops/incidents",
-            json={
-                "agent_name": "bot",
-                "title": "Down",
-                "severity": "high",
-            },
-        )
-        assert resp.status_code == 201
+    @staticmethod
+    def _override_db():
+        from api.database import get_db
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_create_incident_missing(self, mock_gs):
-        mock_gs.return_value = _eval_store()
-        resp = client.post("/api/v1/agentops/incidents", json={})
-        assert resp.status_code == 400
+        async def _stub():
+            return AsyncMock()
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_get_incident(self, mock_gs):
-        store = _eval_store()
-        store.get_incident.return_value = {"id": "inc-1"}
-        mock_gs.return_value = store
-        resp = client.get("/api/v1/agentops/incidents/inc-1")
-        assert resp.status_code == 200
+        app.dependency_overrides[get_db] = _stub
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_get_incident_not_found(self, mock_gs):
-        store = _eval_store()
-        store.get_incident.return_value = None
-        mock_gs.return_value = store
-        resp = client.get("/api/v1/agentops/incidents/bad")
-        assert resp.status_code == 404
+    @staticmethod
+    def _restore_db():
+        from api.database import get_db
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_update_incident(self, mock_gs):
-        store = _eval_store()
-        store.update_incident.return_value = {"id": "inc-1"}
-        mock_gs.return_value = store
-        resp = client.put(
-            "/api/v1/agentops/incidents/inc-1",
-            json={"status": "resolved"},
-        )
-        assert resp.status_code == 200
+        app.dependency_overrides.pop(get_db, None)
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_update_incident_not_found(self, mock_gs):
-        store = _eval_store()
-        store.update_incident.return_value = None
-        mock_gs.return_value = store
-        resp = client.put(
-            "/api/v1/agentops/incidents/bad",
-            json={"status": "resolved"},
-        )
-        assert resp.status_code == 404
+    @patch(
+        "api.routes.agentops.IncidentService.list_incidents",
+        new_callable=AsyncMock,
+    )
+    def test_list_incidents(self, mock_list):
+        mock_list.return_value = []
+        self._override_db()
+        try:
+            resp = client.get("/api/v1/agentops/incidents")
+            assert resp.status_code == 200
+        finally:
+            self._restore_db()
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_execute_action(self, mock_gs):
-        store = _eval_store()
-        store.execute_action.return_value = {"success": True}
-        mock_gs.return_value = store
-        resp = client.post(
-            "/api/v1/agentops/incidents/inc-1/actions",
-            json={"action": "restart"},
-        )
-        assert resp.status_code == 200
+    @patch(
+        "api.routes.agentops.IncidentService.create_incident",
+        new_callable=AsyncMock,
+    )
+    def test_create_incident(self, mock_create):
+        mock_create.return_value = {"id": "abc", "title": "Down"}
+        self._override_db()
+        try:
+            resp = client.post(
+                "/api/v1/agentops/incidents",
+                json={
+                    "agent_name": "bot",
+                    "title": "Down",
+                    "severity": "high",
+                },
+            )
+            assert resp.status_code == 201
+        finally:
+            self._restore_db()
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_execute_action_missing(self, mock_gs):
-        mock_gs.return_value = _eval_store()
-        resp = client.post(
-            "/api/v1/agentops/incidents/inc-1/actions",
-            json={},
-        )
-        assert resp.status_code == 400
+    def test_create_incident_missing(self):
+        self._override_db()
+        try:
+            resp = client.post("/api/v1/agentops/incidents", json={})
+            assert resp.status_code == 400
+        finally:
+            self._restore_db()
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_execute_action_failed(self, mock_gs):
-        store = _eval_store()
-        store.execute_action.return_value = {"success": False, "error": "not found"}
-        mock_gs.return_value = store
-        resp = client.post(
-            "/api/v1/agentops/incidents/inc-1/actions",
-            json={"action": "restart"},
-        )
-        assert resp.status_code == 404
+    @patch(
+        "api.routes.agentops.IncidentService.get_incident",
+        new_callable=AsyncMock,
+    )
+    def test_get_incident(self, mock_get):
+        mock_get.return_value = {"id": "inc-1"}
+        self._override_db()
+        try:
+            resp = client.get("/api/v1/agentops/incidents/inc-1")
+            assert resp.status_code == 200
+        finally:
+            self._restore_db()
+
+    @patch(
+        "api.routes.agentops.IncidentService.get_incident",
+        new_callable=AsyncMock,
+    )
+    def test_get_incident_not_found(self, mock_get):
+        mock_get.return_value = None
+        self._override_db()
+        try:
+            resp = client.get("/api/v1/agentops/incidents/bad")
+            assert resp.status_code == 404
+        finally:
+            self._restore_db()
+
+    @patch(
+        "api.routes.agentops.IncidentService.update_incident",
+        new_callable=AsyncMock,
+    )
+    def test_update_incident(self, mock_update):
+        mock_update.return_value = {"id": "inc-1"}
+        self._override_db()
+        try:
+            resp = client.put(
+                "/api/v1/agentops/incidents/inc-1",
+                json={"status": "resolved"},
+            )
+            assert resp.status_code == 200
+        finally:
+            self._restore_db()
+
+    @patch(
+        "api.routes.agentops.IncidentService.update_incident",
+        new_callable=AsyncMock,
+    )
+    def test_update_incident_not_found(self, mock_update):
+        mock_update.return_value = None
+        self._override_db()
+        try:
+            resp = client.put(
+                "/api/v1/agentops/incidents/bad",
+                json={"status": "resolved"},
+            )
+            assert resp.status_code == 404
+        finally:
+            self._restore_db()
+
+    @patch(
+        "api.routes.agentops.IncidentService.execute_action",
+        new_callable=AsyncMock,
+    )
+    def test_execute_action(self, mock_exec):
+        mock_exec.return_value = {"success": True}
+        self._override_db()
+        try:
+            resp = client.post(
+                "/api/v1/agentops/incidents/inc-1/actions",
+                json={"action": "restart"},
+            )
+            assert resp.status_code == 200
+        finally:
+            self._restore_db()
+
+    def test_execute_action_missing(self):
+        self._override_db()
+        try:
+            resp = client.post(
+                "/api/v1/agentops/incidents/inc-1/actions",
+                json={},
+            )
+            assert resp.status_code == 400
+        finally:
+            self._restore_db()
+
+    @patch(
+        "api.routes.agentops.IncidentService.execute_action",
+        new_callable=AsyncMock,
+    )
+    def test_execute_action_failed(self, mock_exec):
+        mock_exec.return_value = {"success": False, "error": "not found"}
+        self._override_db()
+        try:
+            resp = client.post(
+                "/api/v1/agentops/incidents/inc-1/actions",
+                json={"action": "restart"},
+            )
+            assert resp.status_code == 404
+        finally:
+            self._restore_db()
 
 
 class TestAgentOpsCanary:

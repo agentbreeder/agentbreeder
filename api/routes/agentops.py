@@ -6,12 +6,14 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
+from api.database import get_db
 from api.middleware.rbac import require_role
 from api.models.database import User
 from api.models.schemas import ApiMeta, ApiResponse
-from api.services.agentops_service import get_agentops_store
+from api.services.agentops_service import IncidentService, get_agentops_store
 
 logger = logging.getLogger(__name__)
 
@@ -77,15 +79,19 @@ async def get_events(
 
 
 @router.get("/teams")
-async def get_team_comparison(_user: User = Depends(get_current_user)) -> ApiResponse[list]:
+async def get_team_comparison(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[list]:
     """Team-level metrics comparison."""
     store = get_agentops_store()
-    teams = store.get_team_comparison()
+    open_by_agent = await IncidentService.open_count_by_agent_name(db)
+    teams = store.get_team_comparison(open_incidents_by_agent=open_by_agent)
     return ApiResponse(data=teams, meta=ApiMeta(total=len(teams)))
 
 
 # ---------------------------------------------------------------------------
-# Incidents
+# Incidents (DB-backed, #207)
 # ---------------------------------------------------------------------------
 
 
@@ -93,21 +99,21 @@ async def get_team_comparison(_user: User = Depends(get_current_user)) -> ApiRes
 async def list_incidents(
     status: str | None = Query(None, description="open|investigating|mitigated|resolved"),
     severity: str | None = Query(None, description="critical|high|medium|low"),
+    db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> ApiResponse[list]:
     """List all incidents."""
-    store = get_agentops_store()
-    incidents = store.list_incidents(status=status, severity=severity)
+    incidents = await IncidentService.list_incidents(db, status=status, severity=severity)
     return ApiResponse(data=incidents, meta=ApiMeta(total=len(incidents)))
 
 
 @router.post("/incidents", status_code=201)
 async def create_incident(
-    body: dict[str, Any], _user: User = Depends(require_role("deployer"))
+    body: dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role("deployer")),
 ) -> ApiResponse[dict]:
     """Create a new incident."""
-    store = get_agentops_store()
-
     agent_name = body.get("agent_name")
     title = body.get("title")
     severity = body.get("severity", "medium")
@@ -116,22 +122,25 @@ async def create_incident(
     if not agent_name or not title:
         raise HTTPException(status_code=400, detail="agent_name and title are required")
 
-    incident = store.create_incident(
+    incident = await IncidentService.create_incident(
+        db,
         agent_name=agent_name,
         title=title,
         severity=severity,
         description=description,
+        created_by=getattr(user, "email", None),
     )
     return ApiResponse(data=incident)
 
 
 @router.get("/incidents/{incident_id}")
 async def get_incident(
-    incident_id: str, _user: User = Depends(get_current_user)
+    incident_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """Get a single incident by ID."""
-    store = get_agentops_store()
-    incident = store.get_incident(incident_id)
+    incident = await IncidentService.get_incident(db, incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail=f"Incident '{incident_id}' not found")
     return ApiResponse(data=incident)
@@ -139,14 +148,18 @@ async def get_incident(
 
 @router.put("/incidents/{incident_id}")
 async def update_incident(
-    incident_id: str, body: dict[str, Any], _user: User = Depends(get_current_user)
+    incident_id: str,
+    body: dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """Update an incident (status transition or add timeline message)."""
-    store = get_agentops_store()
-    incident = store.update_incident(
+    incident = await IncidentService.update_incident(
+        db,
         incident_id,
         status=body.get("status"),
         message=body.get("message"),
+        actor=getattr(user, "email", "operator") or "operator",
     )
     if not incident:
         raise HTTPException(status_code=404, detail=f"Incident '{incident_id}' not found")
@@ -155,15 +168,27 @@ async def update_incident(
 
 @router.post("/incidents/{incident_id}/actions")
 async def execute_action(
-    incident_id: str, body: dict[str, Any], _user: User = Depends(get_current_user)
+    incident_id: str,
+    body: dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
-    """Execute a remediation action: restart | rollback | scale | disable."""
-    store = get_agentops_store()
+    """Execute a remediation action: restart | rollback | scale | disable.
+
+    Note: the action is recorded in the incident timeline. Wiring the action
+    to real deploy / rollback / scale machinery is deferred to a follow-up
+    PR (#207 — needs the deployer abstraction).
+    """
     action = body.get("action")
     if not action:
         raise HTTPException(status_code=400, detail="action is required")
 
-    result = store.execute_action(incident_id, action)
+    result = await IncidentService.execute_action(
+        db,
+        incident_id,
+        action,
+        actor=getattr(user, "email", "operator") or "operator",
+    )
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Action failed"))
     return ApiResponse(data=result)

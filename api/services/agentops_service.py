@@ -5,11 +5,16 @@ Provides:
 - Fleet overview and health heatmap
 - Top-N agent rankings by cost, errors, latency, invocations
 - Real-time operations event stream
-- Incident management (CRUD + actions)
+- Incident management (CRUD + actions) — DB-backed via ``IncidentService``
 - Canary deploy management
 - Cost forecasting and anomaly detection
 - SOC2 compliance status and reporting
 - Team comparison metrics
+
+Incidents previously lived in an in-process dict (``_incidents``) seeded from
+``_SEED_INCIDENTS``. Both are removed as of #207 — see ``IncidentService``
+below for the DB-backed replacement and migration ``020_incidents_table.py``
+for the schema.
 """
 
 from __future__ import annotations
@@ -19,11 +24,22 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.models.database import Agent, Incident
+from api.models.enums import IncidentSeverity, IncidentStatus
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Seed Data
+# Seed Data — fleet / events / cost / compliance
 # ---------------------------------------------------------------------------
+# These remain as in-memory demo seed data because they back read-only views
+# (fleet snapshot, recent events, cost forecasts, SOC2 demo). They will move
+# to real backends in their own follow-up issues. Incidents are the only
+# AgentOps surface that supported user writes, so they are the only one that
+# needed PostgreSQL persistence in #207.
 
 _SEED_AGENTS = [
     {
@@ -207,76 +223,6 @@ _SEED_EVENTS = [
     },
 ]
 
-_SEED_INCIDENTS = [
-    {
-        "id": "inc-001",
-        "agent_name": "hr-onboarding-agent",
-        "title": "Agent down — OOM crash",
-        "severity": "critical",
-        "status": "investigating",
-        "description": "HR Onboarding Agent went OOM and cannot restart. "
-        "Container exits immediately after start. "
-        "Suspected memory leak in the LangGraph state machine.",
-        "created_at": "2026-03-13T06:30:00+00:00",
-        "updated_at": "2026-03-13T08:00:00+00:00",
-        "timeline": [
-            {
-                "timestamp": "2026-03-13T06:30:00+00:00",
-                "actor": "system",
-                "message": "Incident auto-created: agent unreachable",
-            },
-            {
-                "timestamp": "2026-03-13T08:00:00+00:00",
-                "actor": "alice@company.com",
-                "message": "Investigating memory allocation in state machine",
-            },
-        ],
-    },
-    {
-        "id": "inc-002",
-        "agent_name": "data-pipeline-agent",
-        "title": "Elevated error rate (7.8%)",
-        "severity": "high",
-        "status": "open",
-        "description": "Data Pipeline Agent error rate has been above the 5% threshold "
-        "for the past 3 hours. Errors appear to be upstream data source timeouts.",
-        "created_at": "2026-03-13T07:42:00+00:00",
-        "updated_at": "2026-03-13T07:42:00+00:00",
-        "timeline": [
-            {
-                "timestamp": "2026-03-13T07:42:00+00:00",
-                "actor": "system",
-                "message": "Incident auto-created: error rate > 5% for 3h",
-            },
-        ],
-    },
-    {
-        "id": "inc-003",
-        "agent_name": "code-review-agent",
-        "title": "Unexpected cost spike 3x baseline",
-        "severity": "medium",
-        "status": "mitigated",
-        "description": "Code Review Agent generated $61.20 in LLM costs over 24h, "
-        "vs $22 baseline. Root cause: new PR batch feature sending full diffs to claude-opus-4.6.",
-        "created_at": "2026-03-13T07:00:00+00:00",
-        "updated_at": "2026-03-13T09:00:00+00:00",
-        "timeline": [
-            {
-                "timestamp": "2026-03-13T07:00:00+00:00",
-                "actor": "system",
-                "message": "Cost spike detected: 178% above baseline",
-            },
-            {
-                "timestamp": "2026-03-13T09:00:00+00:00",
-                "actor": "bob@company.com",
-                "message": (
-                    "Mitigated: switched batch feature to use claude-sonnet-4.6 for initial pass"
-                ),
-            },
-        ],
-    },
-]
-
 _SEED_COST_ANOMALIES = [
     {
         "id": "anom-001",
@@ -416,22 +362,292 @@ _SEED_COMPLIANCE_CONTROLS = [
 
 
 # ---------------------------------------------------------------------------
-# AgentOps Store
+# Incident Service (DB-backed, #207)
+# ---------------------------------------------------------------------------
+
+
+def _serialize_incident(inc: Incident) -> dict[str, Any]:
+    """Convert an ``Incident`` ORM row to the dict shape the dashboard expects.
+
+    Keeps wire-compatibility with the previous in-memory representation:
+      ``id``, ``agent_name``, ``title``, ``severity``, ``status``,
+      ``description``, ``created_at``, ``updated_at``, ``timeline``.
+
+    The ``agent_name`` field is stored in ``incident_metadata['agent_name']``
+    so we can keep the existing UI working without joining ``agents`` on
+    every read (the FK ``affected_agent_id`` is nullable and not used by
+    the demo seed data, which references agents by name only).
+    """
+    timeline = list(inc.timeline or [])
+    created_iso = inc.created_at.isoformat() if inc.created_at else ""
+    if timeline:
+        last = timeline[-1].get("timestamp")
+        last_ts_str = last if isinstance(last, str) else created_iso
+    else:
+        last_ts_str = created_iso
+
+    metadata = inc.incident_metadata or {}
+    return {
+        "id": str(inc.id),
+        "agent_name": metadata.get("agent_name", ""),
+        "title": inc.title,
+        "severity": inc.severity.value if hasattr(inc.severity, "value") else str(inc.severity),
+        "status": inc.status.value if hasattr(inc.status, "value") else str(inc.status),
+        "description": inc.description or "",
+        "created_at": created_iso,
+        "updated_at": last_ts_str,
+        "timeline": [
+            {
+                "timestamp": entry.get("timestamp", ""),
+                "actor": entry.get("actor", "system"),
+                "message": entry.get("message", entry.get("note", "")),
+            }
+            for entry in timeline
+        ],
+        "resolved_at": inc.resolved_at.isoformat() if inc.resolved_at else None,
+    }
+
+
+class IncidentService:
+    """DB-backed incident management.
+
+    Replaces the in-memory ``_incidents`` dict. All operations go through an
+    ``AsyncSession`` and persist to the ``incidents`` table.
+    """
+
+    @staticmethod
+    async def list_incidents(
+        db: AsyncSession,
+        *,
+        status: str | None = None,
+        severity: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List incidents, optionally filtered by status and/or severity."""
+        stmt = select(Incident).order_by(Incident.created_at.desc())
+        if status:
+            stmt = stmt.where(Incident.status == IncidentStatus(status))
+        if severity:
+            stmt = stmt.where(Incident.severity == IncidentSeverity(severity))
+        result = await db.execute(stmt)
+        rows = result.scalars().all()
+        return [_serialize_incident(r) for r in rows]
+
+    @staticmethod
+    async def create_incident(
+        db: AsyncSession,
+        *,
+        agent_name: str,
+        title: str,
+        severity: str,
+        description: str,
+        created_by: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new incident."""
+        try:
+            sev_enum = IncidentSeverity(severity)
+        except ValueError:
+            sev_enum = IncidentSeverity.medium
+
+        # Best-effort look up of the affected agent — so deletes can SET NULL
+        # rather than orphan the FK. Failures here (e.g. unknown agent name)
+        # are non-fatal: the incident still records ``agent_name`` in metadata.
+        affected_agent_id: uuid.UUID | None = None
+        if agent_name:
+            agent_stmt = select(Agent.id).where(Agent.name == agent_name)
+            res = await db.execute(agent_stmt)
+            affected_agent_id = res.scalar_one_or_none()
+
+        now_iso = datetime.now(UTC).isoformat()
+        incident = Incident(
+            title=title,
+            severity=sev_enum,
+            status=IncidentStatus.open,
+            description=description,
+            created_by=created_by,
+            affected_agent_id=affected_agent_id,
+            timeline=[
+                {
+                    "timestamp": now_iso,
+                    "actor": created_by or "system",
+                    "message": "Incident created",
+                }
+            ],
+            incident_metadata={"agent_name": agent_name},
+        )
+        db.add(incident)
+        await db.flush()
+        await db.refresh(incident)
+        logger.info(
+            "Incident created",
+            extra={"incident_id": str(incident.id), "agent": agent_name},
+        )
+        return _serialize_incident(incident)
+
+    @staticmethod
+    async def get_incident(db: AsyncSession, incident_id: str) -> dict[str, Any] | None:
+        """Get a single incident by ID."""
+        try:
+            inc_uuid = uuid.UUID(incident_id)
+        except (ValueError, TypeError):
+            return None
+        inc = await db.get(Incident, inc_uuid)
+        if inc is None:
+            return None
+        return _serialize_incident(inc)
+
+    @staticmethod
+    async def update_incident(
+        db: AsyncSession,
+        incident_id: str,
+        *,
+        status: str | None = None,
+        message: str | None = None,
+        actor: str = "operator",
+    ) -> dict[str, Any] | None:
+        """Update incident status and append to timeline.
+
+        Valid status transitions:
+          open → investigating → mitigated → resolved
+        """
+        try:
+            inc_uuid = uuid.UUID(incident_id)
+        except (ValueError, TypeError):
+            return None
+        inc = await db.get(Incident, inc_uuid)
+        if inc is None:
+            return None
+
+        now = datetime.now(UTC)
+        now_iso = now.isoformat()
+        timeline = list(inc.timeline or [])
+
+        if status is not None:
+            try:
+                new_status = IncidentStatus(status)
+            except ValueError:
+                return None
+            old_status = inc.status.value if hasattr(inc.status, "value") else str(inc.status)
+            timeline.append(
+                {
+                    "timestamp": now_iso,
+                    "actor": actor,
+                    "message": message or f"Status changed: {old_status} → {new_status.value}",
+                }
+            )
+            inc.status = new_status
+            if new_status == IncidentStatus.resolved:
+                inc.resolved_at = now
+        elif message:
+            timeline.append(
+                {
+                    "timestamp": now_iso,
+                    "actor": actor,
+                    "message": message,
+                }
+            )
+
+        inc.timeline = timeline
+        await db.flush()
+        await db.refresh(inc)
+        return _serialize_incident(inc)
+
+    @staticmethod
+    async def execute_action(
+        db: AsyncSession,
+        incident_id: str,
+        action: str,
+        actor: str = "operator",
+    ) -> dict[str, Any]:
+        """Execute a remediation action on an incident.
+
+        Actions: restart | rollback | scale | disable.
+
+        Note: the action itself is not yet wired to real deploy machinery
+        (rollback / restart / scale-down). This method records the operator's
+        intent in the incident timeline; the actual execution lands in a
+        follow-up PR. See #207 for the deferred work.
+        """
+        try:
+            inc_uuid = uuid.UUID(incident_id)
+        except (ValueError, TypeError):
+            return {
+                "success": False,
+                "error": f"Incident '{incident_id}' not found",
+            }
+        inc = await db.get(Incident, inc_uuid)
+        if inc is None:
+            return {
+                "success": False,
+                "error": f"Incident '{incident_id}' not found",
+            }
+
+        now_iso = datetime.now(UTC).isoformat()
+        agent_name = (inc.incident_metadata or {}).get("agent_name", "")
+        action_messages: dict[str, str] = {
+            "restart": f"Restarting agent '{agent_name}' — rolling restart initiated",
+            "rollback": f"Rolling back agent '{agent_name}' to previous version",
+            "scale": f"Scaling up agent '{agent_name}' — adding 2 additional instances",
+            "disable": f"Disabling agent '{agent_name}' — all traffic drained",
+        }
+        msg = action_messages.get(action, f"Executing action '{action}'")
+        timeline = list(inc.timeline or [])
+        timeline.append(
+            {
+                "timestamp": now_iso,
+                "actor": actor,
+                "message": msg,
+            }
+        )
+        inc.timeline = timeline
+        await db.flush()
+
+        logger.info(
+            "Action executed",
+            extra={"incident_id": incident_id, "action": action},
+        )
+        return {
+            "success": True,
+            "action": action,
+            "incident_id": incident_id,
+            "message": msg,
+            "timestamp": now_iso,
+        }
+
+    @staticmethod
+    async def open_count_by_agent_name(db: AsyncSession) -> dict[str, int]:
+        """Return ``{agent_name: open_or_investigating_incident_count}`` for
+        team comparison metrics. Reads ``incident_metadata.agent_name`` since
+        that is how the seeded fleet identifies its agents.
+        """
+        stmt = select(Incident).where(
+            Incident.status.in_([IncidentStatus.open, IncidentStatus.investigating])
+        )
+        result = await db.execute(stmt)
+        counts: dict[str, int] = {}
+        for inc in result.scalars().all():
+            name = (inc.incident_metadata or {}).get("agent_name", "")
+            if not name:
+                continue
+            counts[name] = counts.get(name, 0) + 1
+        return counts
+
+
+# ---------------------------------------------------------------------------
+# AgentOps Store (read-only fleet / events / cost / compliance)
 # ---------------------------------------------------------------------------
 
 
 class AgentOpsStore:
-    """In-memory store for unified operations dashboard data.
+    """In-memory store for the read-only AgentOps surfaces (fleet snapshot,
+    recent events, cost forecasts, SOC2 demo, team comparison).
 
-    Will be replaced by PostgreSQL when the real DB is connected.
+    Incident persistence has moved to ``IncidentService`` + the ``incidents``
+    table (#207). This class no longer holds any user-mutable state.
     """
 
     def __init__(self) -> None:
         self._agents: list[dict[str, Any]] = list(_SEED_AGENTS)
         self._events: list[dict[str, Any]] = list(_SEED_EVENTS)
-        self._incidents: dict[str, dict[str, Any]] = {
-            str(inc["id"]): {**inc} for inc in _SEED_INCIDENTS
-        }
         self._canaries: dict[str, dict[str, Any]] = {}
         self._cost_anomalies: list[dict[str, Any]] = list(_SEED_COST_ANOMALIES)
         self._cost_suggestions: list[dict[str, Any]] = list(_SEED_COST_SUGGESTIONS)
@@ -499,143 +715,6 @@ class AgentOpsStore:
         # Sort newest first
         events = sorted(events, key=lambda e: e["timestamp"], reverse=True)
         return events[:limit]
-
-    # -----------------------------------------------------------------------
-    # Incidents
-    # -----------------------------------------------------------------------
-
-    def list_incidents(
-        self,
-        status: str | None = None,
-        severity: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """List incidents, optionally filtered by status and/or severity."""
-        results = list(self._incidents.values())
-        if status:
-            results = [i for i in results if i["status"] == status]
-        if severity:
-            results = [i for i in results if i["severity"] == severity]
-        # Sort by created_at descending
-        results.sort(key=lambda i: i["created_at"], reverse=True)
-        return results
-
-    def create_incident(
-        self,
-        *,
-        agent_name: str,
-        title: str,
-        severity: str,
-        description: str,
-    ) -> dict[str, Any]:
-        """Create a new incident."""
-        incident_id = f"inc-{str(uuid.uuid4())[:8]}"
-        now = datetime.now(UTC).isoformat()
-        incident: dict[str, Any] = {
-            "id": incident_id,
-            "agent_name": agent_name,
-            "title": title,
-            "severity": severity,
-            "status": "open",
-            "description": description,
-            "created_at": now,
-            "updated_at": now,
-            "timeline": [
-                {
-                    "timestamp": now,
-                    "actor": "system",
-                    "message": "Incident created",
-                }
-            ],
-        }
-        self._incidents[incident_id] = incident
-        logger.info(
-            "Incident created",
-            extra={"incident_id": incident_id, "agent": agent_name},
-        )
-        return incident
-
-    def get_incident(self, incident_id: str) -> dict[str, Any] | None:
-        """Get a single incident by ID."""
-        return self._incidents.get(incident_id)
-
-    def update_incident(
-        self,
-        incident_id: str,
-        *,
-        status: str | None = None,
-        message: str | None = None,
-    ) -> dict[str, Any] | None:
-        """Update incident status and append to timeline.
-
-        Valid status transitions:
-          open → investigating → mitigated → resolved
-        """
-        incident = self._incidents.get(incident_id)
-        if not incident:
-            return None
-
-        now = datetime.now(UTC).isoformat()
-        incident["updated_at"] = now
-
-        if status is not None:
-            old_status = incident["status"]
-            incident["status"] = status
-            incident["timeline"].append(
-                {
-                    "timestamp": now,
-                    "actor": "operator",
-                    "message": message or f"Status changed: {old_status} → {status}",
-                }
-            )
-        elif message:
-            incident["timeline"].append(
-                {
-                    "timestamp": now,
-                    "actor": "operator",
-                    "message": message,
-                }
-            )
-
-        return incident
-
-    def execute_action(self, incident_id: str, action: str) -> dict[str, Any]:
-        """Execute a remediation action on an incident.
-
-        Actions: restart | rollback | scale | disable
-        """
-        incident = self._incidents.get(incident_id)
-        if not incident:
-            return {"success": False, "error": f"Incident '{incident_id}' not found"}
-
-        now = datetime.now(UTC).isoformat()
-        name = incident["agent_name"]
-        action_messages: dict[str, str] = {
-            "restart": f"Restarting agent '{name}' — rolling restart initiated",
-            "rollback": f"Rolling back agent '{name}' to previous version",
-            "scale": f"Scaling up agent '{name}' — adding 2 additional instances",
-            "disable": f"Disabling agent '{name}' — all traffic drained",
-        }
-        msg = action_messages.get(action, f"Executing action '{action}'")
-        incident["timeline"].append(
-            {
-                "timestamp": now,
-                "actor": "operator",
-                "message": msg,
-            }
-        )
-        incident["updated_at"] = now
-
-        logger.info(
-            "Action executed",
-            extra={"incident_id": incident_id, "action": action},
-        )
-        return {
-            "success": True,
-            "action": action,
-            "incident_id": incident_id,
-            "message": msg,
-            "timestamp": now,
-        }
 
     # -----------------------------------------------------------------------
     # Canary Deploys
@@ -799,8 +878,19 @@ class AgentOpsStore:
     # Team Comparison
     # -----------------------------------------------------------------------
 
-    def get_team_comparison(self) -> list[dict[str, Any]]:
-        """Return team-level metrics comparison."""
+    def get_team_comparison(
+        self, open_incidents_by_agent: dict[str, int] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return team-level metrics comparison.
+
+        ``open_incidents_by_agent`` is an optional mapping from
+        ``agent_name`` to the count of open + investigating incidents,
+        usually produced by ``IncidentService.open_count_by_agent_name``.
+        Defaults to an empty mapping (incidents_open will be 0 for all teams)
+        so this method remains callable without a DB session — useful for
+        unit tests that exercise the in-memory fleet seed only.
+        """
+        per_agent = open_incidents_by_agent or {}
         teams: dict[str, dict[str, Any]] = {}
 
         for agent in self._agents:
@@ -816,17 +906,7 @@ class AgentOpsStore:
             teams[team]["agent_count"] += 1
             teams[team]["total_cost_24h"] += agent["cost_24h_usd"]
             teams[team]["health_scores"].append(agent["health_score"])
-
-        # Count open incidents per team
-        for incident in self._incidents.values():
-            if incident["status"] in ("open", "investigating"):
-                # Find the team of the affected agent
-                for agent in self._agents:
-                    if agent["name"] == incident["agent_name"]:
-                        team = agent["team"]
-                        if team in teams:
-                            teams[team]["incidents_open"] += 1
-                        break
+            teams[team]["incidents_open"] += per_agent.get(agent["name"], 0)
 
         result = []
         for team_data in teams.values():
