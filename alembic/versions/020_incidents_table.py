@@ -15,11 +15,26 @@ Schema:
   - ``created_at`` (timestamptz)
   - ``resolved_at`` (timestamptz, nullable)
   - ``timeline`` (jsonb, default ``[]``)
-  - ``metadata`` (jsonb, default ``{}``)
+  - ``incident_metadata`` (jsonb, default ``{}``)
 
 This migration deliberately does NOT seed any rows. The previous
 ``_SEED_INCIDENTS`` list (3 fake demo incidents) is dropped from the service
 code in the same change so a fresh deploy starts with an empty table.
+
+This file uses **raw SQL** with ``IF NOT EXISTS`` semantics rather than
+SQLAlchemy's schema constructs because:
+  - PostgreSQL has no ``CREATE TYPE IF NOT EXISTS`` for enums
+  - SQLAlchemy's ``checkfirst=True`` is unreliable in async-bound alembic
+  - PL/pgSQL ``DO $$ … EXCEPTION`` blocks don't round-trip through asyncpg's
+    prepared-statement protocol (the inner ``CREATE TYPE`` bubbles up as
+    ``DuplicateObjectError`` even though EXCEPTION should swallow it)
+  - Even with ``create_type=False`` on the SQLAlchemy ``Enum`` instances,
+    ``op.create_table`` still appears to emit a ``CREATE TYPE`` statement
+    in some SQLAlchemy 2.x async paths
+
+Raw SQL with a ``pg_type`` pre-check + ``CREATE TABLE IF NOT EXISTS`` +
+``CREATE INDEX IF NOT EXISTS`` is the bullet-proof idempotent idiom and
+avoids every one of the above traps.
 
 Revision ID: 020
 Revises: 019
@@ -29,7 +44,6 @@ Create Date: 2026-04-29
 from __future__ import annotations
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from alembic import op
 
@@ -39,41 +53,15 @@ branch_labels: str | None = None
 depends_on: str | None = None
 
 
-# ``create_type=False`` keeps SQLAlchemy from re-issuing CREATE TYPE
-# inside ``create_table`` — we create the enums explicitly in
-# ``upgrade()`` with ``checkfirst=True`` so the migration is idempotent
-# against partially-applied state.
-_SEVERITY_ENUM = sa.Enum(
-    "critical",
-    "high",
-    "medium",
-    "low",
-    name="incidentseverity",
-    create_type=False,
-)
-_STATUS_ENUM = sa.Enum(
-    "open",
-    "investigating",
-    "mitigated",
-    "resolved",
-    name="incidentstatus",
-    create_type=False,
-)
-
-
 def upgrade() -> None:
-    # PostgreSQL has no ``CREATE TYPE IF NOT EXISTS`` for enums.
-    # SQLAlchemy's ``checkfirst=True`` is unreliable in async-bound
-    # contexts, and PL/pgSQL DO blocks (with ``EXCEPTION WHEN duplicate_object``)
-    # don't round-trip through asyncpg's prepared-statement protocol —
-    # the inner ``CREATE TYPE`` still bubbles up as ``DuplicateObjectError``.
-    # The bullet-proof idiom is a synchronous pre-check against pg_type.
     bind = op.get_bind()
+
     has_severity = bind.execute(
         sa.text("SELECT 1 FROM pg_type WHERE typname = 'incidentseverity'")
     ).first()
     if not has_severity:
         op.execute("CREATE TYPE incidentseverity AS ENUM ('critical', 'high', 'medium', 'low')")
+
     has_status = bind.execute(
         sa.text("SELECT 1 FROM pg_type WHERE typname = 'incidentstatus'")
     ).first()
@@ -82,48 +70,37 @@ def upgrade() -> None:
             "CREATE TYPE incidentstatus AS ENUM ('open', 'investigating', 'mitigated', 'resolved')"
         )
 
-    op.create_table(
-        "incidents",
-        sa.Column(
-            "id",
-            UUID(as_uuid=True),
-            primary_key=True,
-            server_default=sa.text("gen_random_uuid()"),
-        ),
-        sa.Column("title", sa.String(200), nullable=False),
-        sa.Column("severity", _SEVERITY_ENUM, nullable=False, server_default="medium"),
-        sa.Column("status", _STATUS_ENUM, nullable=False, server_default="open"),
-        sa.Column(
-            "affected_agent_id",
-            UUID(as_uuid=True),
-            sa.ForeignKey("agents.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-        sa.Column("description", sa.Text, nullable=False, server_default=""),
-        sa.Column("created_by", sa.String(255), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
-        sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("timeline", JSONB, nullable=False, server_default="[]"),
-        sa.Column("incident_metadata", JSONB, nullable=False, server_default="{}"),
+    op.execute(
+        """
+        CREATE TABLE IF NOT EXISTS incidents (
+            id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            title               VARCHAR(200) NOT NULL,
+            severity            incidentseverity NOT NULL DEFAULT 'medium',
+            status              incidentstatus   NOT NULL DEFAULT 'open',
+            affected_agent_id   UUID REFERENCES agents(id) ON DELETE SET NULL,
+            description         TEXT NOT NULL DEFAULT '',
+            created_by          VARCHAR(255),
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            resolved_at         TIMESTAMPTZ,
+            timeline            JSONB NOT NULL DEFAULT '[]'::jsonb,
+            incident_metadata   JSONB NOT NULL DEFAULT '{}'::jsonb
+        )
+        """
     )
-    op.create_index("ix_incidents_status", "incidents", ["status"])
-    op.create_index("ix_incidents_severity", "incidents", ["severity"])
-    op.create_index("ix_incidents_created_at", "incidents", ["created_at"])
-    op.create_index("ix_incidents_affected_agent_id", "incidents", ["affected_agent_id"])
+
+    op.execute("CREATE INDEX IF NOT EXISTS ix_incidents_status ON incidents (status)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_incidents_severity ON incidents (severity)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_incidents_created_at ON incidents (created_at)")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ix_incidents_affected_agent_id ON incidents (affected_agent_id)"
+    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_incidents_affected_agent_id", table_name="incidents")
-    op.drop_index("ix_incidents_created_at", table_name="incidents")
-    op.drop_index("ix_incidents_severity", table_name="incidents")
-    op.drop_index("ix_incidents_status", table_name="incidents")
-    op.drop_table("incidents")
-
-    bind = op.get_bind()
-    _STATUS_ENUM.drop(bind, checkfirst=True)
-    _SEVERITY_ENUM.drop(bind, checkfirst=True)
+    op.execute("DROP INDEX IF EXISTS ix_incidents_affected_agent_id")
+    op.execute("DROP INDEX IF EXISTS ix_incidents_created_at")
+    op.execute("DROP INDEX IF EXISTS ix_incidents_severity")
+    op.execute("DROP INDEX IF EXISTS ix_incidents_status")
+    op.execute("DROP TABLE IF EXISTS incidents CASCADE")
+    op.execute("DROP TYPE IF EXISTS incidentstatus")
+    op.execute("DROP TYPE IF EXISTS incidentseverity")
