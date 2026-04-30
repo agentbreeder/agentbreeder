@@ -238,12 +238,30 @@ class AgentInvokeRequest(BaseModel):
     session_id: str | None = None
 
 
+class AgentInvokeToolCall(BaseModel):
+    """Structured tool-call entry in an agent's invoke history (#215).
+
+    Mirrors the ``ToolCall`` shape every runtime template returns under
+    ``InvokeResponse.history`` so the dashboard playground can render a
+    tool-call timeline without regex-scraping the message body.
+    """
+
+    name: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
+    result: str = ""
+    duration_ms: int = 0
+    started_at: str = ""
+
+
 class AgentInvokeResponse(BaseModel):
     output: str = ""
     session_id: str | None = None
     duration_ms: int = 0
     error: str | None = None
     status_code: int = 0
+    # Structured tool-call timeline forwarded from the runtime (#215).  Always
+    # present; empty for runtimes that don't surface tool telemetry naturally.
+    history: list[AgentInvokeToolCall] = Field(default_factory=list)
 
 
 # --- Model Schemas ---

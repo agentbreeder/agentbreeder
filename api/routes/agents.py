@@ -20,6 +20,7 @@ from api.models.schemas import (
     AgentCreate,
     AgentInvokeRequest,
     AgentInvokeResponse,
+    AgentInvokeToolCall,
     AgentResponse,
     AgentUpdate,
     AgentValidationErrorItem,
@@ -386,12 +387,33 @@ async def invoke_agent(
                 )
             )
         data = resp.json()
+        # Forward the structured tool-call history from the runtime (#215).
+        # Each runtime template emits ``history: list[ToolCall]`` with the
+        # same shape; we coerce defensively so a malformed entry doesn't
+        # 500 the proxy.
+        raw_history = data.get("history") or []
+        history: list[AgentInvokeToolCall] = []
+        if isinstance(raw_history, list):
+            for entry in raw_history:
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    history.append(AgentInvokeToolCall(**entry))
+                except Exception:  # noqa: BLE001 — tolerate partial shapes
+                    history.append(
+                        AgentInvokeToolCall(
+                            name=str(entry.get("name", "") or ""),
+                            args=entry.get("args", {}) or {},
+                            result=str(entry.get("result", "") or ""),
+                        )
+                    )
         return ApiResponse(
             data=AgentInvokeResponse(
                 output=data.get("output", ""),
                 session_id=data.get("session_id"),
                 duration_ms=duration_ms,
                 status_code=resp.status_code,
+                history=history,
             )
         )
     except Exception as exc:  # noqa: BLE001 — surface to UI

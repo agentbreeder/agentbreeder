@@ -12,11 +12,12 @@ import json
 import logging
 import os
 import sys
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 def _verify_auth(authorization: str | None = Header(default=None)) -> None:
@@ -67,11 +68,28 @@ class InvokeRequest(BaseModel):
     config: dict[str, Any] | None = None
 
 
+class ToolCall(BaseModel):
+    """Structured record of a single tool invocation (#215).
+
+    Shared shape across all runtime templates so the dashboard playground can
+    render a tool-call timeline without regex-scraping message bodies.
+    """
+
+    name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    result: str = ""
+    duration_ms: int = 0
+    started_at: str = ""
+
+
 class InvokeResponse(BaseModel):
     output: str
     agent: str | None = None  # which agent produced final output
     handoffs: list[str] = []  # agents visited during handoffs
     metadata: dict[str, Any] | None = None
+    # Structured tool-call timeline (#215). Always present, may be empty when
+    # the OpenAI Agents SDK does not surface tool-call telemetry for this run.
+    history: list[ToolCall] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):
@@ -234,14 +252,15 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
 
 
 async def _run_agent(input_text: str, config: dict[str, Any]) -> InvokeResponse:
-    """Run the OpenAI Agents SDK agent and extract handoff chain."""
+    """Run the OpenAI Agents SDK agent and extract handoff chain + tool history."""
     from agents import HandoffOutputItem, Runner
 
     result = await Runner.run(_agent, input_text)
 
-    # Extract handoff chain and last agent from result items
+    # Extract handoff chain, last agent, and structured tool-call history (#215).
     handoffs: list[str] = []
     last_agent: str | None = None
+    history = _extract_tool_history(getattr(result, "new_items", []) or [])
     for item in result.new_items:
         if isinstance(item, HandoffOutputItem):
             if hasattr(item, "target_agent") and item.target_agent:
@@ -259,7 +278,153 @@ async def _run_agent(input_text: str, config: dict[str, Any]) -> InvokeResponse:
         output=result.final_output,
         agent=last_agent,
         handoffs=handoffs,
+        history=history,
     )
+
+
+def _extract_tool_history(new_items: list[Any]) -> list[ToolCall]:
+    """Pair tool-call items with their tool-call output items into ``ToolCall`` records.
+
+    The OpenAI Agents SDK emits a sequence of items per run.  Tool calls and
+    their outputs appear as ``ToolCallItem`` and ``ToolCallOutputItem``
+    (or items with ``raw_item`` carrying matching ``call_id``s).  We pair them
+    up by ``call_id`` and produce one ``ToolCall`` per executed tool.
+
+    Tool-call telemetry is best-effort: the SDK does not always expose
+    timestamps or per-call durations, so ``started_at`` defaults to the time
+    the response was assembled and ``duration_ms`` defaults to 0 when missing.
+    """
+    calls: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    now_iso = datetime.now(UTC).isoformat()
+
+    for item in new_items:
+        item_type = type(item).__name__
+        raw = getattr(item, "raw_item", None)
+
+        # Match by class name to keep the test stub flexible.
+        if item_type in ("ToolCallItem",) or (raw is not None and _looks_like_tool_call(raw)):
+            call_id = _extract_call_id(item, raw) or f"_anon_{len(order)}"
+            name = _extract_tool_name(item, raw) or "unknown"
+            args = _extract_tool_args(item, raw) or {}
+            entry = calls.setdefault(
+                call_id,
+                {"name": name, "args": args, "result": "", "started_at": now_iso},
+            )
+            entry["name"] = name
+            entry["args"] = args
+            if call_id not in order:
+                order.append(call_id)
+        elif item_type in ("ToolCallOutputItem",) or (
+            raw is not None and _looks_like_tool_output(raw)
+        ):
+            call_id = _extract_call_id(item, raw) or (
+                order[-1] if order else f"_anon_{len(order)}"
+            )
+            output = _extract_tool_output(item, raw) or ""
+            entry = calls.setdefault(
+                call_id,
+                {"name": "unknown", "args": {}, "result": "", "started_at": now_iso},
+            )
+            entry["result"] = output
+            if call_id not in order:
+                order.append(call_id)
+
+    return [
+        ToolCall(
+            name=calls[cid].get("name", "unknown"),
+            args=calls[cid].get("args", {}) or {},
+            result=str(calls[cid].get("result", "") or ""),
+            duration_ms=int(calls[cid].get("duration_ms", 0) or 0),
+            started_at=str(calls[cid].get("started_at", now_iso)),
+        )
+        for cid in order
+    ]
+
+
+def _looks_like_tool_call(raw: Any) -> bool:
+    rtype = getattr(raw, "type", None) or (raw.get("type") if isinstance(raw, dict) else None)
+    return rtype in ("function_call", "tool_call", "function_tool_call")
+
+
+def _looks_like_tool_output(raw: Any) -> bool:
+    rtype = getattr(raw, "type", None) or (raw.get("type") if isinstance(raw, dict) else None)
+    return rtype in ("function_call_output", "tool_call_output", "function_tool_call_output")
+
+
+def _extract_call_id(item: Any, raw: Any) -> str | None:
+    for src in (item, raw):
+        if src is None:
+            continue
+        if isinstance(src, dict):
+            cid = src.get("call_id") or src.get("id")
+        else:
+            cid = getattr(src, "call_id", None) or getattr(src, "id", None)
+        if cid:
+            return str(cid)
+    return None
+
+
+def _extract_tool_name(item: Any, raw: Any) -> str | None:
+    for src in (item, raw):
+        if src is None:
+            continue
+        if isinstance(src, dict):
+            name = src.get("name") or src.get("tool_name")
+        else:
+            name = getattr(src, "name", None) or getattr(src, "tool_name", None)
+        if name:
+            return str(name)
+    return None
+
+
+def _extract_tool_args(item: Any, raw: Any) -> dict[str, Any]:
+    for src in (item, raw):
+        if src is None:
+            continue
+        if isinstance(src, dict):
+            args = src.get("arguments") or src.get("args") or src.get("input")
+        else:
+            args = (
+                getattr(src, "arguments", None)
+                or getattr(src, "args", None)
+                or getattr(src, "input", None)
+            )
+        if args is None:
+            continue
+        if isinstance(args, str):
+            try:
+                parsed = json.loads(args)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (ValueError, TypeError):
+                return {"raw": args}
+        if isinstance(args, dict):
+            return args
+    return {}
+
+
+def _extract_tool_output(item: Any, raw: Any) -> str:
+    for src in (item, raw):
+        if src is None:
+            continue
+        if isinstance(src, dict):
+            out = src.get("output") or src.get("result") or src.get("content")
+        else:
+            out = (
+                getattr(src, "output", None)
+                or getattr(src, "result", None)
+                or getattr(src, "content", None)
+            )
+        if out is None:
+            continue
+        if isinstance(out, (dict, list)):
+            try:
+                return json.dumps(out)
+            except (TypeError, ValueError):
+                return str(out)
+        return str(out)
+    return ""
 
 
 @app.post("/stream", dependencies=[Depends(_verify_auth)])

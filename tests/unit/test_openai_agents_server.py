@@ -618,3 +618,68 @@ class TestToolBridgeA2AIntegration:
         assert tool_created == []
 
         _sys.modules.pop("engine.tool_bridge", None)
+
+
+# ---------------------------------------------------------------------------
+# Structured tool-call history (#215)
+# ---------------------------------------------------------------------------
+
+
+class TestInvokeHistory:
+    """The /invoke response should include a top-level `history` field with one
+    ToolCall entry per ToolCallItem/ToolCallOutputItem pair in result.new_items.
+    """
+
+    def _make_run_result(self, final_output: str, new_items=None):
+        result = MagicMock()
+        result.final_output = final_output
+        result.new_items = new_items or []
+        return result
+
+    def test_history_field_present_and_empty_when_no_tool_calls(self, agents_stub):
+        run_result = self._make_run_result("hi", new_items=[])
+        server = _import_server(agents_stub)
+        server._agent = MagicMock()
+        agents_stub.Runner.run = AsyncMock(return_value=run_result)
+
+        client = TestClient(server.app)
+        response = client.post("/invoke", json={"input": "hi"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "history" in data
+        assert data["history"] == []
+
+    def test_history_pairs_tool_call_with_output(self, agents_stub):
+        """ToolCallItem + ToolCallOutputItem with matching call_id pair into one ToolCall."""
+        # Build a fake ToolCallItem (raw_item.type == "function_call") and
+        # a matching ToolCallOutputItem (raw_item.type == "function_call_output").
+        tool_call = MagicMock(spec=["raw_item"])
+        tool_call.__class__.__name__ = "ToolCallItem"
+        tool_call.raw_item = MagicMock(spec=["type", "name", "arguments", "call_id"])
+        tool_call.raw_item.type = "function_call"
+        tool_call.raw_item.name = "search"
+        tool_call.raw_item.arguments = '{"query": "AI"}'
+        tool_call.raw_item.call_id = "call_1"
+
+        tool_output = MagicMock(spec=["raw_item"])
+        tool_output.__class__.__name__ = "ToolCallOutputItem"
+        tool_output.raw_item = MagicMock(spec=["type", "output", "call_id"])
+        tool_output.raw_item.type = "function_call_output"
+        tool_output.raw_item.output = "result data"
+        tool_output.raw_item.call_id = "call_1"
+
+        run_result = self._make_run_result("Done.", new_items=[tool_call, tool_output])
+        server = _import_server(agents_stub)
+        server._agent = MagicMock()
+        agents_stub.Runner.run = AsyncMock(return_value=run_result)
+
+        client = TestClient(server.app)
+        response = client.post("/invoke", json={"input": "search for AI"})
+
+        assert response.status_code == 200
+        history = response.json()["history"]
+        assert len(history) == 1
+        assert history[0]["name"] == "search"
+        assert history[0]["args"] == {"query": "AI"}
+        assert history[0]["result"] == "result data"

@@ -28,7 +28,7 @@ import sys
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("agentbreeder.agent")
@@ -63,9 +63,26 @@ class InvokeRequest(BaseModel):
     config: dict[str, Any] | None = None
 
 
+class ToolCall(BaseModel):
+    """Structured record of a single tool invocation (#215).
+
+    Custom (BYO) agents have no standard mechanism to surface tool-call
+    telemetry, so the field is always present but typically empty.  Authors
+    can opt in by attaching a ``tool_calls`` attribute or ``__tool_history__``
+    key to their result.
+    """
+
+    name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    result: str = ""
+    duration_ms: int = 0
+    started_at: str = ""
+
+
 class InvokeResponse(BaseModel):
     output: Any
     metadata: dict[str, Any] | None = None
+    history: list[ToolCall] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):
@@ -140,10 +157,42 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
     try:
         config = request.config or {}
         result = await _run_agent(request.input, config)
-        return InvokeResponse(output=result)
+        history = _extract_tool_history(result)
+        return InvokeResponse(output=result, history=history)
     except Exception as e:
         logger.exception("Agent invocation failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _extract_tool_history(result: Any) -> list[ToolCall]:
+    """Pull a ``tool_history`` / ``tool_calls`` field off a custom agent result, if present.
+
+    Custom (BYO) agents are framework-agnostic, so we cannot capture tool
+    telemetry from the framework itself.  We do the only honest thing: if the
+    user's agent attaches ``tool_history`` / ``tool_calls`` to its dict
+    response, surface it; otherwise return an empty history.
+    """
+    if not isinstance(result, dict):
+        return []
+    raw = result.get("tool_history") or result.get("tool_calls") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[ToolCall] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            out.append(ToolCall(**entry))
+        except Exception:  # noqa: BLE001
+            # Tolerate partial / unexpected shapes from BYO agents.
+            out.append(
+                ToolCall(
+                    name=str(entry.get("name", "") or ""),
+                    args=entry.get("args", {}) or {},
+                    result=str(entry.get("result", "") or ""),
+                )
+            )
+    return out
 
 
 async def _run_agent(input_data: dict[str, Any] | str, config: dict[str, Any]) -> Any:

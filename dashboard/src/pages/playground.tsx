@@ -27,6 +27,7 @@ import {
 import {
   api,
   type Agent,
+  type AgentInvokeToolCall,
   type ConversationMessage,
   type PlaygroundToolCall,
   type PlaygroundChatResponse,
@@ -98,9 +99,6 @@ function persistMode(mode: PlaygroundMode): void {
 // Build a single-string `input` payload for the agent runtime by
 // concatenating prior turns with role labels. Agent runtimes vary in how
 // they handle history; this is the simplest portable shape.
-// TODO(#215): once runtimes standardise on a structured history field
-// (e.g. `metadata.conversation_history`), prefer that and only fall back
-// to this single-string concat for legacy agents.
 function buildAgentInput(history: ChatMessage[], current: string): string {
   if (history.length === 0) return current;
   const parts = history.map((m) => {
@@ -109,6 +107,22 @@ function buildAgentInput(history: ChatMessage[], current: string): string {
   });
   parts.push(`User: ${current}`);
   return parts.join("\n\n");
+}
+
+// Convert the runtime's structured tool-call history (#215) into the
+// PlaygroundToolCall shape the existing ToolCallCard renders. Every runtime
+// template emits the same `{ name, args, result, duration_ms, started_at }`
+// contract, so we just remap field names without scraping any text.
+function toolHistoryToCalls(
+  history: AgentInvokeToolCall[] | undefined
+): PlaygroundToolCall[] {
+  if (!history || history.length === 0) return [];
+  return history.map((call) => ({
+    tool_name: call.name,
+    tool_input: call.args ?? {},
+    tool_output: { result: call.result },
+    duration_ms: call.duration_ms ?? 0,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -973,6 +987,7 @@ function AgentChatPanel() {
             id: generateId(),
             role: "assistant",
             content: `Error: ${result.error}`,
+            tool_calls: toolHistoryToCalls(result.history),
             latency_ms: result.duration_ms || elapsed,
             timestamp: new Date(),
           },
@@ -986,6 +1001,7 @@ function AgentChatPanel() {
           id: generateId(),
           role: "assistant",
           content: result.output || "(empty response)",
+          tool_calls: toolHistoryToCalls(result.history),
           latency_ms: result.duration_ms || elapsed,
           timestamp: new Date(),
         },

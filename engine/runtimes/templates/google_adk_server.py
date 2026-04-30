@@ -24,7 +24,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from engine.config_parser import ToolRef
 from engine.tool_bridge import to_adk_tools
@@ -59,10 +59,28 @@ class InvokeRequest(BaseModel):
 InvokeRequest.model_rebuild()
 
 
+class ToolCall(BaseModel):
+    """Structured record of a single tool invocation (#215).
+
+    Shared shape across all runtime templates so the dashboard playground can
+    render a tool-call timeline without regex-scraping message bodies.
+    """
+
+    name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    result: str = ""
+    duration_ms: int = 0
+    started_at: str = ""
+
+
 class InvokeResponse(BaseModel):
     output: str | None = None
     session_id: str
     metadata: dict | None = None  # type: ignore[type-arg]
+    # Structured tool-call timeline (#215). Populated from ADK events that
+    # carry ``function_call`` / ``function_response`` parts.  Always present,
+    # may be empty.
+    history: list[ToolCall] = Field(default_factory=list)
 
 
 InvokeResponse.model_rebuild()
@@ -351,12 +369,12 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
     user_id = request.user_id or config.get("user_id", "agentbreeder-user")
 
     try:
-        output, session_id = await _run_agent(
+        output, session_id, history = await _run_agent(
             input_text=request.input,
             user_id=user_id,
             session_id=request.session_id,
         )
-        return InvokeResponse(output=output, session_id=session_id)
+        return InvokeResponse(output=output, session_id=session_id, history=history)
     except Exception as e:
         logger.exception("Agent invocation failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -425,11 +443,11 @@ async def _run_agent(
     input_text: str,
     user_id: str,
     session_id: str | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, list[ToolCall]]:
     """Run the Google ADK agent using the module-level runner.
 
     Reuses an existing session when session_id is provided; creates a new one otherwise.
-    Returns (response_text, session_id).
+    Returns (response_text, session_id, tool_call_history).
     """
     from google.genai import types as genai_types
 
@@ -452,14 +470,67 @@ async def _run_agent(
     )
 
     final_response = ""
+    # Pair function_call parts with their function_response parts by id/name (#215).
+    pending: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    history: list[ToolCall] = []
+
     async for event in _runner.run_async(
         user_id=user_id,
         session_id=session.id,
         new_message=user_message,
     ):
+        if getattr(event, "content", None) and getattr(event.content, "parts", None):
+            for part in event.content.parts:
+                # function_call → name + args
+                fc = getattr(part, "function_call", None)
+                if fc is not None and getattr(fc, "name", None):
+                    fc_id = str(getattr(fc, "id", "") or fc.name)
+                    fc_args = getattr(fc, "args", None) or {}
+                    if not isinstance(fc_args, dict):
+                        try:
+                            fc_args = dict(fc_args)
+                        except (TypeError, ValueError):
+                            fc_args = {"raw": str(fc_args)}
+                    pending.setdefault(fc_id, {"name": fc.name, "args": fc_args, "result": ""})
+                    pending[fc_id]["name"] = fc.name
+                    pending[fc_id]["args"] = fc_args
+                    if fc_id not in order:
+                        order.append(fc_id)
+                # function_response → result
+                fr = getattr(part, "function_response", None)
+                if fr is not None:
+                    fr_name = getattr(fr, "name", "") or ""
+                    fr_id = str(getattr(fr, "id", "") or fr_name)
+                    response_payload = getattr(fr, "response", None) or {}
+                    try:
+                        result_str = (
+                            json.dumps(response_payload)
+                            if not isinstance(response_payload, str)
+                            else response_payload
+                        )
+                    except (TypeError, ValueError):
+                        result_str = str(response_payload)
+                    entry = pending.setdefault(fr_id, {"name": fr_name, "args": {}, "result": ""})
+                    entry["result"] = result_str
+                    if not entry.get("name"):
+                        entry["name"] = fr_name
+                    if fr_id not in order:
+                        order.append(fr_id)
+
         if event.is_final_response() and event.content and event.content.parts:
             for part in event.content.parts:
                 if hasattr(part, "text") and part.text:
                     final_response += part.text
 
-    return final_response, session.id
+    for cid in order:
+        entry = pending[cid]
+        history.append(
+            ToolCall(
+                name=str(entry.get("name", "") or ""),
+                args=entry.get("args", {}) or {},
+                result=str(entry.get("result", "") or ""),
+            )
+        )
+
+    return final_response, session.id, history
