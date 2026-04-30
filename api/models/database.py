@@ -968,3 +968,31 @@ class Incident(Base):
         Index("ix_incidents_created_at", "created_at"),
         Index("ix_incidents_affected_agent_id", "affected_agent_id"),
     )
+
+
+class ComplianceScan(Base):
+    """A single SOC 2 / HIPAA compliance scan execution (#208).
+
+    Persisted by ``engine.compliance.scanner.run_compliance_scan`` whenever
+    ``GET /api/v1/agentops/compliance/status`` or
+    ``GET /api/v1/agentops/compliance/report`` triggers a new scan. Replaces
+    the in-memory ``_SEED_COMPLIANCE_CONTROLS`` list. Schema lives in
+    Alembic migration ``021_compliance_scans_table``.
+    """
+
+    __tablename__ = "compliance_scans"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ran_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # Plain string — keeping this off an enum so we can add new statuses
+    # ("error", "stale", etc.) without an ALTER TYPE round-trip.
+    overall_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    results: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    __table_args__ = (
+        Index("ix_compliance_scans_ran_at", "ran_at"),
+        Index("ix_compliance_scans_overall_status", "overall_status"),
+    )

@@ -14,7 +14,12 @@ from api.middleware.rbac import require_role
 from api.models.costs import CostEvent
 from api.models.database import User
 from api.models.schemas import ApiMeta, ApiResponse
-from api.services.agentops_service import FleetService, IncidentService, get_agentops_store
+from api.services.agentops_service import (
+    ComplianceService,
+    FleetService,
+    IncidentService,
+    get_agentops_store,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -320,17 +325,41 @@ async def get_cost_suggestions(_user: User = Depends(get_current_user)) -> ApiRe
 
 
 @router.get("/compliance/status")
-async def get_compliance_status(_user: User = Depends(get_current_user)) -> ApiResponse[dict]:
-    """SOC2 compliance checks overview."""
-    store = get_agentops_store()
-    return ApiResponse(data=store.get_compliance_status())
+async def get_compliance_status(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[dict]:
+    """SOC 2 / HIPAA compliance checks overview.
+
+    Runs the controls registered in ``engine.compliance.controls`` against
+    the live database (re-using the most recent scan if it's < 60s old) and
+    persists each scan to the ``compliance_scans`` table (#208).
+    """
+    row = await ComplianceService.get_or_run_latest(db)
+    return ApiResponse(data=ComplianceService.status_payload(row))
+
+
+@router.post("/compliance/scan")
+async def trigger_compliance_scan(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[dict]:
+    """Force a fresh scan, ignoring the 60s read-through cache (#208)."""
+    row = await ComplianceService.run_and_persist(db)
+    return ApiResponse(data=ComplianceService.status_payload(row))
 
 
 @router.get("/compliance/report")
 async def generate_compliance_report(
     report_format: str = Query("json", description="Report format: json | csv | pdf"),
+    db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
-    """Generate a SOC2 evidence export."""
-    store = get_agentops_store()
-    return ApiResponse(data=store.generate_compliance_report(report_format=report_format))
+    """Generate a SOC 2 / HIPAA evidence export from the latest scan.
+
+    The report cites the *real* per-control evidence (row counts, oldest
+    audit-event timestamps, secrets-backend names, etc.) recorded by the
+    most recent scan in the ``compliance_scans`` table (#208).
+    """
+    row = await ComplianceService.get_or_run_latest(db)
+    return ApiResponse(data=ComplianceService.report_payload(row, report_format=report_format))

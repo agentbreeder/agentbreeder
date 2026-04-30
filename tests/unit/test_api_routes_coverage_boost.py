@@ -1122,19 +1122,22 @@ class TestAgentOpsCosts:
 
 
 class TestAgentOpsCompliance:
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_compliance_status(self, mock_gs):
-        store = _eval_store()
-        store.get_compliance_status.return_value = {"passed": 5}
-        mock_gs.return_value = store
+    """Compliance routes are now backed by the DB-backed ``ComplianceService``
+    (#208). Tests stub ``get_or_run_latest`` to avoid hitting Postgres."""
+
+    @patch("api.routes.agentops.ComplianceService.get_or_run_latest", new_callable=AsyncMock)
+    @patch("api.routes.agentops.ComplianceService.status_payload")
+    def test_compliance_status(self, mock_payload, mock_get):
+        mock_get.return_value = MagicMock()
+        mock_payload.return_value = {"overall_status": "compliant", "controls": []}
         resp = client.get("/api/v1/agentops/compliance/status")
         assert resp.status_code == 200
 
-    @patch("api.routes.agentops.get_agentops_store")
-    def test_compliance_report(self, mock_gs):
-        store = _eval_store()
-        store.generate_compliance_report.return_value = {"report": "ok"}
-        mock_gs.return_value = store
+    @patch("api.routes.agentops.ComplianceService.get_or_run_latest", new_callable=AsyncMock)
+    @patch("api.routes.agentops.ComplianceService.report_payload")
+    def test_compliance_report(self, mock_payload, mock_get):
+        mock_get.return_value = MagicMock()
+        mock_payload.return_value = {"report_id": "rpt-x", "evidence": []}
         resp = client.get("/api/v1/agentops/compliance/report")
         assert resp.status_code == 200
 

@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.audit import AuditEvent
 from api.models.costs import CostEvent
-from api.models.database import Agent, Incident
+from api.models.database import Agent, ComplianceScan, Incident
 from api.models.enums import AgentStatus, IncidentSeverity, IncidentStatus
 from api.models.tracing import Trace
 
@@ -95,94 +95,10 @@ _SEED_COST_SUGGESTIONS = [
     },
 ]
 
-_LAST_CHECKED = "2026-03-13T00:00:00+00:00"
-
-_SEED_COMPLIANCE_CONTROLS = [
-    {
-        "id": "cc-001",
-        "name": "Access Control — MFA enforced",
-        "category": "Access Control",
-        "status": "pass",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-002",
-        "name": "Access Control — RBAC configured",
-        "category": "Access Control",
-        "status": "pass",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-003",
-        "name": "Access Control — Least-privilege deployed",
-        "category": "Access Control",
-        "status": "partial",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-004",
-        "name": "Audit — All deploys logged",
-        "category": "Audit",
-        "status": "pass",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-005",
-        "name": "Audit — Log retention >= 90 days",
-        "category": "Audit",
-        "status": "pass",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-006",
-        "name": "Audit — Immutable audit trail",
-        "category": "Audit",
-        "status": "pass",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-007",
-        "name": "Availability — 99.5% SLA target met",
-        "category": "Availability",
-        "status": "partial",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-008",
-        "name": "Availability — Health checks enabled",
-        "category": "Availability",
-        "status": "pass",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-009",
-        "name": "Data Security — Secrets in Secrets Manager",
-        "category": "Data Security",
-        "status": "pass",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-010",
-        "name": "Data Security — PII guardrails active",
-        "category": "Data Security",
-        "status": "fail",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-011",
-        "name": "Change Management — PRs require review",
-        "category": "Change Management",
-        "status": "pass",
-        "last_checked": _LAST_CHECKED,
-    },
-    {
-        "id": "cc-012",
-        "name": "Change Management — CI/CD enforced",
-        "category": "Change Management",
-        "status": "pass",
-        "last_checked": _LAST_CHECKED,
-    },
-]
+# ``_SEED_COMPLIANCE_CONTROLS`` was removed in #208. Compliance controls now
+# come from ``engine.compliance.controls.CONTROL_REGISTRY`` and are evaluated
+# against the live DB by ``ComplianceService`` below; results are persisted
+# to the ``compliance_scans`` table (migration 021).
 
 
 # ---------------------------------------------------------------------------
@@ -859,7 +775,6 @@ class AgentOpsStore:
         self._canaries: dict[str, dict[str, Any]] = {}
         self._cost_anomalies: list[dict[str, Any]] = list(_SEED_COST_ANOMALIES)
         self._cost_suggestions: list[dict[str, Any]] = list(_SEED_COST_SUGGESTIONS)
-        self._compliance_controls: list[dict[str, Any]] = list(_SEED_COMPLIANCE_CONTROLS)
 
     # -----------------------------------------------------------------------
     # Canary Deploys
@@ -971,61 +886,135 @@ class AgentOpsStore:
         """Return model swap recommendations."""
         return list(self._cost_suggestions)
 
-    # -----------------------------------------------------------------------
-    # Compliance
-    # -----------------------------------------------------------------------
 
-    def get_compliance_status(self) -> dict[str, Any]:
-        """Return SOC2 compliance checks overview."""
-        controls = list(self._compliance_controls)
-        passed = sum(1 for c in controls if c["status"] == "pass")
-        failed = sum(1 for c in controls if c["status"] == "fail")
-        partial = sum(1 for c in controls if c["status"] == "partial")
-        total = len(controls)
+# ---------------------------------------------------------------------------
+# Compliance Service (DB-backed, #208)
+# ---------------------------------------------------------------------------
 
-        if failed > 0:
-            overall = "non_compliant"
-        elif partial > 0:
-            overall = "partial"
-        else:
-            overall = "compliant"
 
+class ComplianceService:
+    """Real SOC 2 / HIPAA control scanner — replaces ``_SEED_COMPLIANCE_CONTROLS``.
+
+    Each call to :meth:`run_and_persist` executes every control in
+    ``engine.compliance.controls.CONTROL_REGISTRY`` against the live
+    ``AsyncSession`` and writes a single row to ``compliance_scans``. The
+    ``status_payload`` and ``report_payload`` shapes are kept wire-compatible
+    with the previous in-memory responses so the dashboard does not need to
+    change its TypeScript types.
+    """
+
+    @staticmethod
+    async def run_and_persist(db: AsyncSession) -> ComplianceScan:
+        """Run a fresh scan and insert the row. Method commits before
+        returning so the caller can immediately read the persisted row."""
+        from engine.compliance import run_compliance_scan
+
+        summary = await run_compliance_scan(db)
+        row = ComplianceScan(
+            ran_at=datetime.fromisoformat(summary.ran_at),
+            overall_status=summary.overall_status,
+            results=[r.to_dict() for r in summary.results],
+            summary=summary.summary_dict(),
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return row
+
+    @staticmethod
+    async def get_or_run_latest(db: AsyncSession, *, max_age_seconds: int = 60) -> ComplianceScan:
+        """Return the most recent scan, or run a fresh one if it's stale.
+
+        Reading the dashboard at high frequency must not re-run controls on
+        every render — we cache the most recent scan for ``max_age_seconds``
+        (default 60s).
+        """
+        latest = await db.execute(
+            select(ComplianceScan).order_by(ComplianceScan.ran_at.desc()).limit(1)
+        )
+        row = latest.scalar_one_or_none()
+        if row is not None and row.ran_at is not None:
+            ran_at = row.ran_at if row.ran_at.tzinfo else row.ran_at.replace(tzinfo=UTC)
+            age = (datetime.now(UTC) - ran_at).total_seconds()
+            if age < max_age_seconds:
+                return row
+        return await ComplianceService.run_and_persist(db)
+
+    @staticmethod
+    def status_payload(row: ComplianceScan) -> dict[str, Any]:
+        """Wire-compatible payload for ``GET /agentops/compliance/status``.
+
+        The dashboard's ``Control`` interface expects ``id``, ``name``,
+        ``category``, ``status``, and ``last_checked`` — provided directly by
+        ``ControlResult.to_dict()``.
+        """
+        results = list(row.results or [])
+        summary = dict(row.summary or {})
+        ran_at = row.ran_at.isoformat() if row.ran_at else datetime.now(UTC).isoformat()
         return {
-            "overall_status": overall,
-            "controls_total": total,
-            "controls_passed": passed,
-            "controls_failed": failed,
-            "controls_partial": partial,
-            "last_checked": datetime.now(UTC).isoformat(),
-            "controls": controls,
+            "overall_status": row.overall_status,
+            "controls_total": summary.get("controls_total", len(results)),
+            "controls_passed": summary.get(
+                "controls_passed", sum(1 for r in results if r.get("status") == "pass")
+            ),
+            "controls_failed": summary.get(
+                "controls_failed", sum(1 for r in results if r.get("status") == "fail")
+            ),
+            "controls_partial": summary.get(
+                "controls_partial", sum(1 for r in results if r.get("status") == "partial")
+            ),
+            "controls_skipped": summary.get(
+                "controls_skipped", sum(1 for r in results if r.get("status") == "skipped")
+            ),
+            "last_checked": ran_at,
+            "scan_id": str(row.id),
+            "controls": results,
         }
 
-    def generate_compliance_report(self, report_format: str = "json") -> dict[str, Any]:
-        """Generate a SOC2 evidence export."""
-        controls = list(self._compliance_controls)
-        passed = sum(1 for c in controls if c["status"] == "pass")
-        failed = sum(1 for c in controls if c["status"] == "fail")
+    @staticmethod
+    def report_payload(row: ComplianceScan, report_format: str = "json") -> dict[str, Any]:
+        """Wire-compatible payload for ``GET /agentops/compliance/report``.
 
+        The previous shape rendered ``"Automated compliance check for X"`` as
+        a placeholder ``details`` string. We now embed the *real* per-control
+        evidence dict and details so the downloaded JSON / PDF cites concrete
+        evidence (row counts, oldest timestamps, backend names).
+        """
+        results = list(row.results or [])
+        summary = dict(row.summary or {})
+        ran_at = row.ran_at.isoformat() if row.ran_at else datetime.now(UTC).isoformat()
         evidence = [
             {
-                "control_id": c["id"],
-                "control_name": c["name"],
-                "category": c["category"],
-                "status": c["status"],
-                "last_checked": c["last_checked"],
+                "control_id": r.get("id"),
+                "control_name": r.get("name"),
+                "category": r.get("category"),
+                "status": r.get("status"),
+                "last_checked": r.get("last_checked", ran_at),
                 "evidence_type": "automated_check",
-                "details": f"Automated compliance check for {c['name']}",
+                "evidence": r.get("evidence", {}),
+                "details": r.get("details", ""),
             }
-            for c in controls
+            for r in results
         ]
-
         return {
-            "report_id": f"rpt-{str(uuid.uuid4())[:8]}",
-            "generated_at": datetime.now(UTC).isoformat(),
+            "report_id": f"rpt-{str(row.id)[:8]}",
+            "scan_id": str(row.id),
+            "generated_at": ran_at,
             "format": report_format,
-            "controls_passed": passed,
-            "controls_failed": failed,
-            "controls_total": len(controls),
+            "overall_status": row.overall_status,
+            "controls_passed": summary.get(
+                "controls_passed", sum(1 for r in results if r.get("status") == "pass")
+            ),
+            "controls_failed": summary.get(
+                "controls_failed", sum(1 for r in results if r.get("status") == "fail")
+            ),
+            "controls_partial": summary.get(
+                "controls_partial", sum(1 for r in results if r.get("status") == "partial")
+            ),
+            "controls_skipped": summary.get(
+                "controls_skipped", sum(1 for r in results if r.get("status") == "skipped")
+            ),
+            "controls_total": summary.get("controls_total", len(results)),
             "evidence": evidence,
         }
 
