@@ -109,8 +109,14 @@ async def _enforce_acl(
     except Exception as exc:
         if "403" in str(exc) or "Access denied" in str(exc):
             raise
-        # DB unavailable or table not yet migrated — allow access
-        pass
+        # DB unavailable or table not yet migrated — allow access. Roll
+        # back so the asyncpg connection isn't left mid-transaction
+        # (otherwise the *next* await on this session would fail with
+        # "another operation is in progress").
+        try:
+            await db.rollback()
+        except Exception:  # pragma: no cover — rollback on already-bad session
+            pass
 
 
 @router.get("", response_model=ApiResponse[list[AgentResponse]])

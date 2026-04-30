@@ -39,12 +39,17 @@ branch_labels: str | None = None
 depends_on: str | None = None
 
 
+# ``create_type=False`` keeps SQLAlchemy from re-issuing CREATE TYPE
+# inside ``create_table`` — we create the enums explicitly in
+# ``upgrade()`` with ``checkfirst=True`` so the migration is idempotent
+# against partially-applied state.
 _SEVERITY_ENUM = sa.Enum(
     "critical",
     "high",
     "medium",
     "low",
     name="incidentseverity",
+    create_type=False,
 )
 _STATUS_ENUM = sa.Enum(
     "open",
@@ -52,6 +57,7 @@ _STATUS_ENUM = sa.Enum(
     "mitigated",
     "resolved",
     name="incidentstatus",
+    create_type=False,
 )
 
 
