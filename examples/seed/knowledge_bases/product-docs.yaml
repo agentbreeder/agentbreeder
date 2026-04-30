@@ -1,0 +1,11 @@
+# Seed knowledge base — populates the knowledge_bases table on first boot so the
+# Knowledge Bases page in the dashboard isn't empty. Loaded by engine/seed/first_boot.py.
+
+name: product-docs
+description: "Sample product documentation knowledge base. Replace with your own docs in production."
+kb_type: document
+config:
+  backend: in_memory
+  embedding_model: default
+  chunk_size: 512
+  source: examples/seed/knowledge_bases/product-docs.yaml

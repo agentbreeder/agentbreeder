@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -76,11 +77,51 @@ async def _seed_default_admin() -> None:
             logger.debug("Skipping admin seed: %s", e)
 
 
+def _auto_seed_enabled() -> bool:
+    """Return True when first-boot registry seeding should run.
+
+    Controlled by two env vars:
+
+    * ``AGENTBREEDER_AUTO_SEED`` — explicit override (``true`` / ``false``).
+      If unset, default depends on install mode.
+    * ``AGENTBREEDER_INSTALL_MODE`` — ``dev`` (default) seeds; ``cloud``
+      does not. Anything else falls back to True so local ``docker
+      compose up`` is delightful.
+    """
+    raw = os.environ.get("AGENTBREEDER_AUTO_SEED")
+    if raw is not None:
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    install_mode = os.environ.get("AGENTBREEDER_INSTALL_MODE", "dev").strip().lower()
+    return install_mode != "cloud"
+
+
+async def _run_first_boot_seed() -> None:
+    """Best-effort first-boot registry seed. Never raises into startup."""
+    if not _auto_seed_enabled():
+        logger.info("First-boot seed disabled by AGENTBREEDER_AUTO_SEED / install mode")
+        return
+    try:
+        from api.database import async_session
+        from engine.seed import seed_registries
+
+        async with async_session() as db:
+            report = await seed_registries(db)
+        logger.info(
+            "First-boot seed report: inserted=%d skipped=%s errors=%d",
+            report.total_inserted,
+            report.skipped,
+            len(report.errors),
+        )
+    except Exception as exc:
+        logger.warning("First-boot seed failed (continuing startup): %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     logger.info("AgentBreeder API starting up")
     await _seed_default_admin()
+    await _run_first_boot_seed()
     yield
     logger.info("AgentBreeder API shutting down")
 

@@ -1,0 +1,39 @@
+# Seed MCP server — populates the mcp_servers table on first boot so the
+# dashboard MCP page isn't empty. Loaded by engine/seed/first_boot.py.
+
+name: example-mcp
+version: 1.0.0
+description: "Example MCP server bundled as a starter. Demonstrates tool discovery + execution."
+type: mcp-server
+team: platform
+owner: demo@agentbreeder.com
+tags: [example, seed, starter]
+
+runtime:
+  language: python
+  framework: mcp-py
+  version: "3.11"
+  entrypoint: tools.py
+
+transport: http
+
+tools:
+  - name: ping
+    description: "Health-check tool — returns 'pong'."
+    schema:
+      type: object
+      properties: {}
+  - name: echo
+    description: "Echo back whatever input is provided."
+    schema:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: "The message to echo back."
+
+deploy:
+  cloud: local
+  env_vars:
+    LOG_LEVEL: info

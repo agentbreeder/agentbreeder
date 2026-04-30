@@ -82,30 +82,40 @@ agentbreeder setup --providers-only     # Only configure cloud provider keys
 
 ### `agentbreeder seed`
 
-Seed ChromaDB (vector store) and Neo4j (knowledge graph) with sample or custom data.
+Seed ChromaDB (vector store), Neo4j (knowledge graph), or the AgentBreeder
+registry tables with sample or custom data.
 
 ```
-agentbreeder seed [--chromadb] [--neo4j] [--docs PATH] [--collection NAME]
-                  [--cypher PATH] [--clear] [--list]
+agentbreeder seed [--chromadb] [--neo4j] [--registry] [--docs PATH] [--collection NAME]
+                  [--cypher PATH] [--examples-dir PATH] [--clear] [--list]
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--chromadb` | Off | Seed ChromaDB only |
 | `--neo4j` | Off | Seed Neo4j only |
+| `--registry` | Off | Seed registry tables (agents, prompts, tools, MCP servers, providers, knowledge bases) from `examples/seed/`. Idempotent — only empty tables are populated. |
+| `--examples-dir PATH` | `<repo>/examples/seed/` | Custom path to seed YAMLs (registry mode only) |
 | `--docs PATH` | `deploy/seed/docs/` | Directory of `.md` / `.txt` files to ingest into ChromaDB |
 | `--collection NAME` | `agentbreeder_knowledge` | ChromaDB collection name |
 | `--cypher PATH` | — | Custom `.cypher` file to run against Neo4j |
 | `--clear` | Off | Wipe existing data before seeding |
 | `--list` | Off | Show what is currently seeded (no writes) |
 
-Without `--chromadb` or `--neo4j`, both are seeded.
+Without `--chromadb`, `--neo4j`, or `--registry`, both ChromaDB and Neo4j are seeded.
+
+The API server also runs the registry seeder automatically on first boot when
+`AGENTBREEDER_AUTO_SEED=true` (default for `AGENTBREEDER_INSTALL_MODE=dev`,
+disabled for `cloud`). Use `agentbreeder seed --registry` to populate registry
+tables manually — e.g. against an already-running API.
 
 **Examples:**
 ```bash
 agentbreeder seed                                   # Seed both ChromaDB and Neo4j
 agentbreeder seed --chromadb                        # Seed ChromaDB only
 agentbreeder seed --neo4j                           # Seed Neo4j only
+agentbreeder seed --registry                        # Populate registry tables (agents, prompts, tools, MCP, providers, KBs)
+agentbreeder seed --registry --examples-dir ./seeds/ # Use a custom seed directory
 agentbreeder seed --chromadb --docs ./my-docs/      # Ingest custom .md/.txt files
 agentbreeder seed --neo4j --cypher ./graph.cypher   # Load custom Cypher
 agentbreeder seed --list                            # Show what's currently seeded

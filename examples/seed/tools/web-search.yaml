@@ -1,0 +1,47 @@
+# Seed tool — referenced by examples/seed/agents/customer-support.yaml
+# Loaded by engine/seed/first_boot.py when the tools table is empty.
+
+spec_version: v1
+name: web-search
+version: 1.0.0
+description: "Search the public web for general questions. Returns a list of results with title, URL, and snippet."
+team: platform
+owner: demo@agentbreeder.com
+tags: [search, web, seed, starter]
+
+type: function
+
+input_schema:
+  type: object
+  required: [query]
+  properties:
+    query:
+      type: string
+      description: "The search query."
+    limit:
+      type: integer
+      minimum: 1
+      maximum: 25
+      default: 5
+      description: "Max number of results."
+
+output_schema:
+  type: object
+  properties:
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          title: { type: string }
+          url: { type: string }
+          snippet: { type: string }
+
+implementation:
+  language: python
+  entrypoint: handler.py:run
+  dependencies:
+    - httpx>=0.27
+
+timeout_seconds: 30
+network_access: true

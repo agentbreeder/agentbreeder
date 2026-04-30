@@ -1,0 +1,39 @@
+# Seed agent — populates a fresh registry so the dashboard isn't empty on first boot.
+# This file is loaded by engine/seed/first_boot.py when the agents table is empty.
+
+name: customer-support
+version: 1.0.0
+description: "Sample tier-1 customer support agent. Demonstrates prompts, tools, and knowledge base wiring."
+team: customer-success
+owner: demo@agentbreeder.com
+tags: [support, demo, seed, starter]
+
+framework: langgraph
+
+model:
+  primary: gpt-4o-mini
+  fallback: claude-sonnet-4-6
+  temperature: 0.7
+  max_tokens: 2048
+
+tools:
+  - ref: tools/web-search
+  - ref: tools/order-lookup
+
+knowledge_bases:
+  - ref: kb/product-docs
+
+prompts:
+  system: prompts/support-system-v1
+
+guardrails:
+  - pii_detection
+  - content_filter
+
+deploy:
+  cloud: local
+  resources:
+    cpu: "0.5"
+    memory: "512Mi"
+  env_vars:
+    LOG_LEVEL: info

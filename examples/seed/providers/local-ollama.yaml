@@ -1,0 +1,12 @@
+# Seed provider — populates the providers table on first boot so the
+# Models page in the dashboard isn't empty. Loaded by engine/seed/first_boot.py.
+#
+# Defaults to a local Ollama instance because it requires no API key.
+# Set OLLAMA_BASE_URL or edit this file before seeding for a different host.
+
+name: local-ollama
+provider_type: ollama
+base_url: http://localhost:11434
+config:
+  description: "Local Ollama provider. No API key needed. Run `ollama serve` first."
+  default_model: llama3.2
