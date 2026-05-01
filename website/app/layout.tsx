@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     siteName: 'AgentBreeder',
     type: 'website',
     url: 'https://www.agentbreeder.io',
-    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'AgentBreeder — the only agent platform that doesn\'t pick a winner' }],
+    images: [{ url: '/og.png', width: 1280, height: 640, alt: 'AgentBreeder — the only agent platform that doesn\'t pick a winner' }],
   },
   twitter: {
     card: 'summary_large_image',
