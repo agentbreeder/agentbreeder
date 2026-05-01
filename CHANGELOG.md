@@ -8,6 +8,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Security
+- **Resolve 6 medium-severity Dependabot alerts before launch** (#173, #338) — bumps `github.com/go-chi/chi/v5` from `5.1.0` to `5.2.2` in `sidecar/`, `sdk/go/agentbreeder/`, and `examples/go-agent/` (fixes host-header injection → open redirect in `RedirectSlashes`); adds npm `overrides` to `website/package.json` pinning `postcss` to `^8.5.10` (resolves to `8.5.13`, fixes XSS via unescaped `</style>` in CSS Stringify), and to `sdk/typescript/package.json` pinning `vite` to `^6.4.2` and `esbuild` to `^0.25.0` (resolves to `6.4.2` / `0.25.12`, fixes vite path traversal in optimized-deps `.map` handling and esbuild dev-server CSRF-style request issue). Verified resolved versions via `npm ls` against each advisory's `first_patched` constraint.
+
 ---
 
 ## [2.1.0] — 2026-04-30
