@@ -1,7 +1,7 @@
 {
   "name": "@agentbreeder/sdk",
   "version": "0.1.0",
-  "description": "TypeScript SDK for AgentBreeder — Define Once. Deploy Anywhere.",
+  "description": "TypeScript SDK for AgentBreeder \u2014 Define Once. Deploy Anywhere.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -13,7 +13,9 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "test": "vitest run",
@@ -35,6 +37,16 @@
   "optionalPeerDependencies": {
     "@modelcontextprotocol/sdk": ">=1.0.0"
   },
-  "keywords": ["agent", "ai", "agentbreeder", "a2a", "mcp"],
-  "license": "Apache-2.0"
+  "keywords": [
+    "agent",
+    "ai",
+    "agentbreeder",
+    "a2a",
+    "mcp"
+  ],
+  "license": "Apache-2.0",
+  "overrides": {
+    "vite": "^6.4.2",
+    "esbuild": "^0.25.0"
+  }
 }
