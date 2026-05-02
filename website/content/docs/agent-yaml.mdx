@@ -7,6 +7,26 @@ description: The canonical YAML config format for all AgentBreeder agents.
 
 The `agent.yaml` file is the canonical configuration for an AgentBreeder agent. It defines everything needed to build, deploy, and govern an agent.
 
+## TL;DR
+
+Six fields are required: `name`, `version`, `team`, `owner`, `framework`, `model.primary`, `deploy.cloud`. Everything else is optional.
+
+```yaml
+name: my-agent
+version: 1.0.0
+team: engineering
+owner: dev@company.com
+framework: langgraph              # langgraph | openai_agents | claude_sdk | crewai | google_adk | custom
+model:
+  primary: claude-sonnet-4
+deploy:
+  cloud: local                    # local | aws | gcp | azure | kubernetes | claude-managed
+```
+
+Common additions: `model.fallback`, `tools:`, `prompts:`, `guardrails:`, `deploy.scaling`, `deploy.secrets:`, `access:`. Framework-specific blocks (`claude_sdk`, `google_adk`, `claude_managed`) are only read by their matching runtime.
+
+Jump to: [Top-level fields](#top-level-fields) · [`model`](#model) · [`tools`](#tools) · [`deploy`](#deploy) · [`access`](#access) · [Framework-specific](#framework-specific-configuration).
+
 ## Minimal Example
 
 ```yaml

@@ -8,47 +8,34 @@ import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
 # How-To Guide
 
-Recipes for common AgentBreeder workflows. Each section is self-contained — jump to what you need.
+Recipes for everything that isn't covered by `agentbreeder quickstart`. Each section is self-contained.
 
 <Callout type="info" title="New here?">
-  Start with the [Quickstart →](quickstart) to install AgentBreeder and deploy your first agent in under 5 minutes. Come back here when you need a specific recipe.
+  Start with the [Quickstart →](quickstart). Come back here when you need a specific recipe.
 </Callout>
 
 ---
 
-## Install AgentBreeder
-
-Requires Python 3.11+:
+## Install
 
 ```bash
 pip3 install agentbreeder          # full CLI + API server + engine
 pip3 install agentbreeder-sdk      # lightweight SDK only
 ```
 
-> `brew install` and `npx` support are coming soon.
-
-> **macOS / command not found?** See the [troubleshooting section below.](#agentbreeder-command-not-found)
-
-**Prerequisites** — Python 3.11+, Docker 24+, Node.js 18+ (for MCP servers). Full table: [Quickstart → Prerequisites](quickstart#prerequisites).
+Requires Python 3.11+. `brew` and `npx` support coming soon. macOS users hitting `command not found` — see [Troubleshooting](#troubleshooting).
 
 ---
 
-## Configure a provider from the v2 catalog
+## Configure a provider
 
-v2 ships nine OpenAI-compatible providers as catalog presets — Nvidia NIM, OpenRouter, Moonshot/Kimi, Groq, Together, Fireworks, DeepInfra, Cerebras, Hyperbolic. To use any of them, you only need to set the API key.
+v2 ships nine OpenAI-compatible providers as catalog presets — Nvidia NIM, OpenRouter, Moonshot/Kimi, Groq, Together, Fireworks, DeepInfra, Cerebras, Hyperbolic. To use any of them you only need an API key.
 
 ```bash
-# 1. List the catalog (built-in presets + your user-local entries)
 agentbreeder provider list
-
-# 2. Stash the key in your workspace secrets backend (OS keychain by default)
 agentbreeder secret set NVIDIA_API_KEY
-
-# 3. (Optional) Validate the connection
 agentbreeder provider test nvidia
 ```
-
-Reference any provider/model from `agent.yaml`:
 
 ```yaml
 model:
@@ -56,7 +43,7 @@ model:
   fallback: groq/mixtral-8x7b-32768
 ```
 
-For private or self-hosted endpoints (vLLM, internal mirrors), add a user-local entry:
+For private/self-hosted endpoints (vLLM, internal mirrors), add a user-local entry:
 
 ```bash
 agentbreeder provider add my-vllm \
@@ -65,152 +52,36 @@ agentbreeder provider add my-vllm \
   --api-key-env COMPANY_VLLM_KEY
 ```
 
-Full reference: [Providers](providers) · [Gateways](gateways) · [Secrets](secrets).
+Full reference — [Providers](providers) · [Gateways](gateways) · [Secrets](secrets).
 
 ---
 
-## Manage workspace secrets
+## Manage secrets
 
-v2 binds secrets to the workspace, not to environment variables. The default backend is the OS keychain on local CLI installs; cloud and team installs default to AWS Secrets Manager and Vault respectively.
+Secrets are bound to the workspace, not env vars. Default backend: OS keychain locally, AWS Secrets Manager / Vault for cloud and team installs.
 
 ```bash
-agentbreeder secret set OPENAI_API_KEY    # prompted securely; never echoed
-agentbreeder secret list                  # names + masked metadata; values are NEVER printed
-agentbreeder secret rotate OPENAI_API_KEY # paste the new value when prompted
-agentbreeder secret sync --target gcp     # mirror to the target cloud's native store
+agentbreeder secret set OPENAI_API_KEY    # prompted; never echoed
+agentbreeder secret list                  # values are NEVER printed
+agentbreeder secret rotate OPENAI_API_KEY
+agentbreeder secret sync --target gcp     # mirror to cloud-native store
 ```
 
-`agentbreeder deploy` automatically mirrors the secrets your `agent.yaml` declares (`deploy.secrets:`) into the target cloud's secret store under `agentbreeder/&#123;agent&#125;/&#123;secret&#125;`, grants the runtime SA scoped read access, and wires the container env to the cloud-native secret reference. Plaintext never lives on disk in the deploy bundle.
-
-Full reference: [Secrets](secrets).
+`agentbreeder deploy` automatically mirrors `deploy.secrets:` into the target cloud's secret store under `agentbreeder/{agent}/{secret}`, grants the runtime SA scoped read access, and wires the env. Plaintext never lives on disk. Full reference — [Secrets](secrets).
 
 ---
 
 ## Scaffold a new agent
 
-Use `agentbreeder init` to create a new agent project interactively, or use the `/agent-build` Claude Code skill for a guided advisory experience.
+`agentbreeder init` runs an interactive wizard. The Claude Code skill `/agent-build` adds a guided advisory experience with two paths:
 
-It supports two paths:
+- **Fast Path** — six questions, then scaffold (you know your stack)
+- **Advisory Path** — describe your use case; it recommends framework, model, RAG, memory, MCP, deploy, evals — with reasoning — before scaffolding
 
-- **Fast Path** — you know your stack. Six quick questions, then scaffold.
-- **Advisory Path** — you describe your use case. It recommends the best framework, model, RAG, memory, MCP/A2A, deployment, and eval setup — with reasoning — before scaffolding begins.
-
-### Fast Path
-
-```
-$ /agent-build
-
-Do you already know your stack, or would you like me to recommend?
-(a) I know my stack — I'll ask 6 quick questions and scaffold your project
-(b) Recommend for me — ...
-
-> a
-
-What should we call this agent?
-> support-agent
-
-What will this agent do?
-> Handle tier-1 customer support tickets
-
-Which framework?
-1. LangGraph  2. CrewAI  3. Claude SDK  4. OpenAI Agents  5. Google ADK  6. Custom
-> 1
-
-Where will it run?
-1. Local  2. AWS  3. GCP  4. Azure  5. Kubernetes
-> 2
-
-What tools should this agent have?
-> zendesk lookup, knowledge base search
-
-Team name and owner email? [engineering / you@company.com]
-> (enter)
-
-┌─────────────────────────────────────┐
-│  Framework   LangGraph              │
-│  Cloud       AWS (ECS Fargate)      │
-│  Model       gpt-4o                 │
-│  Tools       zendesk, kb-search     │
-│  Team        engineering            │
-└─────────────────────────────────────┘
-Look good? I'll generate your project. > yes
-
-✓ 10 files generated in support-agent/
-```
-
-### Advisory Path
-
-```
-$ /agent-build
-
-> b
-
-What problem does this agent solve, and for whom?
-> Reduce tier-1 support tickets for our SaaS by deflecting common questions
-
-What does the agent need to do, step by step?
-> User sends ticket → search knowledge base → look up order status →
-  respond if found, escalate to human if not
-
-Does your agent need: (a) loops/retries (b) checkpoints (c) human-in-the-loop
-(d) parallel branches (e) none
-> a, c
-
-Primary cloud provider? (a) AWS (b) GCP (c) Azure (d) Local
-Language preference?    (a) Python (b) TypeScript (c) No preference
-> a  a
-
-What data does this agent work with?
-(a) Unstructured docs  (b) Structured DB  (c) Knowledge graph
-(d) Live APIs          (e) None
-> a, d
-
-Traffic pattern?
-(a) Real-time interactive  (b) Async batch
-(c) Event-driven           (d) Internal/low-volume
-> a
-
-── Recommendations ───────────────────────────────
-  Framework   LangGraph — Full Code
-  Model       claude-sonnet-4-6
-  RAG         Vector (pgvector)
-  Memory      Short-term (Redis)
-  MCP         MCP servers
-  Deploy      ECS Fargate
-  Evals       deflection-rate, CSAT, escalation-rate
-
-Override anything, or proceed? > proceed
-
-✓ 19 files generated in support-agent/
-```
-
-### What gets generated
-
-| File / Directory | Purpose | Path |
-|-----------------|---------|------|
-| `agent.yaml` | AgentBreeder config — framework, model, deploy, tools, guardrails | Both paths |
-| `agent.py` | Framework entrypoint | Both paths |
-| `tools/` | Tool stub files, one per tool named in the interview | Both paths |
-| `requirements.txt` | Framework + provider dependencies | Both paths |
-| `.env.example` | Required API keys and env vars | Both paths |
-| `Dockerfile` | Multi-stage container image | Both paths |
-| `deploy/` | `docker-compose.yml` or cloud deploy config | Both paths |
-| `criteria.md` | Eval criteria | Both paths |
-| `README.md` | Project overview + quick-start | Both paths |
-| `memory/` | Redis / PostgreSQL setup | Advisory (if recommended) |
-| `rag/` | Vector or Graph RAG index + ingestion scripts | Advisory (if recommended) |
-| `mcp/servers.yaml` | MCP server references | Advisory (if recommended) |
-| `tests/evals/` | Eval harness + use-case criteria | Advisory |
-| `ARCHITECT_NOTES.md` | Reasoning behind every recommendation | Advisory |
-| `CLAUDE.md` | Agent-specific Claude Code context | Advisory |
-| `AGENTS.md` | AI skill roster for iterating on this agent | Advisory |
-| `.cursorrules` | Framework-specific Cursor IDE rules | Advisory |
-| `.antigravity.md` | Hard constraints for this agent | Advisory |
-
-### After scaffolding
+Both produce the same artifacts: `agent.yaml`, `agent.py`, `tools/`, `requirements.txt`, `.env.example`, `Dockerfile`, `deploy/`, `criteria.md`, `README.md`. Advisory adds `memory/`, `rag/`, `mcp/servers.yaml`, `tests/evals/`, `ARCHITECT_NOTES.md`, plus IDE context files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `.antigravity.md`).
 
 ```bash
-cd support-agent/
+cd my-agent/
 agentbreeder validate
 agentbreeder deploy --target local
 agentbreeder chat
@@ -218,625 +89,250 @@ agentbreeder chat
 
 ---
 
-## Deploy to Different Targets
+## Deploy to different targets
 
-### Local (Docker Compose)
+| Target | Command | `cloud:` |
+|---|---|---|
+| Local Docker Compose | `agentbreeder deploy agent.yaml --target local` | `local` |
+| GCP Cloud Run | `agentbreeder deploy agent.yaml --target cloud-run --region us-central1` | `gcp` |
+| AWS ECS Fargate | `agentbreeder deploy agent.yaml --target ecs-fargate --region us-east-1` | `aws` |
+| AWS App Runner | `agentbreeder deploy agent.yaml --target app-runner --region us-east-1` | `aws` |
+| Azure Container Apps | `agentbreeder deploy agent.yaml --target container-apps` | `azure` |
+| Kubernetes (EKS / GKE / AKS) | `agentbreeder deploy agent.yaml --target kubernetes` | `kubernetes` |
+| Anthropic Claude Managed | `agentbreeder deploy agent.yaml --target claude-managed` | `claude-managed` |
 
-```bash
-agentbreeder deploy agent.yaml --target local
-```
+Cloud auth is the standard CLI for each provider (`gcloud auth login`, `aws configure`, `az login`, `kubectl` context). Secrets named in `deploy.secrets:` must already exist in the target cloud's secret store — or use `agentbreeder secret sync --target <cloud>`.
 
-No cloud credentials needed. Starts a Docker Compose stack on your machine.
+### Reference: GCP Cloud Run end-to-end
 
-### GCP Cloud Run
-
-```bash
-gcloud auth login
-gcloud config set project my-project
-agentbreeder deploy agent.yaml --target cloud-run --region us-central1
-```
-
-```yaml
-deploy:
-  cloud: gcp
-  region: us-central1
-  scaling:
-    min: 0        # scale to zero when idle
-    max: 10
-  secrets:
-    - OPENAI_API_KEY    # must exist in GCP Secret Manager
-```
-
-#### One-shot script (verified end-to-end)
-
-The reference example `microlearning-ebook-agent` ships a `scripts/deploy_gcp.sh` that automates the full chain — APIs, Artifact Registry, Secret Manager, Cloud Build, Cloud Run — in a single command. The script bundles the agentbreeder engine alongside the agent project via `Dockerfile.cloudrun`.
+The `microlearning-ebook-agent` example ships a verified `scripts/deploy_gcp.sh` that automates the full chain — APIs, Artifact Registry, Secret Manager, Cloud Build, Cloud Run — in one command:
 
 ```bash
 cd microlearning-ebook-agent/
 ./scripts/deploy_gcp.sh
 ```
 
-What the script does:
+Defaults: region `us-central1`, 2 GiB / 2 vCPU, scale `0 → 5`, concurrency 10, port 8080, `--allow-unauthenticated` (auth happens at the agent layer via bearer token).
 
-1. `gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com`
-2. Ensures the Artifact Registry repo (default `hippokit`) exists in the configured region
-3. Pushes secrets (`GOOGLE_API_KEY`, `TAVILY_API_KEY`, `AGENT_AUTH_TOKEN`) to Secret Manager
-4. `gcloud builds submit . --config <generated cloudbuild.yaml>` (~3 min build)
-5. `gcloud run deploy <name> --image <image> --update-secrets ...`
-
-#### IAM grants (one-time per project)
-
-| Service account | Role | Why |
-|---|---|---|
-| Cloud Build SA (`<project-num>-compute@developer.gserviceaccount.com`) | `roles/storage.objectViewer` | Read source tarball |
-| Cloud Build SA | `roles/cloudbuild.builds.builder` | Create builds |
-| Cloud Build SA | `roles/logging.logWriter` | Write build logs |
-| Cloud Run runtime SA (same default SA) | `roles/secretmanager.secretAccessor` | Mount secrets as env vars |
-
-#### Cloud Run defaults
-
-Region `us-central1`, 2 GiB memory, 2 vCPU, scaling `min=0` / `max=5`, concurrency 10, port 8080, `--allow-unauthenticated` (auth happens at the agent layer via bearer token — see [chat with a deployed agent](#chat-with-a-deployed-agent) below).
+One-time IAM grants for the Cloud Build SA (`<project-num>-compute@developer.gserviceaccount.com`):
+`roles/storage.objectViewer`, `roles/cloudbuild.builds.builder`, `roles/logging.logWriter`, `roles/secretmanager.secretAccessor`.
 
 <Callout type="info" title="Shrink your upload">
-  Add a `.gcloudignore` at the repo root to drop venvs, build artifacts, and worktrees from the source upload. On the reference project this took the upload from **578 MB to 22 MB**.
+  Add a `.gcloudignore` at the repo root. On the reference project this took the upload from **578 MB to 22 MB**.
 </Callout>
-
-### AWS ECS Fargate
-
-```bash
-export AWS_ACCOUNT_ID=123456789012
-export AWS_REGION=us-east-1
-agentbreeder deploy agent.yaml --target ecs-fargate --region us-east-1
-```
-
-```yaml
-deploy:
-  cloud: aws
-  runtime: ecs-fargate
-  region: us-east-1
-  env_vars:
-    AWS_ACCOUNT_ID: "123456789012"
-    AWS_REGION: us-east-1
-  secrets:
-    - OPENAI_API_KEY    # must exist in AWS Secrets Manager
-```
-
-### AWS App Runner (serverless — no VPC or ALB needed)
-
-```bash
-agentbreeder deploy agent.yaml --target app-runner --region us-east-1
-```
-
-### Azure Container Apps
-
-```bash
-agentbreeder deploy agent.yaml --target container-apps
-```
-
-### Kubernetes (EKS / GKE / AKS / self-hosted)
-
-```bash
-# ensure kubectl context points at the target cluster
-agentbreeder deploy agent.yaml --target kubernetes
-```
-
-### Anthropic Claude Managed Agents
-
-```bash
-agentbreeder deploy agent.yaml --target claude-managed
-```
-
-```yaml
-deploy:
-  cloud: claude-managed
-  secrets:
-    - ANTHROPIC_API_KEY
-
-claude_managed:
-  environment:
-    networking: unrestricted
-  tools:
-    - type: agent_toolset_20260401
-```
 
 ---
 
 ## Push prompts and tools to the registry
 
-Agents reference **prompts** and **tools** from the registry instead of inlining them. Each entity has a kebab-case name, is versioned, and is resolved at agent startup (file-first — local override always wins).
-
-### 1. Get a JWT and export it
-
-Every management API route under `/api/v1/*` is auth-gated (247/247 routes). Bootstrap a token once per session.
+Agents reference **prompts** and **tools** from the registry instead of inlining them. Each entity is kebab-cased, versioned, and resolved at agent startup (file-first — local override always wins).
 
 ```bash
-# Login (or POST /api/v1/auth/register first if you don't have an account)
+# 1. Auth (every /api/v1/* route is auth-gated)
 curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"you@company.com","password":"…"}'
-# → {"access_token": "eyJ…", "token_type": "bearer"}
-
 export AGENTBREEDER_API_TOKEN=eyJ…
+
+# 2. Push a prompt (semver auto-bumps on update)
+agentbreeder registry prompt push prompts/system.md \
+  --version 1.0.0 --team eng --description "..."
+
+# 3. Push a tool — extension auto-detected
+agentbreeder registry tool push tools/my_tool.py        # python:/abs/path
+agentbreeder registry tool push tools/my_tool.ts        # node:/abs/path
+agentbreeder registry tool push engine.tools.standard.web_search  # in-process
 ```
 
-The CLI reads `AGENTBREEDER_API_TOKEN` automatically.
-
-### 2. Push a prompt
-
-```bash
-agentbreeder registry prompt push prompts/microlearning-system.md \
-  --version 1.0.0 \
-  --team eng \
-  --description "System prompt for the microlearning ebook agent"
-
-agentbreeder registry prompt list --team eng
-```
-
-Versions auto-bump on save — calling `update_content` on an existing prompt bumps the semver patch (e.g. `1.0.0 → 1.0.1`).
-
-### 3. Push a tool — Python or TypeScript
-
-The CLI auto-detects the file extension and sets the right endpoint prefix on the registry record. You don't have to specify it.
-
-<Tabs items={['Python', 'TypeScript', 'Module path']}>
-  <Tab value="Python">
-```bash
-agentbreeder registry tool push tools/my_tool.py \
-  --description "Look up orders by ID"
-# Endpoint stored as:  python:/abs/path/to/tools/my_tool.py
-```
-  </Tab>
-  <Tab value="TypeScript">
-```bash
-agentbreeder registry tool push tools/my_tool.ts \
-  --description "Order lookup (Node)"
-# Endpoint stored as:  node:/abs/path/to/tools/my_tool.ts
-```
-  </Tab>
-  <Tab value="Module path">
-```bash
-agentbreeder registry tool push engine.tools.standard.web_search
-# Endpoint stored as-is for in-process Python import
-```
-  </Tab>
-</Tabs>
-
-```bash
-agentbreeder registry tool list
-```
-
-### 4. Verify in the dashboard
-
-| Page | What you'll see |
-|---|---|
-| `/prompts` | All registered prompts, with versions and a **Test** tab that runs a real Gemini call |
-| `/prompts/:id` | Versioned content, render history |
-| `/tools` | All registered tools, with endpoint type badges |
-| `/tools/:id` | Tool detail with the **Try it** tab — see [next recipe](#run-a-registered-tool-from-cli-or-dashboard) |
+Verify in the dashboard at `/prompts` (with **Test** tab) and `/tools` (with **Try it** tab).
 
 ---
 
-## Run a registered tool from CLI or dashboard
-
-Once a tool is in the registry, you can execute it with structured args from anywhere — CLI, dashboard, or directly via the API.
-
-### CLI
+## Run a registered tool
 
 ```bash
 agentbreeder registry tool run web-search \
   --args '{"query":"What is RAG?","max_results":2}'
 ```
 
-### Dashboard
+`engine/tool_runner.py` dispatches based on the `endpoint` field:
 
-Navigate to `/tools/<id>` → **Try it** tab. The form is auto-generated from the tool's `SCHEMA`. Fill in arguments → click **Run** → the result panel shows `output`, `stdout`, `stderr`, `exit_code`, `duration_ms`, and any `error`.
+| Prefix | Dispatcher | Latency |
+|---|---|---|
+| `engine.tools.standard.<name>` | In-process Python import | ~25 ms |
+| `python:<abs_path>` | Python subprocess | ~50 ms |
+| `node:<abs_path>` | Node subprocess via `npx tsx` | ~1.5 s cold |
+| `http(s)://...` | HTTP POST with JSON body | network-bound |
 
-### API (under the hood)
-
-```
-POST /api/v1/registry/tools/{tool_id}/execute
-```
-
-Auth: `deployer` role required. Returns `{output, stdout, stderr, exit_code, duration_ms, error}`.
-
-### Endpoint dispatch — four flavors
-
-`engine/tool_runner.py` dispatches the call based on the `endpoint` field on the tool record:
-
-| Prefix | Dispatcher | Example tool | Typical latency |
-|---|---|---|---|
-| `engine.tools.standard.<name>` | In-process Python import | `markdown-writer` | ~25 ms |
-| `python:<abs_path>` | Python subprocess | `get-current-time` | ~50 ms |
-| `node:<abs_path>` | Node subprocess via `npx tsx` | `get-utc-time` | ~1.5 s cold |
-| `http(s)://...` | HTTP POST with JSON body | (configurable) | network-bound |
-
-The standard library ships with `web_search` (Tavily) and `markdown_writer` out of the box.
+Standard library ships with `web_search` (Tavily) and `markdown_writer`.
 
 ---
 
 ## Chat with a deployed agent
 
-Once your agent is deployed, you can invoke it three ways: CLI, dashboard, or direct curl. Whichever path you use, runtime auth is enforced via a bearer token (`AGENT_AUTH_TOKEN`) — `/health` stays open for probes, but `/invoke` and `/stream` are gated.
+Three paths — all enforce a runtime bearer token (`AGENT_AUTH_TOKEN`). `/health` stays open; `/invoke` and `/stream` are gated.
 
-### Server-side proxy (preferred)
-
-```
-POST /api/v1/agents/{id}/invoke
-```
-
-This is a thin proxy that POSTs to the agent's deployed runtime `/invoke` endpoint, attaching the bearer token from the request body or the env var `AGENT_<UPPER_SNAKE>_TOKEN`. It solves CORS and keeps secrets server-side.
-
-Body:
-```json
-{
-  "input": "What is your job?",
-  "endpoint_url": "https://microlearning-ebook-agent-sizukgalta-uc.a.run.app",
-  "auth_token": "mle-local-dev-3f7b8c2e",
-  "session_id": "optional-session-id"
-}
-```
-
-Returns `{output, session_id, duration_ms, status_code, error}`.
-
-### CLI
-
+<Tabs items={['CLI', 'curl', 'Server-side proxy']}>
+  <Tab value="CLI">
 ```bash
 agentbreeder registry agent invoke microlearning-ebook-agent \
   --input "What is your job?" \
-  --endpoint https://microlearning-ebook-agent-sizukgalta-uc.a.run.app \
+  --endpoint https://<your-agent>.run.app \
   --token $AGENT_AUTH_TOKEN
 ```
-
-### Dashboard
-
-Navigate to `/agents/:id` → **Invoke** tab. Fill in the endpoint, bearer token, and message → response panel renders the output and auto-fills `session_id` for the next turn (so multi-turn conversations stay coherent).
-
-The `/agents` page also has a **Register from YAML** button — paste an `agent.yaml`, validate, register.
-
-### Direct curl against the runtime
-
-Verified live against `https://microlearning-ebook-agent-sizukgalta-uc.a.run.app`:
-
+  </Tab>
+  <Tab value="curl">
 ```bash
-URL=https://microlearning-ebook-agent-sizukgalta-uc.a.run.app
-TOKEN=mle-local-dev-3f7b8c2e
-
-curl $URL/health
-# {"status":"healthy","agent_name":"microlearning-ebook-agent","version":"0.1.0"}
-
-curl -X POST $URL/invoke \
-  -H "Authorization: Bearer $TOKEN" \
+curl -X POST https://<your-agent>.run.app/invoke \
+  -H "Authorization: Bearer $AGENT_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"input":"What is your job?"}'
-# {"output":"My job is to turn any topic the user supplies into a polished microlearning ebook a learner can complete in 20-40 minutes.","session_id":"…","metadata":null}
 ```
+  </Tab>
+  <Tab value="Server-side proxy">
+```
+POST /api/v1/agents/{id}/invoke
+```
+Body: `{ input, endpoint_url, auth_token, session_id? }`. Solves CORS, keeps secrets server-side. The dashboard `/agents/:id` → **Invoke** tab uses this; `session_id` auto-fills for multi-turn.
+  </Tab>
+</Tabs>
 
 ---
 
-## Use Different Frameworks
+## Use different frameworks
 
-### LangGraph
+Set `framework:` in `agent.yaml`. Each runtime auto-discovers your entrypoint.
 
-```yaml
-framework: langgraph
-model:
-  primary: gpt-4o
-```
+| Framework | `framework:` | Entrypoint discovery |
+|---|---|---|
+| LangGraph | `langgraph` | `app = graph.compile()` in `agent.py` |
+| OpenAI Agents | `openai_agents` | `Agent(...)` in `agent.py` |
+| Claude SDK | `claude_sdk` | `client = anthropic.AsyncAnthropic()` |
+| Google ADK | `google_adk` | `root_agent`, `agent`, or `app` in `agent.py` |
+| CrewAI | `crewai` | `Crew(...)` in `crew.py` (auto-injects `AGENT_MODEL`, `AGENT_TEMPERATURE`) |
+| Custom | `custom` | `def run(user_message: str) -> str` |
 
-```python
-# agent.py
-from langgraph.graph import StateGraph, START, END
-
-graph = StateGraph(State)
-graph.add_node("chatbot", chatbot)
-graph.add_edge(START, "chatbot")
-graph.add_edge("chatbot", END)
-app = graph.compile()
-```
-
-### OpenAI Agents
-
-```yaml
-framework: openai_agents
-model:
-  primary: gpt-4o
-```
-
-```python
-# agent.py
-from agents import Agent, Runner
-
-agent = Agent(name="support-agent", instructions="You are a helpful assistant.")
-result = Runner.run_sync(agent, "Hello!")
-```
-
-### Claude SDK
-
-```yaml
-framework: claude_sdk
-model:
-  primary: claude-sonnet-4-6
-```
-
-```python
-# agent.py
-import anthropic
-
-client = anthropic.AsyncAnthropic()
-agent = client   # AgentBreeder discovers it automatically
-```
-
-#### Adaptive thinking
+### Claude SDK — adaptive thinking + prompt caching
 
 ```yaml
 claude_sdk:
   thinking:
     type: adaptive    # activates thinking when beneficial
     effort: high      # "low" | "medium" | "high"
-```
-
-#### Prompt caching
-
-```yaml
-claude_sdk:
   prompt_caching: true   # cache system prompts ≥8 192 chars (Sonnet)
 ```
 
-### Google ADK
-
-```yaml
-framework: google_adk
-model:
-  primary: gemini-2.0-flash
-```
-
-```python
-# agent.py
-from google.adk.agents import LlmAgent
-
-root_agent = LlmAgent(
-    name="my-agent",
-    model="gemini-2.0-flash",
-    instruction="You are a helpful assistant.",
-)
-```
-
-Export as `root_agent`, `agent`, or `app`.
-
-#### Vertex AI session + memory backends
+### Google ADK — backends
 
 ```yaml
 google_adk:
-  session_backend: vertex_ai
-  memory_service: vertex_ai_bank
+  session_backend: vertex_ai      # or: memory | database
+  session_db_url: ""              # required if backend=database (or DATABASE_URL)
+  memory_service: vertex_ai_bank  # or: memory | vertex_ai_rag
+  artifact_service: gcs
+  gcs_bucket: my-bucket
 ```
 
-#### PostgreSQL session storage (non-GCP)
-
-```yaml
-google_adk:
-  session_backend: database
-  session_db_url: ""   # falls back to DATABASE_URL env var
-```
-
-### CrewAI
-
-```yaml
-framework: crewai
-model:
-  primary: claude-sonnet-4-6
-```
+### CrewAI — hierarchical process
 
 ```python
-# crew.py
-from crewai import Agent, Crew, Task
-
-researcher = Agent(role="Researcher", goal="Research the topic", backstory="...")
-writer = Agent(role="Writer", goal="Write the report", backstory="...")
-
-crew = Crew(
-    agents=[researcher, writer],
-    tasks=[Task(description="Research {topic}", agent=researcher),
-           Task(description="Write a report on {topic}", agent=writer)],
-)
-```
-
-`AGENT_MODEL` and `AGENT_TEMPERATURE` are auto-injected from the top-level `model:` block.
-
-#### Hierarchical process
-
-```python
-from crewai import Process
-
-crew = Crew(
-    agents=[analyst],
-    tasks=[task],
-    manager_agent=manager,
-    process=Process.hierarchical,
-)
-```
-
-### Custom (bring your own)
-
-```yaml
-framework: custom
-model:
-  primary: any-model
-```
-
-```python
-# agent.py
-def run(user_message: str) -> str:
-    return "response"
+from crewai import Crew, Process
+crew = Crew(agents=[analyst], tasks=[task], manager_agent=manager,
+            process=Process.hierarchical)
 ```
 
 ---
 
-## Stream Agent Responses
+## Stream responses
 
-All deployed agents expose a `/stream` endpoint returning [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events).
-
-### curl
+Every deployed agent exposes `/stream` as Server-Sent Events.
 
 ```bash
-curl -N -X POST https://<agent-endpoint>/stream \
+curl -N -X POST https://<agent>/stream \
   -H "Content-Type: application/json" \
   -d '{"input": "Write a report on renewable energy"}'
 ```
 
-### JavaScript
-
-```javascript
-const response = await fetch("https://<agent-endpoint>/stream", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ input: "Write a report on renewable energy" }),
-});
-
-const reader = response.body.getReader();
-const decoder = new TextDecoder();
-
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  for (const line of decoder.decode(value).split("\n")) {
-    if (line.startsWith("data: ")) {
-      const data = line.slice(6);
-      if (data === "[DONE]") break;
-      const event = JSON.parse(data);
-      if (event.text) process.stdout.write(event.text);
-    }
-  }
-}
-```
-
-### Python
-
 ```python
 import httpx, json
-
-with httpx.stream("POST", "https://<agent-endpoint>/stream",
-                  json={"input": "Write a report"}) as r:
+with httpx.stream("POST", "https://<agent>/stream", json={"input": "..."}) as r:
     for line in r.iter_lines():
         if line.startswith("data: "):
             data = line[6:]
             if data == "[DONE]": break
             event = json.loads(data)
-            if "text" in event:
-                print(event["text"], end="", flush=True)
+            if "text" in event: print(event["text"], end="", flush=True)
 ```
 
-### SSE event format by framework
-
 | Framework | Event type | Payload |
-|-----------|-----------|---------|
-| Claude SDK | `data:` | `{"text": "..."}` — one event per chunk |
-| CrewAI (step) | `event: step` | `{"description": "...", "result": "..."}` |
-| CrewAI (final) | `event: result` | `{"output": "..."}` |
+|---|---|---|
+| Claude SDK | `data:` | `{"text": "..."}` per chunk |
+| CrewAI | `event: step` / `event: result` | `{"description","result"}` / `{"output"}` |
 | Google ADK | `data:` | `{"text": "...", "is_final": false}` |
 | All | `data:` | `[DONE]` — end of stream |
 
 ---
 
-## Use Local Models with Ollama
+## Use local models with Ollama
+
+`agentbreeder quickstart` installs Ollama and pulls `gemma3` automatically. Manually:
 
 ```bash
 brew install ollama
 ollama serve &
-ollama pull gemma4   # or: llama3, mistral, phi4
+ollama pull gemma3      # or: llama3.2, mistral, phi4-mini, qwen2.5
 ```
 
 ```yaml
-# agent.yaml
 model:
-  primary: ollama/gemma4
+  primary: ollama/gemma3
   gateway: ollama
 ```
 
-```bash
-agentbreeder deploy agent.yaml --target local
-```
-
-No data leaves your machine.
+No data leaves the machine.
 
 ---
 
-## Configure LLM Providers
+## Route through the model gateway
 
-```bash
-agentbreeder provider add openai    --api-key sk-...
-agentbreeder provider add anthropic --api-key sk-ant-...
-agentbreeder provider add google    --credentials-file sa.json
-agentbreeder provider add ollama    --base-url http://localhost:11434
-agentbreeder provider list
-```
-
-### Fallback chains
-
-```yaml
-model:
-  primary: claude-sonnet-4
-  fallback: gpt-4o          # used if primary is unavailable or rate-limited
-```
-
----
-
-## Route Calls Through the Model Gateway
-
-AgentBreeder ships with a self-hosted [LiteLLM proxy](/docs/gateway) that adds budget enforcement, PII guardrails, Redis caching, and live spend tracking across all your agents. Set `model.gateway: litellm` in `agent.yaml` to opt in:
+AgentBreeder ships a self-hosted [LiteLLM proxy](/docs/gateway) at `:4000` that adds budget enforcement, PII guardrails, Redis caching, and live spend tracking.
 
 ```yaml
 model:
   primary: claude-sonnet-4
   fallback: gpt-4o
-  gateway: litellm            # route through the LiteLLM proxy at :4000
+  gateway: litellm
 ```
 
-When the gateway is active:
-- Every LLM call goes through `http://litellm:4000/v1/chat/completions` using the agent's scoped virtual key
-- The LiteLLM proxy handles retries, fallbacks, rate limiting, and caching
-- Cost is tracked per agent and per team — visible in the **Costs** dashboard
-
-```bash
-# Check gateway health
-curl http://localhost:4000/health
-
-# View gateway status in the dashboard
-agentbreeder status --gateway
-```
-
-See [Model Gateway](/docs/gateway) for full configuration: provider routing, team budgets, Presidio PII guardrails, and OTEL traces.
+When active: every LLM call routes through the proxy with the agent's scoped virtual key; cost is tracked per agent and per team in the **Costs** dashboard.
 
 ---
 
-## Manage Secrets
+## Secrets backends
 
-Four backends — agents reference secrets by name regardless of backend.
+Agents reference secrets by name regardless of backend.
 
-<Tabs items={['Env vars', 'AWS Secrets Manager', 'GCP Secret Manager', 'HashiCorp Vault']}>
+<Tabs items={['Env vars', 'AWS', 'GCP', 'Vault']}>
   <Tab value="Env vars">
 ```bash
-# .env
-OPENAI_API_KEY=sk-...
+echo 'OPENAI_API_KEY=sk-...' >> .env
 ```
 ```yaml
 deploy:
-  secrets:
-    - OPENAI_API_KEY
+  secrets: [OPENAI_API_KEY]
 ```
   </Tab>
-  <Tab value="AWS Secrets Manager">
+  <Tab value="AWS">
 ```bash
 agentbreeder secret set OPENAI_API_KEY --backend aws --value sk-...
-agentbreeder secret list --backend aws
 ```
   </Tab>
-  <Tab value="GCP Secret Manager">
+  <Tab value="GCP">
 ```bash
 agentbreeder secret set OPENAI_API_KEY --backend gcp --value sk-...
 ```
   </Tab>
-  <Tab value="HashiCorp Vault">
+  <Tab value="Vault">
 ```bash
 agentbreeder secret set OPENAI_API_KEY --backend vault --value sk-...
 ```
@@ -845,12 +341,10 @@ agentbreeder secret set OPENAI_API_KEY --backend vault --value sk-...
 
 ---
 
-## Orchestrate Multiple Agents
-
-### Strategy overview
+## Orchestrate multiple agents
 
 | Strategy | Use case |
-|----------|----------|
+|---|---|
 | `router` | Classify request, route to the right agent |
 | `sequential` | Agents run in order, passing state |
 | `parallel` | All agents run simultaneously |
@@ -858,61 +352,35 @@ agentbreeder secret set OPENAI_API_KEY --backend vault --value sk-...
 | `supervisor` | Supervisor reviews and corrects |
 | `fan_out_fan_in` | Fan out to workers, aggregate results |
 
-### Router pipeline (orchestration.yaml)
-
 ```yaml
+# orchestration.yaml
 name: support-pipeline
-version: "1.0.0"
-team: customer-success
 strategy: router
-
+team: customer-success
 agents:
   triage:
     ref: agents/triage-agent
     routes:
-      - condition: billing   target: billing
-      - condition: technical  target: technical
-      - condition: default    target: general
-  billing:   ref: agents/billing-agent
-  technical: ref: agents/technical-agent
-  general:   ref: agents/general-agent
-
-shared_state:
-  type: session_context
-  backend: redis
-
-deploy:
-  target: local
+      - { condition: billing,   target: billing }
+      - { condition: technical, target: technical }
+      - { condition: default,   target: general }
+  billing:   { ref: agents/billing-agent }
+  technical: { ref: agents/technical-agent }
+  general:   { ref: agents/general-agent }
+shared_state: { type: session_context, backend: redis }
+deploy: { target: local }
 ```
 
 ```bash
-agentbreeder orchestration validate orchestration.yaml
 agentbreeder orchestration deploy orchestration.yaml
 agentbreeder orchestration chat support-pipeline
 ```
 
-### Programmatic (Full Code SDK)
-
-```python
-from agenthub import Orchestration
-
-pipeline = (
-    Orchestration("support-pipeline", strategy="router", team="eng")
-    .add_agent("triage",  ref="agents/triage-agent")
-    .add_agent("billing", ref="agents/billing-agent")
-    .add_agent("general", ref="agents/general-agent")
-    .with_route("triage", condition="billing", target="billing")
-    .with_route("triage", condition="default", target="general")
-    .with_shared_state(state_type="session_context", backend="redis")
-)
-pipeline.deploy()
-```
+Programmatic equivalent: see [Full Code →](full-code).
 
 ---
 
 ## Use the Python SDK
-
-See [Full Code →](full-code) for the complete SDK reference. Quick example:
 
 ```python
 from agenthub import Agent
@@ -924,19 +392,20 @@ agent = (
     .with_prompts(system="prompts/support-system-v3")
     .with_deploy(cloud="gcp", min_scale=1, max_scale=10)
 )
-
-agent.to_yaml("agent.yaml")   # export
-agent.deploy()                # or deploy directly
+agent.to_yaml("agent.yaml")
+agent.deploy()
 ```
+
+Full reference: [Full Code →](full-code).
 
 ---
 
-## Migrate from Another Framework
+## Migrate from another framework
 
-Wrap existing agent code in `agent.yaml` without rewriting it.
+Wrap existing code in `agent.yaml` without rewriting it.
 
-| From | Set `framework:` | Guide |
-|------|-----------------|-------|
+| From | `framework:` | Guide |
+|---|---|---|
 | LangGraph | `langgraph` | [FROM_LANGGRAPH.md](migrations/FROM_LANGGRAPH.md) |
 | OpenAI Agents | `openai_agents` | [FROM_OPENAI_AGENTS.md](migrations/FROM_OPENAI_AGENTS.md) |
 | CrewAI | `crewai` | [FROM_CREWAI.md](migrations/FROM_CREWAI.md) |
@@ -945,133 +414,81 @@ Wrap existing agent code in `agent.yaml` without rewriting it.
 
 ---
 
-## Eject from YAML to Full Code
+## Eject between tiers
 
 ```bash
-agentbreeder eject my-agent --to code    # YAML → Python/TypeScript SDK
-agentbreeder eject my-agent --to yaml    # No Code dashboard export → YAML
+agentbreeder eject my-agent --to code    # YAML → Python/TS SDK
+agentbreeder eject my-agent --to yaml    # Visual builder → YAML
 ```
 
-Your original `agent.yaml` is preserved. Tier mobility: No Code → Low Code → Full Code — no lock-in.
+`agent.yaml` is preserved. No Code → Low Code → Full Code, no lock-in.
 
 ---
 
-## Use MCP Servers
-
-```yaml
-# agent.yaml
-tools:
-  - ref: mcp-servers/zendesk
-  - ref: mcp-servers/slack
-```
+## MCP, RBAC, costs, git, evals, templates, teardown
 
 ```bash
-agentbreeder scan              # auto-discover MCP servers
-agentbreeder list tools        # list registered servers
+# MCP
+agentbreeder scan                        # discover servers
+agentbreeder list tools
+
+# Costs
+agentbreeder list costs --group-by team  # also: --group-by agent | model
+
+# Git workflow
+agentbreeder submit agent.yaml --title "..."
+agentbreeder review approve 42
+agentbreeder publish 42
+
+# Evals
+agentbreeder eval run --agent support-agent --dataset tests.json
+agentbreeder eval results --agent support-agent
+
+# Templates
+agentbreeder template use customer-support --name my-agent
+agentbreeder template create --from agent.yaml --name "My Template"
+
+# Teardown
+agentbreeder teardown support-agent [--force]
 ```
 
-See [MCP Servers →](mcp-servers) for the full lifecycle (build, register, test, deploy).
-
----
-
-## Manage Teams and RBAC
+RBAC is enforced at deploy time and cannot be bypassed:
 
 ```yaml
 team: customer-success
 owner: alice@company.com
-
 access:
-  visibility: team              # public | team | private
-  allowed_callers:
-    - team:engineering
-    - team:customer-success
-  require_approval: false       # true = deploys need admin approval
+  visibility: team           # public | team | private
+  allowed_callers: [team:engineering, team:customer-success]
+  require_approval: false
 ```
 
-At deploy time: RBAC is checked → cost attributed to team → audit entry written. There is no way to bypass this.
+Full lifecycle for each: [MCP Servers](mcp-servers) · [Evaluations](evaluations).
 
 ---
 
-## Track Costs
+## CI/CD
 
-```bash
-agentbreeder list costs --group-by team
-agentbreeder list costs --group-by agent
-agentbreeder list costs --group-by model
-```
+The `rajits/agentbreeder-cli` Docker image is the recommended way to run AgentBreeder in pipelines.
 
-Every LLM call is logged automatically with token counts, model, team, agent, and timestamp.
-
----
-
-## Use the Git Workflow
-
-```bash
-agentbreeder submit agent.yaml --title "Update support agent prompt"
-
-agentbreeder review list
-agentbreeder review approve 42
-agentbreeder review reject 42 --comment "Needs guardrails for PII"
-
-agentbreeder publish 42    # merge, bump version, update registry
-```
-
----
-
-## Run Evaluations
-
-```bash
-agentbreeder eval run     --agent support-agent --dataset golden-test-cases.json
-agentbreeder eval results --agent support-agent
-```
-
----
-
-## Use Agent Templates
-
-```bash
-agentbreeder template list
-agentbreeder template use customer-support --name my-support-agent
-agentbreeder template create --from agent.yaml --name "My Template"
-```
-
----
-
-## Teardown a Deployed Agent
-
-```bash
-agentbreeder teardown support-agent          # with confirmation
-agentbreeder teardown support-agent --force  # no confirmation
-```
-
-Stops the agent, removes the container, archives the registry entry. Audit log is preserved.
-
----
-
-## Use AgentBreeder in CI/CD
-
-### GitHub Actions
-
+<Tabs items={['GitHub Actions', 'GitLab CI']}>
+  <Tab value="GitHub Actions">
 ```yaml
 # .github/workflows/deploy-agent.yml
 name: Deploy Agent
 on:
   push:
     paths: ['agents/support-agent/**']
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate
-        run: docker run --rm -v $PWD:/work -w /work rajits/agentbreeder-cli validate agents/support-agent/agent.yaml
-      - name: Deploy
-        run: docker run --rm -v $PWD:/work -w /work -e GOOGLE_APPLICATION_CREDENTIALS=/work/sa.json rajits/agentbreeder-cli deploy agents/support-agent/agent.yaml --target cloud-run
+      - run: docker run --rm -v $PWD:/work -w /work rajits/agentbreeder-cli validate agents/support-agent/agent.yaml
+      - run: docker run --rm -v $PWD:/work -w /work -e GOOGLE_APPLICATION_CREDENTIALS=/work/sa.json rajits/agentbreeder-cli deploy agents/support-agent/agent.yaml --target cloud-run
 ```
-
-### GitLab CI
-
+  </Tab>
+  <Tab value="GitLab CI">
 ```yaml
 deploy-agent:
   image: rajits/agentbreeder-cli:latest
@@ -1079,23 +496,17 @@ deploy-agent:
     - agentbreeder validate agents/support-agent/agent.yaml
     - agentbreeder deploy agents/support-agent/agent.yaml --target cloud-run
 ```
+  </Tab>
+</Tabs>
 
 ---
 
-## Run the Platform with Docker Compose
+## Run the platform with Docker Compose
 
-The quickest way to start the dashboard and API together is:
-
-```bash
-agentbreeder ui
-```
-
-This pulls and starts the pre-built images (dashboard, API, PostgreSQL, Redis) and opens **http://localhost:3001** automatically. Deployed agents appear in the **Agents** tab once they are registered.
-
-Alternatively, you can start the stack directly with Docker Compose:
+`agentbreeder ui` is the fastest path — pulls pre-built images and opens **http://localhost:3001**. Or run compose directly:
 
 ```bash
-# Standalone — pre-built images, no repo clone needed
+# Standalone — no repo clone
 curl -O https://raw.githubusercontent.com/agentbreeder/agentbreeder/main/deploy/docker-compose.standalone.yml
 docker compose -f docker-compose.standalone.yml up -d
 
@@ -1104,78 +515,31 @@ docker compose -f deploy/docker-compose.yml up -d
 ```
 
 | Service | URL |
-|---------|-----|
+|---|---|
 | Dashboard | http://localhost:3001 |
 | API | http://localhost:8000 |
 | API Docs | http://localhost:8000/docs |
 
-Default login: `admin@agentbreeder.local` / `plant`
+Default login: `admin@agentbreeder.local` / `plant`. **Change this before exposing to a network.**
 
-<Callout type="warn" title="Warning">
-  Change the default password before exposing this to a network.
-</Callout>
+### Networking from inside a container
 
-### Docker networking: localhost vs host.docker.internal
+`localhost` inside a container is the container itself. To reach the AgentBreeder API from a deployed agent:
 
-From your **host terminal**, the API is at `http://localhost:8000` and the dashboard at `http://localhost:3001`.
-
-From **inside a Docker container** (e.g. a deployed agent), `localhost` resolves to the container itself — not your host machine. Use these addresses instead:
-
-| Host OS | Address to reach the AgentBreeder API |
-|---------|--------------------------------------|
+| Host OS | Address |
+|---|---|
 | macOS / Windows (Docker Desktop) | `http://host.docker.internal:8000` |
 | Linux | `http://172.17.0.1:8000` (default Docker bridge) |
-
-If you hard-code `localhost:8000` inside an agent container, the agent will fail to reach the API. Reference `host.docker.internal:8000` in your `agent.yaml` `env_vars` or secrets instead.
 
 ---
 
 ## Troubleshooting
 
-### "agentbreeder: command not found"
-
-This almost always means pip's script directory is not in your `PATH`.
-
-```bash
-pip3 show agentbreeder           # confirm it's installed and see Location
-
-# macOS — find where pip installed the script:
-python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"
-
-# Add that directory to your shell (e.g. ~/.zshrc or ~/.bashrc):
-export PATH="$HOME/Library/Python/3.x/bin:$PATH"   # adjust 3.x to your version
-source ~/.zshrc
-
-# Alternatively, install into a place already on PATH:
-pip3 install --user agentbreeder
-```
-
-After updating PATH, open a new terminal and run `agentbreeder --help`.
-
-### "Validation failed: unknown framework"
-
-Supported values: `langgraph`, `openai_agents`, `claude_sdk`, `crewai`, `google_adk`, `custom`
-
-### "RBAC check failed"
-
-The deploying user must belong to the team in `agent.yaml`. Check `team:` matches your team membership.
-
-### "Container build failed"
-
-```bash
-docker info                                              # check Docker is running
-agentbreeder deploy agent.yaml --target local --dry-run  # inspect generated Dockerfile
-```
-
-### "Deploy rolled back"
-
-The 8-step pipeline is atomic — any failure rolls back everything. Check which step failed:
-
-```bash
-agentbreeder status my-agent
-agentbreeder logs my-agent
-```
-
-### Dashboard won't start
-
-The dashboard needs the API running first. Start it via `docker compose up` from your local dev stack (see [Quickstart](quickstart)).
+| Problem | Fix |
+|---|---|
+| `agentbreeder: command not found` | pip's script dir is not on `PATH`. Run `python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"` and add it to your shell rc. Or `pip3 install --user agentbreeder`. |
+| `Validation failed: unknown framework` | Use one of: `langgraph`, `openai_agents`, `claude_sdk`, `crewai`, `google_adk`, `custom`. |
+| `RBAC check failed` | Deployer must belong to `team:` in `agent.yaml`. |
+| `Container build failed` | `docker info` to confirm runtime is up; `agentbreeder deploy --dry-run` to inspect generated Dockerfile. |
+| `Deploy rolled back` | The 8-step pipeline is atomic. `agentbreeder status <agent>` and `agentbreeder logs <agent>` to find the failed step. |
+| Dashboard won't start | Needs the API up first. `agentbreeder ui` or `docker compose up`. See [Quickstart](quickstart). |

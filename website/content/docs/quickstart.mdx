@@ -1,381 +1,98 @@
 ---
 title: Quickstart
-description: Get from zero to running AI agents in under 5 minutes — no cloud credentials required.
+description: Zero to running AI agents in one command.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
-import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
 # Quickstart
 
-Two paths. Pick the one that matches where you are.
-
-| | Option A — Full local platform | Option B — Build your own agent |
-|---|---|---|
-| **Who it's for** | First-timers, evaluators | Engineers who want a blank slate |
-| **What you get** | Full stack + 5 sample agents + dashboard | One scaffolded agent project |
-| **Time** | ~3 min (first run, image pulls) | ~5 min |
-
----
-
-## Prerequisites
-
-| Requirement | Min version | Why |
-|-------------|-------------|-----|
-| **Python** | 3.11+ | CLI runtime |
-| **Docker Desktop** | 24+ | Container orchestration (Option A requires this; Option B needs it for local deploy) |
-
-```bash
-python3 --version   # need 3.11+
-docker info         # must succeed — if it errors, open Docker Desktop first
-```
-
-<Callout type="warn" title="Docker not running?">
-  Open the **Docker Desktop** app before running any `docker` commands. On Linux: `sudo systemctl start docker`. The `agentbreeder quickstart` command detects Docker and guides you through installing it if it is not found.
-</Callout>
-
----
-
-## 1. Install
-
-Requires Python 3.11+:
+Two commands. That's it.
 
 ```bash
 pip3 install agentbreeder
-```
-
-> `brew install` and `npx` support are coming soon.
-
-> **`agentbreeder: command not found` after pip install?** pip's script directory may not be in your PATH. Run:
-> ```bash
-> python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"
-> ```
-> Add that path to your `PATH` (e.g. in `~/.zshrc`), then open a new terminal.
-
----
-
-## Option A — Full Local Platform
-
-One command bootstraps the entire local stack:
-
-```bash
 agentbreeder quickstart
 ```
 
-That single command:
+`agentbreeder quickstart` is interactive and walks you through everything:
 
-1. Detects Docker / Podman — shows OS-specific install instructions if neither is found
-2. Checks for Ollama or cloud API keys — suggests `agentbreeder setup` if neither found
-3. Creates `.env` with secure random secrets if not present
-4. Starts the full stack: **API · Dashboard · PostgreSQL · Redis · ChromaDB (RAG) · Neo4j (GraphRAG) · MCP servers · LiteLLM gateway**
-5. Waits for all services with a live progress bar
-6. Seeds a ChromaDB knowledge base and a Neo4j knowledge graph with sample data
-7. Deploys 5 sample agents: `assistant`, `rag-agent`, `graph-agent`, `search-agent`, `a2a-orchestrator`
-8. Opens the visual dashboard at `http://localhost:3001`
+1. Detects (or installs) Docker, Podman, or nerdctl
+2. Detects (or installs) Ollama and pulls a local model — `gemma3` by default
+3. Optionally collects cloud API keys (OpenAI, Anthropic, Google, OpenRouter)
+4. Frees any conflicting ports for you on confirmation
+5. Starts the full stack — API · Dashboard · Postgres · Redis · ChromaDB · Neo4j · MCP servers · LiteLLM
+6. Seeds RAG docs, the knowledge graph, MCP servers, and prompts
+7. Deploys 5 sample agents (`assistant`, `rag-agent`, `graph-agent`, `search-agent`, `a2a-orchestrator`)
+8. Opens the dashboard at [http://localhost:3001](http://localhost:3001)
 
-<Callout type="info" title="Default login credentials">
+<Callout type="info" title="Default login">
   **Email:** `admin@agentbreeder.local` · **Password:** `plant`
-
-  Change the password from **Settings → Account** after your first login.
-</Callout>
-
-Takes ~3 minutes on first run (image pulls). After that:
-
-```bash
-agentbreeder chat assistant                   # plain conversation
-agentbreeder chat rag-agent                   # ask questions about AgentBreeder docs
-agentbreeder chat graph-agent                 # query the knowledge graph
-agentbreeder chat a2a-orchestrator            # let the orchestrator route your question
-agentbreeder chat my-agent --local            # chat via Ollama — no API server needed
-```
-
-Deploy to cloud from the same local setup:
-
-```bash
-agentbreeder quickstart --cloud aws           # local + deploy to AWS ECS Fargate
-agentbreeder quickstart --cloud gcp           # local + deploy to GCP Cloud Run
-agentbreeder quickstart --cloud azure         # local + deploy to Azure Container Apps
-```
-
-<Callout type="info" title="No API key? Use Ollama.">
-  `agentbreeder quickstart` works without any cloud credentials. Install [Ollama](https://ollama.com),
-  run `ollama pull llama3.2`, and the stack will use it automatically via the LiteLLM gateway.
-  Run `agentbreeder setup` first if you want a guided Ollama + provider key wizard.
 </Callout>
 
 ---
 
-## Option B — Build Your Own Agent
-
-For engineers who want a blank-slate agent project:
-
-### 1. Configure Providers
+## After it finishes
 
 ```bash
-agentbreeder setup
+agentbreeder chat assistant            # talk to an agent
+agentbreeder list agents               # see what's deployed
+agentbreeder down                      # stop everything
+agentbreeder quickstart --reset        # nuke and start fresh
 ```
 
-Interactive wizard that guides you through Ollama installation (with model picker) and cloud API key configuration (with live key validation).
-
-Or, in v2, work with the provider catalog and workspace secrets directly:
+Deploy to cloud from the same setup:
 
 ```bash
-agentbreeder provider list             # all 9 OpenAI-compatible presets + legacy providers
-agentbreeder provider test nvidia      # GET /models against the catalog entry
-agentbreeder secret set NVIDIA_API_KEY # prompted securely; stored in OS keychain by default
+agentbreeder quickstart --cloud aws    # also: gcp | azure
 ```
 
-See [Providers](providers) for the full catalog and [Secrets](secrets) for the workspace backends.
+---
 
-### 2. Scaffold a New Agent
+## Build your own agent
 
 ```bash
-agentbreeder init
-```
-
-The wizard asks 5 questions:
-
-| # | Question | Example |
-|---|----------|---------|
-| 1 | Agent name | `support-agent` |
-| 2 | Framework | LangGraph |
-| 3 | Cloud target | Local |
-| 4 | Team | `engineering` |
-| 5 | Owner email | `alice@company.com` |
-
-Generated project:
-
-```
-support-agent/
-├── agent.yaml          # The only file AgentBreeder needs
-├── agent.py            # Working agent code for your framework
-├── requirements.txt
-├── .env.example
-└── README.md
-```
-
-### 3. Validate
-
-```bash
+agentbreeder init                      # scaffold agent.yaml + code
 agentbreeder validate agent.yaml
+agentbreeder deploy agent.yaml --target local   # also: aws | gcp | azure | kubernetes
 ```
 
-Runs three checks: YAML syntax → JSON Schema → semantic validation (framework supported, team exists).
-
-### 4. Deploy
-
-```bash
-agentbreeder deploy agent.yaml --target local     # Deploy locally with Docker
-agentbreeder deploy agent.yaml --target aws       # AWS ECS Fargate
-agentbreeder deploy agent.yaml --target gcp       # GCP Cloud Run
-agentbreeder deploy agent.yaml --target azure     # Azure Container Apps
-```
-
-The 8-step atomic pipeline:
-
-```
-✅  YAML parsed & validated
-✅  RBAC check passed
-✅  Dependencies resolved
-✅  Container built (langgraph runtime)
-✅  Deployed to Docker Compose
-✅  Health check passed
-✅  Registered in org registry
-✅  Endpoint returned
-```
-
-If any step fails, the entire deploy rolls back.
-
-### 5. View your agent in the dashboard
-
-To see deployed agents in the UI, start the dashboard stack first:
-
-```bash
-agentbreeder ui
-```
-
-Then open **http://localhost:3001** and log in (default: `admin@agentbreeder.local` / `plant`). Your agent appears automatically in the **Agents** tab once deployment completes.
-
-<Callout type="info" title="Docker networking">
-  Agent containers reach the API at `http://host.docker.internal:8000` (macOS/Windows with Docker Desktop) or `http://172.17.0.1:8000` (Linux). Use `localhost:8000` only from your host terminal — not from inside a container.
-</Callout>
-
-### 6. Chat
-
-```bash
-agentbreeder status                              # see your agent's endpoint and health
-agentbreeder logs support-agent --follow         # tail live logs
-agentbreeder chat support-agent                  # interactive chat (requires API server)
-agentbreeder chat support-agent --local          # chat via Ollama — no server needed
-```
+The 8-step deploy pipeline (parse → RBAC → resolve deps → build container → provision → health check → register → return endpoint) is atomic. If anything fails, the whole deploy rolls back.
 
 ---
 
-## Talk to your agent
+## Useful flags
 
-Once your agent is deployed (locally or to Cloud Run / ECS / Container Apps), there are three ways to invoke it. All three hit the same `POST /invoke` endpoint on the agent runtime — gated by a bearer token from the `AGENT_AUTH_TOKEN` env var.
-
-### From the dashboard
-
-Open `http://localhost:3001/agents/:id`, click the **Invoke** tab, and fill in:
-
-| Field | Value |
-|-------|-------|
-| Endpoint URL | `https://<your-agent>.run.app` (or `http://localhost:8080`) |
-| Bearer token | Value of `AGENT_AUTH_TOKEN` |
-| Message | Anything — e.g. `"What is your job?"` |
-
-Hit **Send** and the response appears inline. The dashboard proxies through `POST /api/v1/agents/{id}/invoke` so the bearer token never touches the browser network tab.
-
-### From the CLI
-
-```bash
-agentbreeder registry agent invoke <name> \
-  --input "What is your job?" \
-  --endpoint https://microlearning-ebook-agent-sizukgalta-uc.a.run.app \
-  --token $AGENT_AUTH_TOKEN
-```
-
-Pass `--session <SID>` to continue an existing conversation. See the [CLI reference](cli-reference#agentbreeder-registry) for the full flag list.
-
-### With curl
-
-```bash
-URL=https://microlearning-ebook-agent-sizukgalta-uc.a.run.app
-TOKEN=$AGENT_AUTH_TOKEN
-
-curl -X POST $URL/invoke \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"What is your job?"}'
-# {"output":"My job is to turn any topic the user supplies into a polished microlearning ebook a learner can complete in 20-40 minutes.","session_id":"…","metadata":null}
-```
-
-`/health` is intentionally left open (no bearer required) so Kubernetes / Cloud Run probes work without secrets.
-
-<Callout type="info" title="Prompts and tools live in a registry">
-  Agents reference **prompts** and **tools** from a shared registry instead of inlining them. Browse, version, and test them in the dashboard at `/prompts`, `/tools`, and `/agents` — or push from the CLI with [`agentbreeder registry`](cli-reference#agentbreeder-registry). See [Prompts →](prompts), [MCP Servers / Tools →](mcp-servers), and the agent registry for the full surface.
-</Callout>
-
-<Callout type="warn" title="Management API is auth-gated">
-  All 247/247 routes under `/api/v1/*` require a JWT — only `POST /api/v1/auth/login` and `POST /api/v1/auth/register` are open by design. Log in to mint a token, then export it as `AGENTBREEDER_API_TOKEN` for any CLI command that talks to the registry.
-</Callout>
+| Flag | What it does |
+|---|---|
+| `--no-ollama` | Skip the Ollama install/start/pull bootstrap |
+| `--ollama-model NAME` | Pull a different default model (e.g. `llama3.2`, `phi4-mini`) |
+| `--no-browser` | Don't open the dashboard at the end |
+| `--skip-seed` | Skip seeding sample data (faster restart) |
+| `--reset` | Tear down all volumes and start fresh |
+| `--dev` | Build API/Dashboard images from source instead of Docker Hub |
 
 ---
 
-## FAQ
+## When something goes wrong
 
-<Accordions>
-
-<Accordion title='"Port is already allocated" / port conflict error'>
-
-If `agentbreeder quickstart` exits with a port conflict, one or more of the ports it needs are already in use:
-
-| Port | Service |
-|------|---------|
-| 5432 | PostgreSQL |
-| 6379 | Redis |
-| 8000 | AgentBreeder API |
-| 3001 | Dashboard |
-| 4000 | LiteLLM |
-| 8001 | ChromaDB |
-| 7474 | Neo4j HTTP |
-| 7687 | Neo4j Bolt |
-
-**Most common cause:** the AgentBreeder dev stack is already running.
-
-```bash
-# Stop the dev stack
-docker compose -f deploy/docker-compose.yml down
-
-# Then re-run quickstart
-agentbreeder quickstart
-```
-
-**To find and stop any process using a specific port:**
-
-```bash
-lsof -ti :5432 | xargs kill -9   # replace 5432 with the conflicting port
-```
-
-</Accordion>
-
-<Accordion title='Ollama is running but quickstart says "no cloud API keys"'>
-
-This is expected — it's a warning, not a failure. Quickstart detects Ollama and will use it as the primary model provider automatically. The warning just reminds you that cloud providers (Anthropic, OpenAI, etc.) aren't configured.
-
-To add cloud providers any time:
-
-```bash
-agentbreeder setup
-```
-
-</Accordion>
-
-<Accordion title='How do I stop and remove the quickstart stack?'>
-
-Run from **any directory** — no repo clone needed:
-
-```bash
-agentbreeder down           # stop, keep your data
-agentbreeder down --clean   # stop and wipe all volumes (fresh start)
-```
-
-`--clean` deletes the Postgres database, ChromaDB vectors, and Neo4j graph. Omit it if you want to keep seeded data for next time.
-
-</Accordion>
-
-<Accordion title='"Neo4j seed failed" or "ChromaDB seed failed" warning during quickstart'>
-
-These are **warnings, not errors** — quickstart still completes successfully. The seed step pre-populates the knowledge stores with sample data so the example agents have something to query. If seeding fails, the agents run but return empty results from RAG/graph queries.
-
-**Most common cause:** Neo4j or ChromaDB took longer than expected to start. Run seed manually after quickstart finishes:
-
-```bash
-cd deploy && python seed/seed.py
-```
-
-Or re-run quickstart (it skips the Docker pull/start if the stack is already up and goes straight to seeding):
-
-```bash
-agentbreeder quickstart
-```
-
-</Accordion>
-
-<Accordion title='The dashboard opened but the API shows as unhealthy'>
-
-The API can take 15–30 seconds to finish running database migrations on first start. Refresh the dashboard after a moment. If it stays unhealthy:
-
-```bash
-# Check API logs
-docker compose -f deploy/docker-compose.quickstart.yml --project-name agentbreeder-qs logs api --tail 50
-
-# Check if migrations ran
-docker compose -f deploy/docker-compose.quickstart.yml --project-name agentbreeder-qs logs migrate
-```
-
-</Accordion>
-
-</Accordions>
+| Problem | Fix |
+|---|---|
+| `agentbreeder: command not found` | pip's script directory isn't on `PATH`. Run `python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"` and add it to your shell rc. |
+| Port conflict (`:5432 already in use` etc.) | Quickstart will offer to kill the conflicting process. Accept with `y`, or stop it manually. |
+| Container daemon not running | Quickstart will tell you what to start (Docker Desktop, OrbStack, Colima, Podman, systemd, etc.) and re-detect after you confirm. |
+| Stack already up, ports stuck | `agentbreeder down --clean` then retry. |
+| No LLM provider | Quickstart prompts to install Ollama; or run `agentbreeder setup` separately for the full provider wizard. |
 
 ---
 
-## What's Next
+## Next
 
-| I want to… | Go here |
-|------------|---------|
-| Load my own docs into ChromaDB | [`agentbreeder seed --docs ./my-docs/`](cli-reference#agentbreeder-seed) |
-| Load a custom Neo4j graph | [`agentbreeder seed --neo4j --cypher ./graph.cypher`](cli-reference#agentbreeder-seed) |
-| Deploy to AWS, GCP, Azure, Kubernetes | [How-To: Deploy to Different Targets →](how-to#deploy-to-different-targets) |
-| Add MCP servers / tools | [MCP Servers →](mcp-servers) |
-| Add a knowledge base (RAG) | [Knowledge Bases →](rag) |
-| Query a knowledge graph (GraphRAG) | [GraphRAG →](graphrag) |
-| Version my prompts | [Prompts →](prompts) |
-| Use a different framework | [How-To: Use Different Frameworks →](how-to#use-different-frameworks) |
-| Use local models with Ollama | [How-To: Local Models →](how-to#use-local-models-with-ollama) |
-| Build with drag-and-drop UI | [No Code →](no-code) |
-| Write YAML config | [Low Code →](low-code) |
-| Use the Python / TypeScript SDK | [Full Code →](full-code) |
-| See every CLI command | [CLI Reference →](cli-reference) |
-| See every agent.yaml field | [agent.yaml Reference →](agent-yaml) |
+| You want to… | Go here |
+|---|---|
+| See every CLI command | [CLI reference →](cli-reference) |
+| See every `agent.yaml` field | [agent.yaml reference →](agent-yaml) |
+| Deploy to AWS / GCP / Azure / Kubernetes | [How-To: Deploy →](how-to#deploy-to-different-targets) |
+| Add knowledge bases (RAG / GraphRAG) | [RAG →](rag) · [GraphRAG →](graphrag) |
+| Add tools / MCP servers | [MCP servers →](mcp-servers) |
+| Visual builder | [No Code →](no-code) |
+| Python / TypeScript SDK | [Full Code →](full-code) |

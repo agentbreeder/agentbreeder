@@ -7,6 +7,23 @@ description: Complete reference for all agentbreeder CLI commands.
 
 AgentBreeder's CLI is the primary interface for managing agents. All commands support `--json` output for scripting and CI.
 
+## TL;DR
+
+If you remember nothing else:
+
+```bash
+agentbreeder quickstart        # full local stack + 5 sample agents
+agentbreeder init              # scaffold a new agent.yaml
+agentbreeder validate          # check agent.yaml
+agentbreeder deploy --target   # local | aws | gcp | azure | kubernetes | claude-managed
+agentbreeder chat <name>       # talk to a deployed agent
+agentbreeder list agents       # see what's deployed
+agentbreeder ui                # open the dashboard
+agentbreeder down              # stop the local stack
+```
+
+Most-used sections below: [`quickstart`](#agentbreeder-quickstart) · [`init`](#agentbreeder-init) · [`deploy`](#agentbreeder-deploy) · [`chat`](#agentbreeder-chat) · [`list`](#agentbreeder-list) · [`logs`](#agentbreeder-logs) · [`secret`](#agentbreeder-secret) · [`provider`](#agentbreeder-provider).
+
 ## Global Usage
 
 ```
