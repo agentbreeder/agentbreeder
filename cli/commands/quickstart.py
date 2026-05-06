@@ -1990,7 +1990,7 @@ def quickstart(
             elif chroma_result.get("code") == "chromadb-package-not-installed":
                 _warn(
                     "ChromaDB seed skipped — chromadb python client not installed.\n"
-                    "    Install it with: [bold cyan]pip install 'agentbreeder[rag]'[/bold cyan]\n"
+                    "    Upgrade with: [bold cyan]pip install --upgrade agentbreeder[/bold cyan]\n"
                     "    Then re-run: [bold cyan]agentbreeder seed --chromadb[/bold cyan]"
                 )
             else:

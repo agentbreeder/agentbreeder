@@ -240,7 +240,7 @@ def seed_chromadb(
                 "ok": False,
                 "error": (
                     "chromadb python client not installed. "
-                    "Install with: pip install 'agentbreeder[rag]'"
+                    "Install/upgrade with: pip install --upgrade agentbreeder"
                 ),
                 "code": CHROMADB_NOT_INSTALLED,
             }
@@ -294,7 +294,7 @@ def list_chromadb() -> dict:
                 "ok": False,
                 "error": (
                     "chromadb python client not installed. "
-                    "Install with: pip install 'agentbreeder[rag]'"
+                    "Install/upgrade with: pip install --upgrade agentbreeder"
                 ),
                 "code": CHROMADB_NOT_INSTALLED,
             }
