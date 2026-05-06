@@ -42,6 +42,7 @@
     "cli-reference",
     "orchestration-yaml",
     "orchestration-sdk",
+    "faq",
     "---Migrations---",
     "migrations"
   ]

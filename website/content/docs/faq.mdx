@@ -1,0 +1,221 @@
+---
+title: FAQ & Troubleshooting
+description: Answers to common quickstart, install, and runtime issues.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+# FAQ & Troubleshooting
+
+Common problems and the fastest way through them. If your issue isn't here, [open an issue](https://github.com/agentbreeder/agentbreeder/issues).
+
+---
+
+## Quickstart
+
+### `agentbreeder quickstart` says "Compose Engine Not Reachable" even after I removed `~/.rd/bin/docker-compose`
+
+The Rancher Desktop shim is only one of three things that can hijack `podman compose` on macOS. If removing it didn't fix it, one of the other two is also in play:
+
+**1. A stale `DOCKER_HOST` env var pointing at a dead socket**
+
+Check:
+
+```bash
+echo "$DOCKER_HOST"
+```
+
+If it prints something like `unix:///Users/you/.rd/docker.sock` (Rancher's old socket) or any other socket that no longer exists, that's the culprit. `podman compose` shells out to `/opt/homebrew/bin/docker-compose` (Homebrew's docker-compose), which obeys `DOCKER_HOST` and tries to connect to the dead socket.
+
+Fix in your current shell:
+
+```bash
+unset DOCKER_HOST
+agentbreeder quickstart
+```
+
+Then make it permanent — find and remove the `export DOCKER_HOST=…` line:
+
+```bash
+grep -n DOCKER_HOST ~/.zshrc ~/.zprofile ~/.zshenv ~/.bashrc ~/.bash_profile 2>/dev/null
+```
+
+**2. Homebrew's `docker-compose` is still being preferred over a native podman compose**
+
+Even with `DOCKER_HOST` unset, `podman compose` will keep delegating to whatever `docker-compose` is on your `PATH`. Install a native compose for podman:
+
+```bash
+brew install podman-compose
+unset DOCKER_HOST
+agentbreeder quickstart
+```
+
+**3. You actually want to use Rancher Desktop**
+
+Just start it — its docker socket comes back up and `podman compose` will work via the Rancher shim:
+
+```bash
+open -a 'Rancher Desktop'
+agentbreeder quickstart
+```
+
+<Callout type="info">
+  On macOS, `podman info` reports the socket path as seen *inside* the podman VM (e.g. `/run/podman/podman.sock`), which doesn't exist on the host. The real host-side socket is shown by `docker context ls` — quickstart's auto-redirect can't always find it on macOS, so the manual fixes above are the reliable path.
+</Callout>
+
+### `host containers internal IP address is empty` (podman on macOS)
+
+After getting past the compose engine error, you may hit:
+
+```
+Error response from daemon: failed to create new hosts file: unable to replace
+"host-gateway" of host entry "host.docker.internal:host-gateway": host containers
+internal IP address is empty
+```
+
+This is a known podman-on-macOS issue. The quickstart compose file uses `host.docker.internal:host-gateway` so containers can reach **Ollama running on your Mac**, but podman 5.5.x on Apple silicon doesn't always populate the host-gateway IP automatically.
+
+**Quickest fix: switch to a Docker-compatible runtime where host-gateway just works.** Pick one:
+
+```bash
+# Option 1 — Docker Desktop
+open -a 'Docker'
+
+# Option 2 — OrbStack (lightweight Docker alternative for macOS)
+brew install orbstack && open -a OrbStack
+
+# Option 3 — Colima
+brew install colima && colima start
+```
+
+Then re-run `agentbreeder quickstart` — it'll auto-detect the new runtime.
+
+**If you must stay on podman**, set the host-gateway IP inside the podman VM:
+
+```bash
+podman machine ssh "echo -e '[containers]\nhost_containers_internal_ip = \"192.168.127.1\"' | sudo tee /etc/containers/containers.conf"
+podman machine stop && podman machine start
+```
+
+### Containers start but agents can't reach Ollama (`connection refused` / `download timed out`)
+
+Ollama defaults to binding `127.0.0.1:11434` only — the podman/Docker VM can't reach a localhost-only listener. Verify:
+
+```bash
+lsof -nP -iTCP:11434 -sTCP:LISTEN
+# If you see "127.0.0.1:11434" you need to rebind to 0.0.0.0
+```
+
+Fix — bind Ollama to all interfaces:
+
+```bash
+# If you run ollama via the macOS app, set the env var globally and restart it
+launchctl setenv OLLAMA_HOST 0.0.0.0:11434
+osascript -e 'quit app "Ollama"' && open -a Ollama
+
+# If you run ollama from the CLI
+pkill ollama
+OLLAMA_HOST=0.0.0.0:11434 ollama serve &
+```
+
+Verify from inside a container:
+
+```bash
+podman run --rm --add-host=host.docker.internal:host-gateway alpine \
+  wget -qO- http://host.docker.internal:11434/api/tags
+```
+
+### `agentbreeder: command not found` after `pip install agentbreeder`
+
+Pip's script directory isn't on your `PATH`. Find it and add it to your shell rc:
+
+```bash
+python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+```
+
+Add the printed path to your `~/.zshrc` (or equivalent):
+
+```bash
+export PATH="$PATH:/path/printed/above"
+```
+
+### Port conflict (`:5432 already in use`, `:6379`, `:8000`, …)
+
+Quickstart will offer to kill the conflicting process for you — accept with `y`. If you'd rather stop it manually:
+
+```bash
+lsof -ti:<PORT> | xargs kill -9
+```
+
+If the conflict is from a service supervisor (Homebrew services, systemd, launchd), quickstart prints the exact stop command for it.
+
+### Stack already up, ports stuck after a crash
+
+```bash
+agentbreeder down --clean
+agentbreeder quickstart
+```
+
+Or do a full reset (wipes all volumes, including seeded RAG/graph data):
+
+```bash
+agentbreeder quickstart --reset
+```
+
+### "Container daemon not running"
+
+Quickstart will tell you which daemon to start (Docker Desktop, OrbStack, Colima, Podman, Rancher Desktop) and re-detect after you confirm. If detection still fails, verify by hand:
+
+```bash
+docker info        # or: podman info | nerdctl info
+```
+
+---
+
+## LLM providers
+
+### Ollama is installed but quickstart can't find it
+
+Make sure the daemon is up and reachable on the default port:
+
+```bash
+ollama serve &
+curl -s http://localhost:11434/api/tags
+```
+
+Then re-run `agentbreeder quickstart`.
+
+### How do I skip the Ollama bootstrap?
+
+```bash
+agentbreeder quickstart --no-ollama
+```
+
+You'll need at least one cloud provider key set (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, or `OPENROUTER_API_KEY`) for agents to run.
+
+### How do I use a different default Ollama model?
+
+```bash
+agentbreeder quickstart --ollama-model llama3.2     # or phi4-mini, qwen3, etc.
+```
+
+---
+
+## Python environment
+
+### `pyenv` warning during quickstart
+
+Quickstart pins Python `3.11.9` via `.python-version`. If pyenv shows a mismatch:
+
+```bash
+pyenv install 3.11.9
+pyenv local 3.11.9
+```
+
+---
+
+## Where to ask for more help
+
+- [GitHub Issues](https://github.com/agentbreeder/agentbreeder/issues) — bug reports, feature requests
+- [GitHub Discussions](https://github.com/agentbreeder/agentbreeder/discussions) — usage questions
+- [Discord](https://discord.gg/agentbreeder) — community chat
