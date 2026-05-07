@@ -43,7 +43,7 @@ jobs:
             || true   # don't fail here; let SARIF upload decide
 
       - name: Upload Bandit SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         continue-on-error: true   # Requires GitHub Advanced Security
         with:
           sarif_file: bandit-results.sarif
@@ -138,7 +138,7 @@ jobs:
           exit-code: "0"   # upload regardless; gate below
 
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         continue-on-error: true   # Requires GitHub Advanced Security
         with:
           sarif_file: trivy-results.sarif
