@@ -60,8 +60,10 @@ AI coding tools make it easy to **build** agents. Nobody has made it easy to **s
 
 ## How It Works
 
-Eight atomic steps run in sequence: parse → RBAC check → *(approval gate if required)* → resolve deps → build container → provision infra → deploy → health check → register. If any step fails, the entire deploy rolls back.
-
+Eight atomic steps run in sequence: 
+```
+parse → RBAC check → *(approval gate if required)* → resolve deps → build container → provision infra → deploy → health check → register. If any step fails, the entire deploy rolls back.
+```
 ---
 
 ## Three Ways to Build
@@ -74,37 +76,6 @@ All three tiers compile to the same internal format. Same deploy pipeline. Same 
 | **Low Code** | ML engineers, DevOps | Write `agent.yaml` in any IDE | Full Code (`agentbreeder eject`) |
 | **Full Code** | Senior engineers, researchers | Python/TS SDK with full programmatic control | — |
 
-
-
-## What's Supported
-
-**Agent languages** — Python · TypeScript/Node.js · Go · Kotlin/Java · Rust · .NET *(via runtime contract v1, Track I)*
-
-**Python frameworks** — LangGraph · OpenAI Agents · Claude SDK · CrewAI · Google ADK · Custom
-
-**TypeScript frameworks** — Vercel AI SDK · Mastra · LangChain.js · OpenAI Agents TS · DeepAgent · Custom
-
-**Cloud targets** — AWS (ECS Fargate, App Runner, EKS) · GCP (Cloud Run, GKE) · Azure Container Apps · Kubernetes (EKS/GKE/AKS/self-hosted) · Local Docker · Claude Managed Agents
-
-**LLM providers — direct** — Anthropic · OpenAI · Google · Ollama (local, free)
-
-**LLM providers — OpenAI-compatible catalog (v2)** — Nvidia NIM · Moonshot/Kimi · Groq · Together · Fireworks · DeepInfra · Cerebras · Hyperbolic *(plus your own user-local entries)*
-
-**LLM gateways** — LiteLLM (self-hosted proxy) · OpenRouter (200+ models) — see [`gateways`](https://www.agentbreeder.io/docs/gateways)
-
-**Secrets backends** — OS keychain *(default)* · `.env` · AWS Secrets Manager · GCP Secret Manager · HashiCorp Vault — auto-mirrored to the cloud at deploy
-
-**RAG & memory** — ChromaDB (vector search) · Neo4j (knowledge graph / GraphRAG) · MCP memory server
-
-**MCP & A2A** — MCP server registry · MCP sidecar injection · Agent-to-Agent (A2A) JSON-RPC protocol · multi-level orchestration
-
-**Platform** — RBAC · cost tracking · audit trail · org registry · MCP hub · multi-agent orchestration · RAG · evaluations · A2A protocol · AgentOps fleet dashboard · community marketplace · v2 platform sidecar
-
-Full feature matrix and supported versions → [docs/features](https://www.agentbreeder.io/docs/features)
-
----
-## CLI Reference
-Full CLI reference → [agentbreeder.io/docs/cli-reference](https://www.agentbreeder.io/docs/cli-reference)
 
 ---
 ## Documentation
@@ -129,16 +100,15 @@ Full CLI reference → [agentbreeder.io/docs/cli-reference](https://www.agentbre
 
 | | |
 |---|---|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — setup, standards, PR process |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Platform architecture — deploy pipeline, abstractions, data model |
 | [docs/design/](docs/design/) | Feature design docs — RBAC, LiteLLM gateway, polyglot agents |
 | [ROADMAP.md](ROADMAP.md) | Release plan and milestone status |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — setup, standards, PR process |
 | [GOVERNANCE.md](GOVERNANCE.md) | Project governance, decision-making, maintainer ladder |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards (Contributor Covenant 2.1) |
 | [CLA.md](CLA.md) | Contributor License Agreement (Apache ICLA / CCLA) |
-| [TRADEMARK.md](TRADEMARK.md) | AgentBreeder™ trademark policy and permitted uses |
 | [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
 
 
-[Contributing](CONTRIBUTING.md) · [Issues](https://github.com/agentbreeder/agentbreeder/issues) · [Discussions](https://github.com/agentbreeder/agentbreeder/discussions) · [Discord](https://discord.gg/QT9j3Uj4s5) · [Apache 2.0](LICENSE) · [Trademark](TRADEMARK.md)
+[Issues](https://github.com/agentbreeder/agentbreeder/issues) · [Discussions](https://github.com/agentbreeder/agentbreeder/discussions) · [Discord](https://discord.gg/QT9j3Uj4s5) · [Apache 2.0](LICENSE) · [Trademark](TRADEMARK.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [CLA](CLA.md)
