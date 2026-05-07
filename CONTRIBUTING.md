@@ -233,11 +233,25 @@ For full end-to-end local development, open four terminal tabs:
 
 The CLI (`python -m cli.main`) works in any additional terminal once the services and API are up.
 
-**Or use `agentbreeder quickstart` for a one-command local stack** (pulls Docker images; good for trying the platform but not for editing dashboard source):
+**Or use `agentbreeder quickstart` for a one-command local stack:**
 
 ```bash
-agentbreeder quickstart
+agentbreeder quickstart           # pulls rajits/agentbreeder-{api,dashboard}:latest from Docker Hub
+agentbreeder quickstart --dev     # builds API + Dashboard images from your local source
 ```
+
+Use `--dev` whenever you have changes in `api/`, `engine/`, `dashboard/src/`, or `dashboard/package.json` that you want reflected in the running stack. Without `--dev`, your local edits are ignored because the stack runs the published Docker Hub image.
+
+**Force a clean rebuild (drop cached layers, pick up `package-lock.json` changes):**
+
+```bash
+agentbreeder down
+docker rmi rajits/agentbreeder-dashboard:latest rajits/agentbreeder-api:latest 2>/dev/null
+docker compose -f deploy/docker-compose.quickstart.yml build --no-cache dashboard api
+agentbreeder quickstart --dev
+```
+
+**Stale `DOCKER_HOST`:** if you previously ran Rancher Desktop or Docker Desktop and switched runtimes, `DOCKER_HOST` may still be exported in your shell rc pointing at a dead socket. `unset DOCKER_HOST` (and remove the `export` line). Symptom: `failed to connect to the docker API at unix:///…/.rd/docker.sock`.
 
 ---
 

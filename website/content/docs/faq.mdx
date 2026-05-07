@@ -162,6 +162,56 @@ Or do a full reset (wipes all volumes, including seeded RAG/graph data):
 agentbreeder quickstart --reset
 ```
 
+### Dashboard at `http://localhost:3001` shows a blank page
+
+The container is up but the React app fails to render. Almost always one of two causes.
+
+**1. Stale `rajits/agentbreeder-dashboard:latest` image cached locally**
+
+After a fresh release, your local Docker can still hold the previous image (which had a transient React-version mismatch fixed in [PR #350](https://github.com/agentbreeder/agentbreeder/pull/350)). Force a rebuild from local source:
+
+```bash
+cd /path/to/agentbreeder
+git fetch upstream && git checkout upstream/main -- deploy/docker-compose.quickstart.yml dashboard/package.json dashboard/package-lock.json
+agentbreeder down
+docker rmi rajits/agentbreeder-dashboard:latest rajits/agentbreeder-api:latest 2>/dev/null
+docker compose -f deploy/docker-compose.quickstart.yml build --no-cache dashboard api
+agentbreeder quickstart --dev
+```
+
+The `--dev` flag tells quickstart to use locally-built images instead of pulling from Docker Hub. Use it whenever you have local source changes you want reflected in the running stack.
+
+**2. Browser cached the old broken bundle**
+
+Hard-reload http://localhost:3001 (Cmd+Shift+R / Ctrl+Shift+R), or open DevTools → Network tab → check "Disable cache".
+
+**Verify the running bundle is healthy:**
+
+```bash
+# HTML loads with the React mount point
+curl -s http://localhost:3001 | grep '<div id="root"'
+
+# Bundle pins to a single React version (no mismatches)
+BUNDLE=$(curl -s http://localhost:3001 | grep -oE '/assets/index-[^"]+\.js' | head -1)
+curl -s "http://localhost:3001$BUNDLE" | grep -oaE 'version="19\.[0-9]+\.[0-9]+"' | sort -u
+# Expected: a single line like  version="19.2.5"
+```
+
+If both 19.2.4 and 19.2.5 appear, your dashboard image is pre-PR-#350 — rebuild as shown above.
+
+### `agentbreeder-qs-migrate-1` is `Exited` — is that bad?
+
+No. `migrate` is a one-shot job. It runs `alembic upgrade head` against Postgres, applies any new schema migrations, and exits. The `api` service waits for `migrate` to **complete successfully** (`condition: service_completed_successfully`) before starting.
+
+Verify it succeeded with exit code 0:
+
+```bash
+docker compose -f deploy/docker-compose.quickstart.yml ps -a migrate
+docker compose -f deploy/docker-compose.quickstart.yml logs migrate --tail 20
+```
+
+Only worry if exit code is non-zero, logs show alembic errors, or the `api` container also fails to start.
+
 ### "Container daemon not running"
 
 Quickstart will tell you which daemon to start (Docker Desktop, OrbStack, Colima, Podman, Rancher Desktop) and re-detect after you confirm. If detection still fails, verify by hand:

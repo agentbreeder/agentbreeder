@@ -82,6 +82,9 @@ The 8-step deploy pipeline (parse → RBAC → resolve deps → build container 
 | Container daemon not running | Quickstart will tell you what to start (Docker Desktop, OrbStack, Colima, Podman, systemd, etc.) and re-detect after you confirm. |
 | Stack already up, ports stuck | `agentbreeder down --clean` then retry. |
 | No LLM provider | Quickstart prompts to install Ollama; or run `agentbreeder setup` separately for the full provider wizard. |
+| Dashboard at `:3001` is blank | Stale `rajits/agentbreeder-dashboard:latest` cached locally. `docker rmi` it, then `agentbreeder quickstart --dev` to rebuild from source. Full steps: [FAQ →](faq#dashboard-at-httplocalhost3001-shows-a-blank-page) |
+| `migrate-1` shows `Exited` | Expected — `migrate` is a one-shot job that runs `alembic upgrade head` and exits. Only worry if the exit code is non-zero. |
+| `DOCKER_HOST` points at a dead socket | Leftover from a previous Docker/Rancher install. `unset DOCKER_HOST` (and remove the `export` line from your shell rc). |
 
 ---
 

@@ -543,3 +543,6 @@ Default login: `admin@agentbreeder.local` / `plant`. **Change this before exposi
 | `Container build failed` | `docker info` to confirm runtime is up; `agentbreeder deploy --dry-run` to inspect generated Dockerfile. |
 | `Deploy rolled back` | The 8-step pipeline is atomic. `agentbreeder status <agent>` and `agentbreeder logs <agent>` to find the failed step. |
 | Dashboard won't start | Needs the API up first. `agentbreeder ui` or `docker compose up`. See [Quickstart](quickstart). |
+| Dashboard at `:3001` renders blank | Stale `rajits/agentbreeder-dashboard:latest` cached locally — `docker rmi` it then re-run with `agentbreeder quickstart --dev` to rebuild from source. See [FAQ](faq#dashboard-at-httplocalhost3001-shows-a-blank-page). |
+| `migrate-1` exits immediately | Expected — it's a one-shot alembic job. Only a problem if exit code is non-zero. |
+| `Cannot connect to docker socket` after switching runtimes | Stale `DOCKER_HOST` env var pointing at a dead socket. `unset DOCKER_HOST` and remove the `export` line from your shell rc. |

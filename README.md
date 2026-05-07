@@ -60,35 +60,6 @@ AI coding tools make it easy to **build** agents. Nobody has made it easy to **s
 
 ## How It Works
 
-```yaml
-# agent.yaml — this is the entire config
-name: customer-support-agent
-version: 1.0.0
-team: customer-success
-owner: alice@company.com
-
-framework: langgraph          # or: openai_agents, claude_sdk, crewai, google_adk, custom
-
-model:
-  primary: claude-sonnet-4-6
-  fallback: gpt-4o
-
-tools:
-  - ref: tools/zendesk-mcp    # pull from org registry
-  - ref: tools/order-lookup
-
-deploy:
-  cloud: gcp                  # or: aws, azure, local, kubernetes
-  scaling:
-    min: 1
-    max: 10
-```
-
-```bash
-pip3 install agentbreeder
-agentbreeder deploy ./agent.yaml
-```
-
 Eight atomic steps run in sequence: parse → RBAC check → *(approval gate if required)* → resolve deps → build container → provision infra → deploy → health check → register. If any step fails, the entire deploy rolls back.
 
 ---
@@ -103,19 +74,7 @@ All three tiers compile to the same internal format. Same deploy pipeline. Same 
 | **Low Code** | ML engineers, DevOps | Write `agent.yaml` in any IDE | Full Code (`agentbreeder eject`) |
 | **Full Code** | Senior engineers, researchers | Python/TS SDK with full programmatic control | — |
 
-```python
-from agenthub import Agent
 
-agent = (
-    Agent("support-agent", version="1.0.0", team="eng")
-    .with_model(primary="claude-sonnet-4-6", fallback="gpt-4o")
-    .with_tools(["tools/zendesk-mcp", "tools/order-lookup"])
-    .with_deploy(cloud="gcp", min_scale=1, max_scale=10)
-)
-agent.deploy()
-```
-
----
 
 ## What's Supported
 
@@ -144,12 +103,10 @@ agent.deploy()
 Full feature matrix and supported versions → [docs/features](https://www.agentbreeder.io/docs/features)
 
 ---
-
 ## CLI Reference
 Full CLI reference → [agentbreeder.io/docs/cli-reference](https://www.agentbreeder.io/docs/cli-reference)
 
 ---
-
 ## Documentation
 
 **User docs** (guides, references, examples) — [agentbreeder.io/docs](https://www.agentbreeder.io/docs)
