@@ -224,6 +224,8 @@ agentbreeder chat my-agent    # chat with a deployed agent
 
 > **`agentbreeder: command not found`?** pip's script directory may not be on your PATH — [fix it here](https://www.agentbreeder.io/docs/how-to#agentbreeder-command-not-found).
 
+> **Working from a clone?** Use `agentbreeder quickstart --dev` to build the API + Dashboard images from your local source instead of pulling `rajits/agentbreeder-{api,dashboard}:latest` from Docker Hub. This is the way to test in-flight changes or work around a stale cached image.
+
 ---
 
 ## Quick Start
