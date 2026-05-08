@@ -84,31 +84,20 @@ All three tiers compile to the same internal format. Same deploy pipeline. Same 
 
 | | |
 |---|---|
-| [Quickstart](https://www.agentbreeder.io/docs/quickstart) | Full local platform in one command |
-| [Examples](https://www.agentbreeder.io/docs/examples) | 18 working examples — every framework, cloud, and pattern |
-| [agent.yaml reference](https://www.agentbreeder.io/docs/agent-yaml) | Every field, every option |
-| [CLI reference](https://www.agentbreeder.io/docs/cli-reference) | All commands and flags |
 | [How-To guides](https://www.agentbreeder.io/docs/how-to) | Install, deploy, orchestrate, evaluate |
-| [Model Gateway](https://www.agentbreeder.io/docs/gateway) | LiteLLM proxy — routing, budgets, guardrails, caching |
-| [RAG & GraphRAG](https://www.agentbreeder.io/docs/rag) | ChromaDB vector search + Neo4j knowledge graphs |
-| [MCP servers](https://www.agentbreeder.io/docs/mcp-servers) | MCP server registry + sidecar injection |
-| [A2A protocol](https://www.agentbreeder.io/docs/a2a-protocol) | Agent-to-Agent JSON-RPC communication |
-| [Comparisons](https://www.agentbreeder.io/docs/comparisons) | AgentBreeder vs Google, Anthropic, OpenAI, Azure, AWS |
+| [Quickstart](https://www.agentbreeder.io/docs/quickstart) | Full local platform in one command |
+| [CLI reference](https://www.agentbreeder.io/docs/cli-reference) | All commands and flags |
 | [SDK reference](https://www.agentbreeder.io/docs/full-code) | Python + TypeScript full-code SDK |
+
 
 **For contributors** — internal engineering references in this repo:
 
 | | |
 |---|---|
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — setup, standards, PR process |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Platform architecture — deploy pipeline, abstractions, data model |
-| [docs/design/](docs/design/) | Feature design docs — RBAC, LiteLLM gateway, polyglot agents |
-| [ROADMAP.md](ROADMAP.md) | Release plan and milestone status |
-| [CHANGELOG.md](CHANGELOG.md) | Version history |
-| [GOVERNANCE.md](GOVERNANCE.md) | Project governance, decision-making, maintainer ladder |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards (Contributor Covenant 2.1) |
-| [CLA.md](CLA.md) | Contributor License Agreement (Apache ICLA / CCLA) |
-| [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
+| [Contributing](CONTRIBUTING.md) | How to contribute — setup, standards, PR process |
+| [Architecture](ARCHITECTURE.md) | Platform architecture — deploy pipeline, abstractions, data model |
+| [Design](docs/design/) | Feature design docs — RBAC, LiteLLM gateway, polyglot agents |
 
 
-[Issues](https://github.com/agentbreeder/agentbreeder/issues) · [Discussions](https://github.com/agentbreeder/agentbreeder/discussions) · [Discord](https://discord.gg/QT9j3Uj4s5) · [Apache 2.0](LICENSE) · [Trademark](TRADEMARK.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [CLA](CLA.md)
+
+[Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/agentbreeder/agentbreeder/issues) · [Discussions](https://github.com/agentbreeder/agentbreeder/discussions) · [Discord](https://discord.gg/QT9j3Uj4s5) · [Apache 2.0](LICENSE) · [Trademark](TRADEMARK.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [CLA](CLA.md) · [Security](SECURITY.md) · [Governance](GOVERNANCE.md)
