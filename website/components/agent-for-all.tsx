@@ -100,7 +100,7 @@ async function runNoCode(
   append(screenEl, f1);
   await wait(350); if (signal.cancelled) return;
 
-  const f2 = makeField('Model', 'claude-sonnet-4  ▾', '#93c5fd');
+  const f2 = makeField('Model', 'claude-sonnet-4-6  ▾', '#93c5fd');
   append(screenEl, f2);
   await wait(350); if (signal.cancelled) return;
 
@@ -160,7 +160,7 @@ const YAML_LINES: [string, string][] = [
   ['framework: langgraph',      '#e6edf3'],
   ['',                          ''],
   ['model:',                    '#79c0ff'],
-  ['  primary: claude-sonnet-4','#e6edf3'],
+  ['  primary: claude-sonnet-4-6','#e6edf3'],
   ['  fallback: gpt-4o',        '#e6edf3'],
   ['',                          ''],
   ['tools:',                    '#79c0ff'],
@@ -213,28 +213,25 @@ async function runLowCode(
 // ─── Phase 2: Full Code (Python SDK) ─────────────────────────────────────────
 
 const SDK_LINES: [string, string][] = [
-  ['from agenthub import Agent',          '#79c0ff'],
-  ['',                                    ''],
-  ['agent = (',                           '#e6edf3'],
-  ['  Agent("support-agent")',            '#e6edf3'],
-  ['    .with_version("1.0.0")',          '#d2a8ff'],
-  ['    .with_framework("langgraph")',    '#d2a8ff'],
-  ['    .with_model(',                    '#d2a8ff'],
-  ['      primary="claude-sonnet-4",',   '#3fb950'],
-  ['      fallback="gpt-4o",',           '#3fb950'],
-  ['    )',                               '#d2a8ff'],
-  ['    .with_tools([',                   '#d2a8ff'],
-  ['      "tools/zendesk-mcp",',         '#3fb950'],
-  ['      "tools/order-lookup",',        '#3fb950'],
-  ['    ])',                              '#d2a8ff'],
-  ['    .with_deploy(',                   '#d2a8ff'],
-  ['      cloud="gcp",',                  '#3fb950'],
-  ['      runtime="cloud-run",',          '#3fb950'],
-  ['    )',                               '#d2a8ff'],
-  [')',                                   '#e6edf3'],
-  ['',                                    ''],
-  ['result = agent.deploy()',             '#ffa657'],
-  ['print(result.endpoint)',              '#ffa657'],
+  ['from agenthub import Agent, Tool',                                '#79c0ff'],
+  ['',                                                                ''],
+  ['agent = (',                                                       '#e6edf3'],
+  ['  Agent("support-agent", version="1.0.0", team="support",',       '#e6edf3'],
+  ['        framework="langgraph")',                                  '#e6edf3'],
+  ['    .with_model(',                                                '#d2a8ff'],
+  ['      primary="claude-sonnet-4-6",',                              '#3fb950'],
+  ['      fallback="gpt-4o",',                                        '#3fb950'],
+  ['    )',                                                           '#d2a8ff'],
+  ['    .with_tool(Tool.from_ref("tools/zendesk-mcp"))',              '#d2a8ff'],
+  ['    .with_tool(Tool.from_ref("tools/order-lookup"))',             '#d2a8ff'],
+  ['    .with_deploy(',                                               '#d2a8ff'],
+  ['      cloud="gcp",',                                              '#3fb950'],
+  ['      runtime="cloud-run",',                                      '#3fb950'],
+  ['    )',                                                           '#d2a8ff'],
+  [')',                                                               '#e6edf3'],
+  ['',                                                                ''],
+  ['agent.validate()',                                                '#ffa657'],
+  ['agent.to_yaml("agent.yaml")',                                     '#ffa657'],
 ];
 
 async function runFullCode(
@@ -261,10 +258,10 @@ async function runFullCode(
 
   await wait(300); if (signal.cancelled) return;
   append(screenEl, makeLine('', '#484f58'));
-  append(screenEl, makeLine('# Running deploy pipeline…', '#484f58'));
+  append(screenEl, makeLine('$ agentbreeder deploy agent.yaml', '#ffa657'));
   await wait(700); if (signal.cancelled) return;
 
-  append(screenEl, makeLine('https://agent-abc.a.run.app', '#3fb950'));
+  append(screenEl, makeLine('  ✓  Live  ·  agent-abc.a.run.app', '#3fb950'));
   await wait(3500); if (signal.cancelled) return;
 }
 
