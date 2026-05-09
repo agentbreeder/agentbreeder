@@ -101,7 +101,7 @@ async function runLoop(
 
     // Command line
     stepEl.textContent = 'Initializing…';
-    add(makeLine('$ agentbreeder deploy agent.yaml --target all', '#3fb950'));
+    add(makeLine('$ agentbreeder deploy agent.yaml', '#3fb950'));
     prog(5);
     await wait(900); if (signal.cancelled) return;
 

@@ -43,7 +43,7 @@ const FEATURES: Feature[] = [
   {
     icon: '🛒',
     title: 'Provider Catalog (v2.0)',
-    desc: '9 OpenAI-compatible presets out of the box — Nvidia NIM, Kimi K2, Groq, Together, Fireworks, DeepInfra, Cerebras, Hyperbolic, OpenRouter. `agentbreeder provider add` for any custom upstream.',
+    desc: '10 provider presets out of the box — 8 direct OpenAI-compatible (Nvidia NIM, Kimi K2 / Moonshot, Groq, Together, Fireworks, DeepInfra, Cerebras, Hyperbolic) plus 2 gateways (OpenRouter, LiteLLM). `agentbreeder provider add` for any custom upstream.',
   },
   {
     icon: '🛡️',

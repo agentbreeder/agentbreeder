@@ -22,10 +22,10 @@ from agenthub import Agent, Tool, Model, Memory
 # Define an agent
 agent = (
     Agent("customer-support", version="1.0.0", team="customer-success")
-    .with_model(primary="claude-sonnet-4", fallback="gpt-4o")
+    .with_model(primary="claude-sonnet-4-6", fallback="gpt-4o")
     .with_prompt(system="You are a helpful customer support agent.")
-    .with_tool(ref="tools/zendesk-mcp")
-    .with_tool(ref="tools/order-lookup")
+    .with_tool(Tool.from_ref("tools/zendesk-mcp"))
+    .with_tool(Tool.from_ref("tools/order-lookup"))
     .with_deploy(cloud="aws", region="us-east-1")
 )
 
