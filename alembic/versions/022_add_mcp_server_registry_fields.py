@@ -41,9 +41,7 @@ def upgrade() -> None:
             ADD COLUMN IF NOT EXISTS image_uri VARCHAR(500);
         """
     )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_mcp_servers_team ON mcp_servers (team);"
-    )
+    op.execute("CREATE INDEX IF NOT EXISTS ix_mcp_servers_team ON mcp_servers (team);")
 
 
 def downgrade() -> None:
