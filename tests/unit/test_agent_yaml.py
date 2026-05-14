@@ -213,6 +213,33 @@ class TestCreateFromYaml:
         with pytest.raises(ValueError, match="Validation failed"):
             await create_from_yaml(session, "")
 
+    @pytest.mark.asyncio
+    async def test_create_polyglot_runtime_agent(self, session: AsyncSession) -> None:
+        """Regression for #376 — polyglot YAML (runtime.framework=vercel-ai,
+        no top-level framework) round-trips through create_from_yaml without
+        raising "'framework' is required".
+
+        The Agent row should record ``runtime.framework`` in its ``framework``
+        column so downstream consumers (dashboard, search filters) still see
+        a non-empty framework name.
+        """
+        yaml = (
+            "name: my-vercel-agent\nversion: 1.0.0\nteam: engineering\n"
+            "owner: alice@example.com\n"
+            "runtime:\n  language: node\n  framework: vercel-ai\n  version: '20'\n"
+            "model:\n  primary: gpt-4o\ndeploy:\n  cloud: local\n"
+        )
+        agent = await create_from_yaml(session, yaml)
+        assert agent.name == "my-vercel-agent"
+        # Polyglot framework name surfaces in the framework column so the
+        # dashboard and `agentbreeder list --framework vercel-ai` still work.
+        assert agent.framework == "vercel-ai"
+        # The DB-default timestamps must be populated after commit+refresh.
+        # If create_from_yaml leaves the row uncommitted, accessing these
+        # fields raises MissingGreenlet under FastAPI's response serializer.
+        assert agent.created_at is not None
+        assert agent.updated_at is not None
+
 
 # ---------------------------------------------------------------------------
 # Issue #204 — verify the dashboard's agent-builder YAML emit format is

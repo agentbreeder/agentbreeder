@@ -248,6 +248,12 @@ async def create_from_yaml(session: AsyncSession, yaml_string: str) -> Agent:
     config = AgentConfig(**config_kwargs)
 
     agent = await AgentRegistry.register(session, config, endpoint_url="")
+    # Commit + refresh so the API response can read DB-default columns
+    # (created_at, updated_at) without triggering a lazy-load that crashes
+    # under the async greenlet bridge. Mirrors the manual ``create_agent``
+    # path in ``api/routes/agents.py``.
+    await session.commit()
+    await session.refresh(agent)
     return agent
 
 
