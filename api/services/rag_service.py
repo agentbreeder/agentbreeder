@@ -552,7 +552,14 @@ def hybrid_search(
     vector_weight: float = 0.7,
     text_weight: float = 0.3,
 ) -> list[SearchHit]:
-    """Hybrid search combining cosine similarity + full-text scoring."""
+    """Hybrid search combining cosine similarity + full-text scoring.
+
+    Results are deduplicated by ``content_hash`` (falling back to a SHA-256
+    of the chunk text for legacy chunks ingested before content hashing was
+    added). This prevents byte-identical chunks — which can leak in when a
+    document is re-ingested without ``replace=True`` against a pre-dedup
+    index — from filling the top-k.
+    """
     scored: list[tuple[DocumentChunk, float]] = []
 
     for chunk in chunks:
@@ -565,16 +572,27 @@ def hybrid_search(
 
     scored.sort(key=lambda x: x[1], reverse=True)
 
-    return [
-        SearchHit(
-            chunk_id=chunk.id,
-            text=chunk.text,
-            source=chunk.source,
-            score=score,
-            metadata=chunk.metadata,
+    seen_hashes: set[str] = set()
+    hits: list[SearchHit] = []
+    for chunk, score in scored:
+        h = chunk.metadata.get("content_hash") if chunk.metadata else None
+        if not h:
+            h = hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()
+        if h in seen_hashes:
+            continue
+        seen_hashes.add(h)
+        hits.append(
+            SearchHit(
+                chunk_id=chunk.id,
+                text=chunk.text,
+                source=chunk.source,
+                score=score,
+                metadata=chunk.metadata,
+            )
         )
-        for chunk, score in scored[:top_k]
-    ]
+        if len(hits) >= top_k:
+            break
+    return hits
 
 
 async def graph_search(
@@ -835,12 +853,18 @@ class RAGStore:
         self,
         index_id: str,
         files: list[tuple[str, bytes]],
+        *,
+        replace: bool = False,
     ) -> IngestJob:
         """Ingest files into a vector index.
 
         Args:
             index_id: Target index ID.
             files: List of (filename, content_bytes) tuples.
+            replace: If True, existing chunks whose ``source`` matches one of the
+                incoming filenames are deleted before the new chunks are added.
+                When False (default), ingest is idempotent by ``content_hash``:
+                chunks whose SHA-256 already exists in the index are skipped.
 
         Returns:
             IngestJob with final status.
@@ -852,6 +876,13 @@ class RAGStore:
         job = self.create_ingest_job(index_id, len(files))
 
         try:
+            # Optional replace-by-source: drop any existing chunks whose source
+            # matches one of the incoming filenames. Runs before chunking so the
+            # dedup pass below sees only "the other" content.
+            if replace and files:
+                incoming_sources = {filename for filename, _ in files}
+                idx.chunks = [c for c in idx.chunks if c.source not in incoming_sources]
+
             # Phase 1: Chunking
             job.status = IngestJobStatus.chunking
             all_chunks: list[DocumentChunk] = []
@@ -865,14 +896,49 @@ class RAGStore:
                     overlap=idx.chunk_overlap,
                 )
                 for chunk_text_str in chunks:
+                    content_hash = hashlib.sha256(chunk_text_str.encode("utf-8")).hexdigest()
                     chunk = DocumentChunk(
                         id=str(uuid.uuid4()),
                         text=chunk_text_str,
                         source=filename,
-                        metadata={"filename": filename, "index_id": index_id},
+                        metadata={
+                            "filename": filename,
+                            "index_id": index_id,
+                            "content_hash": content_hash,
+                        },
                     )
                     all_chunks.append(chunk)
                 job.processed_files += 1
+
+            # Idempotency: drop incoming chunks whose hash already exists in the
+            # index. Back-fill content_hash on legacy chunks the first time we
+            # see them so older indexes pick up dedup behaviour transparently.
+            existing_hashes: set[str] = set()
+            for c in idx.chunks:
+                h = c.metadata.get("content_hash")
+                if not h:
+                    h = hashlib.sha256(c.text.encode("utf-8")).hexdigest()
+                    c.metadata["content_hash"] = h
+                existing_hashes.add(h)
+
+            deduped: list[DocumentChunk] = []
+            seen_in_batch: set[str] = set()
+            for c in all_chunks:
+                h = c.metadata["content_hash"]
+                if h in existing_hashes or h in seen_in_batch:
+                    continue
+                seen_in_batch.add(h)
+                deduped.append(c)
+            skipped = len(all_chunks) - len(deduped)
+            if skipped:
+                logger.info(
+                    "ingest_files: skipped %d duplicate chunk(s) by content_hash"
+                    " (index=%s, replace=%s)",
+                    skipped,
+                    index_id,
+                    replace,
+                )
+            all_chunks = deduped
 
             job.total_chunks = len(all_chunks)
 

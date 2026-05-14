@@ -44,6 +44,7 @@ from .orchestration import (
     Supervisor,
     SupervisorConfig,
 )
+from .rag import IngestResult, RagIndex, RagIndexError
 from .tool import Tool, ToolConfig
 
 __version__ = "0.1.0"
@@ -60,6 +61,10 @@ __all__ = [
     "PromptConfig",
     "Tool",
     "ToolConfig",
+    # RAG
+    "RagIndex",
+    "RagIndexError",
+    "IngestResult",
     # Orchestration — builders
     "Orchestration",
     "Pipeline",
