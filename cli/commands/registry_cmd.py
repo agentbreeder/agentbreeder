@@ -1,4 +1,4 @@
-"""agentbreeder registry — push and list registry entities (prompts, tools, agents).
+"""agentbreeder registry — push and list registry entities (prompts, tools, agents, memory, rag).
 
 Talks to the AgentBreeder API at $AGENTBREEDER_API_URL (default
 http://localhost:8000). All API calls require a JWT in $AGENTBREEDER_API_TOKEN
@@ -14,6 +14,12 @@ Examples:
 
     agentbreeder registry agent push agent.yaml
     agentbreeder registry agent list
+
+    agentbreeder registry memory push memory.yaml
+    agentbreeder registry memory list
+
+    agentbreeder registry rag push rag.yaml
+    agentbreeder registry rag list
 """
 
 from __future__ import annotations
@@ -24,9 +30,11 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import httpx
 import typer
+import yaml
 from rich.console import Console
 from rich.table import Table
 
@@ -38,9 +46,13 @@ registry_app = typer.Typer(
 prompt_app = typer.Typer(no_args_is_help=True, help="Manage prompts in the registry")
 tool_app = typer.Typer(no_args_is_help=True, help="Manage tools in the registry")
 agent_app = typer.Typer(no_args_is_help=True, help="Manage agents in the registry")
+memory_app = typer.Typer(no_args_is_help=True, help="Manage memory configs in the registry")
+rag_app = typer.Typer(no_args_is_help=True, help="Manage RAG (vector) indexes in the registry")
 registry_app.add_typer(prompt_app, name="prompt")
 registry_app.add_typer(tool_app, name="tool")
 registry_app.add_typer(agent_app, name="agent")
+registry_app.add_typer(memory_app, name="memory")
+registry_app.add_typer(rag_app, name="rag")
 
 
 def _api_base() -> str:
@@ -400,5 +412,178 @@ def agent_list(team: str | None = typer.Option(None, "--team")) -> None:
             a.get("team", "-"),
             a.get("status", "-"),
             a["id"][:8],
+        )
+    console.print(table)
+
+
+# ── memory configs ─────────────────────────────────────────────────────────
+
+
+def _memory_yaml_to_api_body(raw: dict[str, Any]) -> dict[str, Any]:
+    """Map a memory.yaml dict to the POST /api/v1/memory/configs request body.
+
+    The YAML schema uses ``backend`` + ``config.window_size`` while the API
+    expects ``backend_type`` + ``max_messages`` (and a few other flattened
+    fields). Centralised so tests can verify the mapping without HTTP.
+    """
+    config = raw.get("config") or {}
+    # window_size is the buffer_window strategy's max retained turns;
+    # the API stores it as max_messages.
+    max_messages = config.get("window_size") or config.get("max_messages") or 100
+    body: dict[str, Any] = {
+        "name": raw["name"],
+        "team": raw.get("team", "default"),
+        "owner": raw.get("owner", ""),
+        "backend_type": raw.get("backend", "postgresql"),
+        "memory_type": raw.get("memory_type", "buffer_window"),
+        "max_messages": int(max_messages),
+        "description": raw.get("description", ""),
+        "tags": list(raw.get("tags") or []),
+    }
+    if config.get("namespace_pattern"):
+        body["namespace_pattern"] = config["namespace_pattern"]
+    if config.get("scope"):
+        body["scope"] = config["scope"]
+    if config.get("linked_agents"):
+        body["linked_agents"] = list(config["linked_agents"])
+    return body
+
+
+@memory_app.command("push")
+def memory_push(
+    yaml_file: Path = typer.Argument(
+        Path("memory.yaml"), help="Path to memory.yaml (default: ./memory.yaml)"
+    ),
+) -> None:
+    """Push a memory config to the registry from memory.yaml.
+
+    Translates the public memory.yaml schema (``backend``, ``memory_type``,
+    ``config.window_size``) to the API's request shape and POSTs to
+    ``/api/v1/memory/configs``.
+    """
+    if not yaml_file.is_file():
+        console.print(f"[red]memory.yaml not found at {yaml_file}[/red]")
+        raise typer.Exit(code=1)
+    try:
+        raw = yaml.safe_load(yaml_file.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        console.print(f"[red]Invalid YAML in {yaml_file}:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    if not raw.get("name"):
+        console.print(f"[red]{yaml_file}: missing required field 'name'[/red]")
+        raise typer.Exit(code=1)
+    body = _memory_yaml_to_api_body(raw)
+    payload = _post("/api/v1/memory/configs", body)
+    data = payload["data"]
+    console.print(
+        f"[green]✓[/green] {data['name']}  backend={data['backend_type']}  "
+        f"type={data['memory_type']}  id={data['id']}"
+    )
+
+
+@memory_app.command("list")
+def memory_list() -> None:
+    """List memory configs in the registry."""
+    payload = _get("/api/v1/memory/configs")
+    table = Table(title=f"Memory Configs ({payload['meta']['total']})")
+    table.add_column("Name")
+    table.add_column("Backend")
+    table.add_column("Type")
+    table.add_column("Max msgs", justify="right")
+    table.add_column("ID")
+    for m in payload["data"]:
+        table.add_row(
+            m["name"],
+            m.get("backend_type", "?"),
+            m.get("memory_type", "?"),
+            str(m.get("max_messages", "-")),
+            m["id"][:8],
+        )
+    console.print(table)
+
+
+# ── RAG indexes ────────────────────────────────────────────────────────────
+
+
+def _rag_yaml_to_api_body(raw: dict[str, Any]) -> dict[str, Any]:
+    """Map a rag.yaml dict to the POST /api/v1/rag/indexes request body.
+
+    The YAML schema groups embedding + chunking into nested objects; the API
+    accepts a flat body with ``embedding_model`` as a slash-joined string and
+    ``chunk_strategy`` / ``chunk_size`` / ``chunk_overlap`` at the top level.
+    """
+    embedding = raw.get("embedding_model") or {}
+    if isinstance(embedding, dict):
+        provider = embedding.get("provider", "openai")
+        model_name = embedding.get("name", "text-embedding-3-small")
+        embedding_str = f"{provider}/{model_name}"
+    else:
+        embedding_str = str(embedding)
+    chunking = raw.get("chunking") or {}
+    body: dict[str, Any] = {
+        "name": raw["name"],
+        "description": raw.get("description", ""),
+        "backend": raw.get("backend", "in_memory"),
+        "config": raw.get("config") or {},
+        "embedding_model": embedding_str,
+        "chunk_strategy": chunking.get("strategy", "fixed_size"),
+        "chunk_size": int(chunking.get("chunk_size", 512)),
+        "chunk_overlap": int(chunking.get("chunk_overlap", 64)),
+        "source": raw.get("source", "manual"),
+        "index_type": raw.get("index_type", "vector"),
+    }
+    return body
+
+
+@rag_app.command("push")
+def rag_push(
+    yaml_file: Path = typer.Argument(
+        Path("rag.yaml"), help="Path to rag.yaml (default: ./rag.yaml)"
+    ),
+) -> None:
+    """Push a RAG index definition to the registry from rag.yaml.
+
+    Maps the public rag.yaml schema (nested ``embedding_model``, ``chunking``)
+    to the flat API body and POSTs to ``/api/v1/rag/indexes``.
+    """
+    if not yaml_file.is_file():
+        console.print(f"[red]rag.yaml not found at {yaml_file}[/red]")
+        raise typer.Exit(code=1)
+    try:
+        raw = yaml.safe_load(yaml_file.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        console.print(f"[red]Invalid YAML in {yaml_file}:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    if not raw.get("name"):
+        console.print(f"[red]{yaml_file}: missing required field 'name'[/red]")
+        raise typer.Exit(code=1)
+    body = _rag_yaml_to_api_body(raw)
+    payload = _post("/api/v1/rag/indexes", body)
+    data = payload["data"]
+    console.print(
+        f"[green]✓[/green] {data['name']}  backend={data.get('backend', '?')}  "
+        f"type={data.get('index_type', '?')}  id={data['id']}"
+    )
+
+
+@rag_app.command("list")
+def rag_list() -> None:
+    """List RAG indexes in the registry."""
+    payload = _get("/api/v1/rag/indexes")
+    table = Table(title=f"RAG Indexes ({payload['meta']['total']})")
+    table.add_column("Name")
+    table.add_column("Type")
+    table.add_column("Embedding")
+    table.add_column("Docs", justify="right")
+    table.add_column("Chunks", justify="right")
+    table.add_column("ID")
+    for r in payload["data"]:
+        table.add_row(
+            r["name"],
+            r.get("index_type", "?"),
+            r.get("embedding_model", "?"),
+            str(r.get("doc_count", 0)),
+            str(r.get("chunk_count", 0)),
+            r["id"][:8],
         )
     console.print(table)

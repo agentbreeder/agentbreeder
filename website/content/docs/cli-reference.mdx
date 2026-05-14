@@ -601,6 +601,113 @@ agentbreeder registry agent invoke microlearning-ebook-agent \
 
 ---
 
+#### `agentbreeder registry memory push`
+
+Register a memory configuration in the registry from a `memory.yaml` file. Calls `POST /api/v1/memory/configs`.
+
+```
+agentbreeder registry memory push FILE [--json]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `FILE` | path | — | Path to the `memory.yaml` file |
+| `--json` | flag | off | Print the raw API response as JSON |
+
+**`memory.yaml` fields used:**
+
+| YAML field | Maps to API | Notes |
+|------------|-------------|-------|
+| `name` | `name` | Required, kebab-case |
+| `team` | `team` | Defaults to `default` |
+| `owner` | `owner` | Email of the responsible engineer |
+| `backend` | `backend_type` | `postgresql` or `redis` |
+| `memory_type` | `memory_type` | `buffer_window`, `summary`, etc. |
+| `config.window_size` | `max_messages` | Defaults to `100` |
+| `config.namespace_pattern` | `namespace_pattern` | Optional |
+| `config.scope` | `scope` | Optional |
+| `config.linked_agents` | `linked_agents` | Optional list |
+| `tags` | `tags` | Optional list |
+| `description` | `description` | Optional |
+
+**Example:**
+```bash
+agentbreeder registry memory push ./memory.yaml
+# ✔ Memory config registered: my-vercel-agent-memory  (id=1bea76e6-…)
+```
+
+---
+
+#### `agentbreeder registry memory list`
+
+List memory configurations from the registry. Calls `GET /api/v1/memory/configs`.
+
+```
+agentbreeder registry memory list [--json]
+```
+
+**Example:**
+```bash
+agentbreeder registry memory list
+# NAME                          BACKEND      TYPE             MAX_MSGS
+# my-vercel-agent-memory        postgresql   buffer_window    20
+```
+
+---
+
+#### `agentbreeder registry rag push`
+
+Register a RAG (knowledge base) index in the registry from a `rag.yaml` file. Calls `POST /api/v1/rag/indexes`.
+
+```
+agentbreeder registry rag push FILE [--json]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `FILE` | path | — | Path to the `rag.yaml` file |
+| `--json` | flag | off | Print the raw API response as JSON |
+
+**`rag.yaml` fields used:**
+
+| YAML field | Maps to API | Notes |
+|------------|-------------|-------|
+| `name` | `name` | Required, kebab-case |
+| `description` | `description` | Optional |
+| `backend` | `backend` | `in_memory`, `pgvector`, or `neo4j` |
+| `embedding_model.provider` + `.name` | `embedding_model` | Joined as `"<provider>/<name>"` |
+| `chunking.strategy` | `chunk_strategy` | Defaults to `fixed_size` |
+| `chunking.chunk_size` | `chunk_size` | Defaults to `512` |
+| `chunking.chunk_overlap` | `chunk_overlap` | Defaults to `64` |
+| `config` | `config` | Backend-specific config block |
+| `source` | `source` | Optional source identifier |
+| `index_type` | `index_type` | Defaults to `vector` |
+
+**Example:**
+```bash
+agentbreeder registry rag push ./rag.yaml
+# ✔ RAG index registered: agentbreeder-knowledge  (id=8439cd66-…)
+```
+
+---
+
+#### `agentbreeder registry rag list`
+
+List RAG indexes from the registry. Calls `GET /api/v1/rag/indexes`.
+
+```
+agentbreeder registry rag list [--json]
+```
+
+**Example:**
+```bash
+agentbreeder registry rag list
+# NAME                       BACKEND     EMBEDDING                       CHUNKS
+# agentbreeder-knowledge     in_memory   openai/text-embedding-3-small   512/64
+```
+
+---
+
 ### `agentbreeder logs`
 
 Show logs from a deployed agent.

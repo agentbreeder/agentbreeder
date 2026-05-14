@@ -261,3 +261,199 @@ class TestDeployCommand:
                 continue
         # If we didn't find valid JSON, at least verify error indication
         assert "error" in result.output.lower() or "failed" in result.output.lower()
+
+
+# ── registry memory / rag push ─────────────────────────────────────────────
+
+
+class TestRegistryMemoryPush:
+    """Covers the new `agentbreeder registry memory push` CLI command (#373).
+
+    These tests pin the YAML → API body translation and verify the HTTP call
+    is made with the mapped fields. The wider memory.yaml schema (which has
+    `backend` + `config.window_size`) does NOT match the API request shape
+    (`backend_type` + `max_messages`); the mapping is centralised in
+    `_memory_yaml_to_api_body` so it can be unit-tested without HTTP.
+    """
+
+    def test_yaml_to_api_body_maps_buffer_window(self) -> None:
+        from cli.commands.registry_cmd import _memory_yaml_to_api_body
+
+        body = _memory_yaml_to_api_body(
+            {
+                "name": "my-memory",
+                "team": "engineering",
+                "owner": "alice@example.com",
+                "backend": "postgresql",
+                "memory_type": "buffer_window",
+                "tags": ["postgres", "buffer-window"],
+                "description": "test memory",
+                "config": {"window_size": 20},
+            }
+        )
+        assert body == {
+            "name": "my-memory",
+            "team": "engineering",
+            "owner": "alice@example.com",
+            "backend_type": "postgresql",
+            "memory_type": "buffer_window",
+            "max_messages": 20,
+            "description": "test memory",
+            "tags": ["postgres", "buffer-window"],
+        }
+
+    def test_yaml_to_api_body_applies_defaults(self) -> None:
+        from cli.commands.registry_cmd import _memory_yaml_to_api_body
+
+        body = _memory_yaml_to_api_body({"name": "minimal"})
+        assert body["backend_type"] == "postgresql"
+        assert body["memory_type"] == "buffer_window"
+        assert body["max_messages"] == 100
+        assert body["tags"] == []
+        assert body["team"] == "default"
+
+    def test_push_missing_file_exits_1(self) -> None:
+        result = runner.invoke(app, ["registry", "memory", "push", "/nonexistent/memory.yaml"])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+    def test_push_missing_name_field_exits_1(self) -> None:
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+        f.write("backend: postgresql\nmemory_type: buffer_window\n")
+        f.close()
+        with patch.dict("os.environ", {"AGENTBREEDER_API_TOKEN": "dummy"}):
+            result = runner.invoke(app, ["registry", "memory", "push", f.name])
+        assert result.exit_code == 1
+        assert "name" in result.output.lower()
+
+    def test_push_posts_mapped_body(self) -> None:
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+        f.write(
+            "name: my-memory\n"
+            "team: eng\n"
+            "owner: alice@example.com\n"
+            "backend: postgresql\n"
+            "memory_type: buffer_window\n"
+            "tags: [a, b]\n"
+            "config:\n"
+            "  window_size: 50\n"
+        )
+        f.close()
+
+        captured: dict = {}
+
+        def fake_post(path: str, body: dict) -> dict:
+            captured["path"] = path
+            captured["body"] = body
+            return {
+                "data": {
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "name": body["name"],
+                    "backend_type": body["backend_type"],
+                    "memory_type": body["memory_type"],
+                }
+            }
+
+        with patch("cli.commands.registry_cmd._post", side_effect=fake_post):
+            result = runner.invoke(app, ["registry", "memory", "push", f.name])
+
+        assert result.exit_code == 0, result.output
+        assert captured["path"] == "/api/v1/memory/configs"
+        assert captured["body"]["backend_type"] == "postgresql"
+        assert captured["body"]["max_messages"] == 50
+        assert captured["body"]["tags"] == ["a", "b"]
+
+
+class TestRegistryRagPush:
+    """Covers the new `agentbreeder registry rag push` CLI command (#373).
+
+    rag.yaml uses nested ``embedding_model: {provider, name}`` and
+    ``chunking: {strategy, chunk_size, chunk_overlap}`` blocks, but
+    ``POST /api/v1/rag/indexes`` wants a flat body with a slash-joined
+    ``embedding_model`` string and top-level chunk fields.
+    """
+
+    def test_yaml_to_api_body_flattens_nested_blocks(self) -> None:
+        from cli.commands.registry_cmd import _rag_yaml_to_api_body
+
+        body = _rag_yaml_to_api_body(
+            {
+                "name": "docs-index",
+                "description": "docs RAG",
+                "backend": "in_memory",
+                "embedding_model": {
+                    "provider": "openai",
+                    "name": "text-embedding-3-small",
+                },
+                "chunking": {
+                    "strategy": "recursive",
+                    "chunk_size": 1024,
+                    "chunk_overlap": 128,
+                },
+                "source": "manual",
+                "index_type": "vector",
+            }
+        )
+        assert body["name"] == "docs-index"
+        assert body["backend"] == "in_memory"
+        assert body["embedding_model"] == "openai/text-embedding-3-small"
+        assert body["chunk_strategy"] == "recursive"
+        assert body["chunk_size"] == 1024
+        assert body["chunk_overlap"] == 128
+        assert body["index_type"] == "vector"
+
+    def test_yaml_to_api_body_applies_defaults(self) -> None:
+        from cli.commands.registry_cmd import _rag_yaml_to_api_body
+
+        body = _rag_yaml_to_api_body({"name": "minimal"})
+        assert body["backend"] == "in_memory"
+        assert body["embedding_model"] == "openai/text-embedding-3-small"
+        assert body["chunk_strategy"] == "fixed_size"
+        assert body["chunk_size"] == 512
+        assert body["chunk_overlap"] == 64
+        assert body["index_type"] == "vector"
+
+    def test_push_missing_file_exits_1(self) -> None:
+        result = runner.invoke(app, ["registry", "rag", "push", "/nonexistent/rag.yaml"])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+    def test_push_posts_mapped_body(self) -> None:
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+        f.write(
+            "name: docs-index\n"
+            "version: 1.0.0\n"
+            "description: docs RAG\n"
+            "backend: in_memory\n"
+            "embedding_model:\n"
+            "  provider: openai\n"
+            "  name: text-embedding-3-small\n"
+            "chunking:\n"
+            "  strategy: recursive\n"
+            "  chunk_size: 1024\n"
+            "  chunk_overlap: 128\n"
+        )
+        f.close()
+
+        captured: dict = {}
+
+        def fake_post(path: str, body: dict) -> dict:
+            captured["path"] = path
+            captured["body"] = body
+            return {
+                "data": {
+                    "id": "00000000-0000-0000-0000-000000000002",
+                    "name": body["name"],
+                    "backend": body["backend"],
+                    "index_type": body["index_type"],
+                }
+            }
+
+        with patch("cli.commands.registry_cmd._post", side_effect=fake_post):
+            result = runner.invoke(app, ["registry", "rag", "push", f.name])
+
+        assert result.exit_code == 0, result.output
+        assert captured["path"] == "/api/v1/rag/indexes"
+        assert captured["body"]["embedding_model"] == "openai/text-embedding-3-small"
+        assert captured["body"]["chunk_size"] == 1024
+        assert captured["body"]["chunk_strategy"] == "recursive"
