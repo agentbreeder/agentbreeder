@@ -141,6 +141,45 @@ class TestIngest:
         finally:
             os.unlink(md_path)
 
+    def test_ingest_replace_kwarg_sends_form_field(self) -> None:
+        """``RagIndex.ingest(replace=True)`` posts ``data={"replace": "true"}``.
+
+        Regression test for the dedup fix — keeps the SDK aligned with the
+        new ``replace`` form parameter on ``POST /api/v1/rag/indexes/{id}/ingest``.
+        """
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write("# v2")
+            md_path = f.name
+        try:
+            uid = "11111111-2222-3333-4444-555555555555"
+            idx = RagIndex(uid)
+            with patch("agenthub.rag.httpx.Client") as MockClient:
+                client_ctx = MockClient.return_value.__enter__.return_value
+                client_ctx.post.return_value = _mock_response(
+                    {
+                        "data": {
+                            "id": "j-1",
+                            "status": "completed",
+                            "total_files": 1,
+                            "processed_files": 1,
+                            "total_chunks": 1,
+                            "embedded_chunks": 1,
+                        }
+                    }
+                )
+
+                # Default: no data field on the POST.
+                idx.ingest([md_path])
+                _, kwargs = client_ctx.post.call_args
+                assert kwargs.get("data") is None
+
+                # replace=True: form field populated.
+                idx.ingest([md_path], replace=True)
+                _, kwargs = client_ctx.post.call_args
+                assert kwargs.get("data") == {"replace": "true"}
+        finally:
+            os.unlink(md_path)
+
     def test_ingest_propagates_http_error(self) -> None:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             f.write("hi")

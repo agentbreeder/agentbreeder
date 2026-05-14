@@ -713,21 +713,27 @@ agentbreeder registry rag list
 Upload and ingest one or more files into a registered RAG index. Resolves the index name (or UUID) and POSTs `multipart/form-data` to `/api/v1/rag/indexes/{id}/ingest`. Files are chunked, embedded, and indexed by the API.
 
 ```
-agentbreeder registry rag ingest NAME_OR_ID FILE [FILE...] [--json]
+agentbreeder registry rag ingest NAME_OR_ID FILE [FILE...] [--replace] [--json]
 ```
 
 | Argument / Option | Type | Default | Description |
 |-------------------|------|---------|-------------|
 | `NAME_OR_ID` | str | — | Registered RAG index name (e.g. `agentbreeder-knowledge`) or its UUID |
 | `FILE...` | path | — | One or more files to ingest |
+| `--replace` | flag | off | Delete any existing chunks whose source matches one of the incoming filenames before ingest. Without this flag, ingest is idempotent: chunks whose SHA-256 content hash already exists in the index are skipped. |
 | `--json` | flag | off | Print the raw API response as JSON |
 
 **Allowed file types:** `.pdf`, `.txt`, `.md`, `.csv`, `.json` (matches the API allow-list — unsupported extensions are rejected client-side before any upload).
+
+**Idempotency:** by default, re-ingesting the same file is a no-op — the API hashes every chunk (SHA-256) and skips any chunk whose hash already exists in the index. Use `--replace` when you've edited the file and want the old chunks to be dropped first.
 
 **Example:**
 ```bash
 agentbreeder registry rag ingest agentbreeder-knowledge ./docs/intro.md ./docs/quickstart.pdf
 # ✓ Ingested 14 chunks from 2 file(s) into agentbreeder-knowledge  (job=ca2e0c7a  status=completed)
+
+# After editing intro.md, drop the old chunks and re-ingest:
+agentbreeder registry rag ingest agentbreeder-knowledge ./docs/intro.md --replace
 ```
 
 ---

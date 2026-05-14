@@ -121,11 +121,16 @@ class RagIndex:
         """Resolved UUID for this index (lazily fetched)."""
         return self._resolve_id()
 
-    def ingest(self, files: list[str | Path]) -> IngestResult:
+    def ingest(self, files: list[str | Path], *, replace: bool = False) -> IngestResult:
         """Upload and ingest one or more files.
 
         Accepted formats: PDF, TXT, MD, CSV, JSON. Posts multipart/form-data
         to ``/api/v1/rag/indexes/{id}/ingest``.
+
+        When ``replace=True``, any existing chunks whose ``source`` matches
+        one of the incoming filenames are deleted before ingestion. When
+        ``replace=False`` (the default), ingest is idempotent: chunks whose
+        SHA-256 content hash already exists in the index are skipped.
         """
         if not files:
             raise RagIndexError("At least one file is required")
@@ -148,6 +153,7 @@ class RagIndex:
                 f"{self.base_url}/api/v1/rag/indexes/{idx}/ingest",
                 headers=self._headers(json_body=False),
                 files=parts,
+                data={"replace": "true"} if replace else None,
             )
             if r.status_code >= 400:
                 raise RagIndexError(f"ingest -> {r.status_code}: {r.text}")

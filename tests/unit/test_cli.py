@@ -506,9 +506,10 @@ class TestRegistryRagIngest:
 
         captured: dict = {}
 
-        def fake_multipart(path: str, files: list) -> dict:
+        def fake_multipart(path: str, files: list, data: dict | None = None) -> dict:
             captured["path"] = path
             captured["files"] = files
+            captured["data"] = data
             return {
                 "data": {
                     "id": "job-1234-5678-9abc-def0",
@@ -535,6 +536,45 @@ class TestRegistryRagIngest:
         assert ctype == "text/markdown"
         assert b"hello world" in content
         assert "Ingested 3 chunks" in result.output
+        # Without --replace, the form field is not sent.
+        assert captured["data"] is None
+
+    def test_ingest_replace_flag_sends_form_field(self) -> None:
+        """`--replace` translates to ``data={"replace": "true"}`` on the POST.
+
+        Regression test for the dedup fix — keeps the CLI in sync with the
+        new API form parameter.
+        """
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False)
+        f.write("# v2 content")
+        f.close()
+
+        captured: dict = {}
+
+        def fake_multipart(path: str, files: list, data: dict | None = None) -> dict:
+            captured["data"] = data
+            return {
+                "data": {
+                    "id": "job-2",
+                    "status": "completed",
+                    "total_files": 1,
+                    "processed_files": 1,
+                    "total_chunks": 1,
+                    "embedded_chunks": 1,
+                }
+            }
+
+        from cli.commands import registry_cmd
+
+        with patch.object(registry_cmd, "_resolve_rag_index_id", return_value="abc-id"):
+            with patch.object(registry_cmd, "_post_multipart", side_effect=fake_multipart):
+                result = runner.invoke(
+                    app,
+                    ["registry", "rag", "ingest", "docs-index", f.name, "--replace"],
+                )
+
+        assert result.exit_code == 0, result.output
+        assert captured["data"] == {"replace": "true"}
 
 
 class TestRegistryRagSearch:

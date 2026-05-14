@@ -80,8 +80,16 @@ def _post(path: str, body: dict) -> dict:
         return resp.json()
 
 
-def _post_multipart(path: str, files: list[tuple[str, tuple[str, bytes, str]]]) -> dict:
-    """POST multipart/form-data. ``files`` is a list of (field, (filename, content, content_type))."""
+def _post_multipart(
+    path: str,
+    files: list[tuple[str, tuple[str, bytes, str]]],
+    data: dict[str, str] | None = None,
+) -> dict:
+    """POST multipart/form-data.
+
+    ``files`` is a list of ``(field, (filename, content, content_type))``.
+    ``data`` is an optional dict of extra form fields posted alongside the files.
+    """
     url = f"{_api_base()}{path}"
     token = os.getenv("AGENTBREEDER_API_TOKEN", "").strip()
     if not token:
@@ -92,7 +100,7 @@ def _post_multipart(path: str, files: list[tuple[str, tuple[str, bytes, str]]]) 
         raise typer.Exit(code=1)
     headers = {"Authorization": f"Bearer {token}"}
     with httpx.Client(timeout=120.0) as client:
-        resp = client.post(url, headers=headers, files=files)
+        resp = client.post(url, headers=headers, files=files, data=data or {})
         if resp.status_code >= 400:
             console.print(f"[red]POST {path} -> {resp.status_code}[/red]\n{resp.text}")
             raise typer.Exit(code=1)
@@ -635,6 +643,15 @@ def _resolve_rag_index_id(name_or_id: str) -> str:
 def rag_ingest(
     name_or_id: str = typer.Argument(..., help="RAG index name or id"),
     files: list[Path] = typer.Argument(..., help="One or more files to ingest"),
+    replace: bool = typer.Option(
+        False,
+        "--replace",
+        help=(
+            "Delete any existing chunks whose source matches one of the incoming "
+            "filenames before ingesting. Without this flag ingest is idempotent: "
+            "chunks whose SHA-256 hash already exists in the index are skipped."
+        ),
+    ),
     json_out: bool = typer.Option(False, "--json", help="Print the raw API response as JSON"),
 ) -> None:
     """Upload and ingest files into a RAG index.
@@ -662,7 +679,11 @@ def rag_ingest(
         parts.append(("files", (f.name, f.read_bytes(), ctype)))
 
     index_id = _resolve_rag_index_id(name_or_id)
-    payload = _post_multipart(f"/api/v1/rag/indexes/{index_id}/ingest", parts)
+    payload = _post_multipart(
+        f"/api/v1/rag/indexes/{index_id}/ingest",
+        parts,
+        data={"replace": "true"} if replace else None,
+    )
     data = payload.get("data", {})
     if json_out:
         console.print(json.dumps(payload, indent=2))
