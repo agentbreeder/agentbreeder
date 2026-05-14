@@ -94,7 +94,39 @@ class TestValidateConfigYaml:
         assert "version" in paths
         assert "team" in paths
         assert "owner" in paths
+        # framework is now required only when runtime is not set — the error
+        # path is still "framework" but the message mentions both options
         assert "framework" in paths
+
+    def test_polyglot_runtime_accepted(self) -> None:
+        """Polyglot agents declare runtime.framework instead of top-level framework."""
+        yaml = (
+            "name: vercel-agent\nversion: 1.0.0\nteam: eng\nowner: a@b.com\n"
+            "runtime:\n  language: node\n  framework: vercel-ai\n  version: '20'\n"
+            "model:\n  primary: gpt-4o\ndeploy:\n  cloud: local\n"
+        )
+        result = validate_config_yaml(yaml)
+        assert result.valid is True, [e.message for e in result.errors]
+
+    def test_both_framework_and_runtime_rejected(self) -> None:
+        yaml = (
+            "name: bad-agent\nversion: 1.0.0\nteam: eng\nowner: a@b.com\n"
+            "framework: langgraph\n"
+            "runtime:\n  language: node\n  framework: vercel-ai\n"
+            "model:\n  primary: gpt-4o\ndeploy:\n  cloud: local\n"
+        )
+        result = validate_config_yaml(yaml)
+        assert result.valid is False
+        assert any("only one of" in e.message.lower() for e in result.errors)
+
+    def test_neither_framework_nor_runtime_rejected(self) -> None:
+        yaml = (
+            "name: bad-agent\nversion: 1.0.0\nteam: eng\nowner: a@b.com\n"
+            "model:\n  primary: gpt-4o\ndeploy:\n  cloud: local\n"
+        )
+        result = validate_config_yaml(yaml)
+        assert result.valid is False
+        assert any(e.path == "framework" for e in result.errors)
 
     def test_invalid_name_format(self) -> None:
         yaml = MINIMAL_VALID_YAML.replace("my-agent", "My Agent!!")

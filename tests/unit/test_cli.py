@@ -61,6 +61,47 @@ class TestValidateCommand:
         assert output["valid"] is False
         assert len(output["errors"]) > 0
 
+    def test_validate_detects_memory_yaml_by_filename(self) -> None:
+        """A file named memory.yaml is validated against the memory schema,
+        not the agent schema. Regression for: validate memory.yaml reported
+        'framework/runtime required' because it always used the agent schema.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "memory.yaml"
+            path.write_text(
+                "spec_version: v1\n"
+                "name: test-memory\n"
+                "version: 1.0.0\n"
+                "team: engineering\n"
+                "owner: alice@example.com\n"
+                "backend: postgresql\n"
+                "memory_type: buffer_window\n"
+            )
+            result = runner.invoke(app, ["validate", str(path), "--json"])
+            output = json.loads(result.output)
+            # No more "must specify framework or runtime" agent-schema errors
+            messages = " ".join(e.get("message", "") for e in output.get("errors", []))
+            assert "framework" not in messages.lower()
+            assert "runtime" not in messages.lower()
+
+    def test_validate_detects_memory_yaml_by_content(self) -> None:
+        """A file whose content has backend + memory_type (no framework/runtime)
+        is detected as a memory config even if its filename is unusual."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "my-store.yaml"
+            path.write_text(
+                "name: test-memory\n"
+                "version: 1.0.0\n"
+                "team: engineering\n"
+                "owner: alice@example.com\n"
+                "backend: postgresql\n"
+                "memory_type: buffer_window\n"
+            )
+            result = runner.invoke(app, ["validate", str(path), "--json"])
+            output = json.loads(result.output)
+            messages = " ".join(e.get("message", "") for e in output.get("errors", []))
+            assert "framework" not in messages.lower()
+
 
 class TestListCommand:
     def test_list_no_agents(self) -> None:

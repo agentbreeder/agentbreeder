@@ -239,7 +239,7 @@ agentbreeder deploy ./agent.yaml --json                       # JSON output
 
 ### `agentbreeder validate`
 
-Validate an `agent.yaml` without deploying.
+Validate an `agent.yaml`, `orchestration.yaml`, or `memory.yaml` without deploying.
 
 ```
 agentbreeder validate CONFIG_PATH [--json]
@@ -247,7 +247,16 @@ agentbreeder validate CONFIG_PATH [--json]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `CONFIG_PATH` | Yes | Path to `agent.yaml` |
+| `CONFIG_PATH` | Yes | Path to a config file |
+
+File-type detection (in order):
+1. Filename starts with `orchestration` → orchestration schema
+2. Filename is `agent.yaml`/`agent.yml` → agent schema
+3. Filename is `memory.yaml`/`memory.yml` or starts with `memory.` → memory schema
+4. Content has `strategy` + `agents` keys → orchestration schema
+5. Content has `backend` + `memory_type` (and no `framework`/`runtime`) → memory schema
+6. Content has `transport`/`command` (and no `framework`/`runtime`) → MCP (skipped)
+7. Otherwise → agent schema
 
 Checks:
 - YAML syntax
@@ -258,6 +267,7 @@ Checks:
 ```bash
 agentbreeder validate ./agent.yaml
 agentbreeder validate ./agent.yaml --json
+agentbreeder validate ./memory.yaml          # validates against memory.schema.json
 ```
 
 ---

@@ -85,8 +85,10 @@ def validate_config_yaml(yaml_string: str) -> YamlValidationResult:
 
     raw: dict[str, Any] = dict(doc)
 
-    # Required field checks
-    for field in ("name", "version", "team", "owner", "framework"):
+    # Required field checks. ``framework`` is required only for Python
+    # agents; polyglot agents declare a top-level ``runtime:`` block
+    # instead (runtime.language + runtime.framework). Accept either.
+    for field in ("name", "version", "team", "owner"):
         if field not in raw or not raw[field]:
             errors.append(
                 ConfigError(
@@ -95,6 +97,26 @@ def validate_config_yaml(yaml_string: str) -> YamlValidationResult:
                     suggestion=f"Add '{field}' to your agent YAML",
                 )
             )
+
+    has_framework = bool(raw.get("framework"))
+    runtime_block = raw.get("runtime") if isinstance(raw.get("runtime"), dict) else None
+    has_runtime = runtime_block is not None and bool(runtime_block.get("framework"))
+    if not has_framework and not has_runtime:
+        errors.append(
+            ConfigError(
+                path="framework",
+                message="'framework' (Python) or 'runtime.framework' (polyglot) is required",
+                suggestion="Add 'framework: langgraph' or 'runtime: {language: node, framework: vercel-ai}'",
+            )
+        )
+    elif has_framework and has_runtime:
+        errors.append(
+            ConfigError(
+                path="framework",
+                message="Set only one of 'framework' or 'runtime', not both",
+                suggestion="Use 'framework' for Python agents, 'runtime' for polyglot agents",
+            )
+        )
 
     # Name format
     name = raw.get("name", "")
@@ -129,7 +151,9 @@ def validate_config_yaml(yaml_string: str) -> YamlValidationResult:
             )
         )
 
-    # Framework
+    # Framework — Python only. Polyglot frameworks (vercel-ai, mastra,
+    # etc.) live under runtime.framework and are validated by the runtime
+    # registry at deploy time, so we don't enum-check them here.
     fw = raw.get("framework", "")
     if fw and str(fw) not in _KNOWN_FRAMEWORKS:
         errors.append(
@@ -195,24 +219,33 @@ async def create_from_yaml(session: AsyncSession, yaml_string: str) -> Agent:
 
     raw = result.parsed
 
-    # Build an AgentConfig for the registry
+    # Build an AgentConfig for the registry. Python agents use the
+    # ``framework:`` field (validated against FrameworkType); polyglot
+    # agents use the ``runtime:`` block instead.
     model_data = raw.get("model", {})
     deploy_data = raw.get("deploy", {})
+    framework_value = raw.get("framework")
+    runtime_value = raw.get("runtime")
 
-    config = AgentConfig(
-        name=raw["name"],
-        version=str(raw["version"]),
-        description=raw.get("description", ""),
-        team=raw["team"],
-        owner=raw["owner"],
-        framework=FrameworkType(raw["framework"]),
-        model=model_data,
-        deploy=deploy_data,
-        tags=raw.get("tags", []),
-        tools=raw.get("tools", []),
-        prompts=raw.get("prompts", {}),
-        guardrails=raw.get("guardrails", []),
-    )
+    config_kwargs: dict[str, Any] = {
+        "name": raw["name"],
+        "version": str(raw["version"]),
+        "description": raw.get("description", ""),
+        "team": raw["team"],
+        "owner": raw["owner"],
+        "model": model_data,
+        "deploy": deploy_data,
+        "tags": raw.get("tags", []),
+        "tools": raw.get("tools", []),
+        "prompts": raw.get("prompts", {}),
+        "guardrails": raw.get("guardrails", []),
+    }
+    if framework_value:
+        config_kwargs["framework"] = FrameworkType(framework_value)
+    elif runtime_value:
+        config_kwargs["runtime"] = runtime_value
+
+    config = AgentConfig(**config_kwargs)
 
     agent = await AgentRegistry.register(session, config, endpoint_url="")
     return agent
