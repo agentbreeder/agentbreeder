@@ -3044,8 +3044,8 @@ agentbreeder/
 
 ---
 
-*Last updated: 2026-04-26 — 0 open issues, 82 closed*
-*Status: v0.1–v1.2 complete (M1–M23). v1.3–v1.7 done. v1.8 done (connectors + schedule + Ollama/OpenRouter). v1.9 done (Node.js polyglot runtime — 8 TS templates, NodeRuntimeFamily, @agentbreeder/aps-client, mcp-server.schema.json, agentbreeder init --language node). v2.0 done (M38 E2E suite — 104 tests, 15 spec files). v2.1–v2.5 planned (Cloud integration modules — see above). Open issues: 0 | Closed: 82.*
+*Last updated: 2026-05-14 — 30 open issues, 109 closed*
+*Status: v0.1–v1.2 complete (M1–M23). v1.3–v1.7 done. v1.8 done (connectors + schedule + Ollama/OpenRouter). v1.9 done (Node.js polyglot runtime — 8 TS templates, NodeRuntimeFamily, @agentbreeder/aps-client, mcp-server.schema.json, agentbreeder init --language node). v2.0 done (M38 E2E suite — 104 tests, 15 spec files). v2.1 done (real backends across 8 dashboard pages + auto-seed registry + daily models-sync). v2.2+ planned (Cloud integration modules — see above). Open issues: 30 | Closed: 109.*
 
 ## Milestone M38 — Exhaustive Live Docker E2E Test Suite
 
@@ -3121,4 +3121,4 @@ The following issues were filed ahead of the HN launch targeting operational qua
 
 **Note:** Issue #79 is now closed — multi-cloud website copy fully corrected in commit 4901c83. Issue #83 is partially resolved — `agentbreeder validate` already exists in the CLI.
 
-**Issue tracker:** 0 open · 82 closed — *Last updated: April 26, 2026*
+**Issue tracker:** 30 open · 109 closed — *Last updated: May 14, 2026*
