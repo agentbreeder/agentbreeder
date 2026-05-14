@@ -67,6 +67,32 @@ class TestMigration015:
         assert mod.revision == "012"
         assert mod.down_revision == "011"
 
+    def test_migration_022_mcp_server_fields(self) -> None:
+        """Migration 022 backfills mcp_servers columns referenced by the ORM model.
+
+        The McpServer SQLAlchemy model declares ``version``, ``team``,
+        ``deploy_config`` and ``image_uri`` but earlier migrations never
+        added them. The list endpoint ``GET /api/v1/mcp-servers`` therefore
+        failed with ``UndefinedColumnError`` in production. This test
+        ensures the migration is importable, chains off 021 and emits the
+        ``ADD COLUMN`` statements for all four fields.
+        """
+        spec = importlib.util.spec_from_file_location(
+            "migration_022",
+            "alembic/versions/022_add_mcp_server_registry_fields.py",
+        )
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        assert mod.revision == "022"
+        assert mod.down_revision == "021"
+        assert callable(mod.upgrade)
+        assert callable(mod.downgrade)
+
+        src = open("alembic/versions/022_add_mcp_server_registry_fields.py").read()
+        for col in ("version", "team", "deploy_config", "image_uri"):
+            assert f"ADD COLUMN IF NOT EXISTS {col}" in src, f"missing column: {col}"
+        assert "ix_mcp_servers_team" in src
+
 
 # ---------------------------------------------------------------------------
 # Schema validation tests
