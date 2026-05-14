@@ -457,3 +457,134 @@ class TestRegistryRagPush:
         assert captured["body"]["embedding_model"] == "openai/text-embedding-3-small"
         assert captured["body"]["chunk_size"] == 1024
         assert captured["body"]["chunk_strategy"] == "recursive"
+
+
+class TestRegistryRagIngest:
+    """Covers `agentbreeder registry rag ingest NAME FILE...`."""
+
+    def test_resolve_id_passthrough_for_uuid(self) -> None:
+        from cli.commands.registry_cmd import _resolve_rag_index_id
+
+        uid = "11111111-2222-3333-4444-555555555555"
+        assert _resolve_rag_index_id(uid) == uid
+
+    def test_resolve_id_looks_up_name(self) -> None:
+        from cli.commands import registry_cmd
+
+        with patch.object(
+            registry_cmd,
+            "_get",
+            return_value={
+                "data": [
+                    {"id": "aaa", "name": "other"},
+                    {"id": "bbb", "name": "docs-index"},
+                ]
+            },
+        ):
+            assert registry_cmd._resolve_rag_index_id("docs-index") == "bbb"
+
+    def test_ingest_missing_file_exits_1(self) -> None:
+        result = runner.invoke(
+            app,
+            ["registry", "rag", "ingest", "docs-index", "/nonexistent/file.md"],
+        )
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+    def test_ingest_unsupported_extension_exits_1(self) -> None:
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".exe", delete=False)
+        f.write("nope")
+        f.close()
+        result = runner.invoke(app, ["registry", "rag", "ingest", "docs-index", f.name])
+        assert result.exit_code == 1
+        assert "unsupported" in result.output.lower()
+
+    def test_ingest_posts_multipart(self) -> None:
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False)
+        f.write("# hello world\nSome body.")
+        f.close()
+
+        captured: dict = {}
+
+        def fake_multipart(path: str, files: list) -> dict:
+            captured["path"] = path
+            captured["files"] = files
+            return {
+                "data": {
+                    "id": "job-1234-5678-9abc-def0",
+                    "status": "completed",
+                    "total_files": 1,
+                    "processed_files": 1,
+                    "total_chunks": 3,
+                    "embedded_chunks": 3,
+                }
+            }
+
+        from cli.commands import registry_cmd
+
+        with patch.object(registry_cmd, "_resolve_rag_index_id", return_value="abc-id"):
+            with patch.object(registry_cmd, "_post_multipart", side_effect=fake_multipart):
+                result = runner.invoke(app, ["registry", "rag", "ingest", "docs-index", f.name])
+
+        assert result.exit_code == 0, result.output
+        assert captured["path"] == "/api/v1/rag/indexes/abc-id/ingest"
+        assert len(captured["files"]) == 1
+        field, (filename, content, ctype) = captured["files"][0]
+        assert field == "files"
+        assert filename == Path(f.name).name
+        assert ctype == "text/markdown"
+        assert b"hello world" in content
+        assert "Ingested 3 chunks" in result.output
+
+
+class TestRegistryRagSearch:
+    """Covers `agentbreeder registry rag search NAME --query ...`."""
+
+    def test_search_posts_body(self) -> None:
+        from cli.commands import registry_cmd
+
+        captured: dict = {}
+
+        def fake_post(path: str, body: dict) -> dict:
+            captured["path"] = path
+            captured["body"] = body
+            return {
+                "data": {
+                    "results": [
+                        {
+                            "score": 0.91,
+                            "source": "docs/intro.md",
+                            "text": "AgentBreeder is an OSS agent platform.",
+                        }
+                    ]
+                }
+            }
+
+        with patch.object(registry_cmd, "_resolve_rag_index_id", return_value="idx-1"):
+            with patch.object(registry_cmd, "_post", side_effect=fake_post):
+                result = runner.invoke(
+                    app,
+                    ["registry", "rag", "search", "docs", "--query", "what is it", "-k", "3"],
+                )
+
+        assert result.exit_code == 0, result.output
+        assert captured["path"] == "/api/v1/rag/search"
+        assert captured["body"] == {"index_id": "idx-1", "query": "what is it", "top_k": 3}
+        assert "docs/intro.md" in result.output
+
+    def test_search_json_output(self) -> None:
+        from cli.commands import registry_cmd
+
+        with patch.object(registry_cmd, "_resolve_rag_index_id", return_value="idx-1"):
+            with patch.object(
+                registry_cmd,
+                "_post",
+                return_value={"data": {"results": []}, "meta": {"total": 0}},
+            ):
+                result = runner.invoke(
+                    app,
+                    ["registry", "rag", "search", "docs", "--query", "q", "--json"],
+                )
+        assert result.exit_code == 0
+        # The JSON output should include "results"
+        assert '"results"' in result.output

@@ -80,6 +80,25 @@ def _post(path: str, body: dict) -> dict:
         return resp.json()
 
 
+def _post_multipart(path: str, files: list[tuple[str, tuple[str, bytes, str]]]) -> dict:
+    """POST multipart/form-data. ``files`` is a list of (field, (filename, content, content_type))."""
+    url = f"{_api_base()}{path}"
+    token = os.getenv("AGENTBREEDER_API_TOKEN", "").strip()
+    if not token:
+        console.print(
+            "[red]AGENTBREEDER_API_TOKEN is not set.[/red] "
+            "Log in via /api/v1/auth/login and export the token first."
+        )
+        raise typer.Exit(code=1)
+    headers = {"Authorization": f"Bearer {token}"}
+    with httpx.Client(timeout=120.0) as client:
+        resp = client.post(url, headers=headers, files=files)
+        if resp.status_code >= 400:
+            console.print(f"[red]POST {path} -> {resp.status_code}[/red]\n{resp.text}")
+            raise typer.Exit(code=1)
+        return resp.json()
+
+
 def _get(path: str) -> dict:
     url = f"{_api_base()}{path}"
     with httpx.Client(timeout=30.0) as client:
@@ -586,4 +605,106 @@ def rag_list() -> None:
             str(r.get("chunk_count", 0)),
             r["id"][:8],
         )
+    console.print(table)
+
+
+_RAG_ALLOWED_EXTS = {".pdf", ".txt", ".md", ".csv", ".json"}
+_RAG_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".csv": "text/csv",
+    ".json": "application/json",
+}
+
+
+def _resolve_rag_index_id(name_or_id: str) -> str:
+    """Resolve a RAG index name to its UUID. Accepts a UUID directly."""
+    # If it looks like a UUID, use it.
+    if len(name_or_id) == 36 and name_or_id.count("-") == 4:
+        return name_or_id
+    payload = _get("/api/v1/rag/indexes")
+    for r in payload.get("data", []):
+        if r.get("name") == name_or_id:
+            return r["id"]
+    console.print(f"[red]RAG index not found: {name_or_id}[/red]")
+    raise typer.Exit(code=1)
+
+
+@rag_app.command("ingest")
+def rag_ingest(
+    name_or_id: str = typer.Argument(..., help="RAG index name or id"),
+    files: list[Path] = typer.Argument(..., help="One or more files to ingest"),
+    json_out: bool = typer.Option(False, "--json", help="Print the raw API response as JSON"),
+) -> None:
+    """Upload and ingest files into a RAG index.
+
+    Accepted formats: PDF, TXT, MD, CSV, JSON. The API chunks, embeds, and
+    indexes the content; this command POSTs multipart/form-data to
+    ``/api/v1/rag/indexes/{id}/ingest``.
+    """
+    if not files:
+        console.print("[red]At least one file is required[/red]")
+        raise typer.Exit(code=1)
+    parts: list[tuple[str, tuple[str, bytes, str]]] = []
+    for f in files:
+        if not f.is_file():
+            console.print(f"[red]File not found: {f}[/red]")
+            raise typer.Exit(code=1)
+        ext = f.suffix.lower()
+        if ext not in _RAG_ALLOWED_EXTS:
+            console.print(
+                f"[red]Unsupported file type: {ext}.[/red] "
+                f"Allowed: {', '.join(sorted(_RAG_ALLOWED_EXTS))}"
+            )
+            raise typer.Exit(code=1)
+        ctype = _RAG_CONTENT_TYPES.get(ext, "application/octet-stream")
+        parts.append(("files", (f.name, f.read_bytes(), ctype)))
+
+    index_id = _resolve_rag_index_id(name_or_id)
+    payload = _post_multipart(f"/api/v1/rag/indexes/{index_id}/ingest", parts)
+    data = payload.get("data", {})
+    if json_out:
+        console.print(json.dumps(payload, indent=2))
+        return
+    chunks = data.get("embedded_chunks", data.get("total_chunks", "?"))
+    n_files = data.get("processed_files", data.get("total_files", len(files)))
+    job_id = data.get("id", "?")
+    console.print(
+        f"[green]✓[/green] Ingested {chunks} chunks from {n_files} file(s) into "
+        f"{name_or_id}  (job={job_id[:8] if isinstance(job_id, str) else job_id}  "
+        f"status={data.get('status', '?')})"
+    )
+
+
+@rag_app.command("search")
+def rag_search(
+    name_or_id: str = typer.Argument(..., help="RAG index name or id"),
+    query: str = typer.Option(..., "--query", "-q", help="Search query text"),
+    top_k: int = typer.Option(5, "--top-k", "-k", help="Number of results to return"),
+    json_out: bool = typer.Option(False, "--json", help="Print the raw API response as JSON"),
+) -> None:
+    """Run a hybrid search against a RAG index.
+
+    POSTs to ``/api/v1/rag/search`` with ``{index_id, query, top_k}``.
+    """
+    index_id = _resolve_rag_index_id(name_or_id)
+    body = {"index_id": index_id, "query": query, "top_k": int(top_k)}
+    payload = _post("/api/v1/rag/search", body)
+    if json_out:
+        console.print(json.dumps(payload, indent=2))
+        return
+    results = payload.get("data", {}).get("results", []) or payload.get("data", []) or []
+    if isinstance(results, dict):
+        results = results.get("results", [])
+    table = Table(title=f"Search results for '{query}' ({len(results)})")
+    table.add_column("#", justify="right")
+    table.add_column("Score", justify="right")
+    table.add_column("Source")
+    table.add_column("Snippet")
+    for i, r in enumerate(results, 1):
+        score = r.get("score", r.get("similarity", 0.0))
+        source = r.get("source") or r.get("metadata", {}).get("source") or "?"
+        snippet = (r.get("text") or r.get("content") or "")[:120].replace("\n", " ")
+        table.add_row(str(i), f"{float(score):.3f}", str(source), snippet)
     console.print(table)

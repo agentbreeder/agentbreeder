@@ -708,6 +708,56 @@ agentbreeder registry rag list
 
 ---
 
+#### `agentbreeder registry rag ingest`
+
+Upload and ingest one or more files into a registered RAG index. Resolves the index name (or UUID) and POSTs `multipart/form-data` to `/api/v1/rag/indexes/{id}/ingest`. Files are chunked, embedded, and indexed by the API.
+
+```
+agentbreeder registry rag ingest NAME_OR_ID FILE [FILE...] [--json]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `NAME_OR_ID` | str | — | Registered RAG index name (e.g. `agentbreeder-knowledge`) or its UUID |
+| `FILE...` | path | — | One or more files to ingest |
+| `--json` | flag | off | Print the raw API response as JSON |
+
+**Allowed file types:** `.pdf`, `.txt`, `.md`, `.csv`, `.json` (matches the API allow-list — unsupported extensions are rejected client-side before any upload).
+
+**Example:**
+```bash
+agentbreeder registry rag ingest agentbreeder-knowledge ./docs/intro.md ./docs/quickstart.pdf
+# ✓ Ingested 14 chunks from 2 file(s) into agentbreeder-knowledge  (job=ca2e0c7a  status=completed)
+```
+
+---
+
+#### `agentbreeder registry rag search`
+
+Run a hybrid vector + text search against a RAG index. Calls `POST /api/v1/rag/search`.
+
+```
+agentbreeder registry rag search NAME_OR_ID --query TEXT [--top-k N] [--json]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `NAME_OR_ID` | str | — | Registered RAG index name or UUID |
+| `--query`, `-q` | str | — | Search query text |
+| `--top-k`, `-k` | int | `5` | Number of results to return |
+| `--json` | flag | off | Print the raw API response as JSON |
+
+**Example:**
+```bash
+agentbreeder registry rag search agentbreeder-knowledge -q "how do I deploy an agent?" -k 3
+#  # | Score | Source            | Snippet
+# ---+-------+-------------------+-----------------------------------------------
+#  1 | 0.913 | docs/intro.md     | AgentBreeder compiles an agent.yaml file to…
+#  2 | 0.812 | docs/quickstart.pdf | Run `agentbreeder deploy --target gcp` to…
+```
+
+---
+
 ### `agentbreeder logs`
 
 Show logs from a deployed agent.
