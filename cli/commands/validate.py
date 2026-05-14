@@ -34,9 +34,7 @@ def _detect_config_type(path: Path) -> str:
                 return "orchestration"
             # Memory configs have backend + memory_type but no framework/runtime
             has_memory_fields = "memory_type" in data and "backend" in data
-            has_agent_fields = (
-                "framework" in data or "runtime" in data or "model" in data
-            )
+            has_agent_fields = "framework" in data or "runtime" in data or "model" in data
             if has_memory_fields and not has_agent_fields:
                 return "memory"
             # MCP configs have transport/command but no framework/model
@@ -57,9 +55,7 @@ def _validate_memory_config(path: Path):
 
     from engine.config_parser import ConfigValidationError, ValidationResult
 
-    schema_path = (
-        Path(__file__).parent.parent.parent / "engine" / "schema" / "memory.schema.json"
-    )
+    schema_path = Path(__file__).parent.parent.parent / "engine" / "schema" / "memory.schema.json"
     with open(schema_path) as f:
         schema = json.load(f)
 
