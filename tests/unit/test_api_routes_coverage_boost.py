@@ -1764,7 +1764,9 @@ class TestRagSearch:
     def test_search_missing_fields(self, mock_gs):
         mock_gs.return_value = MagicMock()
         resp = client.post("/api/v1/rag/search", json={})
-        assert resp.status_code == 400
+        # W1-02: RagSearchRequest Pydantic validation now returns 422 for invalid
+        # bodies (was 400 under the old loose dict-based parsing).
+        assert resp.status_code == 422
 
     @patch("api.routes.rag.get_rag_store")
     def test_search_index_not_found(self, mock_gs):

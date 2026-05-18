@@ -859,17 +859,11 @@ class IngestJobResponse(BaseModel):
     completed_at: str | None = None
 
 
-class RAGSearchRequest(BaseModel):
-    index_id: str
-    query: str
-    top_k: int = 10
-    vector_weight: float = 0.7
-    text_weight: float = 0.3
-
-
 class RagSearchRequest(BaseModel):
     """Validated payload for POST /api/v1/rag/search.
 
+    Replaces the legacy unvalidated ``RAGSearchRequest`` (uppercase) — deleted
+    in W1-02 cleanup since it was never referenced outside this module.
     Backwards-compatible with the previous dict-based body: the endpoint still
     accepts any dict shape, but invalid values now produce 422 Validation Error
     instead of undefined behavior. Legitimate callers see no change.
