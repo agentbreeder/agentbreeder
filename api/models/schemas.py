@@ -780,6 +780,10 @@ class CreateMemoryConfigRequest(BaseModel):
     linked_agents: list[str] = Field(default_factory=list)
     description: str = ""
     tags: list[str] = Field(default_factory=list)
+    # MM8: Optional TTL in seconds. None = messages never expire. When set,
+    # ``MemoryService.cleanup_expired_messages()`` will delete messages older
+    # than this many seconds. Enforcement is opt-in (deployer cron / one-shot).
+    ttl_seconds: int | None = Field(default=None, ge=1)
 
 
 class MemoryConfigResponse(BaseModel):
@@ -792,6 +796,8 @@ class MemoryConfigResponse(BaseModel):
     scope: str
     linked_agents: list[str]
     description: str
+    # MM8: Echo the TTL setting so clients can display expiration policy.
+    ttl_seconds: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -801,6 +807,11 @@ class MemoryMessageCreate(BaseModel):
     role: str  # "user" | "assistant" | "system" | "tool"
     content: str = Field(..., max_length=100_000)
     agent_id: str | None = None
+    # ``metadata`` is free-form JSON. Recognised keys:
+    #   - ``user_id`` (str | None): the human user this message belongs to.
+    #     Required for GDPR-style ``DELETE /api/v1/memory/user/{user_id}``
+    #     "right to be forgotten" requests (MM9). Messages without a
+    #     ``user_id`` are not user-deletable.
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -911,6 +922,17 @@ class RagSearchRequest(BaseModel):
     text_weight: WeightField = 0.3
     hops: HopsField = None
     seed_entity_limit: SeedEntityLimitField = 5
+    # W5-R12: optional metadata post-filter — dict of {key: expected_value}.
+    # Applied as a strict-equality predicate on each chunk's metadata after
+    # retrieval. Empty / null means "no filter".
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional metadata post-filter: dict of {key: expected_value}. "
+            "Each hit's chunk.metadata must contain every key with the "
+            "given value. Strict equality only."
+        ),
+    )
 
     _check_weights = make_weights_sum_validator("vector_weight", "text_weight")
 
