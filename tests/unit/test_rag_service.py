@@ -669,3 +669,81 @@ class TestGraphSearchAndIngest:
         depth_by_id = {node.id: depth for node, depth in results}
         assert depth_by_id["B"] == 1
         assert depth_by_id["C"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Fallback alerting — W1-03
+# ---------------------------------------------------------------------------
+
+import logging  # noqa: E402
+
+from api.services.rag_service import (  # noqa: E402
+    _FALLBACK_WARNED,
+    EmbeddingResult,
+    embed_texts,
+)
+
+
+@pytest.fixture(autouse=False)
+def clear_fallback_state():
+    """Reset the module-level dedup set between tests."""
+    _FALLBACK_WARNED.clear()
+    yield
+    _FALLBACK_WARNED.clear()
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_empty_input_returns_empty_result(
+    clear_fallback_state,
+) -> None:
+    result = await embed_texts([])
+    assert isinstance(result, EmbeddingResult)
+    assert result.vectors == []
+    assert result.used_fallback is False
+    assert result.fallback_reason is None
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_uses_fallback_when_no_api_key(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    caplog.set_level(logging.WARNING)
+
+    result = await embed_texts(["hello"], model="openai/text-embedding-3-small")
+
+    assert result.used_fallback is True
+    assert result.fallback_reason == "openai-no-api-key"
+    assert len(result.vectors) == 1
+    assert len(result.vectors[0]) == 1536
+    assert any("rag.embedding.fallback" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_fallback_warning_deduplicated(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    caplog.set_level(logging.WARNING)
+
+    await embed_texts(["a"], model="openai/text-embedding-3-small")
+    await embed_texts(["b"], model="openai/text-embedding-3-small")
+    await embed_texts(["c"], model="openai/text-embedding-3-small")
+
+    fallback_warnings = [r for r in caplog.records if "rag.embedding.fallback" in r.message]
+    assert len(fallback_warnings) == 1
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_unknown_model_falls_back(
+    clear_fallback_state,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    result = await embed_texts(["hi"], model="bogus-provider/foo")
+    assert result.used_fallback is True
+    assert result.fallback_reason == "unknown-model-prefix"

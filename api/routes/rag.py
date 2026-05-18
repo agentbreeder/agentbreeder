@@ -321,6 +321,7 @@ async def search(
             "top_k": req.top_k,
             "results": [h.to_dict() for h in hits],
             "total": len(hits),
+            "degraded": any(h.degraded for h in hits),
         }
     )
 

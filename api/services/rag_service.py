@@ -220,6 +220,7 @@ class SearchHit:
     source: str
     score: float
     metadata: dict[str, Any] = field(default_factory=dict)
+    degraded: bool = False  # True when query embedding fell back to pseudo-embeddings.
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -228,6 +229,7 @@ class SearchHit:
             "source": self.source,
             "score": round(self.score, 6),
             "metadata": self.metadata,
+            "degraded": self.degraded,
         }
 
 
@@ -423,45 +425,97 @@ EMBEDDING_DIMENSIONS: dict[str, int] = {
 }
 
 
+@dataclass
+class EmbeddingResult:
+    """Embeddings plus provenance — exposes whether fallback was used.
+
+    When ``used_fallback`` is True, ``vectors`` contains deterministic pseudo
+    embeddings (hash-based, not semantically meaningful). Search quality will
+    be degraded until the upstream embedding service is reachable again.
+    """
+
+    vectors: list[list[float]]
+    used_fallback: bool = False
+    fallback_reason: str | None = None
+
+
+# Module-level set of (model, reason) pairs already warned about.
+# Prevents log spam when fallback happens on every chunk of a large ingest.
+_FALLBACK_WARNED: set[tuple[str, str]] = set()
+
+
+def _warn_fallback_once(model: str, reason: str) -> None:
+    """Emit a WARN log the first time a (model, reason) fallback occurs."""
+    key = (model, reason)
+    if key in _FALLBACK_WARNED:
+        return
+    _FALLBACK_WARNED.add(key)
+    logger.warning(
+        "rag.embedding.fallback: model=%s reason=%s — "
+        "falling back to deterministic pseudo-embeddings. "
+        "Search quality will be degraded until the upstream service is reachable.",
+        model,
+        reason,
+        extra={"model": model, "reason": reason},
+    )
+
+
 async def embed_texts(
     texts: list[str],
     model: str = "openai/text-embedding-3-small",
     batch_size: int = 32,
-) -> list[list[float]]:
+) -> EmbeddingResult:
     """Generate embeddings for a list of texts.
 
-    Supports:
-    - openai/text-embedding-3-small: calls OpenAI API
-    - ollama/nomic-embed-text: calls local Ollama instance
+    Returns an EmbeddingResult. If any batch fell back to pseudo-embeddings,
+    ``used_fallback=True`` and ``fallback_reason`` captures the first reason
+    encountered. WARN log is emitted at most once per (model, reason) per process.
     """
     if not texts:
-        return []
+        return EmbeddingResult(vectors=[])
 
     all_embeddings: list[list[float]] = []
+    used_fallback = False
+    first_reason: str | None = None
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
         if model.startswith("openai/"):
-            embeddings = await _embed_openai(batch, model.split("/", 1)[1])
+            vectors, fb, reason = await _embed_openai(batch, model.split("/", 1)[1])
         elif model.startswith("ollama/"):
-            embeddings = await _embed_ollama(batch, model.split("/", 1)[1])
+            vectors, fb, reason = await _embed_ollama(batch, model.split("/", 1)[1])
         else:
-            # Fallback: generate deterministic pseudo-embeddings for dev/test
             dims = EMBEDDING_DIMENSIONS.get(model, 768)
-            embeddings = [_pseudo_embedding(t, dims) for t in batch]
-        all_embeddings.extend(embeddings)
+            vectors = [_pseudo_embedding(t, dims) for t in batch]
+            fb, reason = True, "unknown-model-prefix"
+            _warn_fallback_once(model, reason)
 
-    return all_embeddings
+        all_embeddings.extend(vectors)
+        if fb and not used_fallback:
+            used_fallback = True
+            first_reason = reason
+
+    return EmbeddingResult(
+        vectors=all_embeddings,
+        used_fallback=used_fallback,
+        fallback_reason=first_reason,
+    )
 
 
-async def _embed_openai(texts: list[str], model_name: str) -> list[list[float]]:
-    """Call OpenAI embeddings API."""
+async def _embed_openai(
+    texts: list[str], model_name: str
+) -> tuple[list[list[float]], bool, str | None]:
+    """Call OpenAI embeddings API. Returns (vectors, used_fallback, reason)."""
     import os
 
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
-        logger.warning("OPENAI_API_KEY not set — using pseudo-embeddings")
-        return [_pseudo_embedding(t, 1536) for t in texts]
+        _warn_fallback_once(f"openai/{model_name}", "openai-no-api-key")
+        return (
+            [_pseudo_embedding(t, 1536) for t in texts],
+            True,
+            "openai-no-api-key",
+        )
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         try:
@@ -472,16 +526,24 @@ async def _embed_openai(texts: list[str], model_name: str) -> list[list[float]]:
             )
             resp.raise_for_status()
             data = resp.json()
-            return [item["embedding"] for item in data["data"]]
+            return ([item["embedding"] for item in data["data"]], False, None)
         except Exception as e:
+            _warn_fallback_once(f"openai/{model_name}", "openai-api-error")
             logger.error("OpenAI embedding failed: %s", e)
-            return [_pseudo_embedding(t, 1536) for t in texts]
+            return (
+                [_pseudo_embedding(t, 1536) for t in texts],
+                True,
+                "openai-api-error",
+            )
 
 
-async def _embed_ollama(texts: list[str], model_name: str) -> list[list[float]]:
-    """Call Ollama embeddings API."""
+async def _embed_ollama(
+    texts: list[str], model_name: str
+) -> tuple[list[list[float]], bool, str | None]:
+    """Call Ollama embeddings API. Returns (vectors, used_fallback, reason)."""
     base_url = "http://localhost:11434"
     results: list[list[float]] = []
+    any_fallback = False
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         for text in texts:
@@ -494,10 +556,13 @@ async def _embed_ollama(texts: list[str], model_name: str) -> list[list[float]]:
                 data = resp.json()
                 results.append(data["embedding"])
             except Exception as e:
+                _warn_fallback_once(f"ollama/{model_name}", "ollama-unreachable")
                 logger.error("Ollama embedding failed: %s", e)
                 results.append(_pseudo_embedding(text, 768))
+                any_fallback = True
 
-    return results
+    reason = "ollama-unreachable" if any_fallback else None
+    return (results, any_fallback, reason)
 
 
 def _pseudo_embedding(text: str, dimensions: int) -> list[float]:
@@ -603,10 +668,11 @@ async def graph_search(
     from api.services.graph_store import get_graph_store  # lazy to avoid circular import
 
     # Step 1: Embed query
-    query_embeddings = await embed_texts([query], model=idx.embedding_model)
-    if not query_embeddings:
+    query_embedding_result = await embed_texts([query], model=idx.embedding_model)
+    if not query_embedding_result.vectors:
         return []
-    query_vector = query_embeddings[0]
+    query_vector = query_embedding_result.vectors[0]
+    query_degraded = query_embedding_result.used_fallback
 
     # Step 2: Vector search — get top 20 candidates
     candidate_hits = hybrid_search(
@@ -638,6 +704,7 @@ async def graph_search(
                 source=h.source,
                 score=h.score,
                 metadata=h.metadata,
+                degraded=query_degraded,
             )
             for h in fallback_hits
         ]
@@ -718,6 +785,7 @@ async def graph_search(
             source=chunk.source,
             score=score,
             metadata=chunk.metadata,
+            degraded=query_degraded,
             graph_path=[],
             nodes_traversed=nodes_traversed,
             edges_traversed=edges_traversed,
@@ -879,9 +947,17 @@ class RAGStore:
             # Phase 2: Embedding
             job.status = IngestJobStatus.embedding
             texts = [c.text for c in all_chunks]
-            embeddings = await embed_texts(texts, model=idx.embedding_model)
+            embedding_result = await embed_texts(texts, model=idx.embedding_model)
+            if embedding_result.used_fallback:
+                logger.warning(
+                    "Ingest %s for index %s used pseudo-embedding fallback "
+                    "(reason=%s) — search quality will be degraded.",
+                    job.id,
+                    index_id,
+                    embedding_result.fallback_reason,
+                )
 
-            for i, emb in enumerate(embeddings):
+            for i, emb in enumerate(embedding_result.vectors):
                 all_chunks[i].embedding = emb
                 job.embedded_chunks = i + 1
 
@@ -968,18 +1044,26 @@ class RAGStore:
             )
 
         # Existing vector search path:
-        query_embeddings = await embed_texts([query], model=idx.embedding_model)
-        if not query_embeddings:
+        query_embedding_result = await embed_texts([query], model=idx.embedding_model)
+        if not query_embedding_result.vectors:
             return []
 
-        return hybrid_search(
-            query_embedding=query_embeddings[0],
+        hits = hybrid_search(
+            query_embedding=query_embedding_result.vectors[0],
             query_text=query,
             chunks=idx.chunks,
             top_k=top_k,
             vector_weight=vector_weight,
             text_weight=text_weight,
         )
+
+        # Propagate fallback flag onto each hit so the API layer can surface
+        # search-quality degradation to the caller.
+        if query_embedding_result.used_fallback:
+            for h in hits:
+                h.degraded = True
+
+        return hits
 
 
 # Global singleton
