@@ -117,10 +117,25 @@ class ClaudeSDKRuntime(RuntimeBuilder):
         return RuntimeValidationResult.from_items(items)
 
     def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
+        """Validate a Claude SDK agent directory.
+
+        Runs config-level checks (Claude-only models, computer-use tools
+        requiring ``claude-managed``) first, then verifies ``agent_dir``
+        exists and contains ``agent.py`` (exporting an ``agent``, ``app``, or
+        ``client`` variable) plus ``requirements.txt`` or ``pyproject.toml``.
+        Computer-use agents skip on-disk checks because they target
+        Anthropic Managed Agents and never build a container.
+        """
         # Run config-level checks first (shared with validate_config).
         config_result = self.validate_config(config)
         if not config_result.valid:
             return config_result
+
+        # Filesystem checks only apply to container-built agents.
+        if not self._has_computer_use_tools(config):
+            precondition = self._check_agent_dir(agent_dir)
+            if precondition is not None:
+                return precondition
 
         # Computer use tools target Anthropic Managed Agents — no container is built.
         if self._has_computer_use_tools(config):
@@ -237,6 +252,12 @@ class ClaudeSDKRuntime(RuntimeBuilder):
             raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
+        """Return the Claude SDK container startup command.
+
+        The Anthropic SDK is wrapped in a FastAPI ``server.py`` served by
+        uvicorn on port 8080. Computer-use agents bypass the container entry
+        point because they are deployed to Anthropic Managed Agents.
+        """
         return "uvicorn server:app --host 0.0.0.0 --port 8080"
 
     def _build_env_block(self, config: AgentConfig) -> str:
@@ -271,6 +292,12 @@ class ClaudeSDKRuntime(RuntimeBuilder):
         return base_block + "\n" + "\n".join(extra)
 
     def get_requirements(self, config: AgentConfig) -> list[str]:
+        """Return pip dependencies for Claude SDK agents.
+
+        Always includes ``anthropic`` (the Claude SDK) and the FastAPI server
+        deps. Claude SDK runtimes never add ``litellm`` — Claude models are
+        always routed through the native Anthropic client.
+        """
         return [
             "anthropic>=0.50.0",
             "fastapi>=0.110.0",

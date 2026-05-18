@@ -265,3 +265,59 @@ class TestLiteLLMRequirementsAcrossRuntimes:
         runtime = LangGraphRuntime()
         config = _make_config(model={"primary": "gpt-4o"})
         assert not any("litellm" in r for r in runtime.get_requirements(config))
+
+
+class TestAgentDirPrecondition:
+    """Audit A11: validate() must fail clearly when ``agent_dir`` is missing
+    or not a directory, across every supported runtime."""
+
+    def _runtimes(self) -> list:
+        from engine.runtimes.claude_sdk import ClaudeSDKRuntime
+        from engine.runtimes.crewai import CrewAIRuntime
+        from engine.runtimes.custom import CustomRuntime
+        from engine.runtimes.google_adk import GoogleADKRuntime
+        from engine.runtimes.openai_agents import OpenAIAgentsRuntime
+
+        return [
+            LangGraphRuntime(),
+            CrewAIRuntime(),
+            ClaudeSDKRuntime(),
+            OpenAIAgentsRuntime(),
+            GoogleADKRuntime(),
+            CustomRuntime(),
+        ]
+
+    def test_missing_agent_dir_is_rejected(self) -> None:
+        config = _make_config()
+        for runtime in self._runtimes():
+            framework = type(runtime).__name__
+            # claude_sdk needs a non-litellm Claude model so validate_config passes
+            if framework == "ClaudeSDKRuntime":
+                cfg = _make_config(model={"primary": "claude-sonnet-4"})
+            else:
+                cfg = config
+            missing = Path("/tmp/definitely-does-not-exist-agentbreeder-a11")
+            result = runtime.validate(missing, cfg)
+            assert result.valid is False, f"{framework} accepted a missing agent_dir"
+            assert any("does not exist" in e for e in result.errors), (
+                f"{framework} did not surface a clear 'does not exist' error: {result.errors}"
+            )
+
+    def test_agent_dir_is_a_file_is_rejected(self) -> None:
+        config = _make_config()
+        # Create a file (not a directory)
+        f = Path(tempfile.mkstemp(suffix="-a11-not-a-dir")[1])
+        try:
+            for runtime in self._runtimes():
+                framework = type(runtime).__name__
+                if framework == "ClaudeSDKRuntime":
+                    cfg = _make_config(model={"primary": "claude-sonnet-4"})
+                else:
+                    cfg = config
+                result = runtime.validate(f, cfg)
+                assert result.valid is False, f"{framework} accepted a file as agent_dir"
+                assert any("not a directory" in e for e in result.errors), (
+                    f"{framework} missing 'not a directory' error: {result.errors}"
+                )
+        finally:
+            f.unlink(missing_ok=True)

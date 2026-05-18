@@ -58,6 +58,18 @@ class CustomRuntime(RuntimeBuilder):
     """
 
     def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
+        """Validate a custom (BYO framework) agent directory.
+
+        Requires ``agent_dir`` to exist and contain either a ``Dockerfile``
+        (used verbatim) or ``agent.py`` / ``main.py`` (wrapped by the
+        fallback FastAPI server), plus ``requirements.txt`` or
+        ``pyproject.toml``. BYO Dockerfiles are sanity-checked for
+        ``EXPOSE 8080`` so AgentBreeder traffic reaches the right port.
+        """
+        precondition = self._check_agent_dir(agent_dir)
+        if precondition is not None:
+            return precondition
+
         errors: list[str] = []
 
         has_dockerfile = (agent_dir / "Dockerfile").exists()
@@ -165,10 +177,24 @@ class CustomRuntime(RuntimeBuilder):
             raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
+        """Return the custom runtime container startup command.
+
+        BYO Dockerfile mode ignores this — the user's ``Dockerfile`` defines
+        its own ``CMD``. The returned command applies to the fallback path
+        where ``agent.py`` / ``main.py`` is wrapped by ``custom_server.py``.
+        """
         # BYO Dockerfile sets its own CMD; this entrypoint applies to the fallback path.
         return "uvicorn server:app --host 0.0.0.0 --port 8080"
 
     def get_requirements(self, config: AgentConfig) -> list[str]:
+        """Return the minimal pip dependencies for custom-framework agents.
+
+        Includes only the FastAPI server stack — users add their own
+        framework deps via ``requirements.txt``. ``litellm`` is added
+        whenever the model string carries a LiteLLM-routable prefix (the
+        custom runtime has no native client, so the SDK is needed even when
+        the LiteLLM proxy gateway is configured).
+        """
         # Minimal set — users add their own framework deps via requirements.txt
         deps = [
             "fastapi>=0.110.0",

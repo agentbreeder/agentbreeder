@@ -51,6 +51,17 @@ class OpenAIAgentsRuntime(RuntimeBuilder):
     """Runtime builder for OpenAI Agents SDK agents."""
 
     def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
+        """Validate an OpenAI Agents SDK agent directory.
+
+        Requires ``agent_dir`` to exist and contain ``agent.py`` or
+        ``main.py`` (exporting an ``agents.Agent`` instance named ``agent``)
+        plus ``requirements.txt`` or ``pyproject.toml`` declaring
+        ``openai-agents`` and ``openai``.
+        """
+        precondition = self._check_agent_dir(agent_dir)
+        if precondition is not None:
+            return precondition
+
         errors: list[str] = []
 
         # Check for agent source file — accept agent.py or main.py
@@ -135,9 +146,21 @@ class OpenAIAgentsRuntime(RuntimeBuilder):
             raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
+        """Return the OpenAI Agents container startup command.
+
+        Agents are wrapped in a FastAPI ``server.py`` and served by uvicorn on
+        port 8080; the wrapper invokes ``Runner.run(agent, ...)`` on each
+        ``/invoke`` request.
+        """
         return "uvicorn server:app --host 0.0.0.0 --port 8080"
 
     def get_requirements(self, config: AgentConfig) -> list[str]:
+        """Return pip dependencies for OpenAI Agents SDK agents.
+
+        Always includes ``openai-agents``, ``openai`` and the FastAPI server
+        deps. ``litellm`` is added when the model uses a LiteLLM-routable
+        prefix but is NOT routed through the LiteLLM proxy gateway.
+        """
         deps = [
             "openai-agents>=0.1.0",
             "openai>=1.60.0",

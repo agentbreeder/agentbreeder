@@ -154,6 +154,39 @@ class RuntimeBuilder(ABC):
     - Listing required dependencies
     """
 
+    @staticmethod
+    def _check_agent_dir(agent_dir: Path) -> RuntimeValidationResult | None:
+        """Precondition: return a failure result if ``agent_dir`` does not exist
+        or is not a directory; otherwise return ``None`` so the caller proceeds.
+
+        Subclasses should call this at the top of their ``validate()`` method
+        and early-return if the result is non-``None`` (audit finding A11).
+        """
+        if not agent_dir.exists():
+            return RuntimeValidationResult.from_items(
+                [
+                    RuntimeValidationError(
+                        path=str(agent_dir),
+                        message=f"Agent directory does not exist: {agent_dir}",
+                        suggestion=(
+                            "Check the path you passed to `agentbreeder deploy` / "
+                            "`agentbreeder validate`."
+                        ),
+                    )
+                ]
+            )
+        if not agent_dir.is_dir():
+            return RuntimeValidationResult.from_items(
+                [
+                    RuntimeValidationError(
+                        path=str(agent_dir),
+                        message=f"Agent path is not a directory: {agent_dir}",
+                        suggestion="Pass the path to the agent directory, not a file.",
+                    )
+                ]
+            )
+        return None
+
     @abstractmethod
     def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
         """Validate that the agent directory contains valid code for this framework."""

@@ -51,6 +51,16 @@ class CrewAIRuntime(RuntimeBuilder):
     """Runtime builder for CrewAI agents."""
 
     def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
+        """Validate a CrewAI agent directory.
+
+        Requires ``agent_dir`` to exist and contain either ``crew.py``
+        (exporting a ``Crew`` instance named ``crew``) or ``agent.py`` as a
+        fallback, plus ``requirements.txt`` or ``pyproject.toml``.
+        """
+        precondition = self._check_agent_dir(agent_dir)
+        if precondition is not None:
+            return precondition
+
         errors: list[str] = []
 
         # Check for crew source file — accept crew.py or agent.py
@@ -151,9 +161,21 @@ class CrewAIRuntime(RuntimeBuilder):
             raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
+        """Return the CrewAI container startup command.
+
+        CrewAI agents are wrapped in a FastAPI ``server.py`` and served by
+        uvicorn on port 8080; the wrapper invokes ``crew.kickoff(...)`` on each
+        ``/invoke`` request.
+        """
         return "uvicorn server:app --host 0.0.0.0 --port 8080"
 
     def get_requirements(self, config: AgentConfig) -> list[str]:
+        """Return pip dependencies for CrewAI agents.
+
+        Always includes ``crewai``, ``crewai-tools`` and the FastAPI server
+        deps. ``litellm`` is added when the model uses a LiteLLM-routable
+        prefix but is NOT routed through the LiteLLM proxy gateway.
+        """
         deps = [
             "crewai>=0.80.0",
             "crewai-tools>=0.4.0",

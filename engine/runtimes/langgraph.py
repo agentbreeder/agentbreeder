@@ -51,6 +51,16 @@ class LangGraphRuntime(RuntimeBuilder):
     """Runtime builder for LangGraph agents."""
 
     def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
+        """Validate a LangGraph agent directory.
+
+        Requires ``agent_dir`` to exist and contain ``agent.py`` (exporting a
+        ``graph`` or ``app`` variable) plus ``requirements.txt`` or
+        ``pyproject.toml`` declaring dependencies.
+        """
+        precondition = self._check_agent_dir(agent_dir)
+        if precondition is not None:
+            return precondition
+
         errors: list[str] = []
 
         # Check for agent source file
@@ -133,9 +143,22 @@ class LangGraphRuntime(RuntimeBuilder):
             raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
+        """Return the LangGraph container startup command.
+
+        LangGraph agents are wrapped in a FastAPI ``server.py`` and served by
+        uvicorn on port 8080.
+        """
         return "uvicorn server:app --host 0.0.0.0 --port 8080"
 
     def get_requirements(self, config: AgentConfig) -> list[str]:
+        """Return pip dependencies for LangGraph agents.
+
+        Always includes ``langgraph``, ``langchain-core``, FastAPI server deps,
+        and a model-specific LangChain integration (``langchain-openai``,
+        ``langchain-anthropic``, ``langchain-google-genai``, or
+        ``langchain-ollama``) picked from ``config.model.primary``.
+        ``litellm`` is added when the model uses a LiteLLM-routable prefix.
+        """
         deps = [
             "langgraph>=0.2.0",
             "langchain-core>=0.3.0",

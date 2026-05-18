@@ -131,6 +131,19 @@ class GoogleADKRuntime(RuntimeBuilder):
     """Runtime builder for Google Agent Development Kit (ADK) agents."""
 
     def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
+        """Validate a Google Agent Development Kit (ADK) agent directory.
+
+        Requires ``agent_dir`` to exist and contain either ``agent.py``
+        (exporting a ``root_agent``, ``agent``, or ``app`` variable) or
+        ``root_agent.yaml`` produced by ``adk create --type=config``, plus
+        ``requirements.txt`` or ``pyproject.toml`` declaring ``google-adk``.
+        Cross-field constraints on ``google_adk`` config (session/artifact
+        backends) are enforced by Pydantic and skipped here.
+        """
+        precondition = self._check_agent_dir(agent_dir)
+        if precondition is not None:
+            return precondition
+
         errors: list[str] = []
 
         agent_file = agent_dir / "agent.py"
@@ -230,9 +243,22 @@ class GoogleADKRuntime(RuntimeBuilder):
             raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
+        """Return the Google ADK container startup command.
+
+        ADK agents are wrapped in a FastAPI ``server.py`` and served by
+        uvicorn on port 8080. The wrapper supports both code-first
+        (``agent.py``) and config-first (``root_agent.yaml``) ADK projects.
+        """
         return "uvicorn server:app --host 0.0.0.0 --port 8080"
 
     def get_requirements(self, config: AgentConfig) -> list[str]:
+        """Return pip dependencies for Google ADK agents.
+
+        Always includes ``google-adk``, ``google-generativeai`` and the
+        FastAPI server deps. ``google-cloud-storage`` is added when the
+        artifact service is GCS. ``litellm`` is added when the model uses a
+        LiteLLM-routable prefix but is NOT routed through the LiteLLM proxy.
+        """
         deps = [
             "google-adk>=1.29.0",
             "google-generativeai>=0.8.0",
