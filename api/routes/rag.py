@@ -7,13 +7,14 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
 from api.database import get_db
 from api.middleware.rbac import require_role
 from api.models.database import User
-from api.models.schemas import ApiMeta, ApiResponse
+from api.models.schemas import ApiMeta, ApiResponse, RagSearchRequest
 from api.services.graph_store import get_graph_store
 from api.services.rag_service import get_rag_store
 from registry.rag import BACKEND_IN_MEMORY, BACKEND_NEO4J, BACKEND_PGVECTOR, get_rag_backend
@@ -285,43 +286,39 @@ async def search(
     - hops: int | None (default None) — for graph/hybrid indexes, number of BFS hops
     - seed_entity_limit: int (default 5) — for graph/hybrid indexes, max seed entities
     """
+    try:
+        req = RagSearchRequest.model_validate(body)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors()) from e
+
     store = get_rag_store()
 
-    index_id = body.get("index_id")
-    query = body.get("query")
-    if not index_id or not query:
-        raise HTTPException(status_code=400, detail="index_id and query are required")
-
     try:
-        await _enforce_acl(db, _user.email, uuid.UUID(index_id), "read")
+        await _enforce_acl(db, _user.email, uuid.UUID(req.index_id), "read")
     except HTTPException:
         raise
     except Exception:
         pass
 
-    idx = store.get_index(index_id)
+    idx = store.get_index(req.index_id)
     if not idx:
         raise HTTPException(status_code=404, detail="Index not found")
 
-    top_k = body.get("top_k", 10)
-    vector_weight = body.get("vector_weight", 0.7)
-    text_weight = body.get("text_weight", 0.3)
-
     hits = await store.search(
-        index_id=index_id,
-        query=query,
-        top_k=top_k,
-        vector_weight=vector_weight,
-        text_weight=text_weight,
-        hops=body.get("hops", None),
-        seed_entity_limit=body.get("seed_entity_limit", 5),
+        index_id=req.index_id,
+        query=req.query,
+        top_k=req.top_k,
+        vector_weight=req.vector_weight,
+        text_weight=req.text_weight,
+        hops=req.hops,
+        seed_entity_limit=req.seed_entity_limit,
     )
 
     return ApiResponse(
         data={
-            "index_id": index_id,
-            "query": query,
-            "top_k": top_k,
+            "index_id": req.index_id,
+            "query": req.query,
+            "top_k": req.top_k,
             "results": [h.to_dict() for h in hits],
             "total": len(hits),
         }

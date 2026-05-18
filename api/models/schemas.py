@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from api.models.enums import (
     A2AStatus,
@@ -865,6 +865,30 @@ class RAGSearchRequest(BaseModel):
     top_k: int = 10
     vector_weight: float = 0.7
     text_weight: float = 0.3
+
+
+class RagSearchRequest(BaseModel):
+    """Validated payload for POST /api/v1/rag/search.
+
+    Backwards-compatible with the previous dict-based body: the endpoint still
+    accepts any dict shape, but invalid values now produce 422 Validation Error
+    instead of undefined behavior. Legitimate callers see no change.
+    """
+
+    index_id: str = Field(..., min_length=1, description="UUID of the target index")
+    query: str = Field(..., min_length=1, max_length=10_000)
+    top_k: int = Field(10, ge=1, le=1000)
+    vector_weight: float = Field(0.7, ge=0.0, le=1.0)
+    text_weight: float = Field(0.3, ge=0.0, le=1.0)
+    hops: int | None = Field(None, ge=0, le=10)
+    seed_entity_limit: int = Field(5, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def weights_must_sum_to_one(self) -> RagSearchRequest:
+        total = self.vector_weight + self.text_weight
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(f"vector_weight + text_weight must sum to 1.0 (got {total:.6f})")
+        return self
 
 
 class RAGSearchHit(BaseModel):
