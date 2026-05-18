@@ -550,6 +550,12 @@ class McpServerCreate(BaseModel):
     name: str
     endpoint: str
     transport: str = "stdio"
+    timeout_seconds: int = Field(
+        default=10,
+        ge=1,
+        le=120,
+        description="HTTP timeout (seconds) for MCP discovery + connectivity calls.",
+    )
 
 
 class McpServerUpdate(BaseModel):
@@ -557,6 +563,12 @@ class McpServerUpdate(BaseModel):
     endpoint: str | None = None
     transport: str | None = None
     status: str | None = None
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        le=120,
+        description="HTTP timeout (seconds) for MCP discovery + connectivity calls.",
+    )
 
 
 class McpServerResponse(BaseModel):
@@ -569,8 +581,24 @@ class McpServerResponse(BaseModel):
     last_ping_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    timeout_seconds: int = 10
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def model_validate(  # type: ignore[override]
+        cls,
+        obj: object,
+        *args: object,
+        **kwargs: object,
+    ) -> McpServerResponse:
+        base = super().model_validate(obj, *args, **kwargs)
+        # Pull timeout_seconds out of deploy_config JSON when loading from ORM.
+        cfg = getattr(obj, "deploy_config", None) or {}
+        timeout = cfg.get("timeout_seconds") if isinstance(cfg, dict) else None
+        if isinstance(timeout, int) and 1 <= timeout <= 120:
+            base.timeout_seconds = timeout
+        return base
 
 
 class McpServerTestResult(BaseModel):

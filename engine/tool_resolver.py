@@ -44,6 +44,128 @@ class ToolNotFoundError(LookupError):
     """Raised when a ``tools/<name>`` ref cannot be resolved anywhere."""
 
 
+class ToolInputValidationError(ValueError):
+    """Raised when a tool's input dict fails JSON-Schema validation."""
+
+
+def _validate_against_schema(
+    tool_input: dict[str, Any],
+    schema: dict[str, Any],
+    tool_name: str,
+) -> None:
+    """Validate ``tool_input`` against ``schema`` (a JSON Schema dict).
+
+    Uses the ``jsonschema`` library when available; falls back to a minimal
+    type-and-required-field check otherwise. Raises
+    :class:`ToolInputValidationError` with a clear message including the
+    offending field path on failure.
+    """
+    if not isinstance(tool_input, dict):
+        raise ToolInputValidationError(
+            f"Tool '{tool_name}' input must be a dict, got {type(tool_input).__name__}"
+        )
+    if not isinstance(schema, dict) or not schema:
+        return  # Nothing to validate against.
+
+    try:
+        import jsonschema  # noqa: PLC0415
+
+        try:
+            jsonschema.validate(instance=tool_input, schema=schema)
+            return
+        except jsonschema.ValidationError as exc:
+            path = ".".join(str(p) for p in exc.absolute_path) or "<root>"
+            raise ToolInputValidationError(
+                f"Tool '{tool_name}' input validation failed at '{path}': {exc.message}"
+            ) from exc
+        except jsonschema.SchemaError as exc:
+            logger.warning("Tool '%s' has an invalid SCHEMA: %s", tool_name, exc.message)
+            # Fall through to minimal checker so we still catch missing required fields.
+    except ImportError:
+        logger.debug("jsonschema not available — falling back to minimal validation")
+
+    # Minimal fallback — required fields + top-level property types.
+    required = schema.get("required", []) or []
+    if isinstance(required, list):
+        for field_name in required:
+            if field_name not in tool_input:
+                raise ToolInputValidationError(
+                    f"Tool '{tool_name}' missing required field '{field_name}'"
+                )
+    props = schema.get("properties", {}) or {}
+    if isinstance(props, dict):
+        type_map: dict[str, type | tuple[type, ...]] = {
+            "string": str,
+            "integer": int,
+            "number": (int, float),
+            "boolean": bool,
+            "array": list,
+            "object": dict,
+            "null": type(None),
+        }
+        for key, prop_schema in props.items():
+            if key not in tool_input or not isinstance(prop_schema, dict):
+                continue
+            expected = prop_schema.get("type")
+            if expected and expected in type_map:
+                if not isinstance(tool_input[key], type_map[expected]):
+                    raise ToolInputValidationError(
+                        f"Tool '{tool_name}' field '{key}' must be {expected}, "
+                        f"got {type(tool_input[key]).__name__}"
+                    )
+
+
+def validate_tool_input(
+    ref: str,
+    tool_input: dict[str, Any],
+    project_root: Path | str | None = None,
+) -> None:
+    """Validate ``tool_input`` against the declared SCHEMA of ``ref``'s tool.
+
+    Looks up the resolved tool module and reads its top-level ``SCHEMA`` dict
+    (the JSON-Schema descriptor maintained by every standard tool). Raises
+    :class:`ToolInputValidationError` on failure. A tool with no ``SCHEMA``
+    attribute is treated as schemaless (no-op).
+    """
+    if not is_tool_ref(ref):
+        raise ToolNotFoundError(f"'{ref}' is not a tool reference (must start with 'tools/')")
+
+    kebab = _strip_ref(ref)
+    snake = _kebab_to_snake(kebab)
+    root = Path(project_root) if project_root else Path.cwd()
+
+    schema = _get_tool_schema(snake, root)
+    if schema is None:
+        return
+    _validate_against_schema(tool_input, schema, snake)
+
+
+def _get_tool_schema(snake_name: str, project_root: Path) -> dict[str, Any] | None:
+    """Return the SCHEMA dict for a tool by resolving its module."""
+    # Local override first.
+    candidate_module = project_root / "tools" / f"{snake_name}.py"
+    if candidate_module.is_file():
+        spec = importlib.util.spec_from_file_location(
+            f"agent_tools.{snake_name}", candidate_module
+        )
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            try:
+                spec.loader.exec_module(module)
+                schema = getattr(module, "SCHEMA", None)
+                if isinstance(schema, dict):
+                    return schema
+            except Exception:  # noqa: BLE001
+                pass
+    # Standard library.
+    try:
+        module = importlib.import_module(f"engine.tools.standard.{snake_name}")
+    except ImportError:
+        return None
+    schema = getattr(module, "SCHEMA", None)
+    return schema if isinstance(schema, dict) else None
+
+
 def is_tool_ref(value: str) -> bool:
     """Return True if ``value`` looks like a ``tools/<name>`` registry ref."""
     return (

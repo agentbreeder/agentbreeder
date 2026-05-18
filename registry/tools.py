@@ -4,13 +4,97 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Any
+from urllib.parse import urlparse
 
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.database import Agent, Tool
 
 logger = logging.getLogger(__name__)
+
+
+_VALID_JSON_SCHEMA_TYPES = frozenset(
+    {"object", "array", "string", "integer", "number", "boolean", "null"}
+)
+
+
+class ToolRegistryMetadata(BaseModel):
+    """Validation model for tool registry entries.
+
+    Mirrors the persistence shape of :class:`api.models.database.Tool` but adds
+    strict validation: non-empty name + description, well-formed JSON-Schema
+    shape, and a parseable endpoint URL when provided.
+    """
+
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000)
+    tool_type: str = Field(default="mcp_server", max_length=50)
+    schema_definition: dict[str, Any] | None = None
+    endpoint: str | None = None
+    source: str = Field(default="manual", max_length=50)
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("name must be non-empty")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def _validate_description(cls, v: str) -> str:
+        # Required field — must be a string. Empty strings are permitted for
+        # backward compatibility with pre-W4 callers, but logged as a warning
+        # at registration time (see ToolRegistry.register).
+        if not isinstance(v, str):
+            raise ValueError("description must be a string")
+        return v
+
+    @field_validator("schema_definition")
+    @classmethod
+    def _validate_schema(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        if v is None or v == {}:
+            return v
+        if not isinstance(v, dict):
+            raise ValueError("schema_definition must be a dict")
+        # Optional type field — when present, must be a known JSON Schema type.
+        if "type" in v:
+            t = v["type"]
+            if isinstance(t, str) and t not in _VALID_JSON_SCHEMA_TYPES:
+                raise ValueError(f"schema_definition.type '{t}' is not a valid JSON Schema type")
+            if isinstance(t, list):
+                bad = [x for x in t if x not in _VALID_JSON_SCHEMA_TYPES]
+                if bad:
+                    raise ValueError(
+                        f"schema_definition.type contains invalid JSON Schema types: {bad}"
+                    )
+        # Properties, if present, must be a dict.
+        if "properties" in v and not isinstance(v["properties"], dict):
+            raise ValueError("schema_definition.properties must be a dict")
+        # Required, if present, must be a list of strings.
+        if "required" in v:
+            req = v["required"]
+            if not isinstance(req, list) or not all(isinstance(x, str) for x in req):
+                raise ValueError("schema_definition.required must be a list of strings")
+        return v
+
+    @field_validator("endpoint")
+    @classmethod
+    def _validate_endpoint(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        parsed = urlparse(v)
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError(f"endpoint '{v}' is not a valid URL (must include scheme and host)")
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(
+                f"endpoint scheme '{parsed.scheme}' is not supported (use http/https)"
+            )
+        return v
 
 
 class ToolRegistry:
@@ -27,6 +111,27 @@ class ToolRegistry:
         source: str = "manual",
     ) -> Tool:
         """Register or update a tool in the registry."""
+        # Validate inputs through ToolRegistryMetadata before touching the DB.
+        validated = ToolRegistryMetadata(
+            name=name,
+            description=description,
+            tool_type=tool_type,
+            schema_definition=schema_definition,
+            endpoint=endpoint,
+            source=source,
+        )
+        if not validated.description.strip():
+            logger.warning(
+                "Tool '%s' registered with empty description — please provide one",
+                validated.name,
+            )
+        name = validated.name
+        description = validated.description
+        tool_type = validated.tool_type
+        schema_definition = validated.schema_definition
+        endpoint = validated.endpoint
+        source = validated.source
+
         stmt = select(Tool).where(Tool.name == name)
         result = await session.execute(stmt)
         tool = result.scalar_one_or_none()

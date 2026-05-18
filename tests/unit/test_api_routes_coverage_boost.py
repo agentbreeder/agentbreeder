@@ -2198,7 +2198,8 @@ class TestMcpServersActions:
     )
     def test_execute_tool(self, mock_get, mock_et):
         mock_get.return_value = _mcp_server_mock()
-        mock_et.return_value = {"result": "ok"}
+        # W4-13: registry must include success=True for the route to pass through
+        mock_et.return_value = {"success": True, "result": "ok"}
         resp = client.post(
             "/api/v1/mcp-servers/s1/execute",
             params={"tool_name": "read"},
