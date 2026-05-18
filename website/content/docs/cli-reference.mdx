@@ -39,7 +39,7 @@ agentbreeder [COMMAND] [OPTIONS]
 Full local platform bootstrap — Docker, services, sample data, 5 sample agents, and dashboard in one command.
 
 ```
-agentbreeder quickstart [--cloud TARGET] [--no-browser] [--skip-seed] [--dev]
+agentbreeder quickstart [--cloud TARGET] [--no-browser] [--skip-seed] [--dev] [--reset] [--no-ollama] [--ollama-model NAME]
 ```
 
 | Option | Default | Description |
@@ -48,6 +48,9 @@ agentbreeder quickstart [--cloud TARGET] [--no-browser] [--skip-seed] [--dev]
 | `--no-browser` | Off | Don't open the dashboard at `http://localhost:3001` |
 | `--skip-seed` | Off | Skip ChromaDB + Neo4j seeding (fast restart) |
 | `--dev` | Off | Build API and Dashboard from local source instead of pulling images |
+| `--reset` | Off | Tear down all docker volumes (postgres, redis, chromadb, neo4j) and start fresh |
+| `--no-ollama` | Off | Skip the Ollama install/start/pull bootstrap step |
+| `--ollama-model` | `gemma3` | Pull a different default model for Ollama (e.g. `llama3.2`, `phi4-mini`) |
 
 What it does:
 1. Detects Docker / Podman; shows OS-specific install instructions if neither is found
