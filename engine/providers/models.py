@@ -66,7 +66,15 @@ class UsageInfo(BaseModel):
 
 
 class GenerateResult(BaseModel):
-    """Result of a generate() call."""
+    """Result of a generate() call.
+
+    ``fallback_from`` is populated by :class:`FallbackChain` when the
+    request was served by a fallback provider rather than the primary.
+    It carries the *name* of the originally-attempted (failed) primary
+    so cost attribution and tracing can record both the attempted and
+    the succeeded provider. ``None`` (the default) means the primary
+    served the request directly — no fallback fired.
+    """
 
     content: str | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
@@ -74,6 +82,7 @@ class GenerateResult(BaseModel):
     usage: UsageInfo = Field(default_factory=UsageInfo)
     model: str = ""
     provider: str = ""
+    fallback_from: str | None = None
 
 
 class StreamChunk(BaseModel):

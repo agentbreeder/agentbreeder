@@ -279,7 +279,6 @@ class OllamaProvider(ProviderBase):
     def _parse_response(self, data: dict[str, Any]) -> GenerateResult:
         choice = data.get("choices", [{}])[0]
         message = choice.get("message", {})
-        usage_data = data.get("usage", {})
 
         tool_calls: list[ToolCall] = []
         for tc in message.get("tool_calls", []):
@@ -296,13 +295,35 @@ class OllamaProvider(ProviderBase):
             content=message.get("content"),
             tool_calls=tool_calls,
             finish_reason=choice.get("finish_reason", "stop"),
-            usage=UsageInfo(
-                prompt_tokens=usage_data.get("prompt_tokens", 0),
-                completion_tokens=usage_data.get("completion_tokens", 0),
-                total_tokens=usage_data.get("total_tokens", 0),
-            ),
+            usage=self._extract_usage(data),
             model=data.get("model", ""),
             provider="ollama",
+        )
+
+    @staticmethod
+    def _extract_usage(data: dict[str, Any]) -> UsageInfo:
+        """Extract token counts from an Ollama response.
+
+        Ollama responses come in two shapes depending on endpoint:
+
+        * ``/v1/chat/completions`` (OpenAI-compatible) → ``usage.prompt_tokens``,
+          ``usage.completion_tokens``, ``usage.total_tokens``.
+        * ``/api/chat`` (native) → top-level ``prompt_eval_count`` and
+          ``eval_count``. Older models occasionally omit one or both
+          fields; in that case we leave the missing value at 0 and let
+          callers see the partial signal rather than fail.
+
+        We probe both shapes so this parser is robust against either
+        endpoint and against future endpoint changes.
+        """
+        usage_data = data.get("usage", {})
+        prompt_tokens = int(usage_data.get("prompt_tokens") or data.get("prompt_eval_count") or 0)
+        completion_tokens = int(usage_data.get("completion_tokens") or data.get("eval_count") or 0)
+        total_tokens = int(usage_data.get("total_tokens") or (prompt_tokens + completion_tokens))
+        return UsageInfo(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
         )
 
     def _parse_stream_chunk(self, data: dict[str, Any]) -> StreamChunk:

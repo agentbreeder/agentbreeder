@@ -187,7 +187,7 @@ class OpenAIProvider(ProviderBase):
     def _check_status(self, status_code: int, body: str) -> None:
         if status_code == 200:
             return
-        if status_code == 401:
+        if status_code == 401 or status_code == 403:
             raise AuthenticationError("Invalid OpenAI API key")
         if status_code == 404:
             raise ModelNotFoundError(f"Model not found: {body}")

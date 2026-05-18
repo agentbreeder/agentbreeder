@@ -12,11 +12,13 @@ Tests cover:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 
+from engine.providers.anthropic_provider import AnthropicProvider
 from engine.providers.base import (
     AuthenticationError,
     ModelNotFoundError,
@@ -761,3 +763,280 @@ class TestExports:
         assert ep.AuthenticationError is AuthenticationError
         assert ep.RateLimitError is RateLimitError
         assert ep.ModelNotFoundError is ModelNotFoundError
+
+
+# ─── Wave 4 P1 fixes (W4-19..22) ─────────────────────────────────────────────
+
+
+def _anthropic_config(api_key: str = "sk-ant-test") -> ProviderConfig:
+    return ProviderConfig(
+        provider_type=ProviderType.anthropic,
+        api_key=api_key,
+        default_model="claude-sonnet-4",
+    )
+
+
+class TestW0419Status403Mapping:
+    """W4-19: HTTP 403 must map to AuthenticationError on OpenAI + Anthropic.
+
+    Google already does this; verifying parity across the three.
+    """
+
+    @pytest.mark.asyncio
+    async def test_openai_403_raises_authentication_error(self) -> None:
+        provider = OpenAIProvider(_openai_config())
+        mock_resp = httpx.Response(403, text="Forbidden")
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=mock_resp)
+
+        with pytest.raises(AuthenticationError, match="Invalid OpenAI API key"):
+            await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+    @pytest.mark.asyncio
+    async def test_anthropic_403_raises_authentication_error(self) -> None:
+        provider = AnthropicProvider(_anthropic_config())
+        mock_resp = httpx.Response(403, text="Forbidden")
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=mock_resp)
+
+        with pytest.raises(AuthenticationError, match="Invalid Anthropic API key"):
+            await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+    @pytest.mark.asyncio
+    async def test_openai_401_still_raises_authentication_error(self) -> None:
+        # Regression: 401 path must not be broken by 403 addition.
+        provider = OpenAIProvider(_openai_config())
+        mock_resp = httpx.Response(401, text="Unauthorized")
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=mock_resp)
+
+        with pytest.raises(AuthenticationError):
+            await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+    @pytest.mark.asyncio
+    async def test_anthropic_401_still_raises_authentication_error(self) -> None:
+        provider = AnthropicProvider(_anthropic_config())
+        mock_resp = httpx.Response(401, text="Unauthorized")
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=mock_resp)
+
+        with pytest.raises(AuthenticationError):
+            await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+
+class TestW0420FallbackChainGenerateStream:
+    """W4-20: FallbackChain.generate_stream() — streaming clients also failover."""
+
+    def _make_chain(self) -> FallbackChain:
+        primary = ProviderConfig(
+            provider_type=ProviderType.openai, api_key="sk-test", default_model="gpt-4o"
+        )
+        fallback = ProviderConfig(provider_type=ProviderType.ollama, default_model="llama3.2")
+        return FallbackChain(FallbackConfig(primary=primary, fallbacks=[fallback]))
+
+    @staticmethod
+    async def _aiter(chunks: list[StreamChunk]) -> AsyncIterator[StreamChunk]:
+        for c in chunks:
+            yield c
+
+    @staticmethod
+    async def _aiter_failing() -> AsyncIterator[StreamChunk]:
+        raise ProviderError("primary stream failed")
+        yield  # pragma: no cover — make this an async generator
+
+    @pytest.mark.asyncio
+    async def test_primary_streams_successfully(self) -> None:
+        chain = self._make_chain()
+        chunks = [
+            StreamChunk(content="Hello", model="gpt-4o"),
+            StreamChunk(content=" world", model="gpt-4o"),
+        ]
+
+        # `generate_stream` is sync method returning an async iterator.
+        chain._providers[0].generate_stream = lambda **kwargs: self._aiter(chunks)
+        chain._providers[1].generate_stream = AsyncMock()
+
+        out: list[StreamChunk] = []
+        async for c in chain.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+            out.append(c)
+
+        assert [c.content for c in out] == ["Hello", " world"]
+        # Fallback should never have been invoked
+        chain._providers[1].generate_stream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fallback_streams_when_primary_fails_to_open(self) -> None:
+        chain = self._make_chain()
+
+        fallback_chunks = [
+            StreamChunk(content="From", model="llama3.2"),
+            StreamChunk(content=" fallback", model="llama3.2"),
+        ]
+
+        chain._providers[0].generate_stream = lambda **kwargs: self._aiter_failing()
+        chain._providers[1].generate_stream = lambda **kwargs: self._aiter(fallback_chunks)
+
+        out: list[StreamChunk] = []
+        async for c in chain.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+            out.append(c)
+
+        # All fallback chunks should be present
+        assert [c.content for c in out] == ["From", " fallback"]
+
+    @pytest.mark.asyncio
+    async def test_all_providers_fail_to_stream(self) -> None:
+        chain = self._make_chain()
+
+        chain._providers[0].generate_stream = lambda **kwargs: self._aiter_failing()
+        chain._providers[1].generate_stream = lambda **kwargs: self._aiter_failing()
+
+        with pytest.raises(ProviderError, match="failed to stream"):
+            async for _ in chain.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_midstream_failure_after_first_chunk_propagates(self) -> None:
+        """Once committed to a provider, mid-stream failures are NOT retried."""
+        chain = self._make_chain()
+
+        async def primary_partial_then_fail() -> AsyncIterator[StreamChunk]:
+            yield StreamChunk(content="partial", model="gpt-4o")
+            raise ProviderError("died mid-stream")
+
+        # Fallback would be silently called by a buggy implementation; assert NOT called.
+        fallback_mock = AsyncMock()
+        chain._providers[0].generate_stream = lambda **kwargs: primary_partial_then_fail()
+        chain._providers[1].generate_stream = fallback_mock
+
+        out: list[StreamChunk] = []
+
+        async def _consume() -> None:
+            async for c in chain.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+                out.append(c)
+
+        with pytest.raises(ProviderError, match="died mid-stream"):
+            await _consume()
+
+        # The partial chunk was emitted before the mid-stream failure;
+        # the fallback must NOT have been retried.
+        assert [c.content for c in out] == ["partial"]
+        fallback_mock.assert_not_called()
+
+
+class TestW0421GenerateResultFallbackFrom:
+    """W4-21: GenerateResult.fallback_from populated by FallbackChain."""
+
+    def test_field_default_is_none(self) -> None:
+        result = GenerateResult()
+        assert result.fallback_from is None
+
+    def test_field_accepts_provider_name(self) -> None:
+        result = GenerateResult(provider="ollama", fallback_from="openai")
+        assert result.fallback_from == "openai"
+        # Existing fields untouched
+        assert result.provider == "ollama"
+
+    def _make_chain(self) -> FallbackChain:
+        primary = ProviderConfig(
+            provider_type=ProviderType.openai, api_key="sk-test", default_model="gpt-4o"
+        )
+        fallback = ProviderConfig(provider_type=ProviderType.ollama, default_model="llama3.2")
+        return FallbackChain(FallbackConfig(primary=primary, fallbacks=[fallback]))
+
+    @pytest.mark.asyncio
+    async def test_primary_success_leaves_fallback_from_none(self) -> None:
+        chain = self._make_chain()
+        expected = GenerateResult(content="ok", provider="openai", model="gpt-4o")
+        chain._providers[0].generate = AsyncMock(return_value=expected)
+
+        result = await chain.generate(messages=[{"role": "user", "content": "Hi"}])
+
+        assert result.fallback_from is None
+        assert result.provider == "openai"
+
+    @pytest.mark.asyncio
+    async def test_fallback_sets_fallback_from_to_primary_name(self) -> None:
+        chain = self._make_chain()
+        chain._providers[0].generate = AsyncMock(side_effect=ProviderError("down"))
+        chain._providers[1].generate = AsyncMock(
+            return_value=GenerateResult(content="ok", provider="ollama", model="llama3.2")
+        )
+
+        result = await chain.generate(messages=[{"role": "user", "content": "Hi"}])
+
+        assert result.provider == "ollama"
+        assert result.fallback_from == "openai"
+
+
+class TestW0422OllamaTokenCounts:
+    """W4-22: Ollama UsageInfo populated from prompt_eval_count / eval_count."""
+
+    def test_extract_usage_openai_compat_shape(self) -> None:
+        """OpenAI-compat /v1 endpoint returns standard usage dict."""
+        data = {
+            "model": "llama3.2",
+            "choices": [{"message": {"content": "Hi"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19},
+        }
+        usage = OllamaProvider._extract_usage(data)
+        assert usage.prompt_tokens == 12
+        assert usage.completion_tokens == 7
+        assert usage.total_tokens == 19
+
+    def test_extract_usage_native_shape(self) -> None:
+        """Native /api/chat endpoint puts counts at top level."""
+        data = {
+            "model": "llama3.2",
+            "prompt_eval_count": 25,
+            "eval_count": 11,
+            "choices": [{"message": {"content": "Hi"}, "finish_reason": "stop"}],
+        }
+        usage = OllamaProvider._extract_usage(data)
+        assert usage.prompt_tokens == 25
+        assert usage.completion_tokens == 11
+        # No total_tokens provided → derived as sum
+        assert usage.total_tokens == 36
+
+    def test_extract_usage_missing_fields_defaults_to_zero(self) -> None:
+        """Models that don't return token counts leave fields at 0."""
+        data = {
+            "model": "llama3.2",
+            "choices": [{"message": {"content": "Hi"}, "finish_reason": "stop"}],
+        }
+        usage = OllamaProvider._extract_usage(data)
+        assert usage.prompt_tokens == 0
+        assert usage.completion_tokens == 0
+        assert usage.total_tokens == 0
+
+    def test_extract_usage_openai_compat_preferred_over_native(self) -> None:
+        """If both shapes appear, OpenAI-compat usage wins (it's authoritative)."""
+        data = {
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            "prompt_eval_count": 999,
+            "eval_count": 888,
+        }
+        usage = OllamaProvider._extract_usage(data)
+        assert usage.prompt_tokens == 10
+        assert usage.completion_tokens == 5
+        assert usage.total_tokens == 15
+
+    @pytest.mark.asyncio
+    async def test_generate_populates_usage_from_native_fields(self) -> None:
+        """End-to-end: native response shape produces a populated UsageInfo."""
+        provider = OllamaProvider(_ollama_config())
+        # Build a response with no `usage` dict, only native fields.
+        native_response = {
+            "model": "llama3.2",
+            "choices": [{"message": {"content": "Hi"}, "finish_reason": "stop"}],
+            "prompt_eval_count": 42,
+            "eval_count": 9,
+        }
+        mock_resp = httpx.Response(200, json=native_response)
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=mock_resp)
+
+        result = await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+        assert result.usage.prompt_tokens == 42
+        assert result.usage.completion_tokens == 9
+        assert result.usage.total_tokens == 51
