@@ -110,41 +110,51 @@ class GoRuntimeFamily(RuntimeBuilder):
         return RuntimeValidationResult(valid=len(errors) == 0, errors=errors)
 
     def build(self, agent_dir: Path, config: AgentConfig) -> ContainerImage:
+        """Build the Go agent container.
+
+        On any failure the temp build context is removed so we never leak
+        ``/tmp/agentbreeder-go-*`` directories (audit finding A2).
+        """
         framework = _resolve_framework(config)
         go_version = (config.runtime.version if config.runtime else None) or "1.22"
 
         build_dir = Path(tempfile.mkdtemp(prefix="agentbreeder-go-"))
+        try:
+            # Copy developer files (skip hidden + caches).
+            for item in agent_dir.iterdir():
+                if item.name.startswith(".") or item.name in {"vendor", "bin"}:
+                    continue
+                dest = build_dir / item.name
+                if item.is_dir():
+                    shutil.copytree(
+                        item, dest, ignore=shutil.ignore_patterns(".git", "node_modules")
+                    )
+                else:
+                    shutil.copy2(item, dest)
 
-        # Copy developer files (skip hidden + caches).
-        for item in agent_dir.iterdir():
-            if item.name.startswith(".") or item.name in {"vendor", "bin"}:
-                continue
-            dest = build_dir / item.name
-            if item.is_dir():
-                shutil.copytree(item, dest, ignore=shutil.ignore_patterns(".git", "node_modules"))
+            user_has_dockerfile = (build_dir / "Dockerfile").exists()
+
+            if user_has_dockerfile:
+                dockerfile_content = (build_dir / "Dockerfile").read_text()
             else:
-                shutil.copy2(item, dest)
+                # Inject template main.go only when the user has not provided
+                # their own.
+                template_path = GO_TEMPLATES_DIR / SUPPORTED_FRAMEWORKS[framework]
+                if not (build_dir / "main.go").exists() and template_path.exists():
+                    shutil.copy2(template_path, build_dir / "main.go")
 
-        user_has_dockerfile = (build_dir / "Dockerfile").exists()
+                env_block = build_env_block(config, f"go-{framework}")
+                dockerfile_content = _build_dockerfile(go_version, env_block)
+                (build_dir / "Dockerfile").write_text(dockerfile_content)
 
-        if user_has_dockerfile:
-            dockerfile_content = (build_dir / "Dockerfile").read_text()
-        else:
-            # Inject template main.go only when the user has not provided
-            # their own.
-            template_path = GO_TEMPLATES_DIR / SUPPORTED_FRAMEWORKS[framework]
-            if not (build_dir / "main.go").exists() and template_path.exists():
-                shutil.copy2(template_path, build_dir / "main.go")
-
-            env_block = build_env_block(config, f"go-{framework}")
-            dockerfile_content = _build_dockerfile(go_version, env_block)
-            (build_dir / "Dockerfile").write_text(dockerfile_content)
-
-        return ContainerImage(
-            tag=f"agentbreeder/{config.name}:{config.version}",
-            dockerfile_content=dockerfile_content,
-            context_dir=build_dir,
-        )
+            return ContainerImage(
+                tag=f"agentbreeder/{config.name}:{config.version}",
+                dockerfile_content=dockerfile_content,
+                context_dir=build_dir,
+            )
+        except Exception:
+            shutil.rmtree(build_dir, ignore_errors=True)
+            raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
         return "/app/agent"

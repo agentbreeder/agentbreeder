@@ -169,56 +169,65 @@ class GoogleADKRuntime(RuntimeBuilder):
         return RuntimeValidationResult(valid=len(errors) == 0, errors=errors)
 
     def build(self, agent_dir: Path, config: AgentConfig) -> ContainerImage:
-        """Generate Dockerfile and prepare build context."""
+        """Generate Dockerfile and prepare build context.
+
+        On any failure the temp build context is removed so we never leak
+        ``/tmp/agentbreeder-build-*`` directories (audit finding A2).
+        """
         build_dir = Path(tempfile.mkdtemp(prefix="agentbreeder-build-"))
+        try:
+            # Copy agent source code
+            for item in agent_dir.iterdir():
+                if item.name.startswith(".") or item.name == "__pycache__":
+                    continue
+                dest = build_dir / item.name
+                if item.is_dir():
+                    shutil.copytree(
+                        item, dest, ignore=shutil.ignore_patterns("__pycache__", ".git")
+                    )
+                else:
+                    shutil.copy2(item, dest)
 
-        # Copy agent source code
-        for item in agent_dir.iterdir():
-            if item.name.startswith(".") or item.name == "__pycache__":
-                continue
-            dest = build_dir / item.name
-            if item.is_dir():
-                shutil.copytree(item, dest, ignore=shutil.ignore_patterns("__pycache__", ".git"))
-            else:
-                shutil.copy2(item, dest)
+            # If root_agent.yaml exists, generate server_loader.py in the build context
+            if (agent_dir / "root_agent.yaml").exists():
+                (build_dir / "server_loader.py").write_text(SERVER_LOADER_CONTENT)
+                logger.info("Generated server_loader.py for root_agent.yaml agent")
 
-        # If root_agent.yaml exists, generate server_loader.py in the build context
-        if (agent_dir / "root_agent.yaml").exists():
-            (build_dir / "server_loader.py").write_text(SERVER_LOADER_CONTENT)
-            logger.info("Generated server_loader.py for root_agent.yaml agent")
+            # Ensure requirements.txt exists with framework deps
+            requirements_file = build_dir / "requirements.txt"
+            existing_requirements = ""
+            if requirements_file.exists():
+                existing_requirements = requirements_file.read_text()
 
-        # Ensure requirements.txt exists with framework deps
-        requirements_file = build_dir / "requirements.txt"
-        existing_requirements = ""
-        if requirements_file.exists():
-            existing_requirements = requirements_file.read_text()
+            framework_deps = self.get_requirements(config)
+            all_deps = set(existing_requirements.strip().splitlines()) | set(framework_deps)
+            requirements_file.write_text("\n".join(sorted(all_deps)) + "\n")
 
-        framework_deps = self.get_requirements(config)
-        all_deps = set(existing_requirements.strip().splitlines()) | set(framework_deps)
-        requirements_file.write_text("\n".join(sorted(all_deps)) + "\n")
+            # Copy the server wrapper template
+            if GOOGLE_ADK_SERVER_TEMPLATE.exists():
+                shutil.copy2(GOOGLE_ADK_SERVER_TEMPLATE, build_dir / "server.py")
 
-        # Copy the server wrapper template
-        if GOOGLE_ADK_SERVER_TEMPLATE.exists():
-            shutil.copy2(GOOGLE_ADK_SERVER_TEMPLATE, build_dir / "server.py")
+            # Build Dockerfile
+            env_block = build_env_block(config, "google_adk")
+            adk_env_block = _build_adk_env_block(config)
+            dockerfile_content = DOCKERFILE_TEMPLATE.format(
+                env_block=env_block,
+                adk_env_block=adk_env_block,
+            )
 
-        # Build Dockerfile
-        env_block = build_env_block(config, "google_adk")
-        adk_env_block = _build_adk_env_block(config)
-        dockerfile_content = DOCKERFILE_TEMPLATE.format(
-            env_block=env_block,
-            adk_env_block=adk_env_block,
-        )
+            dockerfile = build_dir / "Dockerfile"
+            dockerfile.write_text(dockerfile_content)
 
-        dockerfile = build_dir / "Dockerfile"
-        dockerfile.write_text(dockerfile_content)
+            tag = f"agentbreeder/{config.name}:{config.version}"
 
-        tag = f"agentbreeder/{config.name}:{config.version}"
-
-        return ContainerImage(
-            tag=tag,
-            dockerfile_content=dockerfile_content,
-            context_dir=build_dir,
-        )
+            return ContainerImage(
+                tag=tag,
+                dockerfile_content=dockerfile_content,
+                context_dir=build_dir,
+            )
+        except Exception:
+            shutil.rmtree(build_dir, ignore_errors=True)
+            raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
         return "uvicorn server:app --host 0.0.0.0 --port 8080"

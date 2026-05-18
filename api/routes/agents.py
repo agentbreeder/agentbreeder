@@ -29,6 +29,7 @@ from api.models.schemas import (
     ApiMeta,
     ApiResponse,
 )
+from api.retry import RetryExhaustedError, async_retry
 from registry.agents import AgentRegistry, create_from_yaml, validate_config_yaml
 
 logger = logging.getLogger(__name__)
@@ -372,10 +373,35 @@ async def invoke_agent(
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
+    # Idempotency key — protects stateful agents from accidental duplicate
+    # writes when a transient timeout triggers an automatic retry below
+    # (audit finding A3). Runtimes are free to ignore the header, but
+    # those that do honour it can deduplicate by this UUID.
+    idempotency_key = str(uuid.uuid4())
+    headers["Idempotency-Key"] = idempotency_key
+
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(f"{endpoint}/invoke", json=payload, headers=headers)
+
+            async def _do_post() -> httpx.Response:
+                return await client.post(f"{endpoint}/invoke", json=payload, headers=headers)
+
+            # Retry transient network failures with exponential backoff
+            # (audit finding A4). 5xx responses are NOT retried here — the
+            # runtime is responsible for surfacing them so the caller sees
+            # the real error. Only timeouts / connection errors retry.
+            try:
+                resp = await async_retry(
+                    _do_post,
+                    max_attempts=3,
+                    initial_delay=0.5,
+                    retry_on=(httpx.TimeoutException, httpx.ConnectError),
+                )
+            except RetryExhaustedError as exc:
+                # Surface the underlying transport error to the original
+                # except block below so the response shape stays unchanged.
+                raise exc.last_exception from exc
         duration_ms = int((time.perf_counter() - started) * 1000)
         if resp.status_code >= 400:
             return ApiResponse(

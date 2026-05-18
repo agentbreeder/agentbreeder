@@ -127,46 +127,54 @@ class NodeRuntimeFamily(RuntimeBuilder):
         return RuntimeValidationResult(valid=len(errors) == 0, errors=errors)
 
     def build(self, agent_dir: Path, config: AgentConfig) -> ContainerImage:
+        """Build the Node agent container.
+
+        On any failure the temp build context is removed so we never leak
+        ``/tmp/agentbreeder-node-*`` directories (audit finding A2).
+        """
         framework = _resolve_framework(config)
         node_version = (config.runtime.version if config.runtime else None) or "20"
         template_file = TEMPLATES_DIR / FRAMEWORK_TEMPLATES[framework]
 
         # Build context: copy agent dir + inject platform files
         build_dir = Path(tempfile.mkdtemp(prefix="agentbreeder-node-"))
+        try:
+            # Copy developer files
+            shutil.copytree(str(agent_dir), str(build_dir), dirs_exist_ok=True)
 
-        # Copy developer files
-        shutil.copytree(str(agent_dir), str(build_dir), dirs_exist_ok=True)
+            # Write platform-managed server.ts (with substitutions)
+            server_ts_content = _substitute_placeholders(template_file.read_text(), config)
+            (build_dir / "server.ts").write_text(server_ts_content)
 
-        # Write platform-managed server.ts (with substitutions)
-        server_ts_content = _substitute_placeholders(template_file.read_text(), config)
-        (build_dir / "server.ts").write_text(server_ts_content)
+            # Write shared loader (with placeholder substitution)
+            shared_content = _substitute_placeholders(
+                (TEMPLATES_DIR / "_shared_loader.ts").read_text(), config
+            )
+            (build_dir / "_shared_loader.ts").write_text(shared_content)
 
-        # Write shared loader (with placeholder substitution)
-        shared_content = _substitute_placeholders(
-            (TEMPLATES_DIR / "_shared_loader.ts").read_text(), config
-        )
-        (build_dir / "_shared_loader.ts").write_text(shared_content)
+            # Vendor aps-client locally so no npm registry lookup is needed
+            shutil.copy(APS_CLIENT_SRC, build_dir / "aps-client.ts")
 
-        # Vendor aps-client locally so no npm registry lookup is needed
-        shutil.copy(APS_CLIENT_SRC, build_dir / "aps-client.ts")
+            # Write package.json
+            extra_deps = FRAMEWORK_DEPS.get(framework, [])
+            pkg = _build_package_json(config.name, framework, extra_deps)
+            (build_dir / "package.json").write_text(pkg)
 
-        # Write package.json
-        extra_deps = FRAMEWORK_DEPS.get(framework, [])
-        pkg = _build_package_json(config.name, framework, extra_deps)
-        (build_dir / "package.json").write_text(pkg)
+            # Write tsconfig.json
+            (build_dir / "tsconfig.json").write_text(_build_tsconfig())
 
-        # Write tsconfig.json
-        (build_dir / "tsconfig.json").write_text(_build_tsconfig())
+            # Write Dockerfile
+            dockerfile_content = _build_dockerfile(node_version)
+            (build_dir / "Dockerfile").write_text(dockerfile_content)
 
-        # Write Dockerfile
-        dockerfile_content = _build_dockerfile(node_version)
-        (build_dir / "Dockerfile").write_text(dockerfile_content)
-
-        return ContainerImage(
-            tag=f"agentbreeder/{config.name}:{config.version}",
-            dockerfile_content=dockerfile_content,
-            context_dir=build_dir,
-        )
+            return ContainerImage(
+                tag=f"agentbreeder/{config.name}:{config.version}",
+                dockerfile_content=dockerfile_content,
+                context_dir=build_dir,
+            )
+        except Exception:
+            shutil.rmtree(build_dir, ignore_errors=True)
+            raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
         return "node --loader ts-node/esm server.ts"

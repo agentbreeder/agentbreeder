@@ -97,64 +97,72 @@ class CustomRuntime(RuntimeBuilder):
         If the user's agent directory contains a Dockerfile, it is copied and
         used verbatim. Otherwise, the fallback Dockerfile is written and
         custom_server.py is injected as server.py.
+
+        On any failure the temp build context is removed so we never leak
+        ``/tmp/agentbreeder-build-*`` directories (audit finding A2).
         """
         build_dir = Path(tempfile.mkdtemp(prefix="agentbreeder-build-"))
+        try:
+            # Copy agent source code (skip hidden dirs and pycache)
+            for item in agent_dir.iterdir():
+                if item.name.startswith(".") or item.name == "__pycache__":
+                    continue
+                dest = build_dir / item.name
+                if item.is_dir():
+                    shutil.copytree(
+                        item, dest, ignore=shutil.ignore_patterns("__pycache__", ".git")
+                    )
+                else:
+                    shutil.copy2(item, dest)
 
-        # Copy agent source code (skip hidden dirs and pycache)
-        for item in agent_dir.iterdir():
-            if item.name.startswith(".") or item.name == "__pycache__":
-                continue
-            dest = build_dir / item.name
-            if item.is_dir():
-                shutil.copytree(item, dest, ignore=shutil.ignore_patterns("__pycache__", ".git"))
+            user_has_dockerfile = (build_dir / "Dockerfile").exists()
+
+            if user_has_dockerfile:
+                # BYO Dockerfile mode: use it as-is; read for ContainerImage metadata
+                dockerfile_content = (build_dir / "Dockerfile").read_text()
             else:
-                shutil.copy2(item, dest)
+                # Fallback mode: merge requirements and inject server wrapper
 
-        user_has_dockerfile = (build_dir / "Dockerfile").exists()
+                # Ensure requirements.txt exists with framework deps
+                requirements_file = build_dir / "requirements.txt"
+                existing_requirements = ""
+                if requirements_file.exists():
+                    existing_requirements = requirements_file.read_text()
 
-        if user_has_dockerfile:
-            # BYO Dockerfile mode: use it as-is; read for ContainerImage metadata
-            dockerfile_content = (build_dir / "Dockerfile").read_text()
-        else:
-            # Fallback mode: merge requirements and inject server wrapper
+                framework_deps = self.get_requirements(config)
+                all_deps = set(existing_requirements.strip().splitlines()) | set(framework_deps)
+                # Remove empty strings that arise from splitting empty/blank files
+                all_deps.discard("")
+                requirements_file.write_text("\n".join(sorted(all_deps)) + "\n")
 
-            # Ensure requirements.txt exists with framework deps
-            requirements_file = build_dir / "requirements.txt"
-            existing_requirements = ""
-            if requirements_file.exists():
-                existing_requirements = requirements_file.read_text()
+                # Copy custom_server.py as server.py only if the user has not provided their own
+                if not (build_dir / "server.py").exists() and CUSTOM_SERVER_TEMPLATE.exists():
+                    shutil.copy2(CUSTOM_SERVER_TEMPLATE, build_dir / "server.py")
 
-            framework_deps = self.get_requirements(config)
-            all_deps = set(existing_requirements.strip().splitlines()) | set(framework_deps)
-            # Remove empty strings that arise from splitting empty/blank files
-            all_deps.discard("")
-            requirements_file.write_text("\n".join(sorted(all_deps)) + "\n")
+                # Write fallback Dockerfile
+                env_block = build_env_block(config, "custom")
+                ollama_extra = ""
+                if config.model.primary.startswith("ollama/"):
+                    ollama_extra = '\nENV OLLAMA_BASE_URL="http://agentbreeder-ollama:11434"'
+                dockerfile_content = (
+                    FALLBACK_DOCKERFILE.rstrip()
+                    + "\n\n# Agent configuration\n"
+                    + env_block
+                    + ollama_extra
+                    + "\n"
+                )
+                (build_dir / "Dockerfile").write_text(dockerfile_content)
 
-            # Copy custom_server.py as server.py only if the user has not provided their own
-            if not (build_dir / "server.py").exists() and CUSTOM_SERVER_TEMPLATE.exists():
-                shutil.copy2(CUSTOM_SERVER_TEMPLATE, build_dir / "server.py")
+            tag = f"agentbreeder/{config.name}:{config.version}"
 
-            # Write fallback Dockerfile
-            env_block = build_env_block(config, "custom")
-            ollama_extra = ""
-            if config.model.primary.startswith("ollama/"):
-                ollama_extra = '\nENV OLLAMA_BASE_URL="http://agentbreeder-ollama:11434"'
-            dockerfile_content = (
-                FALLBACK_DOCKERFILE.rstrip()
-                + "\n\n# Agent configuration\n"
-                + env_block
-                + ollama_extra
-                + "\n"
+            return ContainerImage(
+                tag=tag,
+                dockerfile_content=dockerfile_content,
+                context_dir=build_dir,
             )
-            (build_dir / "Dockerfile").write_text(dockerfile_content)
-
-        tag = f"agentbreeder/{config.name}:{config.version}"
-
-        return ContainerImage(
-            tag=tag,
-            dockerfile_content=dockerfile_content,
-            context_dir=build_dir,
-        )
+        except Exception:
+            shutil.rmtree(build_dir, ignore_errors=True)
+            raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
         # BYO Dockerfile sets its own CMD; this entrypoint applies to the fallback path.
