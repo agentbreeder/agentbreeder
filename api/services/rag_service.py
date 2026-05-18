@@ -67,6 +67,22 @@ class IngestJobStatus(StrEnum):
     failed = "failed"
 
 
+def _normalize_chunk_text(text: str) -> str:
+    """Normalize chunk text for content-hash dedup (W4-24).
+
+    Strips leading/trailing whitespace and collapses internal whitespace runs
+    so that cosmetic differences (e.g. CRLF vs LF, double spaces) do not
+    defeat dedup.
+    """
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def compute_chunk_hash(text: str) -> str:
+    """SHA256 hex digest of normalized chunk text (W4-24)."""
+    normalized = _normalize_chunk_text(text)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 @dataclass
 class DocumentChunk:
     """A single chunk of text with metadata."""
@@ -76,6 +92,11 @@ class DocumentChunk:
     source: str
     metadata: dict[str, Any] = field(default_factory=dict)
     embedding: list[float] | None = None
+    # SHA256 of normalized text — populated at ingestion time so we can skip
+    # duplicate chunks when the same file is re-ingested (W4-24). Default
+    # ``None`` keeps the field additive / backward-compatible with any
+    # existing in-memory chunks created before this field existed.
+    chunk_hash: str | None = None
 
 
 @dataclass
@@ -913,9 +934,17 @@ class RAGStore:
         job = self.create_ingest_job(index_id, len(files))
 
         try:
-            # Phase 1: Chunking
+            # Phase 1: Chunking + content-hash dedup (W4-24).
+            #
+            # We compute SHA256 of the normalized chunk text and skip any
+            # chunk whose hash already lives in this index. This makes
+            # re-ingesting the same file idempotent.
             job.status = IngestJobStatus.chunking
-            all_chunks: list[DocumentChunk] = []
+            existing_hashes: set[str] = {
+                c.chunk_hash for c in idx.chunks if c.chunk_hash is not None
+            }
+            new_chunks: list[DocumentChunk] = []
+            duplicates_skipped = 0
 
             for filename, content in files:
                 text = extract_text(filename, content)
@@ -926,20 +955,34 @@ class RAGStore:
                     overlap=idx.chunk_overlap,
                 )
                 for chunk_text_str in chunks:
+                    h = compute_chunk_hash(chunk_text_str)
+                    if h in existing_hashes:
+                        duplicates_skipped += 1
+                        continue
+                    existing_hashes.add(h)
                     chunk = DocumentChunk(
                         id=str(uuid.uuid4()),
                         text=chunk_text_str,
                         source=filename,
                         metadata={"filename": filename, "index_id": index_id},
+                        chunk_hash=h,
                     )
-                    all_chunks.append(chunk)
+                    new_chunks.append(chunk)
                 job.processed_files += 1
 
-            job.total_chunks = len(all_chunks)
+            if duplicates_skipped:
+                logger.info(
+                    "Ingest %s for index %s skipped %d duplicate chunks (content-hash dedup).",
+                    job.id,
+                    index_id,
+                    duplicates_skipped,
+                )
 
-            # Phase 2: Embedding
+            job.total_chunks = len(new_chunks)
+
+            # Phase 2: Embedding (only the de-duplicated chunks).
             job.status = IngestJobStatus.embedding
-            texts = [c.text for c in all_chunks]
+            texts = [c.text for c in new_chunks]
             embedding_result = await embed_texts(texts, model=idx.embedding_model)
             if embedding_result.used_fallback:
                 logger.warning(
@@ -951,44 +994,52 @@ class RAGStore:
                 )
 
             for i, emb in enumerate(embedding_result.vectors):
-                all_chunks[i].embedding = emb
+                new_chunks[i].embedding = emb
                 job.embedded_chunks = i + 1
 
-            # Phase 2.5: Entity extraction (graph/hybrid only)
-            if idx.index_type in (IndexType.graph, IndexType.hybrid):
+            # Phase 2.5: Entity extraction (graph/hybrid only).
+            #
+            # W4-25 — atomic graph rollback. We extract entities for ALL
+            # chunks BEFORE touching either the index or the graph store.
+            # If extraction raises, we abort the whole job and the index is
+            # left untouched (no partially-indexed chunks without graph
+            # nodes). On success we write the chunks and graph nodes
+            # together below.
+            pending_graph_writes: list[tuple[DocumentChunk, list[Any], list[Any]]] = []
+            if idx.index_type in (IndexType.graph, IndexType.hybrid) and new_chunks:
                 job.status = IngestJobStatus.extracting_entities
-                try:
-                    from api.services.graph_extraction import extract_entities_batch
-                    from api.services.graph_store import (
-                        get_graph_store,  # lazy to avoid circular import
-                    )
+                from api.services.graph_extraction import extract_entities_batch
+                from api.services.graph_store import (
+                    get_graph_store,  # lazy to avoid circular import
+                )
 
-                    graph_store = get_graph_store()
-                    chunk_texts = [c.text for c in all_chunks]
-                    extraction_results = await extract_entities_batch(
-                        chunk_texts, model=idx.entity_model
-                    )
-                    for chunk, (nodes, edges) in zip(all_chunks, extraction_results, strict=True):
-                        for node in nodes:
-                            node.chunk_ids.append(chunk.id)
-                            graph_store.upsert_node(index_id, node)
-                        for edge in edges:
-                            edge.chunk_ids.append(chunk.id)
-                            graph_store.upsert_edge(index_id, edge)
-                    idx.node_count = graph_store.node_count(index_id)
-                    idx.edge_count = graph_store.edge_count(index_id)
-                    idx.updated_at = datetime.now(UTC).isoformat()
-                except Exception as extraction_err:
-                    logger.warning(
-                        "Entity extraction failed for index %s"
-                        " — continuing with vector-only results: %s",
-                        index_id,
-                        extraction_err,
-                    )
+                graph_store = get_graph_store()
+                chunk_texts = [c.text for c in new_chunks]
+                # If this raises, the except below marks the job failed and
+                # we exit WITHOUT mutating ``idx.chunks`` or graph_store.
+                extraction_results = await extract_entities_batch(
+                    chunk_texts, model=idx.entity_model
+                )
+                for chunk, (nodes, edges) in zip(new_chunks, extraction_results, strict=True):
+                    pending_graph_writes.append((chunk, nodes, edges))
 
-            # Phase 3: Indexing (add to in-memory store)
+            # Phase 3: Atomic indexing — write chunks + graph nodes together.
             job.status = IngestJobStatus.indexing
-            idx.chunks.extend(all_chunks)
+            if pending_graph_writes:
+                from api.services.graph_store import get_graph_store
+
+                graph_store = get_graph_store()
+                for chunk, nodes, edges in pending_graph_writes:
+                    for node in nodes:
+                        node.chunk_ids.append(chunk.id)
+                        graph_store.upsert_node(index_id, node)
+                    for edge in edges:
+                        edge.chunk_ids.append(chunk.id)
+                        graph_store.upsert_edge(index_id, edge)
+                idx.node_count = graph_store.node_count(index_id)
+                idx.edge_count = graph_store.edge_count(index_id)
+
+            idx.chunks.extend(new_chunks)
             idx.chunk_count = len(idx.chunks)
             idx.doc_count += len(files)
             idx.updated_at = datetime.now(UTC).isoformat()

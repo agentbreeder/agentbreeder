@@ -1,11 +1,20 @@
-"""Validation tests for the RagSearchRequest model used by POST /api/v1/rag/search."""
+"""Validation tests for the RagSearchRequest model used by POST /api/v1/rag/search.
+
+Also covers W4-23 — 100 MB upload cap on POST /api/v1/rag/indexes/{id}/ingest.
+"""
 
 from __future__ import annotations
 
+import uuid
+from unittest.mock import MagicMock, patch
+
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from api.main import app
 from api.models.schemas import RagSearchRequest
+from api.services.auth import create_access_token
 
 
 def test_valid_request_parses() -> None:
@@ -70,3 +79,69 @@ def test_query_required() -> None:
 def test_index_id_required() -> None:
     with pytest.raises(ValidationError):
         RagSearchRequest(index_id="", query="hi")
+
+
+# ---------------------------------------------------------------------------
+# W4-23 — 100 MB upload-size cap on ingest endpoint
+# ---------------------------------------------------------------------------
+
+
+_client = TestClient(app)
+
+
+def _deployer_headers() -> dict[str, str]:
+    token = create_access_token(str(uuid.uuid4()), "test@test.com", "deployer")
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_max_upload_size_constants_are_defined() -> None:
+    """MAX_UPLOAD_SIZE_MB = 100 and MAX_UPLOAD_SIZE_BYTES = 100*1024*1024."""
+    from api.routes import rag
+
+    assert rag.MAX_UPLOAD_SIZE_MB == 100
+    assert rag.MAX_UPLOAD_SIZE_BYTES == 100 * 1024 * 1024
+
+
+@patch("api.routes.rag.get_rag_store")
+def test_ingest_rejects_file_over_100mb_with_413(mock_gs) -> None:
+    """A single file exceeding MAX_UPLOAD_SIZE_BYTES is rejected with 413."""
+    from api.routes import rag
+
+    store = MagicMock()
+    store.get_index.return_value = MagicMock(id="idx-1")
+    mock_gs.return_value = store
+
+    oversize = b"x" * (rag.MAX_UPLOAD_SIZE_BYTES + 1)
+    resp = _client.post(
+        "/api/v1/rag/indexes/idx-1/ingest",
+        files={"files": ("huge.txt", oversize, "text/plain")},
+        headers=_deployer_headers(),
+    )
+    assert resp.status_code == 413
+    detail = resp.json().get("detail", "")
+    assert "100 MB" in detail
+    assert "huge.txt" in detail
+    # Critically — store.ingest_files must NOT have been called.
+    store.ingest_files.assert_not_called()
+
+
+@patch("api.routes.rag.get_rag_store")
+def test_ingest_accepts_file_under_100mb(mock_gs) -> None:
+    """A small file passes the size gate and reaches the ingest call."""
+    from unittest.mock import AsyncMock
+
+    store = MagicMock()
+    store.get_index.return_value = MagicMock(id="idx-1")
+    fake_job = MagicMock()
+    fake_job.to_dict.return_value = {"id": "job-1", "status": "completed"}
+    store.ingest_files = AsyncMock(return_value=fake_job)
+    mock_gs.return_value = store
+
+    small = b"hello world"
+    resp = _client.post(
+        "/api/v1/rag/indexes/idx-1/ingest",
+        files={"files": ("tiny.txt", small, "text/plain")},
+        headers=_deployer_headers(),
+    )
+    assert resp.status_code == 200
+    store.ingest_files.assert_awaited_once()

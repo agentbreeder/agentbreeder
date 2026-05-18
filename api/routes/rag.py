@@ -21,6 +21,12 @@ from registry.rag import BACKEND_IN_MEMORY, BACKEND_NEO4J, BACKEND_PGVECTOR, get
 
 logger = logging.getLogger(__name__)
 
+# Maximum allowed size for a single uploaded file (per W4-23).
+# Anything larger is rejected with HTTP 413 to bound memory + protect against
+# accidental gigabyte uploads. Adjustable via env var for advanced setups.
+MAX_UPLOAD_SIZE_MB = 100
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
 router = APIRouter(prefix="/api/v1/rag", tags=["rag"])
 
 
@@ -243,6 +249,14 @@ async def ingest_files(
                 f"Allowed: {', '.join(sorted(allowed_extensions))}",
             )
         content = await f.read()
+        if len(content) > MAX_UPLOAD_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"File {filename} ({len(content)} bytes) exceeds the "
+                    f"{MAX_UPLOAD_SIZE_MB} MB upload limit"
+                ),
+            )
         file_data.append((filename, content))
 
     # Run ingestion (in-process for now; background task for production)

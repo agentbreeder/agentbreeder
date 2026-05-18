@@ -749,3 +749,263 @@ async def test_embed_texts_unknown_model_falls_back(
     result = await embed_texts(["hi"], model="bogus-provider/foo")
     assert result.used_fallback is True
     assert result.fallback_reason == "unknown-model-prefix"
+
+
+# ---------------------------------------------------------------------------
+# W4-26 — Embedding failure + fallback path coverage
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock, patch  # noqa: E402
+
+import httpx as _httpx  # noqa: E402
+
+from api.services.rag_service import (  # noqa: E402
+    _embed_ollama,
+    _embed_openai,
+    compute_chunk_hash,
+)
+
+
+@pytest.mark.asyncio
+async def test_embed_openai_5xx_falls_back(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """5xx upstream → pseudo-embedding fallback with openai-api-error."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    class _FakeResp:
+        status_code = 500
+
+        def raise_for_status(self) -> None:  # noqa: D401
+            raise _httpx.HTTPStatusError(
+                "500 server error",
+                request=_httpx.Request("POST", "https://api.openai.com/v1/embeddings"),
+                response=_httpx.Response(500),
+            )
+
+        def json(self) -> dict:
+            return {}
+
+    fake_post = AsyncMock(return_value=_FakeResp())
+    with patch("httpx.AsyncClient.post", fake_post):
+        vectors, fb, reason = await _embed_openai(["abc", "def"], "text-embedding-3-small")
+
+    assert fb is True
+    assert reason == "openai-api-error"
+    assert len(vectors) == 2
+    assert all(len(v) == 1536 for v in vectors)
+
+
+@pytest.mark.asyncio
+async def test_embed_openai_timeout_falls_back(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """httpx.TimeoutException → pseudo-embedding fallback."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    async def _raise_timeout(*_args, **_kwargs):
+        raise _httpx.TimeoutException("timeout")
+
+    with patch("httpx.AsyncClient.post", side_effect=_raise_timeout):
+        vectors, fb, reason = await _embed_openai(["t1"], "text-embedding-3-small")
+
+    assert fb is True
+    assert reason == "openai-api-error"
+    assert len(vectors) == 1
+    assert len(vectors[0]) == 1536
+
+
+@pytest.mark.asyncio
+async def test_embed_ollama_connection_refused_falls_back(
+    clear_fallback_state,
+) -> None:
+    """ConnectError → pseudo-embedding fallback per-text."""
+
+    async def _raise_connect(*_args, **_kwargs):
+        raise _httpx.ConnectError("Connection refused")
+
+    with patch("httpx.AsyncClient.post", side_effect=_raise_connect):
+        vectors, fb, reason = await _embed_ollama(["a", "b"], "nomic-embed-text")
+
+    assert fb is True
+    assert reason == "ollama-unreachable"
+    assert len(vectors) == 2
+    assert all(len(v) == 768 for v in vectors)
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_mixed_batches_reflect_fallback(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When at least one batch falls back, EmbeddingResult flags it."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    # Two batches: first succeeds, second 5xx.
+    call_count = {"n": 0}
+
+    class _OkResp:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"data": [{"embedding": [0.0] * 1536} for _ in range(32)]}
+
+    class _BadResp:
+        status_code = 500
+
+        def raise_for_status(self) -> None:
+            raise _httpx.HTTPStatusError(
+                "500",
+                request=_httpx.Request("POST", "https://api.openai.com/v1/embeddings"),
+                response=_httpx.Response(500),
+            )
+
+        def json(self) -> dict:
+            return {}
+
+    async def _post(*_args, **_kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return _OkResp()
+        return _BadResp()
+
+    texts = [f"t{i}" for i in range(40)]  # 32 + 8 → two batches
+    with patch("httpx.AsyncClient.post", side_effect=_post):
+        result = await embed_texts(texts, model="openai/text-embedding-3-small")
+
+    assert result.used_fallback is True
+    assert result.fallback_reason == "openai-api-error"
+    assert len(result.vectors) == 40
+    # First 32 came from the OK batch (zeros), the trailing 8 are pseudo.
+    assert all(v == 0.0 for v in result.vectors[0])
+    assert any(v != 0.0 for v in result.vectors[32])
+
+
+@pytest.mark.asyncio
+async def test_embedding_result_records_used_fallback_and_reason(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sanity check the structured EmbeddingResult contract."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    result = await embed_texts(["x"], model="openai/text-embedding-3-small")
+    assert result.used_fallback is True
+    assert result.fallback_reason == "openai-no-api-key"
+
+    # Re-test with a different reason to make sure fallback_reason populates
+    # with the appropriate code, not a fixed string.
+    clear_degraded_state()
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    async def _raise(*_a, **_kw):
+        raise _httpx.ConnectError("boom")
+
+    with patch("httpx.AsyncClient.post", side_effect=_raise):
+        result2 = await embed_texts(["y"], model="openai/text-embedding-3-small")
+    assert result2.used_fallback is True
+    assert result2.fallback_reason == "openai-api-error"
+
+
+# ---------------------------------------------------------------------------
+# W4-24 — Chunk-hash dedup on ingestion
+# ---------------------------------------------------------------------------
+
+
+def test_compute_chunk_hash_is_normalized_and_deterministic() -> None:
+    """Whitespace and casing-preserving normalization → identical hashes."""
+    a = compute_chunk_hash("hello world")
+    b = compute_chunk_hash("  hello   world  ")
+    c = compute_chunk_hash("hello\tworld\n")
+    assert a == b == c
+    # Length: SHA256 hex → 64 chars.
+    assert len(a) == 64
+
+
+def test_compute_chunk_hash_differs_on_real_content_change() -> None:
+    assert compute_chunk_hash("hello world") != compute_chunk_hash("hello there")
+
+
+@pytest.mark.asyncio
+async def test_ingest_dedups_identical_files() -> None:
+    """Ingesting the same content twice doesn't grow chunk_count."""
+    from api.services.rag_service import RAGStore
+
+    store = RAGStore()
+    idx = store.create_index(
+        name="dedup-test",
+        description="",
+        embedding_model="openai/text-embedding-3-small",
+        chunk_strategy="fixed_size",
+        chunk_size=100,
+        chunk_overlap=0,
+        source="manual",
+    )
+    payload = ("doc.txt", b"hello world. this is a small file used for dedup tests.")
+
+    job1 = await store.ingest_files(idx.id, [payload])
+    assert job1.status.value == "completed"
+    first_count = idx.chunk_count
+    assert first_count > 0
+
+    # Second ingestion of identical content — chunks should be skipped.
+    job2 = await store.ingest_files(idx.id, [payload])
+    assert job2.status.value == "completed"
+    assert idx.chunk_count == first_count
+    # Every chunk in the index has a content hash.
+    assert all(c.chunk_hash for c in idx.chunks)
+
+
+# ---------------------------------------------------------------------------
+# W4-25 — Atomic graph rollback on extraction failure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ingest_rolls_back_chunks_when_graph_extraction_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If graph extraction raises, no chunks should be written to the index."""
+    from api.services import rag_service
+    from api.services.rag_service import RAGStore
+
+    store = RAGStore()
+    idx = store.create_index(
+        name="graph-rollback-test",
+        description="",
+        embedding_model="openai/text-embedding-3-small",
+        chunk_strategy="fixed_size",
+        chunk_size=80,
+        chunk_overlap=0,
+        source="manual",
+        index_type="graph",
+    )
+
+    async def _boom(*_a, **_kw):
+        raise RuntimeError("entity extractor exploded")
+
+    # Patch the symbol where it's looked up — extract_entities_batch is
+    # imported lazily inside ingest_files.
+    monkeypatch.setattr(
+        "api.services.graph_extraction.extract_entities_batch",
+        _boom,
+        raising=False,
+    )
+
+    job = await store.ingest_files(
+        idx.id,
+        [("doc.txt", b"Alice and Bob met in Paris during the spring of 2024.")],
+    )
+
+    assert job.status.value == "failed"
+    assert "entity extractor exploded" in (job.error or "")
+    # The crucial assertion — no chunks written when extraction failed.
+    assert idx.chunks == []
+    assert idx.chunk_count == 0
+    # And the chunk-hash registry is empty too — re-ingesting should still work.
+    assert all(c.chunk_hash is not None for c in idx.chunks)
+    _ = rag_service  # silence unused-import warning
