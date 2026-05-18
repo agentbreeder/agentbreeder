@@ -32,27 +32,27 @@ def test_markdown_writer_allows_safe_subdir(tmp_output_dir: Path) -> None:
 
 
 def test_markdown_writer_rejects_parent_traversal(tmp_output_dir: Path) -> None:
-    with pytest.raises(ValueError, match="subdir"):
+    with pytest.raises(ValueError, match="path"):
         markdown_writer(title="Bad", content="x", subdir="../etc")
 
 
 def test_markdown_writer_rejects_deeply_nested_traversal(
     tmp_output_dir: Path,
 ) -> None:
-    with pytest.raises(ValueError, match="subdir"):
+    with pytest.raises(ValueError, match="path"):
         markdown_writer(title="Bad", content="x", subdir="ok/../../etc")
 
 
 def test_markdown_writer_rejects_absolute_path(tmp_output_dir: Path) -> None:
-    with pytest.raises(ValueError, match="subdir"):
+    with pytest.raises(ValueError, match="path"):
         markdown_writer(title="Bad", content="x", subdir="/etc")
 
 
 def test_markdown_writer_rejects_home_expansion(tmp_output_dir: Path) -> None:
-    with pytest.raises(ValueError, match="subdir"):
+    with pytest.raises(ValueError, match="path"):
         markdown_writer(title="Bad", content="x", subdir="~/notes")
 
 
 def test_markdown_writer_rejects_null_byte(tmp_output_dir: Path) -> None:
-    with pytest.raises(ValueError, match="subdir"):
+    with pytest.raises(ValueError, match="path"):
         markdown_writer(title="Bad", content="x", subdir="ok\x00etc")

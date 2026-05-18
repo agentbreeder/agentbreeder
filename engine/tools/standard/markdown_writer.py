@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from engine.util.path_safety import safe_relative_subdir
+
 SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -34,24 +36,6 @@ SCHEMA: dict[str, Any] = {
     },
     "required": ["title", "content"],
 }
-
-
-def _validate_subdir(subdir: str) -> str:
-    """Validate that ``subdir`` is a safe relative path under DOCUMENT_OUTPUT_DIR.
-
-    Raises ValueError on traversal, absolute paths, home-dir expansion, or null bytes.
-    Returns the original ``subdir`` unchanged when valid.
-    """
-    if "\x00" in subdir:
-        raise ValueError("subdir must not contain null bytes")
-    if subdir.startswith("/") or subdir.startswith("~"):
-        raise ValueError(
-            f"subdir must be a relative path, not an absolute or home-expansion path: {subdir!r}"
-        )
-    parts = Path(subdir).parts
-    if any(part == ".." for part in parts):
-        raise ValueError(f"subdir must not contain parent-directory traversal: {subdir!r}")
-    return subdir
 
 
 def markdown_writer(title: str, content: str, subdir: str = "") -> dict[str, Any]:
@@ -76,7 +60,7 @@ def markdown_writer(title: str, content: str, subdir: str = "") -> dict[str, Any
     """
     base_dir = Path(os.getenv("DOCUMENT_OUTPUT_DIR", "./output"))
     if subdir:
-        subdir = _validate_subdir(subdir)
+        subdir = safe_relative_subdir(subdir)
         out_dir = base_dir / subdir
     else:
         out_dir = base_dir
