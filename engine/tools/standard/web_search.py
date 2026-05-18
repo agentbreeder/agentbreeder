@@ -10,11 +10,34 @@ Required env: ``TAVILY_API_KEY``.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 
 TAVILY_URL = "https://api.tavily.com/search"
+
+
+class WebSearchSource(TypedDict):
+    """A single source returned by :func:`web_search`."""
+
+    url: str
+    title: str
+    snippet: str
+    score: float | None
+
+
+class WebSearchResult(TypedDict):
+    """Structured result returned by :func:`web_search`.
+
+    ``TypedDict`` is structurally compatible with ``dict[str, Any]`` so this
+    annotation is backward-compatible with existing callers that index the
+    result as a plain dict.
+    """
+
+    sources: list[WebSearchSource]
+    answer: str
+    query: str
+
 
 # JSON-Schema (OpenAPI subset) describing the tool's parameters. Stored in the
 # registry so the dashboard / agent builders can render a typed editor for it.
@@ -47,7 +70,7 @@ def web_search(
     query: str,
     max_results: int = 6,
     search_depth: str = "advanced",
-) -> dict[str, Any]:
+) -> WebSearchResult:
     """Search the web and return authoritative sources.
 
     Args:
@@ -80,18 +103,18 @@ def web_search(
         resp.raise_for_status()
         data = resp.json()
 
-    sources = [
-        {
-            "url": r.get("url", ""),
-            "title": r.get("title", ""),
-            "snippet": r.get("content", ""),
-            "score": r.get("score"),
-        }
+    sources: list[WebSearchSource] = [
+        WebSearchSource(
+            url=r.get("url", ""),
+            title=r.get("title", ""),
+            snippet=r.get("content", ""),
+            score=r.get("score"),
+        )
         for r in data.get("results", [])
     ]
 
-    return {
-        "sources": sources,
-        "answer": data.get("answer", ""),
-        "query": query,
-    }
+    return WebSearchResult(
+        sources=sources,
+        answer=data.get("answer", ""),
+        query=query,
+    )

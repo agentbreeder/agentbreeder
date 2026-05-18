@@ -13,9 +13,23 @@ import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from engine.util.path_safety import safe_relative_subdir
+
+
+class MarkdownWriterResult(TypedDict):
+    """Structured result returned by :func:`markdown_writer`.
+
+    ``TypedDict`` is structurally compatible with ``dict[str, Any]`` so this
+    annotation is backward-compatible with existing callers that index the
+    result as a plain dict.
+    """
+
+    path: str
+    byte_size: int
+    title: str
+
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -38,7 +52,7 @@ SCHEMA: dict[str, Any] = {
 }
 
 
-def markdown_writer(title: str, content: str, subdir: str = "") -> dict[str, Any]:
+def markdown_writer(title: str, content: str, subdir: str = "") -> MarkdownWriterResult:
     """Save markdown to disk and return the resolved file path.
 
     Args:
@@ -73,8 +87,8 @@ def markdown_writer(title: str, content: str, subdir: str = "") -> dict[str, Any
 
     out_path.write_text(content, encoding="utf-8")
 
-    return {
-        "path": str(out_path.resolve()),
-        "byte_size": out_path.stat().st_size,
-        "title": title,
-    }
+    return MarkdownWriterResult(
+        path=str(out_path.resolve()),
+        byte_size=out_path.stat().st_size,
+        title=title,
+    )
