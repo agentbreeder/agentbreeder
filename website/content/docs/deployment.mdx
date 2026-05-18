@@ -285,7 +285,7 @@ for the full flow.
 
 - AWS account + credentials (same as ECS Fargate above).
 - App Runner-permitted IAM role
-  (`build.AWSAppRunnerServicePolicyForECRAccess` if pulling from ECR).
+  (`AWSAppRunnerServicePolicyForECRAccess` if pulling from ECR).
 - Region selected in `agent.yaml` must support App Runner.
 - No VPC required if using public access; for VPC connector mode, an existing
   VPC connector resource.

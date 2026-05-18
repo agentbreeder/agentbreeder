@@ -9,6 +9,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Docs
+- **Wave 0 of the platform audit lands.** Quickstart, how-to, and CLI reference are 100% aligned with the v1.7.x implementation. Stale "supported deploy targets" claims across 9 additional pages now distinguish ✅ Shipped (Local, GCP Cloud Run greenfield) from 🟡 Deployer-exists-but-requires-existing-infra (AWS ECS, App Runner, Azure, K8s, Claude Managed). Canonical status table at [cli-reference#agentbreeder-deploy](https://agentbreeder.io/docs/cli-reference#agentbreeder-deploy); canonical prereqs at [deployment#prerequisites-per-target-as-of-2026-05-18](https://agentbreeder.io/docs/deployment#prerequisites-per-target-as-of-2026-05-18). See audit spec at `docs/superpowers/specs/2026-05-18-platform-audit-design.md`.
 - **Quickstart troubleshooting refresh** — added a "blank dashboard at `:3001`" section to `website/content/docs/faq.mdx`, `quickstart.mdx`, and `how-to.mdx` covering: stale `rajits/agentbreeder-dashboard:latest` cached locally, the `--dev` flag for building images from local source, the `BUNDLE` health-check one-liner, and the React-version verification. Added an FAQ note that `migrate-1` exiting is expected (one-shot alembic job). Added a stale-`DOCKER_HOST` row to the Troubleshooting tables. `CONTRIBUTING.md` §6 now documents `quickstart --dev` and the clean-rebuild incantation. `README.md` Install section now points contributors at `--dev` for local-source workflows.
 
 ### Fixed
