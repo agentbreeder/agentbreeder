@@ -20,14 +20,20 @@ from pydantic import BaseModel
 
 from engine.config_parser import AgentConfig
 from engine.deployers._health import HealthCheckTimeout, poll_until_ready
-from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
+from engine.deployers.base import (
+    BaseDeployer,
+    DeployResult,
+    ExistingDeployment,
+    HealthStatus,
+    InfraResult,
+)
 from engine.runtimes.base import ContainerImage
 from engine.secrets.auto_mirror import (
     CloudSecretRef,
     MirrorResult,
     mirror_secrets_to_cloud,
 )
-from engine.sidecar import SidecarConfig, should_inject
+from engine.sidecar import SidecarConfig, should_inject, validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -484,21 +490,97 @@ class GCPCloudRunDeployer(BaseDeployer):
 
         logger.info("Image pushed successfully: %s", image_uri)
 
+    async def _lookup_existing(self, agent_name: str) -> ExistingDeployment | None:
+        """Return an :class:`ExistingDeployment` snapshot for the Cloud Run service.
+
+        A service whose latest revision is Ready (terminal condition true) is
+        considered healthy. Anything else — missing, failed revision, in
+        progress — is reported as unhealthy.
+        """
+        if self._gcp_config is None:
+            return None
+        gcp = self._gcp_config
+        try:
+            from google.cloud.run_v2 import GetServiceRequest
+        except ImportError:
+            return None
+
+        try:
+            run_client = self._get_run_client()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Cloud Run client init failed for '%s': %s", agent_name, exc)
+            return None
+
+        service_name = f"projects/{gcp.project_id}/locations/{gcp.region}/services/{agent_name}"
+        try:
+            existing = await run_client.get_service(request=GetServiceRequest(name=service_name))
+        except Exception as exc:  # noqa: BLE001
+            # NotFound + permission errors all come through here in tests.
+            logger.debug("get_service failed for '%s': %s", agent_name, exc)
+            return None
+
+        url = getattr(existing, "uri", None) or None
+        # Cloud Run's terminal_condition.state == "CONDITION_SUCCEEDED" means healthy.
+        terminal = getattr(existing, "terminal_condition", None)
+        state = str(getattr(terminal, "state", "")) if terminal is not None else ""
+        is_healthy = "SUCCEEDED" in state or "ACTIVE" in state.upper()
+        return ExistingDeployment(
+            status="healthy" if is_healthy else "unhealthy",
+            url=url,
+            resource_id=getattr(existing, "name", None),
+        )
+
     async def deploy(self, config: AgentConfig, image: ContainerImage | None) -> DeployResult:
         """Build, push, and deploy the agent to Cloud Run.
 
         Steps:
+        0. Pre-validate sidecar config; idempotency check on existing service
         1. Build and push container image to Artifact Registry
         2. Create or update the Cloud Run service
         3. Set IAM policy if the service should be publicly accessible
         4. Return the service URL
         """
+        # W4-37: Pre-validate sidecar before any cloud API call.
+        validate_sidecar_config(config)
+
         if self._gcp_config is None:
             self._gcp_config = _extract_cloudrun_config(config)
         gcp = self._gcp_config
 
         if self._image_uri is None:
             self._image_uri = _get_artifact_registry_image_uri(gcp, config.name, config.version)
+
+        # W4-35: Idempotency check.
+        existing = await self._lookup_existing(config.name)
+        if existing is not None:
+            if existing.status == "healthy":
+                logger.info(
+                    "deploy_idempotent_hit",
+                    extra={"agent": config.name, "cloud": "gcp-cloudrun"},
+                )
+                return DeployResult(
+                    endpoint_url=existing.url or f"https://{config.name}-{gcp.region}.a.run.app",
+                    container_id=existing.resource_id or self._image_uri,
+                    status="running",
+                    agent_name=config.name,
+                    version=config.version,
+                )
+            logger.info(
+                "deploy_cleaning_stale",
+                extra={
+                    "agent": config.name,
+                    "cloud": "gcp-cloudrun",
+                    "status": existing.status,
+                },
+            )
+            try:
+                await self.teardown(config.name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Cleanup of stale Cloud Run service '%s' failed: %s — continuing deploy",
+                    config.name,
+                    exc,
+                )
 
         # Step 1: Push image to Artifact Registry
         assert image is not None, "ContainerImage required for GCP Cloud Run deployer"

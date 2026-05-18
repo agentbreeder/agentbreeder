@@ -18,9 +18,15 @@ import httpx
 
 from engine.config_parser import AgentConfig
 from engine.deployers._health import HealthCheckTimeout, poll_until_ready
-from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
+from engine.deployers.base import (
+    BaseDeployer,
+    DeployResult,
+    ExistingDeployment,
+    HealthStatus,
+    InfraResult,
+)
 from engine.runtimes.base import ContainerImage
-from engine.sidecar import SidecarConfig, should_inject
+from engine.sidecar import SidecarConfig, should_inject, validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -142,8 +148,48 @@ class DockerComposeDeployer(BaseDeployer):
             resource_ids={"port": str(port)},
         )
 
+    async def _lookup_existing(self, agent_name: str) -> ExistingDeployment | None:
+        """Return an :class:`ExistingDeployment` snapshot for the local container.
+
+        A running container with status == "running" is considered healthy. Any
+        other docker container state (exited, restarting, paused, dead) is
+        reported as unhealthy so the caller cleans it up before redeploying.
+        """
+        try:
+            import docker
+        except ImportError:
+            return None
+
+        try:
+            client = _docker_client()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Docker client init failed for '%s': %s", agent_name, exc)
+            return None
+
+        container_name = f"agentbreeder-{agent_name}"
+        try:
+            container = client.containers.get(container_name)
+        except docker.errors.NotFound:
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Container lookup failed for '%s': %s", container_name, exc)
+            return None
+
+        status = getattr(container, "status", "unknown")
+        agent_state = self._state.get("agents", {}).get(agent_name, {})
+        url = agent_state.get("endpoint_url")
+        is_healthy = status == "running"
+        return ExistingDeployment(
+            status="healthy" if is_healthy else "unhealthy",
+            url=url,
+            resource_id=getattr(container, "id", None),
+        )
+
     async def deploy(self, config: AgentConfig, image: ContainerImage | None) -> DeployResult:
         """Build the Docker image and run the container."""
+        # W4-37: Pre-validate sidecar before any local-container call.
+        validate_sidecar_config(config)
+
         try:
             import docker
         except ImportError as e:
@@ -152,6 +198,24 @@ class DockerComposeDeployer(BaseDeployer):
 
         client = _docker_client()
         assert image is not None, "ContainerImage required for Docker Compose deployer"
+
+        # W4-35: Idempotency check. If the agent's container is already running,
+        # short-circuit. If it exists but isn't running, fall through — the
+        # existing "stop+remove" path below handles cleanup naturally.
+        existing = await self._lookup_existing(config.name)
+        if existing is not None and existing.status == "healthy":
+            logger.info(
+                "deploy_idempotent_hit",
+                extra={"agent": config.name, "cloud": "docker-compose"},
+            )
+            return DeployResult(
+                endpoint_url=existing.url or "",
+                container_id=existing.resource_id or "",
+                status="running",
+                agent_name=config.name,
+                version=config.version,
+            )
+
         agent_state = self._state.get("agents", {}).get(config.name, {})
         port = agent_state.get("port", self._allocate_port())
 

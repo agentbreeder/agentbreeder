@@ -345,7 +345,8 @@ class TestDeploy:
         assert "awsapprunner.com" in result.endpoint_url
 
     @pytest.mark.asyncio
-    async def test_deploy_updates_existing_service(self) -> None:
+    async def test_deploy_is_idempotent_when_service_is_running(self) -> None:
+        """W4-35: a RUNNING App Runner service short-circuits deploy() without redeploying."""
         deployer = _make_deployer()
         config = _make_agent_config()
         image = self._make_image()
@@ -363,24 +364,24 @@ class TestDeploy:
                 "Status": "RUNNING",
             }
         }
-        ar_mock.update_service.return_value = {
-            "Service": {"ServiceArn": "arn:aws:apprunner:us-east-1:123:service/my-agent/abc"}
-        }
 
         with (
-            patch.object(deployer, "_push_image", new_callable=AsyncMock),
+            patch.object(deployer, "_push_image", new_callable=AsyncMock) as push_mock,
             patch.object(deployer, "_get_boto3_client", return_value=ar_mock),
             patch.object(
                 deployer,
                 "_wait_for_service_running",
                 new_callable=AsyncMock,
-                return_value="https://abc123.us-east-1.awsapprunner.com",
-            ),
+            ) as waiter,
         ):
-            await deployer.deploy(config, image)
+            result = await deployer.deploy(config, image)
 
-        ar_mock.update_service.assert_called_once()
+        push_mock.assert_not_called()
+        ar_mock.update_service.assert_not_called()
         ar_mock.create_service.assert_not_called()
+        waiter.assert_not_called()
+        assert result.status == "running"
+        assert "awsapprunner.com" in result.endpoint_url
 
     @pytest.mark.asyncio
     async def test_deploy_raises_if_provision_not_called(self) -> None:

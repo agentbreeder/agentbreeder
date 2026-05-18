@@ -18,15 +18,23 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
+from api.retry import RetryExhaustedError, async_retry
 from engine.config_parser import AgentConfig
 from engine.deployers._health import HealthCheckTimeout, poll_until_ready
-from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
+from engine.deployers.base import (
+    BaseDeployer,
+    DeployResult,
+    ExistingDeployment,
+    HealthStatus,
+    InfraResult,
+)
 from engine.runtimes.base import ContainerImage
 from engine.secrets.auto_mirror import (
     CloudSecretRef,
     MirrorResult,
     mirror_secrets_to_cloud,
 )
+from engine.sidecar import validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -525,22 +533,104 @@ class AWSECSDeployer(BaseDeployer):
         )
         logger.info("ECS service '%s' is stable", config.name)
 
+    async def _lookup_existing(self, agent_name: str) -> ExistingDeployment | None:
+        """Return a snapshot of the ECS service ``agent_name`` if it exists.
+
+        ECS services are considered healthy when they are ACTIVE and have
+        ``runningCount >= desiredCount`` with ``desiredCount > 0``. INACTIVE or
+        draining services are reported as unhealthy so ``deploy()`` cleans them
+        up before redeploying.
+        """
+        if self._aws_config is None:
+            return None
+        aws = self._aws_config
+        try:
+            ecs = self._get_boto3_client("ecs")
+        except ImportError:
+            return None
+
+        try:
+            response = ecs.describe_services(
+                cluster=aws.ecs_cluster,
+                services=[agent_name],
+            )
+        except Exception as exc:  # noqa: BLE001 — boto3 can raise various exceptions
+            logger.debug("describe_services failed for '%s': %s", agent_name, exc)
+            return None
+
+        services = [
+            s for s in response.get("services", []) if s.get("status") not in (None, "INACTIVE")
+        ]
+        if not services:
+            return None
+
+        svc = services[0]
+        status = svc.get("status", "UNKNOWN")
+        running = int(svc.get("runningCount", 0))
+        desired = int(svc.get("desiredCount", 0))
+        is_healthy = status == "ACTIVE" and desired > 0 and running >= desired
+        return ExistingDeployment(
+            status="healthy" if is_healthy else "unhealthy",
+            url=f"https://{agent_name}.{aws.region}.ecs.local",
+            resource_id=svc.get("serviceArn"),
+        )
+
     async def deploy(self, config: AgentConfig, image: ContainerImage | None) -> DeployResult:
         """Build, push, and deploy the agent to ECS Fargate.
 
         Steps:
+        0. Pre-validate sidecar config; idempotency check on existing service
         1. Build and push container image to ECR
         2. Register ECS task definition
         3. Create or update ECS service
         4. Wait for service stability
         5. Return the service endpoint
         """
+        # W4-37: Pre-validate sidecar before any cloud API call so broken
+        # sidecar configs fail at submit with a clear error rather than at
+        # health-check time with a cryptic timeout.
+        validate_sidecar_config(config)
+
         if self._aws_config is None:
             self._aws_config = _extract_ecs_config(config)
         aws = self._aws_config
 
         if self._image_uri is None:
             self._image_uri = _get_ecr_image_uri(aws, config.name, config.version)
+
+        # W4-35: Idempotency check. If a healthy service already exists for
+        # this agent name, return success without redeploying. If one exists in
+        # an unhealthy state, clean it up before continuing.
+        existing = await self._lookup_existing(config.name)
+        if existing is not None:
+            if existing.status == "healthy":
+                logger.info(
+                    "deploy_idempotent_hit",
+                    extra={"agent": config.name, "cloud": "aws-ecs"},
+                )
+                return DeployResult(
+                    endpoint_url=existing.url or f"https://{config.name}.{aws.region}.ecs.local",
+                    container_id=existing.resource_id or self._image_uri,
+                    status="running",
+                    agent_name=config.name,
+                    version=config.version,
+                )
+            logger.info(
+                "deploy_cleaning_stale",
+                extra={
+                    "agent": config.name,
+                    "cloud": "aws-ecs",
+                    "status": existing.status,
+                },
+            )
+            try:
+                await self.teardown(config.name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Cleanup of stale ECS service '%s' failed: %s — continuing deploy",
+                    config.name,
+                    exc,
+                )
 
         # Step 1: Push image to ECR
         assert image is not None, "ContainerImage required for ECS deployer"
@@ -625,20 +715,33 @@ class AWSECSDeployer(BaseDeployer):
         aws = self._aws_config
         ecs = self._get_boto3_client("ecs")
 
-        # Step 1: Scale service to zero
+        # Step 1: Scale service to zero (W4-36: retry up to 3 times with
+        # exponential backoff; only proceed to delete if scale succeeds or all
+        # retries exhaust. Don't silently swallow — fail loudly.)
         logger.info("Scaling ECS service '%s' to zero", agent_name)
-        try:
+
+        async def _scale_to_zero() -> None:
             ecs.update_service(
                 cluster=aws.ecs_cluster,
                 service=agent_name,
                 desiredCount=0,
             )
-        except Exception as exc:
-            logger.warning(
-                "Could not scale service '%s' to zero: %s — continuing teardown",
-                agent_name,
-                exc,
+
+        try:
+            await async_retry(
+                _scale_to_zero,
+                max_attempts=3,
+                initial_delay=1.0,
+                max_delay=10.0,
             )
+        except RetryExhaustedError as exc:
+            logger.error(
+                "Could not scale service '%s' to zero after %d attempts: %s",
+                agent_name,
+                exc.attempts,
+                exc.last_exception,
+            )
+            raise
 
         # Step 2: Delete the ECS service
         logger.info("Deleting ECS service '%s'", agent_name)

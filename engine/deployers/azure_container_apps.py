@@ -20,8 +20,15 @@ from pydantic import BaseModel
 
 from engine.config_parser import AgentConfig
 from engine.deployers._health import HealthCheckTimeout, poll_until_ready
-from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
+from engine.deployers.base import (
+    BaseDeployer,
+    DeployResult,
+    ExistingDeployment,
+    HealthStatus,
+    InfraResult,
+)
 from engine.runtimes.base import ContainerImage
+from engine.sidecar import validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -401,21 +408,100 @@ class AzureContainerAppsDeployer(BaseDeployer):
 
         return body
 
+    async def _lookup_existing(self, agent_name: str) -> ExistingDeployment | None:
+        """Return an :class:`ExistingDeployment` snapshot for the Container App.
+
+        A Container App with ``provisioningState == 'Succeeded'`` and a populated
+        FQDN is considered healthy. Anything in ``InProgress``, ``Failed`` or
+        unreachable state is reported as unhealthy.
+        """
+        if self._azure_config is None:
+            return None
+        azure = self._azure_config
+        try:
+            aca_client = self._get_aca_client()
+        except ImportError:
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("ACA client init failed for '%s': %s", agent_name, exc)
+            return None
+
+        try:
+            app = aca_client.container_apps.get(
+                resource_group_name=azure.resource_group,
+                container_app_name=agent_name,
+            )
+        except Exception as exc:  # noqa: BLE001 — azure raises ResourceNotFoundError + variants
+            logger.debug("container_apps.get failed for '%s': %s", agent_name, exc)
+            return None
+
+        # Provisioning state lives on .properties.provisioning_state or .provisioning_state
+        # depending on SDK version.
+        props = getattr(app, "properties", app)
+        state = str(getattr(props, "provisioning_state", "") or "")
+        ingress = getattr(getattr(props, "configuration", None), "ingress", None)
+        fqdn = getattr(ingress, "fqdn", None)
+
+        is_healthy = state.lower() == "succeeded" and bool(fqdn)
+        url = f"https://{fqdn}" if fqdn else None
+        return ExistingDeployment(
+            status="healthy" if is_healthy else "unhealthy",
+            url=url,
+            resource_id=getattr(app, "id", None),
+        )
+
     async def deploy(self, config: AgentConfig, image: ContainerImage | None) -> DeployResult:
         """Build, push, and deploy the agent to Azure Container Apps.
 
         Steps:
+        0. Pre-validate sidecar config; idempotency check on existing app
         1. Build and push container image to ACR
         2. Look up the Container Apps Environment resource ID
         3. Create or update the Container App
         4. Return the app FQDN as the endpoint URL
         """
+        # W4-37: Pre-validate sidecar before any cloud API call.
+        validate_sidecar_config(config)
+
         if self._azure_config is None:
             self._azure_config = _extract_azure_config(config)
         azure = self._azure_config
 
         if self._image_uri is None:
             self._image_uri = _get_acr_image_uri(azure, config.name, config.version)
+
+        # W4-35: Idempotency check.
+        existing = await self._lookup_existing(config.name)
+        if existing is not None:
+            if existing.status == "healthy":
+                logger.info(
+                    "deploy_idempotent_hit",
+                    extra={"agent": config.name, "cloud": "azure-container-apps"},
+                )
+                return DeployResult(
+                    endpoint_url=existing.url
+                    or f"https://{config.name}.{azure.location}.azurecontainerapps.io",
+                    container_id=existing.resource_id or self._image_uri,
+                    status="running",
+                    agent_name=config.name,
+                    version=config.version,
+                )
+            logger.info(
+                "deploy_cleaning_stale",
+                extra={
+                    "agent": config.name,
+                    "cloud": "azure-container-apps",
+                    "status": existing.status,
+                },
+            )
+            try:
+                await self.teardown(config.name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Cleanup of stale Container App '%s' failed: %s — continuing deploy",
+                    config.name,
+                    exc,
+                )
 
         # Step 1: Push image to ACR
         assert image is not None, "ContainerImage required for Azure Container Apps deployer"
