@@ -16,6 +16,8 @@ cd agentbreeder/examples/<example-name>
 agentbreeder deploy --target local
 ```
 
+> **Status:** Deployer code paths exist for every target referenced below. Greenfield provisioning (auto-creating VPCs / clusters / resource-groups) is fully supported only for `local` and `cloud-run`; AWS, Azure, and Kubernetes targets require pre-existing infrastructure. `claude-managed` is an Anthropic-managed runtime. See the [deploy-target status table](cli-reference#agentbreeder-deploy).
+
 ---
 
 ## Framework Examples
@@ -85,6 +87,8 @@ Use these to see how the same agent deploys to a specific cloud.
 **`examples/aws-app-runner-agent/`**
 
 Deploys to AWS App Runner — serverless containers with no VPC, no ALB, and no load balancer configuration required. Ideal for simple HTTP-accessible agents.
+
+*Prereq:* AWS targets require pre-existing IAM roles and an ECR repository. See the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 ```yaml
 # agent.yaml
@@ -313,7 +317,7 @@ Minimal Python SDK example — define an agent programmatically, deploy to local
 ### Advanced Python SDK
 **`examples/sdk-advanced/`**
 
-Full SDK usage: memory, knowledge bases, prompt registry references, MCP servers, and multi-cloud deploy targets — all from Python code.
+Full SDK usage: memory, knowledge bases, prompt registry references, MCP servers, and configurable deploy targets — all from Python code. (Greenfield provisioning availability varies by target — see the [deploy-target status table](cli-reference#agentbreeder-deploy).)
 
 ---
 
