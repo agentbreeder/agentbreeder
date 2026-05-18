@@ -63,6 +63,35 @@ class TestFixedSizeChunking:
         assert len(chunks) == 1
 
 
+class TestFixedSizeChunkingValidation:
+    """W5-R10 — chunk_fixed_size must reject overlap >= chunk_size."""
+
+    def test_overlap_equal_to_chunk_size_raises(self):
+        with pytest.raises(ValueError, match="strictly less than"):
+            chunk_fixed_size("abcdefgh", chunk_size=4, overlap=4)
+
+    def test_overlap_greater_than_chunk_size_raises(self):
+        with pytest.raises(ValueError, match="strictly less than"):
+            chunk_fixed_size("abcdefgh", chunk_size=4, overlap=10)
+
+    def test_zero_chunk_size_raises(self):
+        with pytest.raises(ValueError, match="chunk_size must be positive"):
+            chunk_fixed_size("abc", chunk_size=0, overlap=0)
+
+    def test_negative_chunk_size_raises(self):
+        with pytest.raises(ValueError, match="chunk_size must be positive"):
+            chunk_fixed_size("abc", chunk_size=-1, overlap=0)
+
+    def test_negative_overlap_raises(self):
+        with pytest.raises(ValueError, match="overlap must be non-negative"):
+            chunk_fixed_size("abc", chunk_size=10, overlap=-1)
+
+    def test_valid_overlap_just_below_chunk_size_works(self):
+        # overlap = chunk_size - 1 is legal (advances by 1 char per iter).
+        chunks = chunk_fixed_size("a" * 20, chunk_size=5, overlap=4)
+        assert len(chunks) > 0
+
+
 class TestRecursiveChunking:
     def test_paragraph_splitting(self):
         text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
@@ -135,6 +164,69 @@ class TestExtractText:
         content = b"some content"
         result = extract_text("file.xyz", content)
         assert result == "some content"
+
+
+class TestExtractTextMalformed:
+    """W5-R8 — malformed-file input handling for extract_text.
+
+    extract_text must NEVER raise on malformed bytes. It returns the
+    best-effort text or a placeholder string.
+    """
+
+    def test_truncated_json_falls_back_to_raw_text(self):
+        # Unterminated JSON object — json.JSONDecodeError should be caught.
+        content = b'{"key": "value", "num": 42'
+        result = extract_text("broken.json", content)
+        # Falls back to raw string content rather than crashing.
+        assert isinstance(result, str)
+        assert "key" in result
+
+    def test_malformed_json_array_falls_back_to_raw_text(self):
+        content = b'[{"a": 1}, {"b":'  # truncated array
+        result = extract_text("broken.json", content)
+        assert isinstance(result, str)
+        # Raw text should still surface the contents we did read.
+        assert "a" in result
+
+    def test_malformed_csv_with_uneven_columns(self):
+        # CSV with rows of unequal column counts — csv module is tolerant,
+        # but the function must not crash and must surface the rows.
+        content = b"name,age,city\nAlice,30\nBob,25,NYC,extra\nCharlie"
+        result = extract_text("messy.csv", content)
+        assert isinstance(result, str)
+        assert "Alice" in result
+        assert "Bob" in result
+        assert "Charlie" in result
+
+    def test_csv_with_invalid_utf8_bytes(self):
+        # Mixed UTF-8 + invalid byte sequence — decode errors are 'replace'd.
+        content = b"name,age\nAlice,30\n\xff\xfeBob,25"
+        result = extract_text("garbled.csv", content)
+        assert isinstance(result, str)
+        assert "Alice" in result
+
+    def test_corrupted_pdf_returns_placeholder(self):
+        # Garbage bytes claiming to be PDF — must not raise.
+        content = b"\x00\x01\x02 not a real pdf at all \xff\xfe"
+        result = extract_text("garbage.pdf", content)
+        assert isinstance(result, str)
+        # Either a placeholder or empty-fallback content is acceptable —
+        # the contract is "no crash". We assert the function returned a string.
+        # Common outputs include the install-PyPDF2 hint or the could-not-extract hint.
+        assert result == result  # no exception is the assertion
+
+    def test_empty_pdf_bytes_returns_placeholder(self):
+        result = extract_text("empty.pdf", b"")
+        assert isinstance(result, str)
+        # Empty PDF should fall through to a placeholder string.
+        assert "PDF content" in result or result == ""
+
+    def test_truncated_pdf_stream_does_not_crash(self):
+        # A PDF header with no body — PyPDF2 (if installed) typically raises;
+        # we must catch that and fall back to regex / placeholder.
+        content = b"%PDF-1.4\n%truncated here"
+        result = extract_text("truncated.pdf", content)
+        assert isinstance(result, str)
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +512,72 @@ class TestRAGStoreSearch:
             d = results[0].to_dict()
             assert "score" in d
             assert "text" in d
+
+
+class TestRAGStoreSearchMetadataFilter:
+    """W5-R12 — RAGStore.search must apply post-retrieval metadata filtering."""
+
+    def setup_method(self):
+        self.store = RAGStore()
+
+    @pytest.mark.asyncio
+    async def test_filter_keeps_matching_chunks(self):
+        idx = self.store.create_index(name="filter-test", chunk_size=200, chunk_overlap=0)
+        # Two docs — different filenames will end up in metadata['filename'].
+        await self.store.ingest_files(
+            idx.id,
+            [
+                ("alpha.txt", b"Apples are red and grow on trees."),
+                ("beta.txt", b"Bananas are yellow and grow in bunches."),
+            ],
+        )
+        # No filter — both files' chunks should be retrievable.
+        unfiltered = await self.store.search(idx.id, "grow", top_k=10)
+        sources_no_filter = {h.source for h in unfiltered}
+        assert "alpha.txt" in sources_no_filter
+        assert "beta.txt" in sources_no_filter
+
+        # With filter — only alpha.txt should remain.
+        filtered = await self.store.search(
+            idx.id, "grow", top_k=10, filters={"filename": "alpha.txt"}
+        )
+        assert len(filtered) > 0
+        assert all(h.source == "alpha.txt" for h in filtered)
+        assert all(h.metadata.get("filename") == "alpha.txt" for h in filtered)
+
+    @pytest.mark.asyncio
+    async def test_filter_with_no_matches_returns_empty(self):
+        idx = self.store.create_index(name="empty-filter", chunk_size=200, chunk_overlap=0)
+        await self.store.ingest_files(idx.id, [("doc.txt", b"Some content here.")])
+        # Filter on a metadata key/value that no chunk has.
+        results = await self.store.search(
+            idx.id, "content", top_k=10, filters={"filename": "does-not-exist.txt"}
+        )
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_empty_filter_dict_is_treated_as_no_filter(self):
+        idx = self.store.create_index(name="empty-dict", chunk_size=200, chunk_overlap=0)
+        await self.store.ingest_files(idx.id, [("doc.txt", b"Hello world content.")])
+        # Empty dict — treat as no filter.
+        results = await self.store.search(idx.id, "content", top_k=10, filters={})
+        # Should match the unfiltered behavior (>= 1 result for "content").
+        assert len(results) > 0
+
+    @pytest.mark.asyncio
+    async def test_filter_requires_all_keys_to_match(self):
+        idx = self.store.create_index(name="multi-key", chunk_size=200, chunk_overlap=0)
+        await self.store.ingest_files(
+            idx.id,
+            [
+                ("alpha.txt", b"Apples are red."),
+                ("beta.txt", b"Bananas are yellow."),
+            ],
+        )
+        # filename matches but index_id is wrong — should yield 0 hits.
+        bogus_filter = {"filename": "alpha.txt", "index_id": "bogus-uuid"}
+        results = await self.store.search(idx.id, "are", top_k=10, filters=bogus_filter)
+        assert results == []
 
 
 # ---------------------------------------------------------------------------

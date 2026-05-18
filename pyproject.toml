@@ -78,6 +78,11 @@ news = [
 rag = [
     "neo4j>=5.0",
 ]
+pdf = [
+    # W5-R9: PyPDF2 enables high-fidelity PDF extraction in RAG ingestion.
+    # Without it the service falls back to a regex BT/ET parser.
+    "PyPDF2>=3.0.0",
+]
 all-clouds = [
     "boto3>=1.34.0",
     "azure-identity>=1.16.0",

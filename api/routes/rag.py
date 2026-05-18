@@ -15,6 +15,7 @@ from api.database import get_db
 from api.middleware.rbac import require_role
 from api.models.database import User
 from api.models.schemas import ApiMeta, ApiResponse, RagSearchRequest
+from api.services.graph_extraction import clear_extraction_cache, get_extraction_cache
 from api.services.graph_store import get_graph_store
 from api.services.rag_service import get_rag_store
 from registry.rag import BACKEND_IN_MEMORY, BACKEND_NEO4J, BACKEND_PGVECTOR, get_rag_backend
@@ -299,6 +300,8 @@ async def search(
     - text_weight: float (default 0.3)
     - hops: int | None (default None) — for graph/hybrid indexes, number of BFS hops
     - seed_entity_limit: int (default 5) — for graph/hybrid indexes, max seed entities
+    - filters: dict[str, Any] | None (default None) — W5-R12 metadata post-filter;
+      keeps only hits whose chunk.metadata matches every (key, value) in the dict.
     """
     try:
         req = RagSearchRequest.model_validate(body)
@@ -326,6 +329,7 @@ async def search(
         text_weight=req.text_weight,
         hops=req.hops,
         seed_entity_limit=req.seed_entity_limit,
+        filters=req.filters,
     )
 
     return ApiResponse(
