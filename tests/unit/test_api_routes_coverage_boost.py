@@ -1201,8 +1201,8 @@ class TestMemoryConfigs:
             "/api/v1/memory/configs",
             json={
                 "name": "default",
-                "backend_type": "buffer_window",
-                "memory_type": "conversation",
+                "backend_type": "postgresql",
+                "memory_type": "buffer_window",
             },
         )
         assert resp.status_code == 201

@@ -210,7 +210,7 @@ async def delete_conversations(
 async def search_messages(
     config_id: str,
     _user: User = Depends(get_current_user),
-    q: str = Query(..., min_length=1),
+    q: str = Query(..., min_length=1, max_length=200),
     limit: int = Query(50, ge=1, le=200),
 ) -> ApiResponse[list[MemorySearchResultResponse]]:
     """Full-text search across stored messages."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -742,9 +742,9 @@ class CreateMemoryConfigRequest(BaseModel):
     name: str
     team: str = "default"
     owner: str = ""
-    backend_type: str = "postgresql"  # "postgresql" | "redis"
-    memory_type: str = (
-        "buffer_window"  # "buffer_window" | "buffer" (summary/entity/semantic: Phase 2)
+    backend_type: Literal["postgresql", "redis"] = "postgresql"
+    memory_type: Literal["buffer_window", "buffer", "summary", "entity", "semantic"] = (
+        "buffer_window"
     )
     max_messages: int = Field(default=100, ge=1, le=100_000)
     namespace_pattern: str = "{agent_id}:{session_id}"
@@ -771,7 +771,7 @@ class MemoryConfigResponse(BaseModel):
 class MemoryMessageCreate(BaseModel):
     session_id: str
     role: str  # "user" | "assistant" | "system" | "tool"
-    content: str
+    content: str = Field(..., max_length=100_000)
     agent_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 

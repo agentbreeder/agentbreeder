@@ -22,8 +22,10 @@ from __future__ import annotations
 import logging
 import math
 import re
+import time
 import uuid
 from datetime import datetime
+from threading import Lock
 from typing import Any
 
 from fastapi import HTTPException
@@ -34,6 +36,7 @@ from api.database import async_session
 from api.models.database import MemoryConfig as MemoryConfigORM
 from api.models.database import MemoryEntity as MemoryEntityORM
 from api.models.database import MemoryMessage as MemoryMessageORM
+from engine.observability.degraded_mode import warn_once
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,56 @@ _PHASE2_SCOPES = {"global"}  # "team" is now live; "global" remains Phase 3
 
 # Default threshold: condense into a summary when the session exceeds this many messages
 _DEFAULT_SUMMARY_TRIGGER = 20
+
+# ---------------------------------------------------------------------------
+# Summary LLM circuit breaker
+# ---------------------------------------------------------------------------
+# Track failures of _generate_summary's LLM call. If 3+ failures occur within
+# the last 60 seconds, the circuit "opens" and subsequent calls skip the LLM
+# entirely (returning a stub summary). The circuit auto-closes when the
+# oldest failure ages out beyond the 60s window.
+
+_SUMMARY_CIRCUIT_THRESHOLD = 3
+_SUMMARY_CIRCUIT_WINDOW_SEC = 60.0
+_summary_failure_timestamps: list[float] = []
+_summary_circuit_lock = Lock()
+
+
+def _summary_circuit_is_open() -> bool:
+    """Return True if the LLM summary circuit has tripped due to recent failures."""
+    now = time.monotonic()
+    cutoff = now - _SUMMARY_CIRCUIT_WINDOW_SEC
+    with _summary_circuit_lock:
+        # Drop expired failure timestamps
+        while _summary_failure_timestamps and _summary_failure_timestamps[0] < cutoff:
+            _summary_failure_timestamps.pop(0)
+        return len(_summary_failure_timestamps) >= _SUMMARY_CIRCUIT_THRESHOLD
+
+
+def _summary_record_failure() -> None:
+    """Record a summary LLM failure timestamp for the circuit breaker."""
+    now = time.monotonic()
+    cutoff = now - _SUMMARY_CIRCUIT_WINDOW_SEC
+    with _summary_circuit_lock:
+        while _summary_failure_timestamps and _summary_failure_timestamps[0] < cutoff:
+            _summary_failure_timestamps.pop(0)
+        _summary_failure_timestamps.append(now)
+
+
+def _summary_circuit_reset() -> None:
+    """Reset the summary circuit. Tests should call this between cases."""
+    with _summary_circuit_lock:
+        _summary_failure_timestamps.clear()
+
+
+def _escape_like_pattern(value: str) -> str:
+    """Escape LIKE wildcards in *value* so callers can't inject ``%`` or ``_``.
+
+    Uses backslash as the escape character (matches the ``escape='\\\\'`` arg
+    passed to ``ilike()`` at the call site).
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 # Regex patterns used for lightweight entity extraction (no LLM required)
 _ENTITY_PATTERNS: list[tuple[str, str]] = [
@@ -610,7 +663,18 @@ class MemoryService:
 
         Attempts an LLM call via the internal playground endpoint; falls back
         to a plain stub string on any error so the caller never blocks.
+
+        A module-level circuit breaker tracks repeated LLM failures: 3 errors
+        within 60s opens the circuit and subsequent calls skip the LLM entirely
+        until the oldest failure ages out. This prevents a slow playground
+        endpoint from blocking every ``store_message`` call.
         """
+        stub_summary = f"[Summary of {len(messages)} messages]"
+
+        # Fast-path: if the circuit is open, skip the network call entirely.
+        if _summary_circuit_is_open():
+            return stub_summary
+
         try:
             import httpx
 
@@ -630,10 +694,23 @@ class MemoryService:
                     summary = data.get("content") or data.get("data", {}).get("content", "")
                     if summary:
                         return summary
-        except Exception:
+                # Non-200 response counts as a failure for the breaker.
+                _summary_record_failure()
+                warn_once(
+                    "memory.summary_llm",
+                    f"http-status-{resp.status_code}",
+                    extra={"status_code": resp.status_code},
+                )
+        except Exception as exc:  # noqa: BLE001 — we deliberately catch all so the caller never blocks
+            _summary_record_failure()
+            warn_once(
+                "memory.summary_llm",
+                f"exception-{type(exc).__name__}",
+                extra={"exception": str(exc)},
+            )
             logger.debug("Summary LLM call failed — using stub", exc_info=True)
 
-        return f"[Summary of {len(messages)} messages]"
+        return stub_summary
 
     @staticmethod
     async def _extract_and_store_entities(db: Any, config_id: uuid.UUID, content: str) -> None:
@@ -686,11 +763,14 @@ class MemoryService:
         limit: int = 50,
     ) -> list[MemorySearchResult]:
         async with async_session() as db:
+            # Escape LIKE wildcards in the user-supplied query so callers can't
+            # use ``%``/``_`` to match unrelated rows or trigger expensive scans.
+            safe_query = _escape_like_pattern(query)
             result = await db.execute(
                 select(MemoryMessageORM)
                 .where(
                     MemoryMessageORM.config_id == uuid.UUID(config_id),
-                    MemoryMessageORM.content.ilike(f"%{query}%"),
+                    MemoryMessageORM.content.ilike(f"%{safe_query}%", escape="\\"),
                 )
                 .order_by(MemoryMessageORM.created_at)
                 .limit(limit)
