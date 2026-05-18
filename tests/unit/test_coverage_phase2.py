@@ -194,15 +194,25 @@ class TestHybridSearchSkipsNullEmbedding:
 class TestEmbedOpenAI:
     @pytest.mark.asyncio
     async def test_returns_pseudo_when_no_api_key(self, monkeypatch):
-        """Lines 466-468: no OPENAI_API_KEY."""
+        """Lines 466-468: no OPENAI_API_KEY.
+
+        W1-03: _embed_openai now returns (vectors, used_fallback, reason).
+        """
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        result = await _embed_openai(["hello", "world"], "text-embedding-ada-002")
-        assert len(result) == 2
-        assert len(result[0]) == 1536
+        vectors, used_fallback, reason = await _embed_openai(
+            ["hello", "world"], "text-embedding-ada-002"
+        )
+        assert len(vectors) == 2
+        assert len(vectors[0]) == 1536
+        assert used_fallback is True
+        assert reason == "openai-no-api-key"
 
     @pytest.mark.asyncio
     async def test_calls_openai_api(self, monkeypatch):
-        """Lines 469-478: successful API call."""
+        """Lines 469-478: successful API call.
+
+        W1-03: _embed_openai now returns (vectors, used_fallback, reason).
+        """
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         fake_resp = MagicMock()
         fake_resp.raise_for_status = MagicMock()
@@ -217,28 +227,42 @@ class TestEmbedOpenAI:
             inst.post = AsyncMock(return_value=fake_resp)
             MockClient.return_value.__aenter__ = AsyncMock(return_value=inst)
             MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-            result = await _embed_openai(["a", "b"], "text-embedding-ada-002")
-        assert result == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+            vectors, used_fallback, reason = await _embed_openai(
+                ["a", "b"], "text-embedding-ada-002"
+            )
+        assert vectors == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+        assert used_fallback is False
+        assert reason is None
 
     @pytest.mark.asyncio
     async def test_falls_back_on_http_error(self, monkeypatch):
-        """Lines 479-480: exception path."""
+        """Lines 479-480: exception path.
+
+        W1-03: _embed_openai now returns (vectors, used_fallback, reason).
+        """
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         with patch("api.services.rag_service.httpx.AsyncClient") as MockClient:
             inst = AsyncMock()
             inst.post = AsyncMock(side_effect=httpx.ConnectError("conn refused"))
             MockClient.return_value.__aenter__ = AsyncMock(return_value=inst)
             MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-            result = await _embed_openai(["text"], "text-embedding-ada-002")
+            vectors, used_fallback, reason = await _embed_openai(
+                ["text"], "text-embedding-ada-002"
+            )
         # Fallback pseudo-embedding
-        assert len(result) == 1
-        assert len(result[0]) == 1536
+        assert len(vectors) == 1
+        assert len(vectors[0]) == 1536
+        assert used_fallback is True
+        assert reason == "openai-api-error"
 
 
 class TestEmbedOllama:
     @pytest.mark.asyncio
     async def test_calls_ollama_api(self):
-        """Lines 483-493: successful Ollama call."""
+        """Lines 483-493: successful Ollama call.
+
+        W1-03: _embed_ollama now returns (vectors, used_fallback, reason).
+        """
         fake_resp = MagicMock()
         fake_resp.raise_for_status = MagicMock()
         fake_resp.json.return_value = {"embedding": [0.7, 0.8, 0.9]}
@@ -247,20 +271,27 @@ class TestEmbedOllama:
             inst.post = AsyncMock(return_value=fake_resp)
             MockClient.return_value.__aenter__ = AsyncMock(return_value=inst)
             MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-            result = await _embed_ollama(["test text"], "nomic-embed-text")
-        assert result == [[0.7, 0.8, 0.9]]
+            vectors, used_fallback, reason = await _embed_ollama(["test text"], "nomic-embed-text")
+        assert vectors == [[0.7, 0.8, 0.9]]
+        assert used_fallback is False
+        assert reason is None
 
     @pytest.mark.asyncio
     async def test_falls_back_on_error(self):
-        """Lines 494-500: exception path."""
+        """Lines 494-500: exception path.
+
+        W1-03: _embed_ollama now returns (vectors, used_fallback, reason).
+        """
         with patch("api.services.rag_service.httpx.AsyncClient") as MockClient:
             inst = AsyncMock()
             inst.post = AsyncMock(side_effect=Exception("ollama down"))
             MockClient.return_value.__aenter__ = AsyncMock(return_value=inst)
             MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-            result = await _embed_ollama(["text"], "nomic-embed-text")
-        assert len(result) == 1
-        assert len(result[0]) == 768
+            vectors, used_fallback, reason = await _embed_ollama(["text"], "nomic-embed-text")
+        assert len(vectors) == 1
+        assert len(vectors[0]) == 768
+        assert used_fallback is True
+        assert reason == "ollama-unreachable"
 
 
 class TestRAGStoreDelete:

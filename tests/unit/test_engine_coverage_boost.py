@@ -2481,8 +2481,10 @@ class TestRAGStoreSearch:
 
     @pytest.mark.asyncio
     async def test_search_returns_hits(self) -> None:
+        # W1-03: embed_texts now returns EmbeddingResult — mock accordingly.
         from api.services.rag_service import (
             DocumentChunk,
+            EmbeddingResult,
             RAGStore,
             _pseudo_embedding,
         )
@@ -2507,7 +2509,11 @@ class TestRAGStoreSearch:
         with patch(
             "api.services.rag_service.embed_texts",
             new_callable=AsyncMock,
-            return_value=[_pseudo_embedding("query", 768)],
+            return_value=EmbeddingResult(
+                vectors=[_pseudo_embedding("query", 768)],
+                used_fallback=False,
+                fallback_reason=None,
+            ),
         ):
             results = await store.search(idx.id, "topic 1", top_k=2)
 
@@ -2552,7 +2558,9 @@ class TestRAGStoreIngestFiles:
 
     @pytest.mark.asyncio
     async def test_ingest_files_success(self) -> None:
+        # W1-03: embed_texts now returns EmbeddingResult — mock accordingly.
         from api.services.rag_service import (
+            EmbeddingResult,
             IngestJobStatus,
             RAGStore,
             _pseudo_embedding,
@@ -2568,8 +2576,12 @@ class TestRAGStoreIngestFiles:
         # Content large enough to produce chunks
         content = b"A" * 600
 
-        async def mock_embed(texts: list[str], **kw: Any) -> list[list[float]]:
-            return [_pseudo_embedding(t, 768) for t in texts]
+        async def mock_embed(texts: list[str], **kw: Any) -> EmbeddingResult:
+            return EmbeddingResult(
+                vectors=[_pseudo_embedding(t, 768) for t in texts],
+                used_fallback=False,
+                fallback_reason=None,
+            )
 
         with patch(
             "api.services.rag_service.embed_texts",
@@ -2617,18 +2629,26 @@ class TestRAGEmbedTexts:
 
     @pytest.mark.asyncio
     async def test_embed_empty_list(self) -> None:
+        # W1-03: embed_texts now returns EmbeddingResult.
         from api.services.rag_service import embed_texts
 
         result = await embed_texts([])
-        assert result == []
+        assert result.vectors == []
+        assert result.used_fallback is False
+        assert result.fallback_reason is None
 
     @pytest.mark.asyncio
     async def test_embed_unknown_model_fallback(self) -> None:
+        # W1-03: embed_texts now returns EmbeddingResult.
+        # Unknown model prefix should flag the fallback explicitly rather than
+        # silently returning pseudo embeddings.
         from api.services.rag_service import embed_texts
 
         result = await embed_texts(["test"], model="unknown/model")
-        assert len(result) == 1
-        assert len(result[0]) == 768  # default dims
+        assert len(result.vectors) == 1
+        assert len(result.vectors[0]) == 768  # default dims
+        assert result.used_fallback is True
+        assert result.fallback_reason == "unknown-model-prefix"
 
 
 class TestRAGExtractText:
