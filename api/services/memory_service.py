@@ -133,6 +133,9 @@ class MemoryConfig(BaseModel):
     scope: str = "agent"
     linked_agents: list[str] = Field(default_factory=list)
     description: str = ""
+    # MM8: Optional TTL in seconds. None = no expiration. Messages older than
+    # this many seconds are eligible for deletion via cleanup_expired_messages().
+    ttl_seconds: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -187,6 +190,7 @@ def _config_from_orm(row: MemoryConfigORM) -> MemoryConfig:
         scope=row.scope,
         linked_agents=cfg.get("linked_agents", []),
         description=cfg.get("description", ""),
+        ttl_seconds=cfg.get("ttl_seconds"),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -262,6 +266,7 @@ class MemoryService:
         team: str = "default",
         owner: str = "",
         tags: list[str] | None = None,
+        ttl_seconds: int | None = None,
     ) -> MemoryConfig:
         if scope in _PHASE2_SCOPES:
             raise HTTPException(
@@ -283,6 +288,7 @@ class MemoryService:
                 "namespace_pattern": namespace_pattern,
                 "linked_agents": linked_agents or [],
                 "description": description,
+                "ttl_seconds": ttl_seconds,
             },
         )
         async with async_session() as session:
@@ -493,6 +499,18 @@ class MemoryService:
 
             await db.commit()
             await db.refresh(msg)
+
+            # MM10: observability — emit a structured log per stored message.
+            logger.info(
+                "memory.store_message",
+                extra={
+                    "config_id": config_id,
+                    "session_id": session_id,
+                    "role": role,
+                    "size_bytes": len(content.encode("utf-8")),
+                    "memory_type": memory_type,
+                },
+            )
             return _message_from_orm(msg)
 
     # -- Conversations ------------------------------------------------------
@@ -762,6 +780,8 @@ class MemoryService:
         query: str,
         limit: int = 50,
     ) -> list[MemorySearchResult]:
+        # MM10: observability — measure search latency + result count.
+        start_time = time.monotonic()
         async with async_session() as db:
             # Escape LIKE wildcards in the user-supplied query so callers can't
             # use ``%``/``_`` to match unrelated rows or trigger expensive scans.
@@ -794,4 +814,107 @@ class MemoryService:
                 results.append(
                     MemorySearchResult(message=_message_from_orm(row), highlight=highlight)
                 )
+
+            duration_ms = (time.monotonic() - start_time) * 1000.0
+            logger.info(
+                "memory.search",
+                extra={
+                    "config_id": config_id,
+                    "query_len": len(query),
+                    "result_count": len(results),
+                    "duration_ms": round(duration_ms, 2),
+                    "limit": limit,
+                },
+            )
             return results
+
+    # -- MM8: TTL cleanup ----------------------------------------------------
+
+    @classmethod
+    async def cleanup_expired_messages(cls, config_id: str | None = None) -> int:
+        """Delete messages older than the per-config TTL.
+
+        If ``config_id`` is supplied, only that config is cleaned up.  Otherwise,
+        every config with a non-null ``ttl_seconds`` is processed.
+
+        This method is intentionally NOT wired into a scheduler — deployers
+        decide whether to call it from a cron job, a Celery beat schedule,
+        or a one-shot ``agentbreeder memory cleanup`` invocation.
+
+        Returns the total number of messages deleted across all processed
+        configs.
+        """
+        from datetime import timedelta
+
+        total_deleted = 0
+        async with async_session() as db:
+            if config_id is not None:
+                row = await db.get(MemoryConfigORM, uuid.UUID(config_id))
+                rows: list[MemoryConfigORM] = [row] if row is not None else []
+            else:
+                result = await db.execute(select(MemoryConfigORM))
+                rows = list(result.scalars().all())
+
+            for row in rows:
+                cfg = row.config or {}
+                ttl = cfg.get("ttl_seconds")
+                if ttl is None or not isinstance(ttl, int) or ttl <= 0:
+                    continue
+                cutoff = datetime.utcnow() - timedelta(seconds=ttl)
+                result = await db.execute(
+                    delete(MemoryMessageORM).where(
+                        MemoryMessageORM.config_id == row.id,
+                        MemoryMessageORM.created_at < cutoff,
+                    )
+                )
+                deleted = result.rowcount or 0
+                total_deleted += deleted
+                if deleted:
+                    logger.info(
+                        "memory.cleanup_expired",
+                        extra={
+                            "config_id": str(row.id),
+                            "ttl_seconds": ttl,
+                            "deleted_count": deleted,
+                        },
+                    )
+            await db.commit()
+        return total_deleted
+
+    # -- MM9: GDPR delete-by-user --------------------------------------------
+
+    @classmethod
+    async def delete_messages_by_user_id(cls, user_id: str) -> int:
+        """Cascade-delete every message whose ``metadata.user_id == user_id``.
+
+        Implements the GDPR / CCPA "right to be forgotten" — a single call
+        wipes a user's conversation history across every memory config.
+
+        ``MemoryMessage.metadata`` is a JSON column. Callers are expected to
+        write ``{"user_id": "<id>", ...}`` when storing messages that should
+        be subject to user-level deletion. Messages without a ``user_id`` key
+        are left untouched.
+
+        Returns the number of messages deleted.
+        """
+        if not user_id:
+            return 0
+
+        async with async_session() as db:
+            # Use a JSON ``->>`` extraction so we match the string value of
+            # ``metadata.user_id``. The ORM column is named ``metadata_`` but
+            # the underlying database column is ``metadata``.
+            from sqlalchemy import text
+
+            result = await db.execute(
+                text("DELETE FROM memory_messages WHERE metadata->>'user_id' = :uid").bindparams(
+                    uid=user_id
+                )
+            )
+            deleted = result.rowcount or 0
+            await db.commit()
+            logger.info(
+                "memory.delete_by_user_id",
+                extra={"user_id": user_id, "deleted_count": deleted},
+            )
+            return deleted

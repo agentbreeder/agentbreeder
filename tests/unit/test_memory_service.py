@@ -419,3 +419,216 @@ class TestStats:
         assert stats is not None
         assert stats.config_id == config.id
         assert stats.backend_type == config.backend_type
+
+
+# ---------------------------------------------------------------------------
+# MM7: Team-isolation documentation tests
+#
+# The service layer already gates ``store_message`` and ``get_conversation``
+# on ``requesting_team`` — but the HTTP route layer DOES NOT yet pass the
+# caller's team in. These xfail tests document the gap; HR-1 (the real fix)
+# will pass the team through and flip these to passing.
+# ---------------------------------------------------------------------------
+
+
+class TestTeamIsolationCurrentBehavior:
+    """Document current memory team-isolation behavior (HR-1 follow-up).
+
+    Service-layer enforcement exists and works (the ``requesting_team``
+    kwarg is honoured), but routes do not pass the caller's team into the
+    service. These tests are marked xfail so they're tracked in CI without
+    blocking; when HR-1 wires the team through, they become real assertions.
+    """
+
+    @pytest.mark.asyncio
+    async def test_service_layer_blocks_cross_team_store(self) -> None:
+        """Service-level enforcement IS implemented — this should pass today."""
+        config = await MemoryService.create_config(name="team-a-mem", scope="team", team="team-a")
+        # Wrong team trying to write — should raise.
+        with pytest.raises(PermissionError):
+            await MemoryService.store_message(
+                config.id,
+                session_id="s1",
+                role="user",
+                content="leak",
+                requesting_team="team-b",
+            )
+
+    @pytest.mark.asyncio
+    async def test_service_layer_blocks_cross_team_read(self) -> None:
+        """Service-level read enforcement IS implemented — this should pass today."""
+        config = await MemoryService.create_config(name="team-a-read", scope="team", team="team-a")
+        with pytest.raises(PermissionError):
+            await MemoryService.get_conversation(
+                config.id,
+                "s1",
+                requesting_team="team-b",
+            )
+
+    @pytest.mark.asyncio
+    async def test_service_layer_allows_matching_team_store(self) -> None:
+        """Same-team writes work — sanity check."""
+        config = await MemoryService.create_config(name="team-a-ok", scope="team", team="team-a")
+        msg = await MemoryService.store_message(
+            config.id,
+            session_id="s1",
+            role="user",
+            content="hello",
+            requesting_team="team-a",
+        )
+        assert msg is not None
+
+    @pytest.mark.asyncio
+    @pytest.mark.xfail(reason="HR-1: team-scope not yet enforced at runtime")
+    async def test_route_layer_passes_caller_team_on_store(self) -> None:
+        """Routes SHOULD pass ``requesting_team`` to ``store_message``.
+
+        Today the ``store_message`` route does not forward the caller's team,
+        so a cross-team write that should be rejected silently succeeds at
+        the HTTP layer. HR-1 will wire the team through; this test flips to
+        passing then.
+        """
+        import inspect
+
+        from api.routes import memory as memory_routes
+
+        source = inspect.getsource(memory_routes.store_message)
+        assert "requesting_team" in source, (
+            "store_message route does not forward the caller's team — HR-1 needed"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.xfail(reason="HR-1: team-scope not yet enforced at runtime")
+    async def test_route_layer_passes_caller_team_on_read(self) -> None:
+        """Routes SHOULD pass ``requesting_team`` to ``get_conversation``.
+
+        Same gap as the write path — HR-1 will close it.
+        """
+        import inspect
+
+        from api.routes import memory as memory_routes
+
+        source = inspect.getsource(memory_routes.get_conversation)
+        assert "requesting_team" in source, (
+            "get_conversation route does not forward the caller's team — HR-1 needed"
+        )
+
+
+# ---------------------------------------------------------------------------
+# MM8: TTL field + cleanup_expired_messages
+# ---------------------------------------------------------------------------
+
+
+class TestTtlField:
+    @pytest.mark.asyncio
+    async def test_create_config_default_ttl_is_none(self) -> None:
+        config = await MemoryService.create_config(name="no-ttl")
+        assert config.ttl_seconds is None
+
+    @pytest.mark.asyncio
+    async def test_create_config_accepts_ttl_seconds(self) -> None:
+        config = await MemoryService.create_config(name="with-ttl", ttl_seconds=3600)
+        assert config.ttl_seconds == 3600
+
+    @pytest.mark.asyncio
+    async def test_get_config_round_trips_ttl(self) -> None:
+        config = await MemoryService.create_config(name="rt-ttl", ttl_seconds=86400)
+        fetched = await MemoryService.get_config(config.id)
+        assert fetched is not None
+        assert fetched.ttl_seconds == 86400
+
+    @pytest.mark.asyncio
+    async def test_cleanup_expired_messages_no_ttl_is_noop(self) -> None:
+        """Configs without ttl_seconds are skipped — nothing deleted."""
+        config = await MemoryService.create_config(name="no-ttl-cleanup")
+        await MemoryService.store_message(
+            config.id, session_id="s1", role="user", content="keep-me"
+        )
+        deleted = await MemoryService.cleanup_expired_messages(config_id=config.id)
+        assert deleted == 0
+
+    @pytest.mark.asyncio
+    async def test_cleanup_expired_messages_returns_int(self) -> None:
+        """Method exists and returns an int — global sweep is a no-op here."""
+        result = await MemoryService.cleanup_expired_messages()
+        assert isinstance(result, int)
+
+
+# ---------------------------------------------------------------------------
+# MM9: GDPR delete-by-user
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteByUserId:
+    @pytest.mark.asyncio
+    async def test_delete_messages_by_empty_user_id_is_noop(self) -> None:
+        """Empty user_id returns 0 immediately without touching the DB."""
+        deleted = await MemoryService.delete_messages_by_user_id("")
+        assert deleted == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_messages_by_user_id_returns_int(self) -> None:
+        """The method signature returns an int — exercised against a fake DB."""
+        # Patch the DB call to a no-op so we don't try to execute raw SQL on
+        # the FakeSession.
+        from contextlib import asynccontextmanager
+        from unittest.mock import patch as _patch
+
+        class _Result:
+            rowcount = 0
+
+        class _DB:
+            async def execute(self, *_a: Any, **_kw: Any) -> _Result:
+                return _Result()
+
+            async def commit(self) -> None:
+                pass
+
+        @asynccontextmanager
+        async def _ctx() -> Any:
+            yield _DB()
+
+        with _patch("api.services.memory_service.async_session", _ctx):
+            deleted = await MemoryService.delete_messages_by_user_id("alice@example.com")
+        assert deleted == 0
+
+
+# ---------------------------------------------------------------------------
+# MM10: Observability log emission
+# ---------------------------------------------------------------------------
+
+
+class TestObservabilityLogs:
+    @pytest.mark.asyncio
+    async def test_store_message_emits_structured_log(self, caplog) -> None:
+        import logging
+
+        config = await MemoryService.create_config(name="obs-store")
+        with caplog.at_level(logging.INFO, logger="api.services.memory_service"):
+            await MemoryService.store_message(
+                config.id, session_id="s1", role="user", content="hello world"
+            )
+
+        # Find the store_message log entry
+        store_records = [r for r in caplog.records if r.message == "memory.store_message"]
+        assert store_records, f"no memory.store_message log emitted: {caplog.records}"
+        rec = store_records[-1]
+        # Verify the structured "extra" fields are attached.
+        assert getattr(rec, "config_id", None) == config.id
+        assert getattr(rec, "size_bytes", None) == len(b"hello world")
+
+    @pytest.mark.asyncio
+    async def test_search_messages_emits_structured_log(self, caplog) -> None:
+        import logging
+
+        config = await MemoryService.create_config(name="obs-search")
+        with caplog.at_level(logging.INFO, logger="api.services.memory_service"):
+            await MemoryService.search_messages(config.id, query="needle", limit=10)
+
+        search_records = [r for r in caplog.records if r.message == "memory.search"]
+        assert search_records, f"no memory.search log emitted: {caplog.records}"
+        rec = search_records[-1]
+        assert getattr(rec, "config_id", None) == config.id
+        assert getattr(rec, "query_len", None) == len("needle")
+        assert hasattr(rec, "duration_ms")
+        assert hasattr(rec, "result_count")

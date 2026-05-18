@@ -305,3 +305,129 @@ class TestSearchQueryValidation:
     def test_search_rejects_empty_q(self) -> None:
         resp = client.get("/api/v1/memory/configs/cfg1/search", params={"q": ""})
         assert resp.status_code == 422
+
+
+# ===================================================================
+# MM8: ttl_seconds field on CreateMemoryConfigRequest
+# ===================================================================
+
+
+class TestTtlField:
+    def test_ttl_seconds_must_be_positive(self) -> None:
+        """Pydantic should reject zero/negative ttl_seconds (ge=1)."""
+        resp = client.post(
+            "/api/v1/memory/configs",
+            json={"name": "bad-ttl", "ttl_seconds": 0},
+        )
+        assert resp.status_code == 422, resp.text
+
+    def test_ttl_seconds_rejects_negative(self) -> None:
+        resp = client.post(
+            "/api/v1/memory/configs",
+            json={"name": "neg-ttl", "ttl_seconds": -1},
+        )
+        assert resp.status_code == 422, resp.text
+
+    @patch("api.routes.memory.MemoryService.create_config", new_callable=AsyncMock)
+    def test_create_config_passes_ttl_to_service(self, mock_cc: AsyncMock) -> None:
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC)
+        cfg = MagicMock()
+        cfg.model_dump.return_value = {
+            "id": "33333333-3333-3333-3333-333333333333",
+            "name": "ttl-ok",
+            "backend_type": "postgresql",
+            "memory_type": "buffer_window",
+            "max_messages": 100,
+            "namespace_pattern": "{agent_id}:{session_id}",
+            "scope": "agent",
+            "linked_agents": [],
+            "description": "",
+            "ttl_seconds": 7200,
+            "created_at": now,
+            "updated_at": now,
+        }
+        mock_cc.return_value = cfg
+        resp = client.post(
+            "/api/v1/memory/configs",
+            json={"name": "ttl-ok", "ttl_seconds": 7200},
+        )
+        assert resp.status_code == 201, resp.text
+        # The service must have been called with the ttl_seconds kwarg.
+        _, kwargs = mock_cc.call_args
+        assert kwargs.get("ttl_seconds") == 7200
+
+
+# ===================================================================
+# MM9: GDPR delete-by-user route
+# ===================================================================
+
+
+class TestGdprDeleteRoute:
+    def test_delete_user_rejects_blank_user_id(self) -> None:
+        """A whitespace-only user_id is rejected at the route layer."""
+        # URL-encoded space — FastAPI will route, route handler validates.
+        resp = client.delete("/api/v1/memory/user/%20")
+        # Either 400 (blank rejected) or 404/422 if the path matcher rejects
+        # the encoded space — both indicate the request was not silently
+        # treated as a valid deletion.
+        assert resp.status_code in {400, 404, 422}, resp.text
+
+    @patch(
+        "api.routes.memory.MemoryService.delete_messages_by_user_id",
+        new_callable=AsyncMock,
+    )
+    def test_delete_user_calls_service_with_user_id(self, mock_del: AsyncMock) -> None:
+        mock_del.return_value = 7
+        resp = client.delete("/api/v1/memory/user/alice@example.com")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["data"]["deleted_count"] == 7
+        assert body["data"]["user_id"] == "alice@example.com"
+        mock_del.assert_awaited_once_with("alice@example.com")
+
+
+# ===================================================================
+# MM8: TTL cleanup route
+# ===================================================================
+
+
+class TestTtlCleanupRoute:
+    @patch("api.routes.memory.MemoryService.cleanup_expired_messages", new_callable=AsyncMock)
+    @patch("api.routes.memory.MemoryService.get_config", new_callable=AsyncMock)
+    def test_cleanup_returns_deleted_count(
+        self, mock_get: AsyncMock, mock_cleanup: AsyncMock
+    ) -> None:
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC)
+        cfg = MagicMock()
+        cfg.id = "44444444-4444-4444-4444-444444444444"
+        cfg.name = "ttl-cfg"
+        cfg.backend_type = "postgresql"
+        cfg.memory_type = "buffer_window"
+        cfg.max_messages = 100
+        cfg.namespace_pattern = "{agent_id}:{session_id}"
+        cfg.scope = "agent"
+        cfg.linked_agents = []
+        cfg.description = ""
+        cfg.ttl_seconds = 60
+        cfg.created_at = now
+        cfg.updated_at = now
+        mock_get.return_value = cfg
+        mock_cleanup.return_value = 3
+
+        resp = client.post(
+            f"/api/v1/memory/configs/{cfg.id}/cleanup",
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["data"]["deleted_count"] == 3
+        mock_cleanup.assert_awaited_once()
+
+    @patch("api.routes.memory.MemoryService.get_config", new_callable=AsyncMock)
+    def test_cleanup_returns_404_when_config_missing(self, mock_get: AsyncMock) -> None:
+        mock_get.return_value = None
+        resp = client.post("/api/v1/memory/configs/nonexistent/cleanup")
+        assert resp.status_code == 404, resp.text
