@@ -60,6 +60,10 @@ def _extract_app_runner_config(config: AgentConfig) -> AWSAppRunnerConfig:
     """
     env = config.deploy.env_vars
 
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "AWS_ACCOUNT_ID", "sources": ["deploy.env_vars"]},
+    )
     account_id = env.get("AWS_ACCOUNT_ID", "")
     if not account_id:
         msg = (
@@ -67,8 +71,22 @@ def _extract_app_runner_config(config: AgentConfig) -> AWSAppRunnerConfig:
             "Set AWS_ACCOUNT_ID in deploy.env_vars."
         )
         raise ValueError(msg)
+    logger.info(
+        "credential_resolved", extra={"key": "AWS_ACCOUNT_ID", "source": "deploy.env_vars"}
+    )
 
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "AWS_REGION", "sources": ["deploy.env_vars", "deploy.region", "default"]},
+    )
     region = env.get("AWS_REGION") or config.deploy.region or DEFAULT_REGION
+    region_source = (
+        "deploy.env_vars"
+        if env.get("AWS_REGION")
+        else ("deploy.region" if config.deploy.region else "default")
+    )
+    logger.info("credential_resolved", extra={"key": "AWS_REGION", "source": region_source})
+
     ecr_repo = env.get("AWS_ECR_REPO") or config.name
 
     return AWSAppRunnerConfig(

@@ -63,6 +63,10 @@ def _extract_azure_config(config: AgentConfig) -> AzureConfig:
     """
     env = config.deploy.env_vars
 
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "AZURE_SUBSCRIPTION_ID", "sources": ["deploy.env_vars"]},
+    )
     subscription_id = env.get("AZURE_SUBSCRIPTION_ID", "")
     if not subscription_id:
         msg = (
@@ -70,7 +74,15 @@ def _extract_azure_config(config: AgentConfig) -> AzureConfig:
             "Set AZURE_SUBSCRIPTION_ID in deploy.env_vars."
         )
         raise ValueError(msg)
+    logger.info(
+        "credential_resolved",
+        extra={"key": "AZURE_SUBSCRIPTION_ID", "source": "deploy.env_vars"},
+    )
 
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "AZURE_RESOURCE_GROUP", "sources": ["deploy.env_vars"]},
+    )
     resource_group = env.get("AZURE_RESOURCE_GROUP", "")
     if not resource_group:
         msg = (
@@ -95,6 +107,11 @@ def _extract_azure_config(config: AgentConfig) -> AzureConfig:
             "(e.g., myregistry.azurecr.io)."
         )
         raise ValueError(msg)
+
+    logger.info(
+        "credential_resolved",
+        extra={"key": "AZURE_RESOURCE_GROUP", "source": "deploy.env_vars"},
+    )
 
     return AzureConfig(
         subscription_id=subscription_id,

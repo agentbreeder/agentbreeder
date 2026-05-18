@@ -62,9 +62,25 @@ def _extract_k8s_config(config: AgentConfig) -> K8sConfig:
     infrastructure settings and are NOT forwarded to the container.
     """
     env = config.deploy.env_vars
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "K8S_NAMESPACE", "sources": ["deploy.env_vars", "default"]},
+    )
+    namespace = env.get("K8S_NAMESPACE", DEFAULT_NAMESPACE)
+    namespace_source = "deploy.env_vars" if env.get("K8S_NAMESPACE") else "default"
+    logger.info("credential_resolved", extra={"key": "K8S_NAMESPACE", "source": namespace_source})
+
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "K8S_CONTEXT", "sources": ["deploy.env_vars", "kubeconfig_default"]},
+    )
+    context = env.get("K8S_CONTEXT") or None
+    context_source = "deploy.env_vars" if context else "kubeconfig_default"
+    logger.info("credential_resolved", extra={"key": "K8S_CONTEXT", "source": context_source})
+
     return K8sConfig(
-        namespace=env.get("K8S_NAMESPACE", DEFAULT_NAMESPACE),
-        context=env.get("K8S_CONTEXT") or None,
+        namespace=namespace,
+        context=context,
         image_pull_secret=env.get("K8S_IMAGE_PULL_SECRET") or None,
         image=env.get("K8S_IMAGE") or None,
     )

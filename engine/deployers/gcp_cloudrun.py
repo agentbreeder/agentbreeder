@@ -74,6 +74,16 @@ def _extract_cloudrun_config(config: AgentConfig) -> CloudRunConfig:
     """
     env = config.deploy.env_vars
 
+    logger.debug(
+        "resolving_credential",
+        extra={
+            "key": "GCP_PROJECT_ID",
+            "sources": [
+                "deploy.env_vars[GCP_PROJECT_ID]",
+                "deploy.env_vars[GOOGLE_CLOUD_PROJECT]",
+            ],
+        },
+    )
     project_id = env.get("GCP_PROJECT_ID", env.get("GOOGLE_CLOUD_PROJECT", ""))
     if not project_id:
         msg = (
@@ -81,10 +91,20 @@ def _extract_cloudrun_config(config: AgentConfig) -> CloudRunConfig:
             "Set GCP_PROJECT_ID or GOOGLE_CLOUD_PROJECT in deploy.env_vars."
         )
         raise ValueError(msg)
+    project_source = "GCP_PROJECT_ID" if env.get("GCP_PROJECT_ID") else "GOOGLE_CLOUD_PROJECT"
+    logger.info("credential_resolved", extra={"key": "GCP_PROJECT_ID", "source": project_source})
+
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "GCP_REGION", "sources": ["deploy.region", "default"]},
+    )
+    region = config.deploy.region or DEFAULT_REGION
+    region_source = "deploy.region" if config.deploy.region else "default"
+    logger.info("credential_resolved", extra={"key": "GCP_REGION", "source": region_source})
 
     return CloudRunConfig(
         project_id=project_id,
-        region=config.deploy.region or DEFAULT_REGION,
+        region=region,
         service_account=env.get("GCP_SERVICE_ACCOUNT"),
         artifact_registry_repo=env.get("GCP_ARTIFACT_REGISTRY_REPO"),
         vpc_connector=env.get("GCP_VPC_CONNECTOR"),
