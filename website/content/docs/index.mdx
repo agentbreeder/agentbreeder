@@ -10,13 +10,20 @@ import { Callout } from 'fumadocs-ui/components/callout';
 **Define Once. Deploy Anywhere. Govern Automatically.**
 
 AgentBreeder is an open-source platform for building, deploying, and governing enterprise AI agents.
-Write one `agent.yaml`, run `agentbreeder deploy`, and your agent is live on AWS, GCP, Azure,
-Kubernetes, or Claude-managed — with RBAC, cost tracking, audit trail, and org-wide discoverability
-automatic.
+Write one `agent.yaml`, run `agentbreeder deploy`, and your agent runs locally or on your cloud —
+with RBAC, cost tracking, audit trail, and org-wide discoverability automatic.
 
 <Callout title="Core promise">
   Governance is a **side effect** of deploying, not extra configuration. Every `agentbreeder deploy`
   validates RBAC, registers the agent, attributes costs, and writes an audit log — automatically.
+</Callout>
+
+<Callout type="warn" title="Deploy-target status (as of 2026-05-18)">
+  Today, only **Local (Docker Compose)** and **GCP Cloud Run (greenfield)** are end-to-end shipped
+  and supported. AWS, Azure, Kubernetes, and Claude-managed targets are in flight — most need
+  pre-existing infrastructure or are partially implemented. See the
+  [deploy-target status table](cli-reference#agentbreeder-deploy) and
+  [per-target prerequisites](deployment#prerequisites-per-target-as-of-2026-05-18) before you pick a target.
 </Callout>
 
 ## Three Builder Tiers
@@ -45,7 +52,13 @@ eject to YAML, eject to Full Code at any time.
 
 ## Deploy Targets
 
-Local (Docker Compose) · AWS ECS Fargate · AWS App Runner · GCP Cloud Run · Azure Container Apps · Kubernetes · Claude-managed
+Local (Docker Compose) · AWS ECS Fargate · AWS App Runner · GCP Cloud Run · Azure Container Apps · Kubernetes · Claude-managed\*
+
+\*Shipped status varies by target — see the
+[deploy-target status table](cli-reference#agentbreeder-deploy) and
+[per-target prerequisites](deployment#prerequisites-per-target-as-of-2026-05-18).
+Today, Local and GCP Cloud Run (greenfield) are the smoothest paths; others require pre-existing
+infrastructure or are partial.
 
 ## Quick Navigation
 
