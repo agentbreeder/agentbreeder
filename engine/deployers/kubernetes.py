@@ -11,7 +11,6 @@ Cloud-specific logic stays in this module — never leak Kubernetes details else
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 from typing import Any
@@ -20,6 +19,7 @@ import httpx
 from pydantic import BaseModel
 
 from engine.config_parser import AgentConfig
+from engine.deployers._health import HealthCheckTimeout, poll_until_ready
 from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
 from engine.runtimes.base import ContainerImage
 
@@ -415,40 +415,37 @@ class KubernetesDeployer(BaseDeployer):
         """
         url = f"{deploy_result.endpoint_url}/health"
         checks: dict[str, bool] = {"reachable": False, "healthy": False}
-        max_attempts = timeout // interval
 
-        for attempt in range(max_attempts):
+        async def _check() -> bool:
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     response = await client.get(url)
                     checks["reachable"] = True
                     if response.status_code == 200:
                         checks["healthy"] = True
-                        logger.info(
-                            "Health check passed (attempt %d/%d)", attempt + 1, max_attempts
-                        )
-                        return HealthStatus(healthy=True, checks=checks)
-                    logger.debug(
-                        "Health check returned %d (attempt %d/%d)",
-                        response.status_code,
-                        attempt + 1,
-                        max_attempts,
-                    )
+                        return True
+                    logger.debug("Health check returned %d", response.status_code)
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
                 pass
+            return False
 
-            logger.debug(
-                "Health check attempt %d/%d — waiting %ds...",
-                attempt + 1,
-                max_attempts,
-                interval,
+        try:
+            await poll_until_ready(
+                _check,
+                timeout=float(timeout),
+                initial_interval=float(interval),
+                max_interval=max(float(interval) * 4, 30.0),
+                backoff_factor=1.0,
             )
-            await asyncio.sleep(interval)
-
-        logger.warning(
-            "Health check failed after %d seconds for '%s'", timeout, deploy_result.agent_name
-        )
-        return HealthStatus(healthy=False, checks=checks)
+            logger.info("Health check passed")
+            return HealthStatus(healthy=True, checks=checks)
+        except HealthCheckTimeout:
+            logger.warning(
+                "Health check failed after %d seconds for '%s'",
+                timeout,
+                deploy_result.agent_name,
+            )
+            return HealthStatus(healthy=False, checks=checks)
 
     async def teardown(self, agent_name: str) -> None:
         """Delete the Deployment, Service, HPA, and any ConfigMap for the agent.
@@ -678,24 +675,27 @@ class KubernetesDeployer(BaseDeployer):
         poll_interval: int = ROLLOUT_POLL_INTERVAL,
     ) -> None:
         """Wait until the Deployment has at least one available replica."""
-        elapsed = 0
-        while elapsed < max_wait:
+
+        async def _check() -> bool:
             deployment = apps_v1.read_namespaced_deployment(name=name, namespace=namespace)
             available = deployment.status.available_replicas or 0
             if available >= 1:
                 logger.info("Rollout complete — %d replica(s) available", available)
-                return
-            logger.debug(
-                "Waiting for rollout of '%s' (%d/%ds elapsed)…",
+                return True
+            logger.debug("Waiting for rollout of '%s'…", name)
+            return False
+
+        try:
+            await poll_until_ready(
+                _check,
+                timeout=float(max_wait),
+                initial_interval=float(poll_interval),
+                max_interval=max(float(poll_interval) * 4, 30.0),
+                backoff_factor=1.0,
+            )
+        except HealthCheckTimeout:
+            logger.warning(
+                "Rollout of '%s' did not complete within %d seconds — continuing anyway",
                 name,
-                elapsed,
                 max_wait,
             )
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
-
-        logger.warning(
-            "Rollout of '%s' did not complete within %d seconds — continuing anyway",
-            name,
-            max_wait,
-        )

@@ -24,6 +24,32 @@ from engine.config_parser import (
 )
 from engine.deployers.base import DeployResult
 
+
+def _fast_health_clock():
+    """Patch asyncio.sleep + engine.deployers._health.time.monotonic so the
+    poll_until_ready loop in deployer health checks completes instantly while
+    still observing the configured timeout deadline.
+
+    Each mocked sleep advances a fake clock by the requested duration, so the
+    helper's deadline-based loop terminates after the same number of iterations
+    as the wall-clock implementation would.
+    """
+    from contextlib import ExitStack
+
+    clock = {"t": 0.0}
+
+    async def _fake_sleep(seconds: float) -> None:
+        clock["t"] += float(seconds)
+
+    def _fake_monotonic() -> float:
+        return clock["t"]
+
+    stack = ExitStack()
+    stack.enter_context(patch("asyncio.sleep", side_effect=_fake_sleep))
+    stack.enter_context(patch("engine.deployers._health.time.monotonic", _fake_monotonic))
+    return stack
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -658,7 +684,7 @@ class TestHealthCheck:
 
         with (
             patch("httpx.AsyncClient") as mock_client_cls,
-            patch("asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
         ):
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -700,7 +726,7 @@ class TestHealthCheck:
 
         with (
             patch("httpx.AsyncClient") as mock_client_cls,
-            patch("asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
         ):
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)

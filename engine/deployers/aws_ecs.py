@@ -11,7 +11,6 @@ Cloud-specific logic stays in this module — never leak AWS details elsewhere.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 from typing import Any
@@ -20,6 +19,7 @@ import httpx
 from pydantic import BaseModel
 
 from engine.config_parser import AgentConfig
+from engine.deployers._health import HealthCheckTimeout, poll_until_ready
 from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
 from engine.runtimes.base import ContainerImage
 from engine.secrets.auto_mirror import (
@@ -582,39 +582,32 @@ class AWSECSDeployer(BaseDeployer):
         url = f"{deploy_result.endpoint_url}/health"
         checks: dict[str, bool] = {"reachable": False, "healthy": False}
 
-        for attempt in range(timeout // interval):
+        async def _check() -> bool:
             try:
                 async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                     response = await client.get(url)
                     checks["reachable"] = True
                     if response.status_code == 200:
                         checks["healthy"] = True
-                        logger.info(
-                            "Health check passed (attempt %d/%d)",
-                            attempt + 1,
-                            timeout // interval,
-                        )
-                        return HealthStatus(healthy=True, checks=checks)
-                    else:
-                        logger.debug(
-                            "Health check returned %d (attempt %d/%d)",
-                            response.status_code,
-                            attempt + 1,
-                            timeout // interval,
-                        )
+                        return True
+                    logger.debug("Health check returned %d", response.status_code)
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
                 pass
+            return False
 
-            logger.debug(
-                "Health check attempt %d/%d — waiting %ds...",
-                attempt + 1,
-                timeout // interval,
-                interval,
+        try:
+            await poll_until_ready(
+                _check,
+                timeout=float(timeout),
+                initial_interval=float(interval),
+                max_interval=max(float(interval) * 4, 30.0),
+                backoff_factor=1.0,
             )
-            await asyncio.sleep(interval)
-
-        logger.warning("Health check failed after %d seconds", timeout)
-        return HealthStatus(healthy=False, checks=checks)
+            logger.info("Health check passed")
+            return HealthStatus(healthy=True, checks=checks)
+        except HealthCheckTimeout:
+            logger.warning("Health check failed after %d seconds", timeout)
+            return HealthStatus(healthy=False, checks=checks)
 
     async def teardown(self, agent_name: str) -> None:
         """Remove the ECS service and clean up task definition revisions.

@@ -11,7 +11,6 @@ Cloud-specific logic stays in this module — never leak AWS details elsewhere.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 from datetime import datetime
@@ -21,6 +20,7 @@ import httpx
 from pydantic import BaseModel
 
 from engine.config_parser import AgentConfig
+from engine.deployers._health import HealthCheckTimeout, poll_until_ready
 from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
 from engine.runtimes.base import ContainerImage
 
@@ -322,29 +322,46 @@ class AWSAppRunnerDeployer(BaseDeployer):
 
     async def _wait_for_service_running(self, ar_client: Any, service_name: str) -> str:
         """Poll until the App Runner service is RUNNING and return its URL."""
-        for attempt in range(WAITER_MAX_ATTEMPTS):
+        # poll_until_ready returns via early-exit (we capture the URL in closure);
+        # invalid statuses raise RuntimeError, which propagates through the helper.
+        service_url: dict[str, str] = {}
+
+        async def _check() -> bool:
             response = ar_client.describe_service(ServiceName=service_name)
             svc = response["Service"]
             status = svc.get("Status", "")
             if status == "RUNNING":
-                return f"https://{svc['ServiceUrl']}"
+                service_url["url"] = f"https://{svc['ServiceUrl']}"
+                return True
             if status in ("CREATE_FAILED", "DELETE_FAILED", "PAUSED"):
                 msg = f"App Runner service '{service_name}' entered unexpected status '{status}'"
                 raise RuntimeError(msg)
             logger.info(
-                "Waiting for App Runner service '%s' (status=%s, attempt %d/%d)",
+                "Waiting for App Runner service '%s' (status=%s)",
                 service_name,
                 status,
-                attempt + 1,
-                WAITER_MAX_ATTEMPTS,
             )
-            await asyncio.sleep(WAITER_DELAY)
+            return False
 
-        msg = (
-            f"Timed out waiting for App Runner service '{service_name}' to reach RUNNING "
-            f"after {WAITER_MAX_ATTEMPTS * WAITER_DELAY}s."
-        )
-        raise TimeoutError(msg)
+        try:
+            # Effective timeout matches original semantics: N checks, then raise.
+            # poll_until_ready always checks once before evaluating the deadline,
+            # so we shave one interval to keep the same total call count.
+            await poll_until_ready(
+                _check,
+                timeout=float((WAITER_MAX_ATTEMPTS - 1) * WAITER_DELAY),
+                initial_interval=float(WAITER_DELAY),
+                max_interval=float(WAITER_DELAY),
+                backoff_factor=1.0,
+            )
+        except HealthCheckTimeout as e:
+            msg = (
+                f"Timed out waiting for App Runner service '{service_name}' to reach RUNNING "
+                f"after {WAITER_MAX_ATTEMPTS * WAITER_DELAY}s."
+            )
+            raise TimeoutError(msg) from e
+
+        return service_url["url"]
 
     async def health_check(
         self,
@@ -354,21 +371,29 @@ class AWSAppRunnerDeployer(BaseDeployer):
     ) -> HealthStatus:
         """HTTP health check against the App Runner service /health endpoint."""
         url = f"{deploy_result.endpoint_url}/health"
-        deadline = asyncio.get_event_loop().time() + timeout
+
         async with httpx.AsyncClient(timeout=10.0) as client:
-            while asyncio.get_event_loop().time() < deadline:
+
+            async def _check() -> bool:
                 try:
                     response = await client.get(url)
                     if response.status_code < 500:
-                        return HealthStatus(
-                            healthy=True,
-                            checks={"http_health": True},
-                        )
+                        return True
                 except (httpx.ConnectError, httpx.TimeoutException):
                     pass
-                await asyncio.sleep(interval)
+                return False
 
-        return HealthStatus(healthy=False, checks={"http_health": False})
+            try:
+                await poll_until_ready(
+                    _check,
+                    timeout=float(timeout),
+                    initial_interval=float(interval),
+                    max_interval=max(float(interval) * 4, 30.0),
+                    backoff_factor=1.0,
+                )
+                return HealthStatus(healthy=True, checks={"http_health": True})
+            except HealthCheckTimeout:
+                return HealthStatus(healthy=False, checks={"http_health": False})
 
     async def teardown(self, agent_name: str) -> None:
         """Delete the App Runner service."""

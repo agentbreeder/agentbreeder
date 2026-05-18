@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from engine.config_parser import AgentConfig
+from engine.deployers._health import HealthCheckTimeout, poll_until_ready
 from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
 from engine.runtimes.base import ContainerImage
 from engine.sidecar import SidecarConfig, should_inject
@@ -319,29 +320,31 @@ class DockerComposeDeployer(BaseDeployer):
         url = f"{deploy_result.endpoint_url}/health"
         checks: dict[str, bool] = {"reachable": False, "healthy": False}
 
-        for attempt in range(timeout // interval):
+        async def _check() -> bool:
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.get(url, timeout=5.0)
                     checks["reachable"] = True
                     if response.status_code == 200:
                         checks["healthy"] = True
-                        logger.info(
-                            "Health check passed (attempt %d/%d)",
-                            attempt + 1,
-                            timeout // interval,
-                        )
-                        return HealthStatus(healthy=True, checks=checks)
+                        return True
             except (httpx.ConnectError, httpx.ReadTimeout, OSError, ExceptionGroup):
                 pass
+            return False
 
-            logger.debug(
-                "Health check attempt %d/%d — waiting...", attempt + 1, timeout // interval
+        try:
+            await poll_until_ready(
+                _check,
+                timeout=float(timeout),
+                initial_interval=float(interval),
+                max_interval=max(float(interval) * 4, 30.0),
+                backoff_factor=1.0,
             )
-            await asyncio.sleep(interval)
-
-        logger.warning("Health check failed after %d seconds", timeout)
-        return HealthStatus(healthy=False, checks=checks)
+            logger.info("Health check passed")
+            return HealthStatus(healthy=True, checks=checks)
+        except HealthCheckTimeout:
+            logger.warning("Health check failed after %d seconds", timeout)
+            return HealthStatus(healthy=False, checks=checks)
 
     async def teardown(self, agent_name: str) -> None:
         """Stop and remove the agent container."""
