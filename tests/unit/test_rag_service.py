@@ -678,18 +678,18 @@ class TestGraphSearchAndIngest:
 import logging  # noqa: E402
 
 from api.services.rag_service import (  # noqa: E402
-    _FALLBACK_WARNED,
     EmbeddingResult,
     embed_texts,
 )
+from engine.observability.degraded_mode import clear_degraded_state  # noqa: E402
 
 
 @pytest.fixture(autouse=False)
 def clear_fallback_state():
-    """Reset the module-level dedup set between tests."""
-    _FALLBACK_WARNED.clear()
+    """Reset the shared warn-once dedup set between tests."""
+    clear_degraded_state()
     yield
-    _FALLBACK_WARNED.clear()
+    clear_degraded_state()
 
 
 @pytest.mark.asyncio
@@ -718,7 +718,7 @@ async def test_embed_texts_uses_fallback_when_no_api_key(
     assert result.fallback_reason == "openai-no-api-key"
     assert len(result.vectors) == 1
     assert len(result.vectors[0]) == 1536
-    assert any("rag.embedding.fallback" in r.message for r in caplog.records)
+    assert any(getattr(r, "component", None) == "rag.embedding" for r in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -734,7 +734,9 @@ async def test_embed_texts_fallback_warning_deduplicated(
     await embed_texts(["b"], model="openai/text-embedding-3-small")
     await embed_texts(["c"], model="openai/text-embedding-3-small")
 
-    fallback_warnings = [r for r in caplog.records if "rag.embedding.fallback" in r.message]
+    fallback_warnings = [
+        r for r in caplog.records if getattr(r, "component", None) == "rag.embedding"
+    ]
     assert len(fallback_warnings) == 1
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 
+from engine.observability.degraded_mode import warn_once
 from engine.providers.anthropic_provider import AnthropicProvider
 from engine.providers.base import ProviderBase, ProviderError
 from engine.providers.google_provider import GoogleProvider
@@ -199,8 +200,9 @@ class FallbackChain:
         Raises the last ProviderError if all providers fail.
         """
         last_error: ProviderError | None = None
+        primary_name = self._providers[0].name
 
-        for provider in self._providers:
+        for idx, provider in enumerate(self._providers):
             try:
                 logger.info(
                     "Attempting generate with provider '%s'",
@@ -213,6 +215,12 @@ class FallbackChain:
                     max_tokens=max_tokens,
                     tools=tools,
                 )
+                if idx > 0:
+                    warn_once(
+                        "provider.fallback",
+                        f"{primary_name}-to-{provider.name}",
+                        extra={"primary": primary_name, "fallback": provider.name},
+                    )
                 logger.info(
                     "Generate succeeded with provider '%s'",
                     provider.name,
@@ -227,6 +235,11 @@ class FallbackChain:
                 )
 
         # All providers failed
+        warn_once(
+            "provider.fallback",
+            f"{primary_name}-all-failed",
+            extra={"primary": primary_name, "last_error": str(last_error)},
+        )
         msg = f"All providers in fallback chain failed. Last error: {last_error}"
         raise ProviderError(msg)
 

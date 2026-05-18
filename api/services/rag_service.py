@@ -27,6 +27,8 @@ from typing import Any
 
 import httpx
 
+from engine.observability.degraded_mode import warn_once
+
 logger = logging.getLogger(__name__)
 
 
@@ -439,27 +441,6 @@ class EmbeddingResult:
     fallback_reason: str | None = None
 
 
-# Module-level set of (model, reason) pairs already warned about.
-# Prevents log spam when fallback happens on every chunk of a large ingest.
-_FALLBACK_WARNED: set[tuple[str, str]] = set()
-
-
-def _warn_fallback_once(model: str, reason: str) -> None:
-    """Emit a WARN log the first time a (model, reason) fallback occurs."""
-    key = (model, reason)
-    if key in _FALLBACK_WARNED:
-        return
-    _FALLBACK_WARNED.add(key)
-    logger.warning(
-        "rag.embedding.fallback: model=%s reason=%s — "
-        "falling back to deterministic pseudo-embeddings. "
-        "Search quality will be degraded until the upstream service is reachable.",
-        model,
-        reason,
-        extra={"model": model, "reason": reason},
-    )
-
-
 async def embed_texts(
     texts: list[str],
     model: str = "openai/text-embedding-3-small",
@@ -488,7 +469,7 @@ async def embed_texts(
             dims = EMBEDDING_DIMENSIONS.get(model, 768)
             vectors = [_pseudo_embedding(t, dims) for t in batch]
             fb, reason = True, "unknown-model-prefix"
-            _warn_fallback_once(model, reason)
+            warn_once("rag.embedding", reason, extra={"model": model})
 
         all_embeddings.extend(vectors)
         if fb and not used_fallback:
@@ -510,7 +491,11 @@ async def _embed_openai(
 
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
-        _warn_fallback_once(f"openai/{model_name}", "openai-no-api-key")
+        warn_once(
+            "rag.embedding",
+            "openai-no-api-key",
+            extra={"model": f"openai/{model_name}"},
+        )
         return (
             [_pseudo_embedding(t, 1536) for t in texts],
             True,
@@ -528,7 +513,11 @@ async def _embed_openai(
             data = resp.json()
             return ([item["embedding"] for item in data["data"]], False, None)
         except Exception as e:
-            _warn_fallback_once(f"openai/{model_name}", "openai-api-error")
+            warn_once(
+                "rag.embedding",
+                "openai-api-error",
+                extra={"model": f"openai/{model_name}"},
+            )
             logger.error("OpenAI embedding failed: %s", e)
             return (
                 [_pseudo_embedding(t, 1536) for t in texts],
@@ -556,7 +545,11 @@ async def _embed_ollama(
                 data = resp.json()
                 results.append(data["embedding"])
             except Exception as e:
-                _warn_fallback_once(f"ollama/{model_name}", "ollama-unreachable")
+                warn_once(
+                    "rag.embedding",
+                    "ollama-unreachable",
+                    extra={"model": f"ollama/{model_name}"},
+                )
                 logger.error("Ollama embedding failed: %s", e)
                 results.append(_pseudo_embedding(text, 768))
                 any_fallback = True
