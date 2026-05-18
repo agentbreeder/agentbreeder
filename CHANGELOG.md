@@ -8,6 +8,30 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Platform Audit Summary (2026-05-18)
+
+A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:
+
+- **Wave 0** — Website docs aligned 1:1 with current v1.7.x implementation (`quickstart.mdx`, `how-to.mdx`, `cli-reference.mdx` 100% correct; honest deploy-target status across 9 additional pages; per-target prereqs canonicalized in `deployment.mdx`).
+- **Wave 1** — 4 P0 security/correctness fixes: path-traversal sanitization in `markdown_writer`; Pydantic validation of RAG search weights + numeric bounds; structured alerting on pseudo-embedding fallback.
+- **Wave 2** — 5 shared utility modules introduced (`engine/observability/degraded_mode.py`, `api/retry.py`, `engine/deployers/_health.py`, `engine/util/path_safety.py`, `api/models/_validators.py`).
+- **Wave 3** — Cross-cutting threading of 4 Wave-2 utilities into existing callsites (6 deployers consolidated onto `poll_until_ready`; path validation propagated; warn-once dedup standardized; Pydantic field-types adopted).
+- **Wave 4** — 37 P1 fixes across 8 subsystems (idempotency keys, retry semantics, schema validation, sandbox AST guards, MCP timeout config, RAG upload size cap, content-hash dedup, atomic graph extraction, Neo4j indexes + native vector support, memory LIKE escaping, summary circuit breaker, deploy idempotency, sidecar pre-validation, and more).
+- **Wave 5** — 38 P2 polish items (docs, type hints, observability, malformed-input tests, framework example READMEs, contributor guides, integration tests).
+
+See per-wave detail in subsequent sections of this changelog.
+
+### Human-Review Backlog (not in this release)
+
+Six audit findings require breaking changes, schema extensions, or cross-repo coordination and were deferred:
+
+- **HR-1** — Memory team-scope isolation not enforced at runtime (data-isolation gap). RBAC integration plan needed; signature changes across memory routes. Wave-5 added xfail tests documenting the current state.
+- **HR-2** — Memory wiring missing from Claude SDK / OpenAI Agents / CrewAI runtimes (only LangGraph has full memory integration today). New runtime feature wiring + multi-runtime test plan needed.
+- **HR-3** — GraphRAG `custom_entity_types` claimed in docs but not in `agent.yaml` schema. Requires schema bump → website + cloud sync per CLAUDE.md cross-repo rule. Wave-5 added a doc callout marking this as roadmap.
+- **HR-4** — `pgvector` RAG backend silently falls back to in_memory. Either implement (large) or remove (breaking).
+- **HR-5** — Greenfield (scenario B) infrastructure provisioning across AWS/Azure/K8s (~970 LOC gap). Aligns with the comprehensive architecture plan epics #377–#381.
+- **HR-7** — `rajits/` → `agentbreeder/` Docker Hub namespace migration (15 files across CI, sidecar, deployers, docs). Coordination with Docker Hub org needed; out of scope for an additive-only audit.
+
 ### Docs
 - **Wave 0 of the platform audit lands.** Quickstart, how-to, and CLI reference are 100% aligned with the v1.7.x implementation. Stale "supported deploy targets" claims across 9 additional pages now distinguish ✅ Shipped (Local, GCP Cloud Run greenfield) from 🟡 Deployer-exists-but-requires-existing-infra (AWS ECS, App Runner, Azure, K8s, Claude Managed). Canonical status table at [cli-reference#agentbreeder-deploy](https://agentbreeder.io/docs/cli-reference#agentbreeder-deploy); canonical prereqs at [deployment#prerequisites-per-target-as-of-2026-05-18](https://agentbreeder.io/docs/deployment#prerequisites-per-target-as-of-2026-05-18). See audit spec at `docs/superpowers/specs/2026-05-18-platform-audit-design.md`.
 - **Quickstart troubleshooting refresh** — added a "blank dashboard at `:3001`" section to `website/content/docs/faq.mdx`, `quickstart.mdx`, and `how-to.mdx` covering: stale `rajits/agentbreeder-dashboard:latest` cached locally, the `--dev` flag for building images from local source, the `BUNDLE` health-check one-liner, and the React-version verification. Added an FAQ note that `migrate-1` exiting is expected (one-shot alembic job). Added a stale-`DOCKER_HOST` row to the Troubleshooting tables. `CONTRIBUTING.md` §6 now documents `quickstart --dev` and the clean-rebuild incantation. `README.md` Install section now points contributors at `--dev` for local-source workflows.
