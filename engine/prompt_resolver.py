@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Final
 
 import httpx
+from packaging.version import InvalidVersion, Version
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,19 @@ _REGISTRY_TIMEOUT_SECONDS: Final[float] = 5.0
 
 class PromptNotFoundError(LookupError):
     """Raised when a registry-style prompt ref cannot be resolved anywhere."""
+
+
+def _semver_key(version_str: str) -> tuple[int, Version | str]:
+    """Sort key for semver strings.
+
+    Returns ``(0, Version)`` for valid semver and ``(1, raw_string)`` for
+    invalid versions so valid semvers always rank higher (i.e. invalid
+    versions are pushed to the end of the descending sort).
+    """
+    try:
+        return (0, Version(version_str))
+    except (InvalidVersion, TypeError):
+        return (1, str(version_str))
 
 
 def is_prompt_ref(value: str) -> bool:
@@ -87,6 +101,15 @@ def _resolve_from_registry(name: str, version: str | None) -> str | None:
     except httpx.HTTPError as exc:
         logger.warning("Registry lookup failed for '%s' (%s): %s", name, url, exc)
         return None
+    except ValueError as exc:
+        # Malformed JSON body — treat as a registry miss rather than crashing
+        # the caller. The deploy pipeline will fall through to the
+        # PromptNotFoundError path with a helpful message.
+        logger.warning("Registry returned malformed JSON for '%s' (%s): %s", name, url, exc)
+        return None
+    if not isinstance(payload, dict):
+        logger.warning("Registry payload for '%s' is not an object: %r", name, payload)
+        return None
 
     items = payload.get("data") or []
     matches = [item for item in items if item.get("name") == name]
@@ -95,7 +118,10 @@ def _resolve_from_registry(name: str, version: str | None) -> str | None:
     if not matches:
         return None
 
-    matches.sort(key=lambda item: item.get("version", ""), reverse=True)
+    # Sort by semver descending so 1.10.0 ranks above 1.9.0 (string sort would
+    # invert this). Invalid versions fall through to lexicographic ordering at
+    # the end of the list — see _semver_key().
+    matches.sort(key=lambda item: _semver_key(item.get("version", "")), reverse=True)
     chosen = matches[0]
     content = chosen.get("content")
     if not content:

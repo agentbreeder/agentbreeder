@@ -388,8 +388,8 @@ class PromptTestRequest(BaseModel):
     model_id: str | None = None
     model_name: str | None = None
     variables: dict[str, str] = Field(default_factory=dict)
-    temperature: float = 0.7
-    max_tokens: int = 1024
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=1024, ge=1, le=100000)
 
 
 class PromptTestResponse(BaseModel):
