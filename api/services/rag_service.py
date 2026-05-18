@@ -315,9 +315,7 @@ class GraphSearchHit(SearchHit):
                 "vector_score": (
                     None if self.vector_score is None else round(self.vector_score, 6)
                 ),
-                "graph_score": (
-                    None if self.graph_score is None else round(self.graph_score, 6)
-                ),
+                "graph_score": (None if self.graph_score is None else round(self.graph_score, 6)),
             }
         )
         return base

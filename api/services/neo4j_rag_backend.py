@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import TYPE_CHECKING, Any
 
 from api.retry import async_retry
@@ -499,7 +500,7 @@ class Neo4jRAGBackend:
     # Search
     # ------------------------------------------------------------------
 
-    async def search(
+    async def search(  # noqa: C901 — multi-step search w/ observability
         self,
         query: str,
         query_embedding: list[float],
@@ -530,6 +531,9 @@ class Neo4jRAGBackend:
                 [{"chunk_id": str, "text": str, "source": str,
                   "score": float, "metadata": dict}, ...]
         """
+        # G9 — observability: wall-clock duration + per-phase neighbor counts.
+        _t_start = time.perf_counter()
+        _neighbors_found = 0
         driver = self._get_driver()
         results: dict[str, dict[str, Any]] = {}
         effective_intermediate = (
@@ -591,6 +595,7 @@ class Neo4jRAGBackend:
                 )
                 async for record in graph_result:
                     cid = record["chunk_id"]
+                    _neighbors_found += 1
                     # Merge: take max score if chunk already present
                     graph_score = float(record["score"])
                     if cid not in results or results[cid]["score"] < graph_score:
@@ -603,12 +608,27 @@ class Neo4jRAGBackend:
                         }
 
         sorted_results = sorted(results.values(), key=lambda r: r["score"], reverse=True)
+        _duration_ms = round((time.perf_counter() - _t_start) * 1000.0, 2)
+        # G9 — structured info log for every graph search call (success path).
+        logger.info(
+            "graphrag.search.complete",
+            extra={
+                "index_id": self._index_id,
+                "top_k": top_k,
+                "neighbors_found": _neighbors_found,
+                "results_returned": min(len(sorted_results), top_k),
+                "seed_entities_count": len(seed_entities) if seed_entities else 0,
+                "max_hops": max_hops if seed_entities else 0,
+                "duration_ms": _duration_ms,
+            },
+        )
         logger.debug(
-            "Neo4jRAGBackend.search: query=%r top_k=%d returned=%d (index=%s)",
+            "Neo4jRAGBackend.search: query=%r top_k=%d returned=%d (index=%s) duration_ms=%.2f",
             query,
             top_k,
             len(sorted_results),
             self._index_id,
+            _duration_ms,
         )
         return sorted_results[:top_k]
 
