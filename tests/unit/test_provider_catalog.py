@@ -392,7 +392,7 @@ class TestOpenAICompatibleProvider:
         )
         provider._client = AsyncMock()
         provider._client.get = AsyncMock(return_value=httpx.Response(200, json=_models_response()))
-        assert await provider.health_check() is True
+        assert bool(await provider.health_check()) is True
 
     @pytest.mark.asyncio
     async def test_health_check_failure(self) -> None:
@@ -403,7 +403,7 @@ class TestOpenAICompatibleProvider:
         )
         provider._client = AsyncMock()
         provider._client.get = AsyncMock(return_value=httpx.Response(401, text="unauthorized"))
-        assert await provider.health_check() is False
+        assert bool(await provider.health_check()) is False
 
     @pytest.mark.asyncio
     async def test_generate(self) -> None:

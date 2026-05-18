@@ -32,6 +32,7 @@ from engine.providers.models import (
     Message,
     ModelInfo,
     ProviderConfig,
+    ProviderHealth,
     ProviderType,
     StreamChunk,
     ToolCall,
@@ -362,7 +363,9 @@ class TestOpenAIProvider:
         provider._client = AsyncMock()
         provider._client.get = AsyncMock(return_value=mock_resp)
 
-        assert await provider.health_check() is True
+        result = await provider.health_check()
+        assert bool(result) is True
+        assert result.healthy is True
 
     @pytest.mark.asyncio
     async def test_health_check_failure(self) -> None:
@@ -371,7 +374,9 @@ class TestOpenAIProvider:
         provider._client = AsyncMock()
         provider._client.get = AsyncMock(return_value=mock_resp)
 
-        assert await provider.health_check() is False
+        result = await provider.health_check()
+        assert bool(result) is False
+        assert result.healthy is False
 
     @pytest.mark.asyncio
     async def test_close(self) -> None:
@@ -532,7 +537,9 @@ class TestOllamaProvider:
         provider._client = AsyncMock()
         provider._client.get = AsyncMock(return_value=mock_resp)
 
-        assert await provider.health_check() is True
+        result = await provider.health_check()
+        assert bool(result) is True
+        assert result.healthy is True
 
     @pytest.mark.asyncio
     async def test_health_check_failure(self) -> None:
@@ -540,7 +547,9 @@ class TestOllamaProvider:
         provider._client = AsyncMock()
         provider._client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
-        assert await provider.health_check() is False
+        result = await provider.health_check()
+        assert bool(result) is False
+        assert result.healthy is False
 
     @pytest.mark.asyncio
     async def test_detect_running(self) -> None:
@@ -1040,3 +1049,315 @@ class TestW0422OllamaTokenCounts:
         assert result.usage.prompt_tokens == 42
         assert result.usage.completion_tokens == 9
         assert result.usage.total_tokens == 51
+
+
+# ─── Wave 5 P2 fixes (W5 M5-M8) ──────────────────────────────────────────────
+
+
+class TestW05M5ProviderHealth:
+    """W5-M5: health_check() returns a structured ProviderHealth result.
+
+    The legacy bool API is preserved via ``__bool__``: ``if not result:``
+    keeps working for existing callers (e.g. cli/commands/chat.py).
+    """
+
+    def test_provider_health_truthy_when_healthy(self) -> None:
+        h = ProviderHealth(healthy=True)
+        assert bool(h) is True
+        assert h.healthy is True
+        assert h.reason is None
+        assert h.error_code is None
+
+    def test_provider_health_falsy_when_unhealthy(self) -> None:
+        h = ProviderHealth(healthy=False, reason="auth failed", error_code=401)
+        assert bool(h) is False
+        # Legacy idiom: ``if not result`` should branch into the failure path.
+        assert not h
+        assert h.reason == "auth failed"
+        assert h.error_code == 401
+
+    @pytest.mark.asyncio
+    async def test_openai_health_distinguishes_auth_from_reachability(self) -> None:
+        # Auth failure → error_code=401
+        provider = OpenAIProvider(_openai_config())
+        provider._client = AsyncMock()
+        provider._client.get = AsyncMock(return_value=httpx.Response(401, text="Unauthorized"))
+
+        result = await provider.health_check()
+        assert isinstance(result, ProviderHealth)
+        assert result.healthy is False
+        assert result.error_code == 401
+        assert result.reason is not None
+
+        # Reachability failure → error_code is None
+        provider2 = OpenAIProvider(_openai_config())
+        provider2._client = AsyncMock()
+        provider2._client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+
+        result2 = await provider2.health_check()
+        assert result2.healthy is False
+        assert result2.error_code is None
+        assert "connect" in (result2.reason or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_openai_health_rate_limit_reported_as_429(self) -> None:
+        provider = OpenAIProvider(_openai_config())
+        provider._client = AsyncMock()
+        provider._client.get = AsyncMock(return_value=httpx.Response(429, text="slow down"))
+
+        result = await provider.health_check()
+        assert result.healthy is False
+        assert result.error_code == 429
+
+    @pytest.mark.asyncio
+    async def test_openai_health_server_error_reported_as_500(self) -> None:
+        provider = OpenAIProvider(_openai_config())
+        provider._client = AsyncMock()
+        provider._client.get = AsyncMock(return_value=httpx.Response(500, text="Server error"))
+
+        result = await provider.health_check()
+        assert result.healthy is False
+        assert result.error_code == 500
+
+    @pytest.mark.asyncio
+    async def test_ollama_health_distinguishes_reachability_from_http_error(self) -> None:
+        # Connection refused → no error_code
+        provider = OllamaProvider(_ollama_config())
+        provider._client = AsyncMock()
+        provider._client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+
+        result = await provider.health_check()
+        assert isinstance(result, ProviderHealth)
+        assert result.healthy is False
+        assert result.error_code is None
+
+        # HTTP 503 from Ollama → error_code=503
+        provider2 = OllamaProvider(_ollama_config())
+        provider2._client = AsyncMock()
+        provider2._client.get = AsyncMock(return_value=httpx.Response(503, text="busy"))
+
+        result2 = await provider2.health_check()
+        assert result2.healthy is False
+        assert result2.error_code == 503
+
+    @pytest.mark.asyncio
+    async def test_anthropic_health_returns_provider_health(self) -> None:
+        provider = AnthropicProvider(_anthropic_config())
+        provider._client = AsyncMock()
+        provider._client.get = AsyncMock(return_value=httpx.Response(200, json={"data": []}))
+
+        result = await provider.health_check()
+        assert isinstance(result, ProviderHealth)
+        assert result.healthy is True
+
+
+class TestW05M6FallbackStreamingTests:
+    """W5-M6: streaming fallback chain regression coverage.
+
+    Builds on the W4-M2 commit semantics: once a chunk is yielded,
+    a mid-stream failure must not be retried. This class restates
+    the contract from multiple angles and adds tests for the all-fail
+    chain-context message.
+    """
+
+    def _make_chain(self) -> FallbackChain:
+        primary = ProviderConfig(
+            provider_type=ProviderType.openai, api_key="sk-test", default_model="gpt-4o"
+        )
+        fallback = ProviderConfig(provider_type=ProviderType.ollama, default_model="llama3.2")
+        return FallbackChain(FallbackConfig(primary=primary, fallbacks=[fallback]))
+
+    @staticmethod
+    async def _aiter(chunks: list[StreamChunk]) -> AsyncIterator[StreamChunk]:
+        for c in chunks:
+            yield c
+
+    @pytest.mark.asyncio
+    async def test_streaming_primary_fails_mid_stream_no_retry(self) -> None:
+        """Mid-stream failure (after first chunk) is NEVER retried (W4-M2)."""
+        chain = self._make_chain()
+
+        async def primary_yield_then_die() -> AsyncIterator[StreamChunk]:
+            yield StreamChunk(content="abc", model="gpt-4o")
+            yield StreamChunk(content="def", model="gpt-4o")
+            raise ProviderError("network died after 2 chunks")
+
+        fallback_mock = AsyncMock()
+        chain._providers[0].generate_stream = lambda **kwargs: primary_yield_then_die()
+        chain._providers[1].generate_stream = fallback_mock
+
+        emitted: list[StreamChunk] = []
+
+        async def _consume() -> None:
+            async for c in chain.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+                emitted.append(c)
+
+        with pytest.raises(ProviderError, match="network died after 2 chunks"):
+            await _consume()
+
+        # Both successful chunks delivered; fallback never invoked.
+        assert [c.content for c in emitted] == ["abc", "def"]
+        fallback_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_streaming_primary_fails_before_first_chunk_fallback_wins(self) -> None:
+        chain = self._make_chain()
+
+        async def primary_dies_immediately() -> AsyncIterator[StreamChunk]:
+            raise ProviderError("primary cannot open stream")
+            yield  # pragma: no cover — async generator marker
+
+        fallback_chunks = [
+            StreamChunk(content="from", model="llama3.2"),
+            StreamChunk(content=" fallback", model="llama3.2"),
+        ]
+        chain._providers[0].generate_stream = lambda **kwargs: primary_dies_immediately()
+        chain._providers[1].generate_stream = lambda **kwargs: self._aiter(fallback_chunks)
+
+        emitted: list[StreamChunk] = []
+        async for c in chain.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+            emitted.append(c)
+
+        # All fallback chunks present; primary's empty stream produced no chunks.
+        contents = [c.content for c in emitted]
+        assert "from" in contents
+        assert " fallback" in contents
+
+    @pytest.mark.asyncio
+    async def test_streaming_all_fail_exception_has_chain_context(self) -> None:
+        """When every provider fails, the raised error mentions the chain."""
+        chain = self._make_chain()
+
+        async def primary_fail() -> AsyncIterator[StreamChunk]:
+            raise ProviderError("primary boom")
+            yield  # pragma: no cover
+
+        async def fallback_fail() -> AsyncIterator[StreamChunk]:
+            raise ProviderError("fallback boom")
+            yield  # pragma: no cover
+
+        chain._providers[0].generate_stream = lambda **kwargs: primary_fail()
+        chain._providers[1].generate_stream = lambda **kwargs: fallback_fail()
+
+        with pytest.raises(ProviderError) as excinfo:
+            async for _ in chain.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+                pass
+
+        # Chain context is preserved: error message names the chain failure
+        # and the last error encountered.
+        msg = str(excinfo.value)
+        assert "failed to stream" in msg.lower()
+        assert "fallback boom" in msg  # last error preserved
+
+    @pytest.mark.asyncio
+    async def test_streaming_primary_succeeds_fallback_untouched(self) -> None:
+        """Sanity check: when primary streams cleanly, fallback is never touched."""
+        chain = self._make_chain()
+        primary_chunks = [StreamChunk(content="primary", model="gpt-4o")]
+        chain._providers[0].generate_stream = lambda **kwargs: self._aiter(primary_chunks)
+        fallback_mock = AsyncMock()
+        chain._providers[1].generate_stream = fallback_mock
+
+        async for _ in chain.generate_stream(messages=[{"role": "user", "content": "Hi"}]):
+            pass
+
+        fallback_mock.assert_not_called()
+
+
+class TestW05M7OllamaNotFoundMessage:
+    """W5-M7: 404 message must suggest both API endpoint and CLI."""
+
+    @pytest.mark.asyncio
+    async def test_404_message_mentions_api_endpoint(self) -> None:
+        provider = OllamaProvider(_ollama_config())
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=httpx.Response(404, text="not found"))
+
+        with pytest.raises(ModelNotFoundError) as excinfo:
+            await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+        msg = str(excinfo.value)
+        assert "/api/v1/providers" in msg
+        assert "pull-model" in msg
+
+    @pytest.mark.asyncio
+    async def test_404_message_mentions_cli(self) -> None:
+        provider = OllamaProvider(_ollama_config())
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=httpx.Response(404, text="not found"))
+
+        with pytest.raises(ModelNotFoundError) as excinfo:
+            await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+        msg = str(excinfo.value)
+        assert "ollama pull" in msg
+        # Resolved model name is interpolated so users know what to pull.
+        assert "llama3.2" in msg
+
+    @pytest.mark.asyncio
+    async def test_404_message_falls_back_to_placeholder_when_model_unknown(self) -> None:
+        """If no model context is threaded (direct _check_status call), show <model>."""
+        provider = OllamaProvider(_ollama_config())
+        with pytest.raises(ModelNotFoundError) as excinfo:
+            provider._check_status(404)
+        msg = str(excinfo.value)
+        assert "<model>" in msg
+        assert "ollama pull" in msg
+        assert "/api/v1/providers" in msg
+
+
+class TestW05M8ProviderConfigValidators:
+    """W5-M8: ProviderConfig field validators."""
+
+    def test_default_model_must_be_non_empty(self) -> None:
+        # None is allowed (means "no default")
+        ProviderConfig(provider_type=ProviderType.openai, default_model=None)
+        # Empty string is rejected
+        with pytest.raises(ValueError, match="default_model"):
+            ProviderConfig(provider_type=ProviderType.openai, default_model="")
+        # Whitespace-only is rejected
+        with pytest.raises(ValueError, match="default_model"):
+            ProviderConfig(provider_type=ProviderType.openai, default_model="   ")
+        # Normal value is accepted
+        cfg = ProviderConfig(provider_type=ProviderType.openai, default_model="gpt-4o")
+        assert cfg.default_model == "gpt-4o"
+
+    def test_api_key_cannot_be_whitespace(self) -> None:
+        # None is allowed
+        ProviderConfig(provider_type=ProviderType.openai, api_key=None)
+        # Empty string rejected
+        with pytest.raises(ValueError, match="api_key"):
+            ProviderConfig(provider_type=ProviderType.openai, api_key="")
+        # Whitespace-only rejected
+        with pytest.raises(ValueError, match="api_key"):
+            ProviderConfig(provider_type=ProviderType.openai, api_key="  \t \n ")
+        # Normal key accepted
+        cfg = ProviderConfig(provider_type=ProviderType.openai, api_key="sk-abc123")
+        assert cfg.api_key == "sk-abc123"
+
+    def test_base_url_must_be_valid_url(self) -> None:
+        # None is allowed
+        ProviderConfig(provider_type=ProviderType.openai, base_url=None)
+        # Empty string rejected
+        with pytest.raises(ValueError, match="base_url"):
+            ProviderConfig(provider_type=ProviderType.openai, base_url="")
+        # Whitespace-only rejected
+        with pytest.raises(ValueError, match="base_url"):
+            ProviderConfig(provider_type=ProviderType.openai, base_url="   ")
+        # Missing scheme rejected
+        with pytest.raises(ValueError, match="base_url"):
+            ProviderConfig(provider_type=ProviderType.openai, base_url="localhost:11434")
+        # Wrong scheme rejected
+        with pytest.raises(ValueError, match="base_url"):
+            ProviderConfig(provider_type=ProviderType.openai, base_url="ftp://example.com")
+        # Missing host rejected
+        with pytest.raises(ValueError, match="base_url"):
+            ProviderConfig(provider_type=ProviderType.openai, base_url="http://")
+        # Valid HTTP accepted
+        cfg = ProviderConfig(provider_type=ProviderType.ollama, base_url="http://localhost:11434")
+        assert cfg.base_url == "http://localhost:11434"
+        # Valid HTTPS accepted
+        cfg = ProviderConfig(
+            provider_type=ProviderType.openai, base_url="https://api.openai.com/v1"
+        )
+        assert cfg.base_url == "https://api.openai.com/v1"
