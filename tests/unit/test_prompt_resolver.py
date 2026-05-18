@@ -21,9 +21,17 @@ import pytest
 from engine.prompt_resolver import (
     PromptNotFoundError,
     _semver_key,
+    clear_registry_cache,
     is_prompt_ref,
     resolve_prompt,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_resolver_cache() -> None:
+    """Reset the LRU cache between tests so each scenario starts clean."""
+    clear_registry_cache()
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -149,14 +157,48 @@ class TestLocalFileResolution:
         assert result == "from-api"
 
     def test_wrong_extension_is_ignored(self, tmp_path: Path) -> None:
-        """A ``prompts/foo.txt`` file is NOT a match — only ``.md`` is checked."""
+        """Unsupported extensions are NOT matched (only .md/.txt/.prompt are)."""
         (tmp_path / "prompts").mkdir()
-        (tmp_path / "prompts" / "foo.txt").write_text("ignored", encoding="utf-8")
+        # ``.yaml`` is not in _PROMPT_FILE_EXTENSIONS, so this file should be
+        # ignored.
+        (tmp_path / "prompts" / "foo.yaml").write_text("ignored", encoding="utf-8")
 
         # No registry configured -> should raise.
         with patch.dict("os.environ", {"AGENTBREEDER_REGISTRY_URL": ""}, clear=False):
             with pytest.raises(PromptNotFoundError):
                 resolve_prompt("prompts/foo", project_root=tmp_path)
+
+    def test_resolves_from_txt_file(self, tmp_path: Path) -> None:
+        """``.txt`` is an accepted prompt file extension (P9)."""
+        (tmp_path / "prompts").mkdir()
+        (tmp_path / "prompts" / "plain.txt").write_text("plain-text prompt body", encoding="utf-8")
+        result = resolve_prompt("prompts/plain", project_root=tmp_path)
+        assert result == "plain-text prompt body"
+
+    def test_resolves_from_prompt_file(self, tmp_path: Path) -> None:
+        """``.prompt`` is an accepted prompt file extension (P9)."""
+        (tmp_path / "prompts").mkdir()
+        (tmp_path / "prompts" / "custom.prompt").write_text(
+            "custom-format prompt body", encoding="utf-8"
+        )
+        result = resolve_prompt("prompts/custom", project_root=tmp_path)
+        assert result == "custom-format prompt body"
+
+    def test_md_beats_txt_when_both_present(self, tmp_path: Path) -> None:
+        """``.md`` is preferred over ``.txt`` when both exist (P9)."""
+        (tmp_path / "prompts").mkdir()
+        (tmp_path / "prompts" / "both.md").write_text("md-wins", encoding="utf-8")
+        (tmp_path / "prompts" / "both.txt").write_text("txt-loses", encoding="utf-8")
+        result = resolve_prompt("prompts/both", project_root=tmp_path)
+        assert result == "md-wins"
+
+    def test_txt_beats_prompt_when_both_present(self, tmp_path: Path) -> None:
+        """Extension priority order is md > txt > prompt (P9)."""
+        (tmp_path / "prompts").mkdir()
+        (tmp_path / "prompts" / "tie.txt").write_text("txt-wins", encoding="utf-8")
+        (tmp_path / "prompts" / "tie.prompt").write_text("prompt-loses", encoding="utf-8")
+        result = resolve_prompt("prompts/tie", project_root=tmp_path)
+        assert result == "txt-wins"
 
 
 # ---------------------------------------------------------------------------
@@ -364,3 +406,266 @@ class TestSemverKey:
 
     def test_invalid_versions_lexicographic_among_themselves(self) -> None:
         assert _semver_key("zzz") > _semver_key("aaa")
+
+
+# ---------------------------------------------------------------------------
+# Registry resolution cache (P7)
+# ---------------------------------------------------------------------------
+
+
+class TestRegistryCache:
+    """LRU cache on the registry resolution path."""
+
+    def test_repeat_resolution_hits_registry_only_once(self, tmp_path: Path) -> None:
+        """The second call for the same (name, version) is served from cache."""
+        call_count = {"n": 0}
+
+        class _Counting(_FakeClient):
+            def get(  # type: ignore[override]
+                self,
+                url: str,
+                headers: dict[str, str] | None = None,
+                params: dict[str, str] | None = None,
+            ) -> _MockHTTPResponse:
+                call_count["n"] += 1
+                return _MockHTTPResponse(
+                    200,
+                    {
+                        "data": [
+                            {
+                                "name": "cached",
+                                "version": "1.0.0",
+                                "content": "cached-body",
+                            }
+                        ]
+                    },
+                )
+
+        def _factory(*_a: object, **_kw: object) -> _Counting:
+            return _Counting(_MockHTTPResponse(200, None))
+
+        with (
+            patch.dict(
+                "os.environ",
+                {"AGENTBREEDER_REGISTRY_URL": "http://registry.local"},
+            ),
+            patch("engine.prompt_resolver.httpx.Client", side_effect=_factory),
+        ):
+            r1 = resolve_prompt("prompts/cached", project_root=tmp_path)
+            r2 = resolve_prompt("prompts/cached", project_root=tmp_path)
+            r3 = resolve_prompt("prompts/cached", project_root=tmp_path)
+
+        assert r1 == r2 == r3 == "cached-body"
+        # Only the first call should have hit the registry; the next two
+        # come from the LRU cache.
+        assert call_count["n"] == 1
+
+    def test_cache_distinguishes_by_version(self, tmp_path: Path) -> None:
+        """Different ``version`` pins should not share cache entries."""
+        seen_versions: list[str | None] = []
+
+        class _Recording(_FakeClient):
+            def get(  # type: ignore[override]
+                self,
+                url: str,
+                headers: dict[str, str] | None = None,
+                params: dict[str, str] | None = None,
+            ) -> _MockHTTPResponse:
+                seen_versions.append((params or {}).get("version"))
+                return _MockHTTPResponse(
+                    200,
+                    {
+                        "data": [
+                            {"name": "vfoo", "version": "1.0.0", "content": "v1"},
+                            {"name": "vfoo", "version": "2.0.0", "content": "v2"},
+                        ]
+                    },
+                )
+
+        def _factory(*_a: object, **_kw: object) -> _Recording:
+            return _Recording(_MockHTTPResponse(200, None))
+
+        with (
+            patch.dict(
+                "os.environ",
+                {"AGENTBREEDER_REGISTRY_URL": "http://registry.local"},
+            ),
+            patch("engine.prompt_resolver.httpx.Client", side_effect=_factory),
+        ):
+            r1 = resolve_prompt("prompts/vfoo@1.0.0", project_root=tmp_path)
+            r2 = resolve_prompt("prompts/vfoo@2.0.0", project_root=tmp_path)
+            # Re-resolve the first — should be a cache hit.
+            r1_again = resolve_prompt("prompts/vfoo@1.0.0", project_root=tmp_path)
+
+        assert r1 == r1_again == "v1"
+        assert r2 == "v2"
+        # Two distinct cache keys -> two HTTP calls (the third call is cached).
+        assert len(seen_versions) == 2
+        assert "1.0.0" in seen_versions
+        assert "2.0.0" in seen_versions
+
+    def test_clear_registry_cache_forces_refetch(self, tmp_path: Path) -> None:
+        """``clear_registry_cache()`` evicts entries and forces a re-fetch."""
+        call_count = {"n": 0}
+
+        class _Counting(_FakeClient):
+            def get(  # type: ignore[override]
+                self,
+                url: str,
+                headers: dict[str, str] | None = None,
+                params: dict[str, str] | None = None,
+            ) -> _MockHTTPResponse:
+                call_count["n"] += 1
+                return _MockHTTPResponse(
+                    200,
+                    {
+                        "data": [
+                            {
+                                "name": "evictme",
+                                "version": "1.0.0",
+                                "content": "body",
+                            }
+                        ]
+                    },
+                )
+
+        def _factory(*_a: object, **_kw: object) -> _Counting:
+            return _Counting(_MockHTTPResponse(200, None))
+
+        with (
+            patch.dict(
+                "os.environ",
+                {"AGENTBREEDER_REGISTRY_URL": "http://registry.local"},
+            ),
+            patch("engine.prompt_resolver.httpx.Client", side_effect=_factory),
+        ):
+            resolve_prompt("prompts/evictme", project_root=tmp_path)
+            clear_registry_cache()
+            resolve_prompt("prompts/evictme", project_root=tmp_path)
+
+        assert call_count["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Differentiated registry error logging (P10)
+# ---------------------------------------------------------------------------
+
+
+class TestRegistryErrorLogging:
+    """Verify that different registry failure modes log at distinct levels
+    with distinct event names — see resolver docstring for the taxonomy."""
+
+    def test_401_logs_registry_auth_failed_at_error_level(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "AGENTBREEDER_REGISTRY_URL": "http://registry.local",
+                    "AGENTBREEDER_REGISTRY_TOKEN": "expired",
+                },
+            ),
+            _patch_httpx_client(_MockHTTPResponse(401, {"data": []})),
+            caplog.at_level("DEBUG", logger="engine.prompt_resolver"),
+        ):
+            with pytest.raises(PromptNotFoundError):
+                resolve_prompt("prompts/secret", project_root=tmp_path)
+
+        auth_records = [r for r in caplog.records if r.message == "registry_auth_failed"]
+        assert len(auth_records) == 1
+        rec = auth_records[0]
+        assert rec.levelname == "ERROR"
+        assert getattr(rec, "status_code", None) == 401
+        assert getattr(rec, "prompt_name", None) == "secret"
+
+    def test_403_logs_registry_auth_failed_at_error_level(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "AGENTBREEDER_REGISTRY_URL": "http://registry.local",
+                    "AGENTBREEDER_REGISTRY_TOKEN": "wrong-scope",
+                },
+            ),
+            _patch_httpx_client(_MockHTTPResponse(403, {"data": []})),
+            caplog.at_level("DEBUG", logger="engine.prompt_resolver"),
+        ):
+            with pytest.raises(PromptNotFoundError):
+                resolve_prompt("prompts/forbidden", project_root=tmp_path)
+
+        auth_records = [r for r in caplog.records if r.message == "registry_auth_failed"]
+        assert len(auth_records) == 1
+        assert auth_records[0].levelname == "ERROR"
+        assert getattr(auth_records[0], "status_code", None) == 403
+
+    def test_404_logs_registry_not_found_at_warning_level(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        with (
+            patch.dict(
+                "os.environ",
+                {"AGENTBREEDER_REGISTRY_URL": "http://registry.local"},
+            ),
+            _patch_httpx_client(_MockHTTPResponse(404, {"data": []})),
+            caplog.at_level("DEBUG", logger="engine.prompt_resolver"),
+        ):
+            with pytest.raises(PromptNotFoundError):
+                resolve_prompt("prompts/missing-404", project_root=tmp_path)
+
+        nf_records = [r for r in caplog.records if r.message == "registry_not_found"]
+        assert len(nf_records) == 1
+        assert nf_records[0].levelname == "WARNING"
+        assert getattr(nf_records[0], "status_code", None) == 404
+
+    def test_timeout_logs_registry_timeout_at_warning_level(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        with (
+            patch.dict(
+                "os.environ",
+                {"AGENTBREEDER_REGISTRY_URL": "http://registry.local"},
+            ),
+            _patch_httpx_client(
+                httpx.TimeoutException("timed out", request=httpx.Request("GET", "http://x"))
+            ),
+            caplog.at_level("DEBUG", logger="engine.prompt_resolver"),
+        ):
+            with pytest.raises(PromptNotFoundError):
+                resolve_prompt("prompts/slow-timeout", project_root=tmp_path)
+
+        timeout_records = [r for r in caplog.records if r.message == "registry_timeout"]
+        assert len(timeout_records) == 1
+        assert timeout_records[0].levelname == "WARNING"
+        assert getattr(timeout_records[0], "prompt_name", None) == "slow-timeout"
+
+    def test_500_logs_generic_registry_error_at_warning_level(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        with (
+            patch.dict(
+                "os.environ",
+                {"AGENTBREEDER_REGISTRY_URL": "http://registry.local"},
+            ),
+            _patch_httpx_client(_MockHTTPResponse(500, {"data": []})),
+            caplog.at_level("DEBUG", logger="engine.prompt_resolver"),
+        ):
+            with pytest.raises(PromptNotFoundError):
+                resolve_prompt("prompts/server-error", project_root=tmp_path)
+
+        err_records = [r for r in caplog.records if r.message == "registry_error"]
+        assert len(err_records) >= 1
+        assert err_records[0].levelname == "WARNING"
+        assert getattr(err_records[0], "status_code", None) == 500

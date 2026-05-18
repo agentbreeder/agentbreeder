@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -138,6 +140,106 @@ class TestPromptTestEndpoint:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["rendered_prompt"] == ""
+
+
+class TestPromptRenderRegex:
+    """Coverage for the template-variable regex constraint (P6).
+
+    The ``_render_prompt`` helper only matches ``{{name}}`` where ``name``
+    is ``\\w+`` (alphanumeric + underscore). Hyphens, dots, and whitespace
+    break the pattern and are left as literal text.
+    """
+
+    def test_underscore_in_variable_name_matches(self) -> None:
+        from api.routes.prompts import _render_prompt
+
+        out = _render_prompt("Hi {{first_name}}", {"first_name": "Ada"})
+        assert out == "Hi Ada"
+
+    def test_hyphen_in_variable_name_does_not_match(self) -> None:
+        from api.routes.prompts import _render_prompt
+
+        # ``{{first-name}}`` is intentionally NOT replaced — hyphen breaks \w+.
+        out = _render_prompt("Hi {{first-name}}", {"first-name": "Ada"})
+        assert out == "Hi {{first-name}}"
+
+    def test_dot_in_variable_name_does_not_match(self) -> None:
+        from api.routes.prompts import _render_prompt
+
+        out = _render_prompt("Hi {{user.name}}", {"user.name": "Ada"})
+        assert out == "Hi {{user.name}}"
+
+    def test_whitespace_in_variable_name_does_not_match(self) -> None:
+        from api.routes.prompts import _render_prompt
+
+        out = _render_prompt("Hi {{ name }}", {"name": "Ada"})
+        assert out == "Hi {{ name }}"
+
+    def test_missing_variable_preserved_as_placeholder(self) -> None:
+        from api.routes.prompts import _render_prompt
+
+        out = _render_prompt("Hi {{name}}", {})
+        assert out == "Hi {{name}}"
+
+
+class TestPromptTestStructuredLogging:
+    """Verify the structured ``prompt_test_run`` log line (P8)."""
+
+    def test_emits_prompt_test_run_log(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.INFO, logger="api.routes.prompts"):
+            resp = client.post(
+                "/api/v1/prompts/test",
+                json={
+                    "prompt_text": "Hello world.",
+                    "model_name": "claude-sonnet-4",
+                    "variables": {},
+                    "temperature": 0.42,
+                    "max_tokens": 256,
+                },
+            )
+
+        assert resp.status_code == 200
+
+        run_records = [r for r in caplog.records if r.message == "prompt_test_run"]
+        assert len(run_records) == 1, (
+            "expected exactly one prompt_test_run log line, "
+            f"got {[r.message for r in caplog.records]}"
+        )
+        rec = run_records[0]
+        assert rec.levelname == "INFO"
+        assert getattr(rec, "model", None) == "claude-sonnet-4"
+        input_tokens = getattr(rec, "input_tokens", None)
+        output_tokens = getattr(rec, "output_tokens", None)
+        total_tokens = getattr(rec, "total_tokens", None)
+        latency_ms = getattr(rec, "latency_ms", None)
+        assert isinstance(input_tokens, int)
+        assert input_tokens > 0
+        assert isinstance(output_tokens, int)
+        assert output_tokens > 0
+        assert total_tokens == input_tokens + output_tokens
+        assert isinstance(latency_ms, int)
+        assert latency_ms > 0
+        assert getattr(rec, "temperature", None) == 0.42
+
+    def test_log_uses_simulated_model_when_unspecified(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        with caplog.at_level(logging.INFO, logger="api.routes.prompts"):
+            resp = client.post(
+                "/api/v1/prompts/test",
+                json={
+                    "prompt_text": "x",
+                    "variables": {},
+                    "temperature": 0.7,
+                    "max_tokens": 1024,
+                },
+            )
+        assert resp.status_code == 200
+
+        run_records = [r for r in caplog.records if r.message == "prompt_test_run"]
+        assert len(run_records) == 1
+        assert getattr(run_records[0], "model", None) == "simulated-model"
 
 
 class TestPromptTestValidation:
