@@ -60,7 +60,9 @@ async def test_extract_entities_forwards_custom_types_to_claude() -> None:
         captured["custom_types"] = custom_types
         return {"entities": [], "relationships": []}
 
-    with patch("api.services.graph_extraction._call_claude", new=AsyncMock(side_effect=fake_claude)):
+    with patch(
+        "api.services.graph_extraction._call_claude", new=AsyncMock(side_effect=fake_claude)
+    ):
         custom = [{"name": "STATUTE", "description": "Specific laws"}]
         # Fresh cache so we actually call the patched LLM.
         await extract_entities(
@@ -84,7 +86,9 @@ async def test_extract_entities_cache_key_separates_custom_types() -> None:
         return {"entities": [], "relationships": []}
 
     cache: dict = {}
-    with patch("api.services.graph_extraction._call_claude", new=AsyncMock(side_effect=fake_claude)):
+    with patch(
+        "api.services.graph_extraction._call_claude", new=AsyncMock(side_effect=fake_claude)
+    ):
         await extract_entities("same text", cache=cache, custom_types=[{"name": "A"}])
         await extract_entities("same text", cache=cache, custom_types=[{"name": "B"}])
         # Repeat first → must hit cache (no new call).
