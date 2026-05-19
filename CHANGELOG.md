@@ -8,6 +8,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 ### v2.3 — Cloud-Deploy Foundation (#413)
 
 - **Added** `engine/provisioners/` — `InfraProvisioner` ABC with read-only `validate_existing` impls for AWS / GCP / Azure (boto3, google-cloud, azure-sdk). Greenfield `provision()` / `destroy()` stubbed (per-cloud follow-ups #382 / #383 / #384).
@@ -16,6 +17,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Added** API: `GET /api/v1/deployments/cloud-requirements/{cloud}?mode=simple|full` (any authenticated user) and `POST /api/v1/deployments/validate-infra` (`deployer` role required in the requested team, cross-team → 403, rate-limited 10 req/min via slowapi, audit-logged via `AuditService`).
 - **Added** `pgvector>=0.2.5` + `slowapi>=0.1.9` to optional deps; new `gcp` extras group; expanded `azure` group.
 - **Docs** — rewrote `website/content/docs/deployment.mdx` to a three-cloud tabbed contract.
+=======
+### v2.3 — HR-1 memory team-scope enforcement (#418, closes #403)
+
+- **Fixed** `api/routes/memory.py` now forwards `user.team` to `MemoryService` on every read/write. Cross-team access → HTTP 403.
+- **Hardened** `MemoryService` now raises `PermissionError` when a team-scoped config is accessed without `requesting_team` (previously a silent allow).
+- **Tests** — flipped 2 `MM7` xfail tests to passing + added route-layer 403 coverage.
+>>>>>>> 0860a0a (docs(changelog): HR-1 entry (#418))
 
 ### Platform Audit Summary (2026-05-18)
 
