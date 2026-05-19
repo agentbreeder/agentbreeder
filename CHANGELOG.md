@@ -8,6 +8,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+<<<<<<< HEAD
+### v2.3 — Dashboard Docker build EPIPE (#433, closes #411)
+
+- **Fixed** `dashboard/Dockerfile` build stage now uses `node:22-slim` (Debian glibc) instead of `node:22-alpine` (musl). Eliminates the esbuild EPIPE that intermittently killed `vite build` under Docker Desktop / BuildKit on macOS. `NODE_OPTIONS=--max-old-space-size=4096` added as belt-and-suspenders.
+=======
 ### v2.3 — Cloud-Deploy Foundation (#413)
 
 - **Added** `engine/provisioners/` — `InfraProvisioner` ABC with read-only `validate_existing` impls for AWS / GCP / Azure (boto3, google-cloud, azure-sdk). Greenfield `provision()` / `destroy()` stubbed (per-cloud follow-ups #382 / #383 / #384).
@@ -46,6 +51,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Changed** `registry/rag.py:_make_pgvector` returns the real backend now; missing DSN raises a clear `ValueError` (no more silent fallback).
 - **Added** `pgvector>=0.2.5` to the `rag` extra; integration tests against `pgvector/pgvector:pg16` via testcontainers.
 - Wire-through to `RAGStore.search/ingest` lands in #423 / PR #434.
+>>>>>>> origin/main
 
 ### Platform Audit Summary (2026-05-18)
 
