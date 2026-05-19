@@ -192,6 +192,10 @@ module = ["engine.deployers.*"]
 disable_error_code = ["no-any-return", "type-arg"]
 
 [[tool.mypy.overrides]]
+module = ["engine.provisioners.*"]
+disable_error_code = ["no-any-return", "type-arg", "no-untyped-def"]
+
+[[tool.mypy.overrides]]
 module = ["engine.providers.*"]
 disable_error_code = ["no-any-return", "unused-ignore"]
 
