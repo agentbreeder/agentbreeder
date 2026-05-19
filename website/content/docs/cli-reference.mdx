@@ -256,7 +256,7 @@ agentbreeder deploy ./agent.yaml --json                       # JSON output
 
 ### `agentbreeder validate`
 
-Validate an `agent.yaml` without deploying.
+Validate an `agent.yaml`, `orchestration.yaml`, or `memory.yaml` without deploying.
 
 ```
 agentbreeder validate CONFIG_PATH [--json]
@@ -264,7 +264,16 @@ agentbreeder validate CONFIG_PATH [--json]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `CONFIG_PATH` | Yes | Path to `agent.yaml` |
+| `CONFIG_PATH` | Yes | Path to a config file |
+
+File-type detection (in order):
+1. Filename starts with `orchestration` → orchestration schema
+2. Filename is `agent.yaml`/`agent.yml` → agent schema
+3. Filename is `memory.yaml`/`memory.yml` or starts with `memory.` → memory schema
+4. Content has `strategy` + `agents` keys → orchestration schema
+5. Content has `backend` + `memory_type` (and no `framework`/`runtime`) → memory schema
+6. Content has `transport`/`command` (and no `framework`/`runtime`) → MCP (skipped)
+7. Otherwise → agent schema
 
 Checks:
 - YAML syntax
@@ -275,6 +284,7 @@ Checks:
 ```bash
 agentbreeder validate ./agent.yaml
 agentbreeder validate ./agent.yaml --json
+agentbreeder validate ./memory.yaml          # validates against memory.schema.json
 ```
 
 ---
@@ -604,6 +614,169 @@ agentbreeder registry agent invoke microlearning-ebook-agent \
 # status: 200  duration: 1.4s  session: 7c3f…
 # output: My job is to turn any topic the user supplies into a polished microlearning
 #         ebook a learner can complete in 20-40 minutes.
+```
+
+---
+
+#### `agentbreeder registry memory push`
+
+Register a memory configuration in the registry from a `memory.yaml` file. Calls `POST /api/v1/memory/configs`.
+
+```
+agentbreeder registry memory push FILE [--json]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `FILE` | path | — | Path to the `memory.yaml` file |
+| `--json` | flag | off | Print the raw API response as JSON |
+
+**`memory.yaml` fields used:**
+
+| YAML field | Maps to API | Notes |
+|------------|-------------|-------|
+| `name` | `name` | Required, kebab-case |
+| `team` | `team` | Defaults to `default` |
+| `owner` | `owner` | Email of the responsible engineer |
+| `backend` | `backend_type` | `postgresql` or `redis` |
+| `memory_type` | `memory_type` | `buffer_window`, `summary`, etc. |
+| `config.window_size` | `max_messages` | Defaults to `100` |
+| `config.namespace_pattern` | `namespace_pattern` | Optional |
+| `config.scope` | `scope` | Optional |
+| `config.linked_agents` | `linked_agents` | Optional list |
+| `tags` | `tags` | Optional list |
+| `description` | `description` | Optional |
+
+**Example:**
+```bash
+agentbreeder registry memory push ./memory.yaml
+# ✔ Memory config registered: my-vercel-agent-memory  (id=1bea76e6-…)
+```
+
+---
+
+#### `agentbreeder registry memory list`
+
+List memory configurations from the registry. Calls `GET /api/v1/memory/configs`.
+
+```
+agentbreeder registry memory list [--json]
+```
+
+**Example:**
+```bash
+agentbreeder registry memory list
+# NAME                          BACKEND      TYPE             MAX_MSGS
+# my-vercel-agent-memory        postgresql   buffer_window    20
+```
+
+---
+
+#### `agentbreeder registry rag push`
+
+Register a RAG (knowledge base) index in the registry from a `rag.yaml` file. Calls `POST /api/v1/rag/indexes`.
+
+```
+agentbreeder registry rag push FILE [--json]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `FILE` | path | — | Path to the `rag.yaml` file |
+| `--json` | flag | off | Print the raw API response as JSON |
+
+**`rag.yaml` fields used:**
+
+| YAML field | Maps to API | Notes |
+|------------|-------------|-------|
+| `name` | `name` | Required, kebab-case |
+| `description` | `description` | Optional |
+| `backend` | `backend` | `in_memory`, `pgvector`, or `neo4j` |
+| `embedding_model.provider` + `.name` | `embedding_model` | Joined as `"<provider>/<name>"` |
+| `chunking.strategy` | `chunk_strategy` | Defaults to `fixed_size` |
+| `chunking.chunk_size` | `chunk_size` | Defaults to `512` |
+| `chunking.chunk_overlap` | `chunk_overlap` | Defaults to `64` |
+| `config` | `config` | Backend-specific config block |
+| `source` | `source` | Optional source identifier |
+| `index_type` | `index_type` | Defaults to `vector` |
+
+**Example:**
+```bash
+agentbreeder registry rag push ./rag.yaml
+# ✔ RAG index registered: agentbreeder-knowledge  (id=8439cd66-…)
+```
+
+---
+
+#### `agentbreeder registry rag list`
+
+List RAG indexes from the registry. Calls `GET /api/v1/rag/indexes`.
+
+```
+agentbreeder registry rag list [--json]
+```
+
+**Example:**
+```bash
+agentbreeder registry rag list
+# NAME                       BACKEND     EMBEDDING                       CHUNKS
+# agentbreeder-knowledge     in_memory   openai/text-embedding-3-small   512/64
+```
+
+---
+
+#### `agentbreeder registry rag ingest`
+
+Upload and ingest one or more files into a registered RAG index. Resolves the index name (or UUID) and POSTs `multipart/form-data` to `/api/v1/rag/indexes/{id}/ingest`. Files are chunked, embedded, and indexed by the API.
+
+```
+agentbreeder registry rag ingest NAME_OR_ID FILE [FILE...] [--replace] [--json]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `NAME_OR_ID` | str | — | Registered RAG index name (e.g. `agentbreeder-knowledge`) or its UUID |
+| `FILE...` | path | — | One or more files to ingest |
+| `--replace` | flag | off | Delete any existing chunks whose source matches one of the incoming filenames before ingest. Without this flag, ingest is idempotent: chunks whose SHA-256 content hash already exists in the index are skipped. |
+| `--json` | flag | off | Print the raw API response as JSON |
+
+**Allowed file types:** `.pdf`, `.txt`, `.md`, `.csv`, `.json` (matches the API allow-list — unsupported extensions are rejected client-side before any upload).
+
+**Idempotency:** by default, re-ingesting the same file is a no-op — the API hashes every chunk (SHA-256) and skips any chunk whose hash already exists in the index. Use `--replace` when you've edited the file and want the old chunks to be dropped first.
+
+**Example:**
+```bash
+agentbreeder registry rag ingest agentbreeder-knowledge ./docs/intro.md ./docs/quickstart.pdf
+# ✓ Ingested 14 chunks from 2 file(s) into agentbreeder-knowledge  (job=ca2e0c7a  status=completed)
+
+# After editing intro.md, drop the old chunks and re-ingest:
+agentbreeder registry rag ingest agentbreeder-knowledge ./docs/intro.md --replace
+```
+
+---
+
+#### `agentbreeder registry rag search`
+
+Run a hybrid vector + text search against a RAG index. Calls `POST /api/v1/rag/search`.
+
+```
+agentbreeder registry rag search NAME_OR_ID --query TEXT [--top-k N] [--json]
+```
+
+| Argument / Option | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `NAME_OR_ID` | str | — | Registered RAG index name or UUID |
+| `--query`, `-q` | str | — | Search query text |
+| `--top-k`, `-k` | int | `5` | Number of results to return |
+| `--json` | flag | off | Print the raw API response as JSON |
+
+**Example:**
+```bash
+agentbreeder registry rag search agentbreeder-knowledge -q "how do I deploy an agent?" -k 3
+#  # | Score | Source            | Snippet
+# ---+-------+-------------------+-----------------------------------------------
+#  1 | 0.913 | docs/intro.md     | AgentBreeder compiles an agent.yaml file to…
+#  2 | 0.812 | docs/quickstart.pdf | Run `agentbreeder deploy --target gcp` to…
 ```
 
 ---

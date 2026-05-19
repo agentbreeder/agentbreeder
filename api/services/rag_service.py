@@ -106,11 +106,6 @@ class DocumentChunk:
     source: str
     metadata: dict[str, Any] = field(default_factory=dict)
     embedding: list[float] | None = None
-    # SHA256 of normalized text — populated at ingestion time so we can skip
-    # duplicate chunks when the same file is re-ingested (W4-24). Default
-    # ``None`` keeps the field additive / backward-compatible with any
-    # existing in-memory chunks created before this field existed.
-    chunk_hash: str | None = None
 
 
 @dataclass
@@ -713,7 +708,14 @@ def hybrid_search(
     vector_weight: float = 0.7,
     text_weight: float = 0.3,
 ) -> list[SearchHit]:
-    """Hybrid search combining cosine similarity + full-text scoring."""
+    """Hybrid search combining cosine similarity + full-text scoring.
+
+    Results are deduplicated by ``content_hash`` (falling back to a SHA-256
+    of the chunk text for legacy chunks ingested before content hashing was
+    added). This prevents byte-identical chunks — which can leak in when a
+    document is re-ingested without ``replace=True`` against a pre-dedup
+    index — from filling the top-k.
+    """
     scored: list[tuple[DocumentChunk, float]] = []
 
     for chunk in chunks:
@@ -726,16 +728,27 @@ def hybrid_search(
 
     scored.sort(key=lambda x: x[1], reverse=True)
 
-    return [
-        SearchHit(
-            chunk_id=chunk.id,
-            text=chunk.text,
-            source=chunk.source,
-            score=score,
-            metadata=chunk.metadata,
+    seen_hashes: set[str] = set()
+    hits: list[SearchHit] = []
+    for chunk, score in scored:
+        h = chunk.metadata.get("content_hash") if chunk.metadata else None
+        if not h:
+            h = hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()
+        if h in seen_hashes:
+            continue
+        seen_hashes.add(h)
+        hits.append(
+            SearchHit(
+                chunk_id=chunk.id,
+                text=chunk.text,
+                source=chunk.source,
+                score=score,
+                metadata=chunk.metadata,
+            )
         )
-        for chunk, score in scored[:top_k]
-    ]
+        if len(hits) >= top_k:
+            break
+    return hits
 
 
 async def graph_search(
@@ -1029,12 +1042,18 @@ class RAGStore:
         self,
         index_id: str,
         files: list[tuple[str, bytes]],
+        *,
+        replace: bool = False,
     ) -> IngestJob:
         """Ingest files into a vector index.
 
         Args:
             index_id: Target index ID.
             files: List of (filename, content_bytes) tuples.
+            replace: If True, existing chunks whose ``source`` matches one of the
+                incoming filenames are deleted before the new chunks are added.
+                When False (default), ingest is idempotent by ``content_hash``:
+                chunks whose SHA-256 already exists in the index are skipped.
 
         Returns:
             IngestJob with final status.
@@ -1048,17 +1067,16 @@ class RAGStore:
         _ingest_start = time.monotonic()
 
         try:
-            # Phase 1: Chunking + content-hash dedup (W4-24).
-            #
-            # We compute SHA256 of the normalized chunk text and skip any
-            # chunk whose hash already lives in this index. This makes
-            # re-ingesting the same file idempotent.
+            # Optional replace-by-source: drop any existing chunks whose source
+            # matches one of the incoming filenames. Runs before chunking so the
+            # dedup pass below sees only "the other" content.
+            if replace and files:
+                incoming_sources = {filename for filename, _ in files}
+                idx.chunks = [c for c in idx.chunks if c.source not in incoming_sources]
+
+            # Phase 1: Chunking
             job.status = IngestJobStatus.chunking
-            existing_hashes: set[str] = {
-                c.chunk_hash for c in idx.chunks if c.chunk_hash is not None
-            }
-            new_chunks: list[DocumentChunk] = []
-            duplicates_skipped = 0
+            all_chunks: list[DocumentChunk] = []
 
             for filename, content in files:
                 text = extract_text(filename, content)
@@ -1069,28 +1087,52 @@ class RAGStore:
                     overlap=idx.chunk_overlap,
                 )
                 for chunk_text_str in chunks:
-                    h = compute_chunk_hash(chunk_text_str)
-                    if h in existing_hashes:
-                        duplicates_skipped += 1
-                        continue
-                    existing_hashes.add(h)
+                    # W4-24 + R8: normalize whitespace before hashing so cosmetic
+                    # differences (CRLF vs LF, doubled spaces) don't defeat dedup.
+                    content_hash = compute_chunk_hash(chunk_text_str)
                     chunk = DocumentChunk(
                         id=str(uuid.uuid4()),
                         text=chunk_text_str,
                         source=filename,
-                        metadata={"filename": filename, "index_id": index_id},
-                        chunk_hash=h,
+                        metadata={
+                            "filename": filename,
+                            "index_id": index_id,
+                            "content_hash": content_hash,
+                        },
                     )
-                    new_chunks.append(chunk)
+                    all_chunks.append(chunk)
                 job.processed_files += 1
 
-            if duplicates_skipped:
+            # Idempotency (W4-24 / #375): drop incoming chunks whose hash already
+            # exists in the index. Back-fill content_hash on legacy chunks the
+            # first time we see them so older indexes pick up dedup transparently.
+            existing_hashes: set[str] = set()
+            for c in idx.chunks:
+                h = c.metadata.get("content_hash")
+                if not h:
+                    h = compute_chunk_hash(c.text)
+                    c.metadata["content_hash"] = h
+                existing_hashes.add(h)
+
+            deduped: list[DocumentChunk] = []
+            seen_in_batch: set[str] = set()
+            for c in all_chunks:
+                h = c.metadata["content_hash"]
+                if h in existing_hashes or h in seen_in_batch:
+                    continue
+                seen_in_batch.add(h)
+                deduped.append(c)
+            skipped = len(all_chunks) - len(deduped)
+            if skipped:
                 logger.info(
-                    "Ingest %s for index %s skipped %d duplicate chunks (content-hash dedup).",
-                    job.id,
+                    "ingest_files: skipped %d duplicate chunk(s) by content_hash"
+                    " (index=%s, replace=%s)",
+                    skipped,
                     index_id,
-                    duplicates_skipped,
+                    replace,
                 )
+            all_chunks = deduped
+            new_chunks = all_chunks  # back-compat name for downstream phases
 
             job.total_chunks = len(new_chunks)
 

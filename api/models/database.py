@@ -19,7 +19,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from api.models.enums import (
@@ -836,7 +836,15 @@ class MemoryConfig(Base):
     backend: Mapped[str] = mapped_column(String(50), nullable=False, default="postgresql")
     scope: Mapped[str] = mapped_column(String(50), nullable=False, default="agent")
     config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # The 016_memory_persistence migration creates this column as `text[]`
+    # in Postgres, so the ORM must use ARRAY(Text) on Postgres or INSERTs
+    # raise `column "tags" is of type text[] but expression is of type json`.
+    # SQLite (used by unit tests) has no ARRAY type, so fall back to JSON.
+    tags: Mapped[list] = mapped_column(
+        JSON().with_variant(ARRAY(Text), "postgresql"),
+        nullable=False,
+        default=list,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

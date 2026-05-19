@@ -6,6 +6,7 @@ import logging
 import os
 import time
 import uuid
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -35,6 +36,31 @@ from registry.agents import AgentRegistry, create_from_yaml, validate_config_yam
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
+
+
+# Polyglot frameworks shipped today — keep in sync with
+# engine/runtimes/node.py:FRAMEWORK_TEMPLATES and engine/runtimes/go.py.
+_NODE_FRAMEWORKS = frozenset(
+    {
+        "vercel-ai",
+        "mastra",
+        "langchain-js",
+        "openai-agents-ts",
+        "deepagent",
+        "mcp-ts",
+        "mcp-py",
+    }
+)
+_GO_FRAMEWORKS = frozenset({"go-custom"})
+
+
+def _guess_language_for_framework(framework: str) -> str:
+    """Best-effort language inference for a polyglot framework string."""
+    if framework in _NODE_FRAMEWORKS:
+        return "node"
+    if framework in _GO_FRAMEWORKS:
+        return "go"
+    return "node"
 
 
 def _agent_auth_token_secret_name(agent_name: str) -> str:
@@ -224,18 +250,32 @@ async def create_agent(
     """Manually register an agent in the registry (upsert by name)."""
     from engine.config_parser import AgentConfig, FrameworkType
 
-    # Build a minimal AgentConfig for registry
-    config = AgentConfig(
-        name=body.name,
-        version=body.version,
-        description=body.description,
-        team=body.team,
-        owner=body.owner,
-        framework=FrameworkType(body.framework),
-        model={"primary": body.model_primary, "fallback": body.model_fallback},
-        deploy={"cloud": "local"},
-        tags=body.tags,
-    )
+    # Build a minimal AgentConfig for registry. ``framework`` may be a
+    # Python framework (validated via FrameworkType) or a polyglot
+    # framework (e.g. vercel-ai) — in the latter case we set runtime
+    # instead so AgentConfig's model validator is satisfied.
+    config_kwargs: dict[str, Any] = {
+        "name": body.name,
+        "version": body.version,
+        "description": body.description,
+        "team": body.team,
+        "owner": body.owner,
+        "model": {"primary": body.model_primary, "fallback": body.model_fallback},
+        "deploy": {"cloud": "local"},
+        "tags": body.tags,
+    }
+    try:
+        config_kwargs["framework"] = FrameworkType(body.framework)
+    except ValueError:
+        # Polyglot framework — store under runtime.framework with a
+        # best-effort language guess. The deploy pipeline does the real
+        # language→framework mapping; the registry just records what the
+        # caller declared.
+        config_kwargs["runtime"] = {
+            "language": _guess_language_for_framework(body.framework),
+            "framework": body.framework,
+        }
+    config = AgentConfig(**config_kwargs)
     # AgentRegistry.register performs an upsert, so duplicate names update
     # the existing record rather than raising a DB constraint violation.
     agent = await AgentRegistry.register(db, config, endpoint_url=body.endpoint_url or "")

@@ -465,6 +465,125 @@ class TestRAGStoreIngestion:
 
 
 # ---------------------------------------------------------------------------
+# RAGStore Ingestion Dedup / Idempotency Tests
+# ---------------------------------------------------------------------------
+
+
+class TestRAGStoreIngestDedup:
+    """Regression tests for the dashboard "8 duplicate hits" bug.
+
+    Before the fix, ingesting the same file N times produced N×chunks copies
+    in the index, and ``hybrid_search`` happily returned every duplicate.
+    These tests pin the new behaviour:
+
+    1. Re-ingesting the same content is a no-op (idempotent by SHA-256).
+    2. ``replace=True`` drops the previous chunks for the matching sources.
+    3. A within-batch duplicate file is collapsed to one set of chunks.
+    4. Legacy chunks without ``content_hash`` are back-filled transparently.
+    5. ``hybrid_search`` deduplicates byte-identical chunks before truncating
+       to ``top_k`` (this is the actual fix for the user-visible bug).
+    """
+
+    def setup_method(self):
+        self.store = RAGStore()
+
+    @pytest.mark.asyncio
+    async def test_reingest_same_file_is_idempotent(self):
+        idx = self.store.create_index(name="dedup-idem", chunk_size=50, chunk_overlap=0)
+        content = b"Engineering practices for AI agents and platforms."
+        job1 = await self.store.ingest_files(idx.id, [("doc.md", content)])
+        first_count = idx.chunk_count
+        assert first_count > 0
+        assert job1.total_chunks == first_count
+
+        # Re-ingest the same bytes — chunk count must stay flat.
+        await self.store.ingest_files(idx.id, [("doc.md", content)])
+        assert idx.chunk_count == first_count
+
+        hashes = {c.metadata["content_hash"] for c in idx.chunks}
+        assert len(hashes) == first_count  # every chunk hash is unique
+
+    @pytest.mark.asyncio
+    async def test_replace_drops_existing_source(self):
+        idx = self.store.create_index(name="dedup-replace", chunk_size=50, chunk_overlap=0)
+        v1 = b"Version one of the doc with content A and B."
+        v2 = b"Version two replaces it with X and Y entirely."
+        await self.store.ingest_files(idx.id, [("doc.md", v1)])
+        v1_count = idx.chunk_count
+        assert v1_count > 0
+
+        await self.store.ingest_files(idx.id, [("doc.md", v2)], replace=True)
+        # No v1 chunks survive — every chunk now belongs to v2.
+        assert all("X and Y" in c.text or c.source == "doc.md" for c in idx.chunks)
+        assert idx.chunk_count > 0
+        # And the chunks come from the new content (v1 text is gone).
+        joined = " ".join(c.text for c in idx.chunks)
+        assert "Version one" not in joined
+        assert "Version two" in joined
+
+    @pytest.mark.asyncio
+    async def test_within_batch_duplicate_collapsed(self):
+        idx = self.store.create_index(name="dedup-batch", chunk_size=50, chunk_overlap=0)
+        same = b"Identical body across two filenames."
+        await self.store.ingest_files(idx.id, [("a.md", same), ("b.md", same)])
+        # Both files chunk identically — only one set is kept.
+        chunks_text = [c.text for c in idx.chunks]
+        assert len(chunks_text) == len(set(chunks_text))
+
+    @pytest.mark.asyncio
+    async def test_legacy_chunks_get_content_hash_backfilled(self):
+        idx = self.store.create_index(name="dedup-legacy", chunk_size=50, chunk_overlap=0)
+        # Plant a "legacy" chunk without content_hash, mimicking pre-fix state.
+        legacy = DocumentChunk(
+            id="legacy-1",
+            text="Legacy chunk body.",
+            source="legacy.md",
+            metadata={"filename": "legacy.md", "index_id": idx.id},
+        )
+        idx.chunks.append(legacy)
+        idx.chunk_count = 1
+
+        # Re-ingest the same body — should back-fill hash on legacy + dedup.
+        await self.store.ingest_files(idx.id, [("legacy.md", b"Legacy chunk body.")])
+        assert "content_hash" in legacy.metadata
+        # No duplicate chunk added for the identical body.
+        assert sum(1 for c in idx.chunks if c.text == "Legacy chunk body.") == 1
+
+    @pytest.mark.asyncio
+    async def test_search_does_not_return_duplicate_chunks(self):
+        """The bug the user actually saw: 8 identical results for one query.
+
+        We bypass ingest_files (which now dedups upfront) and directly seed
+        the index with hand-built duplicate chunks to prove hybrid_search
+        deduplicates results on its own — this keeps pre-fix legacy
+        indexes safe.
+        """
+        idx = self.store.create_index(name="dedup-search", chunk_size=50, chunk_overlap=0)
+        body = "Engineering practices for AI agents."
+        emb = _pseudo_embedding(body, 384)
+        # Eight byte-identical chunks all carrying the same content_hash.
+        import hashlib  # noqa: PLC0415
+
+        h = hashlib.sha256(body.encode()).hexdigest()
+        for i in range(8):
+            idx.chunks.append(
+                DocumentChunk(
+                    id=f"dup-{i}",
+                    text=body,
+                    source=f"doc-{i}.md",
+                    metadata={"content_hash": h},
+                    embedding=emb,
+                )
+            )
+        idx.chunk_count = len(idx.chunks)
+
+        results = await self.store.search(idx.id, "engineering", top_k=5)
+        # Despite 8 identical chunks and top_k=5, the dedup pass collapses them.
+        assert len(results) == 1
+        assert results[0].text == body
+
+
+# ---------------------------------------------------------------------------
 # RAGStore Search Tests
 # ---------------------------------------------------------------------------
 
@@ -1115,7 +1234,7 @@ async def test_ingest_dedups_identical_files() -> None:
     assert job2.status.value == "completed"
     assert idx.chunk_count == first_count
     # Every chunk in the index has a content hash.
-    assert all(c.chunk_hash for c in idx.chunks)
+    assert all(c.metadata.get("content_hash") for c in idx.chunks)
 
 
 # ---------------------------------------------------------------------------
@@ -1165,5 +1284,5 @@ async def test_ingest_rolls_back_chunks_when_graph_extraction_fails(
     assert idx.chunks == []
     assert idx.chunk_count == 0
     # And the chunk-hash registry is empty too — re-ingesting should still work.
-    assert all(c.chunk_hash is not None for c in idx.chunks)
+    assert all(c.metadata.get("content_hash") is not None for c in idx.chunks)
     _ = rag_service  # silence unused-import warning

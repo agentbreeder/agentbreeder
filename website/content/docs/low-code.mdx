@@ -300,7 +300,11 @@ agentbreeder registry prompt push prompts/microlearning-system.md \
 agentbreeder registry tool push tools/web_search.py
 agentbreeder registry tool push tools/markdown_writer.py
 
-# Push the agent record itself (refs the prompt + tools above)
+# Push the agent record itself (refs the prompt + tools above).
+# Works for both Python agents (top-level `framework:`) and polyglot
+# agents (top-level `runtime: {language, framework}`) — the runtime
+# block is validated at deploy time by the runtime registry, so the
+# registry accepts any framework string under `runtime.framework`.
 agentbreeder registry agent push agent.yaml
 ```
 

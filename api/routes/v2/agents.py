@@ -111,23 +111,31 @@ async def batch_register_agents_v2(
     results: list[dict[str, AgentResponse | str | None]] = []
     for agent_create in agents:
         try:
+            from api.routes.agents import _guess_language_for_framework
             from engine.config_parser import AgentConfig, FrameworkType
             from registry.agents import AgentRegistry
 
-            config = AgentConfig(
-                name=agent_create.name,
-                version=agent_create.version,
-                description=agent_create.description,
-                team=agent_create.team,
-                owner=agent_create.owner,
-                framework=FrameworkType(agent_create.framework),
-                model={
+            config_kwargs: dict = {
+                "name": agent_create.name,
+                "version": agent_create.version,
+                "description": agent_create.description,
+                "team": agent_create.team,
+                "owner": agent_create.owner,
+                "model": {
                     "primary": agent_create.model_primary,
                     "fallback": agent_create.model_fallback,
                 },
-                deploy={"cloud": "local"},
-                tags=agent_create.tags,
-            )
+                "deploy": {"cloud": "local"},
+                "tags": agent_create.tags,
+            }
+            try:
+                config_kwargs["framework"] = FrameworkType(agent_create.framework)
+            except ValueError:
+                config_kwargs["runtime"] = {
+                    "language": _guess_language_for_framework(agent_create.framework),
+                    "framework": agent_create.framework,
+                }
+            config = AgentConfig(**config_kwargs)
             created = await AgentRegistry.register(
                 db, config, endpoint_url=agent_create.endpoint_url or ""
             )

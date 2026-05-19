@@ -6,7 +6,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -219,12 +219,18 @@ async def ingest_files(
     index_id: str,
     _user: User = Depends(require_role("deployer")),
     files: list[UploadFile] = File(...),
+    replace: bool = Form(False),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[dict]:
     """Upload and ingest files into a vector index.
 
     Accepted formats: PDF, TXT, MD, CSV, JSON.
     Files are chunked, embedded, and indexed in the background.
+
+    Setting ``replace=true`` deletes any existing chunks whose ``source``
+    matches one of the incoming filenames before ingestion. When omitted
+    (default), ingest is idempotent: chunks whose SHA-256 content hash is
+    already in the index are skipped.
     """
     try:
         await _enforce_acl(db, _user.email, uuid.UUID(index_id), "write")
@@ -261,7 +267,7 @@ async def ingest_files(
         file_data.append((filename, content))
 
     # Run ingestion (in-process for now; background task for production)
-    job = await store.ingest_files(index_id, file_data)
+    job = await store.ingest_files(index_id, file_data, replace=replace)
     return ApiResponse(data=job.to_dict())
 
 
