@@ -51,6 +51,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 - **Fixed** `dashboard/Dockerfile` build stage now uses `node:22-slim` (Debian glibc) instead of `node:22-alpine` (musl). Eliminates the esbuild EPIPE that intermittently killed `vite build` under Docker Desktop / BuildKit on macOS. `NODE_OPTIONS=--max-old-space-size=4096` added as belt-and-suspenders.
 
+### v2.3 — pgvector wire-through to RAGStore (#434, closes #423)
+
+- **Added** `RAGIndex.backend` + `backend_config` fields; `RAGStore` now lazily caches per-index backends and dispatches `search` / `upsert` to them when configured.
+- **Restart-safe** search no longer short-circuits on empty `idx.chunks` when an external backend is in play — answers come from Postgres after a server restart.
+- Stacked on #422 (HR-4 backend adapter).
+
 ### Platform Audit Summary (2026-05-18)
 
 A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:

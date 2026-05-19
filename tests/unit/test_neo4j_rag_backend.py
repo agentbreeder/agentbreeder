@@ -549,7 +549,7 @@ class TestBackendRegistry:
         assert isinstance(instance, RAGStore)
 
     def test_get_rag_backend_pgvector_returns_real_backend(self):
-        """HR-4 (#406): pgvector backend now returns the real PgvectorRAGBackend."""
+        """HR-4 (#406) shipped the real adapter; #423 wires it through RAGStore."""
         from api.services.pgvector_rag_backend import PgvectorRAGBackend
 
         instance = get_rag_backend(

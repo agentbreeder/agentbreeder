@@ -178,6 +178,10 @@ class RAGIndex:
     relationship_types: list[str] = field(default_factory=list)
     node_count: int = 0
     edge_count: int = 0
+    # Backend selection (#423 — pgvector wire-through). "in_memory" keeps the
+    # legacy behaviour; "pgvector" routes upsert/search to PgvectorRAGBackend.
+    backend: str = "in_memory"
+    backend_config: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -200,6 +204,7 @@ class RAGIndex:
             "relationship_types": self.relationship_types,
             "node_count": self.node_count,
             "edge_count": self.edge_count,
+            "backend": self.backend,
         }
 
 
@@ -949,6 +954,10 @@ class RAGStore:
     def __init__(self) -> None:
         self._indexes: dict[str, RAGIndex] = {}
         self._jobs: dict[str, IngestJob] = {}
+        # #423: per-index backend instances (connected lazily on first use).
+        # Key = index_id; value = whatever ``get_rag_backend`` returns for the
+        # index's ``backend`` field. Only populated for non-in-memory backends.
+        self._backends: dict[str, Any] = {}
 
     # --- Index CRUD ---
 
@@ -965,6 +974,8 @@ class RAGStore:
         entity_model: str = DEFAULT_ENTITY_MODEL,
         max_hops: int = 2,
         relationship_types: list[str] | None = None,
+        backend: str = "in_memory",
+        backend_config: dict[str, Any] | None = None,
     ) -> RAGIndex:
         try:
             idx_type = IndexType(index_type)
@@ -992,9 +1003,45 @@ class RAGStore:
             entity_model=entity_model,
             max_hops=max_hops,
             relationship_types=relationship_types if relationship_types is not None else [],
+            backend=backend,
+            backend_config=backend_config or {},
         )
         self._indexes[index_id] = idx
         return idx
+
+    # --- Backend lifecycle (#423) -----------------------------------------
+
+    async def _get_backend(self, idx: RAGIndex) -> Any | None:
+        """Return the connected backend for ``idx``, or None for in-memory.
+
+        Backends are connected lazily on first use and cached on ``self``.
+        Callers in the ingest + search paths use this to decide whether to
+        write/read through Postgres (or another external store) instead of
+        the in-memory ``idx.chunks`` list.
+        """
+        if idx.backend in ("", "in_memory"):
+            return None
+        cached = self._backends.get(idx.id)
+        if cached is not None:
+            return cached
+        from registry.rag import get_rag_backend  # noqa: PLC0415
+
+        backend = get_rag_backend(idx.backend, config=idx.backend_config, index_id=idx.id)
+        if hasattr(backend, "connect"):
+            await backend.connect()
+        self._backends[idx.id] = backend
+        return backend
+
+    async def close_backends(self) -> None:
+        """Close every cached backend. Call from the app's shutdown hook."""
+        for backend in list(self._backends.values()):
+            close = getattr(backend, "close", None)
+            if close is not None:
+                try:
+                    await close()
+                except Exception:
+                    logger.warning("backend.close() failed", exc_info=True)
+        self._backends.clear()
 
     def get_index(self, index_id: str) -> RAGIndex | None:
         return self._indexes.get(index_id)
@@ -1200,6 +1247,37 @@ class RAGStore:
             idx.doc_count += len(files)
             idx.updated_at = datetime.now(UTC).isoformat()
 
+            # #423 — pgvector wire-through. When a backend is configured,
+            # mirror the newly embedded chunks into it so search can
+            # dispatch through Postgres (or another store) instead of the
+            # in-memory list. Best-effort: a backend hiccup logs a warning
+            # but does NOT fail the ingest (the in-memory copy is still
+            # consistent with what the user uploaded).
+            backend = await self._get_backend(idx)
+            if backend is not None and new_chunks:
+                try:
+                    payload_chunks: list[dict[str, Any]] = []
+                    for c in new_chunks:
+                        if c.embedding is None:
+                            continue
+                        chunk_metadata: dict[str, Any] = dict(c.metadata)
+                        chunk_metadata["source"] = c.source
+                        payload_chunks.append(
+                            {
+                                "id": c.id,
+                                "text": c.text,
+                                "embedding": c.embedding,
+                                "metadata": chunk_metadata,
+                            }
+                        )
+                    await backend.upsert_chunks(payload_chunks)
+                except Exception:
+                    logger.warning(
+                        "backend.upsert_chunks failed for index %s; in-memory copy intact",
+                        index_id,
+                        exc_info=True,
+                    )
+
             job.status = IngestJobStatus.completed
             job.completed_at = datetime.now(UTC).isoformat()
 
@@ -1256,7 +1334,10 @@ class RAGStore:
         if not idx:
             raise ValueError(f"Index {index_id} not found")
 
-        if not idx.chunks:
+        # #423: only short-circuit on empty idx.chunks for purely in-memory
+        # indexes. With an external backend, idx.chunks can be empty after a
+        # server restart even though Postgres still holds the data.
+        if not idx.chunks and idx.backend == "in_memory":
             logger.info(
                 "rag.search.complete",
                 extra={
@@ -1301,20 +1382,42 @@ class RAGStore:
                 )
                 return []
 
-            hits = hybrid_search(
-                query_embedding=query_embedding_result.vectors[0],
-                query_text=query,
-                chunks=idx.chunks,
-                top_k=effective_k,
-                vector_weight=vector_weight,
-                text_weight=text_weight,
-            )
+            # #423 — pgvector wire-through. When the index has an external
+            # backend configured, route the vector query through it and
+            # skip the in-memory hybrid path. The BM25/text leg of the
+            # hybrid search isn't yet expressed through pgvector; that's
+            # tracked as future work (Postgres FTS integration).
+            backend = await self._get_backend(idx)
+            if backend is not None and hasattr(backend, "search"):
+                raw = await backend.search(query_embedding_result.vectors[0], top_k=effective_k)
+                hits = [
+                    SearchHit(
+                        chunk_id=row["chunk_id"],
+                        text=row["text"],
+                        source=str(row.get("metadata", {}).get("source", "")),
+                        score=float(row.get("score", 0.0)),
+                        metadata={
+                            k: v for k, v in (row.get("metadata") or {}).items() if k != "source"
+                        },
+                        degraded=query_embedding_result.used_fallback,
+                    )
+                    for row in raw
+                ]
+            else:
+                hits = hybrid_search(
+                    query_embedding=query_embedding_result.vectors[0],
+                    query_text=query,
+                    chunks=idx.chunks,
+                    top_k=effective_k,
+                    vector_weight=vector_weight,
+                    text_weight=text_weight,
+                )
 
-            # Propagate fallback flag onto each hit so the API layer can surface
-            # search-quality degradation to the caller.
-            if query_embedding_result.used_fallback:
-                for h in hits:
-                    h.degraded = True
+                # Propagate fallback flag onto each hit so the API layer can
+                # surface search-quality degradation to the caller.
+                if query_embedding_result.used_fallback:
+                    for h in hits:
+                        h.degraded = True
 
         # W5-R12: apply metadata post-filter, then truncate to top_k.
         if filters:
