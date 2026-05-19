@@ -57,6 +57,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Restart-safe** search no longer short-circuits on empty `idx.chunks` when an external backend is in play — answers come from Postgres after a server restart.
 - Stacked on #422 (HR-4 backend adapter).
 
+### v2.3 — GCP greenfield provisioner (#437, closes #382)
+
+- **Added** `GCPProvisioner.provision()` / `destroy()` — creates Artifact Registry repo + per-agent Service Account + 4 default IAM bindings (storage.objectViewer, cloudbuild.builds.builder, logging.logWriter, secretmanager.secretAccessor). Idempotent.
+- **Deferred** Cloud SQL → #435, VPC Connector → #436. Both surface as explicit deferred markers in `InfraState.resources` when requested.
+- Stacked on #413 (Phase A foundation).
+
 ### Platform Audit Summary (2026-05-18)
 
 A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:

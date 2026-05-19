@@ -1,9 +1,9 @@
-"""GCP infrastructure validator (google-cloud SDKs, read-only)."""
+"""GCP provisioner — validates BYO infra and greenfield-provisions per agent (#382)."""
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from engine.provisioners.base import (
     InfraProvisioner,
@@ -11,6 +11,10 @@ from engine.provisioners.base import (
     ValidationCheck,
     ValidationResult,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from engine.provisioners.base import ProgressCallback
+    from engine.provisioners.state import InfraState
 
 logger = logging.getLogger(__name__)
 
@@ -109,3 +113,291 @@ class GCPProvisioner(InfraProvisioner):
 
         valid = all(c.status == "found" for c in checks)
         return ValidationResult(valid=valid, cloud="gcp", region=region, checks=checks)
+
+    # ------------------------------------------------------------------
+    # Greenfield provisioning (#382)
+    # ------------------------------------------------------------------
+
+    async def provision(  # type: ignore[override]
+        self,
+        payload: InfraValidationInput,
+        progress: ProgressCallback | None = None,
+    ) -> InfraState:
+        """Create the minimum-viable GCP footprint for an AgentBreeder Cloud Run deploy.
+
+        Today: Artifact Registry repo + per-agent Service Account + 4 default
+        IAM bindings (storage.objectViewer / cloudbuild.builds.builder /
+        logging.logWriter / secretmanager.secretAccessor). All operations are
+        idempotent — re-running is safe.
+
+        Cloud SQL (#435) and Serverless VPC Connector (#436) are tracked as
+        follow-up issues; this method does not provision them. When the agent
+        has `memory:` or declares a private service, the caller should explicitly
+        provision those resources first or wait for the follow-up PRs.
+        """
+        from datetime import UTC, datetime
+
+        from engine.provisioners.state import InfraState
+
+        fields = payload.fields
+        region = payload.region or fields.get("GCP_REGION", "us-central1")
+        project = str(fields.get("GOOGLE_CLOUD_PROJECT", "")).strip()
+        if not project:
+            raise ValueError("provision(gcp): GOOGLE_CLOUD_PROJECT is required")
+
+        agent_name = str(fields.get("GCP_AGENT_NAME", "agentbreeder-default"))
+        repo_name = str(fields.get("GCP_ARTIFACT_REGISTRY_REPO", "agentbreeder"))
+        roles: list[str] = list(
+            fields.get(
+                "GCP_DEFAULT_SA_ROLES",
+                [
+                    "roles/storage.objectViewer",
+                    "roles/cloudbuild.builds.builder",
+                    "roles/logging.logWriter",
+                    "roles/secretmanager.secretAccessor",
+                ],
+            )
+        )
+
+        resources: dict[str, Any] = {}
+
+        async def _emit(msg: str) -> None:
+            logger.info("gcp.provision: %s", msg)
+            if progress is not None:
+                await progress(msg)
+
+        # ---- 1. Artifact Registry repo ----------------------------------
+        await _emit(f"ensuring Artifact Registry repo '{repo_name}' in {region}")
+        await self._ensure_artifact_registry_repo(
+            project=project, region=region, repo=repo_name, fields=fields
+        )
+        resources["artifact_registry"] = {
+            "name": f"projects/{project}/locations/{region}/repositories/{repo_name}",
+            "repo": repo_name,
+            "region": region,
+        }
+
+        # ---- 2. Per-agent Service Account + IAM ------------------------
+        sa_id = _truncate_sa_id(agent_name)
+        sa_email = f"{sa_id}@{project}.iam.gserviceaccount.com"
+        await _emit(f"ensuring Service Account '{sa_email}'")
+        await self._ensure_service_account(
+            project=project,
+            sa_id=sa_id,
+            agent_name=agent_name,
+            fields=fields,
+        )
+        if roles:
+            await _emit(f"binding {len(roles)} IAM role(s) to '{sa_email}': {', '.join(roles)}")
+            await self._bind_iam_roles(
+                project=project, sa_email=sa_email, roles=roles, fields=fields
+            )
+        resources["service_account"] = {
+            "email": sa_email,
+            "sa_id": sa_id,
+            "roles": roles,
+            "project": project,
+        }
+
+        # Cloud SQL + VPC Connector are tracked as follow-ups #435 + #436.
+        # Surface the deferral in the state so operators see it explicitly.
+        if fields.get("GCP_PROVISION_CLOUD_SQL"):
+            resources["cloud_sql"] = {
+                "status": "deferred",
+                "note": "Cloud SQL provisioning tracked under follow-up #435 (sibling of #382).",
+            }
+        if fields.get("GCP_PROVISION_VPC_CONNECTOR"):
+            resources["vpc_connector"] = {
+                "status": "deferred",
+                "note": "Serverless VPC Connector provisioning tracked under follow-up #436.",
+            }
+
+        state = InfraState(
+            cloud="gcp",
+            region=region,
+            provisioned_by="agentbreeder.GCPProvisioner",
+            provisioned_at=datetime.now(UTC),
+            mode="provisioned",
+            resources=resources,
+        )
+        await _emit("provision complete")
+        return state
+
+    async def destroy(self, state: InfraState) -> None:  # type: ignore[override]
+        """Reverse what :meth:`provision` created, in safe order."""
+        if state.cloud != "gcp":
+            raise ValueError(f"destroy(gcp): state.cloud is {state.cloud!r}, expected 'gcp'")
+
+        resources = dict(state.resources)
+        # Pull credentials from env (ADC) — destroy is rare enough that we don't
+        # carry the original `fields` dict on InfraState. Operators using a
+        # specific SA key for destroy should set GOOGLE_APPLICATION_CREDENTIALS.
+        fields: dict[str, Any] = {}
+
+        if sa := resources.get("service_account"):
+            try:
+                await self._delete_service_account(
+                    project=sa["project"], sa_email=sa["email"], fields=fields
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("destroy(gcp): failed to delete SA %s", sa.get("email"))
+
+        if ar := resources.get("artifact_registry"):
+            try:
+                await self._delete_artifact_registry_repo(name=ar["name"], fields=fields)
+            except Exception:  # noqa: BLE001
+                logger.exception("destroy(gcp): failed to delete AR repo %s", ar.get("name"))
+
+    # ------------------------------------------------------------------
+    # Low-level GCP API wrappers — broken out so unit tests can patch them.
+    # ------------------------------------------------------------------
+
+    async def _ensure_artifact_registry_repo(
+        self,
+        *,
+        project: str,
+        region: str,
+        repo: str,
+        fields: dict[str, Any],
+    ) -> None:
+        from google.api_core.exceptions import AlreadyExists, NotFound
+        from google.cloud import artifactregistry_v1
+
+        creds = _credentials(fields)
+        client = artifactregistry_v1.ArtifactRegistryAsyncClient(credentials=creds)
+        parent = f"projects/{project}/locations/{region}"
+        name = f"{parent}/repositories/{repo}"
+        try:
+            await client.get_repository(
+                request=artifactregistry_v1.GetRepositoryRequest(name=name)
+            )
+            logger.debug("artifact registry repo %s already exists", repo)
+            return
+        except NotFound:
+            pass
+        try:
+            await client.create_repository(
+                request=artifactregistry_v1.CreateRepositoryRequest(
+                    parent=parent,
+                    repository_id=repo,
+                    repository=artifactregistry_v1.Repository(
+                        format_=artifactregistry_v1.Repository.Format.DOCKER,
+                        description=f"AgentBreeder container images for {project}",
+                    ),
+                )
+            )
+        except AlreadyExists:
+            logger.debug("artifact registry repo %s created concurrently", repo)
+
+    async def _delete_artifact_registry_repo(self, *, name: str, fields: dict[str, Any]) -> None:
+        from google.api_core.exceptions import NotFound
+        from google.cloud import artifactregistry_v1
+
+        creds = _credentials(fields)
+        client = artifactregistry_v1.ArtifactRegistryAsyncClient(credentials=creds)
+        try:
+            op = await client.delete_repository(
+                request=artifactregistry_v1.DeleteRepositoryRequest(name=name)
+            )
+            await op.result()
+        except NotFound:
+            logger.debug("artifact registry repo %s already absent", name)
+
+    async def _ensure_service_account(
+        self,
+        *,
+        project: str,
+        sa_id: str,
+        agent_name: str,
+        fields: dict[str, Any],
+    ) -> None:
+        from google.api_core.exceptions import AlreadyExists, NotFound
+        from google.cloud import iam_admin_v1
+
+        creds = _credentials(fields)
+        client = iam_admin_v1.IAMClient(credentials=creds)
+        sa_email = f"{sa_id}@{project}.iam.gserviceaccount.com"
+        sa_resource = f"projects/{project}/serviceAccounts/{sa_email}"
+        try:
+            client.get_service_account(name=sa_resource)
+            logger.debug("service account %s already exists", sa_email)
+            return
+        except NotFound:
+            pass
+        try:
+            client.create_service_account(
+                name=f"projects/{project}",
+                account_id=sa_id,
+                service_account=iam_admin_v1.ServiceAccount(
+                    display_name=f"AgentBreeder agent: {agent_name}",
+                    description=(
+                        f"Per-agent runtime identity for AgentBreeder agent '{agent_name}'"
+                    ),
+                ),
+            )
+        except AlreadyExists:
+            logger.debug("service account %s created concurrently", sa_email)
+
+    async def _delete_service_account(
+        self, *, project: str, sa_email: str, fields: dict[str, Any]
+    ) -> None:
+        from google.api_core.exceptions import NotFound
+        from google.cloud import iam_admin_v1
+
+        creds = _credentials(fields)
+        client = iam_admin_v1.IAMClient(credentials=creds)
+        sa_resource = f"projects/{project}/serviceAccounts/{sa_email}"
+        try:
+            client.delete_service_account(name=sa_resource)
+        except NotFound:
+            logger.debug("service account %s already absent", sa_email)
+
+    async def _bind_iam_roles(
+        self,
+        *,
+        project: str,
+        sa_email: str,
+        roles: list[str],
+        fields: dict[str, Any],
+    ) -> None:
+        """Idempotently bind each role to the SA on the project IAM policy."""
+        try:
+            from googleapiclient import discovery
+        except ImportError:
+            logger.warning(
+                "google-api-python-client not installed — skipping IAM binding for %s",
+                sa_email,
+            )
+            return
+
+        crm = discovery.build("cloudresourcemanager", "v1", cache_discovery=False)
+        policy = (
+            crm.projects()
+            .getIamPolicy(resource=project, body={"options": {"requestedPolicyVersion": 1}})
+            .execute()
+        )
+        member = f"serviceAccount:{sa_email}"
+        mutated = False
+        for role in roles:
+            binding = next((b for b in policy.get("bindings", []) if b["role"] == role), None)
+            if binding:
+                if member not in binding["members"]:
+                    binding["members"].append(member)
+                    mutated = True
+            else:
+                policy.setdefault("bindings", []).append({"role": role, "members": [member]})
+                mutated = True
+        if mutated:
+            crm.projects().setIamPolicy(resource=project, body={"policy": policy}).execute()
+
+
+def _truncate_sa_id(agent_name: str) -> str:
+    """GCP Service Account IDs are 6-30 chars, lowercase letters/digits/hyphens.
+
+    Mirrors the convention in :mod:`engine.deployers.identity` so a future
+    consolidation drops one of the two helpers without changing behaviour.
+    """
+    raw = f"ab-{agent_name[:24]}".rstrip("-").lower()
+    safe = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in raw)
+    safe = safe.strip("-")
+    return safe[:30] if len(safe) >= 6 else (safe + "-default")[:30]
