@@ -504,6 +504,7 @@ class TestDeploy:
         image = _make_image()
 
         with (
+            patch.object(deployer, "_lookup_existing", new_callable=AsyncMock, return_value=None),
             patch.object(deployer, "_get_k8s_clients", return_value=(MagicMock(), MagicMock())),
             patch.object(deployer, "_ensure_namespace"),
             patch.object(deployer, "_build_docker_image", new_callable=AsyncMock),
@@ -523,6 +524,7 @@ class TestDeploy:
         image = _make_image()
 
         with (
+            patch.object(deployer, "_lookup_existing", new_callable=AsyncMock, return_value=None),
             patch.object(deployer, "_get_k8s_clients", return_value=(MagicMock(), MagicMock())),
             patch.object(deployer, "_ensure_namespace"),
             patch.object(deployer, "_build_docker_image", new_callable=AsyncMock),
@@ -542,6 +544,7 @@ class TestDeploy:
         image = _make_image()
 
         with (
+            patch.object(deployer, "_lookup_existing", new_callable=AsyncMock, return_value=None),
             patch.object(deployer, "_get_k8s_clients", return_value=(MagicMock(), MagicMock())),
             patch.object(deployer, "_ensure_namespace"),
             patch.object(deployer, "_build_docker_image", new_callable=AsyncMock),
@@ -569,6 +572,7 @@ class TestDeploy:
             captured_image_name.append(name)
 
         with (
+            patch.object(deployer, "_lookup_existing", new_callable=AsyncMock, return_value=None),
             patch.object(deployer, "_get_k8s_clients", return_value=(MagicMock(), MagicMock())),
             patch.object(deployer, "_ensure_namespace"),
             patch.object(deployer, "_build_docker_image", side_effect=capture_build),

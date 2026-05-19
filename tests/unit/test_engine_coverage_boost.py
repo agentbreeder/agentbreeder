@@ -1593,7 +1593,7 @@ class TestOpenAIProviderHealthCheck:
         ):
             result = await provider.health_check()
 
-        assert result is True
+        assert result.healthy is True
 
     @pytest.mark.asyncio
     async def test_health_check_unhealthy(self) -> None:
@@ -1613,7 +1613,7 @@ class TestOpenAIProviderHealthCheck:
         ):
             result = await provider.health_check()
 
-        assert result is False
+        assert result.healthy is False
 
 
 class TestOpenAIProviderCollectStream:
