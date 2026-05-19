@@ -2,7 +2,7 @@
 
 Originated from issue #73 (OTel observability) — generalised in Track J of the
 v2 platform spec to handle tracing, cost, guardrails, A2A, and MCP in one Go
-binary (rajits/agentbreeder-sidecar).
+binary (agentbreeder/agentbreeder-sidecar).
 
 Usage from a deployer:
 

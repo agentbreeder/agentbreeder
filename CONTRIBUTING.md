@@ -236,7 +236,7 @@ The CLI (`python -m cli.main`) works in any additional terminal once the service
 **Or use `agentbreeder quickstart` for a one-command local stack:**
 
 ```bash
-agentbreeder quickstart           # pulls rajits/agentbreeder-{api,dashboard}:latest from Docker Hub
+agentbreeder quickstart           # pulls agentbreeder/agentbreeder-{api,dashboard}:latest from Docker Hub
 agentbreeder quickstart --dev     # builds API + Dashboard images from your local source
 ```
 
@@ -246,7 +246,7 @@ Use `--dev` whenever you have changes in `api/`, `engine/`, `dashboard/src/`, or
 
 ```bash
 agentbreeder down
-docker rmi rajits/agentbreeder-dashboard:latest rajits/agentbreeder-api:latest 2>/dev/null
+docker rmi agentbreeder/agentbreeder-dashboard:latest agentbreeder/agentbreeder-api:latest 2>/dev/null
 docker compose -f deploy/docker-compose.quickstart.yml build --no-cache dashboard api
 agentbreeder quickstart --dev
 ```

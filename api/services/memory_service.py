@@ -394,8 +394,14 @@ class MemoryService:
             if config_row is None:
                 return None
 
-            # Team-scope enforcement
-            if config_row.scope == "team" and requesting_team is not None:
+            # Team-scope enforcement. requesting_team MUST be supplied for
+            # team-scoped configs; routes resolve it from the authenticated
+            # principal. A None team is treated as a cross-team attempt.
+            if config_row.scope == "team":
+                if requesting_team is None:
+                    raise PermissionError(
+                        "Team scope violation: requesting_team is required for team-scoped configs"
+                    )
                 if config_row.team != requesting_team:
                     raise PermissionError("Team scope violation")
 
@@ -571,8 +577,14 @@ class MemoryService:
             if config_row is None:
                 return []
 
-            # Team-scope enforcement
-            if config_row.scope == "team" and requesting_team is not None:
+            # Team-scope enforcement. requesting_team MUST be supplied for
+            # team-scoped configs; routes resolve it from the authenticated
+            # principal. A None team is treated as a cross-team attempt.
+            if config_row.scope == "team":
+                if requesting_team is None:
+                    raise PermissionError(
+                        "Team scope violation: requesting_team is required for team-scoped configs"
+                    )
                 if config_row.team != requesting_team:
                     raise PermissionError("Team scope violation")
 
