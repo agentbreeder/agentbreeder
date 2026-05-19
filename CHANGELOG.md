@@ -63,6 +63,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Deferred** Cloud SQL → #435, VPC Connector → #436. Both surface as explicit deferred markers in `InfraState.resources` when requested.
 - Stacked on #413 (Phase A foundation).
 
+### v2.3 — GCP Serverless VPC Connector provisioning (#436)
+
+- **Added** `GCPProvisioner._ensure_vpc_connector()` / `_delete_vpc_connector()` — creates a Serverless VPC Access connector named `ab-{agent_name}` (`e2-micro`, min 2 / max 3 instances, `/28` IP range `10.8.0.0/28` by default). Idempotent (check-then-create) and reverses cleanly in `destroy()`.
+- **Trigger** explicit via `GCP_PROVISION_VPC_CONNECTOR=1`, or implicit when Cloud SQL is requested with private IP (the #435 path). Tuning knobs: `GCP_VPC_NAME` (default `default`), `GCP_VPC_CONNECTOR_IP_CIDR`, `GCP_VPC_CONNECTOR_MIN_INSTANCES`, `GCP_VPC_CONNECTOR_MAX_INSTANCES`, `GCP_VPC_CONNECTOR_MACHINE_TYPE`.
+- **Wiring** Cloud Run deploy already honoured `GCP_VPC_CONNECTOR` (`engine/deployers/gcp_cloudrun.py:110`); operators now pipe the connector name from `.agentbreeder/infra-state.json` instead of provisioning out of band.
+- **Deps** added `google-cloud-vpc-access>=1.10.0` to the `gcp` + `all-clouds` extras.
+- **Tests** 9 new unit tests cover the trigger predicate (`_should_provision_vpc_connector`), the truncator (`_truncate_connector_id` — 2-25 chars, lowercase, hyphenated), the create / skip / custom-network / idempotent-state paths, plus destroy semantics including the legacy "deferred-marker" branch.
+
 ### Platform Audit Summary (2026-05-18)
 
 A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:

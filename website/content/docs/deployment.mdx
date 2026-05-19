@@ -124,6 +124,32 @@ You still need the four IAM roles documented in [One-time IAM grants](#one-time-
 `resourcemanager:GetProject`, `artifactregistry:GetRepository`,
 `iam:GetServiceAccount`.
 
+**Greenfield mode (`agentbreeder deploy --target gcp --provision`):**
+
+For fresh GCP projects, AgentBreeder can create infrastructure on your behalf
+in place of the "Full mode" inputs above. Only `GOOGLE_CLOUD_PROJECT` and
+`GCP_REGION` are required; everything else is opt-in via environment flags.
+
+| Flag | Effect |
+|---|---|
+| _default_ | Artifact Registry repo `agentbreeder` + per-agent Service Account `ab-<agent-name>` + 4 IAM roles |
+| `GCP_PROVISION_VPC_CONNECTOR=1` | Adds a Serverless VPC Access connector `ab-<agent-name>` (e2-micro, 2–3 instances) on the `default` VPC. Wire it into Cloud Run by setting `GCP_VPC_CONNECTOR` to the connector name from `.agentbreeder/infra-state.json`. |
+| `GCP_PROVISION_CLOUD_SQL=1` | (Tracked under [#435](https://github.com/agentbreeder/agentbreeder/issues/435).) Implies VPC connector unless `GCP_CLOUD_SQL_PRIVATE_IP=0`. |
+
+VPC connector tuning (all optional):
+
+| Variable | Default | Description |
+|---|---|---|
+| `GCP_VPC_NAME` | `default` | VPC network to attach the connector to |
+| `GCP_VPC_CONNECTOR_IP_CIDR` | `10.8.0.0/28` | `/28` range for the connector (must not overlap existing subnets) |
+| `GCP_VPC_CONNECTOR_MIN_INSTANCES` | `2` | Minimum throughput instances |
+| `GCP_VPC_CONNECTOR_MAX_INSTANCES` | `3` | Maximum throughput instances |
+| `GCP_VPC_CONNECTOR_MACHINE_TYPE` | `e2-micro` | Per-instance machine type |
+
+State is written to `.agentbreeder/infra-state.json`; `agentbreeder teardown
+--destroy-infra` reverses everything in safe order (connector → service
+account → Artifact Registry repo).
+
 </Tab>
 <Tab value="Azure">
 
