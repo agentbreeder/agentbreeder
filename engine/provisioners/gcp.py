@@ -127,13 +127,13 @@ class GCPProvisioner(InfraProvisioner):
 
         Today: Artifact Registry repo + per-agent Service Account + 4 default
         IAM bindings (storage.objectViewer / cloudbuild.builds.builder /
-        logging.logWriter / secretmanager.secretAccessor). All operations are
-        idempotent — re-running is safe.
+        logging.logWriter / secretmanager.secretAccessor), plus an optional
+        Serverless VPC Access connector (#436) when ``GCP_PROVISION_VPC_CONNECTOR``
+        is set. All operations are idempotent — re-running is safe.
 
-        Cloud SQL (#435) and Serverless VPC Connector (#436) are tracked as
-        follow-up issues; this method does not provision them. When the agent
-        has `memory:` or declares a private service, the caller should explicitly
-        provision those resources first or wait for the follow-up PRs.
+        Cloud SQL (#435) is tracked as a follow-up issue; this method does not
+        provision it. When the agent has ``memory:``, the caller should
+        explicitly provision Cloud SQL first or wait for the follow-up PR.
         """
         from datetime import UTC, datetime
 
@@ -199,17 +199,32 @@ class GCPProvisioner(InfraProvisioner):
             "project": project,
         }
 
-        # Cloud SQL + VPC Connector are tracked as follow-ups #435 + #436.
-        # Surface the deferral in the state so operators see it explicitly.
+        # ---- 3. Serverless VPC Access Connector (optional, #436) -------
+        if _should_provision_vpc_connector(fields):
+            connector_id = _truncate_connector_id(agent_name)
+            network = str(fields.get("GCP_VPC_NAME", "default"))
+            await _emit(
+                f"ensuring Serverless VPC Connector '{connector_id}' on network '{network}'"
+            )
+            connector_name = await self._ensure_vpc_connector(
+                project=project,
+                region=region,
+                connector_id=connector_id,
+                network=network,
+                fields=fields,
+            )
+            resources["vpc_connector"] = {
+                "name": connector_name,
+                "connector_id": connector_id,
+                "region": region,
+                "network": network,
+            }
+
+        # ---- 4. Cloud SQL — tracked as follow-up #435 ------------------
         if fields.get("GCP_PROVISION_CLOUD_SQL"):
             resources["cloud_sql"] = {
                 "status": "deferred",
                 "note": "Cloud SQL provisioning tracked under follow-up #435 (sibling of #382).",
-            }
-        if fields.get("GCP_PROVISION_VPC_CONNECTOR"):
-            resources["vpc_connector"] = {
-                "status": "deferred",
-                "note": "Serverless VPC Connector provisioning tracked under follow-up #436.",
             }
 
         state = InfraState(
@@ -233,6 +248,15 @@ class GCPProvisioner(InfraProvisioner):
         # carry the original `fields` dict on InfraState. Operators using a
         # specific SA key for destroy should set GOOGLE_APPLICATION_CREDENTIALS.
         fields: dict[str, Any] = {}
+
+        if vpc := resources.get("vpc_connector"):
+            if vpc.get("name"):
+                try:
+                    await self._delete_vpc_connector(name=vpc["name"], fields=fields)
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "destroy(gcp): failed to delete VPC connector %s", vpc.get("name")
+                    )
 
         if sa := resources.get("service_account"):
             try:
@@ -352,6 +376,78 @@ class GCPProvisioner(InfraProvisioner):
         except NotFound:
             logger.debug("service account %s already absent", sa_email)
 
+    async def _ensure_vpc_connector(
+        self,
+        *,
+        project: str,
+        region: str,
+        connector_id: str,
+        network: str,
+        fields: dict[str, Any],
+    ) -> str:
+        """Create a Serverless VPC Access connector if absent, return its full name.
+
+        Idempotent: if the connector already exists it is returned untouched
+        regardless of its current min/max/machine-type settings. Operators who
+        need to resize must delete and re-provision.
+        """
+        from google.api_core.exceptions import AlreadyExists, NotFound
+        from google.cloud import vpcaccess_v1
+
+        creds = _credentials(fields)
+        client = vpcaccess_v1.VpcAccessServiceAsyncClient(credentials=creds)
+        parent = f"projects/{project}/locations/{region}"
+        name = f"{parent}/connectors/{connector_id}"
+
+        try:
+            existing = await client.get_connector(
+                request=vpcaccess_v1.GetConnectorRequest(name=name)
+            )
+            logger.debug("vpc connector %s already exists", connector_id)
+            return existing.name
+        except NotFound:
+            pass
+
+        ip_cidr = str(fields.get("GCP_VPC_CONNECTOR_IP_CIDR", "10.8.0.0/28"))
+        min_instances = int(fields.get("GCP_VPC_CONNECTOR_MIN_INSTANCES", 2))
+        max_instances = int(fields.get("GCP_VPC_CONNECTOR_MAX_INSTANCES", 3))
+        machine_type = str(fields.get("GCP_VPC_CONNECTOR_MACHINE_TYPE", "e2-micro"))
+
+        connector = vpcaccess_v1.Connector(
+            network=network,
+            ip_cidr_range=ip_cidr,
+            min_instances=min_instances,
+            max_instances=max_instances,
+            machine_type=machine_type,
+        )
+        try:
+            op = await client.create_connector(
+                request=vpcaccess_v1.CreateConnectorRequest(
+                    parent=parent,
+                    connector_id=connector_id,
+                    connector=connector,
+                )
+            )
+            created = await op.result()
+            return created.name
+        except AlreadyExists:
+            logger.debug("vpc connector %s created concurrently", connector_id)
+            return name
+
+    async def _delete_vpc_connector(self, *, name: str, fields: dict[str, Any]) -> None:
+        from google.api_core.exceptions import NotFound
+        from google.cloud import vpcaccess_v1
+
+        creds = _credentials(fields)
+        client = vpcaccess_v1.VpcAccessServiceAsyncClient(credentials=creds)
+        try:
+            op = await client.delete_connector(
+                request=vpcaccess_v1.DeleteConnectorRequest(name=name)
+            )
+            await op.result()
+        except NotFound:
+            logger.debug("vpc connector %s already absent", name)
+
     async def _bind_iam_roles(
         self,
         *,
@@ -389,6 +485,34 @@ class GCPProvisioner(InfraProvisioner):
                 mutated = True
         if mutated:
             crm.projects().setIamPolicy(resource=project, body={"policy": policy}).execute()
+
+
+def _should_provision_vpc_connector(fields: dict[str, Any]) -> bool:
+    """Trigger predicate: explicit opt-in, or implicit when Cloud SQL needs private IP.
+
+    The Cloud SQL implicit branch is wired in #435; #436 alone honours only the
+    explicit flag so the two PRs stack cleanly.
+    """
+    flag = fields.get("GCP_PROVISION_VPC_CONNECTOR")
+    if flag in (True, 1, "1", "true", "True", "yes"):
+        return True
+    return bool(fields.get("GCP_PROVISION_CLOUD_SQL")) and bool(
+        fields.get("GCP_CLOUD_SQL_PRIVATE_IP", True)
+    )
+
+
+def _truncate_connector_id(agent_name: str) -> str:
+    """Serverless VPC Access connector IDs are 2-25 chars, lowercase letters/digits/hyphens.
+
+    Mirrors the policy of :func:`_truncate_sa_id` so the connector and SA share
+    a derivable identity per agent.
+    """
+    raw = f"ab-{agent_name[:20]}".rstrip("-").lower()
+    safe = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in raw)
+    safe = safe.strip("-")
+    if len(safe) < 2:
+        safe = (safe + "-c")[:25]
+    return safe[:25]
 
 
 def _truncate_sa_id(agent_name: str) -> str:

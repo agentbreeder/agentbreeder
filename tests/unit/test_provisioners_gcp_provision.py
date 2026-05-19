@@ -13,7 +13,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from engine.provisioners import InfraState, InfraValidationInput
-from engine.provisioners.gcp import GCPProvisioner, _truncate_sa_id
+from engine.provisioners.gcp import (
+    GCPProvisioner,
+    _should_provision_vpc_connector,
+    _truncate_connector_id,
+    _truncate_sa_id,
+)
 
 # -- _truncate_sa_id --------------------------------------------------------
 
@@ -64,6 +69,14 @@ def patched_provisioner():
         patch.object(p, "_bind_iam_roles", new=AsyncMock(return_value=None)),
         patch.object(p, "_delete_artifact_registry_repo", new=AsyncMock(return_value=None)),
         patch.object(p, "_delete_service_account", new=AsyncMock(return_value=None)),
+        patch.object(
+            p,
+            "_ensure_vpc_connector",
+            new=AsyncMock(
+                return_value="projects/test-proj/locations/us-central1/connectors/ab-demo"
+            ),
+        ),
+        patch.object(p, "_delete_vpc_connector", new=AsyncMock(return_value=None)),
     ):
         yield p
 
@@ -132,12 +145,92 @@ async def test_provision_calls_progress_callback(patched_provisioner) -> None:
 
 
 @pytest.mark.asyncio
-async def test_provision_records_deferred_markers_when_requested(patched_provisioner) -> None:
-    state = await patched_provisioner.provision(
-        _payload({"GCP_PROVISION_CLOUD_SQL": "1", "GCP_PROVISION_VPC_CONNECTOR": "1"})
-    )
+async def test_provision_defers_cloud_sql_marker(patched_provisioner) -> None:
+    """Cloud SQL provisioning lands in #435; #436 only leaves a deferred marker."""
+    state = await patched_provisioner.provision(_payload({"GCP_PROVISION_CLOUD_SQL": "1"}))
     assert state.resources["cloud_sql"]["status"] == "deferred"
-    assert state.resources["vpc_connector"]["status"] == "deferred"
+
+
+# -- VPC connector provisioning (#436) -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_provision_skips_vpc_connector_by_default(patched_provisioner) -> None:
+    state = await patched_provisioner.provision(_payload())
+    patched_provisioner._ensure_vpc_connector.assert_not_awaited()
+    assert "vpc_connector" not in state.resources
+
+
+@pytest.mark.asyncio
+async def test_provision_creates_vpc_connector_when_flag_set(patched_provisioner) -> None:
+    state = await patched_provisioner.provision(_payload({"GCP_PROVISION_VPC_CONNECTOR": "1"}))
+    patched_provisioner._ensure_vpc_connector.assert_awaited_once()
+    kwargs = patched_provisioner._ensure_vpc_connector.await_args.kwargs
+    assert kwargs["project"] == "test-proj"
+    assert kwargs["region"] == "us-central1"
+    assert kwargs["connector_id"] == "ab-demo"
+    assert kwargs["network"] == "default"
+
+    connector = state.resources["vpc_connector"]
+    assert connector["connector_id"] == "ab-demo"
+    assert connector["network"] == "default"
+    assert connector["region"] == "us-central1"
+    assert "name" in connector
+    # Must not surface a 'status: deferred' marker once provisioned for real.
+    assert connector.get("status") != "deferred"
+
+
+@pytest.mark.asyncio
+async def test_provision_honours_custom_vpc_network(patched_provisioner) -> None:
+    await patched_provisioner.provision(
+        _payload({"GCP_PROVISION_VPC_CONNECTOR": "1", "GCP_VPC_NAME": "shared-vpc"})
+    )
+    kwargs = patched_provisioner._ensure_vpc_connector.await_args.kwargs
+    assert kwargs["network"] == "shared-vpc"
+
+
+@pytest.mark.asyncio
+async def test_provision_vpc_connector_idempotent_state(patched_provisioner) -> None:
+    """Re-running provision yields the same connector name in state."""
+    payload = _payload({"GCP_PROVISION_VPC_CONNECTOR": "1"})
+    s1 = await patched_provisioner.provision(payload)
+    s2 = await patched_provisioner.provision(payload)
+    assert s1.resources["vpc_connector"]["name"] == s2.resources["vpc_connector"]["name"]
+
+
+def test_should_provision_vpc_connector_explicit_flags() -> None:
+    assert _should_provision_vpc_connector({"GCP_PROVISION_VPC_CONNECTOR": "1"})
+    assert _should_provision_vpc_connector({"GCP_PROVISION_VPC_CONNECTOR": True})
+    assert _should_provision_vpc_connector({"GCP_PROVISION_VPC_CONNECTOR": "true"})
+    assert not _should_provision_vpc_connector({})
+    assert not _should_provision_vpc_connector({"GCP_PROVISION_VPC_CONNECTOR": "0"})
+
+
+def test_should_provision_vpc_connector_implicit_via_cloud_sql() -> None:
+    """When Cloud SQL is requested with private IP (default), connector follows."""
+    assert _should_provision_vpc_connector({"GCP_PROVISION_CLOUD_SQL": "1"})
+    # Opt-out: private IP disabled means no connector needed.
+    assert not _should_provision_vpc_connector(
+        {"GCP_PROVISION_CLOUD_SQL": "1", "GCP_CLOUD_SQL_PRIVATE_IP": False}
+    )
+
+
+def test_truncate_connector_id_basic() -> None:
+    assert _truncate_connector_id("demo") == "ab-demo"
+
+
+def test_truncate_connector_id_caps_at_25_chars() -> None:
+    cid = _truncate_connector_id("x" * 50)
+    assert 2 <= len(cid) <= 25
+
+
+def test_truncate_connector_id_lowercases_and_sanitises() -> None:
+    assert _truncate_connector_id("My_Agent.v2") == "ab-my-agent-v2"
+
+
+def test_truncate_connector_id_pads_short_input() -> None:
+    cid = _truncate_connector_id("")
+    assert len(cid) >= 2
 
 
 @pytest.mark.asyncio
@@ -191,6 +284,32 @@ async def test_destroy_invokes_each_resource_delete(patched_provisioner) -> None
     await patched_provisioner.destroy(_state_for_demo())
     patched_provisioner._delete_service_account.assert_awaited_once()
     patched_provisioner._delete_artifact_registry_repo.assert_awaited_once()
+    # No VPC connector in this state → no delete call.
+    patched_provisioner._delete_vpc_connector.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_destroy_deletes_vpc_connector_when_present(patched_provisioner) -> None:
+    state = _state_for_demo()
+    state.resources["vpc_connector"] = {
+        "name": "projects/test-proj/locations/us-central1/connectors/ab-demo",
+        "connector_id": "ab-demo",
+        "region": "us-central1",
+        "network": "default",
+    }
+    await patched_provisioner.destroy(state)
+    patched_provisioner._delete_vpc_connector.assert_awaited_once()
+    kwargs = patched_provisioner._delete_vpc_connector.await_args.kwargs
+    assert "connectors/ab-demo" in kwargs["name"]
+
+
+@pytest.mark.asyncio
+async def test_destroy_skips_deferred_vpc_connector_marker(patched_provisioner) -> None:
+    """Legacy deferred-marker states (no 'name' key) should not trigger a delete."""
+    state = _state_for_demo()
+    state.resources["vpc_connector"] = {"status": "deferred", "note": "legacy"}
+    await patched_provisioner.destroy(state)
+    patched_provisioner._delete_vpc_connector.assert_not_awaited()
 
 
 @pytest.mark.asyncio
