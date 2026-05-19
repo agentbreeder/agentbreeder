@@ -235,6 +235,26 @@
           "ref": {
             "type": "string"
           },
+          "entity_extraction": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Per-KB overrides for GraphRAG LLM-backed entity extraction (HR-3 / #405)",
+            "properties": {
+              "custom_types": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": "string"}
+                  }
+                },
+                "description": "Domain-specific entity categories (e.g. CONTRACT, DIAGNOSIS, MEDICATION) used in addition to the six built-in types."
+              }
+            }
+          },
           "retrieval": {
             "type": "object",
             "additionalProperties": false,

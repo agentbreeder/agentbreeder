@@ -12,7 +12,7 @@
 
 services:
   sidecar:
-    image: rajits/agentbreeder-sidecar:latest
+    image: agentbreeder/agentbreeder-sidecar:latest
     environment:
       AGENT_NAME: demo-agent
       AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN}
@@ -31,7 +31,7 @@ services:
     # Replace with your runtime image. Must:
     #  - listen on :8081 when AGENTBREEDER_SIDECAR_PORT=8081 is set;
     #  - validate AGENT_AUTH_TOKEN itself (defence in depth).
-    image: rajits/agentbreeder-runtime-langgraph:latest
+    image: agentbreeder/agentbreeder-runtime-langgraph:latest
     environment:
       AGENT_NAME: demo-agent
       AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN}

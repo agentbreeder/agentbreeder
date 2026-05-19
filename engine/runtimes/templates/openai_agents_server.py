@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import sys
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -127,16 +128,27 @@ def _load_agent() -> Any:
 
 # Load agent at startup
 _agent = None
+_memory: Any = None  # MemoryManager instance (HR-2 / #404)
 _tracer = None
 _a2a_tools_registered: bool = False  # tracks whether tool_bridge A2A tools were injected
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    global _agent, _tracer, _a2a_tools_registered  # noqa: PLW0603
+    global _agent, _tracer, _a2a_tools_registered, _memory  # noqa: PLW0603
     logger.info("Loading OpenAI Agents SDK agent...")
     _agent = _load_agent()
     logger.info("Agent loaded successfully")
+
+    # HR-2 / #404: initialise MemoryManager (no-op when MEMORY_BACKEND=none).
+    try:
+        from memory_manager import MemoryManager  # noqa: PLC0415
+
+        _memory = MemoryManager()
+        await _memory.connect()
+        logger.info("Memory manager connected (backend=%s)", os.getenv("MEMORY_BACKEND", "none"))
+    except ImportError:
+        logger.debug("memory_manager not available — conversation history disabled")
 
     try:
         from _tracing import init_tracing
@@ -230,6 +242,12 @@ async def startup() -> None:
             logger.info("Default OpenAI API key configured")
 
 
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    if _memory is not None:
+        await _memory.close()
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(
@@ -245,10 +263,50 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
         raise HTTPException(status_code=503, detail="Agent not loaded yet")
 
     try:
-        return await _run_agent(request.input, request.config or {})
+        # HR-2 / #404: memory load → invoke → memory save (best-effort, never raises).
+        thread_id = (
+            (request.config or {}).get("thread_id")
+            or (request.config or {}).get("session_id")
+            or str(uuid.uuid4())
+        )
+        prior_text = ""
+        if _memory is not None:
+            try:
+                prior = await _memory.load(thread_id)
+                if prior:
+                    prior_text = _format_prior_messages(prior)
+            except Exception:
+                logger.warning("memory.load failed; continuing without history", exc_info=True)
+
+        input_text = f"{prior_text}\n\n{request.input}" if prior_text else request.input
+        response = await _run_agent(input_text, request.config or {})
+
+        if _memory is not None:
+            try:
+                await _memory.save(
+                    thread_id,
+                    [
+                        {"role": "user", "content": request.input},
+                        {"role": "assistant", "content": str(response.output)},
+                    ],
+                )
+            except Exception:
+                logger.warning("memory.save failed; response already returned", exc_info=True)
+        return response
     except Exception as e:
         logger.exception("Agent invocation failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _format_prior_messages(messages: list[Any]) -> str:
+    """Render stored conversation turns as a flat prefix for the next prompt."""
+    lines: list[str] = []
+    for m in messages:
+        if isinstance(m, dict):
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            lines.append(f"[{role}] {content}")
+    return "\n".join(lines)
 
 
 async def _run_agent(input_text: str, config: dict[str, Any]) -> InvokeResponse:

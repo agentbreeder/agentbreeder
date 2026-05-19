@@ -7,7 +7,7 @@ instantiate backend classes directly.
 Supported backends
 ------------------
 - ``in_memory``  — default, no external deps (``api.services.rag_service.RAGStore``)
-- ``pgvector``   — PostgreSQL + pgvector (planned; currently aliased to in_memory)
+- ``pgvector``   — PostgreSQL + pgvector (``api.services.pgvector_rag_backend``)
 - ``neo4j``      — Neo4j graph database (``api.services.neo4j_rag_backend``)
 
 Adding a new backend
@@ -50,13 +50,16 @@ def _make_in_memory(config: dict[str, Any], index_id: str) -> Any:  # noqa: ANN4
 
 
 def _make_pgvector(config: dict[str, Any], index_id: str) -> Any:  # noqa: ANN401
-    """pgvector backend — falls back to in-memory until the pgvector adapter is shipped."""
-    logger.warning(
-        "pgvector backend is not yet fully implemented; falling back to in_memory "
-        "(index_id=%s). This will be addressed in a future release.",
-        index_id,
-    )
-    return _make_in_memory(config, index_id)
+    """PostgreSQL + pgvector backend (HR-4 / #406).
+
+    Returns a real :class:`api.services.pgvector_rag_backend.PgvectorRAGBackend`.
+    The caller is responsible for ``await backend.connect()`` before use.
+    Connection string resolves from ``config.dsn`` (or ``config.url``),
+    falling back to the ``PGVECTOR_DSN`` / ``DATABASE_URL`` env vars.
+    """
+    from api.services.pgvector_rag_backend import create_pgvector_backend  # noqa: PLC0415
+
+    return create_pgvector_backend(config=config, index_id=index_id)
 
 
 def _make_neo4j(config: dict[str, Any], index_id: str) -> Any:  # noqa: ANN401

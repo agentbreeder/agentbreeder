@@ -479,39 +479,33 @@ class TestTeamIsolationCurrentBehavior:
         assert msg is not None
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="HR-1: team-scope not yet enforced at runtime")
     async def test_route_layer_passes_caller_team_on_store(self) -> None:
-        """Routes SHOULD pass ``requesting_team`` to ``store_message``.
-
-        Today the ``store_message`` route does not forward the caller's team,
-        so a cross-team write that should be rejected silently succeeds at
-        the HTTP layer. HR-1 will wire the team through; this test flips to
-        passing then.
-        """
+        """Routes pass ``requesting_team`` to ``store_message`` (fixed in HR-1)."""
         import inspect
 
         from api.routes import memory as memory_routes
 
         source = inspect.getsource(memory_routes.store_message)
-        assert "requesting_team" in source, (
-            "store_message route does not forward the caller's team — HR-1 needed"
-        )
+        assert "requesting_team" in source, "store_message route must forward the caller's team"
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="HR-1: team-scope not yet enforced at runtime")
     async def test_route_layer_passes_caller_team_on_read(self) -> None:
-        """Routes SHOULD pass ``requesting_team`` to ``get_conversation``.
-
-        Same gap as the write path — HR-1 will close it.
-        """
+        """Routes pass ``requesting_team`` to ``get_conversation`` (fixed in HR-1)."""
         import inspect
 
         from api.routes import memory as memory_routes
 
         source = inspect.getsource(memory_routes.get_conversation)
-        assert "requesting_team" in source, (
-            "get_conversation route does not forward the caller's team — HR-1 needed"
-        )
+        assert "requesting_team" in source, "get_conversation route must forward the caller's team"
+
+    @pytest.mark.asyncio
+    async def test_service_blocks_team_scoped_access_without_requesting_team(self) -> None:
+        """Team-scoped configs reject calls that omit requesting_team entirely."""
+        config = await MemoryService.create_config(name="team-strict", scope="team", team="team-c")
+        with pytest.raises(PermissionError, match="requesting_team is required"):
+            await MemoryService.store_message(config.id, session_id="s1", role="user", content="x")
+        with pytest.raises(PermissionError, match="requesting_team is required"):
+            await MemoryService.get_conversation(config.id, "s1")
 
 
 # ---------------------------------------------------------------------------

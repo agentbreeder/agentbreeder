@@ -548,12 +548,15 @@ class TestBackendRegistry:
         instance = get_rag_backend(BACKEND_IN_MEMORY)
         assert isinstance(instance, RAGStore)
 
-    def test_get_rag_backend_pgvector_falls_back_to_in_memory(self):
-        """pgvector backend currently falls back to RAGStore with a warning."""
-        from api.services.rag_service import RAGStore
+    def test_get_rag_backend_pgvector_returns_real_backend(self):
+        """HR-4 (#406) shipped the real adapter; #423 wires it through RAGStore."""
+        from api.services.pgvector_rag_backend import PgvectorRAGBackend
 
-        instance = get_rag_backend(BACKEND_PGVECTOR)
-        assert isinstance(instance, RAGStore)
+        instance = get_rag_backend(
+            BACKEND_PGVECTOR,
+            config={"dsn": "postgresql://x:0/y"},
+        )
+        assert isinstance(instance, PgvectorRAGBackend)
 
     def test_get_rag_backend_neo4j_returns_neo4j_rag_backend(self):
         """neo4j backend factory returns a Neo4jRAGBackend."""

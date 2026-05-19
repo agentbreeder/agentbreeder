@@ -154,8 +154,8 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/api:${{ steps.version.outputs.version }}
             ghcr.io/${{ github.repository }}/api:latest
-            rajits/agentbreeder-api:${{ steps.version.outputs.version }}
-            rajits/agentbreeder-api:latest
+            agentbreeder/agentbreeder-api:${{ steps.version.outputs.version }}
+            agentbreeder/agentbreeder-api:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -168,12 +168,12 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/dashboard:${{ steps.version.outputs.version }}
             ghcr.io/${{ github.repository }}/dashboard:latest
-            rajits/agentbreeder-dashboard:${{ steps.version.outputs.version }}
-            rajits/agentbreeder-dashboard:latest
+            agentbreeder/agentbreeder-dashboard:${{ steps.version.outputs.version }}
+            agentbreeder/agentbreeder-dashboard:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Track J: Go sidecar — multi-arch publish (rajits/agentbreeder-sidecar).
+      # Track J: Go sidecar — multi-arch publish (agentbreeder/agentbreeder-sidecar).
       - name: Build and push Sidecar image
         uses: docker/build-push-action@v6
         with:
@@ -186,8 +186,8 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/sidecar:${{ steps.version.outputs.version }}
             ghcr.io/${{ github.repository }}/sidecar:latest
-            rajits/agentbreeder-sidecar:${{ steps.version.outputs.version }}
-            rajits/agentbreeder-sidecar:latest
+            agentbreeder/agentbreeder-sidecar:${{ steps.version.outputs.version }}
+            agentbreeder/agentbreeder-sidecar:latest
           cache-from: type=gha,scope=sidecar
           cache-to: type=gha,scope=sidecar,mode=max
 
@@ -204,8 +204,8 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/go-agent-example:${{ steps.version.outputs.version }}
             ghcr.io/${{ github.repository }}/go-agent-example:latest
-            rajits/agentbreeder-go-agent-example:${{ steps.version.outputs.version }}
-            rajits/agentbreeder-go-agent-example:latest
+            agentbreeder/agentbreeder-go-agent-example:${{ steps.version.outputs.version }}
+            agentbreeder/agentbreeder-go-agent-example:latest
           cache-from: type=gha,scope=go-example
           cache-to: type=gha,scope=go-example,mode=max
 
@@ -413,8 +413,8 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
           tags: |
-            rajits/agentbreeder-cli:${{ steps.version.outputs.version }}
-            rajits/agentbreeder-cli:latest
+            agentbreeder/agentbreeder-cli:${{ steps.version.outputs.version }}
+            agentbreeder/agentbreeder-cli:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

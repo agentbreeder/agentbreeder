@@ -86,6 +86,7 @@ news = [
 ]
 rag = [
     "neo4j>=5.0",
+    "pgvector>=0.2.5",
 ]
 pdf = [
     # W5-R9: PyPDF2 enables high-fidelity PDF extraction in RAG ingestion.
@@ -190,6 +191,10 @@ allow_untyped_decorators = true
 [[tool.mypy.overrides]]
 module = ["engine.deployers.*"]
 disable_error_code = ["no-any-return", "type-arg"]
+
+[[tool.mypy.overrides]]
+module = ["engine.provisioners.*"]
+disable_error_code = ["no-any-return", "type-arg", "no-untyped-def"]
 
 [[tool.mypy.overrides]]
 module = ["engine.providers.*"]
