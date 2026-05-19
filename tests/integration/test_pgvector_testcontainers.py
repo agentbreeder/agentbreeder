@@ -200,3 +200,119 @@ def test_factory_raises_when_dsn_missing(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="requires a connection string"):
         get_rag_backend("pgvector", config={}, index_id="no-dsn")
+
+
+# ---------------------------------------------------------------------------
+# #423 wire-through — full RAGStore.search() round-trip via the live container.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rag_store_search_dispatches_to_pgvector_backend(pg_container) -> None:
+    """RAGStore.search() with backend='pgvector' returns rows from Postgres."""
+    from unittest.mock import AsyncMock, patch
+
+    from api.services.rag_service import RAGStore
+
+    dsn = _to_asyncpg_dsn(pg_container.get_connection_url())
+    store = RAGStore()
+    idx = store.create_index(
+        name="wirethrough-roundtrip",
+        backend="pgvector",
+        backend_config={"dsn": dsn},
+        embedding_model="openai/text-embedding-3-small",
+    )
+
+    backend = await store._get_backend(idx)
+    assert backend is not None
+    try:
+        await backend.upsert_chunks(
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "text": "Paris is the capital of France.",
+                    "embedding": [1.0, 0.0, 0.0, 0.0],
+                    "metadata": {"source": "europe.md"},
+                },
+                {
+                    "id": uuid.uuid4(),
+                    "text": "Tokyo is the capital of Japan.",
+                    "embedding": [0.0, 1.0, 0.0, 0.0],
+                    "metadata": {"source": "asia.md"},
+                },
+            ]
+        )
+
+        fake_embed = type("_R", (), {"vectors": [[1.0, 0.0, 0.0, 0.0]], "used_fallback": False})()
+        with patch(
+            "api.services.rag_service.embed_texts",
+            new=AsyncMock(return_value=fake_embed),
+        ):
+            hits = await store.search(idx.id, query="ignored", top_k=2)
+
+        assert len(hits) == 2
+        assert hits[0].text == "Paris is the capital of France."
+        assert hits[0].source == "europe.md"
+        assert "source" not in hits[0].metadata
+    finally:
+        await backend.delete_index()
+        await store.close_backends()
+
+
+@pytest.mark.asyncio
+async def test_rag_store_search_survives_simulated_restart(pg_container) -> None:
+    """After a fresh RAGStore, search still finds rows persisted in Postgres."""
+    from unittest.mock import AsyncMock, patch
+
+    from api.services.rag_service import RAGStore
+
+    dsn = _to_asyncpg_dsn(pg_container.get_connection_url())
+    fake_embed = type("_R", (), {"vectors": [[1.0, 0.0]], "used_fallback": False})()
+
+    store1 = RAGStore()
+    idx1 = store1.create_index(
+        name="restart-test",
+        backend="pgvector",
+        backend_config={"dsn": dsn},
+    )
+    b1 = await store1._get_backend(idx1)
+    cid = uuid.uuid4()
+    try:
+        await b1.upsert_chunks(
+            [
+                {
+                    "id": cid,
+                    "text": "persisted across restarts",
+                    "embedding": [1.0, 0.0],
+                    "metadata": {"source": "x"},
+                }
+            ]
+        )
+    finally:
+        await store1.close_backends()
+
+    # Fresh store — simulates a server restart with empty in-memory state.
+    store2 = RAGStore()
+    idx2 = store2.create_index(
+        name="restart-test-2",
+        backend="pgvector",
+        backend_config={"dsn": dsn},
+    )
+    # PgvectorRAGBackend scopes by index_id; reuse phase-1's id so the row is
+    # visible in this run.
+    idx2.id = idx1.id
+    store2._indexes = {idx2.id: idx2}
+
+    try:
+        with patch(
+            "api.services.rag_service.embed_texts",
+            new=AsyncMock(return_value=fake_embed),
+        ):
+            hits = await store2.search(idx2.id, query="?", top_k=1)
+        assert len(hits) == 1
+        assert hits[0].text == "persisted across restarts"
+        assert hits[0].chunk_id == str(cid)
+    finally:
+        b2 = await store2._get_backend(idx2)
+        await b2.delete_index()
+        await store2.close_backends()
