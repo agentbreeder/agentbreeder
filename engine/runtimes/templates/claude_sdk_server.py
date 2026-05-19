@@ -20,6 +20,7 @@ import logging
 import os
 import sys
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
@@ -114,6 +115,7 @@ def _load_agent() -> Any:
 # Module-level globals — set at startup, reused for all requests
 _agent = None
 _client = None  # AsyncAnthropic client used for /stream; may equal _agent or be separate
+_memory: Any = None  # MemoryManager instance (HR-2 / #404)
 _tools: list[Any] = []
 _prompt_caching_enabled: bool = False
 _thinking_config: dict[str, Any] | None = None
@@ -206,6 +208,23 @@ async def startup() -> None:
     except ImportError:
         pass
 
+    # HR-2 / #404: initialise conversation-history manager (no-op when MEMORY_BACKEND=none).
+    global _memory  # noqa: PLW0603
+    try:
+        from memory_manager import MemoryManager  # noqa: PLC0415
+
+        _memory = MemoryManager()
+        await _memory.connect()
+        logger.info("Memory manager connected (backend=%s)", os.getenv("MEMORY_BACKEND", "none"))
+    except ImportError:
+        logger.debug("memory_manager not available — conversation history disabled")
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    if _memory is not None:
+        await _memory.close()
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
@@ -222,8 +241,40 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
         raise HTTPException(status_code=503, detail="Agent not loaded yet")
 
     try:
+        # HR-2 / #404: memory load → invoke → memory save (best-effort).
+        thread_id = (
+            (request.config or {}).get("thread_id")
+            or (request.config or {}).get("session_id")
+            or str(uuid.uuid4())
+        )
+        input_text = request.input
+        if _memory is not None:
+            try:
+                prior = await _memory.load(thread_id)
+                if prior:
+                    prefix = "\n".join(
+                        f"[{m.get('role', 'user')}] {m.get('content', '')}"
+                        for m in prior
+                        if isinstance(m, dict)
+                    )
+                    input_text = f"{prefix}\n\n{request.input}"
+            except Exception:
+                logger.warning("memory.load failed; continuing without history", exc_info=True)
+
         history: list[ToolCall] = []
-        result = await _run_agent(request.input, history=history)
+        result = await _run_agent(input_text, history=history)
+
+        if _memory is not None:
+            try:
+                await _memory.save(
+                    thread_id,
+                    [
+                        {"role": "user", "content": request.input},
+                        {"role": "assistant", "content": str(result)},
+                    ],
+                )
+            except Exception:
+                logger.warning("memory.save failed; response already returned", exc_info=True)
         return InvokeResponse(output=result, history=history)
     except Exception as e:
         logger.exception("Agent invocation failed")

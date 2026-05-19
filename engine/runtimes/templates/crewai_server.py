@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import sys
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -197,12 +198,23 @@ def _check_json_type(value: Any, json_type: str) -> bool:
 # Module-level globals — set at startup, reused for all requests
 _module: Any = None
 _crew: Any = None
+_memory: Any = None  # MemoryManager instance (HR-2 / #404)
 _crewai_tools: list[Any] = []
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    global _module, _crew, _crewai_tools  # noqa: PLW0603
+    global _module, _crew, _crewai_tools, _memory  # noqa: PLW0603
+
+    # HR-2 / #404: initialise MemoryManager (no-op when MEMORY_BACKEND=none).
+    try:
+        from memory_manager import MemoryManager  # noqa: PLC0415
+
+        _memory = MemoryManager()
+        await _memory.connect()
+        logger.info("Memory manager connected (backend=%s)", os.getenv("MEMORY_BACKEND", "none"))
+    except ImportError:
+        logger.debug("memory_manager not available — conversation history disabled")
 
     # --- Tool wiring ---
     tools_json = os.getenv("AGENT_TOOLS_JSON", "[]")
@@ -259,6 +271,12 @@ async def startup() -> None:
 
     if _module is not None or _crew is not None:
         logger.info("CrewAI server ready")
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    if _memory is not None:
+        await _memory.close()
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -353,11 +371,44 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
             active_module = _SyntheticModule()
             active_module.crew = _crew
 
+        # HR-2 / #404: load prior conversation context (best-effort).
+        thread_id = (
+            (request.config or {}).get("thread_id")
+            or (request.config or {}).get("session_id")
+            or str(uuid.uuid4())
+        )
+        user_input = request.input
+        if _memory is not None:
+            try:
+                prior = await _memory.load(thread_id)
+                if prior:
+                    prefix = "\n".join(
+                        f"[{m.get('role', 'user')}] {m.get('content', '')}"
+                        for m in prior
+                        if isinstance(m, dict)
+                    )
+                    user_input = f"Prior conversation:\n{prefix}\n\nCurrent task: {request.input}"
+            except Exception:
+                logger.warning("memory.load failed; continuing without history", exc_info=True)
+
         mode, obj = _detect_mode(active_module)
-        result = await _dispatch(obj, mode, request.input)
+        result = await _dispatch(obj, mode, user_input)
         output_schema = (request.config or {}).get("output_schema")
         schema_errors = _validate_output(str(result), schema=output_schema)
         history = _extract_tool_history(result)
+
+        # HR-2 / #404: persist this turn so the next request can recall it.
+        if _memory is not None:
+            try:
+                await _memory.save(
+                    thread_id,
+                    [
+                        {"role": "user", "content": request.input},
+                        {"role": "assistant", "content": str(result)},
+                    ],
+                )
+            except Exception:
+                logger.warning("memory.save failed; response already returned", exc_info=True)
         return InvokeResponse(
             output=result,
             mode=mode,
