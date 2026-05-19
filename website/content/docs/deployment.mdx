@@ -205,6 +205,28 @@ In simple mode AgentBreeder uses Resource Group `agentbreeder-rg`, auto-creates 
 `ContainerRegistryManagementClient.registries.get`,
 `ContainerAppsAPIClient.managed_environments.get`.
 
+**Greenfield mode (`agentbreeder deploy --target azure --provision`):**
+
+For fresh Azure subscriptions, AgentBreeder creates the minimum-viable
+Container Apps footprint end-to-end. Only `AZURE_SUBSCRIPTION_ID` and a
+credential chain (service-principal env vars or `az login`) are required.
+
+| Resource | Notes |
+|---|---|
+| Resource Group `agentbreeder-{agent}-rg` | All other resources nest inside |
+| Log Analytics workspace | Required prerequisite for Container Apps |
+| Container Apps Environment | Internal-only unless `access.visibility: public` |
+| Azure Container Registry `agentbreeder{suffix}` | Basic SKU, `admin_user_enabled=False` |
+| Per-agent user-assigned Managed Identity | Holds `AcrPull` on the specific registry resource — never the subscription |
+| VNet + delegated subnet (only when `memory:` declared) | For private PostgreSQL access |
+| PostgreSQL Flexible Server `agentbreeder-{agent}-db` (only when `memory:` declared) | B1ms, `public_network_access=Disabled`, private DNS |
+| Key Vault `agentbreeder-{agent}-kv` (only when DB is created) | Stores random DB password; state file references the secret URI only |
+
+Every resource tagged `AgentBreeder=true` + `AgentName` + `Version`. State
+is written to `.agentbreeder/infra-state.json`; `agentbreeder teardown
+--destroy-infra` refuses untagged resources and deletes the resource group
+last so anything not explicitly tracked is still cleaned up.
+
 </Tab>
 </Tabs>
 
