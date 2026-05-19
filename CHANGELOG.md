@@ -40,6 +40,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Added** 18 source-level smoke tests under `tests/integration/runtimes/test_memory_wiring_hr2.py`.
 - TS runtime parity tracked in #417.
 
+### v2.3 — HR-4 pgvector backend (#422, closes #406)
+
+- **Added** `api/services/pgvector_rag_backend.py` — `PgvectorRAGBackend` with `asyncpg` pool, dimension-namespaced chunk tables (`rag_pgvector_chunks_d{N}`), IVFFlat cosine index. Self-installs the `vector` extension on connect.
+- **Changed** `registry/rag.py:_make_pgvector` returns the real backend now; missing DSN raises a clear `ValueError` (no more silent fallback).
+- **Added** `pgvector>=0.2.5` to the `rag` extra; integration tests against `pgvector/pgvector:pg16` via testcontainers.
+- Wire-through to `RAGStore.search/ingest` lands in #423 / PR #434.
+
 ### Platform Audit Summary (2026-05-18)
 
 A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:

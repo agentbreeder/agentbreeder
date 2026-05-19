@@ -290,7 +290,7 @@ description: Product documentation and FAQs
 team: customer-success
 owner: alice@company.com
 
-backend: in_memory           # in_memory | pgvector
+backend: in_memory           # in_memory | pgvector — see "pgvector backend" below
 
 embedding_model:
   provider: openai
@@ -314,6 +314,55 @@ search:
   text_weight: 0.3
   default_top_k: 5
 ```
+
+---
+
+## pgvector backend (HR-4 / #406)
+
+The `pgvector` backend persists chunks + embeddings in PostgreSQL using the
+[`pgvector`](https://github.com/pgvector/pgvector) extension. Use it whenever
+you want durable storage that survives a server restart and is shared across
+replicas.
+
+### Local development
+
+The fastest path is the upstream Docker image:
+
+```bash
+docker run --name agentbreeder-pgvector \
+  -e POSTGRES_PASSWORD=pw \
+  -p 5432:5432 \
+  -d pgvector/pgvector:pg16
+```
+
+Then point AgentBreeder at it via env var:
+
+```bash
+export PGVECTOR_DSN="postgresql://postgres:pw@localhost:5432/postgres"
+```
+
+The backend self-installs the `vector` extension and creates a chunk table
+on first connect — no manual SQL needed for the dev path. Production deploys
+should still ship the DDL via alembic.
+
+### Configuration shape
+
+```yaml
+backend: pgvector
+backend_config:
+  dsn: ${PGVECTOR_DSN}        # or set PGVECTOR_DSN env, or DATABASE_URL
+  pool_min_size: 1
+  pool_max_size: 10
+```
+
+### Status (as of 2026-05-19)
+
+The backend itself ships full upsert + cosine-similarity search + delete
+round-trip against a real Postgres (verified by
+`tests/integration/test_pgvector_testcontainers.py`). The wire-through from
+`backend: pgvector` in `rag.yaml` to the existing `RAGStore.search()` and
+ingestion pipeline is staged as a follow-up — today the backend is callable
+directly via `api.services.pgvector_rag_backend.PgvectorRAGBackend`.
 
 ---
 

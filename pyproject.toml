@@ -86,6 +86,7 @@ news = [
 ]
 rag = [
     "neo4j>=5.0",
+    "pgvector>=0.2.5",
 ]
 pdf = [
     # W5-R9: PyPDF2 enables high-fidelity PDF extraction in RAG ingestion.
