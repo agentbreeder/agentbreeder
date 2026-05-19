@@ -114,17 +114,21 @@ async def get_memory_stats(
 async def store_message(
     config_id: str,
     body: MemoryMessageCreate,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[MemoryMessageResponse]:
     """Store a message in a memory backend."""
-    msg = await MemoryService.store_message(
-        config_id,
-        session_id=body.session_id,
-        role=body.role,
-        content=body.content,
-        agent_id=body.agent_id,
-        metadata=body.metadata,
-    )
+    try:
+        msg = await MemoryService.store_message(
+            config_id,
+            session_id=body.session_id,
+            role=body.role,
+            content=body.content,
+            agent_id=body.agent_id,
+            metadata=body.metadata,
+            requesting_team=user.team,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
     if not msg:
         raise HTTPException(status_code=404, detail="Memory config not found")
     return ApiResponse(data=MemoryMessageResponse.model_validate(msg.model_dump()))
@@ -164,13 +168,18 @@ async def list_conversations(
 async def get_conversation(
     config_id: str,
     session_id: str,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[list[MemoryMessageResponse]]:
     """Get all messages in a conversation."""
     config = await MemoryService.get_config(config_id)
     if not config:
         raise HTTPException(status_code=404, detail="Memory config not found")
-    msgs = await MemoryService.get_conversation(config_id, session_id)
+    try:
+        msgs = await MemoryService.get_conversation(
+            config_id, session_id, requesting_team=user.team
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
     return ApiResponse(data=[MemoryMessageResponse.model_validate(m.model_dump()) for m in msgs])
 
 
@@ -292,16 +301,25 @@ async def cleanup_memory_config(
 )
 async def get_thread_messages(
     thread_id: str,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[list[MemoryMessageResponse]]:
     """Get all messages for a thread ID across all memory configs.
 
     Convenience endpoint for the aps-client. Returns messages from the first
     config that has this session_id. Returns empty list if not found.
+
+    Team-scoped configs the caller doesn't belong to are skipped silently
+    (the user is allowed to ask about a thread; they just can't see rows
+    owned by other teams).
     """
     configs, _ = await MemoryService.list_configs(page=1, per_page=100)
     for config in configs:
-        msgs = await MemoryService.get_conversation(config.id, thread_id)
+        try:
+            msgs = await MemoryService.get_conversation(
+                config.id, thread_id, requesting_team=user.team
+            )
+        except PermissionError:
+            continue
         if msgs:
             return ApiResponse(
                 data=[MemoryMessageResponse.model_validate(m.model_dump()) for m in msgs]
@@ -316,7 +334,7 @@ async def get_thread_messages(
 )
 async def save_thread_messages(
     body: dict[str, Any],
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """Save messages for a thread ID.
 
@@ -345,12 +363,16 @@ async def save_thread_messages(
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if content:
-            await MemoryService.store_message(
-                config.id,
-                session_id=thread_id,
-                role=role,
-                content=content,
-            )
+            try:
+                await MemoryService.store_message(
+                    config.id,
+                    session_id=thread_id,
+                    role=role,
+                    content=content,
+                    requesting_team=user.team,
+                )
+            except PermissionError as e:
+                raise HTTPException(status_code=403, detail=str(e)) from e
             saved += 1
 
     return ApiResponse(data={"saved": saved, "thread_id": thread_id})
