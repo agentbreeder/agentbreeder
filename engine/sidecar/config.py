@@ -12,7 +12,7 @@ from typing import Any
 
 # Single source of truth for the sidecar image — kept as a constant so deployers
 # never accidentally diverge.
-DEFAULT_SIDECAR_IMAGE = "rajits/agentbreeder-sidecar:latest"
+DEFAULT_SIDECAR_IMAGE = "agentbreeder/agentbreeder-sidecar:latest"
 
 # Valid port range for sidecar port-number fields.
 _MIN_PORT = 1

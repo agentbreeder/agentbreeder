@@ -20,7 +20,7 @@ One binary, every language, every wired-up deployer.
 
 ## When the sidecar is injected
 
-The deploy pipeline auto-injects `rajits/agentbreeder-sidecar:<version>` whenever your `agent.yaml` declares any of:
+The deploy pipeline auto-injects `agentbreeder/agentbreeder-sidecar:<version>` whenever your `agent.yaml` declares any of:
 
 - `guardrails:` — a list of egress rules (PII, content filter, custom)
 - MCP `tools:` — any `tools:` entry that resolves to an MCP server
@@ -238,7 +238,7 @@ docker run --rm \
   -e AGENT_AUTH_TOKEN=$(openssl rand -hex 16) \
   -e AGENTBREEDER_SIDECAR_AGENT_URL=http://host.docker.internal:8081 \
   -p 8080:8080 \
-  rajits/agentbreeder-sidecar:latest
+  agentbreeder/agentbreeder-sidecar:latest
 ```
 
 A complete docker-compose example lives at `sidecar/examples/compose/`.
@@ -259,8 +259,8 @@ go build -o sidecar ./cmd/sidecar
 # Multi-arch image
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --tag rajits/agentbreeder-sidecar:dev \
+  --tag agentbreeder/agentbreeder-sidecar:dev \
   -f Dockerfile .
 ```
 
-The sidecar binary is built in CI and published as `rajits/agentbreeder-sidecar:<version>` on each AgentBreeder platform release.
+The sidecar binary is built in CI and published as `agentbreeder/agentbreeder-sidecar:<version>` on each AgentBreeder platform release.

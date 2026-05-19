@@ -320,7 +320,7 @@ CLAUDE.md §"Sidecar Pattern (Planned)" describes this. v2 needs it real because
 
 ### Acceptance criteria
 - [ ] New top-level dir `sidecar/` with Go binary
-- [ ] Image published as `rajits/agentbreeder-sidecar:<version>`
+- [ ] Image published as `agentbreeder/agentbreeder-sidecar:<version>`
 - [ ] Auto-injected by deployers (ECS task def, Cloud Run multi-container, K8s pod, docker-compose) when `agent.yaml` has any of: `guardrails:`, `tools:` (with MCP), `a2a:`
 - [ ] OTel exporter configurable per workspace
 - [ ] Cost events written to `audit_log` and `costs` tables
