@@ -8,9 +8,50 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 ### v2.3 — Dashboard Docker build EPIPE (#433, closes #411)
 
 - **Fixed** `dashboard/Dockerfile` build stage now uses `node:22-slim` (Debian glibc) instead of `node:22-alpine` (musl). Eliminates the esbuild EPIPE that intermittently killed `vite build` under Docker Desktop / BuildKit on macOS. `NODE_OPTIONS=--max-old-space-size=4096` added as belt-and-suspenders.
+=======
+### v2.3 — Cloud-Deploy Foundation (#413)
+
+- **Added** `engine/provisioners/` — `InfraProvisioner` ABC with read-only `validate_existing` impls for AWS / GCP / Azure (boto3, google-cloud, azure-sdk). Greenfield `provision()` / `destroy()` stubbed (per-cloud follow-ups #382 / #383 / #384).
+- **Added** `engine/provisioners/state.py` — `InfraState` round-trippable via `.agentbreeder/infra-state.json`.
+- **Added** `engine/provisioners/requirements.py` — static user-input contract per cloud × `(simple, full)` mode.
+- **Added** API: `GET /api/v1/deployments/cloud-requirements/{cloud}?mode=simple|full` (any authenticated user) and `POST /api/v1/deployments/validate-infra` (`deployer` role required in the requested team, cross-team → 403, rate-limited 10 req/min via slowapi, audit-logged via `AuditService`).
+- **Added** `pgvector>=0.2.5` + `slowapi>=0.1.9` to optional deps; new `gcp` extras group; expanded `azure` group.
+- **Docs** — rewrote `website/content/docs/deployment.mdx` to a three-cloud tabbed contract.
+
+### v2.3 — HR-1 memory team-scope enforcement (#418, closes #403)
+
+- **Fixed** `api/routes/memory.py` now forwards `user.team` to `MemoryService` on every read/write. Cross-team access → HTTP 403.
+- **Hardened** `MemoryService` now raises `PermissionError` when a team-scoped config is accessed without `requesting_team` (previously a silent allow).
+- **Tests** — flipped 2 `MM7` xfail tests to passing + added route-layer 403 coverage.
+
+### v2.3 — HR-3 GraphRAG `custom_entity_types` (#419, closes #405)
+
+- **Added** `entity_extraction.custom_types[]` accepted by `engine/schema/agent.schema.json` + Pydantic mirror (`engine/config_parser.py`).
+- **Threaded** `custom_types` through `extract_entities` / `_call_claude` / `_call_ollama`; cache key extended so different type sets don't collide.
+- **Docs** — flipped roadmap callout in `graphrag.mdx` to shipped.
+
+### v2.3 — HR-7 Docker Hub namespace migration (#420, closes #408)
+
+- **Changed** every operational reference from `rajits/agentbreeder-*` to `agentbreeder/agentbreeder-*` across 18 files (CI workflow, docker-compose, sidecar, CLI defaults, docs, tests). Symmetric +54/-54.
+- Historical files (`CHANGELOG.md`, `ROADMAP.md`, audit specs/plans) intentionally untouched.
+
+### v2.3 — HR-2 memory wiring in 3 Python runtimes (#421, closes #404)
+
+- **Added** `MemoryManager` init + per-turn load/save + shutdown hook to Claude SDK, OpenAI Agents, and CrewAI server templates (mirrors the LangGraph reference).
+- **Added** 18 source-level smoke tests under `tests/integration/runtimes/test_memory_wiring_hr2.py`.
+- TS runtime parity tracked in #417.
+
+### v2.3 — HR-4 pgvector backend (#422, closes #406)
+
+- **Added** `api/services/pgvector_rag_backend.py` — `PgvectorRAGBackend` with `asyncpg` pool, dimension-namespaced chunk tables (`rag_pgvector_chunks_d{N}`), IVFFlat cosine index. Self-installs the `vector` extension on connect.
+- **Changed** `registry/rag.py:_make_pgvector` returns the real backend now; missing DSN raises a clear `ValueError` (no more silent fallback).
+- **Added** `pgvector>=0.2.5` to the `rag` extra; integration tests against `pgvector/pgvector:pg16` via testcontainers.
+- Wire-through to `RAGStore.search/ingest` lands in #423 / PR #434.
+>>>>>>> origin/main
 
 ### Platform Audit Summary (2026-05-18)
 

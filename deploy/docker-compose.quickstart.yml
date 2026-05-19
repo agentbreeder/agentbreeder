@@ -113,7 +113,7 @@ services:
   # ── AgentBreeder Platform ────────────────────────────────────────────
 
   migrate:
-    image: rajits/agentbreeder-api:latest
+    image: agentbreeder/agentbreeder-api:latest
     command: ["alembic", "upgrade", "head"]
     environment:
       DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@postgres:5432/agentbreeder
@@ -123,7 +123,7 @@ services:
     restart: "no"
 
   api:
-    image: rajits/agentbreeder-api:latest
+    image: agentbreeder/agentbreeder-api:latest
     build:
       context: ..
       dockerfile: Dockerfile
@@ -167,7 +167,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   dashboard:
-    image: rajits/agentbreeder-dashboard:latest
+    image: agentbreeder/agentbreeder-dashboard:latest
     build:
       context: ../dashboard
       dockerfile: Dockerfile

@@ -13,7 +13,7 @@ GraphRAG extends vector search with entity extraction and relationship traversal
 <Callout type="info" title="Status as of 2026-05-18">
 **Shipped (Waves 1–5):** in-memory + Neo4j backends, BFS traversal with hop-limit, native Neo4j vector indexes when available, atomic batch ingestion, hybrid (vector + graph) search, four GraphRAG eval metrics (`entity_recall`, `relationship_precision`, `hop_coverage`, `vector_fallback_rate`), per-result fields `entity_path` / `vector_score` / `graph_score`, observability log `graphrag.search.complete`, and the `DELETE /api/v1/rag/indexes/{id}/extraction-cache` invalidation endpoint.
 
-**Roadmap (not yet shipped):** custom entity types (`entity_extraction.custom_types`) — see HR-3 below.
+**Shipped (HR-3 / #405):** custom entity types via `entity_extraction.custom_types` are accepted by the schema and threaded into the LLM extraction prompt. See [Custom Entity Types](#custom-entity-types) below.
 </Callout>
 
 :::note Prerequisites for local GraphRAG
@@ -383,16 +383,26 @@ AgentBreeder recognizes these entity types by default:
 
 ### Custom Entity Types
 
-<Callout type="warn" title="Status as of 2026-05-18 — Roadmap">
-Custom entity types via `entity_extraction.custom_types` are on the roadmap (audit item HR-3) but **not yet implemented**. Today AgentBreeder uses a fixed prompt with the six built-in types listed above. Custom types are extracted opportunistically by the LLM but will not be enforced as discrete categories until HR-3 ships. The YAML shown below is the planned shape — feel free to author config against it now; the parser will accept and ignore the keys until support lands.
+<Callout type="info" title="Shipped in HR-3 (#405)">
+Custom entity types via `entity_extraction.custom_types` are now part of the
+`agent.yaml` schema and threaded into the LLM extraction prompt. Names are
+added to the JSON-schema enum the model is required to return, and a short
+description block is appended so the model knows what each category means.
+
+The agent-side wire-through (resolving these from `agent.yaml` to the RAG
+ingestion pipeline) is staged: today, custom types apply when calling
+`api.services.graph_extraction.extract_entities(..., custom_types=[...])`
+directly. The companion PR in `agentbreeder-cloud` lands the index-side
+persistence so the types flow automatically from the agent config.
 </Callout>
 
-Define your own for domain-specific extraction (planned syntax):
+Define your own for domain-specific extraction:
 
 ```yaml
 knowledge_bases:
   - ref: kb/legal-docs
-    index_type: graph
+    retrieval:
+      type: graph
     entity_extraction:
       custom_types:
         - name: CONTRACT
@@ -402,6 +412,10 @@ knowledge_bases:
         - name: OBLIGATION
           description: "Duties and responsibilities"
 ```
+
+Names should be uppercase snake-case (`CONTRACT`, `DIAGNOSIS`, `MEDICATION`).
+Descriptions are optional but recommended — they go into the system prompt
+so the model knows when to apply each category.
 
 ---
 
