@@ -111,8 +111,18 @@ History is namespaced to `{agent_id}:{session_id}` by default — each session i
 
 ### Shared team memory
 
-<Callout type="warn" title="Phase 2 — not yet available">
-  `scope: team` and `scope: global` are planned for a future release. Tracked in [#134](https://github.com/agentbreeder/agentbreeder/issues/134). Only `scope: agent` is available today.
+<Callout type="warn" title="Team isolation is now enforced at the API layer (HR-1)">
+  `scope: team` configs are gated by the caller's team — every read/write
+  request must carry an authenticated principal whose `user.team` matches the
+  config's `team` field. Cross-team access returns **HTTP 403**. Service-layer
+  calls that omit `requesting_team` against a team-scoped config also raise
+  `PermissionError`. If your code relied on the previous (silent) cross-team
+  behavior, update it to pass the caller's team before upgrading.
+</Callout>
+
+<Callout type="info" title="Status">
+  `scope: team` is enforced at runtime. `scope: global` (truly org-wide
+  memory) is still tracked in [#134](https://github.com/agentbreeder/agentbreeder/issues/134).
 </Callout>
 
 Multiple agents on a team share the same context (e.g., a triage agent and a billing agent both need to see conversation history).

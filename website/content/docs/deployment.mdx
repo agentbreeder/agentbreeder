@@ -1,6 +1,6 @@
 ---
 title: Deployment
-description: Ship a registered agent to a public cloud — covers the GCP Cloud Run path end-to-end, plus the IAM grants, secrets, and CI/CD wiring you need.
+description: Ship a registered agent to AWS, GCP, or Azure — covers the user-input contract per cloud (BYO existing infra), plus the GCP Cloud Run path end-to-end as the verified reference example.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -13,9 +13,10 @@ deploy step packages the agent + the AgentBreeder runtime into a container, push
 to your cloud's image registry, and rolls it out as a managed service with secrets and
 auth wired in.
 
-This page covers the **Cloud Run** path end-to-end (verified live). The same pattern
-applies to AWS ECS / App Runner and Kubernetes — the only differences are the cloud
-CLI, the secrets backend, and the IAM model.
+AgentBreeder supports three clouds — **AWS**, **GCP**, and **Azure** — plus local
+Docker Compose for development. This page covers the **GCP Cloud Run** path end-to-end
+as the verified reference example; the same pattern applies to AWS ECS / App Runner
+and Azure Container Apps with the per-cloud user-input contract below.
 
 <Callout type="info" title="Reference deploy">
   The microlearning-ebook-agent example is **deployed and serving** at
@@ -30,6 +31,161 @@ CLI, the secrets backend, and the IAM model.
   This page focuses on the **actionable prerequisites** for each target — see
   [Prerequisites per target](#prerequisites-per-target-as-of-2026-05-18) below.
 </Callout>
+
+---
+
+## User-input contract per cloud (BYO existing infra)
+
+For each cloud, AgentBreeder needs a minimum set of inputs from you so it can deploy
+into your existing infrastructure. Two modes are supported:
+
+- **`simple`** — account + region + credentials. AgentBreeder uses cloud defaults for
+  the rest (cluster names, IAM roles, networking).
+- **`full`** — describe every specific resource (cluster, subnets, IAM role, registry).
+
+Both modes are served by two API endpoints:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/deployments/cloud-requirements/{cloud}?mode=simple\|full` | Returns the required + optional fields for the cloud + mode. The dashboard wizard and the CLI both read this to know what to ask you for. |
+| `POST /api/v1/deployments/validate-infra` | Read-only pre-flight check that all referenced resources actually exist. Rate-limited (10 req/min) and audit-logged. Cross-team access returns 403. |
+
+<Callout type="info" title="Auth posture">
+  `cloud-requirements` requires any authenticated user. `validate-infra` requires the
+  caller to hold the **deployer** role in the `team_id` named in the request body —
+  cross-team validation is denied. Every successful or failed call writes to the
+  audit log (`AuditService.log_event(action="deployment.validate_infra", ...)`).
+</Callout>
+
+<Tabs items={['AWS', 'GCP', 'Azure']}>
+<Tab value="AWS">
+
+**Simple mode (`mode=simple`):**
+
+| Field | Required | Description |
+|---|---|---|
+| `AWS_ACCOUNT_ID` | ✓ | AWS Account ID (12 digits) |
+| `AWS_DEFAULT_REGION` | ✓ | AWS region (default `us-east-1`) |
+| `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | ✓ | Credentials (or use `AWS_PROFILE`) |
+| `AWS_SESSION_TOKEN` | — | STS session token (for assumed roles) |
+| `AWS_PROFILE` | — | Named profile from `~/.aws/credentials` |
+| `AWS_ECR_REGISTRY` | — | Override ECR registry host |
+
+In simple mode AgentBreeder uses ECS cluster `agentbreeder-default`, IAM role
+`agentbreeder-ecs-execution-role`, the default VPC, and the default security group.
+These are auto-created on first deploy in greenfield mode (coming with [#383](https://github.com/agentbreeder/agentbreeder/issues/383)).
+
+**Full mode adds:**
+
+| Field | Required | Description |
+|---|---|---|
+| `AWS_ECS_CLUSTER` | ✓ | ECS cluster name |
+| `AWS_EXECUTION_ROLE_ARN` | ✓ | IAM execution role ARN |
+| `AWS_VPC_SUBNETS` | ✓ | Comma-separated subnet IDs (≥2 for HA) |
+| `AWS_SECURITY_GROUPS` | ✓ | Comma-separated security group IDs |
+| `AWS_ECR_REPOSITORY` | ✓ | ECR repository name |
+| `AWS_TASK_ROLE_ARN` | — | Task IAM role ARN |
+| `AWS_ALB_TARGET_GROUP_ARN` | — | ALB target group ARN |
+| `AWS_CLOUDWATCH_LOG_GROUP` | — | CloudWatch Logs group |
+| `AWS_SECRETS_MANAGER_PREFIX` | — | ARN prefix for Secrets Manager |
+
+**What `validate-infra` checks (read-only):**
+`sts:GetCallerIdentity` (creds + account match), `ec2:DescribeSubnets`,
+`ec2:DescribeSecurityGroups`, `ecs:DescribeClusters`, `iam:GetRole`,
+`ecr:DescribeRepositories`.
+
+</Tab>
+<Tab value="GCP">
+
+**Simple mode (`mode=simple`):**
+
+| Field | Required | Description |
+|---|---|---|
+| `GOOGLE_CLOUD_PROJECT` | ✓ | GCP project ID |
+| `GOOGLE_APPLICATION_CREDENTIALS` | ✓ | Path to service-account JSON (or use ADC) |
+| `GCP_REGION` | — | Cloud Run region (default `us-central1`) |
+
+In simple mode AgentBreeder uses Artifact Registry repo `agentbreeder` and the
+default compute service account `<project-number>-compute@developer.gserviceaccount.com`.
+You still need the four IAM roles documented in [One-time IAM grants](#one-time-iam-grants) below.
+
+**Full mode adds:**
+
+| Field | Required | Description |
+|---|---|---|
+| `GCP_ARTIFACT_REGISTRY_REPO` | ✓ | Artifact Registry repository name |
+| `GCP_CLOUD_RUN_SERVICE_ACCOUNT` | ✓ | Service account email for the Cloud Run service |
+| `GCP_VPC_CONNECTOR` | — | Serverless VPC Access connector |
+| `GCP_CLOUD_SQL_INSTANCE` | — | Cloud SQL instance connection name |
+| `GCP_ALLOW_UNAUTHENTICATED` | — | `true`/`false` |
+| `GCP_CUSTOM_DOMAIN` | — | Custom domain mapping |
+
+**What `validate-infra` checks (read-only):**
+`resourcemanager:GetProject`, `artifactregistry:GetRepository`,
+`iam:GetServiceAccount`.
+
+</Tab>
+<Tab value="Azure">
+
+**Simple mode (`mode=simple`):**
+
+| Field | Required | Description |
+|---|---|---|
+| `AZURE_SUBSCRIPTION_ID` | ✓ | Azure subscription ID |
+| `AZURE_TENANT_ID` | ✓ | Microsoft Entra (Azure AD) tenant ID |
+| `AZURE_CLIENT_ID` + `AZURE_CLIENT_SECRET` | ✓ | Service-principal credentials (or `az login`) |
+| `AZURE_LOCATION` | — | Azure region (default `eastus`) |
+
+In simple mode AgentBreeder uses Resource Group `agentbreeder-rg`, auto-creates an ACR
+(`agentbreeder<5-char-hash>`), a Log Analytics workspace, and an ACA managed environment on first deploy
+(coming with [#384](https://github.com/agentbreeder/agentbreeder/issues/384)).
+
+**Full mode adds:**
+
+| Field | Required | Description |
+|---|---|---|
+| `AZURE_RESOURCE_GROUP` | ✓ | Resource Group name |
+| `AZURE_ACR_LOGIN_SERVER` | ✓ | ACR login server (e.g. `myacr.azurecr.io`) |
+| `AZURE_ACA_ENVIRONMENT` | ✓ | Container Apps managed environment name |
+| `AZURE_LOG_ANALYTICS_WORKSPACE_ID` | ✓ | Log Analytics workspace ID (GUID) |
+| `AZURE_MANAGED_IDENTITY_ID` | ✓ | User-assigned managed identity ID |
+| `AZURE_KEY_VAULT_NAME` | — | Key Vault name for secrets |
+| `AZURE_POSTGRES_FQDN` | — | Azure Database for PostgreSQL FQDN |
+| `AZURE_VNET_SUBNET_ID` | — | VNet subnet ID for delegation |
+
+**What `validate-infra` checks (read-only):**
+`SubscriptionClient.subscriptions.get`, `ResourceGroupsClient.get`,
+`ContainerRegistryManagementClient.registries.get`,
+`ContainerAppsAPIClient.managed_environments.get`.
+
+</Tab>
+</Tabs>
+
+### Calling `validate-infra` from your terminal
+
+```bash
+TOKEN=$AGENTBREEDER_API_TOKEN
+
+curl -X POST http://localhost:8000/api/v1/deployments/validate-infra \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "team_id": "engineering",
+    "cloud": "aws",
+    "region": "us-east-1",
+    "mode": "simple",
+    "fields": {
+      "AWS_ACCOUNT_ID": "123456789012",
+      "AWS_ACCESS_KEY_ID": "AKIA...",
+      "AWS_SECRET_ACCESS_KEY": "..."
+    }
+  }'
+# {"data":{"valid":true,"cloud":"aws","region":"us-east-1","checks":[...]},"errors":[]}
+```
+
+If a referenced resource is missing or you lack permission, the response carries a
+populated `errors` array and the individual check status (`missing` / `forbidden` /
+`error`) for each resource.
 
 ---
 

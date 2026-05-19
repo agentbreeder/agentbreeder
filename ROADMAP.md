@@ -3394,21 +3394,22 @@ New:
 
 ---
 
-## Post-Audit Backlog — Platform Audit 2026-05-18
+## v2.3 — Post-Audit Cleanup
 
 **Tracking epic:** [#409](https://github.com/agentbreeder/agentbreeder/issues/409) | **Landing PR:** [#402](https://github.com/agentbreeder/agentbreeder/pull/402) | **Spec:** [`docs/superpowers/specs/2026-05-18-platform-audit-design.md`](docs/superpowers/specs/2026-05-18-platform-audit-design.md)
 
-PR #402 (Platform Audit) shipped 85 of 91 findings across Waves 0–5 as additive-safe changes. The remaining 6 items require breaking changes, schema extensions, or cross-repo coordination and are tracked as standalone issues for the v2.3 cycle.
+PR #402 (Platform Audit) shipped 85 of 91 findings across Waves 0–5 as additive-safe changes. The remaining 5 items require breaking changes, schema extensions, or cross-repo coordination and form the v2.3 cleanup cycle.
 
 ### Human-Review backlog (HR-1..HR-7)
 
-- [ ] **HR-1** — Memory team-scope isolation not enforced at runtime ([#403](https://github.com/agentbreeder/agentbreeder/issues/403)) — security / data isolation
-- [ ] **HR-2** — Memory wiring missing from Claude SDK, OpenAI Agents, CrewAI runtimes ([#404](https://github.com/agentbreeder/agentbreeder/issues/404)) — cross-framework parity
+- [ ] **HR-1** — Memory team-scope isolation not enforced at runtime ([#403](https://github.com/agentbreeder/agentbreeder/issues/403); memory platform epic [#283](https://github.com/agentbreeder/agentbreeder/issues/283)) — security / data isolation
+- [ ] **HR-2** — Memory wiring missing from Claude SDK, OpenAI Agents, CrewAI runtimes ([#404](https://github.com/agentbreeder/agentbreeder/issues/404); memory platform epic [#283](https://github.com/agentbreeder/agentbreeder/issues/283)) — cross-framework parity
 - [ ] **HR-3** — GraphRAG `custom_entity_types` documented but not in `agent.yaml` schema ([#405](https://github.com/agentbreeder/agentbreeder/issues/405)) — schema bump + cross-repo sync
-- [ ] **HR-4** — RAG `pgvector` backend silently falls back to `in_memory` ([#406](https://github.com/agentbreeder/agentbreeder/issues/406)) — decision: build adapter or remove backend
-- [ ] **HR-5** — Greenfield (scenario B) infra provisioning for AWS / Azure / K8s ([#407](https://github.com/agentbreeder/agentbreeder/issues/407)) — likely duplicate of epic [#378](https://github.com/agentbreeder/agentbreeder/issues/378)
+- [ ] **HR-4** — RAG `pgvector` backend silently falls back to `in_memory` ([#406](https://github.com/agentbreeder/agentbreeder/issues/406)) — build-or-remove decision **owned by @rajitsaha, due 2026-06-01**
 - [ ] **HR-7** — Migrate Docker Hub namespace from `rajits/` to `agentbreeder/` ([#408](https://github.com/agentbreeder/agentbreeder/issues/408)) — distribution hygiene
 
+> **HR-5** (greenfield infra provisioning, was [#407](https://github.com/agentbreeder/agentbreeder/issues/407)) was closed as a duplicate of epic [#378](https://github.com/agentbreeder/agentbreeder/issues/378) (sub-issues #382–#389). Track that work there.
+>
 > **HR-6** (markdown_writer path traversal) was promoted to W1-01 in the additive queue and shipped in PR #402 — no follow-up issue needed.
 
 ### Recommended execution order
@@ -3417,5 +3418,4 @@ PR #402 (Platform Audit) shipped 85 of 91 findings across Waves 0–5 as additiv
 2. HR-7 (#408) — distribution hygiene; unblocks org-namespace publishing.
 3. HR-2 (#404) — restores cross-framework memory parity promised in docs.
 4. HR-3 (#405) — schedule when website + `agentbreeder-cloud` PRs can land together.
-5. HR-4 (#406) — needs a build-or-remove decision first.
-6. HR-5 (#407) — largest scope; coordinate with architecture epics [#377](https://github.com/agentbreeder/agentbreeder/issues/377)–[#381](https://github.com/agentbreeder/agentbreeder/issues/381) (likely close as duplicate of #378).
+5. HR-4 (#406) — pending build-or-remove decision by 2026-06-01 (@rajitsaha).

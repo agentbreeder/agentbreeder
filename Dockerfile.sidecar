@@ -1,8 +1,8 @@
 # AgentBreeder Observability Sidecar
 # Issue #73: Auto-inject OTel observability sidecar
 #
-# Build:  docker build -f Dockerfile.sidecar -t rajits/agentbreeder-sidecar:latest .
-# Run:    docker run -p 8090:8090 rajits/agentbreeder-sidecar:latest
+# Build:  docker build -f Dockerfile.sidecar -t agentbreeder/agentbreeder-sidecar:latest .
+# Run:    docker run -p 8090:8090 agentbreeder/agentbreeder-sidecar:latest
 
 FROM python:3.11-slim
 

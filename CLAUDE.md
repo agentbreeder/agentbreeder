@@ -267,7 +267,7 @@ Every deployed agent that declares `guardrails:`, MCP `tools:`, or `a2a:` gets t
 
 > **Source:** `sidecar/` (Go module), `engine/sidecar/` (Python deployer integration), `website/content/docs/sidecar.mdx` (user docs).
 > **Bypass:** set `AGENTBREEDER_SIDECAR=disabled` for local dev; agents without `guardrails:` / MCP / A2A do not get a sidecar at all.
-> **Image:** `rajits/agentbreeder-sidecar:<version>` (linux/amd64, linux/arm64).
+> **Image:** `agentbreeder/agentbreeder-sidecar:<version>` (linux/amd64, linux/arm64).
 
 ### 4. Framework Agnosticism
 The `engine/runtimes/` layer abstracts all framework differences. Every runtime implements:
@@ -327,9 +327,9 @@ AgentBreeder is distributed through three channels for maximum reach.
 
 | Image | Purpose | Dockerfile |
 |-------|---------|-----------|
-| `rajits/agentbreeder-api` | API server | `Dockerfile` |
-| `rajits/agentbreeder-dashboard` | React frontend | `dashboard/Dockerfile` |
-| `rajits/agentbreeder-cli` | Lightweight CLI for CI/CD pipelines | `Dockerfile.cli` |
+| `agentbreeder/agentbreeder-api` | API server | `Dockerfile` |
+| `agentbreeder/agentbreeder-dashboard` | React frontend | `dashboard/Dockerfile` |
+| `agentbreeder/agentbreeder-cli` | Lightweight CLI for CI/CD pipelines | `Dockerfile.cli` |
 
 All images tagged with version + `latest`, built for linux/amd64 and linux/arm64.
 
@@ -349,7 +349,7 @@ Plan to migrate to Homebrew core once the project has sufficient traction.
 |--------|-----------|
 | GitHub | `agentbreeder/agentbreeder` |
 | PyPI | `agentbreeder`, `agentbreeder-sdk` |
-| Docker Hub | `rajits/agentbreeder-api`, `rajits/agentbreeder-dashboard`, `rajits/agentbreeder-cli` |
+| Docker Hub | `agentbreeder/agentbreeder-api`, `agentbreeder/agentbreeder-dashboard`, `agentbreeder/agentbreeder-cli` |
 | Homebrew | `agentbreeder/homebrew-agentbreeder` |
 
 ### Release Flow

@@ -199,6 +199,38 @@ class TestContentMaxLength:
         assert resp.status_code == 201, resp.text
 
 
+class TestMemoryRouteTeamScope:
+    """HR-1 (#403): routes forward caller's team; cross-team -> 403."""
+
+    def test_store_message_returns_403_on_cross_team(self) -> None:
+        with patch(
+            "api.routes.memory.MemoryService.store_message",
+            side_effect=PermissionError("Team scope violation"),
+        ):
+            resp = client.post(
+                "/api/v1/memory/configs/cfg1/messages",
+                json={"session_id": "s1", "role": "user", "content": "hi"},
+            )
+        assert resp.status_code == 403
+        assert "Team scope violation" in resp.json()["detail"]
+
+    def test_get_conversation_returns_403_on_cross_team(self) -> None:
+        cfg = MagicMock()
+        cfg.model_dump.return_value = {"id": "cfg1"}
+        with (
+            patch(
+                "api.routes.memory.MemoryService.get_config",
+                new=AsyncMock(return_value=cfg),
+            ),
+            patch(
+                "api.routes.memory.MemoryService.get_conversation",
+                side_effect=PermissionError("Team scope violation"),
+            ),
+        ):
+            resp = client.get("/api/v1/memory/configs/cfg1/conversations/s1")
+        assert resp.status_code == 403
+
+
 # ===================================================================
 # W4-34: Summary LLM circuit breaker
 # ===================================================================
