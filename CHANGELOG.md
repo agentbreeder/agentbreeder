@@ -34,6 +34,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Changed** every operational reference from `rajits/agentbreeder-*` to `agentbreeder/agentbreeder-*` across 18 files (CI workflow, docker-compose, sidecar, CLI defaults, docs, tests). Symmetric +54/-54.
 - Historical files (`CHANGELOG.md`, `ROADMAP.md`, audit specs/plans) intentionally untouched.
 
+### v2.3 — HR-2 memory wiring in 3 Python runtimes (#421, closes #404)
+
+- **Added** `MemoryManager` init + per-turn load/save + shutdown hook to Claude SDK, OpenAI Agents, and CrewAI server templates (mirrors the LangGraph reference).
+- **Added** 18 source-level smoke tests under `tests/integration/runtimes/test_memory_wiring_hr2.py`.
+- TS runtime parity tracked in #417.
+
 ### Platform Audit Summary (2026-05-18)
 
 A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:
