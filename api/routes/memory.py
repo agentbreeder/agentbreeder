@@ -48,6 +48,7 @@ async def create_memory_config(
         linked_agents=body.linked_agents,
         description=body.description,
         tags=body.tags,
+        ttl_seconds=body.ttl_seconds,
     )
     return ApiResponse(data=MemoryConfigResponse.model_validate(config.model_dump()))
 
@@ -210,7 +211,7 @@ async def delete_conversations(
 async def search_messages(
     config_id: str,
     _user: User = Depends(get_current_user),
-    q: str = Query(..., min_length=1),
+    q: str = Query(..., min_length=1, max_length=200),
     limit: int = Query(50, ge=1, le=200),
 ) -> ApiResponse[list[MemorySearchResultResponse]]:
     """Full-text search across stored messages."""
@@ -229,6 +230,57 @@ async def search_messages(
             for r in results
         ]
     )
+
+
+# -- MM9: GDPR-style "right to be forgotten" --------------------------------
+
+
+@router.delete(
+    "/user/{user_id}",
+    response_model=ApiResponse[dict],
+)
+async def delete_user_messages(
+    user_id: str,
+    _user: User = Depends(require_role("admin")),
+) -> ApiResponse[dict]:
+    """Cascade-delete every memory message authored by *user_id*.
+
+    Implements a GDPR / CCPA "right to be forgotten" request. Matches against
+    ``MemoryMessage.metadata.user_id`` across every memory config and returns
+    the total number of deleted messages. Admin-only.
+
+    Callers must ensure ``user_id`` was written to ``metadata`` when storing
+    messages — see ``MemoryMessageCreate.metadata`` docs.
+    """
+    if not user_id or not user_id.strip():
+        raise HTTPException(status_code=400, detail="user_id is required")
+    deleted = await MemoryService.delete_messages_by_user_id(user_id)
+    return ApiResponse(data={"user_id": user_id, "deleted_count": deleted})
+
+
+# -- MM8: TTL cleanup --------------------------------------------------------
+
+
+@router.post(
+    "/configs/{config_id}/cleanup",
+    response_model=ApiResponse[dict],
+)
+async def cleanup_memory_config(
+    config_id: str,
+    _user: User = Depends(require_role("admin")),
+) -> ApiResponse[dict]:
+    """Delete messages older than the config's ``ttl_seconds`` (one-shot).
+
+    Returns the number of expired messages removed. No-op if the config has
+    no TTL set. Operators may schedule this externally (cron, Celery beat,
+    ``agentbreeder memory cleanup``); the platform itself does not run a
+    background scheduler.
+    """
+    config = await MemoryService.get_config(config_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Memory config not found")
+    deleted = await MemoryService.cleanup_expired_messages(config_id=config_id)
+    return ApiResponse(data={"config_id": config_id, "deleted_count": deleted})
 
 
 # -- Thread convenience (used by @agentbreeder/aps-client) -------------------

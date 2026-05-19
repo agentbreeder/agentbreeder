@@ -15,7 +15,7 @@ If you remember nothing else:
 agentbreeder quickstart        # full local stack + 5 sample agents
 agentbreeder init              # scaffold a new agent.yaml
 agentbreeder validate          # check agent.yaml
-agentbreeder deploy --target   # local | aws | gcp | azure | kubernetes | claude-managed
+agentbreeder deploy --target   # local + cloud-run shipped greenfield; others require existing infra (see deploy table)
 agentbreeder chat <name>       # talk to a deployed agent
 agentbreeder list agents       # see what's deployed
 agentbreeder ui                # open the dashboard
@@ -39,15 +39,18 @@ agentbreeder [COMMAND] [OPTIONS]
 Full local platform bootstrap — Docker, services, sample data, 5 sample agents, and dashboard in one command.
 
 ```
-agentbreeder quickstart [--cloud TARGET] [--no-browser] [--skip-seed] [--dev]
+agentbreeder quickstart [--cloud TARGET] [--no-browser] [--skip-seed] [--dev] [--reset] [--no-ollama] [--ollama-model NAME]
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--cloud` | — | Also deploy to cloud after local setup: `aws`, `gcp`, or `azure` |
+| `--cloud` | — | Also deploy to cloud after local setup. `gcp` is shipped greenfield (provisions Cloud Run from scratch); `aws` and `azure` invoke the deployers but require pre-existing infra (VPC + IAM / resource group). See the [deploy-target status table](#agentbreeder-deploy). |
 | `--no-browser` | Off | Don't open the dashboard at `http://localhost:3001` |
 | `--skip-seed` | Off | Skip ChromaDB + Neo4j seeding (fast restart) |
 | `--dev` | Off | Build API and Dashboard from local source instead of pulling images |
+| `--reset` | Off | Tear down all docker volumes (postgres, redis, chromadb, neo4j) and start fresh |
+| `--no-ollama` | Off | Skip the Ollama install/start/pull bootstrap step |
+| `--ollama-model` | `gemma3` | Pull a different default model for Ollama (e.g. `llama3.2`, `phi4-mini`) |
 
 What it does:
 1. Detects Docker / Podman; shows OS-specific install instructions if neither is found
@@ -62,9 +65,9 @@ What it does:
 **Examples:**
 ```bash
 agentbreeder quickstart                       # Local only
-agentbreeder quickstart --cloud aws           # Local + deploy to AWS ECS Fargate
-agentbreeder quickstart --cloud gcp           # Local + deploy to GCP Cloud Run
-agentbreeder quickstart --cloud azure         # Local + deploy to Azure Container Apps
+agentbreeder quickstart --cloud gcp           # Local + deploy to GCP Cloud Run (shipped greenfield)
+agentbreeder quickstart --cloud aws           # Local + deploy to AWS ECS Fargate (requires existing VPC + IAM)
+agentbreeder quickstart --cloud azure         # Local + deploy to Azure Container Apps (requires existing resource group)
 agentbreeder quickstart --skip-seed           # Restart stack without re-seeding data
 agentbreeder quickstart --dev                 # Build from source
 ```
@@ -202,15 +205,29 @@ agentbreeder deploy CONFIG_PATH [--target TARGET] [--json]
 
 **Supported `--target` values:**
 
-| Value | Cloud | Runtime | Notes |
-|-------|-------|---------|-------|
-| `local` | `local` | `docker-compose` | Default. Requires Docker. |
-| `cloud-run` | `gcp` | `cloud-run` | GCP Cloud Run. |
-| `ecs-fargate` | `aws` | `ecs-fargate` | AWS ECS Fargate. |
-| `app-runner` | `aws` | `app-runner` | AWS App Runner (no VPC/ALB). |
-| `container-apps` | `azure` | `container-apps` | Azure Container Apps. |
-| `kubernetes` | `kubernetes` | `deployment` | Generic Kubernetes. |
-| `claude-managed` | `claude-managed` | *(n/a)* | Anthropic managed runtime — no container built. |
+The deployer codepaths for every target below are implemented and exercised by tests, but only `local` and `cloud-run` are fully provisioned **greenfield-to-running** — i.e. AgentBreeder will create everything from scratch on a clean account. The remaining targets work when you point them at pre-existing infrastructure.
+
+| Target | Status | Greenfield provisioning |
+|--------|--------|--------------------------|
+| `local` (Docker Compose) | ✅ Shipped | ✅ |
+| `cloud-run` (GCP) | ✅ Shipped | ✅ |
+| `ecs-fargate` (AWS) | 🟡 Deployer exists | ❌ — needs existing VPC + IAM |
+| `app-runner` (AWS) | 🟡 Deployer exists | ❌ — needs existing VPC + IAM |
+| `container-apps` (Azure) | 🟡 Deployer exists | ❌ — needs existing resource group + env |
+| `kubernetes` (EKS/GKE/AKS/self-hosted) | 🟡 Deployer exists | ❌ — needs existing cluster + kubeconfig |
+| `claude-managed` (Anthropic) | 🟡 Deployer exists | n/a — runtime is Anthropic-managed |
+
+Each `--target` value maps to one cloud + runtime combination:
+
+| Value | Cloud | Runtime |
+|-------|-------|---------|
+| `local` | `local` | `docker-compose` |
+| `cloud-run` | `gcp` | `cloud-run` |
+| `ecs-fargate` | `aws` | `ecs-fargate` |
+| `app-runner` | `aws` | `app-runner` |
+| `container-apps` | `azure` | `container-apps` |
+| `kubernetes` | `kubernetes` | `deployment` |
+| `claude-managed` | `claude-managed` | *(n/a — no container built)* |
 
 The deploy pipeline executes 8 atomic steps:
 1. Parse & validate YAML
@@ -227,11 +244,11 @@ If any step fails, the entire deploy rolls back.
 **Examples:**
 ```bash
 agentbreeder deploy ./agent.yaml                              # Deploy locally
-agentbreeder deploy ./agent.yaml --target local               # Same as above
-agentbreeder deploy ./agent.yaml --target cloud-run           # GCP Cloud Run
-agentbreeder deploy ./agent.yaml --target ecs-fargate         # AWS ECS Fargate
-agentbreeder deploy ./agent.yaml --target app-runner          # AWS App Runner
-agentbreeder deploy ./agent.yaml --target claude-managed      # Anthropic Claude Managed
+agentbreeder deploy ./agent.yaml --target local               # Same as above (shipped greenfield)
+agentbreeder deploy ./agent.yaml --target cloud-run           # GCP Cloud Run (shipped greenfield)
+agentbreeder deploy ./agent.yaml --target ecs-fargate         # AWS ECS Fargate (requires existing VPC + IAM)
+agentbreeder deploy ./agent.yaml --target app-runner          # AWS App Runner (requires existing VPC + IAM)
+agentbreeder deploy ./agent.yaml --target claude-managed      # Anthropic Claude Managed (managed runtime)
 agentbreeder deploy ./agent.yaml --json                       # JSON output
 ```
 

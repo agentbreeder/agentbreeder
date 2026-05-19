@@ -1201,8 +1201,8 @@ class TestMemoryConfigs:
             "/api/v1/memory/configs",
             json={
                 "name": "default",
-                "backend_type": "buffer_window",
-                "memory_type": "conversation",
+                "backend_type": "postgresql",
+                "memory_type": "buffer_window",
             },
         )
         assert resp.status_code == 201
@@ -1764,7 +1764,9 @@ class TestRagSearch:
     def test_search_missing_fields(self, mock_gs):
         mock_gs.return_value = MagicMock()
         resp = client.post("/api/v1/rag/search", json={})
-        assert resp.status_code == 400
+        # W1-02: RagSearchRequest Pydantic validation now returns 422 for invalid
+        # bodies (was 400 under the old loose dict-based parsing).
+        assert resp.status_code == 422
 
     @patch("api.routes.rag.get_rag_store")
     def test_search_index_not_found(self, mock_gs):
@@ -2196,7 +2198,8 @@ class TestMcpServersActions:
     )
     def test_execute_tool(self, mock_get, mock_et):
         mock_get.return_value = _mcp_server_mock()
-        mock_et.return_value = {"result": "ok"}
+        # W4-13: registry must include success=True for the route to pass through
+        mock_et.return_value = {"success": True, "result": "ok"}
         resp = client.post(
             "/api/v1/mcp-servers/s1/execute",
             params={"tool_name": "read"},

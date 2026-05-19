@@ -91,6 +91,8 @@ agentbreeder chat
 
 ## Deploy to different targets
 
+> **What's fully shipped today:** Local (Docker Compose) and GCP Cloud Run support greenfield provisioning end-to-end. AWS ECS Fargate, AWS App Runner, Azure Container Apps, Kubernetes (EKS/GKE/AKS), and Claude Managed Agents have working deployer implementations but require **existing infrastructure** — pre-provisioned VPC/subnets/IAM roles for AWS, resource group + Container Apps Environment for Azure, an existing cluster for Kubernetes. Prereq checklists are in [deployment.mdx](deployment).
+
 | Target | Command | `cloud:` |
 |---|---|---|
 | Local Docker Compose | `agentbreeder deploy agent.yaml --target local` | `local` |
@@ -406,11 +408,11 @@ Wrap existing code in `agent.yaml` without rewriting it.
 
 | From | `framework:` | Guide |
 |---|---|---|
-| LangGraph | `langgraph` | [FROM_LANGGRAPH.md](migrations/FROM_LANGGRAPH.md) |
-| OpenAI Agents | `openai_agents` | [FROM_OPENAI_AGENTS.md](migrations/FROM_OPENAI_AGENTS.md) |
-| CrewAI | `crewai` | [FROM_CREWAI.md](migrations/FROM_CREWAI.md) |
-| AutoGen | `custom` | [FROM_AUTOGEN.md](migrations/FROM_AUTOGEN.md) |
-| Custom code | `custom` | [FROM_CUSTOM.md](migrations/FROM_CUSTOM.md) |
+| LangGraph | `langgraph` | [from-langgraph](migrations/from-langgraph) |
+| OpenAI Agents | `openai_agents` | [from-openai-agents](migrations/from-openai-agents) |
+| CrewAI | `crewai` | [from-crewai](migrations/from-crewai) |
+| AutoGen | `custom` | [from-autogen](migrations/from-autogen) |
+| Custom code | `custom` | [from-custom](migrations/from-custom) |
 
 ---
 

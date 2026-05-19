@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import tempfile
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from engine.builder import DeployEngine
 from engine.config_parser import AgentConfig, CloudType, FrameworkType
 from engine.deployers import get_deployer
-from engine.deployers.base import DeployResult
+from engine.deployers.base import DeployResult, HealthStatus, InfraResult
 from engine.deployers.docker_compose import DockerComposeDeployer
 
 
@@ -88,6 +91,99 @@ class TestGetDeployer:
         fake_cloud.value = "martian-cloud"
         with pytest.raises(KeyError, match="not yet supported"):
             get_deployer(fake_cloud)
+
+    def test_runtime_deployers_take_precedence_over_cloud(self) -> None:
+        """RUNTIME_DEPLOYERS overrides DEPLOYERS.
+
+        When deploy.cloud=aws (default ECS Fargate) and deploy.runtime=app-runner,
+        the runtime alias wins and the AWS App Runner deployer is returned.
+        """
+        from engine.deployers.aws_app_runner import AWSAppRunnerDeployer
+        from engine.deployers.aws_ecs import AWSECSDeployer
+
+        # Default for cloud=aws is ECS Fargate
+        default_deployer = get_deployer(CloudType.aws)
+        assert isinstance(default_deployer, AWSECSDeployer)
+
+        # But runtime=app-runner overrides it
+        runtime_deployer = get_deployer(CloudType.aws, runtime="app-runner")
+        assert isinstance(runtime_deployer, AWSAppRunnerDeployer)
+
+        # Same idea: cloud=gcp default is Cloud Run, but an alias still wins
+        # (cloud-run is also the GCP default — assert the runtime path is taken)
+        from engine.deployers.gcp_cloudrun import GCPCloudRunDeployer
+
+        runtime_gcp = get_deployer(CloudType.gcp, runtime="cloud-run")
+        assert isinstance(runtime_gcp, GCPCloudRunDeployer)
+
+    def test_runtime_precedence_is_case_insensitive(self) -> None:
+        """Runtime lookup normalises case and whitespace before precedence resolution."""
+        from engine.deployers.aws_app_runner import AWSAppRunnerDeployer
+
+        deployer = get_deployer(CloudType.aws, runtime="  APP-RUNNER  ")
+        assert isinstance(deployer, AWSAppRunnerDeployer)
+
+
+def _make_agent_dir_for_engine() -> Path:
+    """Create a temp agent directory with valid files for DeployEngine tests."""
+    d = Path(tempfile.mkdtemp())
+    (d / "agent.yaml").write_text("""\
+name: test-agent
+version: 1.0.0
+team: test
+owner: test@example.com
+framework: langgraph
+model:
+  primary: gpt-4o
+deploy:
+  cloud: local
+""")
+    (d / "agent.py").write_text("graph = None")
+    (d / "requirements.txt").write_text("langgraph>=0.2.0")
+    return d
+
+
+class TestDeployEnginePartialFailureRollback:
+    """D7: The engine must teardown when a deployer's health check fails after deploy."""
+
+    @pytest.mark.asyncio
+    async def test_deploy_engine_teardown_on_health_check_failure(self) -> None:
+        """Engine must call deployer.teardown() when health_check returns healthy=False.
+
+        Cross-deployer guarantee: regardless of cloud target, if deploy() succeeds
+        but health_check() reports unhealthy, the engine must invoke teardown()
+        before propagating the DeployError so partial infrastructure is cleaned up.
+        """
+        agent_dir = _make_agent_dir_for_engine()
+
+        mock_deployer = MagicMock()
+        mock_deployer.provision = AsyncMock(
+            return_value=InfraResult(endpoint_url="http://localhost:8080", resource_ids={})
+        )
+        mock_deployer.deploy = AsyncMock(
+            return_value=DeployResult(
+                endpoint_url="http://localhost:8080",
+                container_id="abc123",
+                status="running",
+                agent_name="test-agent",
+                version="1.0.0",
+            )
+        )
+        mock_deployer.health_check = AsyncMock(
+            return_value=HealthStatus(healthy=False, checks={"reachable": False})
+        )
+        mock_deployer.teardown = AsyncMock()
+
+        with patch("engine.builder.get_deployer", return_value=mock_deployer):
+            engine = DeployEngine()
+            with pytest.raises(Exception, match="Health check failed"):
+                await engine.deploy(agent_dir / "agent.yaml")
+
+        # Engine must have called teardown before raising
+        mock_deployer.teardown.assert_called_once_with("test-agent")
+        # And deploy/health_check must have happened in order
+        mock_deployer.deploy.assert_awaited_once()
+        mock_deployer.health_check.assert_awaited_once()
 
 
 class TestDockerComposeDeployer:

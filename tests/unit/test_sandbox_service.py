@@ -236,8 +236,10 @@ class TestExecuteInSubprocess:
 
     @pytest.mark.asyncio
     async def test_timeout_enforcement(self) -> None:
+        # Busy CPU loop — imports are forbidden by the sandbox AST scan, so we
+        # rely on pure-Python work to exceed the 1-second budget.
         req = SandboxExecutionRequest(
-            code="import time; time.sleep(10)",
+            code="x = 0\nwhile True:\n    x = (x + 1) % 10_000_000",
             timeout_seconds=1,
         )
         result = await execute_in_subprocess(req)

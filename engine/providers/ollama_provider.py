@@ -24,6 +24,7 @@ from engine.providers.models import (
     GenerateResult,
     ModelInfo,
     ProviderConfig,
+    ProviderHealth,
     StreamChunk,
     ToolCall,
     ToolDefinition,
@@ -101,7 +102,9 @@ class OllamaProvider(ProviderBase):
             messages, resolved_model, temperature, max_tokens, tools, stream=False
         )
 
-        response = await self._request("POST", "/v1/chat/completions", payload)
+        response = await self._request(
+            "POST", "/v1/chat/completions", payload, model=resolved_model
+        )
         return self._parse_response(response)
 
     async def generate_stream(
@@ -118,7 +121,7 @@ class OllamaProvider(ProviderBase):
         )
 
         async with self._client.stream("POST", "/v1/chat/completions", json=payload) as resp:
-            self._check_status(resp.status_code)
+            self._check_status(resp.status_code, model=resolved_model)
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -163,13 +166,29 @@ class OllamaProvider(ProviderBase):
             )
         return sorted(models, key=lambda m: m.id)
 
-    async def health_check(self) -> bool:
+    async def health_check(self) -> ProviderHealth:
         """Check if Ollama is running by hitting the root endpoint."""
         try:
             resp = await self._client.get("/")
-            return resp.status_code == 200
-        except (httpx.ConnectError, httpx.TimeoutException):
-            return False
+        except httpx.ConnectError as e:
+            return ProviderHealth(
+                healthy=False,
+                reason=f"Cannot connect to Ollama at {self._base_url}: {e}",
+                error_code=None,
+            )
+        except httpx.TimeoutException as e:
+            return ProviderHealth(
+                healthy=False,
+                reason=f"Ollama at {self._base_url} timed out: {e}",
+                error_code=None,
+            )
+        if resp.status_code == 200:
+            return ProviderHealth(healthy=True)
+        return ProviderHealth(
+            healthy=False,
+            reason=f"Ollama at {self._base_url} returned HTTP {resp.status_code}",
+            error_code=resp.status_code,
+        )
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -248,7 +267,14 @@ class OllamaProvider(ProviderBase):
                     continue
                 yield event
 
-    async def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        model: str | None = None,
+    ) -> Any:
         try:
             if method == "GET":
                 resp = await self._client.get(path)
@@ -264,14 +290,20 @@ class OllamaProvider(ProviderBase):
             )
             raise ProviderError(msg) from e
 
-        self._check_status(resp.status_code)
+        self._check_status(resp.status_code, model=model)
         return resp.json()
 
-    def _check_status(self, status_code: int) -> None:
+    def _check_status(self, status_code: int, *, model: str | None = None) -> None:
         if status_code == 200:
             return
         if status_code == 404:
-            raise ModelNotFoundError("Model not found in Ollama. Run: ollama pull <model>")
+            model_str = model or "<model>"
+            msg = (
+                f"Model not found in Ollama. "
+                f"Pull it via POST /api/v1/providers/{{id}}/pull-model "
+                f"or run `ollama pull {model_str}` if you have CLI access."
+            )
+            raise ModelNotFoundError(msg)
         if status_code >= 400:
             msg = f"Ollama API error ({status_code})"
             raise ProviderError(msg)
@@ -279,7 +311,6 @@ class OllamaProvider(ProviderBase):
     def _parse_response(self, data: dict[str, Any]) -> GenerateResult:
         choice = data.get("choices", [{}])[0]
         message = choice.get("message", {})
-        usage_data = data.get("usage", {})
 
         tool_calls: list[ToolCall] = []
         for tc in message.get("tool_calls", []):
@@ -296,13 +327,35 @@ class OllamaProvider(ProviderBase):
             content=message.get("content"),
             tool_calls=tool_calls,
             finish_reason=choice.get("finish_reason", "stop"),
-            usage=UsageInfo(
-                prompt_tokens=usage_data.get("prompt_tokens", 0),
-                completion_tokens=usage_data.get("completion_tokens", 0),
-                total_tokens=usage_data.get("total_tokens", 0),
-            ),
+            usage=self._extract_usage(data),
             model=data.get("model", ""),
             provider="ollama",
+        )
+
+    @staticmethod
+    def _extract_usage(data: dict[str, Any]) -> UsageInfo:
+        """Extract token counts from an Ollama response.
+
+        Ollama responses come in two shapes depending on endpoint:
+
+        * ``/v1/chat/completions`` (OpenAI-compatible) → ``usage.prompt_tokens``,
+          ``usage.completion_tokens``, ``usage.total_tokens``.
+        * ``/api/chat`` (native) → top-level ``prompt_eval_count`` and
+          ``eval_count``. Older models occasionally omit one or both
+          fields; in that case we leave the missing value at 0 and let
+          callers see the partial signal rather than fail.
+
+        We probe both shapes so this parser is robust against either
+        endpoint and against future endpoint changes.
+        """
+        usage_data = data.get("usage", {})
+        prompt_tokens = int(usage_data.get("prompt_tokens") or data.get("prompt_eval_count") or 0)
+        completion_tokens = int(usage_data.get("completion_tokens") or data.get("eval_count") or 0)
+        total_tokens = int(usage_data.get("total_tokens") or (prompt_tokens + completion_tokens))
+        return UsageInfo(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
         )
 
     def _parse_stream_chunk(self, data: dict[str, Any]) -> StreamChunk:

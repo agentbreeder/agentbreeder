@@ -9,6 +9,7 @@ Provides ephemeral, isolated execution of Python tool code with:
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import logging
@@ -25,6 +26,56 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 300
 DOCKER_IMAGE = "python:3.11-slim"
+
+# Built-ins the user code may NOT call. Combined with the AST import check, this
+# prevents trivial sandbox escapes via dynamic loading or eval.
+_FORBIDDEN_CALL_NAMES = frozenset({"eval", "exec", "__import__", "compile"})
+
+
+class SandboxValidationError(ValueError):
+    """Raised when user code fails the static safety scan."""
+
+
+def _validate_user_code(code: str) -> None:
+    """Reject user code that imports modules or uses dynamic-eval builtins.
+
+    Scans the AST for ``Import``, ``ImportFrom``, and direct calls to
+    ``eval`` / ``exec`` / ``__import__`` / ``compile``. Raises
+    :class:`SandboxValidationError` with a precise reason on failure.
+
+    This is a *static* check — runtime hardening (restricted namespace,
+    Docker isolation) still applies. Both layers are needed.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        raise SandboxValidationError(
+            f"Tool code has a syntax error at line {exc.lineno}: {exc.msg}"
+        ) from exc
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            mods = ", ".join(alias.name for alias in node.names)
+            raise SandboxValidationError(
+                f"Tool code may not use 'import' (found 'import {mods}' at line {node.lineno})"
+            )
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            raise SandboxValidationError(
+                f"Tool code may not use 'from ... import' "
+                f"(found 'from {module}' at line {node.lineno})"
+            )
+        if isinstance(node, ast.Call):
+            func = node.func
+            target = None
+            if isinstance(func, ast.Name):
+                target = func.id
+            elif isinstance(func, ast.Attribute):
+                target = func.attr
+            if target in _FORBIDDEN_CALL_NAMES:
+                raise SandboxValidationError(
+                    f"Tool code may not call '{target}()' (at line {node.lineno})"
+                )
 
 
 @dataclass
@@ -77,6 +128,21 @@ async def execute_in_docker(
     by default (--network=none).
     """
     execution_id = str(uuid.uuid4())
+
+    # Static safety scan *before* spinning up Docker.
+    try:
+        _validate_user_code(request.code)
+    except SandboxValidationError as exc:
+        return SandboxExecutionResult(
+            execution_id=execution_id,
+            output="",
+            stdout="",
+            stderr=str(exc),
+            exit_code=1,
+            duration_ms=0,
+            error=str(exc),
+        )
+
     tmpdir = tempfile.mkdtemp(prefix="agentbreeder-sandbox-")
 
     try:
@@ -176,6 +242,21 @@ async def execute_in_subprocess(
     WARNING: Less isolated than Docker. Use only for development/testing.
     """
     execution_id = str(uuid.uuid4())
+
+    # Static safety scan *before* spawning the subprocess.
+    try:
+        _validate_user_code(request.code)
+    except SandboxValidationError as exc:
+        return SandboxExecutionResult(
+            execution_id=execution_id,
+            output="",
+            stdout="",
+            stderr=str(exc),
+            exit_code=1,
+            duration_ms=0,
+            error=str(exc),
+        )
+
     tmpdir = tempfile.mkdtemp(prefix="agentbreeder-sandbox-")
 
     try:
@@ -275,6 +356,20 @@ import json
 import os
 import sys
 
+# Minimal builtins exposed to user code. Anything outside this dict raises
+# NameError. AST pre-check already rejects 'import', 'eval', dynamic invokers,
+# and 'compile'; this is a belt-and-suspenders runtime layer.
+_ALLOWED_BUILTINS = {{
+    "abs": abs, "all": all, "any": any, "bool": bool, "dict": dict,
+    "enumerate": enumerate, "float": float, "int": int, "isinstance": isinstance,
+    "len": len, "list": list, "map": map, "max": max, "min": min,
+    "print": print, "range": range, "round": round, "set": set, "sorted": sorted,
+    "str": str, "sum": sum, "tuple": tuple, "type": type, "zip": zip,
+    "True": True, "False": False, "None": None,
+    "ValueError": ValueError, "TypeError": TypeError, "KeyError": KeyError,
+    "Exception": Exception,
+}}
+
 def main():
     # Parse input
     raw_input = os.environ.get("TOOL_INPUT", "{{}}")
@@ -283,12 +378,18 @@ def main():
     except json.JSONDecodeError:
         tool_input = {{}}
 
-    # Execute user code
-    namespace = {{"tool_input": tool_input, "json": json}}
+    # Restricted namespace — only tool_input + json are exposed.
+    namespace = {{
+        "__builtins__": _ALLOWED_BUILTINS,
+        "tool_input": tool_input,
+        "json": json,
+    }}
     try:
-        exec(\'\'\'
+        # User code has been AST-validated upstream; run it in restricted ns.
+        _src = \'\'\'
 {user_code}
-\'\'\', namespace)
+\'\'\'
+        exec(_src, namespace)  # noqa: S102 — restricted namespace, pre-validated
     except Exception as e:
         print(f"Error: {{type(e).__name__}}: {{e}}", file=sys.stderr)
         sys.exit(1)

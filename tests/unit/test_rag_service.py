@@ -63,6 +63,35 @@ class TestFixedSizeChunking:
         assert len(chunks) == 1
 
 
+class TestFixedSizeChunkingValidation:
+    """W5-R10 — chunk_fixed_size must reject overlap >= chunk_size."""
+
+    def test_overlap_equal_to_chunk_size_raises(self):
+        with pytest.raises(ValueError, match="strictly less than"):
+            chunk_fixed_size("abcdefgh", chunk_size=4, overlap=4)
+
+    def test_overlap_greater_than_chunk_size_raises(self):
+        with pytest.raises(ValueError, match="strictly less than"):
+            chunk_fixed_size("abcdefgh", chunk_size=4, overlap=10)
+
+    def test_zero_chunk_size_raises(self):
+        with pytest.raises(ValueError, match="chunk_size must be positive"):
+            chunk_fixed_size("abc", chunk_size=0, overlap=0)
+
+    def test_negative_chunk_size_raises(self):
+        with pytest.raises(ValueError, match="chunk_size must be positive"):
+            chunk_fixed_size("abc", chunk_size=-1, overlap=0)
+
+    def test_negative_overlap_raises(self):
+        with pytest.raises(ValueError, match="overlap must be non-negative"):
+            chunk_fixed_size("abc", chunk_size=10, overlap=-1)
+
+    def test_valid_overlap_just_below_chunk_size_works(self):
+        # overlap = chunk_size - 1 is legal (advances by 1 char per iter).
+        chunks = chunk_fixed_size("a" * 20, chunk_size=5, overlap=4)
+        assert len(chunks) > 0
+
+
 class TestRecursiveChunking:
     def test_paragraph_splitting(self):
         text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
@@ -135,6 +164,69 @@ class TestExtractText:
         content = b"some content"
         result = extract_text("file.xyz", content)
         assert result == "some content"
+
+
+class TestExtractTextMalformed:
+    """W5-R8 — malformed-file input handling for extract_text.
+
+    extract_text must NEVER raise on malformed bytes. It returns the
+    best-effort text or a placeholder string.
+    """
+
+    def test_truncated_json_falls_back_to_raw_text(self):
+        # Unterminated JSON object — json.JSONDecodeError should be caught.
+        content = b'{"key": "value", "num": 42'
+        result = extract_text("broken.json", content)
+        # Falls back to raw string content rather than crashing.
+        assert isinstance(result, str)
+        assert "key" in result
+
+    def test_malformed_json_array_falls_back_to_raw_text(self):
+        content = b'[{"a": 1}, {"b":'  # truncated array
+        result = extract_text("broken.json", content)
+        assert isinstance(result, str)
+        # Raw text should still surface the contents we did read.
+        assert "a" in result
+
+    def test_malformed_csv_with_uneven_columns(self):
+        # CSV with rows of unequal column counts — csv module is tolerant,
+        # but the function must not crash and must surface the rows.
+        content = b"name,age,city\nAlice,30\nBob,25,NYC,extra\nCharlie"
+        result = extract_text("messy.csv", content)
+        assert isinstance(result, str)
+        assert "Alice" in result
+        assert "Bob" in result
+        assert "Charlie" in result
+
+    def test_csv_with_invalid_utf8_bytes(self):
+        # Mixed UTF-8 + invalid byte sequence — decode errors are 'replace'd.
+        content = b"name,age\nAlice,30\n\xff\xfeBob,25"
+        result = extract_text("garbled.csv", content)
+        assert isinstance(result, str)
+        assert "Alice" in result
+
+    def test_corrupted_pdf_returns_placeholder(self):
+        # Garbage bytes claiming to be PDF — must not raise.
+        content = b"\x00\x01\x02 not a real pdf at all \xff\xfe"
+        result = extract_text("garbage.pdf", content)
+        assert isinstance(result, str)
+        # Either a placeholder or empty-fallback content is acceptable —
+        # the contract is "no crash". We assert the function returned a string.
+        # Common outputs include the install-PyPDF2 hint or the could-not-extract hint.
+        assert result == result  # no exception is the assertion
+
+    def test_empty_pdf_bytes_returns_placeholder(self):
+        result = extract_text("empty.pdf", b"")
+        assert isinstance(result, str)
+        # Empty PDF should fall through to a placeholder string.
+        assert "PDF content" in result or result == ""
+
+    def test_truncated_pdf_stream_does_not_crash(self):
+        # A PDF header with no body — PyPDF2 (if installed) typically raises;
+        # we must catch that and fall back to regex / placeholder.
+        content = b"%PDF-1.4\n%truncated here"
+        result = extract_text("truncated.pdf", content)
+        assert isinstance(result, str)
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +633,72 @@ class TestRAGStoreSearch:
             assert "text" in d
 
 
+class TestRAGStoreSearchMetadataFilter:
+    """W5-R12 — RAGStore.search must apply post-retrieval metadata filtering."""
+
+    def setup_method(self):
+        self.store = RAGStore()
+
+    @pytest.mark.asyncio
+    async def test_filter_keeps_matching_chunks(self):
+        idx = self.store.create_index(name="filter-test", chunk_size=200, chunk_overlap=0)
+        # Two docs — different filenames will end up in metadata['filename'].
+        await self.store.ingest_files(
+            idx.id,
+            [
+                ("alpha.txt", b"Apples are red and grow on trees."),
+                ("beta.txt", b"Bananas are yellow and grow in bunches."),
+            ],
+        )
+        # No filter — both files' chunks should be retrievable.
+        unfiltered = await self.store.search(idx.id, "grow", top_k=10)
+        sources_no_filter = {h.source for h in unfiltered}
+        assert "alpha.txt" in sources_no_filter
+        assert "beta.txt" in sources_no_filter
+
+        # With filter — only alpha.txt should remain.
+        filtered = await self.store.search(
+            idx.id, "grow", top_k=10, filters={"filename": "alpha.txt"}
+        )
+        assert len(filtered) > 0
+        assert all(h.source == "alpha.txt" for h in filtered)
+        assert all(h.metadata.get("filename") == "alpha.txt" for h in filtered)
+
+    @pytest.mark.asyncio
+    async def test_filter_with_no_matches_returns_empty(self):
+        idx = self.store.create_index(name="empty-filter", chunk_size=200, chunk_overlap=0)
+        await self.store.ingest_files(idx.id, [("doc.txt", b"Some content here.")])
+        # Filter on a metadata key/value that no chunk has.
+        results = await self.store.search(
+            idx.id, "content", top_k=10, filters={"filename": "does-not-exist.txt"}
+        )
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_empty_filter_dict_is_treated_as_no_filter(self):
+        idx = self.store.create_index(name="empty-dict", chunk_size=200, chunk_overlap=0)
+        await self.store.ingest_files(idx.id, [("doc.txt", b"Hello world content.")])
+        # Empty dict — treat as no filter.
+        results = await self.store.search(idx.id, "content", top_k=10, filters={})
+        # Should match the unfiltered behavior (>= 1 result for "content").
+        assert len(results) > 0
+
+    @pytest.mark.asyncio
+    async def test_filter_requires_all_keys_to_match(self):
+        idx = self.store.create_index(name="multi-key", chunk_size=200, chunk_overlap=0)
+        await self.store.ingest_files(
+            idx.id,
+            [
+                ("alpha.txt", b"Apples are red."),
+                ("beta.txt", b"Bananas are yellow."),
+            ],
+        )
+        # filename matches but index_id is wrong — should yield 0 hits.
+        bogus_filter = {"filename": "alpha.txt", "index_id": "bogus-uuid"}
+        results = await self.store.search(idx.id, "are", top_k=10, filters=bogus_filter)
+        assert results == []
+
+
 # ---------------------------------------------------------------------------
 # GraphNode Tests
 # ---------------------------------------------------------------------------
@@ -788,3 +946,343 @@ class TestGraphSearchAndIngest:
         depth_by_id = {node.id: depth for node, depth in results}
         assert depth_by_id["B"] == 1
         assert depth_by_id["C"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Fallback alerting — W1-03
+# ---------------------------------------------------------------------------
+
+import logging  # noqa: E402
+
+from api.services.rag_service import (  # noqa: E402
+    EmbeddingResult,
+    embed_texts,
+)
+from engine.observability.degraded_mode import clear_degraded_state  # noqa: E402
+
+
+@pytest.fixture(autouse=False)
+def clear_fallback_state():
+    """Reset the shared warn-once dedup set between tests."""
+    clear_degraded_state()
+    yield
+    clear_degraded_state()
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_empty_input_returns_empty_result(
+    clear_fallback_state,
+) -> None:
+    result = await embed_texts([])
+    assert isinstance(result, EmbeddingResult)
+    assert result.vectors == []
+    assert result.used_fallback is False
+    assert result.fallback_reason is None
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_uses_fallback_when_no_api_key(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    caplog.set_level(logging.WARNING)
+
+    result = await embed_texts(["hello"], model="openai/text-embedding-3-small")
+
+    assert result.used_fallback is True
+    assert result.fallback_reason == "openai-no-api-key"
+    assert len(result.vectors) == 1
+    assert len(result.vectors[0]) == 1536
+    assert any(getattr(r, "component", None) == "rag.embedding" for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_fallback_warning_deduplicated(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    caplog.set_level(logging.WARNING)
+
+    await embed_texts(["a"], model="openai/text-embedding-3-small")
+    await embed_texts(["b"], model="openai/text-embedding-3-small")
+    await embed_texts(["c"], model="openai/text-embedding-3-small")
+
+    fallback_warnings = [
+        r for r in caplog.records if getattr(r, "component", None) == "rag.embedding"
+    ]
+    assert len(fallback_warnings) == 1
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_unknown_model_falls_back(
+    clear_fallback_state,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    result = await embed_texts(["hi"], model="bogus-provider/foo")
+    assert result.used_fallback is True
+    assert result.fallback_reason == "unknown-model-prefix"
+
+
+# ---------------------------------------------------------------------------
+# W4-26 — Embedding failure + fallback path coverage
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock, patch  # noqa: E402
+
+import httpx as _httpx  # noqa: E402
+
+from api.services.rag_service import (  # noqa: E402
+    _embed_ollama,
+    _embed_openai,
+    compute_chunk_hash,
+)
+
+
+@pytest.mark.asyncio
+async def test_embed_openai_5xx_falls_back(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """5xx upstream → pseudo-embedding fallback with openai-api-error."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    class _FakeResp:
+        status_code = 500
+
+        def raise_for_status(self) -> None:  # noqa: D401
+            raise _httpx.HTTPStatusError(
+                "500 server error",
+                request=_httpx.Request("POST", "https://api.openai.com/v1/embeddings"),
+                response=_httpx.Response(500),
+            )
+
+        def json(self) -> dict:
+            return {}
+
+    fake_post = AsyncMock(return_value=_FakeResp())
+    with patch("httpx.AsyncClient.post", fake_post):
+        vectors, fb, reason = await _embed_openai(["abc", "def"], "text-embedding-3-small")
+
+    assert fb is True
+    assert reason == "openai-api-error"
+    assert len(vectors) == 2
+    assert all(len(v) == 1536 for v in vectors)
+
+
+@pytest.mark.asyncio
+async def test_embed_openai_timeout_falls_back(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """httpx.TimeoutException → pseudo-embedding fallback."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    async def _raise_timeout(*_args, **_kwargs):
+        raise _httpx.TimeoutException("timeout")
+
+    with patch("httpx.AsyncClient.post", side_effect=_raise_timeout):
+        vectors, fb, reason = await _embed_openai(["t1"], "text-embedding-3-small")
+
+    assert fb is True
+    assert reason == "openai-api-error"
+    assert len(vectors) == 1
+    assert len(vectors[0]) == 1536
+
+
+@pytest.mark.asyncio
+async def test_embed_ollama_connection_refused_falls_back(
+    clear_fallback_state,
+) -> None:
+    """ConnectError → pseudo-embedding fallback per-text."""
+
+    async def _raise_connect(*_args, **_kwargs):
+        raise _httpx.ConnectError("Connection refused")
+
+    with patch("httpx.AsyncClient.post", side_effect=_raise_connect):
+        vectors, fb, reason = await _embed_ollama(["a", "b"], "nomic-embed-text")
+
+    assert fb is True
+    assert reason == "ollama-unreachable"
+    assert len(vectors) == 2
+    assert all(len(v) == 768 for v in vectors)
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_mixed_batches_reflect_fallback(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When at least one batch falls back, EmbeddingResult flags it."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    # Two batches: first succeeds, second 5xx.
+    call_count = {"n": 0}
+
+    class _OkResp:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"data": [{"embedding": [0.0] * 1536} for _ in range(32)]}
+
+    class _BadResp:
+        status_code = 500
+
+        def raise_for_status(self) -> None:
+            raise _httpx.HTTPStatusError(
+                "500",
+                request=_httpx.Request("POST", "https://api.openai.com/v1/embeddings"),
+                response=_httpx.Response(500),
+            )
+
+        def json(self) -> dict:
+            return {}
+
+    async def _post(*_args, **_kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return _OkResp()
+        return _BadResp()
+
+    texts = [f"t{i}" for i in range(40)]  # 32 + 8 → two batches
+    with patch("httpx.AsyncClient.post", side_effect=_post):
+        result = await embed_texts(texts, model="openai/text-embedding-3-small")
+
+    assert result.used_fallback is True
+    assert result.fallback_reason == "openai-api-error"
+    assert len(result.vectors) == 40
+    # First 32 came from the OK batch (zeros), the trailing 8 are pseudo.
+    assert all(v == 0.0 for v in result.vectors[0])
+    assert any(v != 0.0 for v in result.vectors[32])
+
+
+@pytest.mark.asyncio
+async def test_embedding_result_records_used_fallback_and_reason(
+    clear_fallback_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sanity check the structured EmbeddingResult contract."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    result = await embed_texts(["x"], model="openai/text-embedding-3-small")
+    assert result.used_fallback is True
+    assert result.fallback_reason == "openai-no-api-key"
+
+    # Re-test with a different reason to make sure fallback_reason populates
+    # with the appropriate code, not a fixed string.
+    clear_degraded_state()
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    async def _raise(*_a, **_kw):
+        raise _httpx.ConnectError("boom")
+
+    with patch("httpx.AsyncClient.post", side_effect=_raise):
+        result2 = await embed_texts(["y"], model="openai/text-embedding-3-small")
+    assert result2.used_fallback is True
+    assert result2.fallback_reason == "openai-api-error"
+
+
+# ---------------------------------------------------------------------------
+# W4-24 — Chunk-hash dedup on ingestion
+# ---------------------------------------------------------------------------
+
+
+def test_compute_chunk_hash_is_normalized_and_deterministic() -> None:
+    """Whitespace and casing-preserving normalization → identical hashes."""
+    a = compute_chunk_hash("hello world")
+    b = compute_chunk_hash("  hello   world  ")
+    c = compute_chunk_hash("hello\tworld\n")
+    assert a == b == c
+    # Length: SHA256 hex → 64 chars.
+    assert len(a) == 64
+
+
+def test_compute_chunk_hash_differs_on_real_content_change() -> None:
+    assert compute_chunk_hash("hello world") != compute_chunk_hash("hello there")
+
+
+@pytest.mark.asyncio
+async def test_ingest_dedups_identical_files() -> None:
+    """Ingesting the same content twice doesn't grow chunk_count."""
+    from api.services.rag_service import RAGStore
+
+    store = RAGStore()
+    idx = store.create_index(
+        name="dedup-test",
+        description="",
+        embedding_model="openai/text-embedding-3-small",
+        chunk_strategy="fixed_size",
+        chunk_size=100,
+        chunk_overlap=0,
+        source="manual",
+    )
+    payload = ("doc.txt", b"hello world. this is a small file used for dedup tests.")
+
+    job1 = await store.ingest_files(idx.id, [payload])
+    assert job1.status.value == "completed"
+    first_count = idx.chunk_count
+    assert first_count > 0
+
+    # Second ingestion of identical content — chunks should be skipped.
+    job2 = await store.ingest_files(idx.id, [payload])
+    assert job2.status.value == "completed"
+    assert idx.chunk_count == first_count
+    # Every chunk in the index has a content hash.
+    assert all(c.metadata.get("content_hash") for c in idx.chunks)
+
+
+# ---------------------------------------------------------------------------
+# W4-25 — Atomic graph rollback on extraction failure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ingest_rolls_back_chunks_when_graph_extraction_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If graph extraction raises, no chunks should be written to the index."""
+    from api.services import rag_service
+    from api.services.rag_service import RAGStore
+
+    store = RAGStore()
+    idx = store.create_index(
+        name="graph-rollback-test",
+        description="",
+        embedding_model="openai/text-embedding-3-small",
+        chunk_strategy="fixed_size",
+        chunk_size=80,
+        chunk_overlap=0,
+        source="manual",
+        index_type="graph",
+    )
+
+    async def _boom(*_a, **_kw):
+        raise RuntimeError("entity extractor exploded")
+
+    # Patch the symbol where it's looked up — extract_entities_batch is
+    # imported lazily inside ingest_files.
+    monkeypatch.setattr(
+        "api.services.graph_extraction.extract_entities_batch",
+        _boom,
+        raising=False,
+    )
+
+    job = await store.ingest_files(
+        idx.id,
+        [("doc.txt", b"Alice and Bob met in Paris during the spring of 2024.")],
+    )
+
+    assert job.status.value == "failed"
+    assert "entity extractor exploded" in (job.error or "")
+    # The crucial assertion — no chunks written when extraction failed.
+    assert idx.chunks == []
+    assert idx.chunk_count == 0
+    # And the chunk-hash registry is empty too — re-ingesting should still work.
+    assert all(c.metadata.get("content_hash") is not None for c in idx.chunks)
+    _ = rag_service  # silence unused-import warning

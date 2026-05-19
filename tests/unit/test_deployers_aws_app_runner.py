@@ -28,6 +28,25 @@ from engine.config_parser import (
 # ---------------------------------------------------------------------------
 
 
+def _fast_health_clock():
+    """Patch asyncio.sleep + engine.deployers._health.time.monotonic so
+    poll_until_ready completes instantly while still honoring the deadline."""
+    from contextlib import ExitStack
+
+    clock = {"t": 0.0}
+
+    async def _fake_sleep(seconds: float) -> None:
+        clock["t"] += float(seconds)
+
+    def _fake_monotonic() -> float:
+        return clock["t"]
+
+    stack = ExitStack()
+    stack.enter_context(patch("asyncio.sleep", side_effect=_fake_sleep))
+    stack.enter_context(patch("engine.deployers._health.time.monotonic", _fake_monotonic))
+    return stack
+
+
 def _make_agent_config(
     *,
     name: str = "my-agent",
@@ -326,7 +345,8 @@ class TestDeploy:
         assert "awsapprunner.com" in result.endpoint_url
 
     @pytest.mark.asyncio
-    async def test_deploy_updates_existing_service(self) -> None:
+    async def test_deploy_is_idempotent_when_service_is_running(self) -> None:
+        """W4-35: a RUNNING App Runner service short-circuits deploy() without redeploying."""
         deployer = _make_deployer()
         config = _make_agent_config()
         image = self._make_image()
@@ -344,24 +364,24 @@ class TestDeploy:
                 "Status": "RUNNING",
             }
         }
-        ar_mock.update_service.return_value = {
-            "Service": {"ServiceArn": "arn:aws:apprunner:us-east-1:123:service/my-agent/abc"}
-        }
 
         with (
-            patch.object(deployer, "_push_image", new_callable=AsyncMock),
+            patch.object(deployer, "_push_image", new_callable=AsyncMock) as push_mock,
             patch.object(deployer, "_get_boto3_client", return_value=ar_mock),
             patch.object(
                 deployer,
                 "_wait_for_service_running",
                 new_callable=AsyncMock,
-                return_value="https://abc123.us-east-1.awsapprunner.com",
-            ),
+            ) as waiter,
         ):
-            await deployer.deploy(config, image)
+            result = await deployer.deploy(config, image)
 
-        ar_mock.update_service.assert_called_once()
+        push_mock.assert_not_called()
+        ar_mock.update_service.assert_not_called()
         ar_mock.create_service.assert_not_called()
+        waiter.assert_not_called()
+        assert result.status == "running"
+        assert "awsapprunner.com" in result.endpoint_url
 
     @pytest.mark.asyncio
     async def test_deploy_raises_if_provision_not_called(self) -> None:
@@ -835,7 +855,7 @@ class TestWaitForServiceRunning:
         }
 
         with (
-            patch("asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
             pytest.raises(TimeoutError, match="Timed out"),
         ):
             await deployer._wait_for_service_running(ar_mock, "my-agent")
@@ -852,7 +872,7 @@ class TestWaitForServiceRunning:
             {"Service": {"Status": "RUNNING", "ServiceUrl": "ready.us-east-1.awsapprunner.com"}},
         ]
 
-        with patch("asyncio.sleep", new_callable=AsyncMock):
+        with _fast_health_clock():
             url = await deployer._wait_for_service_running(ar_mock, "my-agent")
 
         assert url == "https://ready.us-east-1.awsapprunner.com"
@@ -914,7 +934,7 @@ class TestHealthCheck:
 
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
-            patch("asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
         ):
             health = await deployer.health_check(result, timeout=3, interval=1)
 
@@ -949,7 +969,7 @@ class TestHealthCheck:
 
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
-            patch("asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
         ):
             health = await deployer.health_check(result, timeout=5, interval=1)
 

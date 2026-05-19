@@ -21,8 +21,15 @@ from datetime import datetime
 from typing import Any
 
 from engine.config_parser import AgentConfig
-from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
+from engine.deployers.base import (
+    BaseDeployer,
+    DeployResult,
+    ExistingDeployment,
+    HealthStatus,
+    InfraResult,
+)
 from engine.runtimes.base import ContainerImage
+from engine.sidecar import validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -127,11 +134,62 @@ class ClaudeManagedDeployer(BaseDeployer):
             },
         )
 
+    async def _lookup_existing(self, agent_name: str) -> ExistingDeployment | None:
+        """Return an :class:`ExistingDeployment` snapshot for the Managed Agent.
+
+        Since deployer state ties the Anthropic agent + environment IDs to a
+        single instance, "existing" here means: provision() has populated both
+        IDs and Anthropic confirms the agent is still retrievable.
+        """
+        if self._agent_id is None or self._environment_id is None:
+            return None
+
+        try:
+            client = _get_anthropic_client()
+        except ImportError:
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Anthropic client init failed: %s", exc)
+            return None
+
+        try:
+            await client.beta.agents.retrieve(self._agent_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("agents.retrieve failed for '%s': %s", agent_name, exc)
+            return None
+
+        endpoint_url = _build_anthropic_endpoint(self._agent_id, self._environment_id)
+        return ExistingDeployment(
+            status="healthy",
+            url=endpoint_url,
+            resource_id=self._agent_id,
+        )
+
     async def deploy(self, config: AgentConfig, image: ContainerImage | None) -> DeployResult:
         """Return the anthropic:// endpoint. Container image is ignored.
 
         provision() must be called first to create the agent and environment.
         """
+        # W4-37: Pre-validate sidecar before any Anthropic API call.
+        validate_sidecar_config(config)
+
+        # W4-35: Idempotency check. Managed Agents create their resources in
+        # provision(), so a healthy agent + environment pair indicates the
+        # deploy is already done — return success without recreating.
+        existing = await self._lookup_existing(config.name)
+        if existing is not None and existing.status == "healthy":
+            logger.info(
+                "deploy_idempotent_hit",
+                extra={"agent": config.name, "cloud": "claude-managed"},
+            )
+            return DeployResult(
+                endpoint_url=existing.url or "",
+                container_id=existing.resource_id or "",
+                status="running",
+                agent_name=config.name,
+                version=config.version,
+            )
+
         if self._agent_id is None or self._environment_id is None:
             msg = (
                 "Cannot deploy: provision() must be called first to create the "

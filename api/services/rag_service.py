@@ -19,6 +19,7 @@ import json
 import logging
 import math
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -27,7 +28,22 @@ from typing import Any
 
 import httpx
 
+from engine.observability.degraded_mode import warn_once
+
 logger = logging.getLogger(__name__)
+
+# W5-R9: PyPDF2 is an optional dependency. If installed, we use it for
+# high-fidelity PDF text extraction. Otherwise we fall back to the
+# regex-based BT/ET parser below, which works for simple text-only PDFs but
+# will miss content from compressed streams, fonts with custom encodings,
+# and scanned pages. To enable, ``pip install PyPDF2``.
+try:  # pragma: no cover — import guard
+    import PyPDF2
+
+    _PYPDF2_AVAILABLE = True
+except Exception:  # noqa: BLE001 — any import failure means we fall back.
+    PyPDF2 = None
+    _PYPDF2_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +79,22 @@ class IngestJobStatus(StrEnum):
     indexing = "indexing"
     completed = "completed"
     failed = "failed"
+
+
+def _normalize_chunk_text(text: str) -> str:
+    """Normalize chunk text for content-hash dedup (W4-24).
+
+    Strips leading/trailing whitespace and collapses internal whitespace runs
+    so that cosmetic differences (e.g. CRLF vs LF, double spaces) do not
+    defeat dedup.
+    """
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def compute_chunk_hash(text: str) -> str:
+    """SHA256 hex digest of normalized chunk text (W4-24)."""
+    normalized = _normalize_chunk_text(text)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -220,6 +252,7 @@ class SearchHit:
     source: str
     score: float
     metadata: dict[str, Any] = field(default_factory=dict)
+    degraded: bool = False  # True when query embedding fell back to pseudo-embeddings.
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -228,18 +261,41 @@ class SearchHit:
             "source": self.source,
             "score": round(self.score, 6),
             "metadata": self.metadata,
+            "degraded": self.degraded,
         }
 
 
 @dataclass
 class GraphSearchHit(SearchHit):
-    """A search result augmented with knowledge graph traversal metadata."""
+    """A search result augmented with knowledge graph traversal metadata.
+
+    Fields:
+        graph_path:      Reserved for per-result traversal path (future use).
+        nodes_traversed: Total nodes touched by the BFS phase of this query.
+        edges_traversed: Total edges touched by the BFS phase of this query.
+        seed_entities:   Entity names that seeded the BFS for this query.
+        hop_depth:       Minimum BFS hop depth at which this chunk was reached
+                         (0 = direct vector match / seed entity chunk).
+        entity_path:     Per-result entity chain (subject → predicate → object → …)
+                         leading to this chunk. Defaults to ``[]``; populated by
+                         graph backends that track path provenance.
+        vector_score:    Raw vector-similarity component of the blended score.
+                         ``None`` when the score is not decomposable.
+        graph_score:     Raw graph-traversal component of the blended score.
+                         ``None`` when the score is not decomposable.
+
+    G5 — ``entity_path``, ``vector_score``, ``graph_score`` are optional
+    backward-compatible additions: callers that ignore them see no change.
+    """
 
     graph_path: list[str] = field(default_factory=list)
     nodes_traversed: int = 0
     edges_traversed: int = 0
     seed_entities: list[str] = field(default_factory=list)
     hop_depth: int = 0
+    entity_path: list[str] = field(default_factory=list)
+    vector_score: float | None = None
+    graph_score: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         base = super().to_dict()
@@ -250,6 +306,11 @@ class GraphSearchHit(SearchHit):
                 "edges_traversed": self.edges_traversed,
                 "seed_entities": self.seed_entities,
                 "hop_depth": self.hop_depth,
+                "entity_path": self.entity_path,
+                "vector_score": (
+                    None if self.vector_score is None else round(self.vector_score, 6)
+                ),
+                "graph_score": (None if self.graph_score is None else round(self.graph_score, 6)),
             }
         )
         return base
@@ -261,7 +322,20 @@ class GraphSearchHit(SearchHit):
 
 
 def chunk_fixed_size(text: str, chunk_size: int = 512, overlap: int = 64) -> list[str]:
-    """Split text into fixed-size chunks with overlap."""
+    """Split text into fixed-size chunks with overlap.
+
+    W5-R10: ``overlap`` must be strictly less than ``chunk_size`` — otherwise
+    the loop can advance by zero (or negative) characters per iteration, which
+    would loop forever. We raise ``ValueError`` early instead.
+    """
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+    if overlap < 0:
+        raise ValueError(f"overlap must be non-negative, got {overlap}")
+    if overlap >= chunk_size:
+        raise ValueError(
+            f"overlap ({overlap}) must be strictly less than chunk_size ({chunk_size})"
+        )
     if not text.strip():
         return []
     chunks: list[str] = []
@@ -394,7 +468,33 @@ def extract_text(filename: str, content: bytes) -> str:
 
 
 def _extract_pdf_text(content: bytes) -> str:
-    """Best-effort PDF text extraction without external libraries."""
+    """Best-effort PDF text extraction.
+
+    W5-R9: PyPDF2 is now an *optional* dependency. When installed, we use it
+    for high-fidelity extraction (handles compressed streams, multi-page PDFs,
+    standard fonts). When unavailable — or when PyPDF2 itself raises on a
+    malformed/corrupted PDF — we fall back to a regex parser that scans for
+    parenthesized strings between BT/ET markers. The fallback is intentionally
+    forgiving: it returns a placeholder string ("[PDF content — ...]") rather
+    than crashing on malformed input. To enable high-fidelity extraction:
+    ``pip install PyPDF2``.
+    """
+    if _PYPDF2_AVAILABLE:
+        try:
+            reader = PyPDF2.PdfReader(io.BytesIO(content))
+            pages_text: list[str] = []
+            for page in reader.pages:
+                try:
+                    pages_text.append(page.extract_text() or "")
+                except Exception:  # noqa: BLE001 — per-page failure is non-fatal.
+                    continue
+            result = "\n".join(p for p in pages_text if p).strip()
+            if result:
+                return result
+            # fall through to regex fallback when PyPDF2 yields nothing
+        except Exception as e:  # noqa: BLE001
+            logger.debug("PyPDF2 extraction failed, falling back to regex: %s", e)
+
     try:
         text = content.decode("latin-1", errors="replace")
         # Extract text between BT (begin text) and ET (end text) markers
@@ -406,7 +506,9 @@ def _extract_pdf_text(content: bytes) -> str:
             extracted.extend(strings)
         result = " ".join(extracted).strip()
         if not result:
-            return "[PDF content — install PyPDF2 for full extraction]"
+            if not _PYPDF2_AVAILABLE:
+                return "[PDF content — install PyPDF2 for full extraction]"
+            return "[PDF content — could not extract text]"
         return result
     except Exception:
         return "[PDF content — could not extract text]"
@@ -423,45 +525,80 @@ EMBEDDING_DIMENSIONS: dict[str, int] = {
 }
 
 
+@dataclass
+class EmbeddingResult:
+    """Embeddings plus provenance — exposes whether fallback was used.
+
+    When ``used_fallback`` is True, ``vectors`` contains deterministic pseudo
+    embeddings (hash-based, not semantically meaningful). Search quality will
+    be degraded until the upstream embedding service is reachable again.
+    """
+
+    vectors: list[list[float]]
+    used_fallback: bool = False
+    fallback_reason: str | None = None
+
+
 async def embed_texts(
     texts: list[str],
     model: str = "openai/text-embedding-3-small",
     batch_size: int = 32,
-) -> list[list[float]]:
+) -> EmbeddingResult:
     """Generate embeddings for a list of texts.
 
-    Supports:
-    - openai/text-embedding-3-small: calls OpenAI API
-    - ollama/nomic-embed-text: calls local Ollama instance
+    Returns an EmbeddingResult. If any batch fell back to pseudo-embeddings,
+    ``used_fallback=True`` and ``fallback_reason`` captures the first reason
+    encountered. WARN log is emitted at most once per (model, reason) per process.
     """
     if not texts:
-        return []
+        return EmbeddingResult(vectors=[])
 
     all_embeddings: list[list[float]] = []
+    used_fallback = False
+    first_reason: str | None = None
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
         if model.startswith("openai/"):
-            embeddings = await _embed_openai(batch, model.split("/", 1)[1])
+            vectors, fb, reason = await _embed_openai(batch, model.split("/", 1)[1])
         elif model.startswith("ollama/"):
-            embeddings = await _embed_ollama(batch, model.split("/", 1)[1])
+            vectors, fb, reason = await _embed_ollama(batch, model.split("/", 1)[1])
         else:
-            # Fallback: generate deterministic pseudo-embeddings for dev/test
             dims = EMBEDDING_DIMENSIONS.get(model, 768)
-            embeddings = [_pseudo_embedding(t, dims) for t in batch]
-        all_embeddings.extend(embeddings)
+            vectors = [_pseudo_embedding(t, dims) for t in batch]
+            fb, reason = True, "unknown-model-prefix"
+            warn_once("rag.embedding", reason, extra={"model": model})
 
-    return all_embeddings
+        all_embeddings.extend(vectors)
+        if fb and not used_fallback:
+            used_fallback = True
+            first_reason = reason
+
+    return EmbeddingResult(
+        vectors=all_embeddings,
+        used_fallback=used_fallback,
+        fallback_reason=first_reason,
+    )
 
 
-async def _embed_openai(texts: list[str], model_name: str) -> list[list[float]]:
-    """Call OpenAI embeddings API."""
+async def _embed_openai(
+    texts: list[str], model_name: str
+) -> tuple[list[list[float]], bool, str | None]:
+    """Call OpenAI embeddings API. Returns (vectors, used_fallback, reason)."""
     import os
 
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
-        logger.warning("OPENAI_API_KEY not set — using pseudo-embeddings")
-        return [_pseudo_embedding(t, 1536) for t in texts]
+        warn_once(
+            "rag.embedding",
+            "openai-no-api-key",
+            extra={"model": f"openai/{model_name}"},
+        )
+        return (
+            [_pseudo_embedding(t, 1536) for t in texts],
+            True,
+            "openai-no-api-key",
+        )
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         try:
@@ -472,16 +609,28 @@ async def _embed_openai(texts: list[str], model_name: str) -> list[list[float]]:
             )
             resp.raise_for_status()
             data = resp.json()
-            return [item["embedding"] for item in data["data"]]
+            return ([item["embedding"] for item in data["data"]], False, None)
         except Exception as e:
+            warn_once(
+                "rag.embedding",
+                "openai-api-error",
+                extra={"model": f"openai/{model_name}"},
+            )
             logger.error("OpenAI embedding failed: %s", e)
-            return [_pseudo_embedding(t, 1536) for t in texts]
+            return (
+                [_pseudo_embedding(t, 1536) for t in texts],
+                True,
+                "openai-api-error",
+            )
 
 
-async def _embed_ollama(texts: list[str], model_name: str) -> list[list[float]]:
-    """Call Ollama embeddings API."""
+async def _embed_ollama(
+    texts: list[str], model_name: str
+) -> tuple[list[list[float]], bool, str | None]:
+    """Call Ollama embeddings API. Returns (vectors, used_fallback, reason)."""
     base_url = "http://localhost:11434"
     results: list[list[float]] = []
+    any_fallback = False
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         for text in texts:
@@ -494,10 +643,17 @@ async def _embed_ollama(texts: list[str], model_name: str) -> list[list[float]]:
                 data = resp.json()
                 results.append(data["embedding"])
             except Exception as e:
+                warn_once(
+                    "rag.embedding",
+                    "ollama-unreachable",
+                    extra={"model": f"ollama/{model_name}"},
+                )
                 logger.error("Ollama embedding failed: %s", e)
                 results.append(_pseudo_embedding(text, 768))
+                any_fallback = True
 
-    return results
+    reason = "ollama-unreachable" if any_fallback else None
+    return (results, any_fallback, reason)
 
 
 def _pseudo_embedding(text: str, dimensions: int) -> list[float]:
@@ -621,10 +777,11 @@ async def graph_search(
     from api.services.graph_store import get_graph_store  # lazy to avoid circular import
 
     # Step 1: Embed query
-    query_embeddings = await embed_texts([query], model=idx.embedding_model)
-    if not query_embeddings:
+    query_embedding_result = await embed_texts([query], model=idx.embedding_model)
+    if not query_embedding_result.vectors:
         return []
-    query_vector = query_embeddings[0]
+    query_vector = query_embedding_result.vectors[0]
+    query_degraded = query_embedding_result.used_fallback
 
     # Step 2: Vector search — get top 20 candidates
     candidate_hits = hybrid_search(
@@ -656,6 +813,11 @@ async def graph_search(
                 source=h.source,
                 score=h.score,
                 metadata=h.metadata,
+                degraded=query_degraded,
+                # Vector-only fallback: graph traversal contributed nothing.
+                vector_score=h.score,
+                graph_score=0.0,
+                entity_path=[],
             )
             for h in fallback_hits
         ]
@@ -715,15 +877,18 @@ async def graph_search(
             merged_chunk_hop[cid] = hop_depth
 
     # Step 7: Score each chunk
-    scored: list[tuple[DocumentChunk, float, int]] = []  # (chunk, score, hop_depth)
+    # (chunk, final_score, hop_depth, vec_component, graph_component)
+    scored: list[tuple[DocumentChunk, float, int, float, float]] = []
     for cid, hop_depth in merged_chunk_hop.items():
         chunk = chunk_map.get(cid)
         if chunk is None or chunk.embedding is None:
             continue
         cos_sim = cosine_similarity(query_vector, chunk.embedding)
         hop_decay = 1.0 / (1 + hop_depth)
-        final_score = vector_weight * cos_sim + graph_weight * hop_decay
-        scored.append((chunk, final_score, hop_depth))
+        vec_component = vector_weight * cos_sim
+        graph_component = graph_weight * hop_decay
+        final_score = vec_component + graph_component
+        scored.append((chunk, final_score, hop_depth, vec_component, graph_component))
 
     scored.sort(key=lambda x: x[1], reverse=True)
 
@@ -736,14 +901,38 @@ async def graph_search(
             source=chunk.source,
             score=score,
             metadata=chunk.metadata,
+            degraded=query_degraded,
             graph_path=[],
             nodes_traversed=nodes_traversed,
             edges_traversed=edges_traversed,
             seed_entities=list(seed_entity_names),
             hop_depth=hop_depth,
+            entity_path=[],
+            vector_score=vec_component,
+            graph_score=graph_component,
         )
-        for chunk, score, hop_depth in scored[:top_k]
+        for chunk, score, hop_depth, vec_component, graph_component in scored[:top_k]
     ]
+
+
+# ---------------------------------------------------------------------------
+# Metadata filter helper (W5-R12)
+# ---------------------------------------------------------------------------
+
+
+def _matches_filters(metadata: dict[str, Any], filters: dict[str, Any]) -> bool:
+    """Return True iff every (k, v) in ``filters`` matches ``metadata`` exactly.
+
+    W5-R12: simple post-retrieval predicate — a chunk is kept when, for every
+    filter key, the chunk's metadata contains that key with an equal value.
+    Missing keys, or unequal values, exclude the chunk. Empty ``filters`` is
+    treated as "no filter" by callers (this function returns True for an
+    empty dict).
+    """
+    for key, expected in filters.items():
+        if metadata.get(key) != expected:
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -874,6 +1063,8 @@ class RAGStore:
             raise ValueError(f"Index {index_id} not found")
 
         job = self.create_ingest_job(index_id, len(files))
+        # W5-R11: track wall-clock duration for observability.
+        _ingest_start = time.monotonic()
 
         try:
             # Optional replace-by-source: drop any existing chunks whose source
@@ -896,7 +1087,9 @@ class RAGStore:
                     overlap=idx.chunk_overlap,
                 )
                 for chunk_text_str in chunks:
-                    content_hash = hashlib.sha256(chunk_text_str.encode("utf-8")).hexdigest()
+                    # W4-24 + R8: normalize whitespace before hashing so cosmetic
+                    # differences (CRLF vs LF, doubled spaces) don't defeat dedup.
+                    content_hash = compute_chunk_hash(chunk_text_str)
                     chunk = DocumentChunk(
                         id=str(uuid.uuid4()),
                         text=chunk_text_str,
@@ -910,14 +1103,14 @@ class RAGStore:
                     all_chunks.append(chunk)
                 job.processed_files += 1
 
-            # Idempotency: drop incoming chunks whose hash already exists in the
-            # index. Back-fill content_hash on legacy chunks the first time we
-            # see them so older indexes pick up dedup behaviour transparently.
+            # Idempotency (W4-24 / #375): drop incoming chunks whose hash already
+            # exists in the index. Back-fill content_hash on legacy chunks the
+            # first time we see them so older indexes pick up dedup transparently.
             existing_hashes: set[str] = set()
             for c in idx.chunks:
                 h = c.metadata.get("content_hash")
                 if not h:
-                    h = hashlib.sha256(c.text.encode("utf-8")).hexdigest()
+                    h = compute_chunk_hash(c.text)
                     c.metadata["content_hash"] = h
                 existing_hashes.add(h)
 
@@ -939,53 +1132,70 @@ class RAGStore:
                     replace,
                 )
             all_chunks = deduped
+            new_chunks = all_chunks  # back-compat name for downstream phases
 
-            job.total_chunks = len(all_chunks)
+            job.total_chunks = len(new_chunks)
 
-            # Phase 2: Embedding
+            # Phase 2: Embedding (only the de-duplicated chunks).
             job.status = IngestJobStatus.embedding
-            texts = [c.text for c in all_chunks]
-            embeddings = await embed_texts(texts, model=idx.embedding_model)
+            texts = [c.text for c in new_chunks]
+            embedding_result = await embed_texts(texts, model=idx.embedding_model)
+            if embedding_result.used_fallback:
+                logger.warning(
+                    "Ingest %s for index %s used pseudo-embedding fallback "
+                    "(reason=%s) — search quality will be degraded.",
+                    job.id,
+                    index_id,
+                    embedding_result.fallback_reason,
+                )
 
-            for i, emb in enumerate(embeddings):
-                all_chunks[i].embedding = emb
+            for i, emb in enumerate(embedding_result.vectors):
+                new_chunks[i].embedding = emb
                 job.embedded_chunks = i + 1
 
-            # Phase 2.5: Entity extraction (graph/hybrid only)
-            if idx.index_type in (IndexType.graph, IndexType.hybrid):
+            # Phase 2.5: Entity extraction (graph/hybrid only).
+            #
+            # W4-25 — atomic graph rollback. We extract entities for ALL
+            # chunks BEFORE touching either the index or the graph store.
+            # If extraction raises, we abort the whole job and the index is
+            # left untouched (no partially-indexed chunks without graph
+            # nodes). On success we write the chunks and graph nodes
+            # together below.
+            pending_graph_writes: list[tuple[DocumentChunk, list[Any], list[Any]]] = []
+            if idx.index_type in (IndexType.graph, IndexType.hybrid) and new_chunks:
                 job.status = IngestJobStatus.extracting_entities
-                try:
-                    from api.services.graph_extraction import extract_entities_batch
-                    from api.services.graph_store import (
-                        get_graph_store,  # lazy to avoid circular import
-                    )
+                from api.services.graph_extraction import extract_entities_batch
+                from api.services.graph_store import (
+                    get_graph_store,  # lazy to avoid circular import
+                )
 
-                    graph_store = get_graph_store()
-                    chunk_texts = [c.text for c in all_chunks]
-                    extraction_results = await extract_entities_batch(
-                        chunk_texts, model=idx.entity_model
-                    )
-                    for chunk, (nodes, edges) in zip(all_chunks, extraction_results, strict=True):
-                        for node in nodes:
-                            node.chunk_ids.append(chunk.id)
-                            graph_store.upsert_node(index_id, node)
-                        for edge in edges:
-                            edge.chunk_ids.append(chunk.id)
-                            graph_store.upsert_edge(index_id, edge)
-                    idx.node_count = graph_store.node_count(index_id)
-                    idx.edge_count = graph_store.edge_count(index_id)
-                    idx.updated_at = datetime.now(UTC).isoformat()
-                except Exception as extraction_err:
-                    logger.warning(
-                        "Entity extraction failed for index %s"
-                        " — continuing with vector-only results: %s",
-                        index_id,
-                        extraction_err,
-                    )
+                graph_store = get_graph_store()
+                chunk_texts = [c.text for c in new_chunks]
+                # If this raises, the except below marks the job failed and
+                # we exit WITHOUT mutating ``idx.chunks`` or graph_store.
+                extraction_results = await extract_entities_batch(
+                    chunk_texts, model=idx.entity_model
+                )
+                for chunk, (nodes, edges) in zip(new_chunks, extraction_results, strict=True):
+                    pending_graph_writes.append((chunk, nodes, edges))
 
-            # Phase 3: Indexing (add to in-memory store)
+            # Phase 3: Atomic indexing — write chunks + graph nodes together.
             job.status = IngestJobStatus.indexing
-            idx.chunks.extend(all_chunks)
+            if pending_graph_writes:
+                from api.services.graph_store import get_graph_store
+
+                graph_store = get_graph_store()
+                for chunk, nodes, edges in pending_graph_writes:
+                    for node in nodes:
+                        node.chunk_ids.append(chunk.id)
+                        graph_store.upsert_node(index_id, node)
+                    for edge in edges:
+                        edge.chunk_ids.append(chunk.id)
+                        graph_store.upsert_edge(index_id, edge)
+                idx.node_count = graph_store.node_count(index_id)
+                idx.edge_count = graph_store.edge_count(index_id)
+
+            idx.chunks.extend(new_chunks)
             idx.chunk_count = len(idx.chunks)
             idx.doc_count += len(files)
             idx.updated_at = datetime.now(UTC).isoformat()
@@ -998,6 +1208,21 @@ class RAGStore:
             job.error = str(e)
             job.completed_at = datetime.now(UTC).isoformat()
             logger.error("Ingestion failed for index %s: %s", index_id, e)
+
+        # W5-R11: structured metrics emit on ingestion completion (success or failure).
+        _ingest_duration_ms = int((time.monotonic() - _ingest_start) * 1000)
+        logger.info(
+            "rag.ingest.complete",
+            extra={
+                "job_id": job.id,
+                "index_id": index_id,
+                "status": job.status.value,
+                "files": len(files),
+                "chunks": job.total_chunks,
+                "embedded_chunks": job.embedded_chunks,
+                "duration_ms": _ingest_duration_ms,
+            },
+        )
 
         return job
 
@@ -1013,39 +1238,103 @@ class RAGStore:
         # Graph search params (ignored for vector indexes):
         hops: int | None = None,
         seed_entity_limit: int = 5,
+        # W5-R12: optional metadata post-filter (key → required value).
+        filters: dict[str, Any] | None = None,
     ) -> list[SearchHit]:
-        """Search an index using hybrid vector + text search (or graph-augmented search)."""
+        """Search an index using hybrid vector + text search (or graph-augmented search).
+
+        W5-R12: ``filters`` is an optional dict of metadata key → required value.
+        Applied as a *post-retrieval* predicate against ``chunk.metadata``: a hit
+        is kept iff every (k, v) in ``filters`` matches the chunk's metadata
+        (k must be present and equal v). The filter is applied *after* the
+        underlying retrieval and *before* truncation to ``top_k`` so we still
+        return the strongest matching ``top_k`` hits. This is intentionally
+        simple — push-down into the underlying store is a future optimization.
+        """
+        _search_start = time.monotonic()
         idx = self._indexes.get(index_id)
         if not idx:
             raise ValueError(f"Index {index_id} not found")
 
         if not idx.chunks:
+            logger.info(
+                "rag.search.complete",
+                extra={
+                    "index_id": index_id,
+                    "top_k": top_k,
+                    "result_count": 0,
+                    "duration_ms": int((time.monotonic() - _search_start) * 1000),
+                    "degraded": False,
+                    "filters": filters or {},
+                },
+            )
             return []
 
+        # Over-fetch when a filter is applied so we still have ``top_k`` results
+        # after post-filtering. Cheap heuristic: 4x for filtered, else top_k.
+        effective_k = max(top_k * 4, top_k + 20) if filters else top_k
+
         if idx.index_type in (IndexType.graph, IndexType.hybrid):
-            return await graph_search(
+            hits = await graph_search(
                 index_id=index_id,
                 query=query,
                 idx=idx,
-                top_k=top_k,
+                top_k=effective_k,
                 hops=hops,
                 seed_entity_limit=seed_entity_limit,
                 vector_weight=vector_weight,
             )
+        else:
+            # Existing vector search path:
+            query_embedding_result = await embed_texts([query], model=idx.embedding_model)
+            if not query_embedding_result.vectors:
+                logger.info(
+                    "rag.search.complete",
+                    extra={
+                        "index_id": index_id,
+                        "top_k": top_k,
+                        "result_count": 0,
+                        "duration_ms": int((time.monotonic() - _search_start) * 1000),
+                        "degraded": False,
+                        "filters": filters or {},
+                    },
+                )
+                return []
 
-        # Existing vector search path:
-        query_embeddings = await embed_texts([query], model=idx.embedding_model)
-        if not query_embeddings:
-            return []
+            hits = hybrid_search(
+                query_embedding=query_embedding_result.vectors[0],
+                query_text=query,
+                chunks=idx.chunks,
+                top_k=effective_k,
+                vector_weight=vector_weight,
+                text_weight=text_weight,
+            )
 
-        return hybrid_search(
-            query_embedding=query_embeddings[0],
-            query_text=query,
-            chunks=idx.chunks,
-            top_k=top_k,
-            vector_weight=vector_weight,
-            text_weight=text_weight,
+            # Propagate fallback flag onto each hit so the API layer can surface
+            # search-quality degradation to the caller.
+            if query_embedding_result.used_fallback:
+                for h in hits:
+                    h.degraded = True
+
+        # W5-R12: apply metadata post-filter, then truncate to top_k.
+        if filters:
+            hits = [h for h in hits if _matches_filters(h.metadata, filters)]
+        hits = hits[:top_k]
+
+        # W5-R11: structured metrics emit on search completion.
+        logger.info(
+            "rag.search.complete",
+            extra={
+                "index_id": index_id,
+                "top_k": top_k,
+                "result_count": len(hits),
+                "duration_ms": int((time.monotonic() - _search_start) * 1000),
+                "degraded": any(h.degraded for h in hits),
+                "filters": filters or {},
+            },
         )
+
+        return hits
 
 
 # Global singleton

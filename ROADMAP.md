@@ -3121,4 +3121,273 @@ The following issues were filed ahead of the HN launch targeting operational qua
 
 **Note:** Issue #79 is now closed — multi-cloud website copy fully corrected in commit 4901c83. Issue #83 is partially resolved — `agentbreeder validate` already exists in the CLI.
 
-**Issue tracker:** 30 open · 109 closed — *Last updated: May 14, 2026*
+**Issue tracker:** 30 open · 109 closed — *Last updated: May 18, 2026 (audit merge)*
+
+---
+
+## Comprehensive Architecture Review — May 2026
+
+**Date:** 2026-05-17  
+**Scope:** End-to-end deploy pipeline — CLI + SDK + Dashboard → Registry → Test (Ollama/providers) → Deploy (GCP/AWS/Azure) with auto-infra provisioning
+
+**Plan doc:** `docs/superpowers/plans/2026-05-17-comprehensive-architecture.md`
+
+### Key Finding: Two Deployment Scenarios
+
+| Scenario | Description | Status |
+|----------|-------------|--------|
+| **A — Bring Your Own Infra** | User provides VPC, subnets, SGs, registry, IAM. AgentBreeder validates + deploys app layer only. | ✅ Works today (all 3 clouds) |
+| **B — Fresh Account** | Credentials only. AgentBreeder provisions all infra idempotently, then deploys. | ❌ AWS/Azure fail; GCP partial |
+
+### Issue Map (GitHub #377–#401)
+
+| Epic | GitHub | Priority | Description |
+|------|--------|----------|-------------|
+| Infra Auto-Provisioning | [#377](https://github.com/agentbreeder/agentbreeder/issues/377) | **P0** | GCP + AWS + Azure full infra provisioning for fresh accounts |
+| CLI Resource Management | [#378](https://github.com/agentbreeder/agentbreeder/issues/378) | P1 | `agentbreeder prompt/tool/rag` commands + chat streaming |
+| Auth & RBAC Hardening | [#379](https://github.com/agentbreeder/agentbreeder/issues/379) | P2 | OAuth2, SAML/SSO, refresh tokens, resource ACLs |
+| LLM Gateway Hardening | [#380](https://github.com/agentbreeder/agentbreeder/issues/380) | P3 | Redis cache, circuit breaker, budget alerts, routing policies |
+| MCP Sidecar + Chat | [#381](https://github.com/agentbreeder/agentbreeder/issues/381) | P4 | Full sidecar deploy + chat sandbox enhancements |
+
+---
+
+## Milestone M39 — Infrastructure Auto-Provisioning (v2.1)
+
+**GitHub epic:** [#377](https://github.com/agentbreeder/agentbreeder/issues/377) | **Target:** Q3 2026
+
+The deploy pipeline currently assumes pre-existing cloud infrastructure. M39 adds `--provision` mode that idempotently creates all required resources on a fresh cloud account before deploying the agent.
+
+### New module: `engine/provisioners/`
+
+```
+engine/provisioners/
+├── base.py           # InfraProvisioner ABC (validate_existing, provision, destroy)
+├── state.py          # InfraState — reads/writes .agentbreeder/infra-state.json
+├── gcp.py            # VPC Connector, Service Account, Cloud SQL (~200 LOC)
+├── aws.py            # VPC + subnets + SGs + ECS cluster + IAM + RDS + ALB (~500 LOC)
+└── azure.py          # RG + Log Analytics + ACA env + ACR + Managed Identity + Azure PG (~450 LOC)
+```
+
+### What each cloud provisions
+
+**GCP** (Scenario B):
+- Artifact Registry repo (already auto-creates — expand)
+- Service Account with least-privilege bindings
+- VPC Connector (if private service access needed)
+- Cloud SQL PostgreSQL (if `memory:` declared in agent.yaml)
+
+**AWS** (Scenario B):
+- VPC (`10.0.0.0/16`) + 2 public + 2 private subnets across 2 AZs
+- Internet Gateway + NAT Gateway + Route Tables
+- Security Groups: ALB, agent, database
+- ECS Cluster (`agentbreeder-{name}`, FARGATE + FARGATE_SPOT)
+- IAM Execution Role + Task Role
+- ECR Repository (already auto-creates — keep)
+- RDS PostgreSQL t3.micro (if `memory:` declared)
+- ALB + Target Group + Listener (if `access.visibility: public`)
+
+**Azure** (Scenario B):
+- Resource Group (`agentbreeder-{name}-rg`)
+- Log Analytics Workspace (required prerequisite for ACA)
+- Container Apps Environment
+- Azure Container Registry
+- Managed Identity (per-agent) + AcrPull role assignment
+- Azure Database for PostgreSQL Flexible Server (if `memory:` declared)
+
+### CLI usage
+
+```bash
+# Scenario A — validate existing infra before deploy
+agentbreeder deploy --target aws --infra-plan     # dry-run: shows what exists/missing
+agentbreeder deploy --target aws                  # deploys to existing infra
+
+# Scenario B — provision everything on fresh account
+agentbreeder deploy --target aws --provision      # creates all infra, then deploys
+
+# Teardown
+agentbreeder teardown --destroy-infra             # destroys all provisioned resources
+```
+
+### New API endpoints
+
+```
+POST   /api/v1/deployments/validate-infra          Scenario A pre-flight check
+GET    /api/v1/deployments/cloud-requirements/{c}  Per-cloud required env vars
+POST   /api/v1/deployments/provision               Start provisioning job
+GET    /api/v1/deployments/provision/{id}          SSE progress stream
+```
+
+### Dashboard: 5-step Deployment Wizard
+
+[#388](https://github.com/agentbreeder/agentbreeder/issues/388) — new `/deploy-wizard` page:
+1. Agent selection (registry picker)
+2. Cloud target + region (GCP / AWS / Azure cards)
+3. Infrastructure mode (Bring Your Own ↔ Provision for Me with live validation)
+4. Configuration (env vars, secrets, scaling)
+5. Deploy (SSE progress log → endpoint URL + registry entry)
+
+### Sub-issues
+
+| Issue | Description |
+|-------|-------------|
+| [#382](https://github.com/agentbreeder/agentbreeder/issues/382) | GCP provisioner |
+| [#383](https://github.com/agentbreeder/agentbreeder/issues/383) | AWS provisioner |
+| [#384](https://github.com/agentbreeder/agentbreeder/issues/384) | Azure provisioner |
+| [#385](https://github.com/agentbreeder/agentbreeder/issues/385) | InfraState base class + state file |
+| [#386](https://github.com/agentbreeder/agentbreeder/issues/386) | validate-infra + cloud-requirements API |
+| [#387](https://github.com/agentbreeder/agentbreeder/issues/387) | SSE progress stream + `--provision` CLI flag |
+| [#388](https://github.com/agentbreeder/agentbreeder/issues/388) | Dashboard deployment wizard |
+| [#389](https://github.com/agentbreeder/agentbreeder/issues/389) | Fix stale docs + add Scenario A/B guides |
+
+### Acceptance Criteria
+
+- [ ] `agentbreeder deploy --target aws --provision` on a fresh AWS account provisions all infra and returns a live endpoint URL
+- [ ] Same for `--target gcp --provision` and `--target azure --provision`
+- [ ] `agentbreeder deploy --target aws` (no flag) works as before using existing infra env vars
+- [ ] `.agentbreeder/infra-state.json` written after provision with all resource IDs
+- [ ] `agentbreeder teardown --destroy-infra` deletes all provisioned resources in reverse order
+- [ ] Dashboard wizard mirrors all CLI modes with live SSE progress
+
+---
+
+## Milestone M40 — CLI Resource Management (v2.2)
+
+**GitHub epic:** [#378](https://github.com/agentbreeder/agentbreeder/issues/378) | **Target:** Q3 2026
+
+Completes the CLI-first developer workflow. Currently prompts, tools, and RAG indexes can only be created via the dashboard or raw API.
+
+### Target workflow (end-to-end from terminal)
+
+```bash
+# Step 1: Create registry resources
+agentbreeder prompt create --name support-system --file prompts/support.md
+agentbreeder tool create --name zendesk-lookup --schema tools/zendesk.json
+agentbreeder rag create --name product-docs --type vector --backend pgvector
+agentbreeder rag ingest product-docs --dir ./docs/
+
+# Step 2: Scaffold agent referencing registered resources
+agentbreeder init   # registry picker pre-populated with prompt/tool/RAG above
+
+# Step 3: Test locally with Ollama
+agentbreeder chat --model ollama/llama3.2 --stream --rag product-docs
+
+# Step 4: Test with cloud provider
+agentbreeder chat --model claude-sonnet-4 --stream --memory my-session
+
+# Step 5: Deploy
+agentbreeder deploy --target gcp
+```
+
+### New CLI commands
+
+| Command | File | Issue |
+|---------|------|-------|
+| `agentbreeder prompt create/list/get/test` | `cli/commands/prompt.py` | [#390](https://github.com/agentbreeder/agentbreeder/issues/390) |
+| `agentbreeder tool create/list/sandbox` | `cli/commands/tool.py` | [#391](https://github.com/agentbreeder/agentbreeder/issues/391) |
+| `agentbreeder rag create/ingest/search/list` | `cli/commands/rag.py` | [#392](https://github.com/agentbreeder/agentbreeder/issues/392) |
+| `agentbreeder chat` enhancements | `cli/commands/chat.py` | [#393](https://github.com/agentbreeder/agentbreeder/issues/393) |
+
+### Chat enhancements ([#393](https://github.com/agentbreeder/agentbreeder/issues/393))
+
+- Real-time SSE streaming (wires to `/stream` endpoint)
+- Token counter status bar: `[↑ 1,234 | ↓ 456 tokens | $0.003]`
+- `--rag <name>` — inject RAG context
+- `--memory <name>` — persist conversation to Postgres
+- `--session-id <id>` — resume existing session
+- Model health indicator: `[● ollama connected]` / `[✗ offline]`
+
+All new commands wrap existing API routes — no backend changes needed.
+
+---
+
+## Milestone M41 — Auth & RBAC Hardening (v2.3)
+
+**GitHub epic:** [#379](https://github.com/agentbreeder/agentbreeder/issues/379) | **Target:** Q3 2026
+
+### Current gaps
+
+| Gap | Impact |
+|-----|--------|
+| Email/password JWT only | No enterprise SSO, no developer convenience (no "Sign in with Google") |
+| HS256 + 24h access tokens, no refresh rotation | Token theft = 24h window, no revocation |
+| Team-scoped RBAC only | No per-agent/per-prompt ownership controls |
+
+### New auth features
+
+**OAuth2 providers** ([#394](https://github.com/agentbreeder/agentbreeder/issues/394)):
+- Google OIDC, GitHub OAuth2, Microsoft/Azure AD
+- PKCE required for all flows
+- User linking: existing email → link identity; new email → auto-create user
+
+**Refresh token rotation** ([#395](https://github.com/agentbreeder/agentbreeder/issues/395)):
+- JWT: HS256 → RS256 (rotatable without invalidating all tokens)
+- Access tokens: 15-minute expiry (down from 24h)
+- Refresh tokens: 30-day, rotated on every use, detect theft via family tracking
+
+**SAML 2.0** ([#396](https://github.com/agentbreeder/agentbreeder/issues/396)):
+- Okta, Azure AD, Google Workspace IdP
+- SP metadata endpoint + ACS callback
+- Per-org IdP configuration via dashboard Settings > SSO
+
+**Resource-level ACLs** ([#397](https://github.com/agentbreeder/agentbreeder/issues/397)):
+- `ResourcePermission` model: (resource_type, resource_id, user_id, actions[])
+- Actions: read | write | deploy | review | approve | admin
+- Fallback to team-level RBAC when no per-resource ACL set
+- Permission editor tab on all resource detail pages
+
+---
+
+## Milestone M42 — LLM Gateway Hardening (v2.4)
+
+**GitHub epic:** [#380](https://github.com/agentbreeder/agentbreeder/issues/380) | **Target:** Q4 2026
+
+### New features
+
+**Redis response cache** ([#398](https://github.com/agentbreeder/agentbreeder/issues/398)):
+- Cache key: `SHA-256(model + messages_json + temperature + max_tokens)`
+- TTL per tier: high (Opus, GPT-4) = 0s, standard = 60s, lite (Haiku, mini) = 300s
+- `X-Cache: HIT|MISS` response header
+
+**Circuit breaker per provider** ([#398](https://github.com/agentbreeder/agentbreeder/issues/398)):
+- CLOSED → OPEN after 5 consecutive failures → HALF_OPEN after 30s probe
+- State stored in Redis (survives restarts)
+- On OPEN: route to fallback provider; if none → 503
+- Alert webhook on circuit OPEN
+
+**Budget threshold alerts** ([#399](https://github.com/agentbreeder/agentbreeder/issues/399)):
+- Per-team monthly budget with 80%/90%/100% thresholds
+- Delivery: webhook POST + dashboard banner + notification bell
+
+**Model routing policies** ([#399](https://github.com/agentbreeder/agentbreeder/issues/399)):
+```yaml
+# agent.yaml
+model:
+  primary: claude-sonnet-4
+  strategy: cost_optimized   # or latency_optimized | quality_optimized
+```
+
+---
+
+## Milestone M43 — MCP Sidecar + Chat Sandbox (v2.5)
+
+**GitHub epic:** [#381](https://github.com/agentbreeder/agentbreeder/issues/381) | **Target:** Q4 2026
+
+### MCP Sidecar full deployment ([#400](https://github.com/agentbreeder/agentbreeder/issues/400))
+
+`engine/deployers/mcp_sidecar.py` is currently an 83-line stub. M43 implements full multi-container sidecar injection:
+
+- **GCP Cloud Run:** multi-container revision (agent:8080 ingress, sidecar:9080 internal)
+- **AWS ECS:** two-container task definition, shared network namespace
+- **Azure Container Apps:** multi-container support (GA since 2023)
+
+Shared `inject_sidecar(deployment_body, SidecarConfig)` called from each deployer when `guardrails:` or MCP `tools:` are declared in agent.yaml.
+
+### Chat sandbox enhancements ([#401](https://github.com/agentbreeder/agentbreeder/issues/401))
+
+Current: 1,326-line `PlaygroundPage.tsx` with streaming ✅  
+New:
+- **Side-by-side model comparison** — same prompt to 2–3 models simultaneously, metrics per column
+- **Real-time token counter** — `↑ 1,234 in | ↓ 456 out | $0.003` in status bar (tabular numbers)
+- **RAG context panel** — collapsible side panel showing retrieved chunks alongside response
+- **Session resume** — conversation history timeline, `--session-id` support, New Session button
+- **Keyboard shortcuts** — Cmd+K (new chat), Cmd+M (switch model), Cmd+Enter (send)

@@ -11,7 +11,6 @@ Cloud-specific logic stays in this module — never leak Kubernetes details else
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 from typing import Any
@@ -20,8 +19,16 @@ import httpx
 from pydantic import BaseModel
 
 from engine.config_parser import AgentConfig
-from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
+from engine.deployers._health import HealthCheckTimeout, poll_until_ready
+from engine.deployers.base import (
+    BaseDeployer,
+    DeployResult,
+    ExistingDeployment,
+    HealthStatus,
+    InfraResult,
+)
 from engine.runtimes.base import ContainerImage
+from engine.sidecar import validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +62,25 @@ def _extract_k8s_config(config: AgentConfig) -> K8sConfig:
     infrastructure settings and are NOT forwarded to the container.
     """
     env = config.deploy.env_vars
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "K8S_NAMESPACE", "sources": ["deploy.env_vars", "default"]},
+    )
+    namespace = env.get("K8S_NAMESPACE", DEFAULT_NAMESPACE)
+    namespace_source = "deploy.env_vars" if env.get("K8S_NAMESPACE") else "default"
+    logger.info("credential_resolved", extra={"key": "K8S_NAMESPACE", "source": namespace_source})
+
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "K8S_CONTEXT", "sources": ["deploy.env_vars", "kubeconfig_default"]},
+    )
+    context = env.get("K8S_CONTEXT") or None
+    context_source = "deploy.env_vars" if context else "kubeconfig_default"
+    logger.info("credential_resolved", extra={"key": "K8S_CONTEXT", "source": context_source})
+
     return K8sConfig(
-        namespace=env.get("K8S_NAMESPACE", DEFAULT_NAMESPACE),
-        context=env.get("K8S_CONTEXT") or None,
+        namespace=namespace,
+        context=context,
         image_pull_secret=env.get("K8S_IMAGE_PULL_SECRET") or None,
         image=env.get("K8S_IMAGE") or None,
     )
@@ -343,10 +366,55 @@ class KubernetesDeployer(BaseDeployer):
             },
         )
 
+    async def _lookup_existing(self, agent_name: str) -> ExistingDeployment | None:
+        """Return an :class:`ExistingDeployment` snapshot for the K8s Deployment.
+
+        A Deployment whose ``status.availableReplicas`` matches
+        ``spec.replicas`` (and both are > 0) is considered healthy.
+        """
+        if self._k8s_config is None:
+            return None
+        namespace = self._k8s_config.namespace
+        try:
+            apps_v1, _core_v1 = self._get_k8s_clients()
+        except ImportError:
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("k8s clients init failed for '%s': %s", agent_name, exc)
+            return None
+
+        try:
+            from kubernetes.client.rest import ApiException  # noqa: PLC0415
+        except ImportError:
+            return None
+
+        try:
+            dep = apps_v1.read_namespaced_deployment(name=agent_name, namespace=namespace)
+        except ApiException as exc:
+            if exc.status == 404:
+                return None
+            logger.debug("read_namespaced_deployment failed for '%s': %s", agent_name, exc)
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("read_namespaced_deployment failed for '%s': %s", agent_name, exc)
+            return None
+
+        status = getattr(dep, "status", None)
+        spec = getattr(dep, "spec", None)
+        available = int(getattr(status, "available_replicas", 0) or 0)
+        desired = int(getattr(spec, "replicas", 0) or 0)
+        is_healthy = desired > 0 and available >= desired
+        return ExistingDeployment(
+            status="healthy" if is_healthy else "unhealthy",
+            url=f"http://{agent_name}.{namespace}.svc.cluster.local:{DEFAULT_CONTAINER_PORT}",
+            resource_id=getattr(getattr(dep, "metadata", None), "uid", None),
+        )
+
     async def deploy(self, config: AgentConfig, image: ContainerImage | None) -> DeployResult:
         """Build the Docker image and apply Deployment, Service, and (optional) HPA.
 
         Steps:
+        0. Pre-validate sidecar config; idempotency check on existing Deployment
         1. Build Docker image locally via Docker SDK
         2. Apply Deployment (create or patch)
         3. Apply ClusterIP Service (create or patch)
@@ -354,12 +422,51 @@ class KubernetesDeployer(BaseDeployer):
         5. Wait for at least one replica to become available
         6. Return DeployResult
         """
+        # W4-37: Pre-validate sidecar before any cloud API call.
+        validate_sidecar_config(config)
+
         if self._k8s_config is None:
             self._k8s_config = _extract_k8s_config(config)
         k8s = self._k8s_config
         namespace = k8s.namespace
 
         image_name = _resolve_image_name(config, k8s)
+
+        # W4-35: Idempotency check.
+        existing = await self._lookup_existing(config.name)
+        if existing is not None:
+            if existing.status == "healthy":
+                logger.info(
+                    "deploy_idempotent_hit",
+                    extra={"agent": config.name, "cloud": "kubernetes"},
+                )
+                return DeployResult(
+                    endpoint_url=existing.url
+                    or (
+                        f"http://{config.name}.{namespace}.svc.cluster.local:"
+                        f"{DEFAULT_CONTAINER_PORT}"
+                    ),
+                    container_id=existing.resource_id or image_name,
+                    status="running",
+                    agent_name=config.name,
+                    version=config.version,
+                )
+            logger.info(
+                "deploy_cleaning_stale",
+                extra={
+                    "agent": config.name,
+                    "cloud": "kubernetes",
+                    "status": existing.status,
+                },
+            )
+            try:
+                await self.teardown(config.name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Cleanup of stale K8s Deployment '%s' failed: %s — continuing deploy",
+                    config.name,
+                    exc,
+                )
 
         # Step 1: Build Docker image
         assert image is not None, "ContainerImage required for Kubernetes deployer"
@@ -415,40 +522,37 @@ class KubernetesDeployer(BaseDeployer):
         """
         url = f"{deploy_result.endpoint_url}/health"
         checks: dict[str, bool] = {"reachable": False, "healthy": False}
-        max_attempts = timeout // interval
 
-        for attempt in range(max_attempts):
+        async def _check() -> bool:
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     response = await client.get(url)
                     checks["reachable"] = True
                     if response.status_code == 200:
                         checks["healthy"] = True
-                        logger.info(
-                            "Health check passed (attempt %d/%d)", attempt + 1, max_attempts
-                        )
-                        return HealthStatus(healthy=True, checks=checks)
-                    logger.debug(
-                        "Health check returned %d (attempt %d/%d)",
-                        response.status_code,
-                        attempt + 1,
-                        max_attempts,
-                    )
+                        return True
+                    logger.debug("Health check returned %d", response.status_code)
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
                 pass
+            return False
 
-            logger.debug(
-                "Health check attempt %d/%d — waiting %ds...",
-                attempt + 1,
-                max_attempts,
-                interval,
+        try:
+            await poll_until_ready(
+                _check,
+                timeout=float(timeout),
+                initial_interval=float(interval),
+                max_interval=max(float(interval) * 4, 30.0),
+                backoff_factor=1.0,
             )
-            await asyncio.sleep(interval)
-
-        logger.warning(
-            "Health check failed after %d seconds for '%s'", timeout, deploy_result.agent_name
-        )
-        return HealthStatus(healthy=False, checks=checks)
+            logger.info("Health check passed")
+            return HealthStatus(healthy=True, checks=checks)
+        except HealthCheckTimeout:
+            logger.warning(
+                "Health check failed after %d seconds for '%s'",
+                timeout,
+                deploy_result.agent_name,
+            )
+            return HealthStatus(healthy=False, checks=checks)
 
     async def teardown(self, agent_name: str) -> None:
         """Delete the Deployment, Service, HPA, and any ConfigMap for the agent.
@@ -678,24 +782,27 @@ class KubernetesDeployer(BaseDeployer):
         poll_interval: int = ROLLOUT_POLL_INTERVAL,
     ) -> None:
         """Wait until the Deployment has at least one available replica."""
-        elapsed = 0
-        while elapsed < max_wait:
+
+        async def _check() -> bool:
             deployment = apps_v1.read_namespaced_deployment(name=name, namespace=namespace)
             available = deployment.status.available_replicas or 0
             if available >= 1:
                 logger.info("Rollout complete — %d replica(s) available", available)
-                return
-            logger.debug(
-                "Waiting for rollout of '%s' (%d/%ds elapsed)…",
+                return True
+            logger.debug("Waiting for rollout of '%s'…", name)
+            return False
+
+        try:
+            await poll_until_ready(
+                _check,
+                timeout=float(max_wait),
+                initial_interval=float(poll_interval),
+                max_interval=max(float(poll_interval) * 4, 30.0),
+                backoff_factor=1.0,
+            )
+        except HealthCheckTimeout:
+            logger.warning(
+                "Rollout of '%s' did not complete within %d seconds — continuing anyway",
                 name,
-                elapsed,
                 max_wait,
             )
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
-
-        logger.warning(
-            "Rollout of '%s' did not complete within %d seconds — continuing anyway",
-            name,
-            max_wait,
-        )

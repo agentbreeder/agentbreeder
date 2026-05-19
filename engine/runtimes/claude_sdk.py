@@ -15,8 +15,10 @@ from engine.config_parser import AgentConfig
 from engine.runtimes.base import (
     ContainerImage,
     RuntimeBuilder,
+    RuntimeValidationError,
     RuntimeValidationResult,
     _is_litellm_model,
+    build_env_block,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,55 +73,109 @@ class ClaudeSDKRuntime(RuntimeBuilder):
                     return True
         return False
 
-    def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
-        errors: list[str] = []
+    def validate_config(self, config: AgentConfig) -> RuntimeValidationResult:
+        """Validate Claude SDK config (no on-disk agent directory).
 
-        # Reject non-Claude models early — Claude SDK is Anthropic-only
+        Catches the framework-level mistakes (non-Claude model, computer-use
+        tool without claude-managed deploy) at YAML-parse time so the user
+        doesn't have to wait for `agentbreeder deploy` to fail at build.
+        """
+        items: list[RuntimeValidationError] = []
+
         if _is_litellm_model(config.model.primary):
-            errors.append(
-                f"Claude SDK only supports Claude (Anthropic) models. "
-                f"Received: '{config.model.primary}'. "
-                "Switch to a Claude model (e.g. 'claude-sonnet-4') or use a different "
-                "framework (langgraph, crewai, openai_agents, google_adk, or custom) "
-                "for non-Anthropic models."
+            items.append(
+                RuntimeValidationError(
+                    path="model.primary",
+                    message=(
+                        f"Claude SDK only supports Claude (Anthropic) models. "
+                        f"Received: '{config.model.primary}'."
+                    ),
+                    suggestion=(
+                        "Switch to a Claude model (e.g. 'claude-sonnet-4') or pick "
+                        "a different framework (langgraph, crewai, openai_agents, "
+                        "google_adk, or custom)."
+                    ),
+                )
             )
-            return RuntimeValidationResult(valid=False, errors=errors)
+            return RuntimeValidationResult.from_items(items)
 
-        # Computer use tools require claude-managed deploy target
         if self._has_computer_use_tools(config):
             deploy_cloud = config.deploy.cloud if config.deploy else ""
             if deploy_cloud != "claude-managed":
-                errors.append(
-                    "Computer use tools (type: computer_use_*) require "
-                    "deploy.cloud: claude-managed. "
-                    f"Current deploy.cloud is '{deploy_cloud}'. "
-                    "Update your agent.yaml to set deploy.cloud: claude-managed."
+                items.append(
+                    RuntimeValidationError(
+                        path="deploy.cloud",
+                        message=(
+                            "Computer use tools (type: computer_use_*) require "
+                            "deploy.cloud: claude-managed. "
+                            f"Current deploy.cloud is '{deploy_cloud}'."
+                        ),
+                        suggestion=("Update your agent.yaml to set deploy.cloud: claude-managed."),
+                    )
                 )
-                return RuntimeValidationResult(valid=False, errors=errors)
-            # computer_use agents are managed by Anthropic — no container is built
+
+        return RuntimeValidationResult.from_items(items)
+
+    def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
+        """Validate a Claude SDK agent directory.
+
+        Runs config-level checks (Claude-only models, computer-use tools
+        requiring ``claude-managed``) first, then verifies ``agent_dir``
+        exists and contains ``agent.py`` (exporting an ``agent``, ``app``, or
+        ``client`` variable) plus ``requirements.txt`` or ``pyproject.toml``.
+        Computer-use agents skip on-disk checks because they target
+        Anthropic Managed Agents and never build a container.
+        """
+        # Run config-level checks first (shared with validate_config).
+        config_result = self.validate_config(config)
+        if not config_result.valid:
+            return config_result
+
+        # Filesystem checks only apply to container-built agents.
+        if not self._has_computer_use_tools(config):
+            precondition = self._check_agent_dir(agent_dir)
+            if precondition is not None:
+                return precondition
+
+        # Computer use tools target Anthropic Managed Agents — no container is built.
+        if self._has_computer_use_tools(config):
             logger.info(
                 "Computer use tools detected for agent '%s'"
                 " — targeting Anthropic Managed Agents runtime",
                 config.name,
             )
-            return RuntimeValidationResult(valid=True, errors=[])
+            return RuntimeValidationResult(valid=True, errors=[], error_items=[])
+
+        items: list[RuntimeValidationError] = []
 
         # Check for agent source file
         agent_file = agent_dir / "agent.py"
         if not agent_file.exists():
-            errors.append(
-                f"Missing agent.py in {agent_dir}. "
-                "Claude SDK agents must have an agent.py with an"
-                " 'agent', 'app', or 'client' variable."
+            items.append(
+                RuntimeValidationError(
+                    path="agent.py",
+                    message=(
+                        f"Missing agent.py in {agent_dir}. "
+                        "Claude SDK agents must have an agent.py with an "
+                        "'agent', 'app', or 'client' variable."
+                    ),
+                    suggestion="Create agent.py exporting one of the supported variables.",
+                )
             )
 
         # Check for requirements
         has_requirements = (agent_dir / "requirements.txt").exists()
         has_pyproject = (agent_dir / "pyproject.toml").exists()
         if not has_requirements and not has_pyproject:
-            errors.append(
-                "Missing requirements.txt or pyproject.toml. "
-                "Add one with your agent's dependencies."
+            items.append(
+                RuntimeValidationError(
+                    path="requirements.txt",
+                    message=(
+                        "Missing requirements.txt or pyproject.toml. "
+                        "Add one with your agent's dependencies."
+                    ),
+                    suggestion="Add a requirements.txt with at least 'anthropic'.",
+                )
             )
 
         # Warn (but don't fail) if ANTHROPIC_API_KEY is not mentioned
@@ -142,109 +198,106 @@ class ClaudeSDKRuntime(RuntimeBuilder):
                 "Ensure it is set as a secret or environment variable at deploy time."
             )
 
-        return RuntimeValidationResult(valid=len(errors) == 0, errors=errors)
+        return RuntimeValidationResult.from_items(items)
 
     def build(self, agent_dir: Path, config: AgentConfig) -> ContainerImage:
-        """Generate Dockerfile and prepare build context."""
-        # Create a temp build context
+        """Generate Dockerfile and prepare build context.
+
+        On any failure the temp build context is removed so we never leak
+        ``/tmp/agentbreeder-build-*`` directories (audit finding A2).
+        """
         build_dir = Path(tempfile.mkdtemp(prefix="agentbreeder-build-"))
+        try:
+            # Copy agent source code
+            for item in agent_dir.iterdir():
+                if item.name.startswith(".") or item.name == "__pycache__":
+                    continue
+                dest = build_dir / item.name
+                if item.is_dir():
+                    shutil.copytree(
+                        item, dest, ignore=shutil.ignore_patterns("__pycache__", ".git")
+                    )
+                else:
+                    shutil.copy2(item, dest)
 
-        # Copy agent source code
-        for item in agent_dir.iterdir():
-            if item.name.startswith(".") or item.name == "__pycache__":
-                continue
-            dest = build_dir / item.name
-            if item.is_dir():
-                shutil.copytree(item, dest, ignore=shutil.ignore_patterns("__pycache__", ".git"))
-            else:
-                shutil.copy2(item, dest)
+            # Ensure requirements.txt exists with framework deps
+            requirements_file = build_dir / "requirements.txt"
+            existing_requirements = ""
+            if requirements_file.exists():
+                existing_requirements = requirements_file.read_text()
 
-        # Ensure requirements.txt exists with framework deps
-        requirements_file = build_dir / "requirements.txt"
-        existing_requirements = ""
-        if requirements_file.exists():
-            existing_requirements = requirements_file.read_text()
+            framework_deps = self.get_requirements(config)
+            all_deps = set(existing_requirements.strip().splitlines()) | set(framework_deps)
+            requirements_file.write_text("\n".join(sorted(all_deps)) + "\n")
 
-        framework_deps = self.get_requirements(config)
-        all_deps = set(existing_requirements.strip().splitlines()) | set(framework_deps)
-        requirements_file.write_text("\n".join(sorted(all_deps)) + "\n")
+            # Copy the server wrapper template
+            if CLAUDE_SDK_SERVER_TEMPLATE.exists():
+                shutil.copy2(CLAUDE_SDK_SERVER_TEMPLATE, build_dir / "server.py")
 
-        # Copy the server wrapper template
-        if CLAUDE_SDK_SERVER_TEMPLATE.exists():
-            shutil.copy2(CLAUDE_SDK_SERVER_TEMPLATE, build_dir / "server.py")
+            # Write Dockerfile
+            env_block = self._build_env_block(config)
+            dockerfile_content = DOCKERFILE_TEMPLATE.format(env_block=env_block)
+            dockerfile = build_dir / "Dockerfile"
+            dockerfile.write_text(dockerfile_content)
 
-        # Write Dockerfile
-        env_block = self._build_env_block(config)
-        dockerfile_content = DOCKERFILE_TEMPLATE.format(env_block=env_block)
-        dockerfile = build_dir / "Dockerfile"
-        dockerfile.write_text(dockerfile_content)
+            tag = f"agentbreeder/{config.name}:{config.version}"
 
-        tag = f"agentbreeder/{config.name}:{config.version}"
-
-        return ContainerImage(
-            tag=tag,
-            dockerfile_content=dockerfile_content,
-            context_dir=build_dir,
-        )
+            return ContainerImage(
+                tag=tag,
+                dockerfile_content=dockerfile_content,
+                context_dir=build_dir,
+            )
+        except Exception:
+            shutil.rmtree(build_dir, ignore_errors=True)
+            raise
 
     def get_entrypoint(self, config: AgentConfig) -> str:
+        """Return the Claude SDK container startup command.
+
+        The Anthropic SDK is wrapped in a FastAPI ``server.py`` served by
+        uvicorn on port 8080. Computer-use agents bypass the container entry
+        point because they are deployed to Anthropic Managed Agents.
+        """
         return "uvicorn server:app --host 0.0.0.0 --port 8080"
 
     def _build_env_block(self, config: AgentConfig) -> str:
         """Build Dockerfile ENV directives from AgentConfig.
 
-        Writes:
-        - Core agent identity (AGENT_NAME, AGENT_VERSION, AGENT_MODEL, AGENT_MAX_TOKENS,
-                               AGENT_FRAMEWORK, AGENT_SYSTEM_PROMPT)
-        - deploy.env_vars (non-secret environment variables)
+        Delegates the core agent identity + deploy.env_vars block to the
+        shared :func:`engine.runtimes.base.build_env_block` (audit finding
+        A6) and only appends Claude-SDK-specific ENVs on top.
+
+        Appended lines:
         - claude_sdk thinking config (AGENT_THINKING_ENABLED, AGENT_THINKING_EFFORT)
         - claude_sdk caching config (AGENT_PROMPT_CACHING)
         - claude_sdk routing config (AGENT_ROUTING_PROVIDER, AGENT_ROUTING_PROJECT_ID,
                                       AGENT_ROUTING_REGION)
         """
-        lines: list[str] = []
+        base_block = build_env_block(config, "claude_sdk")
+        extra: list[str] = []
 
-        # Core agent identity
-        safe_name = config.name.replace('"', '\\"')
-        lines.append(f'ENV AGENT_NAME="{safe_name}"')
-        lines.append(f'ENV AGENT_VERSION="{config.version}"')
-        lines.append('ENV AGENT_FRAMEWORK="claude_sdk"')
-        safe_model = config.model.primary.replace("\n", " ").replace("\r", " ").replace('"', '\\"')
-        lines.append(f'ENV AGENT_MODEL="{safe_model}"')
-        if config.model.max_tokens is not None:
-            lines.append(f"ENV AGENT_MAX_TOKENS={config.model.max_tokens}")
-        if config.model.temperature is not None:
-            lines.append(f"ENV AGENT_TEMPERATURE={config.model.temperature}")
-        if config.prompts.system:
-            safe_sys = (
-                config.prompts.system.replace("\n", " ").replace("\r", " ").replace('"', '\\"')
-            )
-            lines.append(f'ENV AGENT_SYSTEM_PROMPT="{safe_sys}"')
-
-        # deploy.env_vars (non-secret, safe to bake into image layer)
-        for key, value in config.deploy.env_vars.items():
-            safe_key = key.replace("\n", "").replace("\r", "").replace(" ", "_")
-            safe_val = str(value).replace("\n", " ").replace("\r", " ").replace('"', '\\"')
-            lines.append(f'ENV {safe_key}="{safe_val}"')
-
-        # Claude SDK — thinking
         sdk = config.claude_sdk
-        lines.append(f"ENV AGENT_THINKING_ENABLED={'true' if sdk.thinking.enabled else 'false'}")
-        lines.append(f"ENV AGENT_THINKING_EFFORT={sdk.thinking.effort}")
-
-        # Claude SDK — prompt caching
-        lines.append(f"ENV AGENT_PROMPT_CACHING={'true' if sdk.prompt_caching else 'false'}")
-
-        # Claude SDK — routing
-        lines.append(f"ENV AGENT_ROUTING_PROVIDER={sdk.routing.provider}")
+        # Thinking
+        extra.append(f"ENV AGENT_THINKING_ENABLED={'true' if sdk.thinking.enabled else 'false'}")
+        extra.append(f"ENV AGENT_THINKING_EFFORT={sdk.thinking.effort}")
+        # Prompt caching
+        extra.append(f"ENV AGENT_PROMPT_CACHING={'true' if sdk.prompt_caching else 'false'}")
+        # Routing
+        extra.append(f"ENV AGENT_ROUTING_PROVIDER={sdk.routing.provider}")
         if sdk.routing.project_id is not None:
-            lines.append(f"ENV AGENT_ROUTING_PROJECT_ID={sdk.routing.project_id}")
+            extra.append(f"ENV AGENT_ROUTING_PROJECT_ID={sdk.routing.project_id}")
         if sdk.routing.region is not None:
-            lines.append(f"ENV AGENT_ROUTING_REGION={sdk.routing.region}")
+            extra.append(f"ENV AGENT_ROUTING_REGION={sdk.routing.region}")
 
-        return "\n".join(lines)
+        return base_block + "\n" + "\n".join(extra)
 
     def get_requirements(self, config: AgentConfig) -> list[str]:
+        """Return pip dependencies for Claude SDK agents.
+
+        Always includes ``anthropic`` (the Claude SDK) and the FastAPI server
+        deps. Claude SDK runtimes never add ``litellm`` — Claude models are
+        always routed through the native Anthropic client.
+        """
         return [
             "anthropic>=0.50.0",
             "fastapi>=0.110.0",

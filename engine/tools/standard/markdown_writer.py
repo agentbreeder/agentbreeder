@@ -13,7 +13,23 @@ import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
+
+from engine.util.path_safety import safe_relative_subdir
+
+
+class MarkdownWriterResult(TypedDict):
+    """Structured result returned by :func:`markdown_writer`.
+
+    ``TypedDict`` is structurally compatible with ``dict[str, Any]`` so this
+    annotation is backward-compatible with existing callers that index the
+    result as a plain dict.
+    """
+
+    path: str
+    byte_size: int
+    title: str
+
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -36,23 +52,32 @@ SCHEMA: dict[str, Any] = {
 }
 
 
-def markdown_writer(title: str, content: str, subdir: str = "") -> dict[str, Any]:
+def markdown_writer(title: str, content: str, subdir: str = "") -> MarkdownWriterResult:
     """Save markdown to disk and return the resolved file path.
 
     Args:
         title: Used to derive a kebab-cased filename. Always paired with a
             UTC timestamp suffix so multiple writes don't collide.
         content: Full markdown body.
-        subdir: Optional sub-directory under ``DOCUMENT_OUTPUT_DIR``.
+        subdir: Optional sub-directory under ``DOCUMENT_OUTPUT_DIR``. Must be a
+            safe relative path — absolute paths, parent traversal (``..``),
+            home-dir expansion (``~``), and null bytes are rejected.
 
     Returns:
         A dict with keys:
             path: absolute path to the saved file.
             byte_size: size of the saved file in bytes.
             title: the title that was rendered.
+
+    Raises:
+        ValueError: if ``subdir`` contains traversal or unsafe characters.
     """
     base_dir = Path(os.getenv("DOCUMENT_OUTPUT_DIR", "./output"))
-    out_dir = base_dir / subdir if subdir else base_dir
+    if subdir:
+        subdir = safe_relative_subdir(subdir)
+        out_dir = base_dir / subdir
+    else:
+        out_dir = base_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "document"
@@ -62,8 +87,8 @@ def markdown_writer(title: str, content: str, subdir: str = "") -> dict[str, Any
 
     out_path.write_text(content, encoding="utf-8")
 
-    return {
-        "path": str(out_path.resolve()),
-        "byte_size": out_path.stat().st_size,
-        "title": title,
-    }
+    return MarkdownWriterResult(
+        path=str(out_path.resolve()),
+        byte_size=out_path.stat().st_size,
+        title=title,
+    )

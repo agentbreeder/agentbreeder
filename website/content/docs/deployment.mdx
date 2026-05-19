@@ -23,6 +23,14 @@ CLI, the secrets backend, and the IAM model.
   this page was generated from that deploy.
 </Callout>
 
+<Callout type="info" title="Which targets ship greenfield?">
+  For the canonical, up-to-date matrix of which `--target` values provision
+  infrastructure from scratch versus which require pre-existing infra, see the
+  [deploy-target status table in the CLI reference](cli-reference#agentbreeder-deploy).
+  This page focuses on the **actionable prerequisites** for each target — see
+  [Prerequisites per target](#prerequisites-per-target-as-of-2026-05-18) below.
+</Callout>
+
 ---
 
 ## What the deploy script does
@@ -229,7 +237,7 @@ deploy:
   cloud: aws
   runtime: app-runner
 
-# Azure Container Apps  (planned — currently maps to Cloud Run for now)
+# Azure Container Apps
 deploy:
   cloud: azure
   runtime: container-apps
@@ -238,6 +246,10 @@ deploy:
 deploy:
   cloud: kubernetes
   runtime: deployment
+
+# Claude Managed Agents (Anthropic-hosted)
+deploy:
+  cloud: claude-managed
 ```
 
 `agentbreeder deploy` reads the cloud + runtime fields and dispatches to the
@@ -247,6 +259,61 @@ identical across targets.
 
 See [Architecture → Deploy Pipeline](https://github.com/agentbreeder/agentbreeder/blob/main/ARCHITECTURE.md#the-deploy-pipeline)
 for the full flow.
+
+---
+
+## Prerequisites per target (as of 2026-05-18)
+
+> **Status reminder:** Local and GCP Cloud Run support greenfield provisioning. The
+> targets listed below require **pre-existing infrastructure**. See the
+> [deploy-target status table](cli-reference#agentbreeder-deploy) for the canonical
+> matrix.
+
+### AWS ECS Fargate (`--target ecs-fargate`)
+
+- AWS account ID and access credentials (Secrets Manager–backed `AWS_ACCESS_KEY_ID` /
+  `AWS_SECRET_ACCESS_KEY` or an instance profile).
+- VPC with at least two subnets across different AZs (private subnets recommended).
+- Security group permitting the agent's listening port from your front-end / load
+  balancer.
+- ECS task execution IAM role with `AmazonECSTaskExecutionRolePolicy`.
+- (Optional) ECR repository for image storage; AgentBreeder will use a public
+  registry if none is configured.
+- Region matches your `deploy.region` in `agent.yaml`.
+
+### AWS App Runner (`--target app-runner`)
+
+- AWS account + credentials (same as ECS Fargate above).
+- App Runner-permitted IAM role
+  (`AWSAppRunnerServicePolicyForECRAccess` if pulling from ECR).
+- Region selected in `agent.yaml` must support App Runner.
+- No VPC required if using public access; for VPC connector mode, an existing
+  VPC connector resource.
+
+### Azure Container Apps (`--target container-apps`)
+
+- Azure subscription ID and service-principal credentials
+  (`AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`).
+- Resource group, pre-created — AgentBreeder will not create it for you.
+- Container Apps Environment within that resource group.
+- Container Apps-permitted role assignment for the service principal.
+- (Optional) managed identity if the agent needs cross-resource access.
+
+### Kubernetes (`--target kubernetes`, EKS/GKE/AKS/self-hosted)
+
+- Existing cluster (no provisioning) with `kubectl` access from your dev or CI
+  environment.
+- `~/.kube/config` or `KUBECONFIG` pointing to the cluster.
+- Namespace pre-created (default: `agentbreeder`).
+- RBAC: a service account with permission to create Deployments, Services,
+  ConfigMaps, and Secrets in that namespace.
+- (Optional) an ingress controller and DNS records if you want external access.
+
+### Claude Managed Agents (`--target claude-managed`)
+
+- Anthropic API key with managed-agents access enabled on your account.
+- No infrastructure to provision — Anthropic hosts the runtime.
+- Region and network constraints are dictated by Anthropic, not AgentBreeder.
 
 ---
 

@@ -31,7 +31,9 @@ Set `framework:` to any of the 6 supported values. AgentBreeder picks the right 
 
 ## Supported Deployment Targets
 
-Set `deploy.cloud` and optionally `deploy.runtime`. Every combination works.
+Set `deploy.cloud` and optionally `deploy.runtime`.
+
+> **Status:** Deployer code paths exist for every target listed below. Greenfield provisioning (auto-creating VPCs / clusters / resource-groups) is fully supported only for `local` and `cloud-run`; AWS, Azure, and Kubernetes targets require pre-existing infrastructure. `claude-managed` is an Anthropic-managed runtime. See the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 | `cloud` | `runtime` (default) | Also supports |
 |---------|--------------------|-|

@@ -26,6 +26,7 @@ from engine.providers.models import (
     GenerateResult,
     ModelInfo,
     ProviderConfig,
+    ProviderHealth,
     StreamChunk,
     ToolCall,
     ToolDefinition,
@@ -147,12 +148,21 @@ class AnthropicProvider(ProviderBase):
             )
         return sorted(models, key=lambda m: m.id)
 
-    async def health_check(self) -> bool:
+    async def health_check(self) -> ProviderHealth:
         try:
             await self._request("GET", "/models")
-            return True
-        except ProviderError:
-            return False
+        except AuthenticationError as e:
+            return ProviderHealth(
+                healthy=False, reason=str(e) or "authentication failed", error_code=401
+            )
+        except RateLimitError as e:
+            return ProviderHealth(healthy=False, reason=str(e) or "rate limited", error_code=429)
+        except ProviderError as e:
+            msg = str(e)
+            if "timed out" in msg.lower() or "failed to connect" in msg.lower():
+                return ProviderHealth(healthy=False, reason=msg, error_code=None)
+            return ProviderHealth(healthy=False, reason=msg, error_code=500)
+        return ProviderHealth(healthy=True)
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -222,7 +232,7 @@ class AnthropicProvider(ProviderBase):
     def _check_status(self, status_code: int, body: str) -> None:
         if status_code == 200:
             return
-        if status_code == 401:
+        if status_code == 401 or status_code == 403:
             raise AuthenticationError("Invalid Anthropic API key")
         if status_code == 404:
             raise ModelNotFoundError(f"Anthropic model not found: {body}")

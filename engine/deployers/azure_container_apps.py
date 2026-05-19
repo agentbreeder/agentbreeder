@@ -11,7 +11,6 @@ Cloud-specific logic stays in this module — never leak Azure details elsewhere
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 from typing import Any
@@ -20,8 +19,16 @@ import httpx
 from pydantic import BaseModel
 
 from engine.config_parser import AgentConfig
-from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
+from engine.deployers._health import HealthCheckTimeout, poll_until_ready
+from engine.deployers.base import (
+    BaseDeployer,
+    DeployResult,
+    ExistingDeployment,
+    HealthStatus,
+    InfraResult,
+)
 from engine.runtimes.base import ContainerImage
+from engine.sidecar import validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +63,10 @@ def _extract_azure_config(config: AgentConfig) -> AzureConfig:
     """
     env = config.deploy.env_vars
 
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "AZURE_SUBSCRIPTION_ID", "sources": ["deploy.env_vars"]},
+    )
     subscription_id = env.get("AZURE_SUBSCRIPTION_ID", "")
     if not subscription_id:
         msg = (
@@ -63,7 +74,15 @@ def _extract_azure_config(config: AgentConfig) -> AzureConfig:
             "Set AZURE_SUBSCRIPTION_ID in deploy.env_vars."
         )
         raise ValueError(msg)
+    logger.info(
+        "credential_resolved",
+        extra={"key": "AZURE_SUBSCRIPTION_ID", "source": "deploy.env_vars"},
+    )
 
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "AZURE_RESOURCE_GROUP", "sources": ["deploy.env_vars"]},
+    )
     resource_group = env.get("AZURE_RESOURCE_GROUP", "")
     if not resource_group:
         msg = (
@@ -88,6 +107,11 @@ def _extract_azure_config(config: AgentConfig) -> AzureConfig:
             "(e.g., myregistry.azurecr.io)."
         )
         raise ValueError(msg)
+
+    logger.info(
+        "credential_resolved",
+        extra={"key": "AZURE_RESOURCE_GROUP", "source": "deploy.env_vars"},
+    )
 
     return AzureConfig(
         subscription_id=subscription_id,
@@ -401,21 +425,100 @@ class AzureContainerAppsDeployer(BaseDeployer):
 
         return body
 
+    async def _lookup_existing(self, agent_name: str) -> ExistingDeployment | None:
+        """Return an :class:`ExistingDeployment` snapshot for the Container App.
+
+        A Container App with ``provisioningState == 'Succeeded'`` and a populated
+        FQDN is considered healthy. Anything in ``InProgress``, ``Failed`` or
+        unreachable state is reported as unhealthy.
+        """
+        if self._azure_config is None:
+            return None
+        azure = self._azure_config
+        try:
+            aca_client = self._get_aca_client()
+        except ImportError:
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("ACA client init failed for '%s': %s", agent_name, exc)
+            return None
+
+        try:
+            app = aca_client.container_apps.get(
+                resource_group_name=azure.resource_group,
+                container_app_name=agent_name,
+            )
+        except Exception as exc:  # noqa: BLE001 — azure raises ResourceNotFoundError + variants
+            logger.debug("container_apps.get failed for '%s': %s", agent_name, exc)
+            return None
+
+        # Provisioning state lives on .properties.provisioning_state or .provisioning_state
+        # depending on SDK version.
+        props = getattr(app, "properties", app)
+        state = str(getattr(props, "provisioning_state", "") or "")
+        ingress = getattr(getattr(props, "configuration", None), "ingress", None)
+        fqdn = getattr(ingress, "fqdn", None)
+
+        is_healthy = state.lower() == "succeeded" and bool(fqdn)
+        url = f"https://{fqdn}" if fqdn else None
+        return ExistingDeployment(
+            status="healthy" if is_healthy else "unhealthy",
+            url=url,
+            resource_id=getattr(app, "id", None),
+        )
+
     async def deploy(self, config: AgentConfig, image: ContainerImage | None) -> DeployResult:
         """Build, push, and deploy the agent to Azure Container Apps.
 
         Steps:
+        0. Pre-validate sidecar config; idempotency check on existing app
         1. Build and push container image to ACR
         2. Look up the Container Apps Environment resource ID
         3. Create or update the Container App
         4. Return the app FQDN as the endpoint URL
         """
+        # W4-37: Pre-validate sidecar before any cloud API call.
+        validate_sidecar_config(config)
+
         if self._azure_config is None:
             self._azure_config = _extract_azure_config(config)
         azure = self._azure_config
 
         if self._image_uri is None:
             self._image_uri = _get_acr_image_uri(azure, config.name, config.version)
+
+        # W4-35: Idempotency check.
+        existing = await self._lookup_existing(config.name)
+        if existing is not None:
+            if existing.status == "healthy":
+                logger.info(
+                    "deploy_idempotent_hit",
+                    extra={"agent": config.name, "cloud": "azure-container-apps"},
+                )
+                return DeployResult(
+                    endpoint_url=existing.url
+                    or f"https://{config.name}.{azure.location}.azurecontainerapps.io",
+                    container_id=existing.resource_id or self._image_uri,
+                    status="running",
+                    agent_name=config.name,
+                    version=config.version,
+                )
+            logger.info(
+                "deploy_cleaning_stale",
+                extra={
+                    "agent": config.name,
+                    "cloud": "azure-container-apps",
+                    "status": existing.status,
+                },
+            )
+            try:
+                await self.teardown(config.name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Cleanup of stale Container App '%s' failed: %s — continuing deploy",
+                    config.name,
+                    exc,
+                )
 
         # Step 1: Push image to ACR
         assert image is not None, "ContainerImage required for Azure Container Apps deployer"
@@ -518,39 +621,32 @@ class AzureContainerAppsDeployer(BaseDeployer):
         url = f"{deploy_result.endpoint_url}/health"
         checks: dict[str, bool] = {"reachable": False, "healthy": False}
 
-        for attempt in range(timeout // interval):
+        async def _check() -> bool:
             try:
                 async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                     response = await client.get(url)
                     checks["reachable"] = True
                     if response.status_code == 200:
                         checks["healthy"] = True
-                        logger.info(
-                            "Health check passed (attempt %d/%d)",
-                            attempt + 1,
-                            timeout // interval,
-                        )
-                        return HealthStatus(healthy=True, checks=checks)
-                    else:
-                        logger.debug(
-                            "Health check returned %d (attempt %d/%d)",
-                            response.status_code,
-                            attempt + 1,
-                            timeout // interval,
-                        )
+                        return True
+                    logger.debug("Health check returned %d", response.status_code)
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
                 pass
+            return False
 
-            logger.debug(
-                "Health check attempt %d/%d — waiting %ds...",
-                attempt + 1,
-                timeout // interval,
-                interval,
+        try:
+            await poll_until_ready(
+                _check,
+                timeout=float(timeout),
+                initial_interval=float(interval),
+                max_interval=max(float(interval) * 4, 30.0),
+                backoff_factor=1.0,
             )
-            await asyncio.sleep(interval)
-
-        logger.warning("Health check failed after %d seconds", timeout)
-        return HealthStatus(healthy=False, checks=checks)
+            logger.info("Health check passed")
+            return HealthStatus(healthy=True, checks=checks)
+        except HealthCheckTimeout:
+            logger.warning("Health check failed after %d seconds", timeout)
+            return HealthStatus(healthy=False, checks=checks)
 
     async def teardown(self, agent_name: str) -> None:
         """Delete the Container App and clean up resources.

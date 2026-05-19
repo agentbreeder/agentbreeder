@@ -34,6 +34,8 @@ Every framework works in the dashboard. Pick the one that fits your use case fro
 
 All deployment targets are available from the **Deploy to** dropdown. Connect your cloud account once in Settings — then deploy anywhere without manual credential configuration.
 
+> **Status:** Non-local targets in the table below work via existing infrastructure today. Greenfield provisioning (auto-creating VPCs/clusters/resource-groups) is fully supported only for `local` and `cloud-run`. `claude-managed` is an Anthropic-managed runtime. See the [deploy-target status table](cli-reference#agentbreeder-deploy).
+
 | Target | What it runs on | Best for |
 |--------|----------------|----------|
 | **Local** | Docker Compose on your machine | Development, testing |
@@ -260,7 +262,7 @@ You can always go deeper — you never lose what you built. See [Full Code →](
 
 ## All Frameworks × All Deployment Targets
 
-Every combination works. This matrix applies to No Code, Low Code, and Full Code equally.
+This matrix applies to No Code, Low Code, and Full Code equally.
 
 | | Local | App Runner | ECS Fargate | Cloud Run | Container Apps | Kubernetes | Claude Managed |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|

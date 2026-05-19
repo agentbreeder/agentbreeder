@@ -37,6 +37,25 @@ from engine.runtimes.base import ContainerImage
 # ---------------------------------------------------------------------------
 
 
+def _fast_health_clock():
+    """Patch asyncio.sleep + engine.deployers._health.time.monotonic so
+    poll_until_ready completes instantly while still honoring the deadline."""
+    from contextlib import ExitStack
+
+    clock = {"t": 0.0}
+
+    async def _fake_sleep(seconds: float) -> None:
+        clock["t"] += float(seconds)
+
+    def _fake_monotonic() -> float:
+        return clock["t"]
+
+    stack = ExitStack()
+    stack.enter_context(patch("asyncio.sleep", side_effect=_fake_sleep))
+    stack.enter_context(patch("engine.deployers._health.time.monotonic", _fake_monotonic))
+    return stack
+
+
 def _make_agent_config(
     name: str = "my-agent",
     version: str = "1.0.0",
@@ -647,7 +666,7 @@ class TestHealthCheck:
 
         with (
             patch("engine.deployers.azure_container_apps.httpx.AsyncClient") as mock_cls,
-            patch("engine.deployers.azure_container_apps.asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
         ):
             mock_cls.return_value = mock_client
             # timeout=10, interval=5 → 2 attempts, all returning 503
@@ -671,7 +690,7 @@ class TestHealthCheck:
 
         with (
             patch("engine.deployers.azure_container_apps.httpx.AsyncClient") as mock_cls,
-            patch("engine.deployers.azure_container_apps.asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
         ):
             mock_cls.return_value = mock_client
             status = await deployer.health_check(deploy_result, timeout=10, interval=5)

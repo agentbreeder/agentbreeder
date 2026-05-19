@@ -32,6 +32,25 @@ from engine.runtimes.base import ContainerImage
 # ---------------------------------------------------------------------------
 
 
+def _fast_health_clock():
+    """Patch asyncio.sleep + engine.deployers._health.time.monotonic so
+    poll_until_ready completes instantly while still honoring the deadline."""
+    from contextlib import ExitStack
+
+    clock = {"t": 0.0}
+
+    async def _fake_sleep(seconds: float) -> None:
+        clock["t"] += float(seconds)
+
+    def _fake_monotonic() -> float:
+        return clock["t"]
+
+    stack = ExitStack()
+    stack.enter_context(patch("asyncio.sleep", side_effect=_fake_sleep))
+    stack.enter_context(patch("engine.deployers._health.time.monotonic", _fake_monotonic))
+    return stack
+
+
 def _make_config(**overrides) -> AgentConfig:
     """Build a minimal AgentConfig suitable for Kubernetes deployer tests."""
     defaults: dict = {
@@ -485,6 +504,7 @@ class TestDeploy:
         image = _make_image()
 
         with (
+            patch.object(deployer, "_lookup_existing", new_callable=AsyncMock, return_value=None),
             patch.object(deployer, "_get_k8s_clients", return_value=(MagicMock(), MagicMock())),
             patch.object(deployer, "_ensure_namespace"),
             patch.object(deployer, "_build_docker_image", new_callable=AsyncMock),
@@ -504,6 +524,7 @@ class TestDeploy:
         image = _make_image()
 
         with (
+            patch.object(deployer, "_lookup_existing", new_callable=AsyncMock, return_value=None),
             patch.object(deployer, "_get_k8s_clients", return_value=(MagicMock(), MagicMock())),
             patch.object(deployer, "_ensure_namespace"),
             patch.object(deployer, "_build_docker_image", new_callable=AsyncMock),
@@ -523,6 +544,7 @@ class TestDeploy:
         image = _make_image()
 
         with (
+            patch.object(deployer, "_lookup_existing", new_callable=AsyncMock, return_value=None),
             patch.object(deployer, "_get_k8s_clients", return_value=(MagicMock(), MagicMock())),
             patch.object(deployer, "_ensure_namespace"),
             patch.object(deployer, "_build_docker_image", new_callable=AsyncMock),
@@ -550,6 +572,7 @@ class TestDeploy:
             captured_image_name.append(name)
 
         with (
+            patch.object(deployer, "_lookup_existing", new_callable=AsyncMock, return_value=None),
             patch.object(deployer, "_get_k8s_clients", return_value=(MagicMock(), MagicMock())),
             patch.object(deployer, "_ensure_namespace"),
             patch.object(deployer, "_build_docker_image", side_effect=capture_build),
@@ -821,7 +844,7 @@ class TestHealthCheck:
 
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
-            patch("asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
         ):
             health = await deployer.health_check(result, timeout=3, interval=1)
 
@@ -852,7 +875,7 @@ class TestHealthCheck:
 
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
-            patch("asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
         ):
             health = await deployer.health_check(result, timeout=4, interval=1)
 
@@ -926,7 +949,7 @@ class TestWaitForRollout:
             dep_ready,
         ]
 
-        with patch("asyncio.sleep", new_callable=AsyncMock):
+        with _fast_health_clock():
             await deployer._wait_for_rollout(
                 apps_v1, "my-agent", DEFAULT_NAMESPACE, poll_interval=1
             )
@@ -943,7 +966,7 @@ class TestWaitForRollout:
         apps_v1.read_namespaced_deployment.return_value = dep_not_ready
 
         # Small max_wait so the test is fast
-        with patch("asyncio.sleep", new_callable=AsyncMock):
+        with _fast_health_clock():
             # Should NOT raise — just log a warning
             await deployer._wait_for_rollout(
                 apps_v1, "my-agent", DEFAULT_NAMESPACE, max_wait=3, poll_interval=1

@@ -11,7 +11,6 @@ Cloud-specific logic stays in this module — never leak AWS details elsewhere.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 from datetime import datetime
@@ -21,8 +20,16 @@ import httpx
 from pydantic import BaseModel
 
 from engine.config_parser import AgentConfig
-from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
+from engine.deployers._health import HealthCheckTimeout, poll_until_ready
+from engine.deployers.base import (
+    BaseDeployer,
+    DeployResult,
+    ExistingDeployment,
+    HealthStatus,
+    InfraResult,
+)
 from engine.runtimes.base import ContainerImage
+from engine.sidecar import validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +60,10 @@ def _extract_app_runner_config(config: AgentConfig) -> AWSAppRunnerConfig:
     """
     env = config.deploy.env_vars
 
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "AWS_ACCOUNT_ID", "sources": ["deploy.env_vars"]},
+    )
     account_id = env.get("AWS_ACCOUNT_ID", "")
     if not account_id:
         msg = (
@@ -60,8 +71,22 @@ def _extract_app_runner_config(config: AgentConfig) -> AWSAppRunnerConfig:
             "Set AWS_ACCOUNT_ID in deploy.env_vars."
         )
         raise ValueError(msg)
+    logger.info(
+        "credential_resolved", extra={"key": "AWS_ACCOUNT_ID", "source": "deploy.env_vars"}
+    )
 
+    logger.debug(
+        "resolving_credential",
+        extra={"key": "AWS_REGION", "sources": ["deploy.env_vars", "deploy.region", "default"]},
+    )
     region = env.get("AWS_REGION") or config.deploy.region or DEFAULT_REGION
+    region_source = (
+        "deploy.env_vars"
+        if env.get("AWS_REGION")
+        else ("deploy.region" if config.deploy.region else "default")
+    )
+    logger.info("credential_resolved", extra={"key": "AWS_REGION", "source": region_source})
+
     ecr_repo = env.get("AWS_ECR_REPO") or config.name
 
     return AWSAppRunnerConfig(
@@ -280,11 +305,79 @@ class AWSAppRunnerDeployer(BaseDeployer):
             },
         }
 
+    async def _lookup_existing(self, agent_name: str) -> ExistingDeployment | None:
+        """Return an :class:`ExistingDeployment` snapshot for the App Runner service.
+
+        A service in ``RUNNING`` state is considered healthy. ``OPERATION_IN_PROGRESS``,
+        ``CREATE_FAILED``, ``PAUSED``, ``DELETED`` and unknown states are
+        reported as unhealthy so the caller cleans up before redeploying.
+        """
+        if self._ar_config is None:
+            return None
+        try:
+            ar_client = self._get_boto3_client("apprunner")
+        except ImportError:
+            return None
+
+        try:
+            response = ar_client.describe_service(ServiceName=agent_name)
+        except Exception as exc:  # noqa: BLE001 — broad to handle boto/moto variance
+            exc_type = type(exc).__name__
+            if "ResourceNotFoundException" not in exc_type:
+                logger.debug("describe_service failed for '%s': %s", agent_name, exc)
+            return None
+
+        svc = response.get("Service") or {}
+        status = str(svc.get("Status", "UNKNOWN"))
+        service_url = svc.get("ServiceUrl")
+        url = f"https://{service_url}" if service_url else None
+        is_healthy = status == "RUNNING"
+        return ExistingDeployment(
+            status="healthy" if is_healthy else "unhealthy",
+            url=url,
+            resource_id=svc.get("ServiceArn"),
+        )
+
     async def deploy(self, config: AgentConfig, image: ContainerImage | None) -> DeployResult:
         """Push the image to ECR and create / update the App Runner service."""
+        # W4-37: Pre-validate sidecar before any cloud API call.
+        validate_sidecar_config(config)
+
         assert self._ar_config is not None, "provision() must be called before deploy()"
         assert self._image_uri is not None, "provision() must be called before deploy()"
         assert image is not None, "ContainerImage required for App Runner deployer"
+
+        # W4-35: Idempotency check.
+        existing = await self._lookup_existing(config.name)
+        if existing is not None:
+            if existing.status == "healthy":
+                logger.info(
+                    "deploy_idempotent_hit",
+                    extra={"agent": config.name, "cloud": "aws-app-runner"},
+                )
+                return DeployResult(
+                    endpoint_url=existing.url or "",
+                    container_id=existing.resource_id or self._image_uri,
+                    status="running",
+                    agent_name=config.name,
+                    version=config.version,
+                )
+            logger.info(
+                "deploy_cleaning_stale",
+                extra={
+                    "agent": config.name,
+                    "cloud": "aws-app-runner",
+                    "status": existing.status,
+                },
+            )
+            try:
+                await self.teardown(config.name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Cleanup of stale App Runner service '%s' failed: %s — continuing deploy",
+                    config.name,
+                    exc,
+                )
 
         await self._push_image(image, self._image_uri)
 
@@ -322,29 +415,46 @@ class AWSAppRunnerDeployer(BaseDeployer):
 
     async def _wait_for_service_running(self, ar_client: Any, service_name: str) -> str:
         """Poll until the App Runner service is RUNNING and return its URL."""
-        for attempt in range(WAITER_MAX_ATTEMPTS):
+        # poll_until_ready returns via early-exit (we capture the URL in closure);
+        # invalid statuses raise RuntimeError, which propagates through the helper.
+        service_url: dict[str, str] = {}
+
+        async def _check() -> bool:
             response = ar_client.describe_service(ServiceName=service_name)
             svc = response["Service"]
             status = svc.get("Status", "")
             if status == "RUNNING":
-                return f"https://{svc['ServiceUrl']}"
+                service_url["url"] = f"https://{svc['ServiceUrl']}"
+                return True
             if status in ("CREATE_FAILED", "DELETE_FAILED", "PAUSED"):
                 msg = f"App Runner service '{service_name}' entered unexpected status '{status}'"
                 raise RuntimeError(msg)
             logger.info(
-                "Waiting for App Runner service '%s' (status=%s, attempt %d/%d)",
+                "Waiting for App Runner service '%s' (status=%s)",
                 service_name,
                 status,
-                attempt + 1,
-                WAITER_MAX_ATTEMPTS,
             )
-            await asyncio.sleep(WAITER_DELAY)
+            return False
 
-        msg = (
-            f"Timed out waiting for App Runner service '{service_name}' to reach RUNNING "
-            f"after {WAITER_MAX_ATTEMPTS * WAITER_DELAY}s."
-        )
-        raise TimeoutError(msg)
+        try:
+            # Effective timeout matches original semantics: N checks, then raise.
+            # poll_until_ready always checks once before evaluating the deadline,
+            # so we shave one interval to keep the same total call count.
+            await poll_until_ready(
+                _check,
+                timeout=float((WAITER_MAX_ATTEMPTS - 1) * WAITER_DELAY),
+                initial_interval=float(WAITER_DELAY),
+                max_interval=float(WAITER_DELAY),
+                backoff_factor=1.0,
+            )
+        except HealthCheckTimeout as e:
+            msg = (
+                f"Timed out waiting for App Runner service '{service_name}' to reach RUNNING "
+                f"after {WAITER_MAX_ATTEMPTS * WAITER_DELAY}s."
+            )
+            raise TimeoutError(msg) from e
+
+        return service_url["url"]
 
     async def health_check(
         self,
@@ -354,21 +464,29 @@ class AWSAppRunnerDeployer(BaseDeployer):
     ) -> HealthStatus:
         """HTTP health check against the App Runner service /health endpoint."""
         url = f"{deploy_result.endpoint_url}/health"
-        deadline = asyncio.get_event_loop().time() + timeout
+
         async with httpx.AsyncClient(timeout=10.0) as client:
-            while asyncio.get_event_loop().time() < deadline:
+
+            async def _check() -> bool:
                 try:
                     response = await client.get(url)
                     if response.status_code < 500:
-                        return HealthStatus(
-                            healthy=True,
-                            checks={"http_health": True},
-                        )
+                        return True
                 except (httpx.ConnectError, httpx.TimeoutException):
                     pass
-                await asyncio.sleep(interval)
+                return False
 
-        return HealthStatus(healthy=False, checks={"http_health": False})
+            try:
+                await poll_until_ready(
+                    _check,
+                    timeout=float(timeout),
+                    initial_interval=float(interval),
+                    max_interval=max(float(interval) * 4, 30.0),
+                    backoff_factor=1.0,
+                )
+                return HealthStatus(healthy=True, checks={"http_health": True})
+            except HealthCheckTimeout:
+                return HealthStatus(healthy=False, checks={"http_health": False})
 
     async def teardown(self, agent_name: str) -> None:
         """Delete the App Runner service."""

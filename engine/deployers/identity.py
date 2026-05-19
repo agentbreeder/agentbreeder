@@ -129,6 +129,10 @@ def provision_aws_identity(agent_name: str, config: IdentityConfig) -> Provision
             logger.debug("Attached inline policy to role %s", role_name)
 
         logger.info("Created AWS IAM role: %s", role_arn)
+        logger.info(
+            "identity_created",
+            extra={"agent_name": agent_name, "role_arn": role_arn, "cloud": "aws"},
+        )
         return ProvisionedIdentity(
             cloud="aws",
             agent_name=agent_name,
@@ -137,6 +141,10 @@ def provision_aws_identity(agent_name: str, config: IdentityConfig) -> Provision
         )
     except Exception as exc:  # noqa: BLE001
         logger.error("Failed to provision AWS identity for '%s': %s", agent_name, exc)
+        logger.error(
+            "identity_failed",
+            extra={"agent_name": agent_name, "reason": str(exc), "cloud": "aws"},
+        )
         return ProvisionedIdentity(cloud="aws", agent_name=agent_name)
 
 
@@ -204,6 +212,10 @@ def provision_gcp_identity(
             logger.debug("Bound %d IAM role(s) to %s", len(config.roles), sa_email)
 
         logger.info("Created GCP Service Account: %s", sa_email)
+        logger.info(
+            "identity_created",
+            extra={"agent_name": agent_name, "sa_email": sa_email, "cloud": "gcp"},
+        )
         return ProvisionedIdentity(
             cloud="gcp",
             agent_name=agent_name,
@@ -212,4 +224,8 @@ def provision_gcp_identity(
         )
     except Exception as exc:  # noqa: BLE001
         logger.error("Failed to provision GCP identity for '%s': %s", agent_name, exc)
+        logger.error(
+            "identity_failed",
+            extra={"agent_name": agent_name, "reason": str(exc), "cloud": "gcp"},
+        )
         return ProvisionedIdentity(cloud="gcp", agent_name=agent_name)

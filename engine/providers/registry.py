@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncIterator
 
+from engine.observability.degraded_mode import warn_once
 from engine.providers.anthropic_provider import AnthropicProvider
 from engine.providers.base import ProviderBase, ProviderError
 from engine.providers.google_provider import GoogleProvider
@@ -19,6 +21,7 @@ from engine.providers.models import (
     ModelInfo,
     ProviderConfig,
     ProviderType,
+    StreamChunk,
     ToolDefinition,
 )
 from engine.providers.ollama_provider import OllamaProvider
@@ -199,8 +202,9 @@ class FallbackChain:
         Raises the last ProviderError if all providers fail.
         """
         last_error: ProviderError | None = None
+        primary_name = self._providers[0].name
 
-        for provider in self._providers:
+        for idx, provider in enumerate(self._providers):
             try:
                 logger.info(
                     "Attempting generate with provider '%s'",
@@ -213,6 +217,17 @@ class FallbackChain:
                     max_tokens=max_tokens,
                     tools=tools,
                 )
+                if idx > 0:
+                    warn_once(
+                        "provider.fallback",
+                        f"{primary_name}-to-{provider.name}",
+                        extra={"primary": primary_name, "fallback": provider.name},
+                    )
+                    # Record which primary was originally attempted so
+                    # downstream cost-attribution / tracing can see the
+                    # full chain context. The serving provider is in
+                    # ``result.provider`` already.
+                    result.fallback_from = primary_name
                 logger.info(
                     "Generate succeeded with provider '%s'",
                     provider.name,
@@ -227,7 +242,109 @@ class FallbackChain:
                 )
 
         # All providers failed
+        warn_once(
+            "provider.fallback",
+            f"{primary_name}-all-failed",
+            extra={"primary": primary_name, "last_error": str(last_error)},
+        )
         msg = f"All providers in fallback chain failed. Last error: {last_error}"
+        raise ProviderError(msg)
+
+    async def generate_stream(
+        self,
+        messages: list[dict[str, str]],
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        tools: list[ToolDefinition] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """Stream chunks from the first provider whose stream opens successfully.
+
+        Semantics (per audit spec W4-20):
+
+        * Try the primary's ``generate_stream``. If it raises a
+          :class:`ProviderError` **before yielding the first chunk**, switch
+          to the next fallback and retry.
+        * Once any chunk has been yielded, the request is "committed" to
+          that provider — a later failure mid-stream is *not* retried on a
+          fallback (we'd have to re-emit partial content, which would
+          confuse clients). Such failures are re-raised.
+        * If all providers fail before yielding a chunk, raises
+          :class:`ProviderError` with the last error.
+
+        Fallback attribution: when a fallback serves the stream, this method
+        prepends a marker :class:`StreamChunk` with no content but
+        ``model = "<fallback_name>"``, mirroring the ``fallback_from``
+        signal :meth:`generate` records on :class:`GenerateResult`. Callers
+        that don't care can ignore empty chunks as they already do today.
+        """
+        last_error: ProviderError | None = None
+        primary_name = self._providers[0].name
+
+        for idx, provider in enumerate(self._providers):
+            logger.info(
+                "Attempting generate_stream with provider '%s'",
+                provider.name,
+            )
+            try:
+                stream = provider.generate_stream(
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    tools=tools,
+                )
+                # Pull the first chunk eagerly so we can fall back if the
+                # stream fails to open. ``StopAsyncIteration`` here means
+                # the stream opened cleanly but had zero chunks — treat
+                # as success (the provider's contract may yield nothing
+                # for e.g. tool-only responses).
+                first_chunk: StreamChunk | None = None
+                try:
+                    first_chunk = await stream.__anext__()
+                except StopAsyncIteration:
+                    first_chunk = None
+                except ProviderError as e:
+                    last_error = e
+                    logger.warning(
+                        "Provider '%s' stream failed to open: %s. Trying next fallback...",
+                        provider.name,
+                        e,
+                    )
+                    continue
+            except ProviderError as e:
+                last_error = e
+                logger.warning(
+                    "Provider '%s' failed to start stream: %s. Trying next fallback...",
+                    provider.name,
+                    e,
+                )
+                continue
+
+            # Stream opened successfully — commit to this provider.
+            if idx > 0:
+                warn_once(
+                    "provider.fallback",
+                    f"{primary_name}-to-{provider.name}",
+                    extra={"primary": primary_name, "fallback": provider.name},
+                )
+            if first_chunk is not None:
+                yield first_chunk
+            async for chunk in stream:
+                yield chunk
+            logger.info(
+                "Stream completed with provider '%s'",
+                provider.name,
+            )
+            return
+
+        # All providers failed before producing a chunk.
+        warn_once(
+            "provider.fallback",
+            f"{primary_name}-stream-all-failed",
+            extra={"primary": primary_name, "last_error": str(last_error)},
+        )
+        msg = f"All providers in fallback chain failed to stream. Last error: {last_error}"
         raise ProviderError(msg)
 
     async def list_all_models(self) -> list[ModelInfo]:

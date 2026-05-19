@@ -119,6 +119,7 @@ async def create_mcp_server(
         name=body.name,
         endpoint=body.endpoint,
         transport=body.transport,
+        timeout_seconds=body.timeout_seconds,
     )
     return ApiResponse(data=McpServerResponse.model_validate(server))
 
@@ -144,6 +145,7 @@ async def update_mcp_server(
         endpoint=body.endpoint,
         transport=body.transport,
         status=body.status,
+        timeout_seconds=body.timeout_seconds,
     )
     if not server:
         raise HTTPException(status_code=404, detail="MCP server not found")
@@ -189,6 +191,11 @@ async def test_mcp_server(
     if not server:
         raise HTTPException(status_code=404, detail="MCP server not found")
     result = await McpServerRegistry.test_connection(db, server_id)
+    if not result.get("success", False):
+        raise HTTPException(
+            status_code=502,
+            detail=f"MCP server unreachable: {result.get('error', 'unknown error')}",
+        )
     return ApiResponse(data=McpServerTestResult(**result))
 
 
@@ -236,4 +243,9 @@ async def execute_mcp_tool(
     if not server:
         raise HTTPException(status_code=404, detail="MCP server not found")
     result = await McpServerRegistry.execute_tool(db, server_id, tool_name, arguments or {})
+    if not result.get("success", False):
+        raise HTTPException(
+            status_code=502,
+            detail=f"MCP tool execution failed: {result.get('error', 'unknown error')}",
+        )
     return ApiResponse(data=result)

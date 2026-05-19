@@ -13,6 +13,22 @@ from api.models.database import McpServer
 
 logger = logging.getLogger(__name__)
 
+# Default per-server timeout (seconds) for HTTP MCP calls. Per-server overrides
+# are stored in McpServer.deploy_config["timeout_seconds"] (range 1-120).
+DEFAULT_MCP_TIMEOUT_SECONDS = 10
+MIN_MCP_TIMEOUT_SECONDS = 1
+MAX_MCP_TIMEOUT_SECONDS = 120
+
+
+def _resolve_timeout(server: McpServer) -> float:
+    """Return the effective HTTP timeout (seconds) for an MCP server."""
+    cfg = server.deploy_config or {}
+    raw = cfg.get("timeout_seconds") if isinstance(cfg, dict) else None
+    if not isinstance(raw, (int, float)):
+        return float(DEFAULT_MCP_TIMEOUT_SECONDS)
+    clamped = max(MIN_MCP_TIMEOUT_SECONDS, min(MAX_MCP_TIMEOUT_SECONDS, int(raw)))
+    return float(clamped)
+
 
 class McpServerRegistry:
     """Service class for MCP server CRUD operations."""
@@ -23,12 +39,20 @@ class McpServerRegistry:
         name: str,
         endpoint: str,
         transport: str = "stdio",
+        timeout_seconds: int | None = None,
     ) -> McpServer:
         """Register a new MCP server."""
+        deploy_config: dict[str, object] = {}
+        if timeout_seconds is not None:
+            clamped = max(
+                MIN_MCP_TIMEOUT_SECONDS, min(MAX_MCP_TIMEOUT_SECONDS, int(timeout_seconds))
+            )
+            deploy_config["timeout_seconds"] = clamped
         server = McpServer(
             name=name,
             endpoint=endpoint,
             transport=transport,
+            deploy_config=deploy_config or None,
         )
         session.add(server)
         await session.flush()
@@ -74,6 +98,7 @@ class McpServerRegistry:
         endpoint: str | None = None,
         transport: str | None = None,
         status: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> McpServer | None:
         """Update an MCP server."""
         server = await McpServerRegistry.get_by_id(session, server_id)
@@ -88,6 +113,13 @@ class McpServerRegistry:
             server.transport = transport
         if status is not None:
             server.status = status
+        if timeout_seconds is not None:
+            clamped = max(
+                MIN_MCP_TIMEOUT_SECONDS, min(MAX_MCP_TIMEOUT_SECONDS, int(timeout_seconds))
+            )
+            cfg = dict(server.deploy_config or {})
+            cfg["timeout_seconds"] = clamped
+            server.deploy_config = cfg
 
         await session.flush()
         logger.info("Updated MCP server '%s'", server.name)
@@ -122,7 +154,8 @@ class McpServerRegistry:
         if server.transport in ("sse", "streamable_http") and server.endpoint:
             try:
                 start = time.monotonic()
-                async with httpx.AsyncClient(timeout=10.0) as client:
+                timeout = _resolve_timeout(server)
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.get(server.endpoint.rstrip("/") + "/health")
                 latency_ms = int((time.monotonic() - start) * 1000)
                 if resp.status_code == 200:
@@ -170,20 +203,50 @@ class McpServerRegistry:
                     "method": "tools/list",
                     "params": {},
                 }
-                async with httpx.AsyncClient(timeout=10.0) as client:
+                timeout = _resolve_timeout(server)
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.post(server.endpoint, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
                     result = data.get("result", {})
                     tools = result.get("tools", [])
-                    discovered = [
-                        {
-                            "name": t.get("name", ""),
-                            "description": t.get("description", ""),
-                            "schema_definition": t.get("inputSchema", t.get("schema", {})),
-                        }
-                        for t in tools
-                    ]
+                    discovered = []
+                    for idx, t in enumerate(tools):
+                        if not isinstance(t, dict):
+                            logger.warning(
+                                "MCP %s tool at index %d skipped: not a dict (got %s)",
+                                server.name,
+                                idx,
+                                type(t).__name__,
+                            )
+                            continue
+                        name = t.get("name", "")
+                        if not isinstance(name, str) or not name.strip():
+                            logger.warning(
+                                "MCP %s tool at index %d skipped: missing or empty 'name'",
+                                server.name,
+                                idx,
+                            )
+                            continue
+                        input_schema = t.get("inputSchema", t.get("schema", {}))
+                        if not isinstance(input_schema, dict):
+                            logger.warning(
+                                "MCP %s tool '%s' skipped: inputSchema is not a dict (got %s)",
+                                server.name,
+                                name,
+                                type(input_schema).__name__,
+                            )
+                            continue
+                        description = t.get("description", "")
+                        if not isinstance(description, str):
+                            description = str(description) if description is not None else ""
+                        discovered.append(
+                            {
+                                "name": name,
+                                "description": description,
+                                "schema_definition": input_schema,
+                            }
+                        )
                     server.tool_count = len(discovered)
                     await session.flush()
                     return {"tools": discovered, "total": len(discovered)}
@@ -244,7 +307,9 @@ class McpServerRegistry:
                     "method": "tools/call",
                     "params": {"name": tool_name, "arguments": arguments},
                 }
-                async with httpx.AsyncClient(timeout=30.0) as client:
+                # Tool execution may need longer than discovery — use max(3x configured, 30s)
+                timeout = max(_resolve_timeout(server) * 3, 30.0)
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.post(server.endpoint, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()

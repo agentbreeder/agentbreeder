@@ -199,12 +199,70 @@ def validate_config_yaml(yaml_string: str) -> YamlValidationResult:
     if not raw.get("description"):
         warnings.append(ConfigError(path="description", message="Description is empty"))
 
+    # Framework-specific config validation (audit finding A8)
+    # ----------------------------------------------------------------
+    # Surface config-level mistakes (e.g. non-Claude model on the
+    # claude_sdk framework) at YAML-parse time, not at `agentbreeder
+    # deploy` time. Best-effort: we instantiate the runtime via the
+    # registry and call its ``validate_config`` hook. Any exception
+    # building the AgentConfig is treated as "framework validator
+    # unavailable" — the structural errors above are authoritative.
+    if not errors and fw and str(fw) in _KNOWN_FRAMEWORKS:
+        try:
+            framework_errors = _run_framework_config_validator(raw)
+            errors.extend(framework_errors)
+        except Exception as exc:  # noqa: BLE001 — non-fatal best-effort
+            logger.debug("Framework config validator skipped: %s", exc)
+
     return YamlValidationResult(
         valid=len(errors) == 0,
         errors=errors,
         warnings=warnings,
         parsed=raw if len(errors) == 0 else None,
     )
+
+
+def _run_framework_config_validator(raw: dict[str, Any]) -> list[ConfigError]:
+    """Run the framework's ``validate_config`` hook on a parsed YAML doc.
+
+    Returns a list of structured ``ConfigError`` entries (empty on success).
+    Safe to call without an on-disk agent directory.
+    """
+    from engine.runtimes import get_runtime
+
+    framework = FrameworkType(raw["framework"])
+    model_data = raw.get("model", {})
+    deploy_data = raw.get("deploy", {})
+    config = AgentConfig(
+        name=raw["name"],
+        version=str(raw["version"]),
+        description=raw.get("description", ""),
+        team=raw["team"],
+        owner=raw["owner"],
+        framework=framework,
+        model=model_data,
+        deploy=deploy_data,
+        tags=raw.get("tags", []),
+        tools=raw.get("tools", []),
+        prompts=raw.get("prompts", {}),
+        guardrails=raw.get("guardrails", []),
+    )
+    runtime = get_runtime(framework)
+    result = runtime.validate_config(config)
+    out: list[ConfigError] = []
+    for item in result.error_items:
+        out.append(
+            ConfigError(
+                path=item.path or "(framework)",
+                message=item.message,
+                suggestion=item.suggestion,
+            )
+        )
+    # Fallback for runtimes that only populated the plain-string errors list.
+    if not out and result.errors:
+        for msg in result.errors:
+            out.append(ConfigError(path="(framework)", message=msg, suggestion=""))
+    return out
 
 
 async def create_from_yaml(session: AsyncSession, yaml_string: str) -> Agent:

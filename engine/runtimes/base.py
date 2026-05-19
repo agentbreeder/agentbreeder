@@ -9,7 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from engine.config_parser import AgentConfig
 
@@ -55,11 +55,55 @@ def _should_add_litellm_sdk(config: AgentConfig) -> bool:
     return _is_litellm_model(config.model.primary) and config.model.gateway != "litellm"
 
 
+class RuntimeValidationError(BaseModel):
+    """Structured runtime validation error with optional path hint.
+
+    ``path`` is a JSON-path-style location of the offending field
+    (e.g. ``"model.primary"``, ``"deploy.cloud"``) or a filesystem hint
+    (e.g. ``"agent.py"``) when applicable. ``message`` is the human-
+    readable description; ``suggestion`` is an optional fix hint that the
+    dashboard / CLI can render alongside the error.
+    """
+
+    message: str
+    path: str = ""
+    suggestion: str = ""
+
+
 class RuntimeValidationResult(BaseModel):
-    """Result of validating agent code for a specific framework."""
+    """Result of validating agent code for a specific framework.
+
+    ``errors`` is the legacy plain-string list and is preserved for backwards
+    compatibility with existing callers and tests. ``error_items`` carries the
+    same errors with structured ``path`` / ``suggestion`` hints so the
+    dashboard's YAML editor can point at the right field. Whenever a new
+    error is appended, prefer ``add_error`` which keeps both views in sync.
+    """
 
     valid: bool
-    errors: list[str]
+    errors: list[str] = Field(default_factory=list)
+    error_items: list[RuntimeValidationError] = Field(default_factory=list)
+
+    def add_error(self, message: str, path: str = "", suggestion: str = "") -> None:
+        """Append a structured error and keep ``errors`` in sync."""
+        self.errors.append(message)
+        self.error_items.append(
+            RuntimeValidationError(message=message, path=path, suggestion=suggestion)
+        )
+        self.valid = False
+
+    @classmethod
+    def from_items(cls, items: list[RuntimeValidationError]) -> RuntimeValidationResult:
+        """Build a result from a list of structured errors.
+
+        ``valid`` is set to ``len(items) == 0`` and ``errors`` is derived
+        from the items so legacy consumers continue to work.
+        """
+        return cls(
+            valid=len(items) == 0,
+            errors=[i.message for i in items],
+            error_items=items,
+        )
 
 
 class ContainerImage(BaseModel):
@@ -110,10 +154,55 @@ class RuntimeBuilder(ABC):
     - Listing required dependencies
     """
 
+    @staticmethod
+    def _check_agent_dir(agent_dir: Path) -> RuntimeValidationResult | None:
+        """Precondition: return a failure result if ``agent_dir`` does not exist
+        or is not a directory; otherwise return ``None`` so the caller proceeds.
+
+        Subclasses should call this at the top of their ``validate()`` method
+        and early-return if the result is non-``None`` (audit finding A11).
+        """
+        if not agent_dir.exists():
+            return RuntimeValidationResult.from_items(
+                [
+                    RuntimeValidationError(
+                        path=str(agent_dir),
+                        message=f"Agent directory does not exist: {agent_dir}",
+                        suggestion=(
+                            "Check the path you passed to `agentbreeder deploy` / "
+                            "`agentbreeder validate`."
+                        ),
+                    )
+                ]
+            )
+        if not agent_dir.is_dir():
+            return RuntimeValidationResult.from_items(
+                [
+                    RuntimeValidationError(
+                        path=str(agent_dir),
+                        message=f"Agent path is not a directory: {agent_dir}",
+                        suggestion="Pass the path to the agent directory, not a file.",
+                    )
+                ]
+            )
+        return None
+
     @abstractmethod
     def validate(self, agent_dir: Path, config: AgentConfig) -> RuntimeValidationResult:
         """Validate that the agent directory contains valid code for this framework."""
         ...
+
+    def validate_config(self, config: AgentConfig) -> RuntimeValidationResult:
+        """Validate the parsed ``AgentConfig`` *without* an on-disk agent directory.
+
+        Called from ``registry.agents.validate_config_yaml`` so framework-
+        specific config constraints surface at YAML-parse time instead of
+        only at container build (audit finding A8).
+
+        Default implementation accepts every config — runtimes override to
+        flag framework-incompatible model / tool / deploy combinations.
+        """
+        return RuntimeValidationResult(valid=True, errors=[], error_items=[])
 
     @abstractmethod
     def build(self, agent_dir: Path, config: AgentConfig) -> ContainerImage:

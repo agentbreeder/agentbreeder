@@ -106,6 +106,10 @@ class TestDockerComposeDeployerImportError:
         deployer = DockerComposeDeployer()
         config = MagicMock()
         config.name = "test"
+        # W4-37 pre-validation runs before docker import. The MagicMock chain
+        # would otherwise yield non-bool values; null out the sidecar block so
+        # validate_sidecar_config short-circuits.
+        config.deploy.sidecar = None
         image = MagicMock()
 
         with patch.dict("sys.modules", {"docker": None}):

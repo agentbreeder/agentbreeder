@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
+from api.models._validators import (
+    HopsField,
+    SeedEntityLimitField,
+    TopKField,
+    WeightField,
+    make_weights_sum_validator,
+)
 from api.models.enums import (
     A2AStatus,
     AgentStatus,
@@ -381,8 +388,8 @@ class PromptTestRequest(BaseModel):
     model_id: str | None = None
     model_name: str | None = None
     variables: dict[str, str] = Field(default_factory=dict)
-    temperature: float = 0.7
-    max_tokens: int = 1024
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=1024, ge=1, le=100000)
 
 
 class PromptTestResponse(BaseModel):
@@ -543,6 +550,12 @@ class McpServerCreate(BaseModel):
     name: str
     endpoint: str
     transport: str = "stdio"
+    timeout_seconds: int = Field(
+        default=10,
+        ge=1,
+        le=120,
+        description="HTTP timeout (seconds) for MCP discovery + connectivity calls.",
+    )
 
 
 class McpServerUpdate(BaseModel):
@@ -550,6 +563,12 @@ class McpServerUpdate(BaseModel):
     endpoint: str | None = None
     transport: str | None = None
     status: str | None = None
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        le=120,
+        description="HTTP timeout (seconds) for MCP discovery + connectivity calls.",
+    )
 
 
 class McpServerResponse(BaseModel):
@@ -562,8 +581,24 @@ class McpServerResponse(BaseModel):
     last_ping_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    timeout_seconds: int = 10
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def model_validate(  # type: ignore[override]
+        cls,
+        obj: object,
+        *args: Any,
+        **kwargs: Any,
+    ) -> McpServerResponse:
+        base = super().model_validate(obj, *args, **kwargs)
+        # Pull timeout_seconds out of deploy_config JSON when loading from ORM.
+        cfg = getattr(obj, "deploy_config", None) or {}
+        timeout = cfg.get("timeout_seconds") if isinstance(cfg, dict) else None
+        if isinstance(timeout, int) and 1 <= timeout <= 120:
+            base.timeout_seconds = timeout
+        return base
 
 
 class McpServerTestResult(BaseModel):
@@ -735,9 +770,9 @@ class CreateMemoryConfigRequest(BaseModel):
     name: str
     team: str = "default"
     owner: str = ""
-    backend_type: str = "postgresql"  # "postgresql" | "redis"
-    memory_type: str = (
-        "buffer_window"  # "buffer_window" | "buffer" (summary/entity/semantic: Phase 2)
+    backend_type: Literal["postgresql", "redis"] = "postgresql"
+    memory_type: Literal["buffer_window", "buffer", "summary", "entity", "semantic"] = (
+        "buffer_window"
     )
     max_messages: int = Field(default=100, ge=1, le=100_000)
     namespace_pattern: str = "{agent_id}:{session_id}"
@@ -745,6 +780,10 @@ class CreateMemoryConfigRequest(BaseModel):
     linked_agents: list[str] = Field(default_factory=list)
     description: str = ""
     tags: list[str] = Field(default_factory=list)
+    # MM8: Optional TTL in seconds. None = messages never expire. When set,
+    # ``MemoryService.cleanup_expired_messages()`` will delete messages older
+    # than this many seconds. Enforcement is opt-in (deployer cron / one-shot).
+    ttl_seconds: int | None = Field(default=None, ge=1)
 
 
 class MemoryConfigResponse(BaseModel):
@@ -757,6 +796,8 @@ class MemoryConfigResponse(BaseModel):
     scope: str
     linked_agents: list[str]
     description: str
+    # MM8: Echo the TTL setting so clients can display expiration policy.
+    ttl_seconds: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -764,8 +805,13 @@ class MemoryConfigResponse(BaseModel):
 class MemoryMessageCreate(BaseModel):
     session_id: str
     role: str  # "user" | "assistant" | "system" | "tool"
-    content: str
+    content: str = Field(..., max_length=100_000)
     agent_id: str | None = None
+    # ``metadata`` is free-form JSON. Recognised keys:
+    #   - ``user_id`` (str | None): the human user this message belongs to.
+    #     Required for GDPR-style ``DELETE /api/v1/memory/user/{user_id}``
+    #     "right to be forgotten" requests (MM9). Messages without a
+    #     ``user_id`` are not user-deletable.
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -859,12 +905,36 @@ class IngestJobResponse(BaseModel):
     completed_at: str | None = None
 
 
-class RAGSearchRequest(BaseModel):
-    index_id: str
-    query: str
-    top_k: int = 10
-    vector_weight: float = 0.7
-    text_weight: float = 0.3
+class RagSearchRequest(BaseModel):
+    """Validated payload for POST /api/v1/rag/search.
+
+    Replaces the legacy unvalidated ``RAGSearchRequest`` (uppercase) — deleted
+    in W1-02 cleanup since it was never referenced outside this module.
+    Backwards-compatible with the previous dict-based body: the endpoint still
+    accepts any dict shape, but invalid values now produce 422 Validation Error
+    instead of undefined behavior. Legitimate callers see no change.
+    """
+
+    index_id: str = Field(..., min_length=1, description="UUID of the target index")
+    query: str = Field(..., min_length=1, max_length=10_000)
+    top_k: TopKField = 10
+    vector_weight: WeightField = 0.7
+    text_weight: WeightField = 0.3
+    hops: HopsField = None
+    seed_entity_limit: SeedEntityLimitField = 5
+    # W5-R12: optional metadata post-filter — dict of {key: expected_value}.
+    # Applied as a strict-equality predicate on each chunk's metadata after
+    # retrieval. Empty / null means "no filter".
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional metadata post-filter: dict of {key: expected_value}. "
+            "Each hit's chunk.metadata must contain every key with the "
+            "given value. Strict equality only."
+        ),
+    )
+
+    _check_weights = make_weights_sum_validator("vector_weight", "text_weight")
 
 
 class RAGSearchHit(BaseModel):

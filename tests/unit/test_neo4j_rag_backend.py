@@ -11,8 +11,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from api.services.neo4j_rag_backend import (
+    DEFAULT_INGEST_BATCH_SIZE,
+    DEFAULT_INTERMEDIATE_LIMIT,
     Neo4jConfig,
     Neo4jRAGBackend,
+    _detect_use_native_vector_from_env,
     create_neo4j_backend,
 )
 from registry.rag import (
@@ -29,9 +32,19 @@ from registry.rag import (
 
 
 def _make_backend(index_id: str = "test-index") -> Neo4jRAGBackend:
-    """Return a backend with a pre-injected mock driver."""
+    """Return a backend with a pre-injected mock driver.
+
+    Marks schema/native-vector detection as already complete so that the
+    test's `session.run.call_count` reflects only the test-driven calls.
+    The dedicated TestSchemaInit / TestNativeVectorDetection suites exercise
+    those code paths explicitly.
+    """
     config = Neo4jConfig(uri="bolt://localhost:7687", username="neo4j", password="test")
     backend = Neo4jRAGBackend(config, index_id=index_id)
+    # Skip schema DDL + native-vector probe in tests that just want to assert
+    # business-logic call counts.
+    backend._schema_initialized = True
+    backend._use_native_vector = False
     return backend
 
 
@@ -56,17 +69,44 @@ def _make_async_result(records: list | None = None) -> _AsyncIter:
     return _AsyncIter(records or [])
 
 
+class _FakeSession:
+    """Async context-manager session that exposes only ``run()``.
+
+    The real Neo4j ``AsyncSession`` has many other methods (begin_transaction,
+    close, ...) — for tests we deliberately omit ``begin_transaction`` so the
+    backend's ingest path falls back to the direct ``runner.run()`` mode
+    instead of trying to open an explicit transaction.
+    """
+
+    def __init__(self, records: list | None = None) -> None:
+        self._records = records or []
+        # ``run`` is an AsyncMock so tests can inspect call_count, call_args,
+        # and swap in side_effect functions to vary results per call.
+        self.run = AsyncMock(side_effect=self._default_run_side_effect)
+
+    def _default_run_side_effect(self, *_args, **_kwargs):
+        # Return a fresh async iterator on every call so multiple ``await
+        # session.run(...)`` invocations each yield the same records list.
+        return _make_async_result(self._records)
+
+    async def __aenter__(self) -> _FakeSession:
+        return self
+
+    async def __aexit__(self, *_args) -> bool:
+        return False
+
+
 def _make_mock_driver(records: list | None = None) -> MagicMock:
     """Build a minimal mock of the async Neo4j driver + session context manager.
 
     The session's run() returns an async-iterable over *records* (default: empty).
-    """
-    async_result = _make_async_result(records)
 
-    mock_session = AsyncMock()
-    mock_session.run = AsyncMock(return_value=async_result)
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=False)
+    The session intentionally does NOT expose ``begin_transaction`` — the
+    backend's ingest path treats that as a signal to use the auto-commit
+    fallback (``runner.run(...)`` directly on the session). This keeps the
+    mocks small while still exercising every ``run()`` call.
+    """
+    mock_session = _FakeSession(records=records)
 
     mock_driver = MagicMock()
     mock_driver.session = MagicMock(return_value=mock_session)
@@ -147,7 +187,7 @@ class TestNeo4jRAGBackendIndex:
 
         assert written == 2
         # session.run was called at least once per document (chunk upsert)
-        session = mock_driver.session.return_value.__aenter__.return_value
+        session = mock_driver.session.return_value
         assert session.run.call_count >= 2
 
     @pytest.mark.asyncio
@@ -194,7 +234,7 @@ class TestNeo4jRAGBackendIndex:
         written = await backend.index(documents)
 
         assert written == 1
-        session = mock_driver.session.return_value.__aenter__.return_value
+        session = mock_driver.session.return_value
         # 1 chunk + 2 entities + 1 relation = at least 4 calls
         assert session.run.call_count >= 4
 
@@ -208,7 +248,7 @@ class TestNeo4jRAGBackendIndex:
         written = await backend.index([])
 
         assert written == 0
-        session = mock_driver.session.return_value.__aenter__.return_value
+        session = mock_driver.session.return_value
         assert session.run.call_count == 0
 
     @pytest.mark.asyncio
@@ -231,7 +271,7 @@ class TestNeo4jRAGBackendIndex:
 
         await backend.index(documents)
 
-        session = mock_driver.session.return_value.__aenter__.return_value
+        session = mock_driver.session.return_value
         # Find the call that contains metadata_json kwarg
         chunk_call = session.run.call_args_list[0]
         kwargs = chunk_call.kwargs
@@ -333,7 +373,7 @@ class TestNeo4jRAGBackendSearch:
         mock_driver = _make_mock_driver(records=[])
         backend._driver = mock_driver
 
-        session = mock_driver.session.return_value.__aenter__.return_value
+        session = mock_driver.session.return_value
         # Each call to run() returns a fresh empty async iterator
         session.run = AsyncMock(side_effect=lambda *a, **kw: _make_async_result([]))
 
@@ -354,7 +394,7 @@ class TestNeo4jRAGBackendSearch:
         mock_driver = _make_mock_driver(records=[])
         backend._driver = mock_driver
 
-        session = mock_driver.session.return_value.__aenter__.return_value
+        session = mock_driver.session.return_value
         session.run = AsyncMock(side_effect=lambda *a, **kw: _make_async_result([]))
 
         await backend.search(
@@ -376,7 +416,7 @@ class TestNeo4jRAGBackendSearch:
         vector_records = [_make_record("c1", "shared chunk", "doc.txt", 0.8)]
         graph_records = [_make_record("c1", "shared chunk", "doc.txt", 0.6)]
 
-        session = mock_driver.session.return_value.__aenter__.return_value
+        session = mock_driver.session.return_value
         call_count = {"n": 0}
 
         def _run_side_effect(*args, **kwargs):
@@ -537,3 +577,455 @@ class TestBackendRegistry:
     def test_get_rag_backend_error_message_lists_valid_backends(self):
         with pytest.raises(ValueError, match="in_memory"):
             get_rag_backend("totally-wrong")
+
+
+# ---------------------------------------------------------------------------
+# W4-27 — Batched ingestion + retry tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeTxSession:
+    """Session mock that exposes ``begin_transaction()`` returning a tx context manager.
+
+    Tracks ``tx_count`` (number of transactions opened) and ``run_calls``
+    (every Cypher run() that landed on a transaction).
+    """
+
+    def __init__(self, records: list | None = None) -> None:
+        self._records = records or []
+        self.tx_count = 0
+        self.run_calls: list[tuple[str, dict]] = []
+        # Auto-commit run() — used by schema init path (DDL outside a tx).
+        self.run = AsyncMock(side_effect=self._auto_run_side_effect)
+
+    def _auto_run_side_effect(self, query, **kwargs):
+        # Record every direct-on-session call (typically DDL during init).
+        self.run_calls.append((query, kwargs))
+        return _make_async_result(self._records)
+
+    def begin_transaction(self) -> _FakeTx:
+        self.tx_count += 1
+        return _FakeTx(self)
+
+    async def __aenter__(self) -> _FakeTxSession:
+        return self
+
+    async def __aexit__(self, *_args) -> bool:
+        return False
+
+
+class _FakeTx:
+    """Transaction context manager that forwards ``run()`` to the parent session."""
+
+    def __init__(self, session: _FakeTxSession) -> None:
+        self._session = session
+        # run is an AsyncMock so tests can patch side_effect / assert call_count.
+        self.run = AsyncMock(side_effect=self._run_side_effect)
+
+    def _run_side_effect(self, query, **kwargs):
+        self._session.run_calls.append((query, kwargs))
+        return _make_async_result(self._session._records)
+
+    async def __aenter__(self) -> _FakeTx:
+        return self
+
+    async def __aexit__(self, *_args) -> bool:
+        return False
+
+
+def _make_tx_mock_driver(records: list | None = None) -> tuple[MagicMock, _FakeTxSession]:
+    """Build a mock driver whose session exposes ``begin_transaction``."""
+    session = _FakeTxSession(records=records)
+    driver = MagicMock()
+    driver.session = MagicMock(return_value=session)
+    driver.close = AsyncMock()
+    return driver, session
+
+
+class TestIngestBatching:
+    @pytest.mark.asyncio
+    async def test_index_batches_documents(self):
+        """index() splits documents into batches of self._batch_size."""
+        backend = _make_backend()
+        backend._batch_size = 3
+        driver, session = _make_tx_mock_driver()
+        backend._driver = driver
+
+        # 7 docs -> 3 batches (3 + 3 + 1)
+        documents = [
+            {"id": f"chunk-{i}", "text": "t", "source": "s", "embedding": [0.0], "metadata": {}}
+            for i in range(7)
+        ]
+        written = await backend.index(documents)
+        assert written == 7
+        # 3 batches → 3 transactions opened
+        assert session.tx_count == 3
+
+    @pytest.mark.asyncio
+    async def test_index_uses_transactions_when_available(self):
+        """index() opens a begin_transaction() when the session supports it."""
+        backend = _make_backend()
+        backend._batch_size = 50
+        driver, session = _make_tx_mock_driver()
+        backend._driver = driver
+
+        documents = [
+            {"id": "c1", "text": "t", "source": "s", "embedding": [0.1], "metadata": {}},
+        ]
+        await backend.index(documents)
+        assert session.tx_count == 1
+
+    @pytest.mark.asyncio
+    async def test_index_retries_on_transient_failure(self):
+        """Transient failures during ingest are retried before raising."""
+        backend = _make_backend()
+        backend._batch_size = 10
+        driver, session = _make_tx_mock_driver()
+        backend._driver = driver
+
+        # First two transactions raise, third succeeds. We model this by
+        # making begin_transaction() return a tx whose run() raises N times
+        # then succeeds.
+        call_count = {"n": 0}
+
+        original_begin = session.begin_transaction
+
+        def begin_with_failures():
+            call_count["n"] += 1
+            tx = original_begin()
+            attempt = call_count["n"]
+
+            async def flaky_run(query, **kwargs):
+                if attempt < 3:
+                    raise RuntimeError(f"transient (attempt {attempt})")
+                return _make_async_result([])
+
+            tx.run = AsyncMock(side_effect=flaky_run)
+            return tx
+
+        session.begin_transaction = begin_with_failures  # type: ignore[assignment]
+
+        # Patch asyncio.sleep so the test runs fast.
+        with patch("api.retry.asyncio.sleep", new=AsyncMock()):
+            written = await backend.index(
+                [{"id": "c1", "text": "t", "source": "s", "embedding": [0.1], "metadata": {}}]
+            )
+        assert written == 1
+        # First 2 begin_transaction() retries failed; 3rd succeeded.
+        assert call_count["n"] == 3
+
+    @pytest.mark.asyncio
+    async def test_index_falls_back_when_no_begin_transaction(self):
+        """Sessions without begin_transaction use direct-on-session run() calls."""
+        backend = _make_backend()
+        backend._batch_size = 10
+        mock_driver = _make_mock_driver(records=[])
+        backend._driver = mock_driver
+
+        documents = [
+            {"id": "c1", "text": "t", "source": "s", "embedding": [0.1], "metadata": {}},
+        ]
+        written = await backend.index(documents)
+        assert written == 1
+        # No transaction was opened — direct fallback path was used.
+        session = mock_driver.session.return_value
+        assert session.run.call_count >= 1
+
+    def test_create_neo4j_backend_uses_batch_size_from_config(self):
+        """The factory wires batch_size from rag.yaml config."""
+        backend = create_neo4j_backend(config={"batch_size": 17}, index_id="idx")
+        assert backend._batch_size == 17
+
+    def test_create_neo4j_backend_default_batch_size(self):
+        backend = create_neo4j_backend(config={}, index_id="idx")
+        assert backend._batch_size == DEFAULT_INGEST_BATCH_SIZE
+
+
+# ---------------------------------------------------------------------------
+# W4-28 — Schema (index) initialization tests
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaInit:
+    @pytest.mark.asyncio
+    async def test_schema_init_runs_create_index_statements(self):
+        """First I/O triggers CREATE INDEX IF NOT EXISTS for Chunk and Entity."""
+        config = Neo4jConfig(uri="bolt://localhost:7687", password="test")
+        backend = Neo4jRAGBackend(config, index_id="test")
+        # Pre-set native vector to avoid extra probe calls in this test.
+        backend._use_native_vector = False
+        mock_driver = _make_mock_driver(records=[])
+        backend._driver = mock_driver
+
+        await backend.index(
+            [{"id": "c1", "text": "t", "source": "s", "embedding": [0.0], "metadata": {}}]
+        )
+
+        session = mock_driver.session.return_value
+        queries = [c.args[0] for c in session.run.call_args_list]
+        assert any("CREATE INDEX" in q and "Chunk" in q for q in queries)
+        assert any("CREATE INDEX" in q and "Entity" in q for q in queries)
+
+    @pytest.mark.asyncio
+    async def test_schema_init_runs_only_once(self):
+        """Schema DDL is idempotent — only issued on the first call."""
+        backend = _make_backend()
+        # Reset the schema-init flag set by _make_backend() so we exercise
+        # the real init path on the first call.
+        backend._schema_initialized = False
+        backend._use_native_vector = False
+        mock_driver = _make_mock_driver(records=[])
+        backend._driver = mock_driver
+
+        await backend.index(
+            [{"id": "c1", "text": "t", "source": "s", "embedding": [0.0], "metadata": {}}]
+        )
+        await backend.index(
+            [{"id": "c2", "text": "t", "source": "s", "embedding": [0.0], "metadata": {}}]
+        )
+
+        session = mock_driver.session.return_value
+        create_calls = [c for c in session.run.call_args_list if "CREATE INDEX" in c.args[0]]
+        # Exactly 2 CREATE INDEX statements (Chunk + Entity), not 4.
+        assert len(create_calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_schema_ddl_failures_swallowed(self):
+        """DDL errors don't crash ingestion (best-effort schema init)."""
+        backend = _make_backend()
+        backend._schema_initialized = False
+        backend._use_native_vector = False
+        mock_driver = _make_mock_driver(records=[])
+        backend._driver = mock_driver
+
+        session = mock_driver.session.return_value
+
+        original_side_effect = session.run.side_effect
+
+        def maybe_fail(query, **kwargs):
+            if "CREATE INDEX" in query:
+                raise RuntimeError("simulated DDL failure")
+            return original_side_effect(query, **kwargs)
+
+        session.run = AsyncMock(side_effect=maybe_fail)
+
+        # Should not raise even though every DDL fails.
+        written = await backend.index(
+            [{"id": "c1", "text": "t", "source": "s", "embedding": [0.0], "metadata": {}}]
+        )
+        assert written == 1
+
+
+# ---------------------------------------------------------------------------
+# W4-29 — Native vector index detection tests
+# ---------------------------------------------------------------------------
+
+
+class TestNativeVectorDetection:
+    def test_env_override_true(self, monkeypatch):
+        monkeypatch.setenv("NEO4J_USE_NATIVE_VECTOR", "true")
+        assert _detect_use_native_vector_from_env() is True
+
+    def test_env_override_false(self, monkeypatch):
+        monkeypatch.setenv("NEO4J_USE_NATIVE_VECTOR", "false")
+        assert _detect_use_native_vector_from_env() is False
+
+    def test_env_override_unset(self, monkeypatch):
+        monkeypatch.delenv("NEO4J_USE_NATIVE_VECTOR", raising=False)
+        assert _detect_use_native_vector_from_env() is None
+
+    def test_env_override_garbage_returns_none(self, monkeypatch):
+        monkeypatch.setenv("NEO4J_USE_NATIVE_VECTOR", "maybe")
+        assert _detect_use_native_vector_from_env() is None
+
+    @pytest.mark.asyncio
+    async def test_detection_caches_result(self, monkeypatch):
+        """After the first probe, subsequent calls don't issue SHOW PROCEDURES."""
+        monkeypatch.delenv("NEO4J_USE_NATIVE_VECTOR", raising=False)
+        backend = _make_backend()
+        # Reset the cached flag so detection actually runs.
+        backend._use_native_vector = None
+
+        session = _FakeSession(records=[{"n": 0}])  # 0 procedures match
+        first = await backend._detect_native_vector_support(session)
+        # Cache hit on second call — no new run().
+        second = await backend._detect_native_vector_support(session)
+        assert first is False
+        assert second is False
+        # SHOW PROCEDURES was called exactly once.
+        assert session.run.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_detection_returns_true_when_procedure_exists(self, monkeypatch):
+        monkeypatch.delenv("NEO4J_USE_NATIVE_VECTOR", raising=False)
+        backend = _make_backend()
+        backend._use_native_vector = None
+
+        session = _FakeSession(records=[{"n": 1}])
+        result = await backend._detect_native_vector_support(session)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_detection_returns_false_on_probe_error(self, monkeypatch):
+        """A failing SHOW PROCEDURES probe falls back to hand-rolled cosine."""
+        monkeypatch.delenv("NEO4J_USE_NATIVE_VECTOR", raising=False)
+        backend = _make_backend()
+        backend._use_native_vector = None
+
+        session = _FakeSession(records=[])
+        session.run = AsyncMock(side_effect=RuntimeError("no such procedure"))
+
+        result = await backend._detect_native_vector_support(session)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_search_uses_native_cypher_when_supported(self):
+        """search() picks db.index.vector.queryNodes when native is on."""
+        backend = _make_backend()
+        backend._use_native_vector = True
+        mock_driver = _make_mock_driver(records=[])
+        backend._driver = mock_driver
+
+        await backend.search(query="q", query_embedding=[0.1, 0.2], top_k=3)
+
+        session = mock_driver.session.return_value
+        queries = [c.args[0] for c in session.run.call_args_list]
+        assert any("db.index.vector.queryNodes" in q for q in queries)
+
+    @pytest.mark.asyncio
+    async def test_search_uses_handrolled_cypher_when_native_disabled(self):
+        """search() picks reduce()-based cosine when native is off."""
+        backend = _make_backend()
+        backend._use_native_vector = False
+        mock_driver = _make_mock_driver(records=[])
+        backend._driver = mock_driver
+
+        await backend.search(query="q", query_embedding=[0.1, 0.2], top_k=3)
+
+        session = mock_driver.session.return_value
+        queries = [c.args[0] for c in session.run.call_args_list]
+        # No call to the native procedure
+        assert not any("db.index.vector.queryNodes" in q for q in queries)
+        # And we did call the reduce() variant
+        assert any("reduce(dot = 0.0" in q for q in queries)
+
+    @pytest.mark.asyncio
+    async def test_search_native_failure_falls_back_to_handrolled(self):
+        """If the native query throws (e.g. index missing), fall back gracefully."""
+        backend = _make_backend()
+        backend._use_native_vector = True
+        mock_driver = _make_mock_driver(records=[])
+        backend._driver = mock_driver
+
+        session = mock_driver.session.return_value
+        call_count = {"n": 0}
+
+        def selective_failure(query, **kwargs):
+            call_count["n"] += 1
+            if "db.index.vector.queryNodes" in query:
+                raise RuntimeError("index not found")
+            return _make_async_result([])
+
+        session.run = AsyncMock(side_effect=selective_failure)
+
+        # Should not raise — fallback path kicks in.
+        await backend.search(query="q", query_embedding=[0.1, 0.2], top_k=3)
+        # We expect at least 2 calls: native (failed) + fallback handrolled.
+        assert call_count["n"] >= 2
+        # And the cached flag was flipped to False.
+        assert backend._use_native_vector is False
+
+
+# ---------------------------------------------------------------------------
+# W4-30 — BFS intermediate_limit tests
+# ---------------------------------------------------------------------------
+
+
+class TestBFSIntermediateLimit:
+    @pytest.mark.asyncio
+    async def test_search_passes_intermediate_limit(self):
+        """graph-traversal Cypher receives the configured intermediate_limit."""
+        backend = _make_backend()
+        backend._intermediate_limit = 250
+        mock_driver = _make_mock_driver(records=[])
+        backend._driver = mock_driver
+
+        await backend.search(
+            query="q",
+            query_embedding=[0.1, 0.2],
+            top_k=5,
+            seed_entities=["Alice"],
+        )
+
+        session = mock_driver.session.return_value
+        # Find the graph-traversal call (the one with seed_names kwarg).
+        graph_calls = [c for c in session.run.call_args_list if "seed_names" in c.kwargs]
+        assert graph_calls, "expected a graph-traversal call"
+        assert graph_calls[0].kwargs["intermediate_limit"] == 250
+
+    @pytest.mark.asyncio
+    async def test_search_intermediate_limit_override(self):
+        """The intermediate_limit search kwarg overrides the instance default."""
+        backend = _make_backend()
+        backend._intermediate_limit = 1000
+        mock_driver = _make_mock_driver(records=[])
+        backend._driver = mock_driver
+
+        await backend.search(
+            query="q",
+            query_embedding=[0.1, 0.2],
+            top_k=5,
+            seed_entities=["Alice"],
+            intermediate_limit=42,
+        )
+
+        session = mock_driver.session.return_value
+        graph_calls = [c for c in session.run.call_args_list if "seed_names" in c.kwargs]
+        assert graph_calls[0].kwargs["intermediate_limit"] == 42
+
+    @pytest.mark.asyncio
+    async def test_graph_cypher_contains_limit_clause(self):
+        """The BFS Cypher template includes the LIMIT $intermediate_limit clause."""
+        backend = _make_backend()
+        mock_driver = _make_mock_driver(records=[])
+        backend._driver = mock_driver
+
+        await backend.search(
+            query="q",
+            query_embedding=[0.1, 0.2],
+            top_k=5,
+            seed_entities=["Alice"],
+        )
+
+        session = mock_driver.session.return_value
+        graph_calls = [c for c in session.run.call_args_list if "seed_names" in c.kwargs]
+        assert "$intermediate_limit" in graph_calls[0].args[0]
+
+    def test_create_neo4j_backend_uses_intermediate_limit_from_config(self):
+        backend = create_neo4j_backend(config={"intermediate_limit": 75}, index_id="idx")
+        assert backend._intermediate_limit == 75
+
+    def test_create_neo4j_backend_default_intermediate_limit(self):
+        backend = create_neo4j_backend(config={}, index_id="idx")
+        assert backend._intermediate_limit == DEFAULT_INTERMEDIATE_LIMIT
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle: close() resets cached flags
+# ---------------------------------------------------------------------------
+
+
+class TestCloseResetsCachedFlags:
+    @pytest.mark.asyncio
+    async def test_close_resets_schema_and_vector_flags(self):
+        """close() forgets cached detection so a fresh connection re-probes."""
+        backend = _make_backend()
+        mock_driver = _make_mock_driver()
+        backend._driver = mock_driver
+        backend._schema_initialized = True
+        backend._use_native_vector = True
+
+        await backend.close()
+
+        assert backend._schema_initialized is False
+        assert backend._use_native_vector is None

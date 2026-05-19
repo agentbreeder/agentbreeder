@@ -24,6 +24,32 @@ from engine.config_parser import (
 )
 from engine.deployers.base import DeployResult
 
+
+def _fast_health_clock():
+    """Patch asyncio.sleep + engine.deployers._health.time.monotonic so the
+    poll_until_ready loop in deployer health checks completes instantly while
+    still observing the configured timeout deadline.
+
+    Each mocked sleep advances a fake clock by the requested duration, so the
+    helper's deadline-based loop terminates after the same number of iterations
+    as the wall-clock implementation would.
+    """
+    from contextlib import ExitStack
+
+    clock = {"t": 0.0}
+
+    async def _fake_sleep(seconds: float) -> None:
+        clock["t"] += float(seconds)
+
+    def _fake_monotonic() -> float:
+        return clock["t"]
+
+    stack = ExitStack()
+    stack.enter_context(patch("asyncio.sleep", side_effect=_fake_sleep))
+    stack.enter_context(patch("engine.deployers._health.time.monotonic", _fake_monotonic))
+    return stack
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -372,7 +398,8 @@ class TestDeploy:
         assert result.agent_name == "my-agent"
 
     @pytest.mark.asyncio
-    async def test_deploy_updates_existing_service(self) -> None:
+    async def test_deploy_is_idempotent_when_service_is_healthy(self) -> None:
+        """W4-35: a healthy existing ECS service short-circuits deploy()."""
         deployer = _make_deployer()
         config = _make_agent_config()
         image = self._make_image()
@@ -383,6 +410,64 @@ class TestDeploy:
         deployer._image_uri = "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
 
         ecs_mock = MagicMock()
+        # Service is healthy: ACTIVE + running == desired
+        ecs_mock.describe_services.return_value = {
+            "services": [
+                {
+                    "serviceName": "my-agent",
+                    "serviceArn": "arn:aws:ecs:us-east-1:123:service/cluster/my-agent",
+                    "status": "ACTIVE",
+                    "runningCount": 1,
+                    "desiredCount": 1,
+                }
+            ]
+        }
+
+        with (
+            patch.object(deployer, "_push_image", new_callable=AsyncMock) as push_mock,
+            patch.object(deployer, "_get_boto3_client", return_value=ecs_mock),
+        ):
+            result = await deployer.deploy(config, image)
+
+        # No image push, no register_task_definition, no update_service —
+        # idempotent return.
+        push_mock.assert_not_called()
+        ecs_mock.register_task_definition.assert_not_called()
+        ecs_mock.update_service.assert_not_called()
+        ecs_mock.create_service.assert_not_called()
+        assert result.status == "running"
+        assert result.agent_name == "my-agent"
+
+    @pytest.mark.asyncio
+    async def test_deploy_cleans_stale_service_then_creates(self) -> None:
+        """W4-35: an unhealthy existing ECS service is torn down before redeploy."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        image = self._make_image()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+        deployer._image_uri = "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+
+        ecs_mock = MagicMock()
+        # First describe_services call returns an UNHEALTHY service
+        # (status ACTIVE but running < desired). Subsequent calls (after
+        # teardown) return no services so deploy can recreate.
+        ecs_mock.describe_services.side_effect = [
+            {
+                "services": [
+                    {
+                        "serviceName": "my-agent",
+                        "serviceArn": "arn:aws:ecs:us-east-1:123:service/cluster/my-agent",
+                        "status": "ACTIVE",
+                        "runningCount": 0,
+                        "desiredCount": 1,
+                    }
+                ]
+            },
+            {"services": []},
+        ]
         ecs_mock.register_task_definition.return_value = {
             "taskDefinition": {
                 "taskDefinitionArn": (
@@ -390,11 +475,11 @@ class TestDeploy:
                 )
             }
         }
-        # Simulate an active existing service
-        ecs_mock.describe_services.return_value = {
-            "services": [{"serviceName": "my-agent", "status": "ACTIVE"}]
-        }
         ecs_mock.update_service.return_value = {}
+        ecs_mock.delete_service.return_value = {}
+        paginator_mock = MagicMock()
+        paginator_mock.paginate.return_value = [{"taskDefinitionArns": []}]
+        ecs_mock.get_paginator.return_value = paginator_mock
         waiter_mock = MagicMock()
         ecs_mock.get_waiter.return_value = waiter_mock
 
@@ -404,11 +489,11 @@ class TestDeploy:
         ):
             await deployer.deploy(config, image)
 
-        ecs_mock.update_service.assert_called_once()
-        update_kwargs = ecs_mock.update_service.call_args.kwargs
-        assert update_kwargs["service"] == "my-agent"
-        assert update_kwargs["desiredCount"] == 1
-        ecs_mock.create_service.assert_not_called()
+        # Teardown scaled to zero, deleted; then create_service was called for
+        # the fresh deploy.
+        ecs_mock.update_service.assert_called_once()  # scale-to-zero
+        ecs_mock.delete_service.assert_called_once()
+        ecs_mock.create_service.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_deploy_log_configuration_uses_cloudwatch(self) -> None:
@@ -658,7 +743,7 @@ class TestHealthCheck:
 
         with (
             patch("httpx.AsyncClient") as mock_client_cls,
-            patch("asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
         ):
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -700,7 +785,7 @@ class TestHealthCheck:
 
         with (
             patch("httpx.AsyncClient") as mock_client_cls,
-            patch("asyncio.sleep", new_callable=AsyncMock),
+            _fast_health_clock(),
         ):
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -1092,8 +1177,8 @@ class TestRegisterTaskDefinition:
 
 class TestTeardownEdgeCases:
     @pytest.mark.asyncio
-    async def test_teardown_continues_when_scale_to_zero_fails(self) -> None:
-        """If update_service (scale-to-zero) raises, teardown logs and continues."""
+    async def test_teardown_retries_scale_to_zero_on_transient_failure(self) -> None:
+        """W4-36: scale-to-zero retries with backoff and proceeds on eventual success."""
         deployer = _make_deployer()
         config = _make_agent_config()
 
@@ -1102,17 +1187,51 @@ class TestTeardownEdgeCases:
         deployer._aws_config = _extract_ecs_config(config)
 
         ecs_mock = MagicMock()
-        ecs_mock.update_service.side_effect = Exception("service not found")
+        # First two attempts fail, third succeeds.
+        ecs_mock.update_service.side_effect = [
+            Exception("transient throttling"),
+            Exception("transient throttling"),
+            {},
+        ]
         ecs_mock.delete_service.return_value = {}
         paginator_mock = MagicMock()
         paginator_mock.paginate.return_value = [{"taskDefinitionArns": []}]
         ecs_mock.get_paginator.return_value = paginator_mock
 
-        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
-            # Should not raise even though update_service failed
+        with (
+            patch("api.retry.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(deployer, "_get_boto3_client", return_value=ecs_mock),
+        ):
             await deployer.teardown("my-agent")
 
+        # update_service called 3 times due to retry, delete_service then called.
+        assert ecs_mock.update_service.call_count == 3
         ecs_mock.delete_service.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_teardown_raises_when_scale_to_zero_exhausts_retries(self) -> None:
+        """W4-36: if all 3 retries fail, teardown fails loudly instead of swallowing."""
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from api.retry import RetryExhaustedError
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.update_service.side_effect = Exception("service not found")
+        ecs_mock.delete_service.return_value = {}
+
+        with (
+            patch("api.retry.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(deployer, "_get_boto3_client", return_value=ecs_mock),
+        ):
+            with pytest.raises(RetryExhaustedError):
+                await deployer.teardown("my-agent")
+
+        assert ecs_mock.update_service.call_count == 3
+        ecs_mock.delete_service.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_teardown_raises_when_delete_service_fails(self) -> None:
@@ -1266,6 +1385,123 @@ class TestStatus:
 # ---------------------------------------------------------------------------
 # deploy() — no prior provision (aws_config / image_uri are None)
 # ---------------------------------------------------------------------------
+
+
+class TestLookupExisting:
+    """W4-35: idempotency lookup."""
+
+    @pytest.mark.asyncio
+    async def test_lookup_returns_none_when_aws_config_absent(self) -> None:
+        deployer = _make_deployer()
+        result = await deployer._lookup_existing("my-agent")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_lookup_returns_none_when_no_active_services(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+        ecs_mock = MagicMock()
+        ecs_mock.describe_services.return_value = {"services": []}
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            assert await deployer._lookup_existing("my-agent") is None
+
+    @pytest.mark.asyncio
+    async def test_lookup_returns_healthy_for_active_service_at_desired(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+        ecs_mock = MagicMock()
+        ecs_mock.describe_services.return_value = {
+            "services": [
+                {
+                    "serviceName": "my-agent",
+                    "serviceArn": "arn:aws:ecs:us-east-1:123:service/c/my-agent",
+                    "status": "ACTIVE",
+                    "runningCount": 2,
+                    "desiredCount": 2,
+                }
+            ]
+        }
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            existing = await deployer._lookup_existing("my-agent")
+        assert existing is not None
+        assert existing.status == "healthy"
+        assert "my-agent" in (existing.url or "")
+
+    @pytest.mark.asyncio
+    async def test_lookup_returns_unhealthy_for_active_service_below_desired(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+        ecs_mock = MagicMock()
+        ecs_mock.describe_services.return_value = {
+            "services": [
+                {
+                    "serviceName": "my-agent",
+                    "status": "ACTIVE",
+                    "runningCount": 0,
+                    "desiredCount": 1,
+                }
+            ]
+        }
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            existing = await deployer._lookup_existing("my-agent")
+        assert existing is not None
+        assert existing.status == "unhealthy"
+
+    @pytest.mark.asyncio
+    async def test_lookup_swallows_describe_exception(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+        ecs_mock = MagicMock()
+        ecs_mock.describe_services.side_effect = RuntimeError("api down")
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            assert await deployer._lookup_existing("my-agent") is None
+
+
+class TestDeploySidecarPreValidation:
+    """W4-37: pre-validate sidecar config before any cloud API call."""
+
+    @pytest.mark.asyncio
+    async def test_deploy_raises_on_invalid_sidecar_before_cloud_call(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        # Pydantic models allow attribute assignment on instances; attach an
+        # invalid sidecar block so validate_sidecar_config rejects at submit.
+        object.__setattr__(config.deploy, "sidecar", {"enabled": "yes"})
+        image = MagicMock()
+        image.tag = "my-agent:1.0.0"
+        image.context_dir = MagicMock()
+
+        ecs_mock = MagicMock()
+
+        from engine.sidecar import SidecarConfigError
+
+        with (
+            patch.object(deployer, "_push_image", new_callable=AsyncMock) as push_mock,
+            patch.object(deployer, "_get_boto3_client", return_value=ecs_mock),
+        ):
+            with pytest.raises(SidecarConfigError):
+                await deployer.deploy(config, image)
+
+        # No cloud call happened.
+        push_mock.assert_not_called()
+        ecs_mock.describe_services.assert_not_called()
+        ecs_mock.register_task_definition.assert_not_called()
 
 
 class TestDeployNoPriorProvision:

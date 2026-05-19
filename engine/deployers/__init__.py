@@ -42,11 +42,25 @@ RUNTIME_DEPLOYERS: dict[str, type[BaseDeployer]] = {
 def get_deployer(cloud: CloudType, runtime: str | None = None) -> BaseDeployer:
     """Get the deployer for a given cloud target and optional runtime.
 
-    If runtime is specified and matches a known deployer, use that.
-    Otherwise fall back to the default deployer for the cloud type.
-    Raises KeyError if the cloud target is not yet supported.
+    **Precedence rule:** ``RUNTIME_DEPLOYERS`` takes precedence over ``DEPLOYERS``.
+    If ``runtime`` is provided and matches a known runtime alias (case-insensitive,
+    whitespace-trimmed), the runtime-specific deployer is returned regardless of
+    ``cloud``. This lets an operator opt into, e.g., AWS App Runner even when the
+    agent's ``deploy.cloud`` is ``aws`` (whose default is ECS Fargate).
+
+    If ``runtime`` is ``None`` or does not match any key in ``RUNTIME_DEPLOYERS``,
+    the lookup falls back to the cloud-default deployer in ``DEPLOYERS``.
+
+    Args:
+        cloud: The cloud target from ``agent.yaml`` ``deploy.cloud``.
+        runtime: Optional override from ``deploy.runtime`` — e.g. ``app-runner``
+            to deploy to AWS App Runner instead of the AWS default (ECS Fargate).
+
+    Raises:
+        KeyError: If ``cloud`` is not yet supported and no matching runtime
+            override is provided.
     """
-    # Check runtime-specific deployer first
+    # Check runtime-specific deployer first (RUNTIME_DEPLOYERS > DEPLOYERS)
     if runtime:
         runtime_key = runtime.lower().strip()
         deployer_cls = RUNTIME_DEPLOYERS.get(runtime_key)

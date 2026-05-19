@@ -40,6 +40,24 @@ class HealthStatus(BaseModel):
     checks: dict[str, bool]
 
 
+class ExistingDeployment(BaseModel):
+    """Lightweight snapshot of an existing cloud-side resource.
+
+    Returned by :meth:`BaseDeployer._lookup_existing` so that ``deploy()`` can
+    short-circuit when the target name already maps to a healthy service
+    (idempotent re-deploys) or clean up before redeploying a stale one.
+    """
+
+    # Free-form status string. "healthy" short-circuits deploy(); anything else
+    # triggers cleanup. Suggested values: "healthy" | "unhealthy" | "unknown".
+    status: str
+    # External endpoint URL exposed by the existing service, if known.
+    url: str | None = None
+    # Cloud-native ID (ARN / resource id / image URI / container id) used as
+    # the container_id in the resulting DeployResult.
+    resource_id: str | None = None
+
+
 class BaseDeployer(ABC):
     """Abstract base class for cloud-specific deployers.
 
@@ -71,6 +89,21 @@ class BaseDeployer(ABC):
     async def get_logs(self, agent_name: str, since: datetime | None = None) -> list[str]:
         """Retrieve logs from a deployed agent."""
         ...
+
+    async def _lookup_existing(self, agent_name: str) -> ExistingDeployment | None:
+        """Return an :class:`ExistingDeployment` snapshot for ``agent_name``, or None.
+
+        Used by ``deploy()`` to short-circuit when the cloud already holds a
+        healthy resource with the target name (idempotent re-deploy) and to
+        trigger a cleanup before redeploying an unhealthy / unknown one.
+
+        Default implementation returns ``None`` — meaning "no existing resource
+        known". Concrete deployers override this to perform a cheap, read-only
+        lookup against their cloud (``describe_service`` / ``get_service`` /
+        ``read_namespaced_deployment`` / etc.). The override MUST swallow
+        not-found exceptions and return ``None`` instead of raising.
+        """
+        return None
 
     def get_aps_env_vars(self) -> dict[str, str]:
         """Return AGENTBREEDER_URL + AGENTBREEDER_API_KEY for injection into agent containers.

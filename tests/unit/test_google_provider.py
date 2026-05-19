@@ -286,7 +286,7 @@ class TestGoogleProviderHealthCheck:
         provider._client = AsyncMock()
         provider._client.get = AsyncMock(return_value=mock_resp)
 
-        assert await provider.health_check() is True
+        assert bool(await provider.health_check()) is True
 
     @pytest.mark.asyncio
     async def test_health_check_false(self) -> None:
@@ -295,7 +295,7 @@ class TestGoogleProviderHealthCheck:
         provider._client = AsyncMock()
         provider._client.get = AsyncMock(return_value=mock_resp)
 
-        assert await provider.health_check() is False
+        assert bool(await provider.health_check()) is False
 
 
 class TestGoogleProviderStatusCodes:

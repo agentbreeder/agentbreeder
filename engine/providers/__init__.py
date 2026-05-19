@@ -27,6 +27,7 @@ from engine.providers.models import (
     Message,
     ModelInfo,
     ProviderConfig,
+    ProviderHealth,
     ProviderType,
     StreamChunk,
     ToolCall,
@@ -50,6 +51,7 @@ __all__ = [
     # Models
     "ProviderType",
     "ProviderConfig",
+    "ProviderHealth",
     "FallbackConfig",
     "GenerateResult",
     "StreamChunk",

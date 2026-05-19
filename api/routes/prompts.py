@@ -167,12 +167,34 @@ def _pick_simulated_response(prompt_text: str) -> str:
 
 
 def _render_prompt(prompt_text: str, variables: dict[str, str]) -> str:
-    """Replace {{variable}} placeholders with provided values."""
+    """Replace ``{{variable}}`` placeholders with provided values.
+
+    **Template-variable name constraint:** the regex ``\\{\\{(\\w+)\\}\\}`` only
+    matches placeholders whose name consists of ``\\w`` characters — i.e.
+    ``[A-Za-z0-9_]``. Hyphens, dots, spaces, and other punctuation are NOT
+    treated as part of a variable name and will fall through as literal text.
+    Examples:
+
+    - ``{{user_name}}`` -> matched (``user_name`` is alphanumeric+underscore)
+    - ``{{user-name}}`` -> NOT matched (hyphen breaks the pattern)
+    - ``{{ name }}``    -> NOT matched (leading/trailing whitespace breaks it)
+    - ``{{user.name}}`` -> NOT matched (dot breaks the pattern)
+
+    Variables that are referenced in the template but not supplied in
+    ``variables`` are left as their original ``{{name}}`` literal (see
+    ``replacer``); they are NOT replaced with the empty string. This is
+    intentional — surfacing a missing variable makes the bug visible in
+    prompt-test output instead of silently producing a corrupted prompt.
+    """
 
     def replacer(match: re.Match[str]) -> str:
+        # Variable name is captured by ``(\w+)`` — alphanumeric + underscore
+        # only. See the docstring above for the exact constraint.
         var_name = match.group(1)
         return variables.get(var_name, match.group(0))
 
+    # ``\w+`` matches [A-Za-z0-9_]+; placeholders with hyphens, dots, or
+    # whitespace are intentionally left untouched.
     return re.sub(r"\{\{(\w+)\}\}", replacer, prompt_text)
 
 
@@ -227,6 +249,21 @@ async def test_prompt(
         total_tokens=input_tokens + output_tokens,
         latency_ms=elapsed_ms,
         temperature=body.temperature,
+    )
+
+    # Structured cost / usage log line for the prompt test panel. Emitted as
+    # a single event so log pipelines (CloudWatch / GCP Logging) can index
+    # the ``extra`` fields without parsing the message body.
+    logger.info(
+        "prompt_test_run",
+        extra={
+            "model": model_name,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "latency_ms": elapsed_ms,
+            "temperature": body.temperature,
+        },
     )
 
     return ApiResponse(data=result)

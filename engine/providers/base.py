@@ -14,6 +14,7 @@ from engine.providers.models import (
     GenerateResult,
     ModelInfo,
     ProviderConfig,
+    ProviderHealth,
     StreamChunk,
     ToolDefinition,
 )
@@ -115,10 +116,17 @@ class ProviderBase(ABC):
         ...
 
     @abstractmethod
-    async def health_check(self) -> bool:
+    async def health_check(self) -> ProviderHealth:
         """Check if the provider endpoint is reachable and authenticated.
 
-        Returns True if healthy, False otherwise.
+        Returns a :class:`ProviderHealth` describing the outcome — including
+        a ``reason`` string and (where applicable) an HTTP-style
+        ``error_code`` distinguishing reachability problems from auth
+        problems from server errors.
+
+        The result is truthy when healthy and falsy otherwise, so legacy
+        callers using ``if not await provider.health_check():`` continue
+        to work unchanged.
         """
         ...
 

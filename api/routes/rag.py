@@ -7,18 +7,26 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
 from api.database import get_db
 from api.middleware.rbac import require_role
 from api.models.database import User
-from api.models.schemas import ApiMeta, ApiResponse
+from api.models.schemas import ApiMeta, ApiResponse, RagSearchRequest
+from api.services.graph_extraction import clear_extraction_cache, get_extraction_cache
 from api.services.graph_store import get_graph_store
 from api.services.rag_service import get_rag_store
 from registry.rag import BACKEND_IN_MEMORY, BACKEND_NEO4J, BACKEND_PGVECTOR, get_rag_backend
 
 logger = logging.getLogger(__name__)
+
+# Maximum allowed size for a single uploaded file (per W4-23).
+# Anything larger is rejected with HTTP 413 to bound memory + protect against
+# accidental gigabyte uploads. Adjustable via env var for advanced setups.
+MAX_UPLOAD_SIZE_MB = 100
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 router = APIRouter(prefix="/api/v1/rag", tags=["rag"])
 
@@ -248,6 +256,14 @@ async def ingest_files(
                 f"Allowed: {', '.join(sorted(allowed_extensions))}",
             )
         content = await f.read()
+        if len(content) > MAX_UPLOAD_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"File {filename} ({len(content)} bytes) exceeds the "
+                    f"{MAX_UPLOAD_SIZE_MB} MB upload limit"
+                ),
+            )
         file_data.append((filename, content))
 
     # Run ingestion (in-process for now; background task for production)
@@ -290,46 +306,46 @@ async def search(
     - text_weight: float (default 0.3)
     - hops: int | None (default None) — for graph/hybrid indexes, number of BFS hops
     - seed_entity_limit: int (default 5) — for graph/hybrid indexes, max seed entities
+    - filters: dict[str, Any] | None (default None) — W5-R12 metadata post-filter;
+      keeps only hits whose chunk.metadata matches every (key, value) in the dict.
     """
+    try:
+        req = RagSearchRequest.model_validate(body)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors()) from e
+
     store = get_rag_store()
 
-    index_id = body.get("index_id")
-    query = body.get("query")
-    if not index_id or not query:
-        raise HTTPException(status_code=400, detail="index_id and query are required")
-
     try:
-        await _enforce_acl(db, _user.email, uuid.UUID(index_id), "read")
+        await _enforce_acl(db, _user.email, uuid.UUID(req.index_id), "read")
     except HTTPException:
         raise
     except Exception:
         pass
 
-    idx = store.get_index(index_id)
+    idx = store.get_index(req.index_id)
     if not idx:
         raise HTTPException(status_code=404, detail="Index not found")
 
-    top_k = body.get("top_k", 10)
-    vector_weight = body.get("vector_weight", 0.7)
-    text_weight = body.get("text_weight", 0.3)
-
     hits = await store.search(
-        index_id=index_id,
-        query=query,
-        top_k=top_k,
-        vector_weight=vector_weight,
-        text_weight=text_weight,
-        hops=body.get("hops", None),
-        seed_entity_limit=body.get("seed_entity_limit", 5),
+        index_id=req.index_id,
+        query=req.query,
+        top_k=req.top_k,
+        vector_weight=req.vector_weight,
+        text_weight=req.text_weight,
+        hops=req.hops,
+        seed_entity_limit=req.seed_entity_limit,
+        filters=req.filters,
     )
 
     return ApiResponse(
         data={
-            "index_id": index_id,
-            "query": query,
-            "top_k": top_k,
+            "index_id": req.index_id,
+            "query": req.query,
+            "top_k": req.top_k,
             "results": [h.to_dict() for h in hits],
             "total": len(hits),
+            "degraded": any(h.degraded for h in hits),
         }
     )
 
@@ -452,3 +468,58 @@ async def list_index_relationships(
         data=edges_out,
         meta=ApiMeta(page=page, per_page=per_page, total=total),
     )
+
+
+# ---------------------------------------------------------------------------
+# Graph extraction cache invalidation (G7)
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/indexes/{index_id}/extraction-cache")
+async def clear_index_extraction_cache(
+    index_id: str,
+    _user: User = Depends(require_role("deployer")),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[dict]:
+    """Invalidate the LLM entity-extraction cache.
+
+    The cache is module-level and keyed by ``SHA-256(chunk_text + model)``, so
+    it is *not* per-index — a single clear empties the cache for every index.
+    The ``{index_id}`` is still required so callers can reason about *why*
+    they invalidated (e.g., they changed extraction config on this index) and
+    so the route ACL can be enforced at index granularity.
+
+    Use this after:
+      * changing the entity extraction model
+      * upgrading the prompt template
+      * fixing extraction bugs that produced bad nodes/edges
+
+    Returns ``{"cleared": N, "scope": "global"}`` where N is the number of
+    cached extractions that were dropped.
+    """
+    # Verify the index exists + ACL check.
+    try:
+        await _enforce_acl(db, _user.email, uuid.UUID(index_id), "write")
+    except HTTPException:
+        raise
+    except Exception:
+        # Match the lenient ACL pattern used elsewhere in this module.
+        pass
+
+    store = get_rag_store()
+    idx = store.get_index(index_id)
+    if not idx:
+        raise HTTPException(status_code=404, detail="Index not found")
+    if idx.index_type.value not in ("graph", "hybrid"):
+        raise HTTPException(
+            status_code=400,
+            detail="Index is not a graph or hybrid type; no extraction cache to clear",
+        )
+
+    cleared = len(get_extraction_cache())
+    clear_extraction_cache()
+    logger.info(
+        "graphrag.extraction_cache.cleared",
+        extra={"index_id": index_id, "cleared_entries": cleared, "scope": "global"},
+    )
+    return ApiResponse(data={"cleared": cleared, "scope": "global"})

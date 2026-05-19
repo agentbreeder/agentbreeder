@@ -17,9 +17,16 @@ from typing import Any
 import httpx
 
 from engine.config_parser import AgentConfig
-from engine.deployers.base import BaseDeployer, DeployResult, HealthStatus, InfraResult
+from engine.deployers._health import HealthCheckTimeout, poll_until_ready
+from engine.deployers.base import (
+    BaseDeployer,
+    DeployResult,
+    ExistingDeployment,
+    HealthStatus,
+    InfraResult,
+)
 from engine.runtimes.base import ContainerImage
-from engine.sidecar import SidecarConfig, should_inject
+from engine.sidecar import SidecarConfig, should_inject, validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -141,8 +148,48 @@ class DockerComposeDeployer(BaseDeployer):
             resource_ids={"port": str(port)},
         )
 
+    async def _lookup_existing(self, agent_name: str) -> ExistingDeployment | None:
+        """Return an :class:`ExistingDeployment` snapshot for the local container.
+
+        A running container with status == "running" is considered healthy. Any
+        other docker container state (exited, restarting, paused, dead) is
+        reported as unhealthy so the caller cleans it up before redeploying.
+        """
+        try:
+            import docker
+        except ImportError:
+            return None
+
+        try:
+            client = _docker_client()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Docker client init failed for '%s': %s", agent_name, exc)
+            return None
+
+        container_name = f"agentbreeder-{agent_name}"
+        try:
+            container = client.containers.get(container_name)
+        except docker.errors.NotFound:
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Container lookup failed for '%s': %s", container_name, exc)
+            return None
+
+        status = getattr(container, "status", "unknown")
+        agent_state = self._state.get("agents", {}).get(agent_name, {})
+        url = agent_state.get("endpoint_url")
+        is_healthy = status == "running"
+        return ExistingDeployment(
+            status="healthy" if is_healthy else "unhealthy",
+            url=url,
+            resource_id=getattr(container, "id", None),
+        )
+
     async def deploy(self, config: AgentConfig, image: ContainerImage | None) -> DeployResult:
         """Build the Docker image and run the container."""
+        # W4-37: Pre-validate sidecar before any local-container call.
+        validate_sidecar_config(config)
+
         try:
             import docker
         except ImportError as e:
@@ -151,6 +198,24 @@ class DockerComposeDeployer(BaseDeployer):
 
         client = _docker_client()
         assert image is not None, "ContainerImage required for Docker Compose deployer"
+
+        # W4-35: Idempotency check. If the agent's container is already running,
+        # short-circuit. If it exists but isn't running, fall through — the
+        # existing "stop+remove" path below handles cleanup naturally.
+        existing = await self._lookup_existing(config.name)
+        if existing is not None and existing.status == "healthy":
+            logger.info(
+                "deploy_idempotent_hit",
+                extra={"agent": config.name, "cloud": "docker-compose"},
+            )
+            return DeployResult(
+                endpoint_url=existing.url or "",
+                container_id=existing.resource_id or "",
+                status="running",
+                agent_name=config.name,
+                version=config.version,
+            )
+
         agent_state = self._state.get("agents", {}).get(config.name, {})
         port = agent_state.get("port", self._allocate_port())
 
@@ -319,29 +384,31 @@ class DockerComposeDeployer(BaseDeployer):
         url = f"{deploy_result.endpoint_url}/health"
         checks: dict[str, bool] = {"reachable": False, "healthy": False}
 
-        for attempt in range(timeout // interval):
+        async def _check() -> bool:
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.get(url, timeout=5.0)
                     checks["reachable"] = True
                     if response.status_code == 200:
                         checks["healthy"] = True
-                        logger.info(
-                            "Health check passed (attempt %d/%d)",
-                            attempt + 1,
-                            timeout // interval,
-                        )
-                        return HealthStatus(healthy=True, checks=checks)
+                        return True
             except (httpx.ConnectError, httpx.ReadTimeout, OSError, ExceptionGroup):
                 pass
+            return False
 
-            logger.debug(
-                "Health check attempt %d/%d — waiting...", attempt + 1, timeout // interval
+        try:
+            await poll_until_ready(
+                _check,
+                timeout=float(timeout),
+                initial_interval=float(interval),
+                max_interval=max(float(interval) * 4, 30.0),
+                backoff_factor=1.0,
             )
-            await asyncio.sleep(interval)
-
-        logger.warning("Health check failed after %d seconds", timeout)
-        return HealthStatus(healthy=False, checks=checks)
+            logger.info("Health check passed")
+            return HealthStatus(healthy=True, checks=checks)
+        except HealthCheckTimeout:
+            logger.warning("Health check failed after %d seconds", timeout)
+            return HealthStatus(healthy=False, checks=checks)
 
     async def teardown(self, agent_name: str) -> None:
         """Stop and remove the agent container."""

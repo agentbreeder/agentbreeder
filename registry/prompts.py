@@ -5,12 +5,27 @@ from __future__ import annotations
 import difflib
 import logging
 
+from packaging.version import InvalidVersion, Version
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.database import Prompt, PromptVersion
 
 logger = logging.getLogger(__name__)
+
+
+def _semver_key(version_str: str) -> tuple[int, Version | str]:
+    """Sort key for semver strings used to rank prompt versions.
+
+    Returns ``(0, Version)`` for valid PEP 440 / semver strings and
+    ``(1, raw_string)`` for invalid versions so the latter sort after valid
+    ones in descending order — matching what users intuitively expect when
+    they list versioned prompts.
+    """
+    try:
+        return (0, Version(version_str))
+    except (InvalidVersion, TypeError):
+        return (1, str(version_str))
 
 
 def _bump_patch(version: str) -> str:
@@ -87,14 +102,23 @@ class PromptRegistry:
 
     @staticmethod
     async def get(session: AsyncSession, name: str, version: str | None = None) -> Prompt | None:
-        """Get a prompt by name and optionally version (latest if not specified)."""
+        """Get a prompt by name and optionally version (latest if not specified).
+
+        When no version is specified, the latest version is selected using a
+        semver-aware sort (so ``1.10.0`` ranks above ``1.9.0``), not the
+        lexicographic ordering native to the database column.
+        """
         stmt = select(Prompt).where(Prompt.name == name)
         if version:
             stmt = stmt.where(Prompt.version == version)
-        else:
-            stmt = stmt.order_by(Prompt.version.desc())
+            result = await session.execute(stmt)
+            return result.scalars().first()
         result = await session.execute(stmt)
-        return result.scalars().first()
+        prompts = list(result.scalars().all())
+        if not prompts:
+            return None
+        prompts.sort(key=lambda p: _semver_key(p.version), reverse=True)
+        return prompts[0]
 
     @staticmethod
     async def get_by_id(session: AsyncSession, prompt_id: str) -> Prompt | None:
@@ -186,15 +210,21 @@ class PromptRegistry:
 
     @staticmethod
     async def get_versions(session: AsyncSession, prompt_id: str) -> list[Prompt]:
-        """Get all versions of a prompt (looked up by the name of the given id)."""
+        """Get all versions of a prompt (looked up by the name of the given id).
+
+        Returns versions sorted descending by semver so ``1.10.0`` ranks above
+        ``1.9.0``.
+        """
         stmt = select(Prompt).where(Prompt.id == prompt_id)
         result = await session.execute(stmt)
         prompt = result.scalar_one_or_none()
         if not prompt:
             return []
-        stmt = select(Prompt).where(Prompt.name == prompt.name).order_by(Prompt.version.desc())
+        stmt = select(Prompt).where(Prompt.name == prompt.name)
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        versions = list(result.scalars().all())
+        versions.sort(key=lambda p: _semver_key(p.version), reverse=True)
+        return versions
 
     @staticmethod
     async def duplicate(session: AsyncSession, prompt_id: str) -> Prompt | None:
@@ -205,12 +235,13 @@ class PromptRegistry:
         if not source:
             return None
 
-        # Find the latest version for this prompt name to compute next version
-        all_versions_stmt = (
-            select(Prompt).where(Prompt.name == source.name).order_by(Prompt.version.desc())
-        )
+        # Find the latest version for this prompt name to compute next version.
+        # Use semver-aware sort so e.g. 1.10.0 ranks above 1.9.0 rather than
+        # falling back to lexicographic order on the DB column.
+        all_versions_stmt = select(Prompt).where(Prompt.name == source.name)
         all_result = await session.execute(all_versions_stmt)
         all_versions = list(all_result.scalars().all())
+        all_versions.sort(key=lambda p: _semver_key(p.version), reverse=True)
 
         latest_version = all_versions[0].version if all_versions else source.version
         parts = latest_version.split(".")
