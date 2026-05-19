@@ -99,12 +99,12 @@ go build -o sidecar ./cmd/sidecar
 # Docker (multi-arch)
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --tag rajits/agentbreeder-sidecar:dev \
+  --tag agentbreeder/agentbreeder-sidecar:dev \
   --build-arg VERSION=dev \
   -f Dockerfile .
 
 # Tag matches the AgentBreeder release version in CI:
-# rajits/agentbreeder-sidecar:<version>
+# agentbreeder/agentbreeder-sidecar:<version>
 ```
 
 Final image is built `FROM gcr.io/distroless/static-debian12:nonroot` — < 20 MB, no shell, runs as non-root.
@@ -119,7 +119,7 @@ docker run --rm \
   -e AGENT_AUTH_TOKEN=dev-token \
   -e AGENTBREEDER_SIDECAR_AGENT_URL=http://host.docker.internal:8081 \
   -p 8080:8080 \
-  rajits/agentbreeder-sidecar:dev
+  agentbreeder/agentbreeder-sidecar:dev
 
 # Then verify:
 curl http://localhost:8080/health
@@ -159,4 +159,4 @@ To disable injection (local development), set `AGENTBREEDER_SIDECAR=disabled` in
 
 ## Versioning
 
-The sidecar binary version is independent of the AgentBreeder platform version. CI tags the image as `rajits/agentbreeder-sidecar:<release-version>` whenever the platform releases.
+The sidecar binary version is independent of the AgentBreeder platform version. CI tags the image as `agentbreeder/agentbreeder-sidecar:<release-version>` whenever the platform releases.

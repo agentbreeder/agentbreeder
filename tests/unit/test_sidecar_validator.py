@@ -50,7 +50,7 @@ def test_validate_accepts_minimal_valid_config() -> None:
         _cfg(
             {
                 "enabled": True,
-                "image": "rajits/agentbreeder-sidecar:latest",
+                "image": "agentbreeder/agentbreeder-sidecar:latest",
                 "guardrails": ["pii_detection"],
             }
         )
@@ -62,7 +62,7 @@ def test_validate_accepts_full_valid_config() -> None:
         _cfg(
             {
                 "enabled": False,
-                "image": "rajits/agentbreeder-sidecar:v2",
+                "image": "agentbreeder/agentbreeder-sidecar:v2",
                 "guardrails": ["pii_detection", "content_filter"],
                 "otel_endpoint": "http://otel:4318",
                 "cost_tracking": True,

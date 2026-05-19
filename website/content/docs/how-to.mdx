@@ -471,7 +471,7 @@ Full lifecycle for each: [MCP Servers](mcp-servers) · [Evaluations](evaluations
 
 ## CI/CD
 
-The `rajits/agentbreeder-cli` Docker image is the recommended way to run AgentBreeder in pipelines.
+The `agentbreeder/agentbreeder-cli` Docker image is the recommended way to run AgentBreeder in pipelines.
 
 <Tabs items={['GitHub Actions', 'GitLab CI']}>
   <Tab value="GitHub Actions">
@@ -486,14 +486,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker run --rm -v $PWD:/work -w /work rajits/agentbreeder-cli validate agents/support-agent/agent.yaml
-      - run: docker run --rm -v $PWD:/work -w /work -e GOOGLE_APPLICATION_CREDENTIALS=/work/sa.json rajits/agentbreeder-cli deploy agents/support-agent/agent.yaml --target cloud-run
+      - run: docker run --rm -v $PWD:/work -w /work agentbreeder/agentbreeder-cli validate agents/support-agent/agent.yaml
+      - run: docker run --rm -v $PWD:/work -w /work -e GOOGLE_APPLICATION_CREDENTIALS=/work/sa.json agentbreeder/agentbreeder-cli deploy agents/support-agent/agent.yaml --target cloud-run
 ```
   </Tab>
   <Tab value="GitLab CI">
 ```yaml
 deploy-agent:
-  image: rajits/agentbreeder-cli:latest
+  image: agentbreeder/agentbreeder-cli:latest
   script:
     - agentbreeder validate agents/support-agent/agent.yaml
     - agentbreeder deploy agents/support-agent/agent.yaml --target cloud-run
@@ -545,6 +545,6 @@ Default login: `admin@agentbreeder.local` / `plant`. **Change this before exposi
 | `Container build failed` | `docker info` to confirm runtime is up; `agentbreeder deploy --dry-run` to inspect generated Dockerfile. |
 | `Deploy rolled back` | The 8-step pipeline is atomic. `agentbreeder status <agent>` and `agentbreeder logs <agent>` to find the failed step. |
 | Dashboard won't start | Needs the API up first. `agentbreeder ui` or `docker compose up`. See [Quickstart](quickstart). |
-| Dashboard at `:3001` renders blank | Stale `rajits/agentbreeder-dashboard:latest` cached locally — `docker rmi` it then re-run with `agentbreeder quickstart --dev` to rebuild from source. See [FAQ](faq#dashboard-at-httplocalhost3001-shows-a-blank-page). |
+| Dashboard at `:3001` renders blank | Stale `agentbreeder/agentbreeder-dashboard:latest` cached locally — `docker rmi` it then re-run with `agentbreeder quickstart --dev` to rebuild from source. See [FAQ](faq#dashboard-at-httplocalhost3001-shows-a-blank-page). |
 | `migrate-1` exits immediately | Expected — it's a one-shot alembic job. Only a problem if exit code is non-zero. |
 | `Cannot connect to docker socket` after switching runtimes | Stale `DOCKER_HOST` env var pointing at a dead socket. `unset DOCKER_HOST` and remove the `export` line from your shell rc. |
