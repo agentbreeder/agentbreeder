@@ -155,7 +155,7 @@ in place of the "Full mode" inputs above. Only `GOOGLE_CLOUD_PROJECT` and
 |---|---|
 | _default_ | Artifact Registry repo `agentbreeder` + per-agent Service Account `ab-<agent-name>` + 4 IAM roles |
 | `GCP_PROVISION_VPC_CONNECTOR=1` | Adds a Serverless VPC Access connector `ab-<agent-name>` (e2-micro, 2–3 instances) on the `default` VPC. Wire it into Cloud Run by setting `GCP_VPC_CONNECTOR` to the connector name from `.agentbreeder/infra-state.json`. |
-| `GCP_PROVISION_CLOUD_SQL=1` | (Tracked under [#435](https://github.com/agentbreeder/agentbreeder/issues/435).) Implies VPC connector unless `GCP_CLOUD_SQL_PRIVATE_IP=0`. |
+| `GCP_PROVISION_CLOUD_SQL=1` | Adds a private-IP Cloud SQL Postgres 15 instance `{agent_name}-memory` (default `db-f1-micro`), database `agentbreeder_memory`, user `agentbreeder`. Random password is written to Secret Manager — never to disk. Implies the VPC connector unless `GCP_CLOUD_SQL_PRIVATE_IP=0`. |
 
 VPC connector tuning (all optional):
 
@@ -167,9 +167,24 @@ VPC connector tuning (all optional):
 | `GCP_VPC_CONNECTOR_MAX_INSTANCES` | `3` | Maximum throughput instances |
 | `GCP_VPC_CONNECTOR_MACHINE_TYPE` | `e2-micro` | Per-instance machine type |
 
+Cloud SQL tuning (all optional, only relevant when `GCP_PROVISION_CLOUD_SQL=1`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `GCP_CLOUD_SQL_TIER` | `db-f1-micro` | Instance tier (`db-g1-small` recommended for prod) |
+| `GCP_CLOUD_SQL_DATABASE` | `agentbreeder_memory` | Default database name |
+| `GCP_CLOUD_SQL_USER` | `agentbreeder` | Default user name |
+| `GCP_CLOUD_SQL_PRIVATE_IP` | `1` | Set `0` to disable the implicit VPC connector (not recommended) |
+
+Operator-readable outputs (in `infra-state.json` under `resources.cloud_sql`):
+`connection_name` (e.g. `my-proj:us-central1:my-agent-memory`) for Cloud Run
+wiring, and `password_secret` — the Secret Manager resource where the random
+DB password lives. Grant your Cloud Run service account
+`roles/secretmanager.secretAccessor` on that secret to read it at runtime.
+
 State is written to `.agentbreeder/infra-state.json`; `agentbreeder teardown
---destroy-infra` reverses everything in safe order (connector → service
-account → Artifact Registry repo).
+--destroy-infra` reverses everything in safe order (Cloud SQL → connector →
+service account → Artifact Registry repo).
 
 </Tab>
 <Tab value="Azure">

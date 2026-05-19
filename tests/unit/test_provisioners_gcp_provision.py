@@ -16,6 +16,7 @@ from engine.provisioners import InfraState, InfraValidationInput
 from engine.provisioners.gcp import (
     GCPProvisioner,
     _should_provision_vpc_connector,
+    _truncate_cloud_sql_instance_id,
     _truncate_connector_id,
     _truncate_sa_id,
 )
@@ -77,6 +78,25 @@ def patched_provisioner():
             ),
         ),
         patch.object(p, "_delete_vpc_connector", new=AsyncMock(return_value=None)),
+        patch.object(
+            p,
+            "_ensure_cloud_sql",
+            new=AsyncMock(
+                return_value={
+                    "instance_id": "demo-memory",
+                    "instance_name": "projects/test-proj/locations/us-central1/instances/demo-memory",
+                    "connection_name": "test-proj:us-central1:demo-memory",
+                    "database": "agentbreeder_memory",
+                    "user": "agentbreeder",
+                    "tier": "db-f1-micro",
+                    "region": "us-central1",
+                    "project": "test-proj",
+                    "vpc_network": "default",
+                    "password_secret": "projects/test-proj/secrets/agentbreeder-demo-memory-db-password",
+                }
+            ),
+        ),
+        patch.object(p, "_delete_cloud_sql", new=AsyncMock(return_value=None)),
     ):
         yield p
 
@@ -145,10 +165,75 @@ async def test_provision_calls_progress_callback(patched_provisioner) -> None:
 
 
 @pytest.mark.asyncio
-async def test_provision_defers_cloud_sql_marker(patched_provisioner) -> None:
-    """Cloud SQL provisioning lands in #435; #436 only leaves a deferred marker."""
+async def test_provision_skips_cloud_sql_by_default(patched_provisioner) -> None:
+    state = await patched_provisioner.provision(_payload())
+    patched_provisioner._ensure_cloud_sql.assert_not_awaited()
+    assert "cloud_sql" not in state.resources
+
+
+@pytest.mark.asyncio
+async def test_provision_creates_cloud_sql_when_flag_set(patched_provisioner) -> None:
     state = await patched_provisioner.provision(_payload({"GCP_PROVISION_CLOUD_SQL": "1"}))
-    assert state.resources["cloud_sql"]["status"] == "deferred"
+    patched_provisioner._ensure_cloud_sql.assert_awaited_once()
+    kwargs = patched_provisioner._ensure_cloud_sql.await_args.kwargs
+    assert kwargs["project"] == "test-proj"
+    assert kwargs["region"] == "us-central1"
+    assert kwargs["instance_id"] == "demo-memory"
+    assert kwargs["tier"] == "db-f1-micro"
+    assert kwargs["db_name"] == "agentbreeder_memory"
+    assert kwargs["db_user"] == "agentbreeder"
+
+    sql = state.resources["cloud_sql"]
+    assert sql["instance_id"] == "demo-memory"
+    assert sql["connection_name"] == "test-proj:us-central1:demo-memory"
+    assert sql["password_secret"].startswith("projects/test-proj/secrets/")
+    # Plaintext password must NEVER appear in state.
+    assert "password" not in sql or sql["password"] is None or "password_secret" in sql
+    # Re-check via JSON dump to catch nested string leaks.
+    assert "password=" not in state.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_provision_cloud_sql_implies_vpc_connector(patched_provisioner) -> None:
+    """Cloud SQL with private IP (the default) requires the VPC connector."""
+    await patched_provisioner.provision(_payload({"GCP_PROVISION_CLOUD_SQL": "1"}))
+    patched_provisioner._ensure_vpc_connector.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_provision_cloud_sql_honours_custom_tier(patched_provisioner) -> None:
+    await patched_provisioner.provision(
+        _payload({"GCP_PROVISION_CLOUD_SQL": "1", "GCP_CLOUD_SQL_TIER": "db-g1-small"})
+    )
+    kwargs = patched_provisioner._ensure_cloud_sql.await_args.kwargs
+    assert kwargs["tier"] == "db-g1-small"
+
+
+@pytest.mark.asyncio
+async def test_provision_cloud_sql_no_plaintext_password_in_state(
+    patched_provisioner,
+) -> None:
+    state = await patched_provisioner.provision(_payload({"GCP_PROVISION_CLOUD_SQL": "1"}))
+    dumped = state.model_dump_json()
+    # Common plaintext-password leak indicators.
+    assert "db_password" not in dumped
+    assert "plaintext" not in dumped
+    # The secret URI must be in state — that's the only acceptable password reference.
+    assert "secrets/agentbreeder-demo-memory-db-password" in dumped
+
+
+def test_truncate_cloud_sql_instance_id_basic() -> None:
+    assert _truncate_cloud_sql_instance_id("demo") == "demo-memory"
+
+
+def test_truncate_cloud_sql_instance_id_lowercases_and_sanitises() -> None:
+    assert _truncate_cloud_sql_instance_id("Billing_Agent.v2") == "billing-agent-v2-memory"
+
+
+def test_truncate_cloud_sql_instance_id_caps_at_50_chars() -> None:
+    iid = _truncate_cloud_sql_instance_id("x" * 80)
+    assert len(iid) <= 50
+    assert iid.endswith("-memory") or iid.startswith("x")  # truncation may eat suffix
 
 
 # -- VPC connector provisioning (#436) -------------------------------------
@@ -310,6 +395,33 @@ async def test_destroy_skips_deferred_vpc_connector_marker(patched_provisioner) 
     state.resources["vpc_connector"] = {"status": "deferred", "note": "legacy"}
     await patched_provisioner.destroy(state)
     patched_provisioner._delete_vpc_connector.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_destroy_deletes_cloud_sql_when_present(patched_provisioner) -> None:
+    state = _state_for_demo()
+    state.resources["cloud_sql"] = {
+        "instance_id": "demo-memory",
+        "instance_name": "projects/test-proj/locations/us-central1/instances/demo-memory",
+        "connection_name": "test-proj:us-central1:demo-memory",
+        "project": "test-proj",
+        "password_secret": "projects/test-proj/secrets/agentbreeder-demo-memory-db-password",
+    }
+    await patched_provisioner.destroy(state)
+    patched_provisioner._delete_cloud_sql.assert_awaited_once()
+    kwargs = patched_provisioner._delete_cloud_sql.await_args.kwargs
+    assert kwargs["instance_id"] == "demo-memory"
+    assert kwargs["project"] == "test-proj"
+    assert kwargs["secret_name"].endswith("db-password")
+
+
+@pytest.mark.asyncio
+async def test_destroy_skips_deferred_cloud_sql_marker(patched_provisioner) -> None:
+    """Legacy 'deferred' marker (no instance_name) must not call delete."""
+    state = _state_for_demo()
+    state.resources["cloud_sql"] = {"status": "deferred", "note": "legacy"}
+    await patched_provisioner.destroy(state)
+    patched_provisioner._delete_cloud_sql.assert_not_awaited()
 
 
 @pytest.mark.asyncio
