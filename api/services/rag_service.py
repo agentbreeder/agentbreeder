@@ -1256,18 +1256,21 @@ class RAGStore:
             backend = await self._get_backend(idx)
             if backend is not None and new_chunks:
                 try:
-                    await backend.upsert_chunks(
-                        [
+                    payload_chunks: list[dict[str, Any]] = []
+                    for c in new_chunks:
+                        if c.embedding is None:
+                            continue
+                        chunk_metadata: dict[str, Any] = dict(c.metadata)
+                        chunk_metadata["source"] = c.source
+                        payload_chunks.append(
                             {
                                 "id": c.id,
                                 "text": c.text,
                                 "embedding": c.embedding,
-                                "metadata": {**c.metadata, "source": c.source},
+                                "metadata": chunk_metadata,
                             }
-                            for c in new_chunks
-                            if c.embedding is not None
-                        ]
-                    )
+                        )
+                    await backend.upsert_chunks(payload_chunks)
                 except Exception:
                     logger.warning(
                         "backend.upsert_chunks failed for index %s; in-memory copy intact",
