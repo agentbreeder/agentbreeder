@@ -110,9 +110,7 @@ def test_validate_infra_returns_with_errors_when_invalid(
     assert body["errors"], "invalid checks must surface in the errors envelope"
 
 
-def test_validate_infra_returns_502_on_cloud_sdk_error(
-    client: TestClient, mock_audit_log
-) -> None:
+def test_validate_infra_returns_502_on_cloud_sdk_error(client: TestClient, mock_audit_log) -> None:
     mock_provisioner = MagicMock()
     mock_provisioner.validate_existing = AsyncMock(side_effect=RuntimeError("SDK down"))
 
