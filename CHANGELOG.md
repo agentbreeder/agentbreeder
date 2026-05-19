@@ -8,6 +8,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.3 — HR-7 Docker Hub namespace migration (#420, closes #408)
+
+- **Changed** every operational reference from `rajits/agentbreeder-*` to `agentbreeder/agentbreeder-*` across 18 files (CI workflow, docker-compose, sidecar, CLI defaults, docs, tests). Symmetric +54/-54.
+- Historical files (`CHANGELOG.md`, `ROADMAP.md`, audit specs/plans) intentionally untouched.
+
 ### Platform Audit Summary (2026-05-18)
 
 A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:
