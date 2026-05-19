@@ -32,11 +32,18 @@ async def extract_entities(
     text: str,
     model: str = DEFAULT_ENTITY_MODEL,
     cache: dict[str, tuple[list[GraphNode], list[GraphEdge]]] | None = None,
+    custom_types: list[dict[str, str]] | None = None,
 ) -> tuple[list[GraphNode], list[GraphEdge]]:
     """Extract entities and relationships from a text chunk using an LLM.
 
     Uses module-level cache by default. Pass cache={} to use a fresh cache.
     Returns ([], []) on LLM failure (never raises).
+
+    ``custom_types`` (HR-3 / #405): optional domain-specific entity categories
+    appended to the six built-ins in the LLM prompt. Each item is a dict with
+    ``name`` (required) and optional ``description``. Names should be uppercase
+    snake-case (CONTRACT, DIAGNOSIS, MEDICATION). Cache keys include custom
+    types so different type sets don't collide on the same text.
 
     Note: returned GraphNode/GraphEdge objects always have chunk_ids=[].
     The caller must append the source chunk_id after calling this function.
@@ -46,9 +53,13 @@ async def extract_entities(
         _extraction_cache if cache is None else cache
     )
 
-    # Cache key: SHA-256 of JSON-serialised (text, model) to avoid pipe-char collisions
+    # Cache key: SHA-256 of JSON-serialised (text, model, custom_types) so
+    # different type sets don't collide on the same text.
     cache_key = hashlib.sha256(
-        json.dumps({"text": text, "model": model}, sort_keys=True).encode()
+        json.dumps(
+            {"text": text, "model": model, "custom_types": custom_types or []},
+            sort_keys=True,
+        ).encode()
     ).hexdigest()
 
     if cache_key in active_cache:
@@ -56,9 +67,9 @@ async def extract_entities(
 
     # Call LLM
     if model.startswith("ollama/"):
-        raw = await _call_ollama(text, model[len("ollama/") :])
+        raw = await _call_ollama(text, model[len("ollama/") :], custom_types=custom_types)
     else:
-        raw = await _call_claude(text, model)
+        raw = await _call_claude(text, model, custom_types=custom_types)
 
     # Parse results
     nodes, edges = _parse_extraction_result(raw, text)
@@ -74,6 +85,7 @@ async def extract_entities_batch(
     model: str = DEFAULT_ENTITY_MODEL,
     batch_size: int = 5,
     cache: dict[str, tuple[list[GraphNode], list[GraphEdge]]] | None = None,
+    custom_types: list[dict[str, str]] | None = None,
 ) -> list[tuple[list[GraphNode], list[GraphEdge]]]:
     """Extract entities from multiple chunks concurrently.
 
@@ -87,12 +99,39 @@ async def extract_entities_batch(
 
     async def _extract_with_semaphore(text: str) -> tuple[list[GraphNode], list[GraphEdge]]:
         async with semaphore:
-            return await extract_entities(text, model=model, cache=cache)
+            return await extract_entities(
+                text, model=model, cache=cache, custom_types=custom_types
+            )
 
     return list(await asyncio.gather(*[_extract_with_semaphore(t) for t in texts]))
 
 
-async def _call_claude(text: str, model: str) -> dict[str, Any]:
+def _entity_type_enum(custom_types: list[dict[str, str]] | None) -> str:
+    """Build the pipe-separated type enum for the LLM JSON schema."""
+    builtins = ["organization", "person", "concept", "location", "event", "other"]
+    extras = [t["name"] for t in (custom_types or []) if t.get("name")]
+    return "|".join(builtins + extras)
+
+
+def _custom_types_hint(custom_types: list[dict[str, str]] | None) -> str:
+    """Render an extra prompt block describing custom entity categories."""
+    if not custom_types:
+        return ""
+    lines = ["", "Additional domain-specific categories you must use when applicable:"]
+    for t in custom_types:
+        name = t.get("name", "").strip()
+        if not name:
+            continue
+        desc = t.get("description", "").strip()
+        lines.append(f"- {name}: {desc}" if desc else f"- {name}")
+    return "\n".join(lines)
+
+
+async def _call_claude(
+    text: str,
+    model: str,
+    custom_types: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     """Call Claude API to extract entities and relationships.
 
     Returns a dict with 'entities' and 'relationships' keys.
@@ -109,6 +148,7 @@ async def _call_claude(text: str, model: str) -> dict[str, Any]:
         "Return ONLY valid JSON — no prose."
     )
 
+    type_enum = _entity_type_enum(custom_types)
     user_prompt = (
         f"Extract from the following text chunk:\n"
         f"<chunk>{text}</chunk>\n\n"
@@ -116,7 +156,7 @@ async def _call_claude(text: str, model: str) -> dict[str, Any]:
         "{\n"
         '  "entities": [\n'
         '    {"entity": "string",'
-        ' "type": "organization|person|concept|location|event|other",'
+        f' "type": "{type_enum}",'
         ' "description": "string"}\n'
         "  ],\n"
         '  "relationships": [\n'
@@ -125,6 +165,7 @@ async def _call_claude(text: str, model: str) -> dict[str, Any]:
         ' "object": "entity name"}\n'
         "  ]\n"
         "}"
+        f"{_custom_types_hint(custom_types)}"
     )
 
     payload = {
@@ -164,7 +205,11 @@ async def _call_claude(text: str, model: str) -> dict[str, Any]:
         return {"entities": [], "relationships": []}
 
 
-async def _call_ollama(text: str, model_name: str) -> dict[str, Any]:
+async def _call_ollama(
+    text: str,
+    model_name: str,
+    custom_types: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     """Call local Ollama chat API to extract entities and relationships.
 
     model_name is the bare name (e.g. "qwen2.5:7b"), without the "ollama/" prefix.
@@ -178,6 +223,7 @@ async def _call_ollama(text: str, model_name: str) -> dict[str, Any]:
         "Extract entities and relationships from text. "
         "Return ONLY valid JSON — no prose."
     )
+    type_enum = _entity_type_enum(custom_types)
     user_prompt = (
         f"Extract from the following text chunk:\n"
         f"<chunk>{text}</chunk>\n\n"
@@ -185,7 +231,7 @@ async def _call_ollama(text: str, model_name: str) -> dict[str, Any]:
         "{\n"
         '  "entities": [\n'
         '    {"entity": "string",'
-        ' "type": "organization|person|concept|location|event|other",'
+        f' "type": "{type_enum}",'
         ' "description": "string"}\n'
         "  ],\n"
         '  "relationships": [\n'
@@ -194,6 +240,7 @@ async def _call_ollama(text: str, model_name: str) -> dict[str, Any]:
         ' "object": "entity name"}\n'
         "  ]\n"
         "}"
+        f"{_custom_types_hint(custom_types)}"
     )
     payload = {
         "model": model_name,

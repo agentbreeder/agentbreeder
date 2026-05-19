@@ -1,0 +1,111 @@
+# .understandignore — patterns for files/dirs to exclude from analysis
+# Syntax: same as .gitignore (globs, # comments, ! negation, trailing / for dirs)
+# Scope: CORE PLATFORM ONLY
+#   Keeps: api/, cli/, engine/, registry/, connectors/, sdk/, sidecar/,
+#          dashboard/src/, dashboard/{*.json,*.ts,*.config.ts}, alembic/env.py,
+#          root configs (Dockerfile, pyproject.toml, *.md, etc.)
+#   Drops: website/, examples/, seeds/, tests/, docs/, microlearning-ebook-agent/,
+#          research/, site/, dashboard/playwright-report/, all build artifacts
+#
+
+# Python build/cache artifacts
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+*.whl
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+env/
+venv/
+.venv/
+
+# Editor/OS junk
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Secrets / local env
+.env
+.env.local
+.env.production
+.env.e2e
+linkedin-content.docx
+
+# Generated AgentBreeder local state
+.agentbreeder/
+.superpowers/
+.playwright-mcp/
+.cache/
+
+# Claude Code internal tooling
+.claude/
+.remember/
+
+# Research / competitive intel
+research/
+
+# Worktrees + tooling caches
+.worktrees/
+.playwright-mcp/
+.superpowers/
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+
+# Frontend build outputs
+dashboard/dist/
+dashboard/node_modules/
+dashboard/test-results/
+dashboard/playwright-report/
+dashboard/test-output/
+dashboard/coverage/
+site/
+website/
+
+# Test results / playwright output
+test-results/
+playwright-report/
+
+# Large example app — separate codebase
+microlearning-ebook-agent/
+
+# Static binary assets
+assets/
+
+# Distribution scaffolding (small, but not core platform code)
+homebrew/
+Formula/
+
+# Auto-generated migration revisions (env.py is kept)
+alembic/versions/
+
+# Tests, examples, seeds, docs — not core platform code
+tests/
+examples/
+seeds/
+benchmarks/
+docs/
+templates/
+
+# Build outputs
+dist/
+build/
+out/
+
+# Compiled artifacts
+*.rsc
+*.sst
+*.meta
+*.map

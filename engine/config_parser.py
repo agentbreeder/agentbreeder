@@ -107,8 +107,22 @@ class ToolRef(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class CustomEntityType(BaseModel):
+    """One user-defined entity category for domain-specific GraphRAG extraction."""
+
+    name: str
+    description: str = ""
+
+
+class EntityExtractionConfig(BaseModel):
+    """Per-knowledge-base overrides for the LLM-backed entity extractor."""
+
+    custom_types: list[CustomEntityType] = Field(default_factory=list)
+
+
 class KnowledgeBaseRef(BaseModel):
     ref: str
+    entity_extraction: EntityExtractionConfig | None = None
 
 
 class SubagentRef(BaseModel):

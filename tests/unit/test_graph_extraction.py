@@ -144,9 +144,13 @@ def test_parse_extraction_result_empty():
 async def test_extract_entities_cache_hit():
     """Cache hit must return stored value without calling _call_claude."""
     cache: dict = {}
-    # Pre-populate cache with the exact key that extract_entities would compute
+    # Pre-populate cache with the exact key that extract_entities would compute.
+    # HR-3 / #405: cache key now includes custom_types — empty list for default.
     cache_key = hashlib.sha256(
-        json.dumps({"text": "hello", "model": DEFAULT_ENTITY_MODEL}, sort_keys=True).encode()
+        json.dumps(
+            {"text": "hello", "model": DEFAULT_ENTITY_MODEL, "custom_types": []},
+            sort_keys=True,
+        ).encode()
     ).hexdigest()
     cached_nodes = [
         GraphNode(id="n1", entity="Cached", entity_type="concept", description="", chunk_ids=[])
@@ -215,7 +219,7 @@ async def test_extract_entities_batch_ordering():
 
     call_count = 0
 
-    async def fake_call_claude(text: str, model: str) -> dict:
+    async def fake_call_claude(text: str, model: str, custom_types=None) -> dict:  # noqa: ANN001
         nonlocal call_count
         call_count += 1
         return {
@@ -290,7 +294,7 @@ async def test_extract_entities_routes_to_ollama_for_ollama_prefix():
     with patch("api.services.graph_extraction._call_ollama", new_callable=AsyncMock) as mock:
         mock.return_value = mock_result
         nodes, edges = await extract_entities("test text", model="ollama/qwen2.5:7b", cache={})
-    mock.assert_called_once_with("test text", "qwen2.5:7b")
+    mock.assert_called_once_with("test text", "qwen2.5:7b", custom_types=None)
     assert len(nodes) == 1
     assert nodes[0].entity == "AgentBreeder"
 

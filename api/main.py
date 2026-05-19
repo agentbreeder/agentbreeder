@@ -20,6 +20,7 @@ from api.routes import (
     builders,
     compliance,
     costs,
+    deployments,
     deploys,
     evals,
     gateway,
@@ -144,6 +145,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiting (slowapi) — used by selected routes (e.g. validate-infra).
+# Module-level Limiter lives in api.routes.deployments so route decorators can
+# reference it; we publish it on app.state and register the default 429 handler.
+from slowapi import _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+
+from api.routes.deployments import limiter as _deployments_limiter  # noqa: E402
+
+app.state.limiter = _deployments_limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -161,6 +173,7 @@ app.include_router(auth.router)
 app.include_router(agents.router)
 app.include_router(builders.router)
 app.include_router(deploys.router)
+app.include_router(deployments.router)
 app.include_router(prompts.router)
 app.include_router(providers.router)
 app.include_router(mcp_servers.router)
