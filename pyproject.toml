@@ -74,6 +74,8 @@ gcp = [
     "google-cloud-artifact-registry>=1.11.0",
     "google-cloud-iam>=2.15.0",
     "google-cloud-resource-manager>=1.12.0",
+    "google-cloud-secret-manager>=2.20.0",
+    "google-cloud-sql>=1.6.0",
     "google-cloud-vpc-access>=1.10.0",
 ]
 kubernetes = [
@@ -105,6 +107,8 @@ all-clouds = [
     "google-cloud-artifact-registry>=1.11.0",
     "google-cloud-iam>=2.15.0",
     "google-cloud-resource-manager>=1.12.0",
+    "google-cloud-secret-manager>=2.20.0",
+    "google-cloud-sql>=1.6.0",
     "google-cloud-vpc-access>=1.10.0",
     "kubernetes>=29.0.0",
 ]

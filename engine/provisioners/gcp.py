@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -131,9 +132,12 @@ class GCPProvisioner(InfraProvisioner):
         Serverless VPC Access connector (#436) when ``GCP_PROVISION_VPC_CONNECTOR``
         is set. All operations are idempotent — re-running is safe.
 
-        Cloud SQL (#435) is tracked as a follow-up issue; this method does not
-        provision it. When the agent has ``memory:``, the caller should
-        explicitly provision Cloud SQL first or wait for the follow-up PR.
+        When ``GCP_PROVISION_CLOUD_SQL`` is set the method also provisions a
+        Cloud SQL Postgres instance (#435) with private IP through the VPC
+        connector. The random database password is written to Secret Manager
+        in the same call; ``InfraState.resources["cloud_sql"]`` records the
+        instance connection name + secret ref only — the plaintext password
+        never appears on disk.
         """
         from datetime import UTC, datetime
 
@@ -220,12 +224,27 @@ class GCPProvisioner(InfraProvisioner):
                 "network": network,
             }
 
-        # ---- 4. Cloud SQL — tracked as follow-up #435 ------------------
+        # ---- 4. Cloud SQL Postgres (optional, #435) --------------------
         if fields.get("GCP_PROVISION_CLOUD_SQL"):
-            resources["cloud_sql"] = {
-                "status": "deferred",
-                "note": "Cloud SQL provisioning tracked under follow-up #435 (sibling of #382).",
-            }
+            instance_id = _truncate_cloud_sql_instance_id(agent_name)
+            tier = str(fields.get("GCP_CLOUD_SQL_TIER", "db-f1-micro"))
+            db_name = str(fields.get("GCP_CLOUD_SQL_DATABASE", "agentbreeder_memory"))
+            db_user = str(fields.get("GCP_CLOUD_SQL_USER", "agentbreeder"))
+            vpc_network = resources.get("vpc_connector", {}).get("network") or str(
+                fields.get("GCP_VPC_NAME", "default")
+            )
+            await _emit(f"ensuring Cloud SQL instance '{instance_id}' (tier={tier})")
+            cloud_sql_info = await self._ensure_cloud_sql(
+                project=project,
+                region=region,
+                instance_id=instance_id,
+                tier=tier,
+                db_name=db_name,
+                db_user=db_user,
+                vpc_network=vpc_network,
+                fields=fields,
+            )
+            resources["cloud_sql"] = cloud_sql_info
 
         state = InfraState(
             cloud="gcp",
@@ -248,6 +267,20 @@ class GCPProvisioner(InfraProvisioner):
         # carry the original `fields` dict on InfraState. Operators using a
         # specific SA key for destroy should set GOOGLE_APPLICATION_CREDENTIALS.
         fields: dict[str, Any] = {}
+
+        if sql := resources.get("cloud_sql"):
+            if sql.get("instance_name"):
+                try:
+                    await self._delete_cloud_sql(
+                        project=sql["project"],
+                        instance_id=sql["instance_id"],
+                        secret_name=sql.get("password_secret"),
+                        fields=fields,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "destroy(gcp): failed to delete Cloud SQL %s", sql.get("instance_id")
+                    )
 
         if vpc := resources.get("vpc_connector"):
             if vpc.get("name"):
@@ -375,6 +408,201 @@ class GCPProvisioner(InfraProvisioner):
             client.delete_service_account(name=sa_resource)
         except NotFound:
             logger.debug("service account %s already absent", sa_email)
+
+    async def _ensure_cloud_sql(
+        self,
+        *,
+        project: str,
+        region: str,
+        instance_id: str,
+        tier: str,
+        db_name: str,
+        db_user: str,
+        vpc_network: str,
+        fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create a private-IP Cloud SQL Postgres instance, database, and user.
+
+        Returns the InfraState record (instance connection name + Secret Manager
+        ref). Idempotent: if the instance, database, and user already exist
+        they are returned untouched. The generated password is written ONLY to
+        Secret Manager — never to disk, logs, or the returned dict. If the
+        Secret Manager write fails after a fresh instance was created, the
+        method attempts to delete the instance before re-raising.
+        """
+        import secrets as _secrets
+
+        from google.api_core.exceptions import AlreadyExists, NotFound
+        from google.cloud import secretmanager, sql_v1
+
+        creds = _credentials(fields)
+        admin = sql_v1.SqlInstancesServiceClient(credentials=creds)
+        db_client = sql_v1.SqlDatabasesServiceClient(credentials=creds)
+        user_client = sql_v1.SqlUsersServiceClient(credentials=creds)
+
+        secret_name = f"agentbreeder-{instance_id}-db-password"
+        secret_resource = f"projects/{project}/secrets/{secret_name}"
+        connection_name = f"{project}:{region}:{instance_id}"
+        instance_resource_name = f"projects/{project}/locations/{region}/instances/{instance_id}"
+
+        # ---- Instance ---------------------------------------------------
+        instance_freshly_created = False
+        try:
+            admin.get(request=sql_v1.SqlInstancesGetRequest(project=project, instance=instance_id))
+            logger.debug("cloud sql instance %s already exists", instance_id)
+        except NotFound:
+            instance_body = sql_v1.DatabaseInstance(
+                name=instance_id,
+                database_version=sql_v1.SqlDatabaseVersion.POSTGRES_15,
+                region=region,
+                settings=sql_v1.Settings(
+                    tier=tier,
+                    ip_configuration=sql_v1.IpConfiguration(
+                        ipv4_enabled=False,
+                        private_network=f"projects/{project}/global/networks/{vpc_network}",
+                        require_ssl=True,
+                    ),
+                    backup_configuration=sql_v1.BackupConfiguration(enabled=True),
+                    user_labels={
+                        "agentbreeder": "true",
+                        "agent_name": instance_id,
+                    },
+                ),
+            )
+            try:
+                op = admin.insert(
+                    request=sql_v1.SqlInstancesInsertRequest(project=project, body=instance_body)
+                )
+                _await_operation(op)
+                instance_freshly_created = True
+            except AlreadyExists:
+                logger.debug("cloud sql instance %s created concurrently", instance_id)
+
+        # ---- Database ---------------------------------------------------
+        try:
+            db_client.get(
+                request=sql_v1.SqlDatabasesGetRequest(
+                    project=project, instance=instance_id, database=db_name
+                )
+            )
+        except NotFound:
+            try:
+                op = db_client.insert(
+                    request=sql_v1.SqlDatabasesInsertRequest(
+                        project=project,
+                        instance=instance_id,
+                        body=sql_v1.Database(name=db_name),
+                    )
+                )
+                _await_operation(op)
+            except AlreadyExists:
+                logger.debug("cloud sql database %s/%s created concurrently", instance_id, db_name)
+
+        # ---- User + password -------------------------------------------
+        password = _secrets.token_urlsafe(32)
+        user_existed = False
+        existing_users = user_client.list(
+            request=sql_v1.SqlUsersListRequest(project=project, instance=instance_id)
+        )
+        for u in getattr(existing_users, "items", []) or []:
+            if u.name == db_user:
+                user_existed = True
+                break
+
+        if user_existed:
+            op = user_client.update(
+                request=sql_v1.SqlUsersUpdateRequest(
+                    project=project,
+                    instance=instance_id,
+                    name=db_user,
+                    body=sql_v1.User(name=db_user, password=password),
+                )
+            )
+            _await_operation(op)
+        else:
+            op = user_client.insert(
+                request=sql_v1.SqlUsersInsertRequest(
+                    project=project,
+                    instance=instance_id,
+                    body=sql_v1.User(name=db_user, password=password),
+                )
+            )
+            _await_operation(op)
+
+        # ---- Secret Manager — write password ---------------------------
+        sm = secretmanager.SecretManagerServiceClient(credentials=creds)
+        try:
+            try:
+                sm.get_secret(request={"name": secret_resource})
+            except NotFound:
+                sm.create_secret(
+                    request={
+                        "parent": f"projects/{project}",
+                        "secret_id": secret_name,
+                        "secret": {"replication": {"automatic": {}}},
+                    }
+                )
+            sm.add_secret_version(
+                request={
+                    "parent": secret_resource,
+                    "payload": {"data": password.encode("utf-8")},
+                }
+            )
+        except Exception:
+            if instance_freshly_created:
+                logger.exception(
+                    "cloud sql: Secret Manager write failed — rolling back fresh instance %s",
+                    instance_id,
+                )
+                with contextlib.suppress(Exception):
+                    op = admin.delete(
+                        request=sql_v1.SqlInstancesDeleteRequest(
+                            project=project, instance=instance_id
+                        )
+                    )
+                    _await_operation(op)
+            raise
+
+        return {
+            "instance_id": instance_id,
+            "instance_name": instance_resource_name,
+            "connection_name": connection_name,
+            "database": db_name,
+            "user": db_user,
+            "tier": tier,
+            "region": region,
+            "project": project,
+            "vpc_network": vpc_network,
+            "password_secret": secret_resource,
+        }
+
+    async def _delete_cloud_sql(
+        self,
+        *,
+        project: str,
+        instance_id: str,
+        secret_name: str | None,
+        fields: dict[str, Any],
+    ) -> None:
+        from google.api_core.exceptions import NotFound
+        from google.cloud import secretmanager, sql_v1
+
+        creds = _credentials(fields)
+        admin = sql_v1.SqlInstancesServiceClient(credentials=creds)
+        try:
+            op = admin.delete(
+                request=sql_v1.SqlInstancesDeleteRequest(project=project, instance=instance_id)
+            )
+            _await_operation(op)
+        except NotFound:
+            logger.debug("cloud sql instance %s already absent", instance_id)
+
+        if secret_name:
+            sm = secretmanager.SecretManagerServiceClient(credentials=creds)
+            try:
+                sm.delete_secret(request={"name": secret_name})
+            except NotFound:
+                logger.debug("cloud sql secret %s already absent", secret_name)
 
     async def _ensure_vpc_connector(
         self,
@@ -513,6 +741,32 @@ def _truncate_connector_id(agent_name: str) -> str:
     if len(safe) < 2:
         safe = (safe + "-c")[:25]
     return safe[:25]
+
+
+def _await_operation(op: Any, timeout: float = 1800.0) -> Any:
+    """Block until a Cloud SQL Admin long-running operation completes.
+
+    Wraps the operation polling so unit tests can patch a single seam.
+    Raises if the operation reports an error.
+    """
+    result = op
+    if hasattr(op, "result"):
+        result = op.result(timeout=timeout)
+    if hasattr(result, "error") and getattr(result, "error", None):
+        raise RuntimeError(f"cloud sql operation failed: {result.error}")
+    return result
+
+
+def _truncate_cloud_sql_instance_id(agent_name: str) -> str:
+    """Cloud SQL instance IDs are 1-98 chars, lowercase letters/digits/hyphens.
+
+    Suffix with ``-memory`` per the issue's resource-naming contract. Caps at
+    50 chars so the suffix always fits even after agent-name sanitisation.
+    """
+    base = agent_name[:40].lower()
+    safe = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in base)
+    safe = safe.strip("-") or "default"
+    return f"{safe}-memory"[:50]
 
 
 def _truncate_sa_id(agent_name: str) -> str:

@@ -71,6 +71,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Deps** added `google-cloud-vpc-access>=1.10.0` to the `gcp` + `all-clouds` extras.
 - **Tests** 9 new unit tests cover the trigger predicate (`_should_provision_vpc_connector`), the truncator (`_truncate_connector_id` — 2-25 chars, lowercase, hyphenated), the create / skip / custom-network / idempotent-state paths, plus destroy semantics including the legacy "deferred-marker" branch.
 
+### v2.3 — GCP Cloud SQL provisioning (#435, stacked on #436)
+
+- **Added** `GCPProvisioner._ensure_cloud_sql()` / `_delete_cloud_sql()` — creates a Cloud SQL Postgres 15 instance named `{agent_name}-memory` (default tier `db-f1-micro`, configurable via `GCP_CLOUD_SQL_TIER`), database `agentbreeder_memory`, user `agentbreeder` with a random password generated via `secrets.token_urlsafe(32)`. The password is written to Secret Manager as `agentbreeder-{instance_id}-db-password` in the same `provision()` call; `InfraState.resources["cloud_sql"]` carries the secret resource name only — the plaintext password never appears on disk, in logs, or in the state file. If the Secret Manager write fails after a fresh instance was created, the instance is rolled back.
+- **Private only** `ip_configuration.ipv4_enabled=False`, `require_ssl=True`, `private_network` points at the VPC the connector (#436) was created on. Cloud SQL implies the VPC connector unless `GCP_CLOUD_SQL_PRIVATE_IP=0`.
+- **Idempotent** instance / database / user are all check-then-create. Re-running `provision()` rotates the user password and re-writes Secret Manager but does not recreate the instance.
+- **Wiring** Cloud Run deploy already honoured `GCP_CLOUD_SQL_INSTANCE` (connection name); operators now pipe it from `.agentbreeder/infra-state.json`.
+- **Deps** added `google-cloud-sql>=1.6.0` + `google-cloud-secret-manager>=2.20.0` to the `gcp` + `all-clouds` extras.
+- **Tests** 9 new unit tests cover skip-by-default, create-when-flag-set, custom-tier, implied-VPC-connector, plaintext-password-never-in-state (regex assertion on `state.model_dump_json()`), the `_truncate_cloud_sql_instance_id` helper, and destroy semantics including the legacy "deferred-marker" branch (37 total).
+
 ### Platform Audit Summary (2026-05-18)
 
 A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:
