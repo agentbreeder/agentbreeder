@@ -94,6 +94,27 @@ These are auto-created on first deploy in greenfield mode (coming with [#383](ht
 `ec2:DescribeSecurityGroups`, `ecs:DescribeClusters`, `iam:GetRole`,
 `ecr:DescribeRepositories`.
 
+**Greenfield mode (`agentbreeder deploy --target aws --provision`):**
+
+For fresh AWS accounts, AgentBreeder creates the minimum-viable ECS Fargate
+footprint end-to-end. Only `AWS_REGION` and a credential chain are required.
+
+| Resource | Notes |
+|---|---|
+| VPC `10.0.0.0/16` + 2 public + 2 private subnets across 2 AZs | Tagged `AgentBreeder=true` |
+| Internet Gateway + NAT Gateway (single AZ default, multi-AZ via `AWS_MULTI_AZ_NAT=1`) | Single NAT saves ~$32/mo |
+| Security groups: `agentbreeder-alb-sg` (80/443), `agentbreeder-agent-sg` (8080 from ALB only), `agentbreeder-db-sg` (5432 from agent only) | DB SG never gets 0.0.0.0/0 |
+| ECS cluster `agentbreeder-{agent_name}` (FARGATE + FARGATE_SPOT) | |
+| IAM execution role `agentbreeder-execution-{agent_name}` | `AmazonECSTaskExecutionRolePolicy` + ECR pull |
+| ECR repository | Per-agent, encrypted at rest |
+| RDS PostgreSQL `t3.micro` (only when `memory:` declared) | `publicly_accessible=False`, `storage_encrypted=True`, password in Secrets Manager |
+| ALB + target group + listener (only when `access.visibility: public`) | TLS 1.2+ policy `ELBSecurityPolicy-TLS13-1-2-2021-06` |
+
+State is written to `.agentbreeder/infra-state.json`; `agentbreeder teardown
+--destroy-infra` reverses in safe order. `destroy()` refuses to touch any
+resource missing the `AgentBreeder=true` tag, and takes a final RDS snapshot
+unless `--no-final-snapshot` is passed.
+
 </Tab>
 <Tab value="GCP">
 

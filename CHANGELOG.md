@@ -63,6 +63,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Deferred** Cloud SQL → #435, VPC Connector → #436. Both surface as explicit deferred markers in `InfraState.resources` when requested.
 - Stacked on #413 (Phase A foundation).
 
+### v2.3 — AWS greenfield provisioner (#383)
+
+- **Added** `AWSProvisioner.provision()` / `destroy()` — creates the minimum-viable ECS Fargate footprint end-to-end via boto3: VPC `10.0.0.0/16` + 2 public + 2 private subnets across 2 AZs, IGW, single NAT Gateway (multi-AZ opt-in via `AWS_MULTI_AZ_NAT=1`), three security groups (alb / agent / db with strict tier-to-tier ingress only), ECS cluster (`FARGATE` + `FARGATE_SPOT`), per-agent IAM execution role with `AmazonECSTaskExecutionRolePolicy` + ECR pull, optional RDS PostgreSQL `t3.micro` in private subnets (when `memory:` declared, `publicly_accessible=False`, `storage_encrypted=True`, random password generated via `secrets.token_urlsafe(32)` and stored in AWS Secrets Manager — never on disk), optional ALB + target group + listener (when `access.visibility: public`, TLS 1.2+ policy `ELBSecurityPolicy-TLS13-1-2-2021-06`). Every resource tagged `AgentBreeder=true` + `AgentName` + `Version`; `destroy()` refuses to touch any resource missing the canonical tag and takes a final RDS snapshot unless `--no-final-snapshot`.
+- **Idempotent** — re-running `provision()` against an existing state file is a no-op.
+- **Tests** 25 unit tests with mocked boto3 clients cover the security-critical paths: DB SG never ingresses from 0.0.0.0/0, RDS is private + encrypted, plaintext password never appears in `InfraState.model_dump_json()`, RDS rolled back if Secrets Manager write fails, ALB listener uses TLS 1.2+, `destroy()` refuses untagged resources, session never accepts inline credentials.
+
 ### Platform Audit Summary (2026-05-18)
 
 A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:
