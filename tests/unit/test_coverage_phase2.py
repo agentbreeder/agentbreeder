@@ -546,7 +546,9 @@ class TestBatchExtractEntities:
         fake_nodes = [MagicMock(), MagicMock()]
         fake_edges: list = []
 
-        async def fake_extract(text: str, model: str, cache: Any) -> tuple:
+        async def fake_extract(
+            text: str, model: str, cache: Any, custom_types: Any = None
+        ) -> tuple:
             return (fake_nodes, fake_edges)
 
         with patch("api.services.graph_extraction.extract_entities", fake_extract):

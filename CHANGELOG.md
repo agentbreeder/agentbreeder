@@ -23,6 +23,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Hardened** `MemoryService` now raises `PermissionError` when a team-scoped config is accessed without `requesting_team` (previously a silent allow).
 - **Tests** — flipped 2 `MM7` xfail tests to passing + added route-layer 403 coverage.
 
+### v2.3 — HR-3 GraphRAG `custom_entity_types` (#419, closes #405)
+
+- **Added** `entity_extraction.custom_types[]` accepted by `engine/schema/agent.schema.json` + Pydantic mirror (`engine/config_parser.py`).
+- **Threaded** `custom_types` through `extract_entities` / `_call_claude` / `_call_ollama`; cache key extended so different type sets don't collide.
+- **Docs** — flipped roadmap callout in `graphrag.mdx` to shipped.
+
 ### Platform Audit Summary (2026-05-18)
 
 A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:
