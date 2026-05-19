@@ -1,6 +1,14 @@
-FROM --platform=$BUILDPLATFORM node:22-alpine AS build
+# Build stage uses node:22-slim (Debian glibc) — node:22-alpine (musl) was
+# causing esbuild's Go daemon to die mid-transformation with EPIPE during
+# `vite build` inside Docker (#411). glibc avoids the musl/seccomp interaction
+# and keeps vite + esbuild stable across BuildKit + Docker Desktop on macOS.
+FROM --platform=$BUILDPLATFORM node:22-slim AS build
 
 WORKDIR /app
+
+# Bound esbuild's Node-side memory so a runaway worker can't be OOM-killed by
+# the BuildKit container before it can report a real error.
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 # Install dependencies
 COPY package.json package-lock.json* ./
