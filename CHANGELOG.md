@@ -8,6 +8,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.3 — Cloud-Deploy Foundation (#413)
+
+- **Added** `engine/provisioners/` — `InfraProvisioner` ABC with read-only `validate_existing` impls for AWS / GCP / Azure (boto3, google-cloud, azure-sdk). Greenfield `provision()` / `destroy()` stubbed (per-cloud follow-ups #382 / #383 / #384).
+- **Added** `engine/provisioners/state.py` — `InfraState` round-trippable via `.agentbreeder/infra-state.json`.
+- **Added** `engine/provisioners/requirements.py` — static user-input contract per cloud × `(simple, full)` mode.
+- **Added** API: `GET /api/v1/deployments/cloud-requirements/{cloud}?mode=simple|full` (any authenticated user) and `POST /api/v1/deployments/validate-infra` (`deployer` role required in the requested team, cross-team → 403, rate-limited 10 req/min via slowapi, audit-logged via `AuditService`).
+- **Added** `pgvector>=0.2.5` + `slowapi>=0.1.9` to optional deps; new `gcp` extras group; expanded `azure` group.
+- **Docs** — rewrote `website/content/docs/deployment.mdx` to a three-cloud tabbed contract.
+
 ### Platform Audit Summary (2026-05-18)
 
 A 9-way parallel audit (`docs/superpowers/specs/2026-05-18-platform-audit-design.md`) surfaced 91 findings across 8 code subsystems plus website. 85 additive-safe items landed across 5 execution waves:
