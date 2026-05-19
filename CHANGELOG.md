@@ -75,6 +75,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Wiring** Cloud Run deploy already honoured `GCP_VPC_CONNECTOR` (`engine/deployers/gcp_cloudrun.py:110`); operators now pipe the connector name from `.agentbreeder/infra-state.json` instead of provisioning out of band.
 - **Deps** added `google-cloud-vpc-access>=1.10.0` to the `gcp` + `all-clouds` extras.
 - **Tests** 9 new unit tests cover the trigger predicate (`_should_provision_vpc_connector`), the truncator (`_truncate_connector_id` — 2-25 chars, lowercase, hyphenated), the create / skip / custom-network / idempotent-state paths, plus destroy semantics including the legacy "deferred-marker" branch.
+### v2.3 — Azure greenfield provisioner (#384)
+
+- **Added** `AzureProvisioner.provision()` / `destroy()` — creates the minimum-viable Container Apps footprint end-to-end via azure-mgmt-*: Resource Group `agentbreeder-{agent}-rg`, Log Analytics workspace (required prerequisite for ACA), Container Apps Environment (internal-only unless `access.visibility: public`), Azure Container Registry (`admin_user_enabled=False` — Managed Identity auth only), per-agent user-assigned Managed Identity with `AcrPull` role scoped to the specific registry resource ID (never the subscription), and — when `memory:` is declared — VNet + delegated subnet + Azure Database for PostgreSQL Flexible Server (`public_network_access=Disabled`, private DNS) with a random password stored in a per-agent Key Vault. State stores the Key Vault secret URI only.
+- **Idempotent** — every helper is check-then-create; re-running `provision()` is a no-op. `destroy()` refuses untagged resources, then deletes the resource group last (cascades anything not explicitly tracked).
+- **Deps** added `azure-keyvault-secrets`, `azure-mgmt-authorization`, `azure-mgmt-keyvault`, `azure-mgmt-loganalytics`, `azure-mgmt-msi`, `azure-mgmt-network`, `azure-mgmt-rdbms` to the `azure` + `all-clouds` extras.
+- **Tests** 24 unit tests with mocked azure-mgmt clients pin the security-critical paths: PostgreSQL `public_network_access=Disabled`, ACR `admin_user_enabled=False`, AcrPull role scoped to registry not subscription, plaintext password never appears in `InfraState.model_dump_json()`, DB rolled back if Key Vault write fails, `destroy()` refuses untagged resources.
 
 ### Platform Audit Summary (2026-05-18)
 
