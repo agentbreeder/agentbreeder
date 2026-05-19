@@ -38,11 +38,11 @@ logger = logging.getLogger(__name__)
 # will miss content from compressed streams, fonts with custom encodings,
 # and scanned pages. To enable, ``pip install PyPDF2``.
 try:  # pragma: no cover — import guard
-    import PyPDF2  # type: ignore[import-not-found]
+    import PyPDF2
 
     _PYPDF2_AVAILABLE = True
 except Exception:  # noqa: BLE001 — any import failure means we fall back.
-    PyPDF2 = None  # type: ignore[assignment]
+    PyPDF2 = None
     _PYPDF2_AVAILABLE = False
 
 

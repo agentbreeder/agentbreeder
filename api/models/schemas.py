@@ -589,8 +589,8 @@ class McpServerResponse(BaseModel):
     def model_validate(  # type: ignore[override]
         cls,
         obj: object,
-        *args: object,
-        **kwargs: object,
+        *args: Any,
+        **kwargs: Any,
     ) -> McpServerResponse:
         base = super().model_validate(obj, *args, **kwargs)
         # Pull timeout_seconds out of deploy_config JSON when loading from ORM.

@@ -438,9 +438,9 @@ class Neo4jRAGBackend:
         if hasattr(tx_ctx, "__aenter__"):
             tx_manager = tx_ctx
         else:
-            tx_manager = await tx_ctx  # type: ignore[assignment]
+            tx_manager = await tx_ctx
 
-        async with tx_manager as tx:  # type: ignore[union-attr]
+        async with tx_manager as tx:
             return await self._ingest_batch_direct(tx, batch)
 
     async def _ingest_batch_direct(

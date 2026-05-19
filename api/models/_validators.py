@@ -29,7 +29,7 @@ def make_weights_sum_validator(
     name_b: str,
     *,
     tolerance: float = 1e-6,
-):
+) -> Any:
     """Return a Pydantic model_validator(mode='after') that enforces sum-to-1.0.
 
     Use as::
