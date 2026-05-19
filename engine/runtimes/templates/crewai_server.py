@@ -371,13 +371,16 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
             active_module = _SyntheticModule()
             active_module.crew = _crew
 
-        # HR-2 / #404: load prior conversation context (best-effort).
+        # HR-2 / #404: load prior conversation context (best-effort). CrewAI
+        # passes a dict to the crew, so we attach prior context as a sibling
+        # key rather than replacing the input — the task can read it from
+        # ``inputs["_agentbreeder_memory_context"]`` when present.
         thread_id = (
             (request.config or {}).get("thread_id")
             or (request.config or {}).get("session_id")
             or str(uuid.uuid4())
         )
-        user_input = request.input
+        user_input: dict[str, Any] = dict(request.input)
         if _memory is not None:
             try:
                 prior = await _memory.load(thread_id)
@@ -387,7 +390,7 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
                         for m in prior
                         if isinstance(m, dict)
                     )
-                    user_input = f"Prior conversation:\n{prefix}\n\nCurrent task: {request.input}"
+                    user_input["_agentbreeder_memory_context"] = prefix
             except Exception:
                 logger.warning("memory.load failed; continuing without history", exc_info=True)
 
