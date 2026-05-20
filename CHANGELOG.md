@@ -8,6 +8,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.4 — Deployment wizard E2E specs (#446)
+
+- **Test** Six Playwright specs at `dashboard/tests/e2e/deploy-wizard-*.spec.ts` cover the wizard's happy paths (GCP greenfield, AWS BYO), the validation-failure path (Azure BYO), approval-required flow (poll → SSE handoff), draft-resume from localStorage, and the stalled-deploy failure UI.
+- **Fixture** `dashboard/tests/e2e/deploy-wizard-helpers.ts` provides a `mockOrchestrator` extension over the existing `authedPage` fixture — overrides `window.EventSource` with a `FakeEventSource` and exposes `__pushDeployEvent` for driving scripted SSE sequences. Plus per-test helpers for `mockAgents`, `mockValidateInfra`, `mockCreateJob`, `mockGetJob`.
+- **CI** Specs run under the existing "E2E Tests (Docker)" job — alert-only per spec §9.7.
+
 ### v2.4 — Container hardening: drop root in dashboard + cli images (#444)
 
 - **Security** `dashboard/Dockerfile` and `Dockerfile.cli` now declare a non-root `USER` directive. The main `Dockerfile` (api image) already did this; these two images had been shipping as `root` since v0.
