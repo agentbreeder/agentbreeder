@@ -8,6 +8,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.4 — Tighten `/api/v1/deploys` with team-scoped RBAC (#414)
+
+- **Closed** the HR-1 analogue gap for deploys. Before this change, a user with the `deployer` role in team A could `POST /api/v1/deploys` against an agent owned by team B — `require_role("deployer")` was applied **without** `resource_team=`, so the middleware only verified deployer-anywhere.
+- **Two-layer gate** the route now stacks `require_role("deployer")` (fast-rejects users who aren't a deployer in any team) with a new `enforce_team_role(user, agent.team, "deployer")` call (refines the check after the agent's team is resolved). Defense in depth, and the v2.3 viewer-rejection behavior is preserved.
+- **Resolution** team is read from `agent.team` when the request carries an `agent_id`, and from the YAML's `team:` field when the request is a builder-mode `config_yaml`. Builder payloads without a `team:` field now return 400 instead of falling through to a less-helpful error.
+- **Lifecycle parity** the same team-scope check now gates `DELETE /api/v1/deploys/{id}` (cancel) and `POST /api/v1/deploys/{id}/rollback`. Both look up the job's agent to find the team.
+- **Audit log** every deploy lifecycle action (`deploy.create` / `deploy.cancel` / `deploy.rollback`) now emits an `AuditService.log_event` entry tagged with the agent's team and the caller's email + IP.
+- **Platform admin bypass** unchanged — admins still pass for any team.
+- **Test** 8 new tests cover the cross-team 403 path (POST agent_id, POST config_yaml, DELETE, POST /rollback), the same-team 200 path, the YAML-missing-team 400 path, and the platform-admin escape hatch. Six existing tests in `test_api_routes_extended.py` now override `get_db` to mock the new agent/job lookups that the team-scope check requires.
+- **Cross-repo** `agentbreeder-cloud` does not consume `/api/v1/deploys`; no companion PR needed.
+
 ### v2.4 — `agentbreeder deploy --remote` closes in-process RBAC bypass (#416)
 
 - **Closed** the Phase A bypass where `agentbreeder deploy` ran `engine.builder.DeployEngine` in-process — RBAC, audit logging, and team-scoped credentials never fired for CLI deploys.

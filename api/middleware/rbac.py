@@ -78,6 +78,45 @@ def require_role(min_role: str, resource_team: str | None = None) -> Callable:
     return check
 
 
+async def enforce_team_role(user: User, team_id: str, min_role: str) -> None:
+    """Imperative analogue of ``require_role(min_role, resource_team=team_id)``.
+
+    Use this from inside a route handler when the resource team is only known
+    after fetching the resource — e.g. ``POST /api/v1/deploys`` resolves the
+    team from ``agent.team`` (looked up by ``request.agent_id``) or from
+    ``config_yaml``'s ``team:`` field, neither of which are available to a
+    ``Depends(require_role(...))`` evaluated at dependency-resolution time.
+
+    Raises 403 if the user is not a member of ``team_id`` or lacks the
+    required role within it. Platform admins are exempt — they pass for any
+    team.
+    """
+    from api.services.team_service import ROLE_HIERARCHY
+
+    if min_role not in ROLE_HIERARCHY:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Invalid role requirement: {min_role}",
+        )
+
+    if hasattr(user, "role") and str(user.role) == "admin":
+        return
+
+    user_role = await TeamService.get_user_role_in_team(str(user.id), team_id)
+    if user_role is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You are not a member of team {team_id}",
+        )
+    required_level = ROLE_HIERARCHY[min_role]
+    user_level = ROLE_HIERARCHY.get(user_role, 0)
+    if user_level < required_level:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Requires {min_role} role for team {team_id}, you have {user_role}",
+        )
+
+
 async def get_user_team_role(
     team_id: str,
     user: User = Depends(get_current_user),

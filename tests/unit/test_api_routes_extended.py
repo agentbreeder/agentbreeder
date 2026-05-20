@@ -382,6 +382,41 @@ class TestGetDeploy:
         assert resp.status_code == 404
 
 
+def _override_deploys_db(agent=None, job=None):
+    """Override ``get_db`` so the team-scope checks on ``deploys`` routes resolve.
+
+    Since #414 each deploys route does its own ``db.get(Agent, ...)`` and/or
+    ``db.get(DeployJob, ...)`` to read the team before the role gate. The
+    existing tests in this module didn't need a session mock — they do now.
+    The returned object should be used as a context manager.
+    """
+    from contextlib import contextmanager
+
+    from api.database import get_db
+
+    mock_db = AsyncMock()
+
+    async def fake_get(model, pk):
+        if model.__name__ == "DeployJob":
+            return job
+        return agent
+
+    mock_db.get = fake_get
+
+    async def _override():
+        return mock_db
+
+    @contextmanager
+    def _ctx():
+        app.dependency_overrides[get_db] = _override
+        try:
+            yield
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+
+    return _ctx()
+
+
 class TestCancelDeploy:
     @patch(
         "api.routes.deploys.DeployService.cancel_deploy",
@@ -390,7 +425,10 @@ class TestCancelDeploy:
     def test_cancel_success(self, mock_cancel) -> None:
         mock_cancel.return_value = True
         job_id = uuid.uuid4()
-        resp = client.delete(f"/api/v1/deploys/{job_id}")
+        agent = _make_agent()
+        job = _make_deploy_job(id=job_id, agent_id=agent.id)
+        with _override_deploys_db(agent=agent, job=job):
+            resp = client.delete(f"/api/v1/deploys/{job_id}")
         assert resp.status_code == 200
         assert resp.json()["data"]["cancelled"] is True
 
@@ -400,7 +438,11 @@ class TestCancelDeploy:
     )
     def test_cancel_not_found(self, mock_cancel) -> None:
         mock_cancel.return_value = False
-        resp = client.delete(f"/api/v1/deploys/{uuid.uuid4()}")
+        job_id = uuid.uuid4()
+        agent = _make_agent()
+        job = _make_deploy_job(id=job_id, agent_id=agent.id)
+        with _override_deploys_db(agent=agent, job=job):
+            resp = client.delete(f"/api/v1/deploys/{job_id}")
         assert resp.status_code == 404
 
 
@@ -412,7 +454,10 @@ class TestRollbackDeploy:
     def test_rollback_success(self, mock_rb) -> None:
         mock_rb.return_value = True
         job_id = uuid.uuid4()
-        resp = client.post(f"/api/v1/deploys/{job_id}/rollback")
+        agent = _make_agent()
+        job = _make_deploy_job(id=job_id, agent_id=agent.id)
+        with _override_deploys_db(agent=agent, job=job):
+            resp = client.post(f"/api/v1/deploys/{job_id}/rollback")
         assert resp.status_code == 200
         assert resp.json()["data"]["rolled_back"] is True
 
@@ -422,7 +467,11 @@ class TestRollbackDeploy:
     )
     def test_rollback_not_failed(self, mock_rb) -> None:
         mock_rb.return_value = False
-        resp = client.post(f"/api/v1/deploys/{uuid.uuid4()}/rollback")
+        job_id = uuid.uuid4()
+        agent = _make_agent()
+        job = _make_deploy_job(id=job_id, agent_id=agent.id)
+        with _override_deploys_db(agent=agent, job=job):
+            resp = client.post(f"/api/v1/deploys/{job_id}/rollback")
         assert resp.status_code == 400
 
 
@@ -433,15 +482,17 @@ class TestCreateDeploy:
     )
     def test_create_with_agent_id(self, mock_create) -> None:
         agent_id = uuid.uuid4()
+        agent = _make_agent(id=agent_id)
         job = _make_deploy_job(agent_id=agent_id)
         mock_create.return_value = job
-        resp = client.post(
-            "/api/v1/deploys",
-            json={
-                "agent_id": str(agent_id),
-                "target": "local",
-            },
-        )
+        with _override_deploys_db(agent=agent):
+            resp = client.post(
+                "/api/v1/deploys",
+                json={
+                    "agent_id": str(agent_id),
+                    "target": "local",
+                },
+            )
         assert resp.status_code == 200
 
     def test_create_missing_both(self) -> None:
@@ -457,13 +508,14 @@ class TestCreateDeploy:
     )
     def test_create_agent_not_found(self, mock_create) -> None:
         mock_create.side_effect = ValueError("Agent not found")
-        resp = client.post(
-            "/api/v1/deploys",
-            json={
-                "agent_id": str(uuid.uuid4()),
-                "target": "local",
-            },
-        )
+        with _override_deploys_db(agent=None):
+            resp = client.post(
+                "/api/v1/deploys",
+                json={
+                    "agent_id": str(uuid.uuid4()),
+                    "target": "local",
+                },
+            )
         assert resp.status_code == 404
 
 
