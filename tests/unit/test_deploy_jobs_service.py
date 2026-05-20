@@ -42,17 +42,17 @@ def service(event_bus, orchestrator, idempotency_store) -> DeployJobService:
 
 
 def _payload(**overrides) -> DeployJobCreate:
-    base = dict(
-        agent_id=str(uuid4()),
-        cloud="gcp",
-        region="us-central1",
-        infra_mode="provision",
-        byo_fields={},
-        env_vars=[],
-        secrets=[],
-        scaling={"min": 1, "max": 3, "cpu_target_pct": 70},
-        db_tier=None,
-    )
+    base = {
+        "agent_id": str(uuid4()),
+        "cloud": "gcp",
+        "region": "us-central1",
+        "infra_mode": "provision",
+        "byo_fields": {},
+        "env_vars": [],
+        "secrets": [],
+        "scaling": {"min": 1, "max": 3, "cpu_target_pct": 70},
+        "db_tier": None,
+    }
     base.update(overrides)
     return DeployJobCreate.model_validate(base)
 
