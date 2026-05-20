@@ -67,10 +67,8 @@ test.describe("Deploy Wizard — AWS BYO happy path", () => {
     // InfraValidatePanel loads — fill the AWS_ECS_CLUSTER field
     await expect(wizardPage.getByText("BYO infrastructure fields")).toBeVisible();
 
-    const clusterInput = wizardPage.locator('input[type="text"]').filter({
-      // The input is inside a label whose text contains AWS_ECS_CLUSTER
-    }).first();
-    // Use a more robust selector: find any text input that is now visible
+    // Find any text input that is now visible (the BYO panel only renders one
+    // visible text input per field, so .first() is unambiguous here).
     const textInput = wizardPage.locator('input[type="text"]').first();
     await expect(textInput).toBeVisible();
     await textInput.fill("ecs-cluster-prod");
