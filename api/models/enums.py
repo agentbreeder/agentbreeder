@@ -22,6 +22,10 @@ class DeployJobStatus(enum.StrEnum):
     registering = "registering"
     completed = "completed"
     failed = "failed"
+    # New states for the deployment-wizard SSE flow (#387):
+    pending_approval = "pending_approval"
+    pushing = "pushing"
+    timed_out = "timed_out"
 
 
 class UserRole(enum.StrEnum):
