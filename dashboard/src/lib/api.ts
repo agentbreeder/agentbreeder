@@ -2285,6 +2285,73 @@ export const api = {
         { method: "POST", body: JSON.stringify({ new_value: newValue }) },
       ),
   },
+  deployments: {
+    cloudRequirements: (cloud: "aws" | "gcp" | "azure", mode: "simple" | "full" = "simple") =>
+      request<{
+        fields: { name: string; required: boolean; description: string }[];
+      }>(`/deployments/cloud-requirements/${cloud}?mode=${mode}`),
+
+    validateInfra: (body: {
+      cloud: "aws" | "gcp" | "azure";
+      region: string;
+      team_id: string;
+      mode: "simple" | "full";
+      fields: Record<string, string>;
+    }) =>
+      request<{
+        valid: boolean;
+        checks: { resource: string; status: string; detail: string }[];
+      }>("/deployments/validate-infra", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+
+    createJob: (
+      body: {
+        agent_id: string;
+        cloud: "aws" | "gcp" | "azure";
+        region: string;
+        infra_mode: "byo" | "provision";
+        byo_fields: Record<string, string>;
+        env_vars: { key: string; value: string }[];
+        secrets: string[];
+        scaling: { min: number; max: number; cpu_target_pct: number };
+        db_tier?: string | null;
+      },
+      idempotencyKey: string,
+    ) =>
+      request<{ job_id: string; pending_approval: boolean }>(
+        "/deployments/",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(body),
+        },
+      ),
+
+    getJob: (jobId: string) =>
+      request<{
+        job_id: string;
+        team_id: string;
+        agent_id: string;
+        cloud: string;
+        region: string;
+        status: string;
+        pending_approval: boolean;
+        endpoint_url: string | null;
+        created_at: string;
+      }>(`/deployments/${jobId}`),
+
+    destroyPartial: (jobId: string) =>
+      request<{ job_id: string; status: string }>(
+        `/deployments/${jobId}/destroy-partial`,
+        { method: "POST" },
+      ),
+  },
 };
 
 // --- Secrets types (Track K) ---
