@@ -70,7 +70,8 @@ class DeployEventBus:
         """Evict jobs with no publish in the last `ttl`. Called by a periodic task."""
         cutoff = datetime.now(UTC) - self._ttl
         expired = [
-            jid for jid, st in self._jobs.items()
+            jid
+            for jid, st in self._jobs.items()
             if st.last_publish_at < cutoff and not st.subscribers
         ]
         for jid in expired:

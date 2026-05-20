@@ -11,7 +11,12 @@ from api.models.deploy_events import DeployEvent, DeployJobStatus
 
 
 def _evt(**overrides) -> dict:
-    base = {"type": "phase", "job_id": "job-1", "timestamp": datetime.now(UTC), "phase": "provisioning"}
+    base = {
+        "type": "phase",
+        "job_id": "job-1",
+        "timestamp": datetime.now(UTC),
+        "phase": "provisioning",
+    }
     base.update(overrides)
     return base
 
@@ -37,7 +42,9 @@ def test_complete_event_carries_endpoint_url() -> None:
 
 
 def test_error_event_carries_error_code() -> None:
-    payload = _evt(type="error", phase=None, error_code="provision_failed", message="VPC quota exceeded")
+    payload = _evt(
+        type="error", phase=None, error_code="provision_failed", message="VPC quota exceeded"
+    )
     evt = DeployEvent.model_validate(payload)
     assert evt.error_code == "provision_failed"
 

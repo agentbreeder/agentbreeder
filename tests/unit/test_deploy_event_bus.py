@@ -13,8 +13,11 @@ from api.services.deploy_event_bus import DeployEventBus
 
 def _evt(job_id: str = "job-1", n: int = 0) -> DeployEvent:
     return DeployEvent(
-        type="log", job_id=job_id, timestamp=datetime.now(UTC),
-        level="info", message=f"event-{n}",
+        type="log",
+        job_id=job_id,
+        timestamp=datetime.now(UTC),
+        level="info",
+        message=f"event-{n}",
     )
 
 
