@@ -122,6 +122,7 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     from api.services.deploy_event_bus import DeployEventBus
     from api.services.deploy_jobs import DeployJobService
+    from api.services.deploy_orchestrator import DeployOrchestrator
     from api.tasks.models_sync_cron import start_background_task as _start_models_sync_cron
 
     logger.info("AgentBreeder API starting up")
@@ -131,9 +132,10 @@ async def lifespan(app: FastAPI):
 
     # Wire deployment services for the wizard (epic #378, #387)
     app.state.deploy_event_bus = DeployEventBus()
+    app.state.deploy_orchestrator = DeployOrchestrator(event_bus=app.state.deploy_event_bus)
     app.state.deploy_job_service = DeployJobService(
         event_bus=app.state.deploy_event_bus,
-        orchestrator=None,  # set in A5 when DeployOrchestrator lands
+        orchestrator=app.state.deploy_orchestrator,
         idempotency_store={},  # TODO: wire to Redis
         agent_repo=None,  # TODO: wire to AgentService/AgentRepository
     )
