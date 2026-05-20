@@ -240,6 +240,19 @@ describe("reducer", () => {
     expect(s).toEqual(initialState);
   });
 
+  it("SET_IDEMPOTENCY_KEY records the key", () => {
+    const s = reducer(initialState, { type: "SET_IDEMPOTENCY_KEY", key: "uuid-1" });
+    expect(s.idempotencyKey).toBe("uuid-1");
+  });
+
+  it("RESET clears the idempotencyKey", () => {
+    const s = reducer(
+      { ...initialState, idempotencyKey: "uuid-1" },
+      { type: "RESET" }
+    );
+    expect(s.idempotencyKey).toBeNull();
+  });
+
   it("multiple SET_ENV_VAR calls accumulate different keys", () => {
     let s = reducer(initialState, {
       type: "SET_ENV_VAR",
