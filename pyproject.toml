@@ -41,6 +41,7 @@ dependencies = [
     "keyring>=24.0.0",
     "chromadb>=0.5.0",
     "slowapi>=0.1.9",
+    "sse-starlette>=2.0.0",
 ]
 
 [project.optional-dependencies]

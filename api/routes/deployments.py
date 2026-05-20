@@ -17,6 +17,7 @@ epic #378's sub-issues #382 / #383 / #384.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -24,6 +25,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sse_starlette.sse import EventSourceResponse
 
 from api.auth import get_current_user
 from api.models.database import User
@@ -219,3 +221,90 @@ async def create_deploy_job(
         idempotency_key=idempotency_key,
     )
     return {"data": result.model_dump(), "meta": {}, "errors": []}
+
+
+@router.get("/{job_id}")
+async def get_deploy_job(
+    job_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Get deployment job status by job_id.
+
+    Requires:
+    - Authorization header (user must be authenticated)
+    - job_id in path
+
+    Returns 200 with full job record if job belongs to caller's team.
+    Returns 403 if job belongs to a different team.
+    Returns 404 if job_id does not exist.
+    """
+    service = request.app.state.deploy_job_service
+    job = await service.get(job_id, team_id=user.team)
+    return {"data": job.model_dump(mode="json"), "meta": {}, "errors": []}
+
+
+@router.get("/{job_id}/stream")
+async def stream_deploy_events(
+    job_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> EventSourceResponse:
+    """Stream deployment events via Server-Sent Events (SSE).
+
+    Requires:
+    - Authorization header (user must be authenticated)
+    - job_id in path
+
+    Returns 200 with text/event-stream content-type if job belongs to caller's team.
+    Returns 403 if job belongs to a different team.
+    Returns 404 if job_id does not exist.
+
+    Events are emitted as JSON with event types:
+    - "log": a log message (level, message fields)
+    - "complete": deployment succeeded
+    - "error": deployment failed
+    - "ping": keepalive (every 15s if no events)
+
+    Stream closes after a "complete" or "error" event.
+    """
+    service = request.app.state.deploy_job_service
+    await service.get(job_id, team_id=user.team)  # ACL check (raises 403/404)
+    bus = request.app.state.deploy_event_bus
+
+    async def generator():
+        async with bus.subscribe(job_id) as queue:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    evt = await asyncio.wait_for(queue.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    yield {"event": "ping", "data": ""}
+                    continue
+                yield {"event": evt.type, "data": evt.model_dump_json()}
+                if evt.type in ("complete", "error"):
+                    break
+
+    return EventSourceResponse(generator())
+
+
+@router.post("/{job_id}/destroy-partial", status_code=202)
+async def destroy_partial(
+    job_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Trigger rollback of partially-deployed infrastructure.
+
+    Requires:
+    - Authorization header (user must be authenticated)
+    - job_id in path
+
+    Returns 202 with rollback_started status if job belongs to caller's team.
+    Returns 403 if job belongs to a different team.
+    Returns 404 if job_id does not exist.
+    """
+    service = request.app.state.deploy_job_service
+    await service.destroy_partial(job_id, team_id=user.team)
+    return {"data": {"job_id": job_id, "status": "rollback_started"}, "meta": {}, "errors": []}
