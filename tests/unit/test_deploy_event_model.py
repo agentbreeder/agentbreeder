@@ -54,15 +54,15 @@ def test_unknown_phase_rejected() -> None:
 
 def test_job_status_enum_values() -> None:
     assert set(DeployJobStatus) >= {
-        DeployJobStatus.PENDING,
-        DeployJobStatus.PENDING_APPROVAL,
-        DeployJobStatus.PROVISIONING,
-        DeployJobStatus.BUILDING,
-        DeployJobStatus.PUSHING,
-        DeployJobStatus.DEPLOYING,
-        DeployJobStatus.HEALTH_CHECK,
-        DeployJobStatus.REGISTERING,
-        DeployJobStatus.COMPLETED,
-        DeployJobStatus.FAILED,
-        DeployJobStatus.TIMED_OUT,
+        DeployJobStatus.pending,
+        DeployJobStatus.pending_approval,
+        DeployJobStatus.provisioning,
+        DeployJobStatus.building,
+        DeployJobStatus.pushing,
+        DeployJobStatus.deploying,
+        DeployJobStatus.health_checking,
+        DeployJobStatus.registering,
+        DeployJobStatus.completed,
+        DeployJobStatus.failed,
+        DeployJobStatus.timed_out,
     }
