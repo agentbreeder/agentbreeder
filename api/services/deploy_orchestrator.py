@@ -126,7 +126,7 @@ class DeployOrchestrator:
                     type="log",
                     job_id=job_id,
                     timestamp=datetime.now(UTC),
-                    level=level,  # type: ignore[arg-type]
+                    level=level,
                     message=message,
                 )
             )
