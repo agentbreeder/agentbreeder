@@ -119,7 +119,7 @@ class GCPProvisioner(InfraProvisioner):
     # Greenfield provisioning (#382)
     # ------------------------------------------------------------------
 
-    async def provision(  # type: ignore[override]
+    async def provision(
         self,
         payload: InfraValidationInput,
         progress: ProgressCallback | None = None,
@@ -257,7 +257,7 @@ class GCPProvisioner(InfraProvisioner):
         await _emit("provision complete")
         return state
 
-    async def destroy(self, state: InfraState) -> None:  # type: ignore[override]
+    async def destroy(self, state: InfraState) -> None:
         """Reverse what :meth:`provision` created, in safe order."""
         if state.cloud != "gcp":
             raise ValueError(f"destroy(gcp): state.cloud is {state.cloud!r}, expected 'gcp'")
