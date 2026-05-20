@@ -81,11 +81,18 @@ jobs:
         # Ignore CVE-2026-3219 and CVE-2026-6357 (pip): vulnerabilities in
         # the pip tool itself as shipped by the CI runner image; not in our
         # application code.
+        # Ignore PYSEC-2025-183 (PyJWT): a *disputed* advisory about weak
+        # encryption with no fixed version. The actual concern is key choice
+        # in the consuming application — PyJWT itself accepts whatever key
+        # the caller gives it. Our usage in api/services/auth.py uses HS256
+        # with `settings.jwt_secret_key`; production deployments must set a
+        # strong secret (>=32 bytes of entropy). See #452 for the risk note.
         run: |
           pip-audit --skip-editable \
             --ignore-vuln CVE-2024-23342 \
             --ignore-vuln CVE-2026-3219 \
-            --ignore-vuln CVE-2026-6357
+            --ignore-vuln CVE-2026-6357 \
+            --ignore-vuln PYSEC-2025-183
 
   # ── npm dependency audit ────────────────────────────────────────────────────
   npm-audit:
