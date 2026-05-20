@@ -255,6 +255,75 @@ AgentBreeder will ship with a pluggable auth provider system. Set `auth_provider
 
 ---
 
+## CLI login
+
+The CLI authenticates against the same `POST /api/v1/auth/login` endpoint that the dashboard uses. Tokens live in the **OS keychain** (macOS Keychain, GNOME libsecret, Windows Credential Manager) via the [`keyring`](https://pypi.org/project/keyring/) library — you never have to copy a JWT into a shell env var by hand.
+
+### Logging in
+
+```bash
+# Interactive — prompts for email and (hidden) password
+agentbreeder login
+
+# Non-interactive
+agentbreeder login --email alice@example.com --password "$AB_PASSWORD"
+
+# Or paste a token issued by the dashboard
+agentbreeder login --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+On success the token is written to the OS keychain. Subsequent commands (`agentbreeder whoami`, `agentbreeder registry agent list`, …) pick it up automatically.
+
+### whoami
+
+```bash
+agentbreeder whoami
+# email           alice@example.com
+# name            Alice Example
+# role            deployer
+# team (primary)  engineering
+# active team     ops
+# id              5b3e9c…
+
+agentbreeder whoami --json | jq .role
+```
+
+### Logging out
+
+```bash
+agentbreeder logout
+# Logged out.
+```
+
+`logout` deletes the keychain entry. It does **not** revoke the token server-side — the JWT remains valid until its expiry (24h by default). For server-side revocation see refresh-token issue [#395](https://github.com/agentbreeder/agentbreeder/issues/395).
+
+### Active team context
+
+If your account belongs to multiple teams, set the one you want to act as:
+
+```bash
+agentbreeder context use ops      # subsequent calls send X-AgentBreeder-Team: ops
+agentbreeder context show
+agentbreeder context clear        # falls back to your primary team
+```
+
+The active team is stored in `~/.agentbreeder/context.json` and is sent on every authenticated request as the `X-AgentBreeder-Team` header.
+
+### CI / non-interactive use
+
+In CI you typically don't have a keychain. Export `AGENTBREEDER_API_TOKEN` directly:
+
+```yaml
+- run: agentbreeder registry agent list
+  env:
+    AGENTBREEDER_API_TOKEN: ${{ secrets.AGENTBREEDER_DEPLOY_KEY }}
+    AGENTBREEDER_URL: https://api.example.com
+```
+
+The env var **always wins** over the keychain, so the same CLI binary works for laptops and CI without code changes.
+
+---
+
 ## Service principals
 
 Service principals are non-human identities for CI/CD pipelines, automated scripts, and agent-to-agent calls.

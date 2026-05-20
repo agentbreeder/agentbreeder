@@ -16,13 +16,13 @@ server-side.
 from __future__ import annotations
 
 import json as _json
-import os
 from typing import Any
 
-import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
+
+from cli import _http
 
 console = Console()
 
@@ -37,37 +37,8 @@ model_app = typer.Typer(
 # ── HTTP helpers ────────────────────────────────────────────────────────────
 
 
-def _api_base() -> str:
-    return os.getenv("AGENTBREEDER_API_URL", "http://localhost:8000").rstrip("/")
-
-
-def _auth_headers() -> dict[str, str]:
-    token = os.getenv("AGENTBREEDER_API_TOKEN", "").strip()
-    if not token:
-        console.print(
-            "[red]AGENTBREEDER_API_TOKEN is not set.[/red] "
-            "Log in via /api/v1/auth/login and export the token first."
-        )
-        raise typer.Exit(code=1)
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
-
 def _request(method: str, path: str, body: dict | None = None) -> dict:
-    url = f"{_api_base()}{path}"
-    with httpx.Client(timeout=60.0) as client:
-        if method == "GET":
-            resp = client.get(url, headers=_auth_headers())
-        elif method == "POST":
-            resp = client.post(url, headers=_auth_headers(), json=body or {})
-        else:
-            raise ValueError(f"Unsupported method: {method}")
-    if resp.status_code >= 400:
-        console.print(f"[red]{method} {path} -> {resp.status_code}[/red]\n{resp.text}")
-        raise typer.Exit(code=1)
-    try:
-        return resp.json()
-    except ValueError:
-        return {"data": resp.text}
+    return _http.request(method, path, body=body, timeout=60.0)
 
 
 # ── Status badge rendering ──────────────────────────────────────────────────

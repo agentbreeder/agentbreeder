@@ -27,16 +27,16 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
 
-import httpx
 import typer
 import yaml
 from rich.console import Console
 from rich.table import Table
+
+from cli import _http
 
 console = Console()
 
@@ -56,28 +56,15 @@ registry_app.add_typer(rag_app, name="rag")
 
 
 def _api_base() -> str:
-    return os.getenv("AGENTBREEDER_API_URL", "http://localhost:8000").rstrip("/")
+    return _http.api_base()
 
 
 def _auth_headers() -> dict[str, str]:
-    token = os.getenv("AGENTBREEDER_API_TOKEN", "").strip()
-    if not token:
-        console.print(
-            "[red]AGENTBREEDER_API_TOKEN is not set.[/red] "
-            "Log in via /api/v1/auth/login and export the token first."
-        )
-        raise typer.Exit(code=1)
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    return _http.auth_headers()
 
 
 def _post(path: str, body: dict) -> dict:
-    url = f"{_api_base()}{path}"
-    with httpx.Client(timeout=30.0) as client:
-        resp = client.post(url, headers=_auth_headers(), json=body)
-        if resp.status_code >= 400:
-            console.print(f"[red]POST {path} -> {resp.status_code}[/red]\n{resp.text}")
-            raise typer.Exit(code=1)
-        return resp.json()
+    return _http.request("POST", path, body=body)
 
 
 def _post_multipart(
@@ -90,31 +77,11 @@ def _post_multipart(
     ``files`` is a list of ``(field, (filename, content, content_type))``.
     ``data`` is an optional dict of extra form fields posted alongside the files.
     """
-    url = f"{_api_base()}{path}"
-    token = os.getenv("AGENTBREEDER_API_TOKEN", "").strip()
-    if not token:
-        console.print(
-            "[red]AGENTBREEDER_API_TOKEN is not set.[/red] "
-            "Log in via /api/v1/auth/login and export the token first."
-        )
-        raise typer.Exit(code=1)
-    headers = {"Authorization": f"Bearer {token}"}
-    with httpx.Client(timeout=120.0) as client:
-        resp = client.post(url, headers=headers, files=files, data=data or {})
-        if resp.status_code >= 400:
-            console.print(f"[red]POST {path} -> {resp.status_code}[/red]\n{resp.text}")
-            raise typer.Exit(code=1)
-        return resp.json()
+    return _http.request("POST", path, files=files, data=data, timeout=120.0)
 
 
 def _get(path: str) -> dict:
-    url = f"{_api_base()}{path}"
-    with httpx.Client(timeout=30.0) as client:
-        resp = client.get(url, headers=_auth_headers())
-        if resp.status_code >= 400:
-            console.print(f"[red]GET {path} -> {resp.status_code}[/red]\n{resp.text}")
-            raise typer.Exit(code=1)
-        return resp.json()
+    return _http.request("GET", path)
 
 
 # ── prompts ────────────────────────────────────────────────────────────────

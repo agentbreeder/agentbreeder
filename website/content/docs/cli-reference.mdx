@@ -34,6 +34,63 @@ agentbreeder [COMMAND] [OPTIONS]
 
 ## Commands
 
+### `agentbreeder login` / `logout` / `whoami`
+
+Authenticate against the AgentBreeder API. Tokens are stored in the **OS keychain** (macOS Keychain, GNOME libsecret, Windows Credential Manager). The `AGENTBREEDER_API_TOKEN` env var always wins over the keychain, so the same binary works on laptops and in CI.
+
+```
+agentbreeder login [--email EMAIL] [--password PWD] [--token JWT] [--api-url URL]
+agentbreeder logout
+agentbreeder whoami [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--email`, `-e` | Account email. Prompted if omitted. |
+| `--password`, `-p` | Account password. Prompted (hidden) if omitted. |
+| `--token` | Paste an existing JWT (e.g. issued by the dashboard) instead of using email/password. |
+| `--api-url` | Override the API URL. Defaults to `$AGENTBREEDER_URL`, then `http://localhost:8000`. |
+
+**Examples:**
+```bash
+agentbreeder login                                              # Interactive
+agentbreeder login -e alice@example.com -p "$AB_PASSWORD"       # Non-interactive
+agentbreeder login --token "eyJhbGciOi…"                        # Paste a token from the dashboard
+
+agentbreeder whoami
+# email           alice@example.com
+# role            deployer
+# team (primary)  engineering
+# active team     ops
+
+agentbreeder logout                                             # Clears the keychain entry
+```
+
+`logout` deletes the keychain entry. It does **not** revoke the token server-side — the JWT remains valid until its 24h expiry. See refresh-token issue [#395](https://github.com/agentbreeder/agentbreeder/issues/395) for revocation support.
+
+---
+
+### `agentbreeder context`
+
+Set the active team context. The active team is sent on every authenticated request as the `X-AgentBreeder-Team` header and is shown by `agentbreeder whoami`.
+
+```
+agentbreeder context use TEAM
+agentbreeder context show
+agentbreeder context clear
+```
+
+The context lives in `~/.agentbreeder/context.json`.
+
+**Examples:**
+```bash
+agentbreeder context use ops          # Act as team "ops"
+agentbreeder context show             # Active team: ops
+agentbreeder context clear            # Fall back to your primary team
+```
+
+---
+
 ### `agentbreeder quickstart`
 
 Full local platform bootstrap — Docker, services, sample data, 5 sample agents, and dashboard in one command.

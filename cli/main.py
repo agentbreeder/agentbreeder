@@ -175,8 +175,10 @@ def _welcome_cmd() -> None:
 
 
 from cli.commands import (
+    auth,
     chat,
     compliance,
+    context,
     deploy,
     describe,
     down,
@@ -236,6 +238,9 @@ app = typer.Typer(
 )
 
 app.command(name="welcome")(_welcome_cmd)
+app.command(name="login")(auth.login)
+app.command(name="logout")(auth.logout)
+app.command(name="whoami")(auth.whoami)
 app.command(name="quickstart")(quickstart.quickstart)
 app.command(name="seed")(seed.seed)
 app.command(name="setup")(setup.setup)
@@ -265,6 +270,8 @@ app.add_typer(template.template_app, name="template")
 app.add_typer(secret.secret_app, name="secret")
 app.add_typer(compliance.compliance_app, name="compliance")
 app.add_typer(registry_cmd.registry_app, name="registry")
+app.add_typer(auth.auth_app, name="auth")
+app.add_typer(context.context_app, name="context")
 
 
 if __name__ == "__main__":
