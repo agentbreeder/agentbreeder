@@ -32,6 +32,7 @@ import {
   BarChart3,
   ShieldCheck,
   Siren,
+  Rocket,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -82,6 +83,10 @@ const AGENTOPS_NAV = [
   { to: "/agentops", icon: BarChart3, label: "Fleet" },
   { to: "/incidents", icon: Siren, label: "Incidents" },
   { to: "/compliance", icon: ShieldCheck, label: "Compliance" },
+] as const;
+
+const DEPLOYMENT_NAV = [
+  { to: "/deploy-wizard", icon: Rocket, label: "Deploy Wizard" },
 ] as const;
 
 const GOVERNANCE_NAV = [
@@ -653,6 +658,12 @@ function ShellInner() {
             <div className="!my-2 h-px bg-border" />
             {!collapsed && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">AgentOps</div>}
             {AGENTOPS_NAV.map(({ to, icon, label }) => (
+              <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
+            ))}
+
+            <div className="!my-2 h-px bg-border" />
+            {!collapsed && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Deployment</div>}
+            {DEPLOYMENT_NAV.map(({ to, icon, label }) => (
               <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
             ))}
 
