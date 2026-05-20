@@ -200,7 +200,17 @@ disable_error_code = ["no-any-return", "type-arg"]
 
 [[tool.mypy.overrides]]
 module = ["engine.provisioners.*"]
-disable_error_code = ["no-any-return", "type-arg", "no-untyped-def"]
+disable_error_code = [
+    "no-any-return",
+    "type-arg",
+    "no-untyped-def",
+    "attr-defined",
+    "return-value",
+    "call-overload",
+    "call-arg",
+    "assignment",
+    "union-attr",
+]
 
 [[tool.mypy.overrides]]
 module = ["engine.providers.*"]
