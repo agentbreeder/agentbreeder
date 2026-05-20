@@ -8,6 +8,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.4 — CLI `login` / `logout` / `whoami` + keychain token storage (#415)
+
+- **Added** three new top-level commands — `agentbreeder login`, `agentbreeder logout`, `agentbreeder whoami` — plus an `agentbreeder auth` sub-app with the same commands for discoverability. Tokens are stored in the OS keychain (macOS Keychain, GNOME libsecret, Windows Credential Manager) via the existing `keyring>=24.0.0` dependency; the `AGENTBREEDER_API_TOKEN` env var still wins over the keychain so CI keeps working unchanged.
+- **Added** `agentbreeder context use <team>` / `show` / `clear` for users who belong to multiple teams. Active team is persisted to `~/.agentbreeder/context.json` and sent on every authenticated request as the `X-AgentBreeder-Team` header.
+- **Refactor** new `cli/_http.py` consolidates the duplicate `_auth_headers()` / `_api_base()` / `_post()` / `_get()` / `_post_multipart()` / `_request()` helpers that lived in `cli/commands/registry_cmd.py` and `cli/commands/model.py`. Both files now delegate to the shared module; behavior is unchanged for users.
+- **DX** the "no token" error now points to `agentbreeder login` instead of telling users to curl `/api/v1/auth/login` and `export` the response themselves. A 401 on any authenticated call surfaces a "your token has expired" hint with the same direction.
+- **Test** 36 new unit tests cover token storage (env-wins-over-keychain precedence, headless fallback, set/clear round-trips), `auth_headers()` composition, the `request()` helper's success/4xx/401 paths, and the user-facing `login` / `logout` / `whoami` / `context` flows via `typer.testing.CliRunner`.
+- **Docs** new "CLI login" section in `website/content/docs/authentication.mdx`; new `agentbreeder login` / `logout` / `whoami` / `context` entries in `website/content/docs/cli-reference.mdx`.
+
 ### v2.4 — DeployOrchestrator.destroy_partial wires to provisioner.destroy() (#450)
 
 - **Wired** the "Roll back" button in the deployment wizard now actually rolls back. `DeployOrchestrator.start()` persists the returned `InfraState` onto the job record after `provisioner.provision()`; `destroy_partial(job_id)` reloads it and calls `provisioner_for(state.cloud).destroy(state)`.
