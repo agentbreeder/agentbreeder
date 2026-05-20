@@ -62,9 +62,9 @@ class DeployEventBus:
             yield queue
         finally:
             async with self._lock:
-                state = self._jobs.get(job_id)
-                if state and queue in state.subscribers:
-                    state.subscribers.remove(queue)
+                current = self._jobs.get(job_id)
+                if current and queue in current.subscribers:
+                    current.subscribers.remove(queue)
 
     def cleanup_expired(self) -> int:
         """Evict jobs with no publish in the last `ttl`. Called by a periodic task."""
