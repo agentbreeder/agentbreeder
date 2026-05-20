@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -167,3 +167,55 @@ async def validate_infra(
             ],
         )
     return ApiResponse(data=result)
+
+
+@router.post("/", status_code=202)
+async def create_deploy_job(
+    payload: dict,
+    request: Request,
+    user: User = Depends(get_current_user),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict:
+    """Create a deployment job with idempotency-key gating and approval support.
+
+    Requires:
+    - Idempotency-Key header (prevents duplicate job creation)
+    - Authorization header (user must be authenticated)
+
+    Workflow:
+    1. Validate Idempotency-Key is present (400 if missing)
+    2. Check agent exists and belongs to caller's team (403/404 if fails)
+    3. Check if agent requires approval
+    4. Record job in in-memory store (deduplicated by team_id + key)
+    5. Return 202 with job_id + pending_approval flag
+    6. Kick off orchestrator (unless approval required)
+
+    The Idempotency-Key is team-scoped: (team_id, key) → job_id.
+    If the same key is used twice in the same team, return the original job_id.
+    """
+    from api.services.deploy_jobs import DeployJobCreate
+
+    # Validate Idempotency-Key is present (auth is checked first by Depends)
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Idempotency-Key header required",
+        )
+
+    # Coerce the payload dict into DeployJobCreate
+    try:
+        job_create = DeployJobCreate(**payload)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid deployment payload: {str(e)}",
+        ) from e
+
+    # Call the service (team_id from user.team)
+    service = request.app.state.deploy_job_service
+    result = await service.create(
+        job_create,
+        team_id=user.team,
+        idempotency_key=idempotency_key,
+    )
+    return {"data": result.model_dump(), "meta": {}, "errors": []}

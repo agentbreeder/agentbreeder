@@ -120,12 +120,24 @@ async def _run_first_boot_seed() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
+    from api.services.deploy_event_bus import DeployEventBus
+    from api.services.deploy_jobs import DeployJobService
     from api.tasks.models_sync_cron import start_background_task as _start_models_sync_cron
 
     logger.info("AgentBreeder API starting up")
     await _seed_default_admin()
     await _run_first_boot_seed()
     models_sync_task = _start_models_sync_cron()
+
+    # Wire deployment services for the wizard (epic #378, #387)
+    app.state.deploy_event_bus = DeployEventBus()
+    app.state.deploy_job_service = DeployJobService(
+        event_bus=app.state.deploy_event_bus,
+        orchestrator=None,  # set in A5 when DeployOrchestrator lands
+        idempotency_store={},  # TODO: wire to Redis
+        agent_repo=None,  # TODO: wire to AgentService/AgentRepository
+    )
+
     try:
         yield
     finally:
