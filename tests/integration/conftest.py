@@ -29,8 +29,15 @@ _DEFAULT_USER.is_active = True
 
 
 @pytest.fixture(autouse=True)
-def _integration_auth():
-    """Inject a default admin into every integration test."""
+def _integration_auth(request):
+    """Inject a default admin into every integration test.
+
+    Skip for tests marked with @pytest.mark.no_auto_auth that explicitly
+    test authentication behavior (like 401 responses).
+    """
+    if request.node.get_closest_marker("no_auto_auth"):
+        yield
+        return
 
     async def _mock_get_current_user():
         return _DEFAULT_USER
