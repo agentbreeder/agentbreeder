@@ -8,6 +8,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.4 — DeployOrchestrator.destroy_partial wires to provisioner.destroy() (#450)
+
+- **Wired** the "Roll back" button in the deployment wizard now actually rolls back. `DeployOrchestrator.start()` persists the returned `InfraState` onto the job record after `provisioner.provision()`; `destroy_partial(job_id)` reloads it and calls `provisioner_for(state.cloud).destroy(state)`.
+- **Events** publishes `phase: "destroying"` (new value added to the `PhaseName` literal) + log events + terminal `complete`/`error`, so the SSE client transitions cleanly.
+- **Idempotent** clears `job.infra_state` after a successful destroy so a second call is a no-op.
+- **Safety** delegates to the per-cloud `destroy()` impls which already refuse untagged resources and tolerate 404s.
+- **Test** 6 new tests cover state-persist on start, real destroy with state shape, no-op branches (no state / unknown job), idempotency of a second call, error event on provisioner failure.
+
 ### v2.4 — Redis-backed DeployJobService persistence (#449)
 
 - **Hardened** `DeployJobService` no longer keeps idempotency map + job records in process memory. Two new Protocols (`IdempotencyStore`, `JobStore`) in `api/services/deploy_stores.py` with in-memory implementations for tests and Redis-backed implementations for production.
