@@ -73,7 +73,7 @@ def _stub_services():
     app.state.deploy_event_bus = bus
     app.state.deploy_job_service = svc
     app.state.deploy_orchestrator = orchestrator
-    yield
+    return
 
 
 def test_get_status_returns_job_record(client: TestClient) -> None:

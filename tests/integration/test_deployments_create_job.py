@@ -7,9 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from api.auth import get_current_user
 from api.main import app
-from api.models.enums import UserRole
 
 
 @pytest.fixture
@@ -45,7 +43,7 @@ def _stub_services():
     app.state.deploy_event_bus = bus
     app.state.deploy_job_service = svc
     app.state.deploy_orchestrator = orchestrator
-    yield
+    return
     # Tests run in isolation; no teardown needed.
 
 

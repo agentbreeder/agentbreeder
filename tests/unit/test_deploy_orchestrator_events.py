@@ -163,4 +163,5 @@ async def test_provisioner_progress_callback_forwards_to_bus(orch, bus) -> None:
     assert "creating VPC" in messages
     assert "creating Service Account" in messages
     # The provisioner was passed a non-None callback.
-    assert captured_callbacks and captured_callbacks[0] is not None
+    assert captured_callbacks
+    assert captured_callbacks[0] is not None

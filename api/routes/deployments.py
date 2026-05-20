@@ -279,7 +279,7 @@ async def stream_deploy_events(
                     break
                 try:
                     evt = await asyncio.wait_for(queue.get(), timeout=15)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield {"event": "ping", "data": ""}
                     continue
                 yield {"event": evt.type, "data": evt.model_dump_json()}
