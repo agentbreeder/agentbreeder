@@ -57,6 +57,7 @@ export interface DeployWizardState {
   approvalPending: boolean;
   origin: Origin;
   draftSavedAt: number | null;
+  idempotencyKey: string | null;
 }
 
 export const initialState: DeployWizardState = {
@@ -79,6 +80,7 @@ export const initialState: DeployWizardState = {
   approvalPending: false,
   origin: "sidebar",
   draftSavedAt: null,
+  idempotencyKey: null,
 };
 
 export type Action =
@@ -96,6 +98,7 @@ export type Action =
   | { type: "SET_SECRETS"; refs: string[] }
   | { type: "SET_SCALING"; scaling: Scaling }
   | { type: "SET_DB_TIER"; tier: string }
+  | { type: "SET_IDEMPOTENCY_KEY"; key: string }
   | { type: "SUBMIT_DEPLOY"; jobId: string; pendingApproval: boolean }
   | { type: "SSE_EVENT"; event: DeployEvent }
   | { type: "RESET" };
@@ -172,6 +175,9 @@ export function reducer(state: DeployWizardState, action: Action): DeployWizardS
 
     case "SET_DB_TIER":
       return { ...state, dbTier: action.tier };
+
+    case "SET_IDEMPOTENCY_KEY":
+      return { ...state, idempotencyKey: action.key };
 
     case "SUBMIT_DEPLOY":
       return {
