@@ -26,6 +26,7 @@ import {
   Variable,
   Shield,
   Pencil,
+  Rocket,
   Save,
   X,
   AlertCircle,
@@ -205,6 +206,12 @@ function AgentHeader({ agent }: { agent: Agent }) {
         )}
       </div>
       <div className="flex items-center gap-2">
+        <Link to={`/deploy-wizard?agentId=${agent.id}&from=agent-detail`}>
+          <Button variant="outline" size="sm">
+            <Rocket className="size-3" />
+            Deploy
+          </Button>
+        </Link>
         <Link to={`/agents/builder/${agent.id}`}>
           <Button variant="outline" size="sm">
             <Pencil className="size-3" />

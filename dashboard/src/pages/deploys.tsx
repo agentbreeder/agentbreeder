@@ -180,10 +180,18 @@ export default function DeploysPage() {
             {total} deployment{total !== 1 ? "s" : ""}
           </p>
         </div>
-        <ExportDropdown
-          data={jobs as unknown as Record<string, unknown>[]}
-          filename="deploys"
-        />
+        <div className="flex items-center gap-2">
+          <Link
+            to="/deploy-wizard?from=deploys"
+            className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
+          >
+            + New deploy
+          </Link>
+          <ExportDropdown
+            data={jobs as unknown as Record<string, unknown>[]}
+            filename="deploys"
+          />
+        </div>
       </div>
 
       {/* Filter */}
