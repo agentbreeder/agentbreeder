@@ -54,6 +54,7 @@ import GatewayPage from "@/pages/gateway";
 import AgentOpsPage from "@/pages/agentops";
 import IncidentsPage from "@/pages/incidents";
 import CompliancePage from "@/pages/compliance";
+import DeployWizardPage from "@/pages/deploy-wizard";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient({
@@ -122,6 +123,7 @@ export default function App() {
               <Route path="approvals" element={<ApprovalsPage />} />
               <Route path="approvals/:id" element={<PRDetailPage />} />
               <Route path="deploys" element={<DeploysPage />} />
+              <Route path="deploy-wizard" element={<DeployWizardPage />} />
               <Route path="activity" element={<ActivityPage />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="settings" element={<SettingsPage />} />
