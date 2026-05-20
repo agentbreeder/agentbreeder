@@ -8,6 +8,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // Vitest's defaults include tests/**, which sweeps in Playwright E2E specs.
+    // Restrict to vitest's actual targets and explicitly exclude Playwright.
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    exclude: ["**/node_modules/**", "**/tests/e2e/**", "**/dist/**"],
   },
   resolve: {
     alias: {
