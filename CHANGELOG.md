@@ -8,6 +8,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.4 — Redis-backed DeployJobService persistence (#449)
+
+- **Hardened** `DeployJobService` no longer keeps idempotency map + job records in process memory. Two new Protocols (`IdempotencyStore`, `JobStore`) in `api/services/deploy_stores.py` with in-memory implementations for tests and Redis-backed implementations for production.
+- **TTLs** idempotency entries: 24h (per the wizard spec §6); job records: 30d (audit-friendly window).
+- **Multi-replica safe** the API can now scale horizontally — the wizard's `Idempotency-Key` dedupe + `GET /api/v1/deployments/{job_id}` reads survive restarts and load-balanced replicas.
+- **Test** 9 new tests (`fakeredis`-backed) cover get/set round-trip, TTL assertions, and restart-safety simulations (two store instances over the same Redis backend).
+
 ### v2.4 — Deployment wizard E2E specs (#446)
 
 - **Test** Six Playwright specs at `dashboard/tests/e2e/deploy-wizard-*.spec.ts` cover the wizard's happy paths (GCP greenfield, AWS BYO), the validation-failure path (Azure BYO), approval-required flow (poll → SSE handoff), draft-resume from localStorage, and the stalled-deploy failure UI.
