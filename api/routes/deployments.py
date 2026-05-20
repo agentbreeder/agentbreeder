@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -272,7 +273,7 @@ async def stream_deploy_events(
     await service.get(job_id, team_id=user.team)  # ACL check (raises 403/404)
     bus = request.app.state.deploy_event_bus
 
-    async def generator():
+    async def generator() -> AsyncGenerator[dict[str, str], None]:
         async with bus.subscribe(job_id) as queue:
             while True:
                 if await request.is_disconnected():
