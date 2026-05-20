@@ -27,6 +27,16 @@ LABEL org.opencontainers.image.description="AgentBreeder Dashboard"
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Drop root: nginx:alpine already has a `nginx` user (UID 101). The pid file
+# lives at /var/run/nginx.pid by default — make it writable by that user so
+# the master process can start. Cache + log dirs are nginx-only writes too.
+# Listening on 3001 (≥1024) means CAP_NET_BIND_SERVICE is not required.
+RUN chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx /var/log/nginx \
+    && touch /var/run/nginx.pid \
+    && chown nginx:nginx /var/run/nginx.pid
+
+USER nginx
+
 EXPOSE 3001
 
 CMD ["nginx", "-g", "daemon off;"]

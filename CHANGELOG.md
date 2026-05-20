@@ -8,6 +8,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.4 — Container hardening: drop root in dashboard + cli images (#444)
+
+- **Security** `dashboard/Dockerfile` and `Dockerfile.cli` now declare a non-root `USER` directive. The main `Dockerfile` (api image) already did this; these two images had been shipping as `root` since v0.
+- **dashboard image** runs as `nginx` (UID 101 from `nginx:alpine`). `/usr/share/nginx/html`, `/var/cache/nginx`, `/var/log/nginx`, and `/var/run/nginx.pid` are chowned to the same user. Listens on port 3001 (≥1024), so `CAP_NET_BIND_SERVICE` is not required.
+- **cli image** runs as `appuser` (UID 1000). A `--create-home` HOME at `/home/appuser` keeps Python tool caches (`~/.cache`, `~/.config`) writable.
+- **Verification** `docker inspect ... --format='{{.Config.User}}'` returns `nginx` and `appuser` respectively; Kubernetes / Cloud Run `runAsNonRoot: true` admission now passes.
+
 ### v2.4 — Dashboard Deployment Wizard + SSE progress stream (#389, #387)
 
 - **Added** `/deploy-wizard` route in the dashboard. 5-step UI: agent → cloud + region → BYO or greenfield infra → env vars / secrets / scaling → live deploy with SSE progress. localStorage-backed draft survives refresh; approval-required agents route through `/approvals`.
