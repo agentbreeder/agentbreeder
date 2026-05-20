@@ -119,3 +119,48 @@ async def test_byo_mode_skips_provisioner_provision_call(orch, bus) -> None:
 
     fake_provisioner.provision.assert_not_called()
     fake_deployer.deploy.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_provisioner_progress_callback_forwards_to_bus(orch, bus) -> None:
+    """When the provisioner calls its progress(message) callback, a log event lands on the bus."""
+
+    captured_callbacks: list = []
+
+    async def _fake_provision(_payload, progress=None):
+        captured_callbacks.append(progress)
+        if progress:
+            await progress("creating VPC")
+            await progress("creating Service Account")
+
+    fake_provisioner = MagicMock()
+    fake_provisioner.provision = _fake_provision
+    fake_deployer = MagicMock()
+    fake_deployer.build = AsyncMock(return_value=MagicMock())
+    fake_deployer.deploy = AsyncMock(return_value="https://x.example.com")
+
+    job = MagicMock(
+        job_id="j-progress",
+        agent_id="a-1",
+        cloud="gcp",
+        region="us-central1",
+        payload=MagicMock(infra_mode="provision", byo_fields={}),
+    )
+
+    received: list[DeployEvent] = []
+    async with bus.subscribe("j-progress") as queue:
+        await orch.start(
+            job=job,
+            event_bus=bus,
+            _provisioner=fake_provisioner,
+            _deployer=fake_deployer,
+        )
+        while not queue.empty():
+            received.append(queue.get_nowait())
+
+    log_events = [e for e in received if e.type == "log"]
+    messages = [e.message for e in log_events]
+    assert "creating VPC" in messages
+    assert "creating Service Account" in messages
+    # The provisioner was passed a non-None callback.
+    assert captured_callbacks and captured_callbacks[0] is not None

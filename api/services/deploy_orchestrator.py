@@ -43,15 +43,33 @@ class DeployOrchestrator:
         """Drive the full deploy lifecycle for one job, publishing events as we go."""
         provisioner = _provisioner or self._resolve_provisioner(job)
         deployer = _deployer or self._resolve_deployer(job)
+
+        async def _emit_log(message: str) -> None:
+            await event_bus.publish(
+                DeployEvent(
+                    type="log",
+                    job_id=job.job_id,
+                    timestamp=datetime.now(UTC),
+                    level="info",
+                    message=message,
+                )
+            )
+
         try:
             for phase in _PHASES:
                 await event_bus.publish(_phase(job, phase))
                 if phase == "provisioning" and job.payload.infra_mode == "provision":
-                    await provisioner.provision(_provision_payload(job))
+                    await provisioner.provision(_provision_payload(job), progress=_emit_log)
                 elif phase == "building":
-                    await deployer.build(job)
+                    try:
+                        await deployer.build(job, progress=_emit_log)
+                    except TypeError:
+                        await deployer.build(job)
                 elif phase == "deploying":
-                    endpoint_url = await deployer.deploy(job)
+                    try:
+                        endpoint_url = await deployer.deploy(job, progress=_emit_log)
+                    except TypeError:
+                        endpoint_url = await deployer.deploy(job)
                     job.endpoint_url = endpoint_url
                 # pushing / health_checking / registering are no-ops in this MVP wiring;
                 # deployers emit log events inline via their ProgressCallback hook (A7).
