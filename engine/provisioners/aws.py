@@ -212,7 +212,7 @@ class AWSProvisioner(InfraProvisioner):
     # Greenfield provisioning (#383)
     # ------------------------------------------------------------------
 
-    async def provision(  # type: ignore[override]
+    async def provision(
         self,
         payload: InfraValidationInput,
         progress: ProgressCallback | None = None,
@@ -314,6 +314,8 @@ class AWSProvisioner(InfraProvisioner):
 
         # ---- 6. RDS PostgreSQL (conditional) -----------------------------
         if has_memory and rds is not None and secrets_client is not None:
+            db_sg_id = sgs["db_sg_id"]
+            assert db_sg_id is not None, "db_sg_id required when has_memory=True"
             await _emit("provisioning RDS PostgreSQL (this can take 10-15 min)")
             rds_info = await self._provision_rds(
                 rds=rds,
@@ -321,7 +323,7 @@ class AWSProvisioner(InfraProvisioner):
                 secrets_client=secrets_client,
                 vpc_id=vpc_id,
                 private_subnet_ids=net["private_subnet_ids"],
-                db_sg_id=sgs["db_sg_id"],
+                db_sg_id=db_sg_id,
                 agent_name=agent_name,
                 agent_version=agent_version,
                 progress=progress,
@@ -330,12 +332,14 @@ class AWSProvisioner(InfraProvisioner):
 
         # ---- 7. ALB (conditional) ---------------------------------------
         if is_public and elbv2 is not None:
+            alb_sg_id = sgs["alb_sg_id"]
+            assert alb_sg_id is not None, "alb_sg_id required when access.visibility=public"
             await _emit("provisioning ALB + target group + listener")
             alb_info = await self._provision_alb(
                 elbv2=elbv2,
                 vpc_id=vpc_id,
                 public_subnet_ids=net["public_subnet_ids"],
-                alb_sg_id=sgs["alb_sg_id"],
+                alb_sg_id=alb_sg_id,
                 agent_name=agent_name,
                 agent_version=agent_version,
                 certificate_arn=fields.get("AWS_ACM_CERTIFICATE_ARN"),
@@ -353,7 +357,7 @@ class AWSProvisioner(InfraProvisioner):
         await _emit("provision complete")
         return state
 
-    async def destroy(  # type: ignore[override]
+    async def destroy(
         self,
         state: InfraState,
         *,
