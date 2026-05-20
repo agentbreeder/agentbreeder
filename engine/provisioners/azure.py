@@ -109,7 +109,9 @@ def _resource_tags(agent_name: str, version: str = "1.0.0") -> dict[str, str]:
 
 
 def _has_agentbreeder_tag(tags: dict[str, str] | None) -> bool:
-    return bool(tags) and tags.get(_AB_TAG_KEY) == _AB_TAG_VALUE
+    if not tags:
+        return False
+    return tags.get(_AB_TAG_KEY) == _AB_TAG_VALUE
 
 
 # AcrPull built-in role definition ID — constant across all Azure subscriptions.
@@ -195,7 +197,7 @@ class AzureProvisioner(InfraProvisioner):
     # Greenfield provisioning (#384)
     # ------------------------------------------------------------------
 
-    async def provision(  # type: ignore[override]
+    async def provision(
         self,
         payload: InfraValidationInput,
         progress: ProgressCallback | None = None,
@@ -420,7 +422,7 @@ class AzureProvisioner(InfraProvisioner):
         await _emit("provision complete")
         return state
 
-    async def destroy(self, state: InfraState) -> None:  # type: ignore[override]
+    async def destroy(self, state: InfraState) -> None:
         """Tear down provisioned resources. Refuses untagged resources.
 
         Deletes individual resources in reverse-dependency order, then deletes
