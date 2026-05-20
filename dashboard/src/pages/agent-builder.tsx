@@ -1437,14 +1437,24 @@ export default function AgentBuilderPage() {
               variant="outline"
               className="h-7 gap-1.5 px-2 text-xs"
             />
-            <Button
-              size="sm"
-              className="h-7 gap-1.5 px-3 text-xs"
-              onClick={() => setDeployOpen(true)}
-            >
-              <Rocket className="size-3.5" />
-              Deploy
-            </Button>
+            {id ? (
+              <Link
+                to={`/deploy-wizard?agentId=${id}&from=builder`}
+                className="inline-flex items-center gap-1.5 h-7 px-3 text-xs rounded-md bg-foreground text-background hover:bg-foreground/90 transition-colors"
+              >
+                <Rocket className="size-3.5" />
+                Deploy
+              </Link>
+            ) : (
+              <Button
+                size="sm"
+                className="h-7 gap-1.5 px-3 text-xs"
+                onClick={() => setDeployOpen(true)}
+              >
+                <Rocket className="size-3.5" />
+                Deploy
+              </Button>
+            )}
           </div>
         </div>
 

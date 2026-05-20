@@ -557,6 +557,20 @@ for the full flow.
 
 ---
 
+## Deploying from the dashboard
+
+From v2.4, the dashboard provides a 5-step wizard at `/deploy-wizard`:
+
+1. **Agent** — pick a registered agent. The wizard auto-detects whether the agent requires approval.
+2. **Target** — choose cloud + region. Per-region cost estimate is shown inline (static client-side table, ±10%).
+3. **Infra** — BYO existing infra (validated read-only via `POST /api/v1/deployments/validate-infra`) or "Provision for me" (greenfield).
+4. **Config** — env vars, secrets, scaling, DB tier (only shown when the agent declares `memory:`).
+5. **Live deploy** — real-time SSE progress stream with 6 phase indicators (provisioning → building → pushing → deploying → health_checking → registering).
+
+Drafts auto-save to localStorage every 250ms; refresh-safe. Agents with `access.require_approval: true` are routed through the existing `/approvals` queue and the wizard polls until an admin approves, then switches to the SSE stream.
+
+---
+
 ## Related
 
 - [How-To → Deploy to GCP Cloud Run](how-to#gcp-cloud-run) — the recipe-style version of this page

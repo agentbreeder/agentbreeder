@@ -8,6 +8,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.4 — Dashboard Deployment Wizard + SSE progress stream (#389, #387)
+
+- **Added** `/deploy-wizard` route in the dashboard. 5-step UI: agent → cloud + region → BYO or greenfield infra → env vars / secrets / scaling → live deploy with SSE progress. localStorage-backed draft survives refresh; approval-required agents route through `/approvals`.
+- **Added** `GET /api/v1/deployments/{job_id}/stream` SSE endpoint with a per-job 200-event ring buffer (30-min TTL). Closes #387.
+- **Added** `POST /api/v1/deployments/`, `GET /api/v1/deployments/{job_id}`, `POST /api/v1/deployments/{job_id}/destroy-partial` endpoints.
+- **Tooling** Pydantic→TS codegen at `scripts/gen_deploy_event_types.py` keeps `DeployEvent` types in sync.
+
 ### v2.3 — Cloud-Deploy Foundation (#413)
 
 - **Added** `engine/provisioners/` — `InfraProvisioner` ABC with read-only `validate_existing` impls for AWS / GCP / Azure (boto3, google-cloud, azure-sdk). Greenfield `provision()` / `destroy()` stubbed (per-cloud follow-ups #382 / #383 / #384).
