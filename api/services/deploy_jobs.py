@@ -58,6 +58,12 @@ class DeployJobRecord(BaseModel):
     endpoint_url: str | None = None
     created_at: datetime
     payload: DeployJobCreate
+    # JSON-serialised ``InfraState`` populated by the orchestrator after
+    # provisioner.provision() returns. ``destroy_partial`` reads this to
+    # decide what to tear down. Stored as a dict (not the Pydantic model
+    # directly) so the Redis JSON round-trip is loss-free and there's no
+    # circular import with engine.provisioners.state.
+    infra_state: dict[str, Any] | None = None
 
 
 class DeployJobCreateResult(BaseModel):
