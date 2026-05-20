@@ -684,17 +684,19 @@ class AzureProvisioner(InfraProvisioner):
         fields: dict[str, Any],
     ) -> str:
         """Assign AcrPull on the **specific** registry — never the subscription."""
+        # Guardrail: refuse to scope to anything broader than a registry.
+        # Checked BEFORE imports so the test for this guardrail runs without
+        # the azure SDK installed.
+        if "/providers/Microsoft.ContainerRegistry/registries/" not in acr_id:
+            raise ValueError(
+                f"_ensure_acr_pull_role: scope must be a registry resource ID, got {acr_id!r}"
+            )
+
         import uuid
 
         from azure.core.exceptions import HttpResponseError, ResourceExistsError
         from azure.mgmt.authorization import AuthorizationManagementClient
         from azure.mgmt.authorization.models import RoleAssignmentCreateParameters
-
-        # Guardrail: refuse to scope to anything broader than a registry.
-        if "/providers/Microsoft.ContainerRegistry/registries/" not in acr_id:
-            raise ValueError(
-                f"_ensure_acr_pull_role: scope must be a registry resource ID, got {acr_id!r}"
-            )
 
         creds = _credentials(fields)
         client = AuthorizationManagementClient(creds, subscription_id)
