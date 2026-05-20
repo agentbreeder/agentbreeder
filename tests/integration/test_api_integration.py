@@ -711,6 +711,42 @@ class TestTemplateCRUDFlow:
 # ===========================================================================
 
 
+def _override_deploys_db(agent=None, job=None):
+    """Override ``get_db`` so the team-scope checks on ``/deploys`` resolve.
+
+    Since #414, ``DELETE /api/v1/deploys/{id}`` and
+    ``POST /api/v1/deploys/{id}/rollback`` look up the job's agent to find
+    the team before the role gate. These integration tests mock the
+    ``DeployService.*`` methods but the route still expects ``db.get`` to
+    return real ORM rows; without this override the route hits live Postgres
+    against a random UUID and crashes the asyncpg connection.
+    """
+    from contextlib import contextmanager
+    from unittest.mock import AsyncMock
+
+    from api.database import get_db
+
+    mock_db = AsyncMock()
+
+    async def fake_get(model, pk):
+        return job if model.__name__ == "DeployJob" else agent
+
+    mock_db.get = fake_get
+
+    async def _override():
+        return mock_db
+
+    @contextmanager
+    def _ctx():
+        app.dependency_overrides[get_db] = _override
+        try:
+            yield
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+
+    return _ctx()
+
+
 class TestDeployAPIFlow:
     """Tests for the deploy API endpoints."""
 
@@ -765,8 +801,13 @@ class TestDeployAPIFlow:
         """DELETE /api/v1/deploys/{id} should cancel the deployment."""
         job_id = uuid.uuid4()
         mock_cancel.return_value = True
+        agent = _make_agent_mock()
+        job = _make_deploy_job_mock()
+        job.id = job_id
+        job.agent_id = agent.id
 
-        resp = client.delete(f"/api/v1/deploys/{job_id}")
+        with _override_deploys_db(agent=agent, job=job):
+            resp = client.delete(f"/api/v1/deploys/{job_id}")
         assert resp.status_code == 200
         assert resp.json()["data"]["cancelled"] is True
 
@@ -775,8 +816,13 @@ class TestDeployAPIFlow:
         """POST /api/v1/deploys/{id}/rollback should rollback a failed deploy."""
         job_id = uuid.uuid4()
         mock_rollback.return_value = True
+        agent = _make_agent_mock()
+        job = _make_deploy_job_mock()
+        job.id = job_id
+        job.agent_id = agent.id
 
-        resp = client.post(f"/api/v1/deploys/{job_id}/rollback")
+        with _override_deploys_db(agent=agent, job=job):
+            resp = client.post(f"/api/v1/deploys/{job_id}/rollback")
         assert resp.status_code == 200
         assert resp.json()["data"]["rolled_back"] is True
 
@@ -784,7 +830,12 @@ class TestDeployAPIFlow:
     def test_rollback_non_failed_deploy(self, mock_rollback: AsyncMock) -> None:
         """POST /api/v1/deploys/{id}/rollback should reject non-failed jobs."""
         mock_rollback.return_value = False
-        resp = client.post(f"/api/v1/deploys/{uuid.uuid4()}/rollback")
+        agent = _make_agent_mock()
+        job = _make_deploy_job_mock()
+        job.agent_id = agent.id
+
+        with _override_deploys_db(agent=agent, job=job):
+            resp = client.post(f"/api/v1/deploys/{uuid.uuid4()}/rollback")
         assert resp.status_code == 400
 
 
