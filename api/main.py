@@ -120,9 +120,11 @@ async def _run_first_boot_seed() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
+    from api.database import _get_redis_pool
     from api.services.deploy_event_bus import DeployEventBus
     from api.services.deploy_jobs import DeployJobService
     from api.services.deploy_orchestrator import DeployOrchestrator
+    from api.services.deploy_stores import RedisIdempotencyStore, RedisJobStore
     from api.tasks.models_sync_cron import start_background_task as _start_models_sync_cron
 
     logger.info("AgentBreeder API starting up")
@@ -130,13 +132,18 @@ async def lifespan(app: FastAPI):
     await _run_first_boot_seed()
     models_sync_task = _start_models_sync_cron()
 
-    # Wire deployment services for the wizard (epic #378, #387)
+    # Wire deployment services for the wizard (epic #378, #387). Idempotency
+    # + job records live in Redis so a multi-replica API behind a load
+    # balancer doesn't fragment its state per process. TTLs (24h idempotency
+    # / 30d job records) are enforced by Redis EXPIRE.
+    redis = _get_redis_pool()
     app.state.deploy_event_bus = DeployEventBus()
     app.state.deploy_orchestrator = DeployOrchestrator(event_bus=app.state.deploy_event_bus)
     app.state.deploy_job_service = DeployJobService(
         event_bus=app.state.deploy_event_bus,
         orchestrator=app.state.deploy_orchestrator,
-        idempotency_store={},  # TODO: wire to Redis
+        idempotency_store=RedisIdempotencyStore(redis),
+        job_store=RedisJobStore(redis),
         agent_repo=None,  # TODO: wire to AgentService/AgentRepository
     )
 

@@ -6,9 +6,9 @@ Owns:
 - get() — returns a job's current status (team-scoped).
 - destroy_partial() — delegates to orchestrator.destroy_partial(job_id).
 
-Persistence is in-memory for this PR; swap for SQLAlchemy in a follow-up.
-The idempotency store is a dict[(team_id, key), job_id] — operators wire
-this to Redis in production.
+Persistence is delegated to ``IdempotencyStore`` + ``JobStore`` (see
+``deploy_stores.py``). In production both are Redis-backed (multi-replica
++ restart-safe); tests use in-memory implementations.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from fastapi import HTTPException, status
 from pydantic import BaseModel, Field
 
 from api.models.deploy_events import DeployJobStatus
+from api.services.deploy_stores import IdempotencyStore, JobStore
 
 
 class EnvVar(BaseModel):
@@ -70,14 +71,15 @@ class DeployJobService:
         *,
         event_bus: Any,
         orchestrator: Any,
-        idempotency_store: dict[tuple[str, str], str],
+        idempotency_store: IdempotencyStore,
+        job_store: JobStore,
         agent_repo: Any,
     ) -> None:
         self._event_bus = event_bus
         self._orchestrator = orchestrator
         self._idempotency_store = idempotency_store
+        self._job_store = job_store
         self._agent_repo = agent_repo
-        self._jobs: dict[str, DeployJobRecord] = {}
 
     async def create(
         self,
@@ -86,37 +88,26 @@ class DeployJobService:
         team_id: str,
         idempotency_key: str,
     ) -> DeployJobCreateResult:
-        """Create a deployment job, handling idempotency and approval gating.
-
-        Args:
-            payload: Deployment configuration
-            team_id: Team creating the job
-            idempotency_key: Uniqueness key (team_id + key → deduped)
-
-        Returns:
-            DeployJobCreateResult with job_id and pending_approval flag
-
-        Raises:
-            HTTPException 404: Agent not found
-            HTTPException 403: Agent belongs to another team
-        """
-        # Check idempotency store first
-        existing_id = self._idempotency_store.get((team_id, idempotency_key))
+        """Create a deployment job, handling idempotency and approval gating."""
+        # Idempotency: same (team, key) -> same job_id.
+        existing_id = await self._idempotency_store.get(team_id, idempotency_key)
         if existing_id is not None:
-            existing = self._jobs[existing_id]
-            return DeployJobCreateResult(
-                job_id=existing.job_id,
-                pending_approval=existing.pending_approval,
-            )
+            existing = await self._job_store.get(existing_id)
+            if existing is not None:
+                return DeployJobCreateResult(
+                    job_id=existing.job_id,
+                    pending_approval=existing.pending_approval,
+                )
+            # Idempotency entry points at a job that's been TTL-evicted from the
+            # job store. Treat as expired: fall through to create a fresh job.
 
-        # Fetch agent and validate team ownership
+        # Fetch agent and validate team ownership.
         agent = await self._agent_repo.get(payload.agent_id)
         if agent is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
         if agent.team != team_id:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Agent belongs to another team")
 
-        # Check if approval is required
         requires_approval = bool(getattr(agent, "access", {}).get("require_approval"))
         job = await self._record(
             job_id=str(uuid4()),
@@ -127,9 +118,8 @@ class DeployJobService:
             ),
             pending_approval=requires_approval,
         )
-        self._idempotency_store[(team_id, idempotency_key)] = job.job_id
+        await self._idempotency_store.set(team_id, idempotency_key, job.job_id)
 
-        # Start orchestrator if no approval required
         if not requires_approval:
             await self._orchestrator.start(job=job, event_bus=self._event_bus)
 
@@ -139,20 +129,8 @@ class DeployJobService:
         )
 
     async def get(self, job_id: str, *, team_id: str) -> DeployJobRecord:
-        """Get a deployment job by ID.
-
-        Args:
-            job_id: The job ID to fetch
-            team_id: Team requesting access
-
-        Returns:
-            DeployJobRecord with current status
-
-        Raises:
-            HTTPException 404: Job not found
-            HTTPException 403: Job belongs to another team
-        """
-        job = self._jobs.get(job_id)
+        """Get a deployment job by ID. Raises 403/404."""
+        job = await self._job_store.get(job_id)
         if job is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
         if job.team_id != team_id:
@@ -160,15 +138,7 @@ class DeployJobService:
         return job
 
     async def destroy_partial(self, job_id: str, *, team_id: str) -> None:
-        """Destroy partially-provisioned infrastructure for a job.
-
-        Args:
-            job_id: The job ID to clean up
-            team_id: Team requesting cleanup
-
-        Raises:
-            HTTPException 403, 404: From get()
-        """
+        """Destroy partially-provisioned infrastructure for a job. Raises 403/404."""
         await self.get(job_id, team_id=team_id)
         await self._orchestrator.destroy_partial(job_id)
 
@@ -181,18 +151,7 @@ class DeployJobService:
         status: DeployJobStatus,
         pending_approval: bool = False,
     ) -> DeployJobRecord:
-        """Record a job in the in-memory store.
-
-        Args:
-            job_id: Unique job identifier
-            payload: Deployment configuration
-            team_id: Owning team
-            status: Initial status
-            pending_approval: Whether approval is pending
-
-        Returns:
-            DeployJobRecord
-        """
+        """Record a job in the job store and return it."""
         job = DeployJobRecord(
             job_id=job_id,
             team_id=team_id,
@@ -204,5 +163,5 @@ class DeployJobService:
             created_at=datetime.now(UTC),
             payload=payload,
         )
-        self._jobs[job_id] = job
+        await self._job_store.put(job)
         return job

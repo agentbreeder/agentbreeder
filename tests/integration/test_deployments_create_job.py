@@ -33,11 +33,14 @@ def _stub_services():
         )
     )
 
+    from api.services.deploy_stores import InMemoryIdempotencyStore, InMemoryJobStore
+
     bus = DeployEventBus()
     svc = DeployJobService(
         event_bus=bus,
         orchestrator=orchestrator,
-        idempotency_store={},
+        idempotency_store=InMemoryIdempotencyStore(),
+        job_store=InMemoryJobStore(),
         agent_repo=agent_repo,
     )
     app.state.deploy_event_bus = bus
