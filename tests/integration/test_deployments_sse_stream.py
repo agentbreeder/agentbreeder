@@ -32,11 +32,14 @@ def _stub_services():
         return_value=MagicMock(team="engineering", access={"require_approval": False})
     )
 
+    from api.services.deploy_stores import InMemoryIdempotencyStore, InMemoryJobStore
+
     bus = DeployEventBus()
     svc = DeployJobService(
         event_bus=bus,
         orchestrator=orchestrator,
-        idempotency_store={},
+        idempotency_store=InMemoryIdempotencyStore(),
+        job_store=InMemoryJobStore(),
         agent_repo=agent_repo,
     )
 

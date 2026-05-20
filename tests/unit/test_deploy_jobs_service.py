@@ -27,16 +27,26 @@ def orchestrator() -> MagicMock:
 
 
 @pytest.fixture
-def idempotency_store() -> dict:
-    return {}
+def idempotency_store():
+    from api.services.deploy_stores import InMemoryIdempotencyStore
+
+    return InMemoryIdempotencyStore()
 
 
 @pytest.fixture
-def service(event_bus, orchestrator, idempotency_store) -> DeployJobService:
+def job_store():
+    from api.services.deploy_stores import InMemoryJobStore
+
+    return InMemoryJobStore()
+
+
+@pytest.fixture
+def service(event_bus, orchestrator, idempotency_store, job_store) -> DeployJobService:
     return DeployJobService(
         event_bus=event_bus,
         orchestrator=orchestrator,
         idempotency_store=idempotency_store,
+        job_store=job_store,
         agent_repo=AsyncMock(),
     )
 
