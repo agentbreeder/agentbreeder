@@ -8,6 +8,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.4 — `agentbreeder deploy --remote` closes in-process RBAC bypass (#416)
+
+- **Closed** the Phase A bypass where `agentbreeder deploy` ran `engine.builder.DeployEngine` in-process — RBAC, audit logging, and team-scoped credentials never fired for CLI deploys.
+- **Added** `--remote` and `--local` flags on `agentbreeder deploy`. `--remote` POSTs `/api/v1/deploys` and polls the detail endpoint until terminal; the bearer token comes from `cli/_http` (env var or OS keychain). `--local` keeps the in-process engine for dev / offline use.
+- **Default behavior** the CLI picks remote when `$AGENTBREEDER_URL` is set, otherwise local. Explicit flags always win over the env var. Production environments should set `$AGENTBREEDER_URL` so `agentbreeder deploy` defaults to the gated path.
+- **Polling** until SSE streaming lands in #387, remote mode polls `GET /api/v1/deploys/{job_id}` every 2 s for up to 30 min. Terminal statuses (`succeeded`/`failed`/`cancelled` from v2.3 plus `complete`/`error` from the v2.4 event bus) all map onto the same exit-code semantics.
+- **Tests** 15 new tests cover the mode-selection matrix (flag wins, env wins, mutual exclusion), the happy path (POST → poll → succeeded), the 403 team-scope path (which #414 will make load-bearing), 401 → login hint, terminal `failed` → exit 1, and that `--local` does not hit the API even when `$AGENTBREEDER_URL` is set.
+- **Docs** `website/content/docs/cli-reference.mdx` and `website/content/docs/deployment.mdx` describe the two modes and when to use each.
+
 ### v2.4 — CLI `login` / `logout` / `whoami` + keychain token storage (#415)
 
 - **Added** three new top-level commands — `agentbreeder login`, `agentbreeder logout`, `agentbreeder whoami` — plus an `agentbreeder auth` sub-app with the same commands for discoverability. Tokens are stored in the OS keychain (macOS Keychain, GNOME libsecret, Windows Credential Manager) via the existing `keyring>=24.0.0` dependency; the `AGENTBREEDER_API_TOKEN` env var still wins over the keychain so CI keeps working unchanged.

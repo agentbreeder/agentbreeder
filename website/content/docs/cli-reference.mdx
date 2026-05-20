@@ -252,13 +252,29 @@ agentbreeder init --type mcp-server --lang python tools    # Python MCP server
 Deploy an agent from an `agent.yaml` configuration file.
 
 ```
-agentbreeder deploy CONFIG_PATH [--target TARGET] [--json]
+agentbreeder deploy CONFIG_PATH [--target TARGET] [--json] [--remote | --local]
 ```
 
 | Argument / Option | Required | Default | Description |
 |-------------------|----------|---------|-------------|
 | `CONFIG_PATH` | Yes | — | Path to `agent.yaml` |
 | `--target`, `-t` | No | `local` | Deploy target. See supported values below. |
+| `--remote` | No | Auto | POST to the API server (RBAC + audit enforced). Auto-enabled when `$AGENTBREEDER_URL` is set. |
+| `--local` | No | Auto | Run the deploy engine in-process. Use for dev / offline work; bypasses RBAC + audit. |
+| `--json` | No | Off | Emit JSON to stdout (for CI/scripting). |
+
+**Remote vs. local mode**
+
+`agentbreeder deploy` has two execution paths:
+
+* **Remote** (recommended for production) — POSTs `/api/v1/deploys` against the API server identified by `$AGENTBREEDER_URL`, then polls the job until it terminates. The bearer token comes from `agentbreeder login` (OS keychain) or `$AGENTBREEDER_API_TOKEN`. Team-scoped RBAC, audit logging, and team-scoped cloud credentials all fire on this path.
+* **Local** — runs the deploy engine in the CLI process. Useful for offline development and for the `local` Docker Compose target. It explicitly bypasses every server-side gate, so it should never be used to deploy production agents from a developer laptop.
+
+Mode is picked by these rules, in order:
+
+1. `--local` → local mode regardless of env
+2. `--remote` → remote mode regardless of env
+3. otherwise: remote when `$AGENTBREEDER_URL` is set, else local
 
 **Supported `--target` values:**
 
