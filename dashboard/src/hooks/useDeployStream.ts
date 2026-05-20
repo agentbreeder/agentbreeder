@@ -18,7 +18,9 @@ export function useDeployStream(
   const [state, setState] = useState<State>({ status: "connecting" });
   const retriesRef = useRef(0);
   const onEventRef = useRef(opts.onEvent);
-  onEventRef.current = opts.onEvent;
+  useEffect(() => {
+    onEventRef.current = opts.onEvent;
+  }, [opts.onEvent]);
 
   useEffect(() => {
     if (!jobId) return;

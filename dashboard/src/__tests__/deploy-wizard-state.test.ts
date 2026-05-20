@@ -4,6 +4,7 @@ import {
   reducer,
   canAdvance,
   type DeployWizardState,
+  type Step,
 } from "@/lib/deploy-wizard-state";
 
 const baseAgent = {
@@ -304,7 +305,7 @@ describe("reducer", () => {
   });
 
   it("SSE_EVENT with unknown event type is ignored", () => {
-    const originalState = { ...initialState, step: 5, jobId: "j-1" };
+    const originalState: DeployWizardState = { ...initialState, step: 5, jobId: "j-1" };
     const s = reducer(originalState, {
       type: "SSE_EVENT",
       event: {
@@ -460,8 +461,8 @@ describe("canAdvance", () => {
   });
 
   it("target=0 or target=6 returns false", () => {
-    expect(canAdvance(initialState, 0 as any)).toBe(false);
-    expect(canAdvance(initialState, 6 as any)).toBe(false);
+    expect(canAdvance(initialState, 0 as unknown as Step)).toBe(false);
+    expect(canAdvance(initialState, 6 as unknown as Step)).toBe(false);
   });
 
   it("canAdvance step 2→3 with cloud but no region", () => {
