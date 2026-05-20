@@ -137,13 +137,17 @@ async def lifespan(app: FastAPI):
     # balancer doesn't fragment its state per process. TTLs (24h idempotency
     # / 30d job records) are enforced by Redis EXPIRE.
     redis = _get_redis_pool()
+    redis_job_store = RedisJobStore(redis)
     app.state.deploy_event_bus = DeployEventBus()
-    app.state.deploy_orchestrator = DeployOrchestrator(event_bus=app.state.deploy_event_bus)
+    app.state.deploy_orchestrator = DeployOrchestrator(
+        event_bus=app.state.deploy_event_bus,
+        job_store=redis_job_store,
+    )
     app.state.deploy_job_service = DeployJobService(
         event_bus=app.state.deploy_event_bus,
         orchestrator=app.state.deploy_orchestrator,
         idempotency_store=RedisIdempotencyStore(redis),
-        job_store=RedisJobStore(redis),
+        job_store=redis_job_store,
         agent_repo=None,  # TODO: wire to AgentService/AgentRepository
     )
 

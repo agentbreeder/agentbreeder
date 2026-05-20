@@ -18,6 +18,7 @@ PhaseName = Literal[
     "deploying",
     "health_checking",
     "registering",
+    "destroying",
 ]
 EventType = Literal["phase", "log", "complete", "error"]
 
