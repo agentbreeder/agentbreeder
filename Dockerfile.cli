@@ -10,5 +10,12 @@ RUN if [ -n "$VERSION" ]; then \
       pip install --no-cache-dir agentbreeder; \
     fi
 
+# Drop root. The CLI runs `agentbreeder` from PATH; it doesn't write to the
+# system image at runtime. A home dir is created for any cache files the
+# Python tooling might want (`~/.config`, `~/.cache`).
+RUN useradd --create-home --shell /bin/bash --uid 1000 appuser
+USER appuser
+WORKDIR /home/appuser
+
 ENTRYPOINT ["agentbreeder"]
 CMD ["--help"]
