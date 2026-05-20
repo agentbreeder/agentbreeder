@@ -346,6 +346,32 @@ done
 
 ---
 
+## CLI: `--remote` vs `--local`
+
+`agentbreeder deploy` runs in one of two modes:
+
+* **Remote** (production) — POSTs `/api/v1/deploys` against `$AGENTBREEDER_URL`. The bearer token comes from `agentbreeder login` (OS keychain) or `$AGENTBREEDER_API_TOKEN`. Team-scoped RBAC, audit logging, and team-scoped cloud credentials are all enforced.
+* **Local** (dev / offline) — runs the deploy engine in-process. Bypasses every server-side gate; intended for laptop development and the `local` Docker Compose target.
+
+```bash
+# Production — talks to the API
+export AGENTBREEDER_URL=https://api.example.com
+agentbreeder login
+agentbreeder deploy ./agent.yaml --target cloud-run    # remote mode (auto)
+
+# Force remote even without the env var
+agentbreeder deploy ./agent.yaml --target cloud-run --remote
+
+# Force local even when AGENTBREEDER_URL is set
+agentbreeder deploy ./agent.yaml --target local --local
+```
+
+Mode resolution: `--local` wins over `--remote` wins over the env var. Without flags or env, the CLI defaults to local mode.
+
+`--remote` is what makes the team-scope RBAC gate fire — without it, a developer with shell access + cloud creds can run the deploy engine in-process and skip the gate entirely. Production environments should set `$AGENTBREEDER_URL` so that `agentbreeder deploy` defaults to the gated path.
+
+---
+
 ## Run the deploy
 
 ```bash
