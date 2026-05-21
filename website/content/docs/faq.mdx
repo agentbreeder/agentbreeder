@@ -162,7 +162,7 @@ Or do a full reset (wipes all volumes, including seeded RAG/graph data):
 agentbreeder quickstart --reset
 ```
 
-### Dashboard at `http://localhost:3001` shows a blank page
+### Studio at `http://localhost:3001` shows a blank page
 
 The container is up but the React app fails to render. Almost always one of two causes.
 
@@ -197,7 +197,7 @@ curl -s "http://localhost:3001$BUNDLE" | grep -oaE 'version="19\.[0-9]+\.[0-9]+"
 # Expected: a single line like  version="19.2.5"
 ```
 
-If both 19.2.4 and 19.2.5 appear, your dashboard image is pre-PR-#350 — rebuild as shown above.
+If both 19.2.4 and 19.2.5 appear, your Studio image is pre-PR-#350 — rebuild as shown above.
 
 ### `agentbreeder-qs-migrate-1` is `Exited` — is that bad?
 

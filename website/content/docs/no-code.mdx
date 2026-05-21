@@ -1,14 +1,14 @@
 ---
-title: No Code — Dashboard UI
+title: No Code — AgentBreeder Studio
 description: Build and deploy agents with drag-and-drop. No YAML or code required.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-# No Code — Dashboard UI
+# No Code — AgentBreeder Studio
 
-Build, configure, and deploy production agents entirely from the AgentBreeder dashboard.
+Build, configure, and deploy production agents entirely from AgentBreeder Studio (formerly the Dashboard).
 No YAML. No code. No DevOps knowledge required.
 
 **Who this is for:** Product managers, analysts, business users, executives, and anyone who wants to ship agents without touching a terminal.
@@ -17,7 +17,7 @@ No YAML. No code. No DevOps knowledge required.
 
 ## Supported Frameworks
 
-Every framework works in the dashboard. Pick the one that fits your use case from a dropdown — AgentBreeder handles the runtime scaffolding automatically.
+Every framework works in Studio. Pick the one that fits your use case from a dropdown — AgentBreeder handles the runtime scaffolding automatically.
 
 | Framework | Best for |
 |-----------|----------|
@@ -50,7 +50,7 @@ All deployment targets are available from the **Deploy to** dropdown. Connect yo
 
 ## Getting Started
 
-### 1. Open the dashboard
+### 1. Open Studio
 
 ```
 http://localhost:3001        # local dev stack
@@ -87,7 +87,7 @@ The builder asks you for:
 
 ### 4. Deploy
 
-Click **Deploy Agent**. The dashboard runs the 8-step pipeline and shows live progress:
+Click **Deploy Agent**. Studio runs the 8-step pipeline and shows live progress:
 
 ```
 ✅  YAML parsed & validated
@@ -104,7 +104,7 @@ If any step fails, the deploy rolls back automatically.
 
 ### 5. Your agent is live
 
-The endpoint URL appears in the dashboard. You can immediately:
+The endpoint URL appears in Studio. You can immediately:
 - **Chat** with the agent from the playground tab
 - **View logs** in real time
 - **Monitor costs** per token, per day, per team
@@ -114,28 +114,28 @@ The endpoint URL appears in the dashboard. You can immediately:
 
 ## MCP Servers
 
-The dashboard has a built-in MCP server registry. From the agent builder:
+Studio has a built-in MCP server registry. From the agent builder:
 
 1. Click **Add Tool → Search MCP Servers**
 2. Browse your org's registered MCP servers or auto-discover from your connected cloud
 3. Click **Add** — the server is wired in as a sidecar automatically on deploy
 
-You can also run `agentbreeder scan` from the CLI to discover locally running MCP servers and publish them to the registry for the dashboard to find.
+You can also run `agentbreeder scan` from the CLI to discover locally running MCP servers and publish them to the registry for Studio to find.
 
 ---
 
 ## Register an agent from YAML
 
-If you already have an `agent.yaml` (handed over from an engineer, or pasted from another project), you can register it without ever leaving the dashboard.
+If you already have an `agent.yaml` (handed over from an engineer, or pasted from another project), you can register it without ever leaving Studio.
 
 1. Go to `http://localhost:3001/agents`
 2. Click **Register from YAML** — the button sits next to **Create Agent** at the top right
 3. The page at `http://localhost:3001/agents/register` opens with a YAML editor
 4. Paste your `agent.yaml`, click **Validate** (parses + JSON Schema check), then **Submit**
 
-The agent record is persisted via `POST /api/v1/agents/from-yaml` and stores the name, version, framework, deploy config, and refs to prompts + tools. Once registered, the agent appears in the registry and can be deployed from the dashboard like any other agent.
+The agent record is persisted via `POST /api/v1/agents/from-yaml` and stores the name, version, framework, deploy config, and refs to prompts + tools. Once registered, the agent appears in the registry and can be deployed from Studio like any other agent.
 
-Cross-references inside the YAML resolve from the same registry the dashboard uses:
+Cross-references inside the YAML resolve from the same registry Studio uses:
 
 - Prompts: `prompts: {system: prompts/microlearning-system}` resolves to the prompt managed at [Prompts →](prompts)
 - Tools: `tools: [{ref: tools/web-search}, {ref: tools/markdown-writer}]` resolves to entries in the [tools registry](mcp-servers)
@@ -151,7 +151,7 @@ The **Test** tab on a prompt page now uses a real Gemini call (it was simulated 
 3. Enter a user message in the chat box (e.g. "What is your job?")
 4. Click **Send Test**
 
-Behind the scenes the dashboard calls `POST /api/v1/registry/prompts/{id}/render` with `{user_message, model, temperature}` and renders the live LLM response. The default model is `gemini-2.5-flash` and the response includes the model used and total duration in milliseconds.
+Behind the scenes Studio calls `POST /api/v1/registry/prompts/{id}/render` with `{user_message, model, temperature}` and renders the live LLM response. The default model is `gemini-2.5-flash` and the response includes the model used and total duration in milliseconds.
 
 <Callout type="info" title="Versioned prompts">
   Saving a change to the prompt body auto-bumps the semver patch (e.g. `1.0.0` → `1.0.1`). The Test tab always renders the version currently shown in the editor.
@@ -159,7 +159,7 @@ Behind the scenes the dashboard calls `POST /api/v1/registry/prompts/{id}/render
 
 ---
 
-## Run a tool from the dashboard
+## Run a tool from Studio
 
 Every registered tool gets an auto-generated form and runner UI.
 
@@ -181,7 +181,7 @@ Calls go through `POST /api/v1/registry/tools/{tool_id}/execute`, which dispatch
 
 ## Chat with a deployed agent
 
-Once an agent is deployed (locally or to Cloud Run / ECS / etc.), the dashboard talks to it through a server-side proxy — no CORS pain, and bearer tokens stay server-side.
+Once an agent is deployed (locally or to Cloud Run / ECS / etc.), Studio talks to it through a server-side proxy — no CORS pain, and bearer tokens stay server-side.
 
 1. Go to `http://localhost:3001/agents/<id>` — for example, `microlearning-ebook-agent`
 2. Click the **Invoke** tab
@@ -194,14 +194,14 @@ Once an agent is deployed (locally or to Cloud Run / ECS / etc.), the dashboard 
 You get back the agent's `output`, the `session_id` (auto-filled into the form for the next turn so multi-turn chat just works), and the `duration_ms` and `status_code` from the upstream call. The proxy is `POST /api/v1/agents/{agent_id}/invoke`.
 
 <Callout type="info" title="Multi-turn">
-  The session id is preserved across turns until you clear the form. Backend memory and conversation state are managed by the agent runtime, not the dashboard.
+  The session id is preserved across turns until you clear the form. Backend memory and conversation state are managed by the agent runtime, not Studio.
 </Callout>
 
 ---
 
 ## Multi-Agent Orchestration (Visual Canvas)
 
-The dashboard includes a ReactFlow-based drag-and-drop canvas for building multi-agent pipelines — no code required.
+Studio includes a ReactFlow-based drag-and-drop canvas for building multi-agent pipelines — no code required.
 
 To open the canvas:
 1. Click **New Orchestration** in the top-right corner
@@ -222,7 +222,7 @@ For sensitive workflows, you can require a human to approve before an agent proc
 2. Enable **Require HITL approval**
 3. Set the approvers (team or individuals)
 
-When the agent hits an approval step, it pauses and sends a notification. The approver sees the pending action in the dashboard and can approve or reject.
+When the agent hits an approval step, it pauses and sends a notification. The approver sees the pending action in Studio and can approve or reject.
 
 ---
 
@@ -236,7 +236,7 @@ Every redeploy is versioned. You can roll back to any previous version from the 
 
 ## Eject to Low Code (View the YAML)
 
-At any point, click **View YAML** to see the `agent.yaml` that the dashboard generated. This is human-readable and version-controllable.
+At any point, click **View YAML** to see the `agent.yaml` that Studio generated. This is human-readable and version-controllable.
 
 To take full ownership of the YAML:
 
@@ -244,14 +244,14 @@ To take full ownership of the YAML:
 2. Run `agentbreeder deploy agent.yaml` from your terminal
 3. You are now in Low Code mode — see [Low Code →](low-code)
 
-The exported YAML is identical to what the dashboard used. Nothing is hidden.
+The exported YAML is identical to what Studio used. Nothing is hidden.
 
 ---
 
 ## Tier Mobility
 
 ```
-No Code (Dashboard)
+No Code (Studio)
   └─▶  View YAML            → copy into your IDE    → Low Code
   └─▶  agentbreeder eject   → full SDK scaffold      → Full Code
 ```
