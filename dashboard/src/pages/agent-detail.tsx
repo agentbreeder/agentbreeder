@@ -1390,7 +1390,7 @@ function EnvironmentTab({ agent }: { agent: Agent }) {
           </div>
           <div className="border-t border-border bg-muted/20 px-4 py-2">
             <p className="text-[10px] text-muted-foreground">
-              Secret values are stored in your cloud provider's Secrets Manager and are not available in the dashboard.
+              Secret values are stored in your cloud provider's Secrets Manager and are not available in Studio.
             </p>
           </div>
         </div>
