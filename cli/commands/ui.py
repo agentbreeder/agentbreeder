@@ -1,7 +1,7 @@
-"""agentbreeder ui — start the full dashboard platform locally.
+"""agentbreeder ui — start AgentBreeder Studio (and its platform) locally.
 
 No repo clone required. Pulls pre-built Docker Hub images and starts
-postgres + redis + API + dashboard in one command.
+postgres + redis + API + Studio in one command.
 
 Usage:
     agentbreeder ui                 # start in background
@@ -222,16 +222,16 @@ def ui(
         help="Pull latest images before starting.",
     ),
     api_port: int = typer.Option(8000, "--api-port", help="Local port for the API server."),
-    dashboard_port: int = typer.Option(3001, "--port", help="Local port for the dashboard."),
+    dashboard_port: int = typer.Option(3001, "--port", help="Local port for Studio."),
 ) -> None:
-    """Start the AgentBreeder platform locally (dashboard + API + database).
+    """Start the AgentBreeder platform locally (Studio + API + database).
 
     No repo clone required — pulls pre-built images from Docker Hub.
 
     Examples:
         agentbreeder ui                  # start in background
         agentbreeder ui --follow         # start and tail logs
-        agentbreeder ui --port 4000      # use a different dashboard port
+        agentbreeder ui --port 4000      # use a different Studio port
     """
     console.print()
     console.print("  [bold]AgentBreeder Platform[/bold]")
@@ -273,7 +273,7 @@ def ui(
 
     # 6. Success banner
     console.print()
-    console.print(f"  Dashboard  →  [bold cyan]http://localhost:{dashboard_port}[/bold cyan]")
+    console.print(f"  Studio     →  [bold cyan]http://localhost:{dashboard_port}[/bold cyan]")
     console.print(f"  API        →  [bold cyan]http://localhost:{api_port}[/bold cyan]")
     console.print(f"  API Docs   →  [bold cyan]http://localhost:{api_port}/docs[/bold cyan]")
     console.print()

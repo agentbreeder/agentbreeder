@@ -1,6 +1,6 @@
 """agentbreeder login / logout / whoami — authentication commands.
 
-Replaces the previous workflow of "go to the dashboard, copy a JWT,
+Replaces the previous workflow of "go to Studio, copy a JWT,
 ``export AGENTBREEDER_API_TOKEN=...``". Tokens now live in the OS keychain;
 the env var still wins when set, so CI configurations keep working.
 
