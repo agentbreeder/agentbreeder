@@ -241,7 +241,7 @@ pipeline = (
     .step("summarizer", ref="agents/summarizer")
 )
 
-# Save as YAML — can be opened and edited in the Dashboard
+# Save as YAML — can be opened and edited in Studio
 pipeline.save("orchestration.yaml")
 
 # Load back — get the correct subclass (Pipeline, not base Orchestration)
