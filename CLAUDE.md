@@ -307,6 +307,39 @@ Full Code (SDK) ──→ agent.yaml + custom code  ──→ deploy pipeline
 
 ---
 
+## 📛 Product Naming
+
+AgentBreeder ships one product. Its surfaces have stable user-facing names — any new doc, CLI string, UI label, or marketing line MUST follow these rules.
+
+### Surface names (canonical)
+
+| Surface | User-facing name | Notes |
+|---------|------------------|-------|
+| Web UI | **AgentBreeder Studio** (or just **Studio** in-context) | The React app served at `:3001`. Folder is still `dashboard/`, Docker image is still `agentbreeder-dashboard`, route paths are unchanged — internal identifiers stay. |
+| Command-line | **AgentBreeder CLI** (or `agentbreeder ...` when shown as a command) | Binary name and PyPI package are `agentbreeder`. |
+| Python SDK | **AgentBreeder SDK** | `pip install agentbreeder-sdk`; import as `from agenthub import ...`. |
+| API server | **AgentBreeder API** | OpenAPI title; no Studio prefix. |
+| Sidecar | **AgentBreeder Sidecar** | Go binary; never call it "Studio Sidecar". |
+
+### The Studio rule (load-bearing)
+
+> **"Studio" is a top-level surface name only. It is never a suffix on a feature, page, or view.**
+
+- ✅ "AgentBreeder Studio", "Studio › Agents", "Studio › Costs", "the Costs view in Studio".
+- ❌ "Cost Studio", "Sessions Studio", "Eval Studio", "Studio Dashboard", "AgentOps Studio".
+- Inner pages take **functional nouns**: Agents, Deploys, Costs, Sessions, Evals, Registry, Audit, Fleet, Playground.
+- The lowercase word "dashboard" survives only as a generic UX pattern noun ("the overview dashboard inside Costs") — never branded, never capitalized.
+
+### Third-party "dashboard" references stay as-is
+
+`dashboard.stripe.com`, "Grafana dashboards", Google's "Security Dashboard", AWS "CloudWatch Dashboards" — these are other companies' product names. Do not rewrite them when sweeping AgentBreeder docs.
+
+### What NOT to rename when the rule changes
+
+Folder names (`dashboard/`), Docker images (`agentbreeder-dashboard`), Python modules, compose services, route paths (`/dashboard/*` if present), env vars (`DASHBOARD_URL`), CSS classes, codegen output, and any variable/function/class name. The rename is **user-facing strings only** — internal identifiers carry their own history and renaming them breaks deploys, scripts, and downstream consumers.
+
+---
+
 ## 📦 Package Distribution Architecture
 
 AgentBreeder is distributed through three channels for maximum reach.

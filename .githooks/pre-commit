@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# AgentBreeder pre-commit guardrails
+#
+# Activate locally with:
+#   git config core.hooksPath .githooks
+#
+# Currently enforces:
+#   rebrand-guard — blocks commits that touch "dashboard" or "studio" on the
+#                   same line as a secret-shaped token or a third-party
+#                   hostname like dashboard.stripe.com.
+#
+# Add new guards below as separate functions; keep each one small.
+
+set -eu
+
+rebrand_guard() {
+  local hits
+  hits="$(git diff --cached -U0 -- ':!*.lock' ':!*.lockb' \
+          | grep -E '^\+' \
+          | grep -iE 'dashboard|studio' \
+          | grep -iE 'eyJ[A-Za-z0-9_-]{10,}|sk-(ant|proj)-|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}|ya29\.[0-9A-Za-z_-]+|(api[_-]?key|access[_-]?token|secret|password)[ \t]*=[ \t]*[^[:space:]'"'"'"]+|dashboard\.(stripe|heroku|datadog|newrelic|sentry|grafana|atlassian|cloudflare|fastly|render|fly|vercel|netlify|railway|linear|notion|slack)\.com' \
+          || true)"
+  if [ -n "$hits" ]; then
+    echo "✖ rebrand-guard: a staged line mentions 'dashboard' or 'studio' alongside what looks like a secret or a third-party hostname."
+    echo
+    echo "Offending lines:"
+    echo "$hits" | sed 's/^/  /'
+    echo
+    echo "If this is a real secret: redact it. If this is a placeholder, move the placeholder away from"
+    echo "the dashboard/studio word, or rewrite the example using something obviously fake (XXXX, <token>)."
+    echo "If you must commit (e.g. the hostname is intentional like dashboard.stripe.com in user docs):"
+    echo "  SKIP_REBRAND_GUARD=1 git commit ..."
+    exit 1
+  fi
+}
+
+if [ "${SKIP_REBRAND_GUARD:-0}" != "1" ]; then
+  rebrand_guard
+fi
