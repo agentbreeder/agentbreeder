@@ -172,7 +172,7 @@ async def list_models(
     * Returns deprecated + retired rows by default — the legacy endpoint
       filters them out.
 
-    The dashboard ``/models`` page reads from this endpoint going forward.
+    Studio's ``/models`` page reads from this endpoint going forward.
     """
     from sqlalchemy import func, select
 

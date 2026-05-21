@@ -1,6 +1,6 @@
 """Secrets management API (Track K).
 
-The dashboard never sees secret *values*, only names + metadata + mirror
+Studio never sees secret *values*, only names + metadata + mirror
 destinations. Mutating endpoints (create, rotate, sync) require an
 authenticated user with at least the ``deployer`` role; the actual value
 is never returned to the client — it must be supplied as request body and
@@ -187,7 +187,7 @@ async def create_secret(
 ) -> ApiResponse[SecretSummary]:
     """Create (or update) a secret in the configured workspace backend.
 
-    Used by the dashboard ``/models`` Configure modal (issue #175) to wire
+    Used by Studio's ``/models`` Configure modal (issue #175) to wire
     a freshly-typed API key into the workspace secrets store. Values never
     round-trip back to the client — only a masked summary is returned.
 
@@ -206,7 +206,7 @@ async def create_secret(
         # Use the workspace's configured backend (the common case).
         backend, ws_cfg = get_workspace_backend(workspace=workspace)
     else:
-        # Caller pinned a specific backend (e.g. "env" from the dashboard
+        # Caller pinned a specific backend (e.g. "env" from Studio
         # Configure modal). Wrap it in the workspace context so the
         # response carries the workspace name.
         _, ws_cfg = get_workspace_backend(workspace=workspace)

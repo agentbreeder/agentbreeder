@@ -52,7 +52,7 @@ async def provider_status(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> ApiResponse[ProviderStatusSummary]:
-    """First-run detection: returns provider/model counts for the dashboard."""
+    """First-run detection: returns provider/model counts for Studio."""
     from sqlalchemy import func, select
 
     providers, total_providers = await ProviderRegistry.list(db, per_page=1)
@@ -121,7 +121,7 @@ async def list_catalog_providers(
 ) -> ApiResponse[list[dict]]:
     """List built-in + user-local OpenAI-compatible catalog presets.
 
-    Used by the dashboard ``/models`` page to show presets with a Configure
+    Used by Studio's ``/models`` page to show presets with a Configure
     button. Each entry is read-only — adding a user-local entry happens via the
     CLI for now (``agentbreeder provider add … --type openai_compatible``).
 
@@ -156,10 +156,10 @@ async def catalog_status(
 
     Returns ``{<provider_name>: <bool>}`` indicating whether the provider's
     api-key secret has been set in the workspace's configured secrets
-    backend. The dashboard ``/models`` page uses this to render a green
+    backend. Studio's ``/models`` page uses this to render a green
     "Configured" badge or a "Configure" CTA on each row.
 
-    The lookup checks for *both* the deterministic dashboard key
+    The lookup checks for *both* the deterministic Studio-managed key
     (``<provider>/api-key``) and the legacy env-var name
     (``<entry.api_key_env>``) so that secrets imported via the CLI before
     Track K landed are still recognised as configured.
@@ -316,7 +316,7 @@ async def pull_ollama_model(
 ) -> StreamingResponse:
     """Stream Ollama's pull progress over Server-Sent Events (#214).
 
-    The dashboard's ``Pull Model`` button (settings.tsx) consumes this as
+    Studio's ``Pull Model`` button (settings.tsx) consumes this as
     SSE — each event is a JSON object from Ollama's ``/api/pull`` NDJSON
     stream (``{"status": "downloading", "digest": "...", "total": ..., "completed": ...}``)
     plus a final ``{"status": "success"}`` or ``{"status": "error", "message": ...}``.

@@ -66,7 +66,7 @@ def _guess_language_for_framework(framework: str) -> str:
 def _agent_auth_token_secret_name(agent_name: str) -> str:
     """Return the deterministic secret name for an agent's auth token.
 
-    Format: ``agentbreeder/<agent-name>/auth-token``. The dashboard's Invoke
+    Format: ``agentbreeder/<agent-name>/auth-token``. Studio's Invoke
     panel relies on this convention so the API can resolve the token
     server-side and the user never has to paste it.
     """
@@ -502,7 +502,7 @@ async def list_agent_versions(
     """Return the agent's version history (newest-first).
 
     Each entry exposes ``version``, ``config_yaml``, ``created_by``, and
-    ``created_at`` so the dashboard's Versions / Compare panels can show
+    ``created_at`` so Studio's Versions / Compare panels can show
     real history instead of MOCK_VERSIONS (#210).
     """
     agent = await AgentRegistry.get_by_id(db, agent_id)
