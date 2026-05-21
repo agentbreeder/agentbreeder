@@ -659,7 +659,7 @@ export default function ModelsPage() {
           <TabsContent value="local">
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
               <ComingSoonBadge feature="Local model runtimes (Ollama / llama.cpp / vLLM)" issue="#216" />
-              <p>Pull and run models locally directly from the dashboard. Tracking issue covers per-model run-locally action and runtime detection.</p>
+              <p>Pull and run models locally directly from Studio. Tracking issue covers per-model run-locally action and runtime detection.</p>
             </div>
           </TabsContent>
         </Tabs>

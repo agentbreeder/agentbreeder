@@ -604,7 +604,7 @@ function ShellInner() {
             <img src="/logo.svg" alt="AgentBreeder" className="size-7 shrink-0 rounded-lg" />
             {!collapsed && (
               <span className="gradient-text truncate text-sm font-semibold tracking-tight">
-                AgentBreeder
+                AgentBreeder Studio
               </span>
             )}
           </div>
@@ -698,7 +698,7 @@ function ShellInner() {
             <ThemeSwitcher collapsed={collapsed} />
             {!collapsed && (
               <div className="px-2 text-[10px] text-muted-foreground/60">
-                AgentBreeder v0.1 &middot; Press{" "}
+                AgentBreeder Studio v0.1 &middot; Press{" "}
                 <kbd className="rounded border border-border/50 px-1 font-mono">
                   ?
                 </kbd>{" "}
