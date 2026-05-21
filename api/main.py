@@ -54,7 +54,13 @@ logger = logging.getLogger(__name__)
 
 
 async def _seed_default_admin() -> None:
-    """Create a default admin user (admin@agentbreeder.local / admin) if no users exist."""
+    """Create a default admin user if no users exist.
+
+    Seeded with ``must_change_password=True`` so the first login forces a
+    password rotation (issue #464). The credential
+    ``admin@agentbreeder.local`` / ``plant`` is publicly documented; without
+    forced rotation it is live on every fresh install.
+    """
     from api.database import async_session
     from api.models.enums import UserRole
     from api.services.auth import create_user, get_user_by_email
@@ -71,9 +77,13 @@ async def _seed_default_admin() -> None:
                 password="plant",
                 team="AgentBreeder Platform",
                 role=UserRole.admin,
+                must_change_password=True,
             )
             await db.commit()
-            logger.info("Default admin user created (admin@agentbreeder.local / plant)")
+            logger.info(
+                "Default admin user created (admin@agentbreeder.local / plant) — "
+                "password change required on first login"
+            )
         except Exception as e:
             logger.debug("Skipping admin seed: %s", e)
 
