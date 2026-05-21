@@ -68,7 +68,7 @@ Every asset (agent, prompt, tool, memory config, RAG index, knowledge base, mode
 | `publish` | Share to the org-wide registry for others to discover |
 | `admin` | Change the asset's ACL, transfer ownership |
 
-### Granting access from the dashboard
+### Granting access from Studio
 
 ```
 Assets → [select asset] → Permissions → Add principal
@@ -98,11 +98,11 @@ Any contributor can build and submit assets. Deployment is gated by an admin app
 Contributor creates / edits asset
          │
          ▼
-  agentbreeder submit        (or dashboard → "Submit for Review")
+  agentbreeder submit        (or Studio → "Submit for Review")
          │
          ▼
   ApprovalRequest created    status: pending
-  Admin group notified       (email + dashboard badge)
+  Admin group notified       (email + Studio badge)
          │
          ├── Admin approves  → status: approved  → deployer can run agentbreeder deploy
          └── Admin rejects   → status: rejected  → contributor sees rejection reason
@@ -116,7 +116,7 @@ Every approval decision is written to the immutable audit log with: approver ide
 agentbreeder submit --asset agents/my-agent --message "Ready for prod review"
 ```
 
-### Approving from the dashboard
+### Approving from Studio
 
 ```
 Governance → Approval Queue → [select request] → Review → Approve / Reject
@@ -257,7 +257,7 @@ AgentBreeder will ship with a pluggable auth provider system. Set `auth_provider
 
 ## CLI login
 
-The CLI authenticates against the same `POST /api/v1/auth/login` endpoint that the dashboard uses. Tokens live in the **OS keychain** (macOS Keychain, GNOME libsecret, Windows Credential Manager) via the [`keyring`](https://pypi.org/project/keyring/) library — you never have to copy a JWT into a shell env var by hand.
+The CLI authenticates against the same `POST /api/v1/auth/login` endpoint that Studio uses. Tokens live in the **OS keychain** (macOS Keychain, GNOME libsecret, Windows Credential Manager) via the [`keyring`](https://pypi.org/project/keyring/) library — you never have to copy a JWT into a shell env var by hand.
 
 ### Logging in
 
@@ -268,7 +268,7 @@ agentbreeder login
 # Non-interactive
 agentbreeder login --email alice@example.com --password "$AB_PASSWORD"
 
-# Or paste a token issued by the dashboard
+# Or paste a token issued by Studio
 agentbreeder login --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 ```
 
