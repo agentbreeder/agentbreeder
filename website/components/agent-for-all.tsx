@@ -36,7 +36,7 @@ function append(parent: HTMLElement, el: HTMLElement) {
   parent.scrollTop = parent.scrollHeight;
 }
 
-// ─── Phase 0: No Code (Dashboard form UI) ────────────────────────────────────
+// ─── Phase 0: No Code (Studio form UI) ───────────────────────────────────────
 
 function makeField(label: string, value: string, valueColor: string): HTMLDivElement {
   const row = document.createElement('div');
@@ -91,7 +91,7 @@ async function runNoCode(
     'opacity:0;transition:opacity 0.25s ease;font-size:11px;font-weight:600;color:#484f58;' +
     'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:14px;' +
     'padding-bottom:8px;border-bottom:1px solid #21262d;';
-  hdr.textContent = 'Dashboard  →  New Agent';
+  hdr.textContent = 'Studio  →  New Agent';
   screenEl.appendChild(hdr);
   reveal(hdr);
   await wait(300); if (signal.cancelled) return;
