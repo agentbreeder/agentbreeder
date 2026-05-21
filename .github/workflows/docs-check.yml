@@ -116,3 +116,12 @@ jobs:
           config: .cspell.json
           incremental_files_only: true
           strict: false    # warn only, don't block PRs for typos
+
+  # ── MDX title uniqueness ────────────────────────────────────────────────────
+  mdx-title-uniqueness:
+    name: MDX Title Uniqueness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for duplicate frontmatter titles
+        run: bash .github/scripts/check-mdx-titles.sh
