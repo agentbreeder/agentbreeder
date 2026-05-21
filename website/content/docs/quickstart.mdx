@@ -20,10 +20,10 @@ agentbreeder quickstart
 2. Detects (or installs) Ollama and pulls a local model — `gemma3` by default
 3. Optionally collects cloud API keys (OpenAI, Anthropic, Google, OpenRouter)
 4. Frees any conflicting ports for you on confirmation
-5. Starts the full stack — API · Dashboard · Postgres · Redis · ChromaDB · Neo4j · MCP servers · LiteLLM
+5. Starts the full stack — API · Studio · Postgres · Redis · ChromaDB · Neo4j · MCP servers · LiteLLM
 6. Seeds RAG docs, the knowledge graph, MCP servers, and prompts
 7. Deploys 5 sample agents (`assistant`, `rag-agent`, `graph-agent`, `search-agent`, `a2a-orchestrator`)
-8. Opens the dashboard at [http://localhost:3001](http://localhost:3001)
+8. Opens Studio at [http://localhost:3001](http://localhost:3001)
 
 <Callout type="info" title="Default login">
   **Email:** `admin@agentbreeder.local` · **Password:** `plant`
@@ -66,10 +66,10 @@ The 8-step deploy pipeline (parse → RBAC → resolve deps → build container 
 |---|---|
 | `--no-ollama` | Skip the Ollama install/start/pull bootstrap |
 | `--ollama-model NAME` | Pull a different default model (e.g. `llama3.2`, `phi4-mini`) |
-| `--no-browser` | Don't open the dashboard at the end |
+| `--no-browser` | Don't open Studio at the end |
 | `--skip-seed` | Skip seeding sample data (faster restart) |
 | `--reset` | Tear down all volumes and start fresh |
-| `--dev` | Build API/Dashboard images from source instead of Docker Hub |
+| `--dev` | Build API/Studio images from source instead of Docker Hub |
 
 ---
 
@@ -82,7 +82,7 @@ The 8-step deploy pipeline (parse → RBAC → resolve deps → build container 
 | Container daemon not running | Quickstart will tell you what to start (Docker Desktop, OrbStack, Colima, Podman, systemd, etc.) and re-detect after you confirm. |
 | Stack already up, ports stuck | `agentbreeder down --clean` then retry. |
 | No LLM provider | Quickstart prompts to install Ollama; or run `agentbreeder setup` separately for the full provider wizard. |
-| Dashboard at `:3001` is blank | Stale `agentbreeder/agentbreeder-dashboard:latest` cached locally. `docker rmi` it, then `agentbreeder quickstart --dev` to rebuild from source. Full steps: [FAQ →](faq#dashboard-at-httplocalhost3001-shows-a-blank-page) |
+| Studio at `:3001` is blank | Stale `agentbreeder/agentbreeder-dashboard:latest` cached locally. `docker rmi` it, then `agentbreeder quickstart --dev` to rebuild from source. Full steps: [FAQ →](faq#studio-at-httplocalhost3001-shows-a-blank-page) |
 | `migrate-1` shows `Exited` | Expected — `migrate` is a one-shot job that runs `alembic upgrade head` and exits. Only worry if the exit code is non-zero. |
 | `DOCKER_HOST` points at a dead socket | Leftover from a previous Docker/Rancher install. `unset DOCKER_HOST` (and remove the `export` line from your shell rc). |
 
