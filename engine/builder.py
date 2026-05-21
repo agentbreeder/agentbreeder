@@ -237,10 +237,10 @@ class DeployEngine:
         return result
 
     def _register(self, config: AgentConfig, endpoint_url: str) -> None:
-        """Register the agent in the local registry and sync to the dashboard API.
+        """Register the agent in the local registry and sync to the AgentBreeder API.
 
         Step 1: Write to the local JSON file (original behaviour — always executed).
-        Step 2: Best-effort upsert to the dashboard API so that
+        Step 2: Best-effort upsert to the AgentBreeder API so that
                 http://localhost:3001/agents reflects the newly deployed agent.
                 If the API is offline this step logs a warning and continues —
                 it must never cause the deploy to fail.
@@ -274,7 +274,7 @@ class DeployEngine:
         registry_file.write_text(json.dumps(registry, indent=2))
         logger.info("Registered agent '%s' in local registry", config.name)
 
-        # ── Step 2: dashboard API upsert (best-effort) ────────────────────────
+        # ── Step 2: AgentBreeder API upsert (best-effort) ────────────────────────
         api_base = os.environ.get("AGENTBREEDER_API_URL", "http://localhost:8000")
         api_token = os.environ.get("AGENTBREEDER_API_TOKEN", "")
         self._sync_to_api(config, endpoint_url, api_base, api_token)
@@ -282,7 +282,7 @@ class DeployEngine:
     def _sync_to_api(
         self, config: AgentConfig, endpoint_url: str, api_base: str, api_token: str = ""
     ) -> None:
-        """Upsert the deployed agent into the dashboard API.
+        """Upsert the deployed agent into the AgentBreeder API.
 
         Uses a search-first strategy:
           GET  /api/v1/agents/search?q={name}  — find existing record
@@ -290,7 +290,7 @@ class DeployEngine:
           POST /api/v1/agents                  — create if not found
 
         Auth: if ``AGENTBREEDER_API_TOKEN`` is set in the env, attach it as a
-        Bearer token. Without it the dashboard's auth gate (all 247 routes are
+        Bearer token. Without it the AgentBreeder API's auth gate (all 247 routes are
         gated) returns 401 and the sync is best-effort/skipped.
 
         All errors are caught so the deploy is never blocked.
@@ -324,7 +324,7 @@ class DeployEngine:
                     )
                     put_resp.raise_for_status()
                     logger.info(
-                        "Updated agent '%s' (id=%s) in dashboard API",
+                        "Updated agent '%s' (id=%s) in AgentBreeder API",
                         config.name,
                         agent_id,
                     )
@@ -347,11 +347,11 @@ class DeployEngine:
                         },
                     )
                     post_resp.raise_for_status()
-                    logger.info("Created agent '%s' in dashboard API", config.name)
+                    logger.info("Created agent '%s' in AgentBreeder API", config.name)
 
         except Exception as exc:  # noqa: BLE001 — best-effort; never break deploy
             logger.warning(
-                "Could not sync agent '%s' to dashboard API at %s: %s",
+                "Could not sync agent '%s' to AgentBreeder API at %s: %s",
                 config.name,
                 api_base,
                 exc,

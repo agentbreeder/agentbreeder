@@ -1,4 +1,4 @@
-"""AgentOps Service — unified operations dashboard for fleet health, incidents,
+"""AgentOps Service — unified operations layer for fleet health, incidents,
 canary deploys, cost forecasting, and compliance.
 
 Provides:
@@ -107,7 +107,7 @@ _SEED_COST_SUGGESTIONS = [
 
 
 def _serialize_incident(inc: Incident) -> dict[str, Any]:
-    """Convert an ``Incident`` ORM row to the dict shape the dashboard expects.
+    """Convert an ``Incident`` ORM row to the dict shape Studio expects.
 
     Keeps wire-compatibility with the previous in-memory representation:
       ``id``, ``agent_name``, ``title``, ``severity``, ``status``,
@@ -382,7 +382,7 @@ def _agent_status_to_health(
     error_rate_pct: float,
 ) -> tuple[str, int]:
     """Map a registry ``AgentStatus`` + recent error rate to the
-    ``healthy / degraded / down`` triage the dashboard expects, plus a
+    ``healthy / degraded / down`` triage Studio expects, plus a
     ``health_score`` in [0, 100].
 
     Heuristic:
@@ -855,7 +855,7 @@ class AgentOpsStore:
         The full spend forecasting pipeline (regression on historical
         cost_events, anomaly detection, etc.) is tracked under the
         cost-uplift work; this method intentionally stays simple — the
-        cost dashboard surfaces (``/api/v1/costs/*``) own the real model.
+        cost surfaces (``/api/v1/costs/*``) own the real model.
         """
         today = datetime.now(UTC).date()
 
@@ -899,7 +899,7 @@ class ComplianceService:
     ``engine.compliance.controls.CONTROL_REGISTRY`` against the live
     ``AsyncSession`` and writes a single row to ``compliance_scans``. The
     ``status_payload`` and ``report_payload`` shapes are kept wire-compatible
-    with the previous in-memory responses so the dashboard does not need to
+    with the previous in-memory responses so Studio does not need to
     change its TypeScript types.
     """
 
@@ -925,7 +925,7 @@ class ComplianceService:
     async def get_or_run_latest(db: AsyncSession, *, max_age_seconds: int = 60) -> ComplianceScan:
         """Return the most recent scan, or run a fresh one if it's stale.
 
-        Reading the dashboard at high frequency must not re-run controls on
+        Reading from Studio at high frequency must not re-run controls on
         every render — we cache the most recent scan for ``max_age_seconds``
         (default 60s).
         """
@@ -944,7 +944,7 @@ class ComplianceService:
     def status_payload(row: ComplianceScan) -> dict[str, Any]:
         """Wire-compatible payload for ``GET /agentops/compliance/status``.
 
-        The dashboard's ``Control`` interface expects ``id``, ``name``,
+        Studio's ``Control`` interface expects ``id``, ``name``,
         ``category``, ``status``, and ``last_checked`` — provided directly by
         ``ControlResult.to_dict()``.
         """
