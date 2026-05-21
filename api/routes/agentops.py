@@ -1,4 +1,4 @@
-"""AgentOps — Unified Operations Dashboard API routes."""
+"""AgentOps — Unified Operations API routes (powers the Fleet view in Studio)."""
 
 from __future__ import annotations
 
