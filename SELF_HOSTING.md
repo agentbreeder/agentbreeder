@@ -12,7 +12,7 @@ This guide walks through deploying AgentBreeder on your own infrastructure using
 | Docker Compose | v2.20+ | Bundled with Docker Desktop; `docker compose` (not `docker-compose`) |
 | RAM | 4 GB | 6 GB recommended for the full stack including LiteLLM |
 | Disk | 10 GB | For images, volumes, and build cache |
-| Open ports | 8000, 3001, 4000 | API, dashboard, LiteLLM gateway |
+| Open ports | 8000, 3001, 4000 | API, Studio, LiteLLM gateway |
 
 ---
 
@@ -86,7 +86,7 @@ Expected response:
 {"status": "healthy", "service": "agentbreeder-api", "version": "..."}
 ```
 
-- Dashboard UI: [http://localhost:3001](http://localhost:3001)
+- Studio: [http://localhost:3001](http://localhost:3001)
 - API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 - LiteLLM gateway: [http://localhost:4000](http://localhost:4000)
 
@@ -238,7 +238,7 @@ Before exposing AgentBreeder to the internet or real users, complete the followi
 
 ### Reverse proxy and HTTPS
 
-Run a reverse proxy in front of the API and dashboard. Example with Caddy (automatic HTTPS):
+Run a reverse proxy in front of the API and Studio. Example with Caddy (automatic HTTPS):
 
 ```
 agentbreeder.example.com {

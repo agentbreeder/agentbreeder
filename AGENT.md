@@ -40,9 +40,9 @@ AgentBreeder is built with AI-assisted development from Day 1. This means:
 
 **Skill Prompt:**
 ```
-You are a senior UI/UX engineer working on AgentBreeder's React + Tailwind dashboard.
+You are a senior UI/UX engineer working on AgentBreeder Studio (the React + Tailwind UI).
 
-Context: AgentBreeder is a dark-mode-friendly developer tool dashboard. Style reference: Linear, Vercel, GitHub's design language. 
+Context: AgentBreeder Studio is a dark-mode-friendly developer tool UI. Style reference: Linear, Vercel, GitHub's design language. 
 Font: Inter. Colors: slate-900 bg, blue-600 primary, green-500 success, red-500 error.
 
 Design a complete React component for: [COMPONENT_DESCRIPTION]
@@ -69,7 +69,7 @@ Do NOT write implementation code yet. Focus on the design spec.
 
 **Skill Prompt:**
 ```
-You are designing a page for the AgentBreeder dashboard.
+You are designing a page for AgentBreeder Studio.
 
 Design system context:
 - Sidebar navigation (collapsible, 240px wide)
@@ -471,11 +471,11 @@ Also verify:
 ---
 
 ### `test:e2e`
-**Purpose:** Write Playwright E2E tests for dashboard flows.
+**Purpose:** Write Playwright E2E tests for Studio flows.
 
 **Skill Prompt:**
 ```
-You are writing Playwright E2E tests for the AgentBreeder dashboard.
+You are writing Playwright E2E tests for AgentBreeder Studio.
 
 Setup:
 - Tests in tests/e2e/
@@ -494,7 +494,7 @@ For each test:
 6. Include accessibility checks (axe-core) where applicable
 
 Target flows for v0.1:
-- Login and dashboard load
+- Login and Studio load
 - Browse agent registry
 - View agent detail page
 - Deploy an agent (mock cloud APIs)
@@ -575,11 +575,11 @@ Tag format: v[MAJOR].[MINOR].[PATCH]
 ```
 You are building Docker images for AgentBreeder.
 
-Current state: There is a single `Dockerfile` at the project root for the API. The dashboard builds via `npm run build`. Local dev uses `deploy/docker-compose.yml`.
+Current state: There is a single `Dockerfile` at the project root for the API. Studio builds via `npm run build` (in `dashboard/`). Local dev uses `deploy/docker-compose.yml`.
 
 Build targets:
 - api: FastAPI backend (the existing Dockerfile)
-- dashboard: React frontend (nginx-served static files)
+- Studio: React frontend (nginx-served static files)
 
 Future targets (not yet implemented):
 - cli: CLI tool (packaged as a standalone binary)
@@ -609,7 +609,7 @@ You are creating or maintaining the AgentBreeder Helm chart in deploy/helm/.
 
 > **Status:** Helm chart does not exist yet. Currently, local deployment uses `deploy/docker-compose.yml`. This skill is for creating the initial chart or maintaining it once created.
 
-The chart should deploy: API server, Redis, PostgreSQL (or external), dashboard.
+The chart should deploy: API server, Redis, PostgreSQL (or external), Studio.
 
 Target chart structure: deploy/helm/agentbreeder/
 
@@ -779,7 +779,7 @@ Adds complete support for a new cloud provider. Chains:
 7. `deploy:release-prep` — add to changelog
 
 ### `workflow:new-dashboard-page`
-Adds a complete new dashboard page. Chains:
+Adds a complete new Studio page. Chains:
 1. `design:page-layout` — full page design spec
 2. `design:component` × N — each component spec
 3. `build:api-endpoint` — any new API endpoints needed
@@ -907,7 +907,7 @@ Scan ALL Python and TypeScript source files for:
    - Fix: replace unsafe calls
 
 5. Cross-Site Scripting (XSS)
-   - All user input rendered in dashboard must be escaped
+   - All user input rendered in Studio must be escaped
    - No dangerouslySetInnerHTML without sanitization
    - Fix: use DOMPurify or remove unsafe rendering
 
