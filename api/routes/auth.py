@@ -10,6 +10,7 @@ from api.database import get_db
 from api.models.database import User
 from api.models.schemas import (
     ApiResponse,
+    ChangePasswordRequest,
     LoginRequest,
     RegisterRequest,
     TokenResponse,
@@ -20,6 +21,8 @@ from api.services.auth import (
     create_access_token,
     create_user,
     get_user_by_email,
+    hash_password,
+    verify_password,
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -38,7 +41,12 @@ async def login(
             detail="Invalid email or password",
         )
     token = create_access_token(str(user.id), user.email, user.role.value)
-    return ApiResponse(data=TokenResponse(access_token=token))
+    return ApiResponse(
+        data=TokenResponse(
+            access_token=token,
+            must_change_password=user.must_change_password,
+        )
+    )
 
 
 @router.post("/register", response_model=ApiResponse[UserResponse], status_code=201)
@@ -67,4 +75,38 @@ async def me(
     current_user: User = Depends(get_current_user),
 ) -> ApiResponse[UserResponse]:
     """Return the currently authenticated user."""
+    return ApiResponse(data=UserResponse.model_validate(current_user))
+
+
+@router.post("/change-password", response_model=ApiResponse[UserResponse])
+async def change_password(
+    body: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[UserResponse]:
+    """Change the authenticated user's password.
+
+    Verifies ``old_password`` against the stored hash, then rotates to
+    ``new_password`` and clears the ``must_change_password`` flag. Used by
+    the forced first-login flow (#464) and any user-initiated rotation.
+    """
+    if not verify_password(body.old_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Old password is incorrect",
+        )
+    if len(body.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Password must be at least 8 characters",
+        )
+    if body.new_password == body.old_password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="New password must differ from the old one",
+        )
+    current_user.password_hash = hash_password(body.new_password)
+    current_user.must_change_password = False
+    await db.commit()
+    await db.refresh(current_user)
     return ApiResponse(data=UserResponse.model_validate(current_user))

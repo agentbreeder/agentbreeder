@@ -69,6 +69,10 @@ class RegisterRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    # True when the authenticated user must rotate their password before
+    # accessing any other endpoint. Drives forced-password-change flows in
+    # Studio and the CLI. Issue #464.
+    must_change_password: bool = False
 
 
 class UserResponse(BaseModel):
@@ -78,9 +82,15 @@ class UserResponse(BaseModel):
     role: UserRole
     team: str
     is_active: bool
+    must_change_password: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
 
 
 # --- Agent Schemas ---

@@ -64,6 +64,7 @@ async def create_user(
     password: str,
     team: str = "default",
     role: UserRole = UserRole.viewer,
+    must_change_password: bool = False,
 ) -> User:
     """Create a new user account."""
     user = User(
@@ -72,6 +73,7 @@ async def create_user(
         password_hash=hash_password(password),
         team=team,
         role=role,
+        must_change_password=must_change_password,
     )
     db.add(user)
     await db.flush()

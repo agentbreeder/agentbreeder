@@ -57,6 +57,7 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.viewer, nullable=False)
     team: Mapped[str] = mapped_column(String(100), nullable=False, default="default")
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    must_change_password: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
