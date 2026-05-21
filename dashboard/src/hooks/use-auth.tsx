@@ -14,6 +14,7 @@ export interface AuthUser {
   name: string;
   role: string;
   team: string;
+  must_change_password?: boolean;
 }
 
 interface AuthState {
@@ -22,6 +23,7 @@ interface AuthState {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, name: string, password: string, team?: string) => Promise<void>;
+  changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -110,9 +112,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearAuth();
   }, [clearAuth]);
 
+  const changePassword = useCallback(
+    async (oldPassword: string, newPassword: string) => {
+      if (!token) throw new Error("Not authenticated");
+      const res = await fetch(`${BASE}/auth/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail ?? "Password change failed");
+      }
+      const json = await res.json();
+      setUser(json.data);
+    },
+    [token],
+  );
+
   const value = useMemo(
-    () => ({ user, token, isLoading, login, register, logout }),
-    [user, token, isLoading, login, register, logout],
+    () => ({ user, token, isLoading, login, register, changePassword, logout }),
+    [user, token, isLoading, login, register, changePassword, logout],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

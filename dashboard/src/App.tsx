@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import Shell from "@/components/shell";
 import LoginPage from "@/pages/login";
+import ChangePasswordPage from "@/pages/change-password";
 import HomePage from "@/pages/home";
 import AgentsPage from "@/pages/agents";
 import AgentDetailPage from "@/pages/agent-detail";
@@ -66,8 +67,36 @@ const queryClient = new QueryClient({
   },
 });
 
-/** Route guard — redirects to /login if not authenticated. */
+/** Route guard — redirects to /login if not authenticated.
+ *
+ * When the authenticated user has ``must_change_password`` (issue #464), every
+ * route is intercepted with a redirect to /change-password until the flag
+ * clears. The change-password page itself is rendered outside this guard so
+ * the user can complete the flow without an infinite redirect loop.
+ */
 function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.must_change_password) return <Navigate to="/change-password" replace />;
+  return <>{children}</>;
+}
+
+/** Route guard for the change-password screen.
+ *
+ * Requires authentication but bypasses the must_change_password redirect so
+ * the user can actually complete the rotation. Once the flag clears, the
+ * page itself navigates home.
+ */
+function RequireAuthOnly({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
 
   if (isLoading) {
@@ -89,6 +118,14 @@ export default function App() {
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/change-password"
+              element={
+                <RequireAuthOnly>
+                  <ChangePasswordPage />
+                </RequireAuthOnly>
+              }
+            />
             <Route
               element={
                 <RequireAuth>
