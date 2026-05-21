@@ -144,9 +144,7 @@ def _force_password_change(
         console.print("[red]Current password was rejected by the server.[/red]")
         raise typer.Exit(code=1)
     if resp.status_code >= 400:
-        console.print(
-            f"[red]POST /auth/change-password -> {resp.status_code}[/red]\n{resp.text}"
-        )
+        console.print(f"[red]POST /auth/change-password -> {resp.status_code}[/red]\n{resp.text}")
         raise typer.Exit(code=1)
 
     console.print("[green]Password updated.[/green]")

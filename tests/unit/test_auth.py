@@ -125,9 +125,7 @@ class TestLoginRoute:
     @patch("api.routes.auth.authenticate_user")
     @patch("api.routes.auth.create_access_token")
     @patch("api.database.get_db")
-    def test_login_surfaces_must_change_password_flag(
-        self, mock_db, mock_create_token, mock_auth
-    ):
+    def test_login_surfaces_must_change_password_flag(self, mock_db, mock_create_token, mock_auth):
         """Issue #464: login response must carry must_change_password so
         clients can route to a forced-rotation flow."""
         user = _make_user(must_change_password=True)
@@ -266,9 +264,7 @@ class TestChangePasswordRoute:
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch("api.database.get_db", return_value=ctx))
-            stack.enter_context(
-                patch("api.auth.get_user_by_id", AsyncMock(return_value=user))
-            )
+            stack.enter_context(patch("api.auth.get_user_by_id", AsyncMock(return_value=user)))
             stack.enter_context(
                 patch(
                     "api.auth.decode_access_token",
