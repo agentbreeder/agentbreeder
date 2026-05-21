@@ -108,8 +108,8 @@ def _print_welcome() -> None:
             "    [dim]Validate your agent.yaml[/dim]\n"
             "  4. [bold cyan]agentbreeder deploy --target local[/bold cyan]\n"
             "    [dim]Deploy to local Docker / Podman (or --target aws | gcp | azure)[/dim]\n"
-            "  5. [bold cyan]agentbreeder ui[/bold cyan]"
-            "          [dim]Open the dashboard at http://localhost:3001[/dim]\n\n"
+            "  5. [bold cyan]agentbreeder studio[/bold cyan]"
+            "     [dim]Open Studio at http://localhost:3001[/dim]\n\n"
             "[bold]Useful anytime:[/bold]\n"
             "  [cyan]agentbreeder list agents[/cyan]    [dim]· see what's registered[/dim]\n"
             "  [cyan]agentbreeder chat <name>[/cyan]    [dim]· talk to an agent[/dim]\n"
@@ -199,10 +199,10 @@ from cli.commands import (
     seed,
     setup,
     status,
+    studio,
     submit,
     teardown,
     template,
-    ui,
     up,
     validate,
 )
@@ -244,7 +244,7 @@ app.command(name="whoami")(auth.whoami)
 app.command(name="quickstart")(quickstart.quickstart)
 app.command(name="seed")(seed.seed)
 app.command(name="setup")(setup.setup)
-app.command(name="ui")(ui.ui)
+app.command(name="studio")(studio.studio)
 app.command(name="up")(up.up)
 app.command(name="down")(down.down)
 app.command(name="init")(init_cmd.init)
