@@ -18,7 +18,7 @@ agentbreeder validate          # check agent.yaml
 agentbreeder deploy --target   # local + cloud-run shipped greenfield; others require existing infra (see deploy table)
 agentbreeder chat <name>       # talk to a deployed agent
 agentbreeder list agents       # see what's deployed
-agentbreeder ui                # open Studio
+agentbreeder studio            # open Studio
 agentbreeder down              # stop the local stack
 ```
 
@@ -1582,12 +1582,12 @@ agentbreeder compliance generate --since 1y --format pdf  # 1-year PDF report
 
 ---
 
-### `agentbreeder ui`
+### `agentbreeder studio`
 
 Start AgentBreeder Studio and the API server via Docker Compose.
 
 ```
-agentbreeder ui [--follow] [--pull] [--api-port PORT] [--port PORT]
+agentbreeder studio [--follow] [--pull] [--api-port PORT] [--port PORT]
 ```
 
 | Option | Default | Description |
