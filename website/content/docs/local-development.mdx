@@ -12,7 +12,7 @@ This guide covers setting up AgentBreeder for local development and contributing
 | Tool | Version | Purpose |
 |------|---------|---------|
 | Python | 3.11+ | Backend, CLI, engine |
-| Node.js | 22+ | Dashboard frontend |
+| Node.js | 22+ | Studio frontend |
 | Docker & Compose | Latest | Local services, container builds |
 | Git | Latest | Version control |
 
@@ -59,7 +59,7 @@ uvicorn api.main:app --reload --port 8000
 
 API is available at `http://localhost:8000`. OpenAPI docs at `http://localhost:8000/docs`.
 
-### 5. Start the dashboard
+### 5. Start Studio
 
 ```bash
 cd dashboard
@@ -67,7 +67,7 @@ npm install
 npm run dev
 ```
 
-Dashboard is available at `http://localhost:5173`. It proxies API requests to port 8000 via Vite config.
+Studio is available at `http://localhost:5173`. It proxies API requests to port 8000 via Vite config.
 
 ### 6. Verify the CLI
 
@@ -151,7 +151,7 @@ cd microlearning-ebook-agent/
 
 ## Full Stack (Docker Compose)
 
-To run everything in Docker (API + Dashboard + Postgres + Redis + migrations):
+To run everything in Docker (API + Studio + Postgres + Redis + migrations):
 
 ```bash
 docker compose -f deploy/docker-compose.yml up -d
@@ -159,7 +159,7 @@ docker compose -f deploy/docker-compose.yml up -d
 
 | Service | URL |
 |---------|-----|
-| Dashboard | http://localhost:3001 |
+| Studio | http://localhost:3001 |
 | API | http://localhost:8000 |
 | API Docs | http://localhost:8000/docs |
 | PostgreSQL | localhost:5432 |
@@ -197,7 +197,7 @@ npx playwright test tests/e2e/agents   # Specific directory
 
 ### Live Docker E2E tests (full stack)
 
-Runs 97 Playwright tests against the real Docker Compose stack — no mocks. Covers all 12 feature domains: providers, prompts, tools, RAG, MCP servers, agent builders (no-code + YAML), playground execution, tracing, evaluations, cost dashboard, and RBAC.
+Runs 97 Playwright tests against the real Docker Compose stack — no mocks. Covers all 12 feature domains: providers, prompts, tools, RAG, MCP servers, agent builders (no-code + YAML), playground execution, tracing, evaluations, cost tracking, and RBAC.
 
 ```bash
 # Start the stack first
@@ -280,7 +280,7 @@ agentbreeder/
 │   ├── main.py             # App entry, middleware, routers
 │   ├── routes/             # REST endpoints
 │   │   ├── agents.py       # Agent CRUD
-│   │   ├── deploys.py      # Deploy from dashboard (POST /api/v1/deploys)
+│   │   ├── deploys.py      # Deploy from Studio (POST /api/v1/deploys)
 │   │   ├── prompts.py      # Prompts + test panel (POST /api/v1/prompts/test)
 │   │   ├── sandbox.py      # Tool sandbox execution (POST /api/v1/tools/sandbox/execute)
 │   │   ├── rag.py          # RAG indexes, file ingestion, hybrid search
@@ -316,14 +316,14 @@ agentbreeder/
 └── alembic/                # Database migrations
 ```
 
-### Dashboard Pages
+### Studio Pages
 
 | Page | Path | Description |
 |------|------|-------------|
 | Agents | `/agents` | Agent registry browser |
 | Agent Detail | `/agents/:id` | Agent detail + deploy history |
 | Agent Builder | `/agents/builder` | Visual drag-and-drop agent builder (ReactFlow canvas, 8 node types) |
-| Deploys | `/deploys` | Deploy from dashboard with 8-step pipeline dialog |
+| Deploys | `/deploys` | Deploy from Studio with 8-step pipeline dialog |
 | Prompts | `/prompts` | Prompt registry + test panel |
 | Prompt Builder | `/prompts/builder` | Template variables, live preview, versioning |
 | Tools | `/tools` | Tool registry |
@@ -357,7 +357,7 @@ agentbreeder/
 | `GET/POST` | `/api/v1/evals` | Agent evaluation |
 | `GET/POST` | `/api/v1/playground` | Chat playground |
 | `GET/POST` | `/api/v1/a2a` | Agent-to-agent (A2A) communication |
-| `GET` | `/api/v1/agentops` | Fleet operations dashboard |
+| `GET` | `/api/v1/agentops` | Fleet operations page in Studio |
 | `GET` | `/api/v1/gateway` | Model gateway status + proxy |
 | `GET/POST` | `/api/v1/marketplace` | Community marketplace |
 | `GET/POST` | `/api/v1/templates` | Agent templates |
@@ -400,7 +400,7 @@ LITELLM_BASE_URL=http://localhost:4000
 2. Register in `cli/main.py`: `app.command(name="your-command")(your_module.your_function)`
 3. Write unit tests
 
-### Add a new dashboard page
+### Add a new Studio page
 
 1. Create page in `dashboard/src/pages/`
 2. Add route in `dashboard/src/App.tsx`

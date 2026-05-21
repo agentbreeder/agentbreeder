@@ -99,9 +99,9 @@ Every agent gets a scoped virtual key (`sk-agent-<name>`) automatically minted a
 - Is injected into the deployed container as `LITELLM_API_KEY`
 - Is scoped to the agent's allowed models (from `agent.yaml`)
 - Is attributed to the agent's team for cost tracking
-- Can be revoked from the dashboard without redeploying the agent
+- Can be revoked from Studio without redeploying the agent
 
-View and manage keys from the dashboard under **Settings → API Keys**, or via the CLI:
+View and manage keys from Studio under **Settings → API Keys**, or via the CLI:
 
 ```bash
 agentbreeder describe my-agent --keys
@@ -111,7 +111,7 @@ agentbreeder describe my-agent --keys
 
 ## Cost Tracking
 
-Every LLM call through the gateway is tracked and attributed to the calling agent and its team. View spend in the dashboard under **Costs**, or via the API:
+Every LLM call through the gateway is tracked and attributed to the calling agent and its team. View spend in Studio under **Costs**, or via the API:
 
 ```bash
 # Spend for a specific team
@@ -236,13 +236,13 @@ Every gateway call emits an OpenTelemetry span with:
 - Virtual key alias (agent attribution)
 - `x-litellm-call-id` — correlated to AgentBreeder audit log entries
 
-View traces in the dashboard under **Tracing**, or connect your own OTEL collector by updating the endpoint in `litellm_config.yaml`.
+View traces in Studio under **Tracing**, or connect your own OTEL collector by updating the endpoint in `litellm_config.yaml`.
 
 ---
 
-## Gateway Dashboard
+## Gateway
 
-The **Gateway** page in the AgentBreeder dashboard shows:
+The **Gateway** page in AgentBreeder Studio shows:
 
 - Live status of each configured provider
 - Model catalog with pricing

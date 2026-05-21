@@ -115,8 +115,8 @@ See the complete working example in [`examples/graphrag-ollama-agent/`](https://
 
 ## Step 1 — Create a Graph Index
 
-<Tabs items={['Dashboard', 'API', 'agent.yaml']}>
-  <Tab value="Dashboard">
+<Tabs items={['Studio', 'API', 'agent.yaml']}>
+  <Tab value="Studio">
 Go to **Registry → Knowledge Bases → New Index**. Under **Index Type**, select **Graph** (instead of Vector).
 
 Configure:
@@ -192,11 +192,11 @@ knowledge_bases:
 
 Upload files to build the knowledge graph. Entity extraction happens automatically.
 
-<Tabs items={['Dashboard', 'API']}>
-  <Tab value="Dashboard">
+<Tabs items={['Studio', 'API']}>
+  <Tab value="Studio">
 Open the index → click **Upload Documents** → drag and drop files.
 
-The dashboard shows extraction progress:
+Studio shows extraction progress:
 ```
 ✅ Chunking...           14 chunks from docs/architecture.md
 ✅ Entity Extraction...  28 entities found, 42 relationships discovered
