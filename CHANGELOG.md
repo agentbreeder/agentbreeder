@@ -8,6 +8,27 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.5 — Rename Dashboard → Studio (user-facing rebrand, #460)
+
+> **User-facing string sweep only.** No folder renames, no Docker image renames, no route/env/identifier changes. `dashboard/`, `agentbreeder/agentbreeder-dashboard`, `DASHBOARD_URL`, the `dashboard` compose service, and `area:dashboard` label all stay; they're internal handles, not the brand.
+
+- **Studio is the canonical name** for the React UI at `:3001`. Every user-visible "Dashboard" string in the shell, CLI output, docs, API docstrings, and root contributor docs now reads "Studio" (or "AgentBreeder Studio" at top-level).
+- **CLI breaking change** `agentbreeder ui` is gone. The command is `agentbreeder studio` — same flags (`--follow`, `--pull`, `--port`, `--api-port`), same behavior. Anyone with a script using `agentbreeder ui` must update it. The compose project name (`agentbreeder-ui` → `agentbreeder-studio`) and state file (`~/.agentbreeder/docker-compose.ui.yml` → `docker-compose.studio.yml`) also renamed; existing containers from a previous `ui` run can be cleaned up with `docker compose -p agentbreeder-ui down` if needed.
+- **Studio shell** browser `<title>`, sidebar wordmark, version chip, and two body strings on the Models + Agent Detail pages now show "AgentBreeder Studio".
+- **CLI output** every `quickstart`, `studio`, `up`, `auth` panel / status table / smoke check / error message reads "Studio". The `services_ok` dict keys derived from those labels flipped from `dashboard` → `studio` in lockstep across 3 call sites.
+- **Website docs** 27 `.mdx` files updated across `quickstart.mdx`, `faq.mdx`, `no-code.mdx`, `low-code.mdx`, `full-code.mdx`, `authentication.mdx`, `cli-reference.mdx`, `how-to.mdx`, `local-development.mdx`, `playground.mdx`, `tools.mdx`, `rag.mdx`, `graphrag.mdx`, `mcp-servers.mdx`, `prompts.mdx`, `gateway.mdx`, `gateways.mdx`, `providers.mdx`, `secrets.mdx`, `evaluations.mdx`, `runtime-contract.mdx`, `migrations.mdx`, `migrations/overview.mdx`, `migrations/from-autogen.mdx`, `orchestration-sdk.mdx`, `orchestration-yaml.mdx`, `registry-guide.mdx`. Tab-pair labels (7 `Tabs items={['Studio', …]}` ↔ `<Tab value="Studio">` pairs) updated in lockstep. The FAQ anchor `#dashboard-at-httplocalhost3001…` slug renamed to `#studio-at-httplocalhost3001…` with all inbound links updated.
+- **Marketing site** `agent-for-all.tsx` animated demo header reads "Studio → New Agent"; `cloud-coming.tsx` "cost dashboards" reads "cost tracking".
+- **API docstrings** `agentops.py`, `providers.py`, `secrets.py`, `models.py`, `agents.py`, plus `engine/builder.py` and `api/services/agentops_service.py` — visible via `/docs` OpenAPI.
+- **Root docs** `ARCHITECTURE.md`, `SELF_HOSTING.md`, `AGENT.md`, `CONTRIBUTING.md` — stack matrix, IA diagrams, contributor commands.
+- **`CLAUDE.md`** new "📛 Product Naming" section codifies the **Studio rule**: Studio is a top-level surface name only, **never** a feature suffix. Inner pages take functional nouns (Agents, Costs, Sessions, Evals, Registry, Audit, Fleet, Playground). No "Cost Studio", no "Sessions Studio". Also lists the third-party "dashboard" references (Grafana, Stripe, Google Security Dashboard, AWS CloudWatch) that stay as-is.
+- **Pre-commit guardrail** new `.githooks/pre-commit` blocks staged lines that combine "dashboard"/"studio" with a JWT, API key, or third-party hostname like `dashboard.stripe.com`. Activate with `git config core.hooksPath .githooks`; `SKIP_REBRAND_GUARD=1` bypass for legitimate hits (e.g. the Stripe URL in `examples/templates/returns-processor/README.md`).
+- **CI check** new `MDX Title Uniqueness` job in `.github/workflows/docs-check.yml` (calling `.github/scripts/check-mdx-titles.sh`) fails when two `website/content/docs/*.mdx` files share an identical frontmatter `title:`. Prevents the SEO collision a sloppy find-and-replace can produce.
+- **SEO transition copy** the H1 of `no-code.mdx` reads "AgentBreeder Studio (formerly the Dashboard)" for ~6 months so users Googling "agentbreeder dashboard" still match. Page titles in the sweep are suffixed " — AgentBreeder Studio" to keep `<title>` tags unique.
+- **What we did NOT touch** the `dashboard/` folder, `agentbreeder/agentbreeder-dashboard:latest` Docker image, `DASHBOARD_URL` constant, `dashboard_port` / `dashboard_key` / `_dashboard_smoke_check` identifiers, `CostDashboard` React component, `workflow:new-dashboard-page` slug, GitHub `area:dashboard` label, and any historical name in `CHANGELOG.md` itself. Internal handles are stable.
+- **Test** 11 unit tests in `tests/unit/test_studio_cmd.py` (renamed from `test_ui_cmd.py`) cover the `studio` command end-to-end; all pass.
+- **Cross-repo follow-up** `agentbreeder-cloud` has ~50 user-facing "Dashboard" references in `ROADMAP.md` and internal specs that should be swept in a companion PR. Tracked alongside the broader UX work in #461.
+- **UX tracker** the rebrand surfaced 7 first-run UX gaps (forced password change on `plant`, prereq preflight, empty-state tour, etc.) — filed as #462–#468 under epic #461.
+
 ### v2.4 — Tighten `/api/v1/deploys` with team-scoped RBAC (#414)
 
 - **Closed** the HR-1 analogue gap for deploys. Before this change, a user with the `deployer` role in team A could `POST /api/v1/deploys` against an agent owned by team B — `require_role("deployer")` was applied **without** `resource_team=`, so the middleware only verified deployer-anywhere.
