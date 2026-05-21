@@ -73,6 +73,85 @@ def _store_or_warn(token: str) -> None:
         )
 
 
+def _force_password_change(
+    access_token: str,
+    *,
+    api_url: str,
+    current_password: str | None,
+    is_default_admin: bool,
+) -> None:
+    """Walk the user through a forced password rotation.
+
+    Called when ``must_change_password`` is set on the authenticated user
+    (issue #464). Prompts for the new password (twice, hidden), POSTs
+    ``/api/v1/auth/change-password`` with the temp access token, and
+    returns on success. Exits non-zero on any failure so the caller does
+    not persist a token tied to a still-unsafe credential.
+
+    ``current_password`` is the password the user just authenticated with;
+    we already know it works, so we pass it as ``old_password`` without
+    a second prompt. ``None`` covers the ``--token`` paste path where the
+    CLI never saw the underlying password — there we prompt for it.
+    """
+    console.print()
+    if is_default_admin:
+        console.print(
+            "[bold yellow]⚠  Password change required.[/bold yellow]\n"
+            "[dim]You are signed in with the default seeded admin credential.\n"
+            "The default password is publicly documented — set a new one before continuing.[/dim]"
+        )
+    else:
+        console.print(
+            "[bold yellow]⚠  Password change required.[/bold yellow]\n"
+            "[dim]An administrator requires you to rotate your password before continuing.[/dim]"
+        )
+    console.print()
+
+    if current_password is None:
+        current_password = typer.prompt("Current password", hide_input=True)
+
+    while True:
+        new_password = typer.prompt("New password (8+ chars)", hide_input=True)
+        confirm = typer.prompt("Confirm new password", hide_input=True)
+        if new_password != confirm:
+            console.print("[red]Passwords do not match. Try again.[/red]")
+            continue
+        if len(new_password) < 8:
+            console.print("[red]Password must be at least 8 characters.[/red]")
+            continue
+        if new_password == current_password:
+            console.print("[red]New password must differ from the old one.[/red]")
+            continue
+        break
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    body = {"old_password": current_password, "new_password": new_password}
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                f"{api_url}/api/v1/auth/change-password",
+                json=body,
+                headers=headers,
+            )
+    except httpx.HTTPError as exc:
+        console.print(f"[red]Could not reach {api_url}: {exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    if resp.status_code == 401:
+        console.print("[red]Current password was rejected by the server.[/red]")
+        raise typer.Exit(code=1)
+    if resp.status_code >= 400:
+        console.print(
+            f"[red]POST /auth/change-password -> {resp.status_code}[/red]\n{resp.text}"
+        )
+        raise typer.Exit(code=1)
+
+    console.print("[green]Password updated.[/green]")
+
+
 # ── commands ────────────────────────────────────────────────────────────────
 
 
@@ -113,6 +192,14 @@ def login(
             console.print("[red]--token cannot be empty[/red]")
             raise typer.Exit(code=1)
         user = _fetch_me(token, api_url=base)
+        if user.get("must_change_password"):
+            _force_password_change(
+                token,
+                api_url=base,
+                current_password=None,
+                is_default_admin=user.get("email") == "admin@agentbreeder.local",
+            )
+            user = _fetch_me(token, api_url=base)
         _store_or_warn(token)
         console.print(
             f"[green]Logged in as[/green] [bold]{user.get('email')}[/bold] "
@@ -150,6 +237,13 @@ def login(
         console.print(f"[red]Unexpected /auth/login response: {payload}[/red]")
         raise typer.Exit(code=1)
     access_token: str = token_payload["access_token"]
+    if token_payload.get("must_change_password"):
+        _force_password_change(
+            access_token,
+            api_url=base,
+            current_password=password,
+            is_default_admin=email == "admin@agentbreeder.local",
+        )
     _store_or_warn(access_token)
     user = _fetch_me(access_token, api_url=base)
     console.print(
