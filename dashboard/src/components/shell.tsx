@@ -40,6 +40,7 @@ import { api } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
+import { useTour } from "@/hooks/use-tour";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { cn } from "@/lib/utils";
 import { ToastProvider } from "@/components/ui/toast";
@@ -458,6 +459,20 @@ function SidebarNavItem({
   return link;
 }
 
+/** Footer affordance that re-opens the first-run tour (issue #465). */
+function RestartTourLink() {
+  const { open } = useTour();
+  return (
+    <button
+      type="button"
+      onClick={open}
+      className="cursor-pointer underline-offset-2 hover:text-foreground hover:underline"
+    >
+      Restart tour
+    </button>
+  );
+}
+
 function ShellInner() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newResourceOpen, setNewResourceOpen] = useState(false);
@@ -702,7 +717,8 @@ function ShellInner() {
                 <kbd className="rounded border border-border/50 px-1 font-mono">
                   ?
                 </kbd>{" "}
-                for shortcuts
+                for shortcuts &middot;{" "}
+                <RestartTourLink />
               </div>
             )}
           </div>

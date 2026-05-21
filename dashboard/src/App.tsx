@@ -1,7 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { TourProvider } from "@/hooks/use-tour";
 import Shell from "@/components/shell";
+import { WelcomeTour } from "@/components/welcome-tour";
 import LoginPage from "@/pages/login";
 import ChangePasswordPage from "@/pages/change-password";
 import HomePage from "@/pages/home";
@@ -129,7 +131,10 @@ export default function App() {
             <Route
               element={
                 <RequireAuth>
-                  <Shell />
+                  <TourProvider>
+                    <Shell />
+                    <WelcomeTour />
+                  </TourProvider>
                 </RequireAuth>
               }
             >
