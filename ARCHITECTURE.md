@@ -36,7 +36,7 @@ v2 is structured around six tracks (F–K) that share one rule: every new framew
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     dashboard / CLI / SDK                           │
+│                     Studio / CLI / SDK                              │
 └────────────────────────────────┬────────────────────────────────────┘
                                  │
 ┌────────────────────────────────▼────────────────────────────────────┐
@@ -112,7 +112,7 @@ AgentBreeder supports three ways to build agents and orchestrations. All three t
 | Tier | Agent Development | Orchestration | Eject Path |
 |---|---|---|---|
 | **No Code** | Visual builder: pick model, tools, prompt, guardrails. Generates `agent.yaml`. | Visual canvas: wire agents as nodes. Generates `orchestration.yaml`. | "View YAML" → Low Code editor |
-| **Low Code** | Write `agent.yaml` in any IDE or dashboard | Write `orchestration.yaml` | `agentbreeder eject` → Python/TS scaffold |
+| **Low Code** | Write `agent.yaml` in any IDE or Studio | Write `orchestration.yaml` | `agentbreeder eject` → Python/TS scaffold |
 | **Full Code** | Python/TS SDK with programmatic control | SDK orchestration graphs, custom routing | N/A |
 
 **Tier mobility:**
@@ -153,7 +153,7 @@ agent.yaml ──→ [ CLI ] ──→ [ API Server ] ──→ [ Engine ] ─�
 | Engine | Python | Deploy pipeline — config parsing, container building, cloud provisioning |
 | Registry | PostgreSQL, SQLAlchemy | Catalog: agents, tools, models, prompts, MCP servers, templates |
 | Queue | Redis | Async deploy jobs, shared state for multi-agent orchestrations |
-| Dashboard | React 18, TypeScript, Tailwind, Vite | 46-page web UI — builders, analytics, fleet |
+| Studio | React 18, TypeScript, Tailwind, Vite | 46-page web UI — builders, analytics, fleet |
 | Python SDK | Python 3.11+ | `pip install agentbreeder-sdk` |
 | TypeScript SDK | TypeScript 5.0+ | `npm install @agentbreeder/sdk` |
 | LiteLLM Proxy | LiteLLM (self-hosted) | Model gateway — routing, fallbacks, budget enforcement, guardrails |
@@ -409,7 +409,7 @@ LiteLLM proxy (:4000)
   ├── Checks Redis cache
   ├── Routes with fallback (primary → fallback on error)
   ├── Emits OTEL span → AgentBreeder tracing API
-  └── Records spend → AgentBreeder cost dashboard
+  └── Records spend → AgentBreeder Studio (Costs view)
         │
         ▼
 Provider (Anthropic / OpenAI / Google / Ollama / OpenRouter / ...)
@@ -429,7 +429,7 @@ Provider (Anthropic / OpenAI / Google / Ollama / OpenRouter / ...)
 | Presidio PII guardrail | OSS | `mode: pre_call`, redacts output |
 | Lakera prompt injection detection | OSS | `mode: pre_call` |
 | OTEL callback → tracing API | OSS | `x-litellm-call-id` bridges to audit log |
-| Prometheus `/metrics` | OSS | Fleet dashboard, spend per team |
+| Prometheus `/metrics` | OSS | Fleet view in Studio, spend per team |
 | Tag-based routing (team pools) | OSS | Phase 4 |
 | Semantic caching (Redis vectors) | OSS | Phase 4 |
 
@@ -448,7 +448,7 @@ Every agent gets a scoped virtual key automatically minted at deploy time (`api/
 - Is injected into the **APS sidecar** (not the agent container)
 - Is scoped to the agent's allowed models
 - Is attributed to the agent's team for cost tracking
-- Can be revoked from the dashboard without redeploying the agent
+- Can be revoked from Studio without redeploying the agent
 
 ### Cost Tracking
 
@@ -635,7 +635,7 @@ Spend data is sourced from LiteLLM's `/global/spend` endpoint when the gateway i
 
 Immutable log of every deploy, config change, access change, and key lifecycle event — with actor, action, resource, team, and timestamp. Supports dependency lineage and impact analysis ("if I change this prompt, which agents are affected?").
 
-### AgentOps Fleet Dashboard (`api/routes/agentops.py`)
+### AgentOps Fleet view (`api/routes/agentops.py`)
 
 Fleet-wide visibility: heatmap, top-agent leaderboard, real-time telemetry, canary tracking, incident management, compliance status.
 
@@ -927,12 +927,12 @@ deploy pipeline mounts it automatically.
 
 The management API and the agent runtime are independent failure domains:
 
-- **Management API** owns the registry — accessed by humans (dashboard) and
+- **Management API** owns the registry — accessed by humans (Studio) and
   CI (CLI commands). Its threat model is internal abuse + RBAC.
 - **Agent runtime** owns inference — accessed by end-user clients or peer
   services. Its threat model is public exposure + token compromise.
 
-Mixing them would force the dashboard to issue runtime tokens (insecure) or
+Mixing them would force Studio to issue runtime tokens (insecure) or
 force end users to obtain platform JWTs (wrong audience). The proxy endpoint
 `POST /api/v1/agents/{id}/invoke` bridges them: takes a JWT in, attaches the
 bearer for the agent runtime out, and never exposes the bearer to the browser.

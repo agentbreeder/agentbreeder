@@ -79,7 +79,7 @@ Before opening a PR, confirm:
 | Tool | Min version | What it's used for |
 |------|-------------|-------------------|
 | **Python** | 3.11+ | CLI, API server, engine |
-| **Node.js + npm** | 18+ | Dashboard UI, website, MCP servers |
+| **Node.js + npm** | 18+ | Studio UI, website, MCP servers |
 | **Docker Desktop** | 24+ | Local service stack (Postgres, Redis, ChromaDB, Neo4j) |
 | **Git** | any | Source control |
 
@@ -146,7 +146,7 @@ python -m cli.main your-command --help
 
 ### 3. API Server
 
-The dashboard and CLI both talk to the FastAPI backend. You need it running for anything that reads from the registry.
+Studio and the CLI both talk to the FastAPI backend. You need it running for anything that reads from the registry.
 
 ```bash
 # Start infrastructure first (Postgres + Redis)
@@ -175,9 +175,9 @@ uvicorn api.main:app --reload --port 8000
 
 ---
 
-### 4. Dashboard (Agent Builder UI)
+### 4. Studio (Agent Builder UI)
 
-The dashboard is a React + TypeScript app (Vite, Tailwind). It proxies all `/api` requests to the API server at `http://localhost:8000`.
+Studio is a React + TypeScript app (Vite, Tailwind). It proxies all `/api` requests to the API server at `http://localhost:8000`.
 
 ```bash
 cd dashboard
@@ -185,11 +185,11 @@ npm install        # first time only
 npm run dev
 ```
 
-Dashboard is live at **`http://localhost:3001`** with hot module replacement — changes to any file in `dashboard/src/` appear in the browser instantly without a page reload.
+Studio is live at **`http://localhost:3001`** with hot module replacement — changes to any file in `dashboard/src/` appear in the browser instantly without a page reload.
 
 > **Requires the API server to be running** (`uvicorn api.main:app --reload --port 8000`). The Vite dev server proxies `/api/*` and `/health` to port 8000 automatically.
 
-**Lint and type-check the dashboard:**
+**Lint and type-check Studio:**
 
 ```bash
 cd dashboard
@@ -228,7 +228,7 @@ For full end-to-end local development, open four terminal tabs:
 |-----|---------|-----|
 | Services | `docker compose up -d` | — |
 | API | `uvicorn api.main:app --reload --port 8000` | `http://localhost:8000/docs` |
-| Dashboard | `cd dashboard && npm run dev` | `http://localhost:3001` |
+| Studio | `cd dashboard && npm run dev` | `http://localhost:3001` |
 | Website | `cd website && npm run dev` | `http://localhost:3000` |
 
 The CLI (`python -m cli.main`) works in any additional terminal once the services and API are up.
@@ -237,7 +237,7 @@ The CLI (`python -m cli.main`) works in any additional terminal once the service
 
 ```bash
 agentbreeder quickstart           # pulls agentbreeder/agentbreeder-{api,dashboard}:latest from Docker Hub
-agentbreeder quickstart --dev     # builds API + Dashboard images from your local source
+agentbreeder quickstart --dev     # builds API + Studio images from your local source
 ```
 
 Use `--dev` whenever you have changes in `api/`, `engine/`, `dashboard/src/`, or `dashboard/package.json` that you want reflected in the running stack. Without `--dev`, your local edits are ignored because the stack runs the published Docker Hub image.
@@ -285,7 +285,7 @@ python -m cli.main <command>              # run immediately, no reinstall
 # API changes
 uvicorn api.main:app --reload --port 8000 # auto-reloads on file save
 
-# Dashboard changes
+# Studio changes
 cd dashboard && npm run dev               # HMR at http://localhost:3001
 
 # Website / docs changes
@@ -328,7 +328,7 @@ mypy .                           # type checking
 Every feature needs:
 - Unit tests (`tests/unit/`) — required
 - Integration tests (`tests/integration/`) — required for API changes
-- E2E tests (`tests/e2e/`) — required for dashboard changes
+- E2E tests (`tests/e2e/`) — required for Studio changes
 
 ```bash
 pytest tests/unit/                     # fast, no external deps
