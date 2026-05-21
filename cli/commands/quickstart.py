@@ -3,13 +3,13 @@
 What it does:
   1. Detect / guide install of Docker or Podman + Compose
   2. Start the full stack (Postgres, Redis, ChromaDB, Neo4j, MCP servers,
-     API, Dashboard, LiteLLM)
+     API, Studio, LiteLLM)
   3. Check LLM provider availability (Ollama or cloud keys)
   4. Seed ChromaDB with sample documents (RAG ready)
   5. Seed Neo4j with a knowledge graph (GraphRAG ready)
   6. Register sample MCP servers, prompts, and tools
   7. Deploy 5 sample agents (RAG, Graph, Search, A2A, Assistant)
-  8. Open the dashboard and show how to use everything
+  8. Open Studio and show how to use everything
 
 Usage:
     agentbreeder quickstart
@@ -375,7 +375,7 @@ def _wait_http(url: str, timeout: int = 120, interval: float = 3.0) -> bool:
 
 
 def _dashboard_smoke_check(url: str) -> tuple[bool, str | None]:
-    """Validate the dashboard is serving a usable Vite-built bundle.
+    """Validate Studio is serving a usable Vite-built bundle.
 
     Returns (ok, error_reason). A failure here typically means the published
     Docker image is stale (e.g. shipped with mismatched react/react-dom
@@ -386,12 +386,12 @@ def _dashboard_smoke_check(url: str) -> tuple[bool, str | None]:
     try:
         html_resp = httpx.get(url, timeout=5.0)
     except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as exc:
-        return False, f"dashboard unreachable: {exc}"
+        return False, f"unreachable: {exc}"
     if html_resp.status_code != 200:
-        return False, f"dashboard returned HTTP {html_resp.status_code}"
+        return False, f"returned HTTP {html_resp.status_code}"
     html = html_resp.text
     if '<div id="root"' not in html and '<div id="root"' not in html:
-        return False, "dashboard HTML missing React mount point"
+        return False, "HTML missing React mount point"
     # Pull out the Vite bundle path: /assets/index-XXXXXXXX.js
     match = re.search(r'src="(/assets/index-[A-Za-z0-9_-]+\.js)"', html)
     if not match:
@@ -1197,7 +1197,7 @@ _QS_PORTS: dict[int, str] = {
     5432: "PostgreSQL",
     6379: "Redis",
     8000: "AgentBreeder API",
-    3001: "Dashboard",
+    3001: "Studio",
     4000: "LiteLLM",
     8001: "ChromaDB",
     7474: "Neo4j HTTP",
@@ -1338,9 +1338,9 @@ def _print_final_summary(services_ok: dict[str, bool], agents: list[str]) -> Non
 
     svc_rows = [
         (
-            "Dashboard",
+            "Studio",
             DASHBOARD_URL,
-            services_ok.get("dashboard", False),
+            services_ok.get("studio", False),
             "Build agents visually, manage registry",
         ),
         (
@@ -1448,7 +1448,7 @@ def _print_final_summary(services_ok: dict[str, bool], agents: list[str]) -> Non
             "  [bold cyan]agentbreeder deploy --target azure[/bold cyan]"
             "         Deploy to Azure Container Apps\n"
             "\n"
-            f"  [bold]Dashboard:[/bold] [cyan]{DASHBOARD_URL}[/cyan]\n"
+            f"  [bold]Studio:[/bold] [cyan]{DASHBOARD_URL}[/cyan]\n"
             f"  [dim]Build agents visually, manage providers, view audit logs, and more.[/dim]\n"
             "\n"
             "  [dim]Stop everything:[/dim]  [bold cyan]agentbreeder down[/bold cyan]",
@@ -1483,7 +1483,7 @@ def quickstart(
     dev: bool = typer.Option(
         False,
         "--dev",
-        help="Build API/Dashboard images from source instead of using Docker Hub",
+        help="Build API/Studio images from source instead of using Docker Hub",
     ),
     reset: bool = typer.Option(
         False,
@@ -1504,10 +1504,10 @@ def quickstart(
     """Full local platform bootstrap — one command to go from zero to running agents.
 
     Sets up Docker/Podman, starts the full stack (Postgres, Redis, ChromaDB, Neo4j,
-    MCP servers, API, Dashboard, LiteLLM), seeds sample data, deploys 5 sample agents,
-    and opens the dashboard. Takes ~3 minutes on first run.
+    MCP servers, API, Studio, LiteLLM), seeds sample data, deploys 5 sample agents,
+    and opens Studio. Takes ~3 minutes on first run.
 
-    All agents are usable via CLI and the visual dashboard.
+    All agents are usable via CLI and Studio.
 
     Examples:
         agentbreeder quickstart                     # local only
@@ -1549,7 +1549,7 @@ def quickstart(
             "[bold cyan]AgentBreeder Quickstart[/bold cyan]\n\n"
             "[dim]Full local AI agent platform in one command.\n"
             "Sets up: Docker stack · ChromaDB RAG · Neo4j GraphRAG · MCP servers ·\n"
-            "         5 sample agents · Visual dashboard · CLI tools\n\n"
+            "         5 sample agents · Studio · CLI tools\n\n"
             "Estimated time: 3–5 minutes (longer on first run for image pulls)[/dim]",
             border_style="cyan",
             padding=(1, 3),
@@ -2130,7 +2130,7 @@ def quickstart(
         ("ChromaDB", f"{CHROMADB_BASE}/api/v1/heartbeat", True),
         ("Neo4j", f"{NEO4J_HTTP}", True),
         ("API", "http://localhost:8000/health", True),
-        ("Dashboard", DASHBOARD_URL, False),  # non-blocking
+        ("Studio", DASHBOARD_URL, False),  # non-blocking
         ("LiteLLM", "http://localhost:4000/health", False),
     ]
 
@@ -2160,22 +2160,22 @@ def quickstart(
             else:
                 progress.console.print(f"  [dim]○[/dim] {svc_name} still starting")
 
-    # ── Dashboard content smoke check ────────────────────────────────────────
-    # The dashboard HTTP can respond 200 even when the published image ships a
+    # ── Studio content smoke check ───────────────────────────────────────────
+    # The Studio HTTP can respond 200 even when the published image ships a
     # broken Vite bundle (e.g. mismatched react/react-dom versions cause a
     # runtime crash → blank page). Validate the bundle and offer to rebuild
     # from source if anything is off and we have a build context available.
-    if services_ok.get("dashboard"):
+    if services_ok.get("studio"):
         smoke_ok, smoke_err = _dashboard_smoke_check(DASHBOARD_URL)
         if not smoke_ok:
-            _warn(f"Dashboard smoke check failed — {smoke_err}")
+            _warn(f"Studio smoke check failed — {smoke_err}")
             # If we're running from a source checkout (build context exists),
-            # offer to rebuild the dashboard image locally.
+            # offer to rebuild the Studio image locally.
             dashboard_src = REPO_ROOT / "dashboard" / "package.json"
             if dashboard_src.exists():
                 ans = (
                     console.input(
-                        "  [bold]Rebuild dashboard from source now?[/bold] "
+                        "  [bold]Rebuild Studio from source now?[/bold] "
                         "[dim](runs: compose up -d --build dashboard)[/dim] "
                         "[Y/n]: "
                     )
@@ -2183,7 +2183,7 @@ def quickstart(
                     .lower()
                 )
                 if ans not in ("n", "no", "skip"):
-                    console.print("  [dim]Rebuilding dashboard image (~30s)...[/dim]")
+                    console.print("  [dim]Rebuilding Studio image (~30s)...[/dim]")
                     rebuild = _compose_run(
                         compose_cmd,
                         ["up", "-d", "--build", "dashboard"],
@@ -2193,14 +2193,14 @@ def quickstart(
                     if rebuild.returncode == 0 and _wait_http(DASHBOARD_URL, timeout=60):
                         retry_ok, retry_err = _dashboard_smoke_check(DASHBOARD_URL)
                         if retry_ok:
-                            _ok("Dashboard rebuilt — bundle now valid")
+                            _ok("Studio rebuilt — bundle now valid")
                         else:
-                            _warn(f"Dashboard still failing after rebuild: {retry_err}")
+                            _warn(f"Studio still failing after rebuild: {retry_err}")
                     else:
-                        _warn("Dashboard rebuild failed — check compose logs")
+                        _warn("Studio rebuild failed — check compose logs")
             else:
                 _info(
-                    "If the dashboard appears blank, pull a fresh image:\n"
+                    "If Studio appears blank, pull a fresh image:\n"
                     f"    [cyan]{compose_cmd} -f deploy/docker-compose.quickstart.yml "
                     "pull dashboard && "
                     f"{compose_cmd} -f deploy/docker-compose.quickstart.yml "
@@ -2304,7 +2304,7 @@ def quickstart(
     _print_final_summary(services_ok, [p.stem for p in sorted(EXAMPLES_QS.glob("*.yaml"))])
 
     # Open browser
-    if not no_browser and services_ok.get("dashboard"):
+    if not no_browser and services_ok.get("studio"):
         webbrowser.open(DASHBOARD_URL)
     elif not no_browser:
         webbrowser.open("http://localhost:8000/docs")  # fallback to API docs
