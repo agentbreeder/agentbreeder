@@ -8,6 +8,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.5 — Force password change on first login (#464)
+
+> **P0 security gap closed.** The seeded admin account ships with the publicly documented credential `admin@agentbreeder.local` / `plant`. Anyone exposing Studio beyond `localhost` (e.g. via the Caddy reverse-proxy example in `SELF_HOSTING.md`) was one curl away from a known-credential takeover. This fix forces a rotation on first sign-in before the user can do anything else.
+
+- **Added** `must_change_password BOOLEAN NOT NULL DEFAULT FALSE` to the `users` table (alembic migration `023`). Existing user rows on running installs are unaffected — only new admins seeded by `_seed_default_admin` get the flag set to TRUE.
+- **Added** `POST /api/v1/auth/change-password` endpoint. Accepts `{old_password, new_password}` on an authenticated session, verifies the old hash, rejects passwords shorter than 8 chars or equal to the old one, rotates the hash, and clears the flag. Returns the refreshed `UserResponse`.
+- **Updated** `POST /api/v1/auth/login` response: `TokenResponse` now carries a `must_change_password` boolean so clients can route to a forced-rotation flow.
+- **Updated** `_seed_default_admin` in `api/main.py` to set `must_change_password=True` on the seeded admin row. Existing single-user installs that already rotated stay unaffected (the flag's default is FALSE).
+- **Studio** — new `/change-password` route with a non-dismissable rotation form (current / new / confirm fields, live validation, sign-out escape hatch). The `RequireAuth` guard now intercepts every navigation with a redirect to `/change-password` while the flag is set; a separate `RequireAuthOnly` guard wraps the change-password route itself to break the redirect loop.
+- **CLI** — `agentbreeder login` detects the flag in `/auth/login` (email+password path) or `/auth/me` (`--token` paste path) and walks the user through the rotation **before** persisting the token to the OS keychain. Tone-aware messaging — the seeded-admin case gets a security-focused warning, admin-rotated users get a generic one.
+- **Tests** new `TestChangePasswordRoute` class with 5 cases (requires auth, happy path clears flag, wrong old → 401, short new → 422, same-as-old → 422). Updated `TestLoginRoute` to cover the flag-passthrough. 31 tests pass in `test_auth.py`; 89 adjacent RBAC tests unaffected.
+- **Docs** new "First-login password rotation" section in `authentication.mdx` covering the user flow, the wire format, the manual `UPDATE users SET must_change_password=TRUE` admin reset path, and the note that the gate is currently client-side only. Inline mentions in `quickstart.mdx`, `no-code.mdx`, `how-to.mdx`, `local-development.mdx`.
+
 ### v2.5 — Rename Dashboard → Studio (user-facing rebrand, #460)
 
 > **User-facing string sweep only.** No folder renames, no Docker image renames, no route/env/identifier changes. `dashboard/`, `agentbreeder/agentbreeder-dashboard`, `DASHBOARD_URL`, the `dashboard` compose service, and `area:dashboard` label all stay; they're internal handles, not the brand.

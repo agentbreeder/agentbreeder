@@ -255,6 +255,44 @@ AgentBreeder will ship with a pluggable auth provider system. Set `auth_provider
 
 ---
 
+## First-login password rotation
+
+The seeded admin account ships with the publicly documented credential `admin@agentbreeder.local` / `plant`. To prevent a known-credential takeover on any install exposed beyond `localhost`, every fresh install is flagged with `must_change_password=true` on the seed admin row.
+
+What this means in practice:
+
+- **Studio** intercepts the first sign-in: instead of routing to the home page, the user lands on `/change-password` with a non-dismissable form. They must set a password that is at least 8 characters and differs from the current one. Sign-out is the only escape hatch.
+- **CLI** (`agentbreeder login`) detects the flag on the login response and prompts for a new password before persisting the token to the OS keychain. A token tied to the default `plant` credential never lands on disk.
+- The flag clears on the user row as soon as the rotation succeeds; subsequent sign-ins behave normally.
+
+Admins can force a rotation on any user by setting the column directly in the database:
+
+```sql
+UPDATE users SET must_change_password = TRUE WHERE email = 'alice@example.com';
+```
+
+The next time Alice signs in (Studio or CLI), she will be walked through the rotation flow before doing anything else.
+
+### Wire format
+
+`POST /api/v1/auth/login` returns:
+
+```json
+{
+  "data": {
+    "access_token": "eyJ...",
+    "token_type": "bearer",
+    "must_change_password": true
+  }
+}
+```
+
+Clients that see `must_change_password: true` should call `POST /api/v1/auth/change-password` with `{"old_password": "...", "new_password": "..."}` before any other authenticated request. The endpoint returns the refreshed `UserResponse` with the flag cleared.
+
+The flag is currently a client-side nudge — the API still issues working tokens to flagged accounts so programmatic admin setup paths (like `agentbreeder quickstart`) continue to work. Server-side enforcement is tracked separately.
+
+---
+
 ## CLI login
 
 The CLI authenticates against the same `POST /api/v1/auth/login` endpoint that Studio uses. Tokens live in the **OS keychain** (macOS Keychain, GNOME libsecret, Windows Credential Manager) via the [`keyring`](https://pypi.org/project/keyring/) library — you never have to copy a JWT into a shell env var by hand.
