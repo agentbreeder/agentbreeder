@@ -38,7 +38,7 @@ Reference these from `agent.yaml` exactly like any other registered tool: `tools
 | **Inline tool** | Tool defined directly in `agent.yaml` — no registry entry needed |
 | **JSON Schema** | Defines the input (and optionally output) shape of the tool |
 | **Sandbox** | Isolated Docker container for testing tool code before wiring to an agent |
-| **Usage graph** | Which agents in the org reference this tool — visible in dashboard and API |
+| **Usage graph** | Which agents in the org reference this tool — visible in Studio and API |
 
 ---
 
@@ -93,8 +93,8 @@ Define the JSON Schema for the tool's inputs:
 
 ## Step 2 — Register
 
-<Tabs items={['Dashboard', 'API', 'CLI', 'Python SDK', 'TypeScript SDK']}>
-  <Tab value="Dashboard">
+<Tabs items={['Studio', 'API', 'CLI', 'Python SDK', 'TypeScript SDK']}>
+  <Tab value="Studio">
 Go to **Registry → Tools → New Tool**. Fill in:
 - **Name** — slug-friendly (e.g., `order-lookup`)
 - **Type** — `function`, `mcp`, or `api`
@@ -233,7 +233,7 @@ Response:
 }
 ```
 
-<Callout type="info" title="Sandbox in the dashboard">
+<Callout type="info" title="Sandbox in Studio">
   Open any tool in the registry, click **Test in Sandbox**, paste your input JSON, and click **Run**. Output, stdout, stderr, and duration are shown inline.
 </Callout>
 
@@ -283,8 +283,8 @@ Response:
 
 Auth: requires the `deployer` role.
 
-<Callout type="info" title="Try it tab in the dashboard">
-  Open any tool at `/tools/:id` and switch to the **Try it** tab. The dashboard auto-generates a form from the tool's `SCHEMA`, you fill in the inputs, hit **Run**, and the result panel shows `output`, `stdout`/`stderr`, exit code, and duration inline.
+<Callout type="info" title="Try it tab in Studio">
+  Open any tool at `/tools/:id` and switch to the **Try it** tab. Studio auto-generates a form from the tool's `SCHEMA`, you fill in the inputs, hit **Run**, and the result panel shows `output`, `stdout`/`stderr`, exit code, and duration inline.
 </Callout>
 
 ---

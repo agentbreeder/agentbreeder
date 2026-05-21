@@ -47,7 +47,7 @@ Both modes are served by two API endpoints:
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/v1/deployments/cloud-requirements/{cloud}?mode=simple\|full` | Returns the required + optional fields for the cloud + mode. The dashboard wizard and the CLI both read this to know what to ask you for. |
+| `GET /api/v1/deployments/cloud-requirements/{cloud}?mode=simple\|full` | Returns the required + optional fields for the cloud + mode. The Studio wizard and the CLI both read this to know what to ask you for. |
 | `POST /api/v1/deployments/validate-infra` | Read-only pre-flight check that all referenced resources actually exist. Rate-limited (10 req/min) and audit-logged. Cross-team access returns 403. |
 
 <Callout type="info" title="Auth posture">
@@ -583,9 +583,9 @@ for the full flow.
 
 ---
 
-## Deploying from the dashboard
+## Deploying from Studio
 
-From v2.4, the dashboard provides a 5-step wizard at `/deploy-wizard`:
+From v2.4, Studio provides a 5-step wizard at `/deploy-wizard`:
 
 1. **Agent** — pick a registered agent. The wizard auto-detects whether the agent requires approval.
 2. **Target** — choose cloud + region. Per-region cost estimate is shown inline (static client-side table, ±10%).

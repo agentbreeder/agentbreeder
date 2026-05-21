@@ -146,7 +146,7 @@ agentbreeder registry tool push tools/my_tool.ts        # node:/abs/path
 agentbreeder registry tool push engine.tools.standard.web_search  # in-process
 ```
 
-Verify in the dashboard at `/prompts` (with **Test** tab) and `/tools` (with **Try it** tab).
+Verify in Studio at `/prompts` (with **Test** tab) and `/tools` (with **Try it** tab).
 
 ---
 
@@ -195,7 +195,7 @@ curl -X POST https://<your-agent>.run.app/invoke \
 ```
 POST /api/v1/agents/{id}/invoke
 ```
-Body: `{ input, endpoint_url, auth_token, session_id? }`. Solves CORS, keeps secrets server-side. The dashboard `/agents/:id` → **Invoke** tab uses this; `session_id` auto-fills for multi-turn.
+Body: `{ input, endpoint_url, auth_token, session_id? }`. Solves CORS, keeps secrets server-side. Studio's `/agents/:id` → **Invoke** tab uses this; `session_id` auto-fills for multi-turn.
   </Tab>
 </Tabs>
 
@@ -306,7 +306,7 @@ model:
   gateway: litellm
 ```
 
-When active: every LLM call routes through the proxy with the agent's scoped virtual key; cost is tracked per agent and per team in the **Costs** dashboard.
+When active: every LLM call routes through the proxy with the agent's scoped virtual key; cost is tracked per agent and per team in the **Costs** page of Studio.
 
 ---
 
@@ -518,7 +518,7 @@ docker compose -f deploy/docker-compose.yml up -d
 
 | Service | URL |
 |---|---|
-| Dashboard | http://localhost:3001 |
+| Studio | http://localhost:3001 |
 | API | http://localhost:8000 |
 | API Docs | http://localhost:8000/docs |
 
@@ -544,7 +544,7 @@ Default login: `admin@agentbreeder.local` / `plant`. **Change this before exposi
 | `RBAC check failed` | Deployer must belong to `team:` in `agent.yaml`. |
 | `Container build failed` | `docker info` to confirm runtime is up; `agentbreeder deploy --dry-run` to inspect generated Dockerfile. |
 | `Deploy rolled back` | The 8-step pipeline is atomic. `agentbreeder status <agent>` and `agentbreeder logs <agent>` to find the failed step. |
-| Dashboard won't start | Needs the API up first. `agentbreeder ui` or `docker compose up`. See [Quickstart](quickstart). |
-| Dashboard at `:3001` renders blank | Stale `agentbreeder/agentbreeder-dashboard:latest` cached locally — `docker rmi` it then re-run with `agentbreeder quickstart --dev` to rebuild from source. See [FAQ](faq#dashboard-at-httplocalhost3001-shows-a-blank-page). |
+| Studio won't start | Needs the API up first. `agentbreeder ui` or `docker compose up`. See [Quickstart](quickstart). |
+| Studio at `:3001` renders blank | Stale `agentbreeder/agentbreeder-dashboard:latest` cached locally — `docker rmi` it then re-run with `agentbreeder quickstart --dev` to rebuild from source. See [FAQ](faq#studio-at-httplocalhost3001-shows-a-blank-page). |
 | `migrate-1` exits immediately | Expected — it's a one-shot alembic job. Only a problem if exit code is non-zero. |
 | `Cannot connect to docker socket` after switching runtimes | Stale `DOCKER_HOST` env var pointing at a dead socket. `unset DOCKER_HOST` and remove the `export` line from your shell rc. |

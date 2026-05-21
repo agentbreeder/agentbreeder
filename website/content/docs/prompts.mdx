@@ -21,7 +21,7 @@ Every prompt lives in the shared org registry, supports `{{variable}}` substitut
 | **Inline prompt** | Literal string in `agent.yaml` — convenient for prototypes |
 | **Variable substitution** | `{{key}}` placeholders replaced with values at agent runtime |
 | **Snapshot** | Immutable content copy created on every `PUT .../content` call |
-| **Diff** | Unified diff between any two snapshots — visible in the dashboard and API |
+| **Diff** | Unified diff between any two snapshots — visible in Studio and API |
 
 ---
 
@@ -45,11 +45,11 @@ Keep answers under {{max_words}} words.
 
 ## Step 2 — Register
 
-<Tabs items={['Dashboard', 'API', 'CLI']}>
-  <Tab value="Dashboard">
+<Tabs items={['Studio', 'API', 'CLI']}>
+  <Tab value="Studio">
 Go to **Registry → Prompts → New Prompt**. Fill in name, version, and content. Click **Save**.
 
-The dashboard generates a `prompts/{name}` reference you can copy directly into `agent.yaml`.
+Studio generates a `prompts/{name}` reference you can copy directly into `agent.yaml`.
   </Tab>
   <Tab value="API">
 ```bash
@@ -236,7 +236,7 @@ Response:
 }
 ```
 
-<Callout type="info" title="Test panel in the dashboard">
+<Callout type="info" title="Test panel in Studio">
   Open any prompt in **Registry → Prompts** and click the **Test** tab. Type a user message, pick a model, hit **Run** — you see the actual model response, the model name, and the round-trip duration. Auth is required (any authenticated user; no role gate).
 </Callout>
 

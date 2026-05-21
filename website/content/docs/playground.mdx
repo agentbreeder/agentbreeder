@@ -1,13 +1,13 @@
 ---
 title: Playground — Chat with Models and Agents
-description: The dashboard's /playground page lets you test a model directly via the LiteLLM gateway, or chat with a deployed agent's runtime through the API proxy.
+description: The Studio /playground page lets you test a model directly via the LiteLLM gateway, or chat with a deployed agent's runtime through the API proxy.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 # Playground — Chat with Models and Agents
 
-The dashboard's `/playground` page is the fastest way to test a model or a deployed agent without writing any code. It exposes two modes:
+The Studio `/playground` page is the fastest way to test a model or a deployed agent without writing any code. It exposes two modes:
 
 | Mode | What it does | Backed by |
 |------|---------------|-----------|
@@ -32,7 +32,7 @@ Use Model mode when you want to:
 
 ## Agent mode
 
-Agent mode chats with a **deployed** agent — i.e. an agent in the registry that has a non-empty `endpoint_url`. The dashboard:
+Agent mode chats with a **deployed** agent — i.e. an agent in the registry that has a non-empty `endpoint_url`. Studio:
 
 1. Lists every deployed agent in your workspace in a dropdown
 2. Sends your messages to `POST /api/v1/agents/{id}/invoke`, which proxies to the agent's runtime
@@ -66,7 +66,7 @@ agentbreeder secret set <agent-name>/auth-token
 # (paste the token at the prompt)
 ```
 
-The dashboard now resolves it automatically. See [Secrets — Per-agent auth tokens](./secrets.mdx) for details on the backend lookup.
+Studio now resolves it automatically. See [Secrets — Per-agent auth tokens](./secrets.mdx) for details on the backend lookup.
 
 ---
 

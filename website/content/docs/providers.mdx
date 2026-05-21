@@ -72,9 +72,9 @@ Test the connection without deploying:
 agentbreeder provider test nvidia
 ```
 
-#### Configure from the dashboard
+#### Configure from Studio
 
-Prefer the UI? Open **/models** in the dashboard. The OpenAI-Compatible Catalog table lists every preset with a **Configure** button:
+Prefer the UI? Open **/models** in Studio. The OpenAI-Compatible Catalog table lists every preset with a **Configure** button:
 
 1. Click **Configure** on the row for the provider you want to enable.
 2. Paste the API key value into the password input. The value is sent to `POST /api/v1/secrets` and written to your workspace's configured secrets backend (env / keychain / AWS / GCP / Vault) under the deterministic key `<provider>/api-key`. The plaintext value never persists in the database.
@@ -202,7 +202,7 @@ Every row in the `models` table has a `status`:
 |---|---|
 | `active` | Provider currently lists this model. Default for new entries. |
 | `beta` | Operator-marked. Reserved for early-access model lines. |
-| `deprecated` | Either the upstream provider stopped listing the model, **or** an operator manually deprecated it. Still callable, but the dashboard surfaces a warning. |
+| `deprecated` | Either the upstream provider stopped listing the model, **or** an operator manually deprecated it. Still callable, but Studio surfaces a warning. |
 | `retired` | Has been `deprecated` for ≥ 30 days without re-appearing in any sync. The row is preserved for audit + cost-attribution; calls fail fast. |
 
 ### Sync — three ways
@@ -217,7 +217,7 @@ agentbreeder model sync --provider nvidia
 # CLI — operator override
 agentbreeder model deprecate gpt-3.5-turbo --replacement gpt-4o-mini
 
-# Dashboard — the Sync button on /models triggers the same flow
+# Studio — the Sync button on /models triggers the same flow
 ```
 
 The API endpoint is `POST /api/v1/models/sync` (deployer role required). It accepts an optional `{providers: ["openai", "groq", ...]}` body; with an empty body, every provider that has an api-key in the environment (catalog presets + first-class Anthropic/Google/OpenAI + DB-configured providers with a `base_url`) is synced.
