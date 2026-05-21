@@ -77,7 +77,7 @@ const CLOUD_FEATURES = [
   {
     icon: '📊',
     title: 'Fleet-wide observability',
-    desc: 'Every LLM call traced, every token counted, every tool execution logged. Full cost dashboards across all agents and teams.',
+    desc: 'Every LLM call traced, every token counted, every tool execution logged. Full cost tracking across all agents and teams.',
   },
   {
     icon: '🌐',
