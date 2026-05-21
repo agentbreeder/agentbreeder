@@ -108,5 +108,4 @@ async def change_password(
     current_user.password_hash = hash_password(body.new_password)
     current_user.must_change_password = False
     await db.commit()
-    await db.refresh(current_user)
     return ApiResponse(data=UserResponse.model_validate(current_user))

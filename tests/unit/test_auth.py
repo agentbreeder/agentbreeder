@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -38,6 +39,7 @@ def _make_user(
         "role": role,
         "team": "engineering",
         "is_active": True,
+        "must_change_password": False,
         "created_at": _NOW,
         "updated_at": _NOW,
     }
@@ -118,6 +120,27 @@ class TestLoginRoute:
         data = res.json()["data"]
         assert data["access_token"] == "fake-jwt-token"
         assert data["token_type"] == "bearer"
+        assert data["must_change_password"] is False
+
+    @patch("api.routes.auth.authenticate_user")
+    @patch("api.routes.auth.create_access_token")
+    @patch("api.database.get_db")
+    def test_login_surfaces_must_change_password_flag(
+        self, mock_db, mock_create_token, mock_auth
+    ):
+        """Issue #464: login response must carry must_change_password so
+        clients can route to a forced-rotation flow."""
+        user = _make_user(must_change_password=True)
+        mock_auth.return_value = user
+        mock_create_token.return_value = "fake-jwt-token"
+        mock_db.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_db.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        res = client.post(
+            "/api/v1/auth/login", json={"email": "test@example.com", "password": "testpass123"}
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["must_change_password"] is True
 
     @patch("api.routes.auth.authenticate_user")
     @patch("api.database.get_db")
@@ -218,6 +241,101 @@ class TestMeRoute:
 
         res = client.get("/api/v1/auth/me", headers={"Authorization": "Bearer invalid"})
         assert res.status_code == 401
+
+
+# ── Auth Routes — Change Password (issue #464) ──
+
+
+class TestChangePasswordRoute:
+    """Covers POST /api/v1/auth/change-password, the endpoint the
+    forced-rotation flow drives from Studio + CLI when an authenticated
+    user has ``must_change_password=true``."""
+
+    @contextlib.contextmanager
+    def _auth_context(self, user):
+        """Enter all patches needed to authenticate /change-password as ``user``.
+
+        Yields the mock DB session so the test can assert on commit/refresh.
+        """
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.refresh = AsyncMock()
+        ctx = MagicMock()
+        ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch("api.database.get_db", return_value=ctx))
+            stack.enter_context(
+                patch("api.auth.get_user_by_id", AsyncMock(return_value=user))
+            )
+            stack.enter_context(
+                patch(
+                    "api.auth.decode_access_token",
+                    return_value={
+                        "sub": str(user.id),
+                        "email": user.email,
+                        "role": "admin",
+                    },
+                )
+            )
+            yield mock_db
+
+    def test_change_password_requires_auth(self):
+        res = client.post(
+            "/api/v1/auth/change-password",
+            json={"old_password": "x", "new_password": "y" * 8},
+        )
+        assert res.status_code == 401
+
+    def test_change_password_happy_path_clears_flag(self):
+        user = _make_user(
+            password_hash=hash_password("plant"),
+            must_change_password=True,
+        )
+        with self._auth_context(user):
+            res = client.post(
+                "/api/v1/auth/change-password",
+                json={"old_password": "plant", "new_password": "new-stronger-password"},
+                headers={"Authorization": "Bearer fake-token"},
+            )
+        assert res.status_code == 200
+        # New password verifies against the rotated hash; flag cleared.
+        assert verify_password("new-stronger-password", user.password_hash)
+        assert user.must_change_password is False
+
+    def test_change_password_rejects_wrong_old(self):
+        user = _make_user(password_hash=hash_password("plant"))
+        with self._auth_context(user):
+            res = client.post(
+                "/api/v1/auth/change-password",
+                json={"old_password": "wrong", "new_password": "new-stronger-password"},
+                headers={"Authorization": "Bearer fake-token"},
+            )
+        assert res.status_code == 401
+        assert "Old password" in res.json()["detail"]
+
+    def test_change_password_rejects_short_new(self):
+        user = _make_user(password_hash=hash_password("plant"))
+        with self._auth_context(user):
+            res = client.post(
+                "/api/v1/auth/change-password",
+                json={"old_password": "plant", "new_password": "short"},
+                headers={"Authorization": "Bearer fake-token"},
+            )
+        assert res.status_code == 422
+        assert "8 characters" in res.json()["detail"]
+
+    def test_change_password_rejects_same_as_old(self):
+        user = _make_user(password_hash=hash_password("samevalue"))
+        with self._auth_context(user):
+            res = client.post(
+                "/api/v1/auth/change-password",
+                json={"old_password": "samevalue", "new_password": "samevalue"},
+                headers={"Authorization": "Bearer fake-token"},
+            )
+        assert res.status_code == 422
+        assert "differ" in res.json()["detail"]
 
 
 # ── Protected Routes ──
