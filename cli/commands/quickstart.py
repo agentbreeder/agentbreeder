@@ -988,6 +988,56 @@ def _start_ollama() -> bool:
     return _ollama_running()
 
 
+def _ask_model_source(no_ollama_flag: bool) -> tuple[bool, bool]:
+    """Ask up front whether to set up local models, cloud providers, or both.
+
+    Returns ``(skip_ollama, skip_cloud_keys)``.
+
+    Short-circuits when the user has already declared their intent:
+      - ``--no-ollama`` on the CLI → ``(True, False)``  (cloud path)
+      - stdin is not a TTY        → ``(no_ollama_flag, False)``  (legacy default)
+
+    Choices:
+      1. Local   — install Ollama, pull a model. Skip cloud key prompts.
+      2. Cloud   — skip Ollama entirely. Prompt for cloud provider keys.
+      3. Both    — default; the original behavior.
+    """
+    if no_ollama_flag:
+        return (True, False)
+    import sys as _sys
+
+    if not _sys.stdin.isatty():
+        return (False, False)
+
+    console.print()
+    console.print(
+        Panel(
+            "[bold cyan]How do you want to run models?[/bold cyan]\n\n"
+            "  [bold]1.[/bold] Local — install Ollama and pull a model "
+            "[dim](~3 GB; offline / privacy)[/dim]\n"
+            "  [bold]2.[/bold] Cloud — OpenAI · Anthropic · Google · OpenRouter "
+            "[dim](BYO API key, no download)[/dim]\n"
+            "  [bold]3.[/bold] Both — local Ollama plus cloud keys "
+            "[dim](default)[/dim]",
+            border_style="cyan",
+            padding=(1, 3),
+        )
+    )
+
+    while True:
+        answer = console.input("  Choice [1/2/3, default=3]: ").strip()
+        if answer in ("", "3"):
+            return (False, False)
+        if answer == "1":
+            return (False, True)
+        if answer == "2":
+            console.print(
+                "  [dim]Skipping Ollama install. Equivalent flag: [bold]--no-ollama[/bold].[/dim]"
+            )
+            return (True, False)
+        console.print("  [red]Enter 1, 2, or 3.[/red]")
+
+
 def _ensure_ollama(skip: bool, default_model: str) -> bool:
     """Interactive bootstrap: install Ollama → start daemon → pull a model.
 
@@ -1493,7 +1543,12 @@ def quickstart(
     no_ollama: bool = typer.Option(
         False,
         "--no-ollama",
-        help="Skip the Ollama install / start / model-pull bootstrap",
+        help=(
+            "Cloud-only setup: skip the Ollama install, daemon start, and model pull "
+            "(saves ~1–2 min and a ~3 GB download). Use this when you already have "
+            "an OpenAI / Anthropic / Google / OpenRouter API key. Equivalent to "
+            "choosing 'Cloud' at the interactive model-source prompt."
+        ),
     ),
     ollama_model: str = typer.Option(
         DEFAULT_LOCAL_MODEL,
@@ -1510,7 +1565,8 @@ def quickstart(
     All agents are usable via CLI and Studio.
 
     Examples:
-        agentbreeder quickstart                     # local only
+        agentbreeder quickstart                     # local only (interactive)
+        agentbreeder quickstart --no-ollama         # cloud-only (skip ~3 GB download)
         agentbreeder quickstart --cloud aws         # local + deploy to AWS
         agentbreeder quickstart --cloud gcp         # local + deploy to GCP
         agentbreeder quickstart --skip-seed         # restart without re-seeding
@@ -1662,9 +1718,13 @@ def quickstart(
     # ── Step 2: LLM providers ────────────────────────────────────────────────
     _step("LLM Providers", 2, total_steps)
 
+    # Ask the user how they want to run models so we can short-circuit either
+    # the Ollama install or the cloud-key prompts.
+    skip_ollama, skip_cloud_keys = _ask_model_source(no_ollama_flag=no_ollama)
+
     # First: offer to install/start Ollama and pull a default local model so the
     # platform has a free, no-API-key inference backend out of the box.
-    _ensure_ollama(skip=no_ollama, default_model=ollama_model)
+    _ensure_ollama(skip=skip_ollama, default_model=ollama_model)
 
     # Read any existing .env from CWD first so we can show masked existing keys.
     _cwd_env: dict[str, str] = {}
@@ -1675,7 +1735,11 @@ def quickstart(
                 _k, _v = _line.split("=", 1)
                 _cwd_env[_k.strip()] = _v.strip()
 
-    new_provider_keys, has_ollama = _collect_provider_keys(_cwd_env)
+    if skip_cloud_keys:
+        new_provider_keys: dict[str, str] = {}
+        has_ollama = _ollama_running()
+    else:
+        new_provider_keys, has_ollama = _collect_provider_keys(_cwd_env)
 
     # Merge new keys into process env so the compose step picks them up
     os.environ.update(new_provider_keys)

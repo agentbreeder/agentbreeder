@@ -8,6 +8,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.5 — Cloud-only quickstart branch (#466)
+
+> **P3 UX gap closed.** A power user with an existing OpenAI / Anthropic / Google API key used to sit through `quickstart`'s Ollama install + ~3 GB model pull whether they wanted local inference or not. `--no-ollama` existed but was buried in the troubleshooting table. Quickstart now asks up front, and the flag is documented as a first-class cloud-only shortcut.
+
+- **Added** `_ask_model_source()` to `cli/commands/quickstart.py` — early in Step 2 (LLM Providers) the interactive wizard asks: **Local** (Ollama + model pull), **Cloud** (skip Ollama, prompt for cloud keys), or **Both** (default, current behavior). Pressing Enter picks "Both" so muscle-memory keeps working; passing `--no-ollama` short-circuits to "Cloud" without prompting; non-TTY runs keep the legacy "Both" behavior so existing CI scripts don't break.
+- **Wired** the new helper into the Step 2 flow: `skip_ollama` is now forwarded to `_ensure_ollama()`, and `skip_cloud_keys` shortcuts past `_collect_provider_keys()` for the Local-only path (Ollama status is still checked via the existing `_ollama_running()` helper so the summary line stays accurate).
+- **Improved** the `--no-ollama` help text on `agentbreeder quickstart --help` from a terse one-liner to a description that names the use case, the time/disk it saves, and that it's equivalent to the interactive Cloud choice.
+- **Added** an `--no-ollama` example to the quickstart docstring's `Examples:` block so it shows up in `--help`.
+- **Docs** — `quickstart.mdx` step-2 description rewritten to name the three model-source options; new "Already have a cloud API key?" callout pointing at `--no-ollama`. `cli-reference.mdx` `quickstart` table updates the `--no-ollama` row, adds the model-source prompt to the "What it does" list, and adds the `--no-ollama` example.
+- **Tests** new `tests/unit/test_quickstart_model_source.py` — 9 cases covering the `--no-ollama` short-circuit, the non-TTY short-circuit (with and without the flag), each interactive branch (1 → Local, 2 → Cloud, 3 → Both), the default-on-Enter case, the invalid-input-then-retry case, and whitespace trimming.
+
 ### v2.5 — First-run guided tour + empty-state hero (#465)
 
 > **P1 UX gap closed.** After first sign-in the user used to land in Studio with a fully populated registry (5 sample agents seeded by quickstart) and zero guidance on what to click. The 4-step welcome tour fixes that, and the no-agents page now ships a hero CTA instead of a one-line text dead-end.

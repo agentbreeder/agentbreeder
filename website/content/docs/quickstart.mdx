@@ -17,13 +17,23 @@ agentbreeder quickstart
 `agentbreeder quickstart` is interactive and walks you through everything:
 
 1. Detects (or installs) Docker, Podman, or nerdctl
-2. Detects (or installs) Ollama and pulls a local model — `gemma3` by default
-3. Optionally collects cloud API keys (OpenAI, Anthropic, Google, OpenRouter)
+2. Asks how you want to run models: **Local** (Ollama, ~3 GB download), **Cloud** (OpenAI / Anthropic / Google / OpenRouter API keys), or **Both** (default)
+3. Sets up the path you chose — installs Ollama and pulls `gemma3`, collects cloud API keys, or both
 4. Frees any conflicting ports for you on confirmation
 5. Starts the full stack — API · Studio · Postgres · Redis · ChromaDB · Neo4j · MCP servers · LiteLLM
 6. Seeds RAG docs, the knowledge graph, MCP servers, and prompts
 7. Deploys 5 sample agents (`assistant`, `rag-agent`, `graph-agent`, `search-agent`, `a2a-orchestrator`)
 8. Opens Studio at [http://localhost:3001](http://localhost:3001)
+
+<Callout type="info" title="Already have a cloud API key?">
+  Skip the ~3 GB Ollama download with the `--no-ollama` flag:
+
+  ```bash
+  agentbreeder quickstart --no-ollama
+  ```
+
+  Equivalent to choosing **Cloud** at the model-source prompt. You'll still be asked for OpenAI / Anthropic / Google / OpenRouter keys at the cloud-key step.
+</Callout>
 
 <Callout type="info" title="Default login">
   **Email:** `admin@agentbreeder.local` · **Password:** `plant`

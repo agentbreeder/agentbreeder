@@ -106,12 +106,12 @@ agentbreeder quickstart [--cloud TARGET] [--no-browser] [--skip-seed] [--dev] [-
 | `--skip-seed` | Off | Skip ChromaDB + Neo4j seeding (fast restart) |
 | `--dev` | Off | Build API and Studio from local source instead of pulling images |
 | `--reset` | Off | Tear down all docker volumes (postgres, redis, chromadb, neo4j) and start fresh |
-| `--no-ollama` | Off | Skip the Ollama install/start/pull bootstrap step |
+| `--no-ollama` | Off | **Cloud-only setup.** Skip the Ollama install, daemon start, and model pull (saves ~1–2 min and a ~3 GB download). Equivalent to choosing **Cloud** at the interactive model-source prompt. |
 | `--ollama-model` | `gemma3` | Pull a different default model for Ollama (e.g. `llama3.2`, `phi4-mini`) |
 
 What it does:
 1. Detects Docker / Podman; shows OS-specific install instructions if neither is found
-2. Checks for Ollama and cloud API keys; suggests `agentbreeder setup` if neither is found
+2. Asks how you want to run models: **Local** (Ollama, ~3 GB), **Cloud** (BYO API key), or **Both** (default). Press Enter at the prompt to take the default; pass `--no-ollama` to short-circuit to Cloud. Non-interactive runs keep the legacy "Both" behavior.
 3. Creates `.env` with secure random secrets if not present
 4. Starts the full stack via `docker-compose.quickstart.yml`: API · Studio · PostgreSQL · Redis · ChromaDB · Neo4j · MCP servers · LiteLLM
 5. Waits for all services with a live progress bar
@@ -121,7 +121,8 @@ What it does:
 
 **Examples:**
 ```bash
-agentbreeder quickstart                       # Local only
+agentbreeder quickstart                       # Local only, interactive
+agentbreeder quickstart --no-ollama           # Cloud-only (skip ~3 GB download)
 agentbreeder quickstart --cloud gcp           # Local + deploy to GCP Cloud Run (shipped greenfield)
 agentbreeder quickstart --cloud aws           # Local + deploy to AWS ECS Fargate (requires existing VPC + IAM)
 agentbreeder quickstart --cloud azure         # Local + deploy to Azure Container Apps (requires existing resource group)
