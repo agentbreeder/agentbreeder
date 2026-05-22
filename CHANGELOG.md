@@ -8,6 +8,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.5 — Realistic quickstart expectations + `--yes` for scripted runs (#468)
+
+> **P3 trust gap closed.** "Two commands. That's it." was technically true and practically misleading — `quickstart` is an interactive wizard with up to six prompts (container runtime, model source, port conflicts, Ollama install, model pull, cloud keys), plus a ~3 GB download if you pick Ollama. The new headline sets realistic expectations, the new callout names what the wizard will ask, and a `--yes` flag gives CI users a true zero-prompt path.
+
+- **Added** a `--yes` / `-y` flag to `agentbreeder quickstart`. Sets a module-level sentinel consulted by 13 `console.input` call sites so every yes/no prompt picks the safe default: model-source falls back to the legacy "Both" path (or Cloud when `--no-ollama` is set), port-conflict killer auto-accepts, Ollama install / rebind / model-pull / Studio rebuild auto-accept, missing env keys are silently skipped. Blocking prompts that require human input (e.g. "press Enter once the daemon is up") **exit fast with a clear error** instead of waiting on stdin. `--yes` deliberately does **not** auto-install Docker (heavy side effect, sudo) and does **not** invent provider keys (export `OPENAI_API_KEY` etc. before running). The recommended scripted recipe is `agentbreeder quickstart --yes --no-ollama --no-browser`.
+- **Marketing copy** — `quickstart.mdx` headline changes from "Two commands. That's it." to "Two commands. Three minutes. Done." A new "What to expect" callout names the interactive prompts and the ~3 GB download, plus shows the scripted recipe.
+- **Docs sync** — `cli-reference.mdx` `quickstart` table gains a `--yes` row that names every prompt the flag short-circuits and explicitly calls out the two things it does not do (auto-install Docker, invent provider keys). `quickstart.mdx` "Useful flags" table gets a matching `--yes` / `-y` row. The fully-scripted example is added to both the `Examples:` block in the docstring and the docs Examples list.
+- **Tests** new `tests/unit/test_quickstart_assume_yes.py` — 9 cases covering the flag toggle, `_ask_model_source` short-circuit (with/without `--no-ollama`, TTY override), `_collect_provider_keys` non-interactive paths (Ollama reachable / unreachable / no keys collected), and a signature-introspection check confirming `quickstart()` exposes both `--yes` and `-y` decls. Existing 9 model-source tests still pass.
+
 ### v2.5 — Cloud-only quickstart branch (#466)
 
 > **P3 UX gap closed.** A power user with an existing OpenAI / Anthropic / Google API key used to sit through `quickstart`'s Ollama install + ~3 GB model pull whether they wanted local inference or not. `--no-ollama` existed but was buried in the troubleshooting table. Quickstart now asks up front, and the flag is documented as a first-class cloud-only shortcut.

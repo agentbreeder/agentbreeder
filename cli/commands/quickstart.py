@@ -41,6 +41,21 @@ from rich.table import Table
 
 console = Console()
 
+# Set by quickstart() when --yes is passed. Consulted by prompt helpers so we
+# don't have to thread the flag through every single console.input call site.
+_ASSUME_YES = False
+
+
+def _is_assume_yes() -> bool:
+    """Return True if quickstart was invoked with --yes."""
+    return _ASSUME_YES
+
+
+def _set_assume_yes(value: bool) -> None:
+    global _ASSUME_YES
+    _ASSUME_YES = value
+
+
 # ── Paths ──────────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).parent.parent.parent
 DEPLOY_DIR = REPO_ROOT / "deploy"
@@ -709,7 +724,7 @@ def _check_cloud_prerequisites(target: str) -> bool:
     return True
 
 
-def _guide_cloud_deploy(target: str) -> None:
+def _guide_cloud_deploy(target: str, assume_yes: bool = False) -> None:
     """Interactive guide for deploying to AWS / GCP / Azure."""
     docs_url = CLOUD_DEPLOY_DOCS.get(target, "https://docs.agentbreeder.io")
 
@@ -753,11 +768,15 @@ def _guide_cloud_deploy(target: str) -> None:
     missing_keys = [k for k in info["env_keys"] if not os.environ.get(k)]
     if missing_keys:
         console.print("  [yellow]Missing environment variables:[/yellow]")
-        for k in missing_keys:
-            val = console.input(f"    [bold]{k}[/bold] (or Enter to skip): ").strip()
-            if val:
-                os.environ[k] = val
-                _write_env_key(k, val)
+        if _is_assume_yes():
+            for k in missing_keys:
+                console.print(f"    [dim]{k}[/dim] [dim](--yes: skipped)[/dim]")
+        else:
+            for k in missing_keys:
+                val = console.input(f"    [bold]{k}[/bold] (or Enter to skip): ").strip()
+                if val:
+                    os.environ[k] = val
+                    _write_env_key(k, val)
         console.print()
 
     console.print("  [bold]Deploy command:[/bold]")
@@ -766,7 +785,14 @@ def _guide_cloud_deploy(target: str) -> None:
     console.print(f"  [dim]Docs: {docs_url}[/dim]")
     console.print()
 
-    proceed = console.input("  [bold]Deploy now? (y/N): [/bold]").strip().lower()
+    if assume_yes:
+        console.print(
+            "  [dim]--yes: skipping interactive cloud deploy. Run "
+            f"[cyan]{info['cmd']} <agent.yaml>[/cyan] when you're ready.[/dim]"
+        )
+        proceed = "n"
+    else:
+        proceed = console.input("  [bold]Deploy now? (y/N): [/bold]").strip().lower()
     if proceed == "y":
         yaml_files = sorted(EXAMPLES_QS.glob("*.yaml"))
         if yaml_files:
@@ -988,14 +1014,14 @@ def _start_ollama() -> bool:
     return _ollama_running()
 
 
-def _ask_model_source(no_ollama_flag: bool) -> tuple[bool, bool]:
+def _ask_model_source(no_ollama_flag: bool, assume_yes: bool = False) -> tuple[bool, bool]:
     """Ask up front whether to set up local models, cloud providers, or both.
 
     Returns ``(skip_ollama, skip_cloud_keys)``.
 
     Short-circuits when the user has already declared their intent:
       - ``--no-ollama`` on the CLI → ``(True, False)``  (cloud path)
-      - stdin is not a TTY        → ``(no_ollama_flag, False)``  (legacy default)
+      - ``--yes`` / non-TTY         → ``(no_ollama_flag, False)``  (legacy default)
 
     Choices:
       1. Local   — install Ollama, pull a model. Skip cloud key prompts.
@@ -1006,7 +1032,7 @@ def _ask_model_source(no_ollama_flag: bool) -> tuple[bool, bool]:
         return (True, False)
     import sys as _sys
 
-    if not _sys.stdin.isatty():
+    if assume_yes or not _sys.stdin.isatty():
         return (False, False)
 
     console.print()
@@ -1063,6 +1089,9 @@ def _ensure_ollama(skip: bool, default_model: str) -> bool:
                 "  [dim]Auto-install isn't supported on this OS.[/dim]\n"
                 "  [dim]Download manually: [cyan]https://ollama.com/download[/cyan][/dim]"
             )
+            if _is_assume_yes():
+                _info("--yes: skipping Ollama (manual install required on this OS)")
+                return False
             ans = (
                 console.input(
                     "  [bold]Press Enter once installed, or type [cyan]skip[/cyan]: [/bold]"
@@ -1075,14 +1104,18 @@ def _ensure_ollama(skip: bool, default_model: str) -> bool:
                 return False
         else:
             cmd_parts, human = install
-            ans = (
-                console.input(
-                    f"  [bold]Install Ollama now?[/bold] "
-                    f"[dim](runs: [cyan]{human}[/cyan])[/dim] [Y/n]: "
+            if _is_assume_yes():
+                console.print(f"  [dim]--yes: installing Ollama ([cyan]{human}[/cyan])[/dim]")
+                ans = "y"
+            else:
+                ans = (
+                    console.input(
+                        f"  [bold]Install Ollama now?[/bold] "
+                        f"[dim](runs: [cyan]{human}[/cyan])[/dim] [Y/n]: "
+                    )
+                    .strip()
+                    .lower()
                 )
-                .strip()
-                .lower()
-            )
             if ans in ("n", "no", "skip"):
                 _info("Skipping Ollama install")
                 return False
@@ -1116,16 +1149,20 @@ def _ensure_ollama(skip: bool, default_model: str) -> bool:
             "Ollama is listening on [cyan]127.0.0.1[/cyan] only — Docker "
             "containers cannot reach it via [cyan]host.docker.internal[/cyan]."
         )
-        ans = (
-            console.input(
-                "  [bold]Rebind Ollama to 0.0.0.0:11434 so containers can "
-                "reach it?[/bold] [dim](runs: [cyan]launchctl setenv "
-                "OLLAMA_HOST 0.0.0.0:11434[/cyan] + restarts Ollama)[/dim] "
-                "[Y/n]: "
+        if _is_assume_yes():
+            console.print("  [dim]--yes: rebinding Ollama to 0.0.0.0:11434[/dim]")
+            ans = "y"
+        else:
+            ans = (
+                console.input(
+                    "  [bold]Rebind Ollama to 0.0.0.0:11434 so containers can "
+                    "reach it?[/bold] [dim](runs: [cyan]launchctl setenv "
+                    "OLLAMA_HOST 0.0.0.0:11434[/cyan] + restarts Ollama)[/dim] "
+                    "[Y/n]: "
+                )
+                .strip()
+                .lower()
             )
-            .strip()
-            .lower()
-        )
         if ans not in ("n", "no", "skip"):
             console.print("  [dim]Rebinding Ollama daemon...[/dim]")
             if _rebind_ollama_all_interfaces():
@@ -1159,9 +1196,13 @@ def _ensure_ollama(skip: bool, default_model: str) -> bool:
         "  [dim]Other good picks: [cyan]llama3.2[/cyan] · [cyan]phi4-mini[/cyan] · "
         "[cyan]qwen2.5[/cyan] · [cyan]mistral[/cyan][/dim]"
     )
-    ans = console.input(
-        "  [bold]Pull a model now?[/bold] [Y/n / type a model name to override]: "
-    ).strip()
+    if _is_assume_yes():
+        console.print(f"  [dim]--yes: pulling [cyan]{default_model}[/cyan][/dim]")
+        ans = ""
+    else:
+        ans = console.input(
+            "  [bold]Pull a model now?[/bold] [Y/n / type a model name to override]: "
+        ).strip()
     if ans.lower() in ("n", "no", "skip"):
         _warn("No model pulled — agents will need a model before they can run")
         return False
@@ -1176,8 +1217,12 @@ def _ensure_ollama(skip: bool, default_model: str) -> bool:
     return False
 
 
-def _collect_provider_keys(existing_env: dict) -> tuple[dict, bool]:
-    """Interactively prompt for cloud API keys. Returns (new_keys_dict, has_ollama)."""
+def _collect_provider_keys(existing_env: dict, assume_yes: bool = False) -> tuple[dict, bool]:
+    """Interactively prompt for cloud API keys. Returns (new_keys_dict, has_ollama).
+
+    Under ``--yes`` the prompts are skipped — the caller is expected to have
+    already exported provider keys via the environment.
+    """
     has_ollama = False
     try:
         resp = httpx.get("http://localhost:11434/", timeout=3.0)
@@ -1203,6 +1248,14 @@ def _collect_provider_keys(existing_env: dict) -> tuple[dict, bool]:
             console.print(f"  [green]●[/green] {name}  [dim]({masked} — already set)[/dim]")
         else:
             console.print(f"  [dim]○[/dim] {name}  [dim]({models})[/dim]")
+
+    if assume_yes:
+        console.print()
+        console.print(
+            "  [dim]--yes: skipping key prompts. Set provider keys via env vars "
+            "(e.g. [cyan]OPENAI_API_KEY[/cyan]) before re-running if any are missing.[/dim]"
+        )
+        return {}, has_ollama
 
     console.print()
     console.print("  [bold]Add or update API keys[/bold]  [dim](press Enter to skip any)[/dim]")
@@ -1555,6 +1608,17 @@ def quickstart(
         "--ollama-model",
         help=f"Default local model to pull when none are installed (default: {DEFAULT_LOCAL_MODEL})",
     ),
+    assume_yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help=(
+            "Non-interactive mode for CI / scripted runs. Skip every yes/no prompt "
+            "and use the safe default for each. Pair with --no-ollama and "
+            "--no-browser for a fully scripted bootstrap. Provider keys must be "
+            "supplied via env vars (OPENAI_API_KEY etc.) — --yes does not invent them."
+        ),
+    ),
 ) -> None:
     """Full local platform bootstrap — one command to go from zero to running agents.
 
@@ -1565,12 +1629,20 @@ def quickstart(
     All agents are usable via CLI and Studio.
 
     Examples:
-        agentbreeder quickstart                     # local only (interactive)
-        agentbreeder quickstart --no-ollama         # cloud-only (skip ~3 GB download)
-        agentbreeder quickstart --cloud aws         # local + deploy to AWS
-        agentbreeder quickstart --cloud gcp         # local + deploy to GCP
-        agentbreeder quickstart --skip-seed         # restart without re-seeding
+        agentbreeder quickstart                                  # local only (interactive)
+        agentbreeder quickstart --no-ollama                      # cloud-only (skip ~3 GB download)
+        agentbreeder quickstart --yes --no-ollama --no-browser   # fully scripted (CI)
+        agentbreeder quickstart --cloud aws                      # local + deploy to AWS
+        agentbreeder quickstart --cloud gcp                      # local + deploy to GCP
+        agentbreeder quickstart --skip-seed                      # restart without re-seeding
     """
+    _set_assume_yes(assume_yes)
+    if assume_yes:
+        console.print(
+            "  [dim]--yes: non-interactive mode. Yes/no prompts will use safe defaults; "
+            "blocking prompts (e.g. 'press Enter once daemon is up') will exit instead "
+            "of waiting.[/dim]"
+        )
     total_steps = 9 if cloud else 8
 
     if reset:
@@ -1635,10 +1707,12 @@ def quickstart(
             )
         )
         # Offer to run an auto-install for the user when we know how.
+        # --yes intentionally does *not* trigger Docker install — it's a heavy
+        # side effect (sudo, downloads, daemon spawn) we don't want in CI.
         install = _runtime_install_command()
         import sys as _sys
 
-        if install and _sys.stdin.isatty():
+        if install and _sys.stdin.isatty() and not assume_yes:
             cmd_parts, human = install
             console.print()
             ans = (
@@ -1697,6 +1771,12 @@ def quickstart(
         else:
             console.print(f"  [dim]Start the {binary} daemon and re-run.[/dim]")
         console.print()
+        if assume_yes:
+            console.print(
+                "  [red]--yes: cannot wait for a daemon to start. "
+                "Start the runtime and re-run.[/red]"
+            )
+            raise typer.Exit(code=1)
         console.input(
             "  [bold]Press Enter once any container runtime is running "
             "(or Ctrl+C to cancel): [/bold]"
@@ -1720,7 +1800,9 @@ def quickstart(
 
     # Ask the user how they want to run models so we can short-circuit either
     # the Ollama install or the cloud-key prompts.
-    skip_ollama, skip_cloud_keys = _ask_model_source(no_ollama_flag=no_ollama)
+    skip_ollama, skip_cloud_keys = _ask_model_source(
+        no_ollama_flag=no_ollama, assume_yes=assume_yes
+    )
 
     # First: offer to install/start Ollama and pull a default local model so the
     # platform has a free, no-API-key inference backend out of the box.
@@ -1739,7 +1821,7 @@ def quickstart(
         new_provider_keys: dict[str, str] = {}
         has_ollama = _ollama_running()
     else:
-        new_provider_keys, has_ollama = _collect_provider_keys(_cwd_env)
+        new_provider_keys, has_ollama = _collect_provider_keys(_cwd_env, assume_yes=assume_yes)
 
     # Merge new keys into process env so the compose step picks them up
     os.environ.update(new_provider_keys)
@@ -1780,9 +1862,18 @@ def quickstart(
                 padding=(1, 2),
             )
         )
-        proceed = (
-            console.input("  [bold]Continue without a provider? (y/N): [/bold]").strip().lower()
-        )
+        if assume_yes:
+            console.print(
+                "  [dim]--yes: continuing without a provider — "
+                "set OPENAI_API_KEY (or equivalent) in the environment before re-running.[/dim]"
+            )
+            proceed = "y"
+        else:
+            proceed = (
+                console.input("  [bold]Continue without a provider? (y/N): [/bold]")
+                .strip()
+                .lower()
+            )
         if proceed != "y":
             console.print(
                 "  [dim]Re-run agentbreeder quickstart and enter an API key above.[/dim]"
@@ -1892,7 +1983,11 @@ def quickstart(
                     "  [dim]N = exit so you can stop them yourself "
                     "(safer if any of these are services you care about)[/dim]"
                 )
-                ans = console.input("  > ").strip().lower()
+                if assume_yes:
+                    console.print("  [dim]--yes: auto-killing conflicting processes[/dim]")
+                    ans = "y"
+                else:
+                    ans = console.input("  > ").strip().lower()
                 if ans == "y":
                     still = _kill_port_owners(all_pids)
                     time.sleep(1.0)
@@ -2237,15 +2332,19 @@ def quickstart(
             # offer to rebuild the Studio image locally.
             dashboard_src = REPO_ROOT / "dashboard" / "package.json"
             if dashboard_src.exists():
-                ans = (
-                    console.input(
-                        "  [bold]Rebuild Studio from source now?[/bold] "
-                        "[dim](runs: compose up -d --build dashboard)[/dim] "
-                        "[Y/n]: "
+                if _is_assume_yes():
+                    console.print("  [dim]--yes: rebuilding Studio from source[/dim]")
+                    ans = "y"
+                else:
+                    ans = (
+                        console.input(
+                            "  [bold]Rebuild Studio from source now?[/bold] "
+                            "[dim](runs: compose up -d --build dashboard)[/dim] "
+                            "[Y/n]: "
+                        )
+                        .strip()
+                        .lower()
                     )
-                    .strip()
-                    .lower()
-                )
                 if ans not in ("n", "no", "skip"):
                     console.print("  [dim]Rebuilding Studio image (~30s)...[/dim]")
                     rebuild = _compose_run(
@@ -2362,7 +2461,7 @@ def quickstart(
                 )
             )
         else:
-            _guide_cloud_deploy(cloud)
+            _guide_cloud_deploy(cloud, assume_yes=assume_yes)
 
     # ── Final summary ─────────────────────────────────────────────────────────
     _print_final_summary(services_ok, [p.stem for p in sorted(EXAMPLES_QS.glob("*.yaml"))])

@@ -7,12 +7,24 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 # Quickstart
 
-Two commands. That's it.
+Two commands. Three minutes. Done.
 
 ```bash
 pip3 install agentbreeder
 agentbreeder quickstart
 ```
+
+<Callout type="info" title="What to expect">
+  `agentbreeder quickstart` is an **interactive wizard**. It asks a handful of questions (container runtime, model source, API keys, port conflicts) and pulls ~3 GB if you choose local models. Expect ~3 minutes on a cold first run.
+
+  Want zero prompts for CI? Use the scripted path:
+
+  ```bash
+  agentbreeder quickstart --yes --no-ollama --no-browser
+  ```
+
+  `--yes` skips every yes/no prompt and uses safe defaults. `--no-ollama` keeps you on the cloud path (set `OPENAI_API_KEY` etc. before running). `--no-browser` skips opening Studio.
+</Callout>
 
 `agentbreeder quickstart` is interactive and walks you through everything:
 
@@ -77,6 +89,7 @@ The 8-step deploy pipeline (parse → RBAC → resolve deps → build container 
 
 | Flag | What it does |
 |---|---|
+| `--yes` / `-y` | Non-interactive mode for CI. Skip every yes/no prompt and use safe defaults. Pair with `--no-ollama` and `--no-browser` for a fully scripted bootstrap. |
 | `--no-ollama` | Skip the Ollama install/start/pull bootstrap |
 | `--ollama-model NAME` | Pull a different default model (e.g. `llama3.2`, `phi4-mini`) |
 | `--no-browser` | Don't open Studio at the end |
