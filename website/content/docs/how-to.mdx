@@ -18,9 +18,18 @@ Recipes for everything that isn't covered by `agentbreeder quickstart`. Each sec
 
 ## Install
 
+We recommend `pipx` — it installs `agentbreeder` into an isolated environment and puts the executable on your `PATH` automatically:
+
 ```bash
-pip3 install agentbreeder          # full CLI + API server + engine
-pip3 install agentbreeder-sdk      # lightweight SDK only
+pipx install agentbreeder            # full CLI + API server + engine
+pipx install agentbreeder-sdk        # lightweight SDK only (uncommon — usually you want the full install)
+```
+
+No pipx? Use the standard installer instead:
+
+```bash
+python3 -m pip install agentbreeder          # works regardless of whether pip / pip3 is on PATH
+python3 -m pip install agentbreeder-sdk
 ```
 
 Requires Python 3.11+. `brew` and `npx` support coming soon. macOS users hitting `command not found` — see [Troubleshooting](#troubleshooting).

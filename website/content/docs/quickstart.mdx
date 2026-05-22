@@ -10,9 +10,19 @@ import { Callout } from 'fumadocs-ui/components/callout';
 Two commands. Three minutes. Done.
 
 ```bash
-pip3 install agentbreeder
+pipx install agentbreeder
 agentbreeder quickstart
 ```
+
+<Callout type="info" title="No pipx? Use the standard installer instead">
+  ```bash
+  python3 -m pip install agentbreeder
+  ```
+
+  `python3 -m pip` works on every Python install regardless of whether `pip`, `pip3`, or neither is on your `PATH`. If you see `agentbreeder: command not found` after, see [Troubleshooting](#when-something-goes-wrong).
+
+  We recommend `pipx` because it installs `agentbreeder` into an isolated environment and puts the executable on `PATH` automatically — no shell-rc edits, no clashes with other tools.
+</Callout>
 
 <Callout type="info" title="Before you start">
   AgentBreeder needs three things on the machine:
@@ -114,7 +124,7 @@ The 8-step deploy pipeline (parse → RBAC → resolve deps → build container 
 
 | Problem | Fix |
 |---|---|
-| `agentbreeder: command not found` | pip's script directory isn't on `PATH`. Run `python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"` and add it to your shell rc. |
+| `agentbreeder: command not found` | pip's script directory isn't on `PATH`. Either re-install with `pipx install agentbreeder` (recommended), or find the dir with `python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"` and prepend it to `PATH` in your shell rc. Running `agentbreeder welcome` once it works prints the same hint. |
 | Port conflict (`:5432 already in use` etc.) | Quickstart will offer to kill the conflicting process. Accept with `y`, or stop it manually. |
 | Container daemon not running | Quickstart will tell you what to start (Docker Desktop, OrbStack, Colima, Podman, systemd, etc.) and re-detect after you confirm. |
 | Stack already up, ports stuck | `agentbreeder down --clean` then retry. |

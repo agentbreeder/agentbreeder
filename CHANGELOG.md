@@ -49,6 +49,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Docs** added a "Before you start" callout at the top of `quickstart.mdx` listing the three concrete prerequisites and pointing at `doctor`; added a full `doctor` entry to `cli-reference.mdx` (above the `quickstart` entry so it reads in install order); added `--skip-doctor` to the quickstart options table in both docs.
 - **Tests** new `tests/unit/test_doctor.py` — 15 cases covering each check in isolation (Python floor, disk-low, runtime-missing, runtime-daemon-down, runtime-happy, RAM-undetectable, RAM-below-min) plus `has_blocker()`, the Typer command's exit codes for pass and fail, and the `--json` payload shape. All 15 pass.
 
+### v2.5 — Install path discovery + pip/pipx standardization (#463)
+
+> **P2 UX gap closed.** The #1 entry in `quickstart.mdx`'s troubleshooting table is `agentbreeder: command not found` after `pip install` — pip's script directory often isn't on `PATH`. Docs now recommend `pipx install agentbreeder` as the primary path (pipx adds the binary to a directory that's already on `PATH` everywhere), with `python3 -m pip install agentbreeder` as the alternative (works regardless of whether `pip`/`pip3` is on `PATH`).
+
+- **Added** install-path hint to the welcome panel (`cli/main.py`). When pip's script directory isn't on `PATH`, `agentbreeder welcome` and the first-run banner now print a yellow panel showing the scripts dir (`sysconfig.get_path('scripts')`), the active shell, and the exact line to append to the user's shell rc (zsh / bash / fish / PowerShell). Suppressed when the scripts dir is already on `PATH`, so pipx and venv users see no noise.
+- **Updated** `quickstart.mdx` two-command snippet to `pipx install agentbreeder` (with a callout pointing at `python3 -m pip install agentbreeder` for users without pipx). Same change in the troubleshooting row for `command not found`.
+- **Updated** `how-to.mdx` Install section to lead with `pipx install agentbreeder`, then fall back to `python3 -m pip install agentbreeder`. Removed `pip3 install ...` lines.
+- **Updated** `faq.mdx` "command not found" section to recommend `pipx` first, then the manual PATH-edit instructions, with the section header switched to `python3 -m pip install agentbreeder`.
+- **Standardized** install commands across `full-code.mdx`, `low-code.mdx`, all five `migrations/from-*.mdx` checklists, and `migrations/overview.mdx`. Every user-facing install line now reads `pipx install agentbreeder` (or `python3 -m pip install agentbreeder`) — no more `pip` vs `pip3` ambiguity in docs. Blog posts and CI examples (where `pip install` is idiomatic for the platform) are intentionally untouched.
+- **Tests** new `tests/unit/test_cli_install_path.py` — 12 cases covering `_scripts_dir()`, `_scripts_dir_on_path()` happy/empty/unrelated PATH cases, `_shell_rc_hint()` for zsh / fish / bash-default / Windows PowerShell, and the welcome command's panel-shown / panel-hidden branches.
+
 ### v2.5 — First-run guided tour + empty-state hero (#465)
 
 > **P1 UX gap closed.** After first sign-in the user used to land in Studio with a fully populated registry (5 sample agents seeded by quickstart) and zero guidance on what to click. The 4-step welcome tour fixes that, and the no-agents page now ships a hero CTA instead of a one-line text dead-end.

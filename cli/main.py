@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
@@ -67,6 +68,95 @@ def _print_pyenv_warning() -> None:
             "[dim]This is a recommendation, not a hard requirement — "
             "AgentBreeder will continue to work in any Python ≥ 3.11.[/dim]",
             title="[bold yellow]Python Environment[/bold yellow]",
+            border_style="yellow",
+            padding=(1, 2),
+        )
+    )
+
+
+# ── Install location / PATH discovery ──────────────────────────────────────
+# The #1 quickstart.mdx troubleshooting entry is "agentbreeder: command not
+# found" after `pip install agentbreeder` — pip's script directory isn't on
+# PATH. We can't fix that for users who haven't reached `agentbreeder` yet,
+# but we can surface the relevant paths for next-tool-they-install and
+# nudge toward `pipx install agentbreeder` which sidesteps the problem.
+
+
+def _scripts_dir() -> Path:
+    """Where pip would install console scripts for the active interpreter."""
+    return Path(sysconfig.get_path("scripts"))
+
+
+def _path_entries() -> list[Path]:
+    out: list[Path] = []
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        try:
+            out.append(Path(entry).resolve())
+        except OSError:
+            continue
+    return out
+
+
+def _scripts_dir_on_path() -> bool:
+    try:
+        target = _scripts_dir().resolve()
+    except OSError:
+        return False
+    return target in _path_entries()
+
+
+def _is_windows() -> bool:
+    """Wrap the ``os.name == 'nt'`` check so tests can patch it without
+    globally mutating ``os.name`` — which would make ``pathlib.Path()`` try
+    to instantiate ``WindowsPath`` on a non-Windows test host and crash.
+    """
+    return os.name == "nt"
+
+
+def _shell_rc_hint() -> tuple[str, str]:
+    """Return ``(label, line-to-append)`` for the user's most likely shell."""
+    scripts = _scripts_dir()
+    if _is_windows():
+        return ("PowerShell ($PROFILE)", f'$env:PATH = "{scripts};$env:PATH"')
+    shell = os.environ.get("SHELL", "")
+    if "zsh" in shell:
+        return ("zsh (~/.zshrc)", f'export PATH="{scripts}:$PATH"')
+    if "fish" in shell:
+        return (
+            "fish (~/.config/fish/config.fish)",
+            f'fish_add_path "{scripts}"',
+        )
+    # Default to bash for unknown POSIX shells — same syntax as zsh.
+    return ("bash (~/.bashrc)", f'export PATH="{scripts}:$PATH"')
+
+
+def _print_install_path_hint() -> None:
+    """Show where pip installs scripts and how to add that dir to PATH.
+
+    Suppressed when the scripts dir is already on ``PATH`` (typical for users
+    who installed via ``pipx`` or inside a venv) so the welcome banner stays
+    quiet for the happy path.
+    """
+    if _scripts_dir_on_path():
+        return
+    from rich.console import Console
+    from rich.panel import Panel
+
+    label, line = _shell_rc_hint()
+    Console().print(
+        Panel(
+            f"[yellow]pip's script directory isn't on your PATH.[/yellow]\n\n"
+            f"  Scripts dir: [dim]{_scripts_dir()}[/dim]\n"
+            f"  Active shell: [dim]{label}[/dim]\n\n"
+            "If you ever hit [bold]agentbreeder: command not found[/bold] after\n"
+            "[cyan]python3 -m pip install agentbreeder[/cyan], append this line to\n"
+            "your shell rc and reload it:\n\n"
+            f"  [cyan]{line}[/cyan]\n\n"
+            "[dim]Easier next time: [bold]pipx install agentbreeder[/bold] — pipx puts\n"
+            "the binary in a directory that's already on PATH on most systems.[/dim]",
+            title="[bold yellow]Install path[/bold yellow]",
             border_style="yellow",
             padding=(1, 2),
         )
@@ -143,6 +233,7 @@ def _maybe_show_welcome() -> None:
         pass
 
     _print_pyenv_warning()
+    _print_install_path_hint()
     _print_welcome()
 
     # Auto-launch quickstart on first run if STDIN is a TTY.
@@ -172,6 +263,7 @@ def _maybe_show_welcome() -> None:
 
 def _welcome_cmd() -> None:
     """Show the AgentBreeder Getting Started guide."""
+    _print_install_path_hint()
     _print_welcome()
 
 
