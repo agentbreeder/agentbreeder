@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
-import { Bot, Search, Filter, Circle, Star, Plus, FileCode } from "lucide-react";
+import { Bot, Search, Filter, Circle, Star, Plus, FileCode, Hammer, Terminal } from "lucide-react";
 import { api, type Agent, type AgentStatus } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -336,18 +336,60 @@ export default function AgentsPage() {
             Failed to load agents: {(error as Error).message}
           </div>
         ) : sortedAgents.length === 0 ? (
-          <EmptyState
-            icon={Bot}
-            title={hasFilter ? "No agents match your filters" : "No agents registered"}
-            description={
-              hasFilter
-                ? "Try adjusting your search or filters."
-                : "Deploy an agent with `agentbreeder deploy` and it will appear here automatically."
-            }
-          />
+          hasFilter ? (
+            <EmptyState
+              icon={Bot}
+              title="No agents match your filters"
+              description="Try adjusting your search or filters."
+            />
+          ) : (
+            <NoAgentsHero />
+          )
         ) : (
           sortedAgents.map((agent) => <AgentRow key={agent.id} agent={agent} visibleColumns={visibleColumns} />)
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Hero CTA shown when the registry is completely empty (issue #465).
+ *
+ * Replaces the bare "No agents registered" empty state with two equal-weight
+ * paths — visual builder vs CLI — so the user immediately knows what to do
+ * next. The previous text-only state left first-time users stranded. */
+function NoAgentsHero() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-6 px-4 py-20 text-center">
+      <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
+        <Bot className="size-6 text-primary" />
+      </div>
+      <div className="max-w-md space-y-2">
+        <h3 className="text-base font-semibold tracking-tight">No agents deployed yet</h3>
+        <p className="text-sm text-muted-foreground">
+          Pick a path to ship your first agent. Both routes go through the same 8-step deploy pipeline — RBAC, registry, cost tracking, and audit log are all wired automatically.
+        </p>
+      </div>
+      <div className="grid w-full max-w-xl grid-cols-1 gap-3 sm:grid-cols-2">
+        <Link
+          to="/agents/builder"
+          className="group flex flex-col items-start gap-2 rounded-xl border border-border bg-card p-4 text-left transition hover:border-primary/40 hover:bg-card/80"
+        >
+          <Hammer className="size-4 text-muted-foreground group-hover:text-primary" />
+          <span className="text-sm font-medium">Open the builder</span>
+          <span className="text-xs text-muted-foreground">
+            Drag-and-drop canvas with 8 node types. No YAML.
+          </span>
+        </Link>
+        <div className="flex flex-col items-start gap-2 rounded-xl border border-border bg-card p-4 text-left">
+          <Terminal className="size-4 text-muted-foreground" />
+          <span className="text-sm font-medium">From the terminal</span>
+          <code className="mt-1 block w-full overflow-x-auto rounded-md bg-muted px-2 py-1 font-mono text-[11px] leading-relaxed text-muted-foreground">
+            agentbreeder init
+            <br />
+            agentbreeder deploy agent.yaml
+          </code>
+        </div>
       </div>
     </div>
   );
