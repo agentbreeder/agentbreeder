@@ -125,19 +125,31 @@ podman run --rm --add-host=host.docker.internal:host-gateway alpine \
   wget -qO- http://host.docker.internal:11434/api/tags
 ```
 
-### `agentbreeder: command not found` after `pip install agentbreeder`
+### `agentbreeder: command not found` after `python3 -m pip install agentbreeder`
 
-Pip's script directory isn't on your `PATH`. Find it and add it to your shell rc:
+Pip's script directory isn't on your `PATH`. Two ways to fix it:
+
+**Easiest — reinstall with `pipx`:**
+
+```bash
+pipx install agentbreeder
+```
+
+pipx installs into an isolated environment and puts the executable on `PATH` automatically — no shell-rc edits required.
+
+**Or, keep your `pip` install and add the scripts dir to `PATH`:**
 
 ```bash
 python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 ```
 
-Add the printed path to your `~/.zshrc` (or equivalent):
+Prepend the printed path to `PATH` in your shell rc (`~/.zshrc`, `~/.bashrc`, `~/.config/fish/config.fish`, or PowerShell `$PROFILE`):
 
 ```bash
-export PATH="$PATH:/path/printed/above"
+export PATH="/path/printed/above:$PATH"
 ```
+
+Once `agentbreeder` is on `PATH`, running `agentbreeder welcome` will print the same hint for you on any future machine.
 
 ### Port conflict (`:5432 already in use`, `:6379`, `:8000`, …)
 
