@@ -8,6 +8,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### v2.5 — First-run guided tour + empty-state hero (#465)
+
+> **P1 UX gap closed.** After first sign-in the user used to land in Studio with a fully populated registry (5 sample agents seeded by quickstart) and zero guidance on what to click. The 4-step welcome tour fixes that, and the no-agents page now ships a hero CTA instead of a one-line text dead-end.
+
+- **Added** `TourProvider` + `useTour()` in `dashboard/src/hooks/use-tour.tsx`. Per-browser via `localStorage` (key `ag-tour-completed-v1`). Bumping the version suffix re-shows the tour to everyone after a major redesign. No backend round-trip — tour is an onboarding affordance, not user state worth syncing across devices.
+- **Added** `WelcomeTour` modal in `dashboard/src/components/welcome-tour.tsx`. Four steps — Welcome / Try chatting / Build your own / Governed by default — each with a deep-link CTA (Visit Agents, Open Playground, Open Builder, See Costs) that closes the tour and navigates. Centered modal with progress dots, Back / Next / Skip / Done nav, top-right X, and Esc-to-dismiss. No DOM-spotlight coupling to specific element positions — pure prose tour, immune to UI rot across 46 pages.
+- **Wired** `TourProvider` + `<WelcomeTour />` into the `RequireAuth` tree in `App.tsx` so the tour only renders for authenticated users and overlays the full viewport.
+- **Added** "Restart tour" link in the shell footer (`components/shell.tsx`) so users can replay the tour after dismissing it. Hidden when the sidebar is collapsed.
+- **Replaced** the text-only "No agents registered. Deploy an agent with `agentbreeder deploy` and it will appear here automatically" empty state on `/agents` with a `NoAgentsHero` block: two equal-weight CTAs (visual builder Link + CLI snippet), both routing through the same 8-step deploy pipeline. Filtered-empty state (when search/filters return nothing) preserves the old `EmptyState` since it's a different intent.
+- **Tests** new `dashboard/src/__tests__/use-tour.test.tsx` — 4 Vitest cases covering auto-open on first mount, no-show when flag set, `dismiss()` persistence, and `open()` after dismiss (the restart-tour path). All pass.
+
 ### v2.5 — Force password change on first login (#464)
 
 > **P0 security gap closed.** The seeded admin account ships with the publicly documented credential `admin@agentbreeder.local` / `plant`. Anyone exposing Studio beyond `localhost` (e.g. via the Caddy reverse-proxy example in `SELF_HOSTING.md`) was one curl away from a known-credential takeover. This fix forces a rotation on first sign-in before the user can do anything else.

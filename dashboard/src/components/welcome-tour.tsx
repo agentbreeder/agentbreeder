@@ -115,12 +115,10 @@ const STEPS: TourStep[] = [
 export function WelcomeTour() {
   const { isOpen, dismiss } = useTour();
   const navigate = useNavigate();
+  // Keyed re-mount on isOpen via the parent guard resets index to 0 — see
+  // the early `if (!isOpen) return null` below. We never need to manually
+  // reset step state because the component unmounts when closed.
   const [index, setIndex] = useState(0);
-
-  // Reset to step 0 each time the tour opens.
-  useEffect(() => {
-    if (isOpen) setIndex(0);
-  }, [isOpen]);
 
   // Allow Esc to dismiss.
   useEffect(() => {

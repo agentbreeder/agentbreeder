@@ -12,7 +12,6 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -42,15 +41,10 @@ function readCompleted(): boolean {
 }
 
 export function TourProvider({ children }: { children: ReactNode }) {
+  // Both flags initialize lazily from the same localStorage read so the
+  // tour is visible from the first paint when the user has never seen it.
   const [hasCompleted, setHasCompleted] = useState<boolean>(() => readCompleted());
-  const [isOpen, setIsOpen] = useState(false);
-
-  // Auto-open on first mount for a user who hasn't seen it yet.
-  useEffect(() => {
-    if (!hasCompleted) {
-      setIsOpen(true);
-    }
-  }, [hasCompleted]);
+  const [isOpen, setIsOpen] = useState<boolean>(() => !readCompleted());
 
   const open = useCallback(() => {
     setIsOpen(true);
