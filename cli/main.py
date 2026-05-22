@@ -107,10 +107,18 @@ def _scripts_dir_on_path() -> bool:
     return target in _path_entries()
 
 
+def _is_windows() -> bool:
+    """Wrap the ``os.name == 'nt'`` check so tests can patch it without
+    globally mutating ``os.name`` — which would make ``pathlib.Path()`` try
+    to instantiate ``WindowsPath`` on a non-Windows test host and crash.
+    """
+    return os.name == "nt"
+
+
 def _shell_rc_hint() -> tuple[str, str]:
     """Return ``(label, line-to-append)`` for the user's most likely shell."""
     scripts = _scripts_dir()
-    if os.name == "nt":
+    if _is_windows():
         return ("PowerShell ($PROFILE)", f'$env:PATH = "{scripts};$env:PATH"')
     shell = os.environ.get("SHELL", "")
     if "zsh" in shell:

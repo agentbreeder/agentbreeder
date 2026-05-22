@@ -64,13 +64,16 @@ class TestShellRcHint:
 
     def test_bash_default_for_unknown_posix_shell(self) -> None:
         with patch.dict(os.environ, {"SHELL": "/bin/ksh"}, clear=False):
-            with patch("cli.main.os.name", "posix"):
+            with patch("cli.main._is_windows", return_value=False):
                 label, line = _shell_rc_hint()
         assert "bash" in label
         assert line.startswith('export PATH="')
 
     def test_windows_emits_powershell(self) -> None:
-        with patch("cli.main.os.name", "nt"):
+        # Patch the helper (not ``os.name`` itself) — globally mutating
+        # ``os.name`` would make ``pathlib.Path()`` try to instantiate
+        # ``WindowsPath`` on a non-Windows test host and raise.
+        with patch("cli.main._is_windows", return_value=True):
             label, line = _shell_rc_hint()
         assert "PowerShell" in label
         assert line.startswith("$env:PATH = ")
