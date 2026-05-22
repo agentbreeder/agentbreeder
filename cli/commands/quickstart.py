@@ -313,6 +313,217 @@ def _runtime_is_running(binary: str) -> bool:
     return result.returncode == 0
 
 
+# ── Container-runtime diagnostics (issue #467) ─────────────────────────────
+#
+# When `docker info` (or equivalent) fails, the user gets a generic "cannot
+# connect to daemon" without knowing *why*. These helpers turn the failure
+# into a specific cause + fix command.
+
+_DEFAULT_DOCKER_SOCKETS = (
+    "/var/run/docker.sock",
+    # Common rootless/Snap/Flatpak alternates (XDG_RUNTIME_DIR varies by user,
+    # so we resolve $UID lazily in _docker_socket_candidates).
+)
+
+
+def _docker_host_socket_path() -> str | None:
+    """Return the filesystem path encoded in $DOCKER_HOST (unix:// only), else None."""
+    raw = os.environ.get("DOCKER_HOST", "").strip()
+    if raw.startswith("unix://"):
+        return raw[len("unix://") :]
+    return None
+
+
+def _docker_socket_candidates() -> list[str]:
+    """Sockets to probe when looking for a reachable Docker daemon."""
+    paths: list[str] = []
+    host_sock = _docker_host_socket_path()
+    if host_sock:
+        paths.append(host_sock)
+    paths.extend(_DEFAULT_DOCKER_SOCKETS)
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        paths.append(f"{xdg}/docker.sock")
+    uid = os.environ.get("UID") or (str(os.getuid()) if hasattr(os, "getuid") else "")
+    if uid:
+        paths.append(f"/run/user/{uid}/docker.sock")
+    # De-dupe while preserving order
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in paths:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def _docker_socket_status() -> tuple[str | None, str | None]:
+    """Return (path, status) where status is one of:
+
+    - "reachable"          — socket exists and we can stat it
+    - "permission_denied"  — socket exists but we lack rwx access
+    - None (path also None) — no socket found
+
+    The first matching socket wins; we prefer $DOCKER_HOST over defaults.
+    """
+    for path in _docker_socket_candidates():
+        try:
+            st = os.stat(path)
+        except FileNotFoundError:
+            continue
+        except PermissionError:
+            return (path, "permission_denied")
+        except OSError:
+            continue
+        # On Linux a Unix-domain socket has S_IFSOCK; treat anything that stats
+        # as "present" — distinguishing the file type matters less than whether
+        # we can connect, which os.access covers.
+        del st
+        if not os.access(path, os.R_OK | os.W_OK):
+            return (path, "permission_denied")
+        return (path, "reachable")
+    return (None, None)
+
+
+def _docker_is_rootless() -> bool:
+    """Heuristic: True if `docker info` advertises the rootless SecurityOption."""
+    if not shutil.which("docker"):
+        return False
+    result = subprocess.run(
+        ["docker", "info", "--format", "{{.SecurityOptions}}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    return "rootless" in result.stdout.lower()
+
+
+def _docker_info_error() -> str:
+    """Return the stderr of `docker info` lowercased — empty string if docker is missing."""
+    if not shutil.which("docker"):
+        return ""
+    result = subprocess.run(["docker", "info"], capture_output=True, text=True)
+    if result.returncode == 0:
+        return ""
+    return (result.stderr + result.stdout).lower()
+
+
+def _diagnose_missing_runtime() -> list[str] | None:
+    """When `_detect_runtime()` returns None, check whether a daemon socket is
+    nonetheless present — that's the "CLI missing but daemon up" case from #467.
+
+    Returns Rich-formatted hint lines, or None if no socket is reachable
+    (in which case the caller falls back to the generic install panel).
+    """
+    sock, status = _docker_socket_status()
+    if not sock:
+        return None
+    if status == "reachable":
+        return [
+            f"[yellow]Docker socket reachable at[/yellow] [cyan]{sock}[/cyan] "
+            "[yellow]but no `docker` CLI on PATH.[/yellow]",
+            "",
+            "Looks like a partial install — daemon up, CLI shim missing. Install the CLI:",
+            "  [cyan]brew install docker[/cyan]   "
+            "[dim]# macOS — pairs with Docker Desktop/Colima/OrbStack[/dim]",
+            "  [cyan]sudo apt-get install docker-ce-cli[/cyan]   [dim]# Debian/Ubuntu[/dim]",
+            "  [cyan]sudo dnf install docker-ce-cli[/cyan]       [dim]# Fedora/RHEL[/dim]",
+            "",
+            "[dim]Then re-run [bold cyan]agentbreeder quickstart[/bold cyan].[/dim]",
+        ]
+    if status == "permission_denied":
+        return [
+            f"[red]Cannot access Docker socket at[/red] [cyan]{sock}[/cyan] "
+            "[red](permission denied).[/red]",
+            "",
+            "Add your user to the [bold]docker[/bold] group, then start a new login session:",
+            "  [cyan]sudo usermod -aG docker $USER[/cyan]",
+            "  [cyan]newgrp docker[/cyan]",
+            "",
+            "[dim]Then re-run [bold cyan]agentbreeder quickstart[/bold cyan].[/dim]",
+        ]
+    return None
+
+
+def _diagnose_runtime_failure(binary: str) -> list[str]:
+    """Specific cause + fix lines for a runtime that's installed but unreachable.
+
+    Each return value is a list of Rich-markup lines for the *cause* of failure
+    — never the generic "could not connect to daemon" string. Falls back to
+    the original "daemon not running" hint when nothing specific matches.
+    """
+    # Stale $DOCKER_HOST takes priority — even other runtimes get tripped by it.
+    host_sock = _docker_host_socket_path()
+    if host_sock and not Path(host_sock).exists():
+        return [
+            f"[red]$DOCKER_HOST points at a missing socket:[/red] [cyan]{host_sock}[/cyan]",
+            "",
+            "Unset it (or point it at a live socket) and re-run:",
+            "  [cyan]unset DOCKER_HOST[/cyan]",
+        ]
+
+    if binary == "docker":
+        err = _docker_info_error()
+        sock, status = _docker_socket_status()
+
+        if "permission denied" in err or status == "permission_denied":
+            shown = sock or "/var/run/docker.sock"
+            return [
+                f"[red]Permission denied on Docker socket[/red] [cyan]{shown}[/cyan]",
+                "",
+                "Your user isn't in the [bold]docker[/bold] group. Fix:",
+                "  [cyan]sudo usermod -aG docker $USER[/cyan]",
+                "  [cyan]newgrp docker[/cyan]   [dim]# or log out + back in[/dim]",
+            ]
+
+        if status == "reachable" and "cannot connect" in err:
+            # Socket file is present but the daemon behind it isn't speaking —
+            # typical with Flatpak/Snap Docker where the CLI talks to the wrong
+            # socket path.
+            return [
+                "[red]Docker CLI can't talk to the daemon — socket path mismatch.[/red]",
+                "",
+                f"A socket exists at [cyan]{sock}[/cyan] but the CLI is looking elsewhere.",
+                "Override the CLI's target with $DOCKER_HOST:",
+                f"  [cyan]export DOCKER_HOST=unix://{sock}[/cyan]",
+                "",
+                "[dim]This is the usual fix for Snap/Flatpak Docker installs.[/dim]",
+            ]
+
+    # Per-runtime "start it" hints (preserved from the previous behavior).
+    system = platform.system()
+    if binary == "docker":
+        if system == "Darwin":
+            return [
+                "[yellow]Docker daemon is not running.[/yellow] Start one of:",
+                "  [dim]• Docker Desktop  (Applications → Docker)[/dim]",
+                "  [dim]• OrbStack        (Applications → OrbStack)[/dim]",
+                "  [dim]• Colima          [cyan]colima start[/cyan][/dim]",
+                "  [dim]• Podman          "
+                "[cyan]podman machine init && podman machine start[/cyan][/dim]",
+            ]
+        if system == "Linux":
+            return [
+                "[yellow]Docker daemon is not running.[/yellow] Run one of:",
+                "  [cyan]sudo systemctl start docker[/cyan]",
+                "  [cyan]systemctl --user start podman.socket[/cyan]   "
+                "[dim]# rootless podman[/dim]",
+            ]
+        return [
+            "[yellow]Docker daemon is not running.[/yellow] "
+            "Start Docker Desktop, Podman Desktop, or Rancher Desktop.",
+        ]
+    if binary == "podman":
+        return [
+            "[yellow]Podman machine is not running.[/yellow] Run:",
+            "  [cyan]podman machine start[/cyan]",
+        ]
+    return [
+        f"[yellow]{binary} daemon is not running.[/yellow] Start the {binary} daemon and re-run.",
+    ]
+
+
 def _runtime_install_command() -> tuple[list[str], str] | None:
     """Return (cmd_parts, human_readable) for an auto-install of a container runtime.
 
@@ -1697,6 +1908,19 @@ def quickstart(
 
     runtime = _detect_runtime()
     if not runtime:
+        # CLI missing but a daemon socket is reachable → partial install.
+        # Also catches EACCES on /var/run/docker.sock when docker isn't on PATH.
+        partial = _diagnose_missing_runtime()
+        if partial:
+            console.print(
+                Panel(
+                    "\n".join(partial),
+                    title="Container runtime — partial install detected",
+                    border_style="yellow",
+                    padding=(1, 2),
+                )
+            )
+            raise typer.Exit(code=1)
         console.print(
             Panel(
                 "[yellow]No container runtime found.[/yellow]\n\n"
@@ -1741,35 +1965,17 @@ def quickstart(
             raise typer.Exit(code=1)
 
     binary, compose_cmd = runtime
-    _ok(f"Found {binary} ({compose_cmd})")
+    host_sock = _docker_host_socket_path()
+    if host_sock and binary == "docker":
+        _ok(f"Found {binary} ({compose_cmd}) via $DOCKER_HOST → [cyan]{host_sock}[/cyan]")
+    else:
+        _ok(f"Found {binary} ({compose_cmd})")
+        if binary == "docker":
+            _info("Override the daemon target with [cyan]export DOCKER_HOST=unix://<path>[/cyan]")
 
     if not _runtime_is_running(binary):
-        console.print(f"\n  [red]{binary} daemon is not running.[/red]")
-        if binary == "docker":
-            system = platform.system()
-            if system == "Darwin":
-                console.print("  [dim]Start one of:[/dim]")
-                console.print("    [dim]• Docker Desktop  (Applications → Docker)[/dim]")
-                console.print("    [dim]• OrbStack        (Applications → OrbStack)[/dim]")
-                console.print("    [dim]• Colima          [cyan]colima start[/cyan][/dim]")
-                console.print(
-                    "    [dim]• Podman          "
-                    "[cyan]podman machine init && podman machine start[/cyan][/dim]"
-                )
-            elif system == "Linux":
-                console.print("  [dim]Run one of:[/dim]")
-                console.print("    [dim]• [cyan]sudo systemctl start docker[/cyan][/dim]")
-                console.print(
-                    "    [dim]• [cyan]systemctl --user start podman.socket[/cyan]  (rootless podman)[/dim]"
-                )
-            else:
-                console.print(
-                    "  [dim]Start Docker Desktop, Podman Desktop, or Rancher Desktop.[/dim]"
-                )
-        elif binary == "podman":
-            console.print("  [dim]Run: [cyan]podman machine start[/cyan][/dim]")
-        else:
-            console.print(f"  [dim]Start the {binary} daemon and re-run.[/dim]")
+        for line in _diagnose_runtime_failure(binary):
+            console.print(f"  {line}" if line else "")
         console.print()
         if assume_yes:
             console.print(
@@ -1794,6 +2000,11 @@ def quickstart(
             raise typer.Exit(code=1)
 
     _ok(f"{binary.capitalize()} daemon is running")
+    if binary == "docker" and _docker_is_rootless():
+        _info(
+            "Rootless Docker detected — bind-mounted volumes will be owned by your user. "
+            "If you see permission errors on mounts, that's why."
+        )
 
     # ── Step 2: LLM providers ────────────────────────────────────────────────
     _step("LLM Providers", 2, total_steps)

@@ -110,7 +110,11 @@ The 8-step deploy pipeline (parse → RBAC → resolve deps → build container 
 | No LLM provider | Quickstart prompts to install Ollama; or run `agentbreeder setup` separately for the full provider wizard. |
 | Studio at `:3001` is blank | Stale `agentbreeder/agentbreeder-dashboard:latest` cached locally. `docker rmi` it, then `agentbreeder quickstart --dev` to rebuild from source. Full steps: [FAQ →](faq#studio-at-httplocalhost3001-shows-a-blank-page) |
 | `migrate-1` shows `Exited` | Expected — `migrate` is a one-shot job that runs `alembic upgrade head` and exits. Only worry if the exit code is non-zero. |
-| `DOCKER_HOST` points at a dead socket | Leftover from a previous Docker/Rancher install. `unset DOCKER_HOST` (and remove the `export` line from your shell rc). |
+| `DOCKER_HOST` points at a dead socket | Quickstart detects this and points at the missing path. Run `unset DOCKER_HOST` (and remove the `export` line from your shell rc). |
+| `permission denied` on `/var/run/docker.sock` (Linux) | Your user isn't in the `docker` group. Quickstart prompts you to run `sudo usermod -aG docker $USER && newgrp docker`. |
+| Snap / Flatpak Docker — "cannot connect to daemon" | Quickstart detects the socket-path mismatch and tells you the exact `export DOCKER_HOST=unix://<path>` to run. |
+| Docker socket reachable but `docker` CLI missing | Partial install. Quickstart prints the distro-specific install command (`brew install docker`, `apt-get install docker-ce-cli`, etc.). |
+| Rootless Docker volume permission errors | Quickstart prints a one-liner heads-up when rootless is detected. Bind-mounts are owned by your user, not root. |
 
 ---
 
