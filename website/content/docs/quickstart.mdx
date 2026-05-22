@@ -14,6 +14,16 @@ pip3 install agentbreeder
 agentbreeder quickstart
 ```
 
+<Callout type="info" title="Before you start">
+  AgentBreeder needs three things on the machine:
+
+  - **Python 3.11+** (we recommend installing via `pyenv`)
+  - **One container runtime** — Docker Desktop, OrbStack, Colima, Podman, or nerdctl
+  - **macOS 12+ · Linux · or Windows 11 + WSL2** · ~8 GiB free disk · ~4 GiB RAM
+
+  Not sure? Run `agentbreeder doctor` after installing — it checks every prerequisite, exits in under two seconds, and prints copy-pasteable fix commands for whatever's missing.
+</Callout>
+
 <Callout type="info" title="What to expect">
   `agentbreeder quickstart` is an **interactive wizard**. It asks a handful of questions (container runtime, model source, API keys, port conflicts) and pulls ~3 GB if you choose local models. Expect ~3 minutes on a cold first run.
 
@@ -96,6 +106,7 @@ The 8-step deploy pipeline (parse → RBAC → resolve deps → build container 
 | `--skip-seed` | Skip seeding sample data (faster restart) |
 | `--reset` | Tear down all volumes and start fresh |
 | `--dev` | Build API/Studio images from source instead of Docker Hub |
+| `--skip-doctor` | Skip the prerequisite preflight (advanced; CI environments) |
 
 ---
 

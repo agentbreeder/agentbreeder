@@ -39,6 +39,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Docs** — `quickstart.mdx` step-2 description rewritten to name the three model-source options; new "Already have a cloud API key?" callout pointing at `--no-ollama`. `cli-reference.mdx` `quickstart` table updates the `--no-ollama` row, adds the model-source prompt to the "What it does" list, and adds the `--no-ollama` example.
 - **Tests** new `tests/unit/test_quickstart_model_source.py` — 9 cases covering the `--no-ollama` short-circuit, the non-TTY short-circuit (with and without the flag), each interactive branch (1 → Local, 2 → Cloud, 3 → Both), the default-on-Enter case, the invalid-input-then-retry case, and whitespace trimming.
 
+### v2.5 — `agentbreeder doctor` prerequisite preflight (#462)
+
+> **P2 UX gap closed.** A first-time user on a machine without Docker, Python ≥ 3.11, or 8 GiB free disk used to discover this *mid-`quickstart`* — sometimes after a 3-minute image pull. The new `doctor` command runs the same checks in under two seconds and prints platform-specific fix commands; `quickstart` now runs it as its first step.
+
+- **Added** `agentbreeder doctor` CLI command in `cli/commands/doctor.py`. Checks Python version, container runtime presence + daemon reachability (reuses the existing detection from `quickstart.py` so Docker / Podman / nerdctl all work), free disk on the working volume (≥ 8 GiB), and total RAM (≥ 4 GiB, best-effort via `os.sysconf` on Linux and `sysctl hw.memsize` on macOS — falls back to a warn-only check on platforms where RAM can't be detected without a new dependency). Each failed check renders a copy-pasteable platform-specific fix block. Exits `0` on pass, `1` on any blocker. Supports `--json` for scripts and CI.
+- **Wired** `doctor` into `agentbreeder quickstart` as the first step. Quickstart now bails in ~1.2 s on a machine without a running container runtime instead of running through the welcome panel and dying at "Step 1: Container Runtime" with a less actionable error. Bypassable via the new `--skip-doctor` flag for CI sandboxes that intentionally skip host checks.
+- **Updated** welcome panel in `cli/main.py` to surface `doctor` in the "Useful anytime" command list, alongside `list agents`, `chat`, `down`, and `--help`.
+- **Docs** added a "Before you start" callout at the top of `quickstart.mdx` listing the three concrete prerequisites and pointing at `doctor`; added a full `doctor` entry to `cli-reference.mdx` (above the `quickstart` entry so it reads in install order); added `--skip-doctor` to the quickstart options table in both docs.
+- **Tests** new `tests/unit/test_doctor.py` — 15 cases covering each check in isolation (Python floor, disk-low, runtime-missing, runtime-daemon-down, runtime-happy, RAM-undetectable, RAM-below-min) plus `has_blocker()`, the Typer command's exit codes for pass and fail, and the `--json` payload shape. All 15 pass.
+
 ### v2.5 — First-run guided tour + empty-state hero (#465)
 
 > **P1 UX gap closed.** After first sign-in the user used to land in Studio with a fully populated registry (5 sample agents seeded by quickstart) and zero guidance on what to click. The 4-step welcome tour fixes that, and the no-agents page now ships a hero CTA instead of a one-line text dead-end.
