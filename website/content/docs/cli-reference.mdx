@@ -91,13 +91,42 @@ agentbreeder context clear            # Fall back to your primary team
 
 ---
 
+### `agentbreeder doctor`
+
+Check that this machine satisfies AgentBreeder's prerequisites. Run before `quickstart` (or any time a command exits with a missing-prerequisite error) to find out exactly what's missing and how to fix it.
+
+```
+agentbreeder doctor [--json]
+```
+
+Checks performed (each prints a copy-pasteable fix when it fails):
+
+| Check | Required |
+|---|---|
+| Python ≥ 3.11 | yes |
+| Container runtime installed and daemon reachable (Docker, Podman, or nerdctl) | yes |
+| Free disk ≥ 8 GiB in the current working directory | yes |
+| RAM ≥ 4 GiB (best-effort; warns on platforms where total RAM can't be detected) | yes when detectable |
+
+Exits `0` when every required check passes, `1` otherwise. Designed to return in well under two seconds.
+
+**Examples:**
+```bash
+agentbreeder doctor              # human-readable report
+agentbreeder doctor --json       # JSON for scripts and CI
+```
+
+`quickstart` runs the same checks at start and bails out fast if anything's missing. Use `agentbreeder quickstart --skip-doctor` to bypass (advanced; intended for CI sandboxes that intentionally skip the host checks).
+
+---
+
 ### `agentbreeder quickstart`
 
 Full local platform bootstrap — Docker, services, sample data, 5 sample agents, and Studio in one command.
 
 ```
 agentbreeder quickstart [--cloud TARGET] [--no-browser] [--skip-seed] [--dev] [--reset]
-                        [--no-ollama] [--ollama-model NAME] [--yes]
+                        [--no-ollama] [--ollama-model NAME] [--yes] [--skip-doctor]
 ```
 
 | Option | Default | Description |
@@ -110,6 +139,7 @@ agentbreeder quickstart [--cloud TARGET] [--no-browser] [--skip-seed] [--dev] [-
 | `--no-ollama` | Off | **Cloud-only setup.** Skip the Ollama install, daemon start, and model pull (saves ~1–2 min and a ~3 GB download). Equivalent to choosing **Cloud** at the interactive model-source prompt. |
 | `--ollama-model` | `gemma3` | Pull a different default model for Ollama (e.g. `llama3.2`, `phi4-mini`) |
 | `--yes`, `-y` | Off | **Non-interactive mode for CI / scripted runs.** Skip every yes/no prompt and use safe defaults: model-source falls back to the legacy "Both" path (or Cloud when `--no-ollama` is set), port conflicts get auto-killed, Ollama install/rebind/model-pull and Studio rebuild are auto-accepted. Blocking prompts that require human input (e.g. "press Enter once the daemon is up") exit fast instead of waiting. Does **not** auto-install Docker — runtime must already be present. Does **not** invent provider keys — export `OPENAI_API_KEY` (or equivalent) before running. |
+| `--skip-doctor` | Off | Skip the prerequisite preflight (advanced; CI environments — pairs naturally with `--yes`). |
 
 What it does:
 1. Detects Docker / Podman; shows OS-specific install instructions if neither is found

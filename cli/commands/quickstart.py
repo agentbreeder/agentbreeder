@@ -1619,6 +1619,11 @@ def quickstart(
             "supplied via env vars (OPENAI_API_KEY etc.) — --yes does not invent them."
         ),
     ),
+    skip_doctor: bool = typer.Option(
+        False,
+        "--skip-doctor",
+        help="Skip the prerequisite preflight (advanced; CI environments)",
+    ),
 ) -> None:
     """Full local platform bootstrap — one command to go from zero to running agents.
 
@@ -1683,6 +1688,19 @@ def quickstart(
             padding=(1, 3),
         )
     )
+
+    # Prerequisite preflight — fail fast before any image pulls happen.
+    if not skip_doctor:
+        from cli.commands.doctor import has_blocker, render_report, run_all_checks
+
+        doctor_results = run_all_checks()
+        if has_blocker(doctor_results):
+            render_report(doctor_results)
+            console.print(
+                "[dim]Re-run after fixing the issues above, or use "
+                "[bold]--skip-doctor[/bold] to bypass (not recommended).[/dim]\n"
+            )
+            raise typer.Exit(code=1)
 
     # Light pyenv recommendation (does not block — agentbreeder runs on any 3.11+)
     try:

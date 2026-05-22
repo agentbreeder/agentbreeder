@@ -111,6 +111,7 @@ def _print_welcome() -> None:
             "  5. [bold cyan]agentbreeder studio[/bold cyan]"
             "     [dim]Open Studio at http://localhost:3001[/dim]\n\n"
             "[bold]Useful anytime:[/bold]\n"
+            "  [cyan]agentbreeder doctor[/cyan]         [dim]· check prerequisites (Python, Docker, disk)[/dim]\n"
             "  [cyan]agentbreeder list agents[/cyan]    [dim]· see what's registered[/dim]\n"
             "  [cyan]agentbreeder chat <name>[/cyan]    [dim]· talk to an agent[/dim]\n"
             "  [cyan]agentbreeder down[/cyan]           [dim]· stop the local stack[/dim]\n"
@@ -207,6 +208,9 @@ from cli.commands import (
     validate,
 )
 from cli.commands import (
+    doctor as doctor_cmd,
+)
+from cli.commands import (
     eval as eval_cmd,
 )
 
@@ -238,6 +242,7 @@ app = typer.Typer(
 )
 
 app.command(name="welcome")(_welcome_cmd)
+app.command(name="doctor")(doctor_cmd.doctor)
 app.command(name="login")(auth.login)
 app.command(name="logout")(auth.logout)
 app.command(name="whoami")(auth.whoami)
