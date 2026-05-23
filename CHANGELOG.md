@@ -8,6 +8,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-05-22
+
+### Security — HIGH-severity dependency CVE fixes
+
+> **All four findings were pulled in transitively and predate the v2.4 cycle.** Pinning floors here so every `pip install agentbreeder` picks up the patched releases. CI's `pip-audit` job is now clean against the v2.5.0 lockset.
+
+- **Bumped** `python-multipart>=0.0.27` (was `>=0.0.26`) — fixes [GHSA-pp6c-gr5w-3c5g](https://github.com/advisories/GHSA-pp6c-gr5w-3c5g): DoS via unbounded multipart part headers. Reaches us through FastAPI's form parsing.
+- **Pinned** transitive `Mako>=1.3.12` — fixes [GHSA-2h4p-vjrc-8xpq](https://github.com/advisories/GHSA-2h4p-vjrc-8xpq): path traversal via backslash URI in `TemplateLookup` (Windows-only, used by alembic).
+- **Pinned** transitive `urllib3>=2.7.0` — fixes [GHSA-mf9v-mfxr-j63j](https://github.com/advisories/GHSA-mf9v-mfxr-j63j) (decompression-bomb safeguards bypassed in streaming API) and [GHSA-qccp-gfcp-xxvc](https://github.com/advisories/GHSA-qccp-gfcp-xxvc) (sensitive headers forwarded across origins on proxied low-level redirects).
+- **Pinned** transitive `starlette>=1.0.1` and `idna>=3.15` — picks up [GHSA-86qp-5c8j-p5mr](https://github.com/advisories/GHSA-86qp-5c8j-p5mr) and [GHSA-65pc-fj4g-8rjx](https://github.com/advisories/GHSA-65pc-fj4g-8rjx) (IDNA encode bypass of CVE-2024-3651 fix) alongside the urllib3 bump.
+
 ### v2.5 — Realistic quickstart expectations + `--yes` for scripted runs (#468)
 
 > **P3 trust gap closed.** "Two commands. That's it." was technically true and practically misleading — `quickstart` is an interactive wizard with up to six prompts (container runtime, model source, port conflicts, Ollama install, model pull, cloud keys), plus a ~3 GB download if you pick Ollama. The new headline sets realistic expectations, the new callout names what the wizard will ask, and a `--yes` flag gives CI users a true zero-prompt path.
