@@ -9,8 +9,8 @@
   --border: rgba(255, 255, 255, 0.07);
   --border-hover: rgba(255, 255, 255, 0.14);
   --text: #e4e4e7;
-  --text-muted: #71717a;
-  --text-dim: #3f3f46;
+  --text-muted: #a1a1aa;   /* zinc-400 — ~7.8:1 on --bg, AAA */
+  --text-dim:   #8b8b95;   /* ~5.9:1 on --bg, AA — was #3f3f46 which was ~1.9:1 and failed WCAG */
   --accent: #22c55e;
   --accent-dim: rgba(34, 197, 94, 0.10);
   --accent-border: rgba(34, 197, 94, 0.22);
