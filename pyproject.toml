@@ -37,11 +37,18 @@ dependencies = [
     "redis>=5.0.0",
     "PyJWT[crypto]>=2.8.0",
     "bcrypt>=4.0.0",
-    "python-multipart>=0.0.26",
+    "python-multipart>=0.0.27",
     "keyring>=24.0.0",
     "chromadb>=0.5.0",
     "slowapi>=0.1.9",
     "sse-starlette>=2.0.0",
+    # Transitive pins for HIGH-severity CVE fixes (v2.5.0).
+    # These ship through alembic / httpx / starlette / boto3 — pin floors here
+    # so `pip install agentbreeder` always picks up the patched releases.
+    "Mako>=1.3.12",            # GHSA-2h4p-vjrc-8xpq (path traversal)
+    "urllib3>=2.7.0",          # GHSA-mf9v-mfxr-j63j + GHSA-qccp-gfcp-xxvc
+    "starlette>=1.0.1",        # GHSA-86qp-5c8j-p5mr
+    "idna>=3.15",              # GHSA-65pc-fj4g-8rjx
 ]
 
 [project.optional-dependencies]
