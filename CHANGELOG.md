@@ -8,7 +8,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
-## [2.5.0] — 2026-05-22
+## [2.5.1] — 2026-05-22
+
+### Fixed
+- **Release pipeline** — rolled `release.yml` Docker image refs back from `agentbreeder/agentbreeder-*` to `rajits/agentbreeder-*`. The canonical `agentbreeder/` org doesn't have repos provisioned on Docker Hub yet (HR-7), so v2.5.0 failed at the `Build & Push Images` step with `insufficient_scope`, cascade-blocking PyPI publish + GitHub Release + Homebrew. v2.5.0 stays as a phantom tag; this patch is the first build to actually land on PyPI + Docker Hub since v2.1.0.
+
+## [2.5.0] — 2026-05-22 — **YANKED (phantom tag, never published)**
+
+> **Do not `pip install agentbreeder==2.5.0` — it does not exist on PyPI.** The git tag `v2.5.0` was cut but `release.yml` failed at the Docker Hub push step (`agentbreeder/agentbreeder-api` → `insufficient_scope`; the canonical `agentbreeder/` org has no repos provisioned yet, see [#479](https://github.com/agentbreeder/agentbreeder/issues/479)). The cascade-failure left publish-pypi, github-release, and homebrew-tap all skipped. **v2.5.1** carries the same payload (security fixes + 5 v2.5 features) and is the first build to actually land on PyPI + Docker Hub since v2.1.0.
 
 ### Security — HIGH-severity dependency CVE fixes
 
