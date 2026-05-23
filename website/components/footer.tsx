@@ -21,9 +21,9 @@ const LINKS = {
     { label: 'All Posts', href: '/blog' },
   ],
   Community: [
-    { label: 'Twitter ↗', href: 'https://twitter.com' },
     { label: 'LinkedIn ↗', href: 'https://www.linkedin.com/in/rajsaha/' },
     { label: 'Issues ↗', href: 'https://github.com/agentbreeder/agentbreeder/issues' },
+    { label: 'Discussions ↗', href: 'https://github.com/agentbreeder/agentbreeder/discussions' },
   ],
   Company: [
     { label: 'About', href: '/about' },
