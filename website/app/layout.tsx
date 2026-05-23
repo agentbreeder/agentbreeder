@@ -32,6 +32,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
     >
       <body>
+        {/*
+          Dark mode is intentional, not an oversight. The whole design system
+          (background, glows, syntax-highlighted YAML, accent palette) is built
+          around dark surfaces. Switching to light would require re-tuning every
+          token and component. Tracked in #489 if we revisit.
+
+          The site respects `prefers-reduced-motion` (see app/globals.css)
+          and uses WCAG-AA contrast for all body and meta text.
+        */}
         <RootProvider theme={{ forcedTheme: 'dark', disableTransitionOnChange: true }}>{children}</RootProvider>
       </body>
     </html>
