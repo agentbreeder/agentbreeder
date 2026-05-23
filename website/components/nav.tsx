@@ -36,6 +36,20 @@ function NavIcon({ name }: { name: 'zap' }) {
   return null;
 }
 
+function GitHubIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.78-.25.78-.55v-2.03c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.69-1.29-1.69-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.04 1.78 2.72 1.27 3.38.97.11-.75.41-1.27.74-1.56-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.19a11.05 11.05 0 0 1 5.78 0c2.21-1.5 3.18-1.19 3.18-1.19.63 1.59.23 2.77.11 3.06.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.39-5.25 5.68.42.36.8 1.07.8 2.16v3.2c0 .31.21.66.79.55 4.57-1.52 7.86-5.83 7.86-10.91C23.5 5.65 18.35.5 12 .5z" />
+    </svg>
+  );
+}
+
 const GITHUB_URL = 'https://github.com/agentbreeder/agentbreeder';
 
 export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
@@ -106,10 +120,12 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex min-h-[44px] items-center gap-1.5 rounded-lg border px-3 text-xs no-underline transition-colors hover:text-white"
-            style={{ borderColor: 'var(--border-hover)', color: 'var(--text-muted)' }}
+            aria-label="AgentBreeder on GitHub"
+            className="flex min-h-[44px] items-center gap-1.5 rounded-md px-2 text-sm no-underline transition-colors hover:text-white"
+            style={{ color: 'var(--text-muted)' }}
           >
-            ★ &nbsp;GitHub
+            <GitHubIcon />
+            <span className="hidden lg:inline">GitHub</span>
           </a>
           {!docsSearch && (
             <Link
@@ -185,10 +201,11 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
               href={GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg border px-3 text-sm no-underline transition-colors hover:text-white"
-              style={{ borderColor: 'var(--border-hover)', color: 'var(--text-muted)' }}
+              className="flex min-h-[44px] items-center justify-center gap-2 rounded-md text-sm no-underline transition-colors hover:text-white"
+              style={{ color: 'var(--text-muted)' }}
             >
-              ★ &nbsp;GitHub
+              <GitHubIcon />
+              GitHub
             </a>
             <Link
               href="/docs"
