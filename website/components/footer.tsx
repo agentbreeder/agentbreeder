@@ -21,9 +21,15 @@ const LINKS = {
     { label: 'All Posts', href: '/blog' },
   ],
   Community: [
-    { label: 'Twitter ↗', href: 'https://twitter.com' },
     { label: 'LinkedIn ↗', href: 'https://www.linkedin.com/in/rajsaha/' },
     { label: 'Issues ↗', href: 'https://github.com/agentbreeder/agentbreeder/issues' },
+    { label: 'Discussions ↗', href: 'https://github.com/agentbreeder/agentbreeder/discussions' },
+  ],
+  Company: [
+    { label: 'About', href: '/about' },
+    { label: 'Contact', href: 'mailto:hello@agentbreeder.io' },
+    { label: 'Privacy', href: '/privacy' },
+    { label: 'Terms', href: '/terms' },
   ],
 };
 
@@ -53,7 +59,7 @@ export function Footer() {
                   <Link
                     key={label}
                     href={href}
-                    className="mb-2 block text-[13px] no-underline transition-colors"
+                    className="-mx-2 flex min-h-[44px] items-center rounded-md px-2 text-[13px] no-underline transition-colors hover:text-white"
                     style={{ color: 'var(--text-muted)' }}
                     target={href.startsWith('http') ? '_blank' : undefined}
                     rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
@@ -80,7 +86,7 @@ export function Footer() {
               color: 'var(--accent)',
             }}
           >
-            v2.0.0
+            v2.5.1
           </span>
         </div>
       </div>

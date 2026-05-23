@@ -9,8 +9,8 @@
   --border: rgba(255, 255, 255, 0.07);
   --border-hover: rgba(255, 255, 255, 0.14);
   --text: #e4e4e7;
-  --text-muted: #71717a;
-  --text-dim: #3f3f46;
+  --text-muted: #a1a1aa;   /* zinc-400 — ~7.8:1 on --bg, AAA */
+  --text-dim:   #8b8b95;   /* ~5.9:1 on --bg, AA — was #3f3f46 which was ~1.9:1 and failed WCAG */
   --accent: #22c55e;
   --accent-dim: rgba(34, 197, 94, 0.10);
   --accent-border: rgba(34, 197, 94, 0.22);
@@ -58,6 +58,44 @@ body {
 @keyframes ab-pulse {
   0%, 100% { opacity: 0.7; }
   50%       { opacity: 0.15; }
+}
+
+/* Hero load-in: staggered fade + translate. See #494. */
+@keyframes hero-reveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.hero-stagger > * {
+  opacity: 0;
+  animation: hero-reveal 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.hero-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.hero-stagger > *:nth-child(2) { animation-delay: 80ms; }
+.hero-stagger > *:nth-child(3) { animation-delay: 160ms; }
+.hero-stagger > *:nth-child(4) { animation-delay: 240ms; }
+.hero-stagger > *:nth-child(5) { animation-delay: 320ms; }
+
+.hero-reveal-late {
+  opacity: 0;
+  animation: hero-reveal 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: 320ms;
+}
+
+/* Respect user motion preference — WCAG 2.3.3, Apple HIG, Material Motion.
+   Also resets the staggered reveal so content is immediately visible. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .hero-stagger > *,
+  .hero-reveal-late {
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
 
 /* Blog article prose */
