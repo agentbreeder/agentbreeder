@@ -14,7 +14,7 @@ type NavLink = {
 const NAV_LINKS: NavLink[] = [
   { href: '/docs', label: 'Docs' },
   { href: '/docs/quickstart', label: 'Examples' },
-  { href: '#cloud', label: 'Cloud', highlight: true, icon: 'zap' },
+  { href: '/cloud', label: 'Cloud', highlight: true, icon: 'zap' },
   { href: '/blog', label: 'Blog' },
 ];
 
