@@ -3,7 +3,7 @@ import Link from 'next/link';
 
 const CAREER_HIGHLIGHTS = [
   { label: '23+ years', desc: 'industry experience with distributed systems & data infrastructure' },
-  { label: '8 companies', desc: 'Oracle · IBM · Yahoo · Teradata · VMware · LendingClub · Experian · Udemy' },
+  { label: '8 companies', desc: 'Oracle · IBM · Yahoo · Teradata · VMware · LendingClub · Experian · Udemy + Coursera' },
 ];
 
 export function BuiltBy() {
@@ -69,11 +69,11 @@ export function BuiltBy() {
                 </span>
               </div>
               <p className="mb-4 text-[13px]" style={{ color: 'var(--accent)' }}>
-                Director of Data Intelligence Platform · Udemy
+                Director of Data Platform · Udemy + Coursera
               </p>
               <p className="mb-4 text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
                 Spent 20 years making data platforms bigger and faster. Then decided smarter was more interesting.
-                At Udemy, shipped AI agents that actually do things in production.
+                At Udemy + Coursera, shipped AI agents that actually do things in production.
                 AgentBreeder is the tool I kept wishing existed while building them.
               </p>
               <p className="text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
