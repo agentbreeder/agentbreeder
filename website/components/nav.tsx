@@ -4,12 +4,37 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { Logo } from './logo';
 
-const NAV_LINKS = [
+type NavLink = {
+  href: string;
+  label: string;
+  highlight?: boolean;
+  icon?: 'zap';
+};
+
+const NAV_LINKS: NavLink[] = [
   { href: '/docs', label: 'Docs' },
   { href: '/docs/quickstart', label: 'Examples' },
-  { href: '#cloud', label: 'Cloud ⚡', highlight: true },
+  { href: '#cloud', label: 'Cloud', highlight: true, icon: 'zap' },
   { href: '/blog', label: 'Blog' },
 ];
+
+function NavIcon({ name }: { name: 'zap' }) {
+  if (name === 'zap') {
+    return (
+      <svg
+        aria-hidden="true"
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        className="inline-block -mt-0.5 ml-1"
+      >
+        <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+      </svg>
+    );
+  }
+  return null;
+}
 
 const GITHUB_URL = 'https://github.com/agentbreeder/agentbreeder';
 
@@ -35,7 +60,7 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
         <div className="hidden md:flex items-center justify-center">
           {!docsSearch && (
             <ul className="flex list-none gap-1 m-0 p-0">
-              {NAV_LINKS.map(({ href, label, highlight }) => (
+              {NAV_LINKS.map(({ href, label, highlight, icon }) => (
                 <li key={href}>
                   <Link
                     href={href}
@@ -46,6 +71,7 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
                     }
                   >
                     {label}
+                    {icon && <NavIcon name={icon} />}
                   </Link>
                 </li>
               ))}
@@ -137,7 +163,7 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
           }}
         >
           <ul className="flex flex-col gap-1 list-none m-0 p-0 mb-3">
-            {NAV_LINKS.map(({ href, label, highlight }) => (
+            {NAV_LINKS.map(({ href, label, highlight, icon }) => (
               <li key={href}>
                 <Link
                   href={href}
@@ -149,6 +175,7 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
                   }
                 >
                   {label}
+                  {icon && <NavIcon name={icon} />}
                 </Link>
               </li>
             ))}
