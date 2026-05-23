@@ -147,7 +147,7 @@ export function Hero() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
 
           {/* Left column */}
-          <div>
+          <div className="hero-stagger">
             <h1
               className="mb-5 font-display font-black leading-[1.06] text-white text-[38px] sm:text-[48px] lg:text-[56px] xl:text-[64px]"
               style={{ letterSpacing: '-2.5px' }}
@@ -208,7 +208,7 @@ export function Hero() {
           </div>
 
           {/* Right column */}
-          <div className="w-full min-w-0">
+          <div className="w-full min-w-0 hero-reveal-late">
             {/* YAML card */}
             <div
               className="overflow-hidden rounded-[14px] border"
