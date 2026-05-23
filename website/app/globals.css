@@ -60,6 +60,16 @@ body {
   50%       { opacity: 0.15; }
 }
 
+/* Respect user motion preference — WCAG 2.3.3, Apple HIG, Material Motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Blog article prose */
 .prose-blog {
   color: var(--text);
