@@ -59,7 +59,7 @@ export function Footer() {
                   <Link
                     key={label}
                     href={href}
-                    className="mb-2 block text-[13px] no-underline transition-colors"
+                    className="-mx-2 flex min-h-[44px] items-center rounded-md px-2 text-[13px] no-underline transition-colors hover:text-white"
                     style={{ color: 'var(--text-muted)' }}
                     target={href.startsWith('http') ? '_blank' : undefined}
                     rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
