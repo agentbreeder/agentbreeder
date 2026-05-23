@@ -146,6 +146,32 @@ export default function AboutPage() {
           </ul>
         </section>
 
+        {/* Accessibility */}
+        <section className="mb-14">
+          <h2
+            className="mb-4 text-[24px] sm:text-[28px] font-extrabold text-white"
+            style={{ letterSpacing: '-0.5px' }}
+          >
+            Accessibility
+          </h2>
+          <p className="mb-3 text-[15px] leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
+            The site is dark-only by design — the whole color system is tuned for dark
+            surfaces and a separate light mode would mean re-tuning every component. If
+            that&rsquo;s a blocker for you, let us know at{' '}
+            <a href={`mailto:${CONTACT_EMAIL}`} className="underline" style={{ color: 'var(--accent)' }}>
+              {CONTACT_EMAIL}
+            </a>.
+          </p>
+          <p className="text-[15px] leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
+            The site respects <code className="rounded px-1.5 py-0.5 text-[13px]" style={{ background: 'var(--bg-elevated)', color: 'var(--accent)' }}>prefers-reduced-motion</code> and
+            targets WCAG 2.1 AA contrast for all body and meta text. Found an
+            accessibility issue? Open one on{' '}
+            <Link href={`${GITHUB_URL}/issues`} className="underline" style={{ color: 'var(--accent)' }}>
+              GitHub
+            </Link>.
+          </p>
+        </section>
+
         {/* Contact */}
         <section className="mb-4">
           <h2
