@@ -27,7 +27,7 @@ export default function AboutPage() {
           About AgentBreeder
         </p>
         <h1
-          className="mb-6 text-[36px] sm:text-[48px] font-extrabold text-white"
+          className="mb-6 font-display text-[36px] sm:text-[48px] font-extrabold text-white"
           style={{ letterSpacing: '-1.5px', lineHeight: 1.1 }}
         >
           One agent.yaml. Any framework. Any cloud.

@@ -1,8 +1,21 @@
 import type { Metadata } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
+import { Bricolage_Grotesque } from 'next/font/google';
 import { RootProvider } from 'fumadocs-ui/provider/next';
 import './globals.css';
+
+// Distinctive display font for marketing headlines — #493.
+// Applied selectively via the `font-display` Tailwind utility (see
+// tailwind.config.ts), only on hero h1 and a few high-impact h2s on
+// the marketing pages. Docs and blog continue using Geist Sans for
+// readability and consistency with the technical content.
+const bricolage = Bricolage_Grotesque({
+  subsets: ['latin'],
+  variable: '--font-display',
+  weight: ['600', '700', '800'],
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: {
@@ -28,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${GeistSans.variable} ${GeistMono.variable} dark`}
+      className={`${GeistSans.variable} ${GeistMono.variable} ${bricolage.variable} dark`}
       suppressHydrationWarning
     >
       <body>

@@ -29,7 +29,7 @@ export default function NotFound() {
           404
         </p>
         <h1
-          className="mb-6 text-[40px] sm:text-[56px] font-extrabold text-white"
+          className="mb-6 font-display text-[40px] sm:text-[56px] font-extrabold text-white"
           style={{ letterSpacing: '-1.5px', lineHeight: 1.05 }}
         >
           This page didn&rsquo;t deploy.

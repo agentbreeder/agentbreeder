@@ -58,6 +58,8 @@ const config: Config = {
       fontFamily: {
         sans: ['var(--font-geist-sans)', 'Inter', 'sans-serif'],
         mono: ['var(--font-geist-mono)', 'JetBrains Mono', 'monospace'],
+        // Display font for marketing hero headlines only. See #493.
+        display: ['var(--font-display)', 'var(--font-geist-sans)', 'Inter', 'sans-serif'],
       },
     },
   },

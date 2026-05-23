@@ -149,7 +149,7 @@ export function Hero() {
           {/* Left column */}
           <div>
             <h1
-              className="mb-5 font-black leading-[1.06] text-white text-[38px] sm:text-[48px] lg:text-[56px] xl:text-[64px]"
+              className="mb-5 font-display font-black leading-[1.06] text-white text-[38px] sm:text-[48px] lg:text-[56px] xl:text-[64px]"
               style={{ letterSpacing: '-2.5px' }}
             >
               Build agents.<br />
