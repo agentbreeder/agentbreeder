@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 const PLATFORMS = [
   {
     name: 'Google Gemini Agent Platform',
@@ -192,9 +194,9 @@ export function PlatformLock() {
         <p className="mt-6 text-[13px]" style={{ color: 'var(--text-dim)' }}>
           * Google Gemini Enterprise Agent Platform announced April 22, 2026.
           Claude Managed Agents GA April 2026. Azure AI Foundry GA May 2025.
-          <a href="/blog/the-big-four-agent-platforms-2026" className="ml-1 underline" style={{ color: 'var(--accent)' }}>
+          <Link href="/blog/the-big-four-agent-platforms-2026" className="ml-1 underline" style={{ color: 'var(--accent)' }}>
             Read the full analysis →
-          </a>
+          </Link>
         </p>
       </div>
     </section>
