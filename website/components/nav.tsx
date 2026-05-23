@@ -106,7 +106,7 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs no-underline transition-colors hover:text-white"
+            className="flex min-h-[44px] items-center gap-1.5 rounded-lg border px-3 text-xs no-underline transition-colors hover:text-white"
             style={{ borderColor: 'var(--border-hover)', color: 'var(--text-muted)' }}
           >
             ★ &nbsp;GitHub
@@ -114,7 +114,7 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
           {!docsSearch && (
             <Link
               href="/docs"
-              className="rounded-lg px-4 py-1.5 text-sm font-bold no-underline transition-opacity hover:opacity-90"
+              className="flex min-h-[44px] items-center rounded-lg px-4 text-sm font-bold no-underline transition-opacity hover:opacity-90"
               style={{ background: 'var(--accent)', color: '#000' }}
             >
               Get Started →
@@ -185,7 +185,7 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
               href={GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm no-underline transition-colors hover:text-white"
+              className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg border px-3 text-sm no-underline transition-colors hover:text-white"
               style={{ borderColor: 'var(--border-hover)', color: 'var(--text-muted)' }}
             >
               ★ &nbsp;GitHub
@@ -193,7 +193,7 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
             <Link
               href="/docs"
               onClick={() => setOpen(false)}
-              className="rounded-lg px-4 py-2 text-sm font-bold no-underline text-center transition-opacity hover:opacity-90"
+              className="flex min-h-[44px] items-center justify-center rounded-lg px-4 text-sm font-bold no-underline transition-opacity hover:opacity-90"
               style={{ background: 'var(--accent)', color: '#000' }}
             >
               Get Started →
