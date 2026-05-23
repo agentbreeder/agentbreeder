@@ -25,6 +25,12 @@ const LINKS = {
     { label: 'LinkedIn ↗', href: 'https://www.linkedin.com/in/rajsaha/' },
     { label: 'Issues ↗', href: 'https://github.com/agentbreeder/agentbreeder/issues' },
   ],
+  Company: [
+    { label: 'About', href: '/about' },
+    { label: 'Contact', href: 'mailto:hello@agentbreeder.io' },
+    { label: 'Privacy', href: '/privacy' },
+    { label: 'Terms', href: '/terms' },
+  ],
 };
 
 export function Footer() {
@@ -80,7 +86,7 @@ export function Footer() {
               color: 'var(--accent)',
             }}
           >
-            v2.0.0
+            v2.5.1
           </span>
         </div>
       </div>

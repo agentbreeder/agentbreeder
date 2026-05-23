@@ -25,6 +25,7 @@
 | **v1.8** | Connectors & Scheduling | SMTP email connector, HackerNews/ArXiv/RSS news connectors, `agentbreeder schedule` cron command, Ollama + OpenRouter wired into `scan` and `init` | M37 | Done |
 | **v1.9** | Polyglot Runtime | Node.js/TypeScript first-class runtime — 8 TS framework templates, NodeRuntimeFamily, @agentbreeder/aps-client, mcp-server.schema.json, `agentbreeder init --language node` | #129 | Done |
 | **v2.0** | Quality & Testing | Exhaustive live Docker Playwright suite: providers, prompts, tools, RAG, MCP, agents (no-code + low-code), execution, tracing, evals, costs, RBAC — 104 tests, 15 spec files | M38 | Done |
+| **v2.6** | Website Production Readiness | Marketing site at agentbreeder.io: WCAG 2.1 AA compliance, branded 404, `/about` `/privacy` `/terms` `/cloud` pages, `robots.txt` + `sitemap.xml`, design-system token centralization, `console.agentbreeder.io` launch prep | [#495](https://github.com/agentbreeder/agentbreeder/issues/495) | In Progress |
 
 ---
 
