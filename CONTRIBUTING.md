@@ -246,7 +246,7 @@ Use `--dev` whenever you have changes in `api/`, `engine/`, `dashboard/src/`, or
 
 ```bash
 agentbreeder down
-docker rmi agentbreeder/agentbreeder-dashboard:latest agentbreeder/agentbreeder-api:latest 2>/dev/null
+docker rmi rajits/agentbreeder-dashboard:latest rajits/agentbreeder-api:latest 2>/dev/null
 docker compose -f deploy/docker-compose.quickstart.yml build --no-cache dashboard api
 agentbreeder quickstart --dev
 ```
