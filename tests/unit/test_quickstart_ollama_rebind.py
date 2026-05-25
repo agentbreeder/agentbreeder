@@ -12,13 +12,12 @@ The rebind prompt must:
 
 from __future__ import annotations
 
-from io import StringIO
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from cli.commands.quickstart import _ensure_ollama
 
 
-def _mock_ollama_running_with_model(models: list[str] = None):
+def _mock_ollama_running_with_model(models: list[str] | None = None):
     """Ollama is installed, running, has models — skip install/start steps."""
     if models is None:
         models = ["gemma3:latest"]
@@ -32,14 +31,18 @@ def _mock_ollama_running_with_model(models: list[str] = None):
 class TestRebindDefaultIsSkip:
     """Pressing Enter at the rebind prompt must skip (not rebind)."""
 
-    def test_enter_skips_rebind_and_prints_consequence(self, capsys) -> None:
+    def test_enter_skips_rebind_and_prints_consequence(self) -> None:
         """Enter at the rebind prompt → no rebind attempted, consequence printed."""
         installed, running, models = _mock_ollama_running_with_model()
-        with installed, running, models, \
-             patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True), \
-             patch("cli.commands.quickstart._rebind_ollama_all_interfaces") as mock_rebind, \
-             patch("cli.commands.quickstart._is_assume_yes", return_value=False), \
-             patch("cli.commands.quickstart.console.input", return_value="") as mock_input:
+        with (
+            installed,
+            running,
+            models,
+            patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True),
+            patch("cli.commands.quickstart._rebind_ollama_all_interfaces") as mock_rebind,
+            patch("cli.commands.quickstart._is_assume_yes", return_value=False),
+            patch("cli.commands.quickstart.console.input", return_value="") as mock_input,
+        ):
             result = _ensure_ollama(skip=False, default_model="gemma3")
 
         # Rebind must NOT have been attempted
@@ -51,13 +54,17 @@ class TestRebindDefaultIsSkip:
         prompt_text = prompt_call[0][0]
         assert "[y/N]" in prompt_text
 
-    def test_explicit_n_skips_rebind(self, capsys) -> None:
+    def test_explicit_n_skips_rebind(self) -> None:
         installed, running, models = _mock_ollama_running_with_model()
-        with installed, running, models, \
-             patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True), \
-             patch("cli.commands.quickstart._rebind_ollama_all_interfaces") as mock_rebind, \
-             patch("cli.commands.quickstart._is_assume_yes", return_value=False), \
-             patch("cli.commands.quickstart.console.input", return_value="n"):
+        with (
+            installed,
+            running,
+            models,
+            patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True),
+            patch("cli.commands.quickstart._rebind_ollama_all_interfaces") as mock_rebind,
+            patch("cli.commands.quickstart._is_assume_yes", return_value=False),
+            patch("cli.commands.quickstart.console.input", return_value="n"),
+        ):
             _ensure_ollama(skip=False, default_model="gemma3")
 
         mock_rebind.assert_not_called()
@@ -68,11 +75,15 @@ class TestRebindPromptExplainsWhy:
 
     def test_prompt_mentions_host_docker_internal(self) -> None:
         installed, running, models = _mock_ollama_running_with_model()
-        with installed, running, models, \
-             patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True), \
-             patch("cli.commands.quickstart._rebind_ollama_all_interfaces", return_value=False), \
-             patch("cli.commands.quickstart._is_assume_yes", return_value=False), \
-             patch("cli.commands.quickstart.console.input", return_value="n") as mock_input:
+        with (
+            installed,
+            running,
+            models,
+            patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True),
+            patch("cli.commands.quickstart._rebind_ollama_all_interfaces", return_value=False),
+            patch("cli.commands.quickstart._is_assume_yes", return_value=False),
+            patch("cli.commands.quickstart.console.input", return_value="n") as mock_input,
+        ):
             _ensure_ollama(skip=False, default_model="gemma3")
 
         prompt_text = mock_input.call_args_list[0][0][0]
@@ -89,12 +100,16 @@ class TestSkipConsequenceMessage:
         def capture_info(msg: str) -> None:
             printed.append(msg)
 
-        with installed, running, models, \
-             patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True), \
-             patch("cli.commands.quickstart._rebind_ollama_all_interfaces") as mock_rebind, \
-             patch("cli.commands.quickstart._is_assume_yes", return_value=False), \
-             patch("cli.commands.quickstart._info", side_effect=capture_info), \
-             patch("cli.commands.quickstart.console.input", return_value=""):
+        with (
+            installed,
+            running,
+            models,
+            patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True),
+            patch("cli.commands.quickstart._rebind_ollama_all_interfaces") as mock_rebind,
+            patch("cli.commands.quickstart._is_assume_yes", return_value=False),
+            patch("cli.commands.quickstart._info", side_effect=capture_info),
+            patch("cli.commands.quickstart.console.input", return_value=""),
+        ):
             _ensure_ollama(skip=False, default_model="gemma3")
 
         mock_rebind.assert_not_called()
@@ -119,12 +134,16 @@ class TestSkipConsequenceMessage:
         def capture_info(msg: str) -> None:
             printed.append(msg)
 
-        with installed, running, models, \
-             patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True), \
-             patch("cli.commands.quickstart._rebind_ollama_all_interfaces"), \
-             patch("cli.commands.quickstart._is_assume_yes", return_value=False), \
-             patch("cli.commands.quickstart._info", side_effect=capture_info), \
-             patch("cli.commands.quickstart.console.input", return_value=""):
+        with (
+            installed,
+            running,
+            models,
+            patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True),
+            patch("cli.commands.quickstart._rebind_ollama_all_interfaces"),
+            patch("cli.commands.quickstart._is_assume_yes", return_value=False),
+            patch("cli.commands.quickstart._info", side_effect=capture_info),
+            patch("cli.commands.quickstart.console.input", return_value=""),
+        ):
             _ensure_ollama(skip=False, default_model="gemma3")
 
         # There must be at least one non-trivial info message
@@ -141,12 +160,16 @@ class TestRebindFailureIsHonest:
         def capture_warn(msg: str) -> None:
             warn_calls.append(msg)
 
-        with installed, running, models, \
-             patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True), \
-             patch("cli.commands.quickstart._rebind_ollama_all_interfaces", return_value=False), \
-             patch("cli.commands.quickstart._is_assume_yes", return_value=False), \
-             patch("cli.commands.quickstart._warn", side_effect=capture_warn), \
-             patch("cli.commands.quickstart.console.input", return_value="y"):
+        with (
+            installed,
+            running,
+            models,
+            patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True),
+            patch("cli.commands.quickstart._rebind_ollama_all_interfaces", return_value=False),
+            patch("cli.commands.quickstart._is_assume_yes", return_value=False),
+            patch("cli.commands.quickstart._warn", side_effect=capture_warn),
+            patch("cli.commands.quickstart.console.input", return_value="y"),
+        ):
             result = _ensure_ollama(skip=False, default_model="gemma3")
 
         # Ollama is still running with models → True
@@ -174,13 +197,17 @@ class TestRebindFailureIsHonest:
         info_calls: list[str] = []
         warn_calls: list[str] = []
 
-        with installed, running, models, \
-             patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True), \
-             patch("cli.commands.quickstart._rebind_ollama_all_interfaces", return_value=False), \
-             patch("cli.commands.quickstart._is_assume_yes", return_value=False), \
-             patch("cli.commands.quickstart._info", side_effect=lambda m: info_calls.append(m)), \
-             patch("cli.commands.quickstart._warn", side_effect=lambda m: warn_calls.append(m)), \
-             patch("cli.commands.quickstart.console.input", return_value="y"):
+        with (
+            installed,
+            running,
+            models,
+            patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True),
+            patch("cli.commands.quickstart._rebind_ollama_all_interfaces", return_value=False),
+            patch("cli.commands.quickstart._is_assume_yes", return_value=False),
+            patch("cli.commands.quickstart._info", side_effect=lambda m: info_calls.append(m)),
+            patch("cli.commands.quickstart._warn", side_effect=lambda m: warn_calls.append(m)),
+            patch("cli.commands.quickstart.console.input", return_value="y"),
+        ):
             _ensure_ollama(skip=False, default_model="gemma3")
 
         all_messages = info_calls + warn_calls
@@ -194,18 +221,23 @@ class TestRebindSuccess:
         installed, running, models = _mock_ollama_running_with_model()
         warn_calls: list[str] = []
 
-        with installed, running, models, \
-             patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True), \
-             patch("cli.commands.quickstart._rebind_ollama_all_interfaces", return_value=True), \
-             patch("cli.commands.quickstart._is_assume_yes", return_value=False), \
-             patch("cli.commands.quickstart._warn", side_effect=lambda m: warn_calls.append(m)), \
-             patch("cli.commands.quickstart.console.input", return_value="y"):
+        with (
+            installed,
+            running,
+            models,
+            patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=True),
+            patch("cli.commands.quickstart._rebind_ollama_all_interfaces", return_value=True),
+            patch("cli.commands.quickstart._is_assume_yes", return_value=False),
+            patch("cli.commands.quickstart._warn", side_effect=lambda m: warn_calls.append(m)),
+            patch("cli.commands.quickstart.console.input", return_value="y"),
+        ):
             result = _ensure_ollama(skip=False, default_model="gemma3")
 
         assert result is True
         # No warning about reachability
         reachability_warnings = [
-            w for w in warn_calls
+            w
+            for w in warn_calls
             if any(p in w.lower() for p in ["not reachable", "unreachable", "fall back"])
         ]
         assert reachability_warnings == []
@@ -216,10 +248,14 @@ class TestBindNotLocalhostOnly:
 
     def test_no_rebind_prompt_when_bind_is_0_0_0_0(self) -> None:
         installed, running, models = _mock_ollama_running_with_model()
-        with installed, running, models, \
-             patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=False), \
-             patch("cli.commands.quickstart._is_assume_yes", return_value=False), \
-             patch("cli.commands.quickstart.console.input") as mock_input:
+        with (
+            installed,
+            running,
+            models,
+            patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=False),
+            patch("cli.commands.quickstart._is_assume_yes", return_value=False),
+            patch("cli.commands.quickstart.console.input") as mock_input,
+        ):
             result = _ensure_ollama(skip=False, default_model="gemma3")
 
         assert result is True
@@ -227,10 +263,14 @@ class TestBindNotLocalhostOnly:
 
     def test_no_rebind_prompt_when_bind_check_returns_none(self) -> None:
         installed, running, models = _mock_ollama_running_with_model()
-        with installed, running, models, \
-             patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=None), \
-             patch("cli.commands.quickstart._is_assume_yes", return_value=False), \
-             patch("cli.commands.quickstart.console.input") as mock_input:
+        with (
+            installed,
+            running,
+            models,
+            patch("cli.commands.quickstart._ollama_bind_is_localhost_only", return_value=None),
+            patch("cli.commands.quickstart._is_assume_yes", return_value=False),
+            patch("cli.commands.quickstart.console.input") as mock_input,
+        ):
             result = _ensure_ollama(skip=False, default_model="gemma3")
 
         assert result is True
