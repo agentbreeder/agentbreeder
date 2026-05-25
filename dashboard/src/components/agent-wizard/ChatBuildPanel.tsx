@@ -17,13 +17,28 @@ import { Bot, Send, User, Key, Loader2, CheckCircle, AlertCircle, Plus } from "l
 import { api, type ChatBuildMessage, type ChatBuildResult } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Must match the Python constant in api/routes/builders.py */
-const BUILDER_KEY_SECRET = "AGENTBREEDER_CLAUDE_BUILDER_KEY";
+/**
+ * Prefix for the per-user BYO Claude API key secret.
+ * The full secret name is built by appending the user's stable id:
+ *   `${BUILDER_KEY_PREFIX}__${user.id}`
+ *
+ * Must match the Python helper _builder_key_name() in api/routes/builders.py.
+ */
+const BUILDER_KEY_PREFIX = "AGENTBREEDER_CLAUDE_BUILDER_KEY";
+
+/**
+ * Return the workspace secret name for the current user's BYO Claude API key.
+ * Mirrors the Python function _builder_key_name(user) in api/routes/builders.py.
+ */
+function builderKeySecretName(userId: string): string {
+  return `${BUILDER_KEY_PREFIX}__${userId}`;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,7 +62,14 @@ function generateId(): string {
 // Key-entry guard component
 // ---------------------------------------------------------------------------
 
-function KeyEntryGuard({ onKeyStored }: { onKeyStored: () => void }) {
+function KeyEntryGuard({
+  userId,
+  onKeyStored,
+}: {
+  userId: string;
+  onKeyStored: () => void;
+}) {
+  const secretName = builderKeySecretName(userId);
   const [keyValue, setKeyValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -55,14 +77,14 @@ function KeyEntryGuard({ onKeyStored }: { onKeyStored: () => void }) {
   const storeMutation = useMutation({
     mutationFn: async (value: string) => {
       // Send to the secrets backend — the key never touches our DB.
-      await api.secrets.create({ name: BUILDER_KEY_SECRET, value });
+      await api.secrets.create({ name: secretName, value });
     },
     onSuccess: () => {
       // Clear from state immediately after the request completes.
       setKeyValue("");
       setError(null);
       // Invalidate the secrets list so the parent re-checks.
-      void queryClient.invalidateQueries({ queryKey: ["secrets-list"] });
+      void queryClient.invalidateQueries({ queryKey: ["secrets", "list"] });
       onKeyStored();
     },
     onError: (err: Error) => {
@@ -132,7 +154,7 @@ function KeyEntryGuard({ onKeyStored }: { onKeyStored: () => void }) {
 
       <p className="text-xs text-muted-foreground max-w-xs">
         Your key is stored via{" "}
-        <span className="font-mono text-foreground">{BUILDER_KEY_SECRET}</span> in your
+        <span className="font-mono text-foreground">{secretName}</span> in your
         workspace secrets backend. Get a key at{" "}
         <a
           href="https://console.anthropic.com"
@@ -265,6 +287,7 @@ function SpecReadyCard({
 // ---------------------------------------------------------------------------
 
 export function ChatBuildPanel() {
+  const { user } = useAuth();
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState("");
   const [pendingSpec, setPendingSpec] = useState<ChatBuildResult | null>(null);
@@ -273,15 +296,19 @@ export function ChatBuildPanel() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Per-user secret name — stable once the user is loaded.
+  const secretName = user ? builderKeySecretName(user.id) : null;
+
   // ── Check whether the key is already stored ──────────────────────────
   const { data: secretsList, isLoading: secretsLoading } = useQuery({
-    queryKey: ["secrets-list"],
+    queryKey: ["secrets", "list"],
     queryFn: () => api.secrets.list(),
   });
 
   const hasKey =
     keyConnected ||
-    (secretsList?.data ?? []).some((s) => s.name === BUILDER_KEY_SECRET);
+    (secretName !== null &&
+      (secretsList?.data ?? []).some((s) => s.name === secretName));
 
   // ── Auto-scroll ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -361,7 +388,7 @@ export function ChatBuildPanel() {
   };
 
   // ── Render: loading ───────────────────────────────────────────────────
-  if (secretsLoading) {
+  if (secretsLoading || !user) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -371,7 +398,7 @@ export function ChatBuildPanel() {
 
   // ── Render: key guard ─────────────────────────────────────────────────
   if (!hasKey) {
-    return <KeyEntryGuard onKeyStored={() => setKeyConnected(true)} />;
+    return <KeyEntryGuard userId={user.id} onKeyStored={() => setKeyConnected(true)} />;
   }
 
   // ── Render: chat UI ───────────────────────────────────────────────────

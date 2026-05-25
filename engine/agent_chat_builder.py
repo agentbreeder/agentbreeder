@@ -17,6 +17,7 @@ from typing import Any
 
 import yaml as pyyaml
 
+from engine.providers.anthropic_provider import DEFAULT_MODEL
 from engine.providers.models import ToolDefinition, ToolFunction
 
 logger = logging.getLogger(__name__)
@@ -61,8 +62,9 @@ _SUBMIT_TOOL_DEFINITION = ToolDefinition(
 SUBMIT_TOOL: ToolDefinition = _SUBMIT_TOOL_DEFINITION
 
 # ---------------------------------------------------------------------------
-# System prompt (large + static — marked for prompt caching).
-# We insert it as the first message with cache_control in the payload.
+# System prompt (large + static).
+# TODO: enable Anthropic prompt caching once AnthropicProvider supports cache_control
+#       blocks (system prompt is large + static).
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """\
@@ -78,12 +80,10 @@ create a valid agent.yaml configuration by asking just the right questions.
 3. Fill in sensible defaults for everything else: version "1.0.0", team "default", \
    owner "owner@example.com" (unless the user provided a team/owner), min replicas 1 \
    max 3.
-4. If you have received a recommendation hint (JSON in the <hint> tag), use it as the \
-   preferred framework and deploy target — no need to ask again unless the user disagrees.
-5. Once you have all required fields, immediately call the `submit_agent_spec` tool — do \
+4. Once you have all required fields, immediately call the `submit_agent_spec` tool — do \
    NOT ask for confirmation, do NOT emit YAML as plain text.
-6. Never reveal or repeat the user's API key or any secret. Never embed secrets in the spec.
-7. Be concise and friendly.
+5. Never reveal or repeat the user's API key or any secret. Never embed secrets in the spec.
+6. Be concise and friendly.
 """
 
 # ---------------------------------------------------------------------------
@@ -120,20 +120,17 @@ MAX_HISTORY_MESSAGES = 40
 async def run_chat_turn(
     provider: Any,
     history: list[dict[str, Any]],
-    *,
-    recommend_hint: dict[str, Any] | None = None,
 ) -> ChatTurnResult:
     """Drive one turn of the agent-builder conversation.
 
     Args:
-        provider:         An AnthropicProvider instance (injected — not constructed here).
-                          The key is already embedded in the provider's httpx client;
-                          this function never reads, logs, or returns it.
-        history:          The full conversation so far as OpenAI-format dicts
-                          (role + content). Must not exceed MAX_HISTORY_MESSAGES.
-        recommend_hint:   Optional dict from the engine's recommend() heuristics
-                          (e.g. {"framework": "langgraph", "deploy_target": "aws"}).
-                          Embedded in the system prompt so Claude can skip asking.
+        provider:  An AnthropicProvider instance (injected — not constructed here).
+                   The key is already embedded in the provider's httpx client;
+                   this function never reads, logs, or returns it.
+        history:   The full conversation so far as OpenAI-format dicts
+                   (role + content). Roles must be "user" or "assistant" only
+                   (enforced at the API layer by _ChatMessage). Must not exceed
+                   MAX_HISTORY_MESSAGES entries.
 
     Returns:
         ChatTurnResult — see dataclass docstring above.
@@ -147,23 +144,29 @@ async def run_chat_turn(
         )
         history = history[-MAX_HISTORY_MESSAGES:]
 
-    # Build system prompt (inject hint if present).
-    system_prompt = _SYSTEM_PROMPT
-    if recommend_hint:
-        hint_json = json.dumps(recommend_hint, separators=(",", ":"))
-        system_prompt = system_prompt + f"\n\n<hint>{hint_json}</hint>"
+    # Defensively filter out any message whose role is not user/assistant.
+    # This is a belt-and-suspenders guard; the API layer already rejects other
+    # roles via Pydantic Literal["user", "assistant"].
+    allowed_roles = {"user", "assistant"}
+    filtered = [m for m in history if m.get("role") in allowed_roles]
+    if len(filtered) != len(history):
+        logger.warning(
+            "run_chat_turn: dropped %d message(s) with invalid role",
+            len(history) - len(filtered),
+        )
+    history = filtered
 
     # Build the full messages list with system first.
     # AnthropicProvider._build_payload() extracts the system message.
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": _SYSTEM_PROMPT},
         *history,
     ]
 
     # Call the provider — never log the key (it's inside the provider's client).
     result = await provider.generate(
         messages=messages,
-        model="claude-sonnet-4-6",
+        model=DEFAULT_MODEL,
         max_tokens=2048,
         tools=[SUBMIT_TOOL],
     )

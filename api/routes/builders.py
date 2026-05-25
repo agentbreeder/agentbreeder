@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml as pyyaml
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -19,7 +19,7 @@ from api.auth import get_current_user
 from api.middleware.rbac import require_role
 from api.models.database import User
 from api.models.schemas import ApiResponse
-from engine.agent_chat_builder import ChatTurnResult, run_chat_turn
+from engine.agent_chat_builder import MAX_HISTORY_MESSAGES, ChatTurnResult, run_chat_turn
 from engine.providers.anthropic_provider import AnthropicProvider
 from engine.providers.base import AuthenticationError, ProviderError
 from engine.providers.models import ProviderConfig, ProviderType
@@ -310,19 +310,36 @@ async def recommend_stack(
 # Chat-to-Build endpoint — BYO Claude key, security-sensitive
 # ---------------------------------------------------------------------------
 
-# Name of the workspace secret holding the user's Claude API key.
-# Must match the frontend key-guard constant in ChatBuildPanel.tsx.
-_BUILDER_KEY_SECRET = "AGENTBREEDER_CLAUDE_BUILDER_KEY"
+# Prefix for the per-user workspace secret that holds the user's Claude API key.
+# The full secret name is built by appending the user's stable id:
+#   f"{_BUILDER_KEY_PREFIX}__{user.id}"
+# Must match the frontend helper in ChatBuildPanel.tsx (builderKeySecretName).
+_BUILDER_KEY_PREFIX = "AGENTBREEDER_CLAUDE_BUILDER_KEY"
+
+
+def _builder_key_name(user: User) -> str:
+    """Return the per-user secret name for the BYO Claude API key.
+
+    Format: ``AGENTBREEDER_CLAUDE_BUILDER_KEY__{user.id}``
+
+    The user ``id`` is a stable UUID that cannot change, so this name is safe
+    to use as a permanent secrets-backend key.  The same format MUST be used
+    in the frontend (see ``builderKeySecretName`` in ChatBuildPanel.tsx).
+    """
+    return f"{_BUILDER_KEY_PREFIX}__{user.id}"
+
 
 # Hard limits to prevent prompt-injection / resource exhaustion.
-_MAX_MESSAGES = 40
+# _MAX_MESSAGES is imported from engine.agent_chat_builder (MAX_HISTORY_MESSAGES)
+# so both layers stay in sync automatically.
+_MAX_MESSAGES = MAX_HISTORY_MESSAGES
 _MAX_TOTAL_CHARS = 100_000
 
 
 class _ChatMessage(BaseModel):
     """A single chat message (OpenAI-format)."""
 
-    role: str
+    role: Literal["user", "assistant"]
     content: str
 
 
@@ -353,24 +370,30 @@ class ChatBuildRequest(BaseModel):
 @router.post("/chat", response_model=ApiResponse[ChatTurnResult])
 async def chat_build(
     body: ChatBuildRequest,
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[ChatTurnResult]:
     """Drive one turn of the conversational agent builder powered by the user's Claude key.
 
     Security contract:
-    - The API key is read server-side from the workspace secrets backend.
-      It is NEVER stored in the DB, NEVER returned in any response body,
+    - The API key is read server-side from the workspace secrets backend using a
+      per-user secret name (AGENTBREEDER_CLAUDE_BUILDER_KEY__{user.id}) so that
+      each user's key is completely isolated — no cross-user key sharing.
+    - The key is NEVER stored in the DB, NEVER returned in any response body,
       and NEVER included in any log record.
     - If the key is absent → HTTP 400 with a clear "add your key" message;
       the AnthropicProvider is never constructed.
     - Upstream Anthropic errors are sanitised before returning — the raw
       error (which could contain auth details) is never forwarded to the client.
-    - The conversation is bounded: max {_MAX_MESSAGES} messages and
-      {_MAX_TOTAL_CHARS} total characters (enforced by Pydantic validator above).
+    - The conversation is bounded: max 40 messages and 100,000 total characters
+      (enforced by Pydantic validator above).
+    - Message roles are constrained to "user" / "assistant" (Pydantic Literal) —
+      system-prompt injection via the messages list is structurally impossible.
     """
+    secret_name = _builder_key_name(current_user)
+
     # ── 1. Read the BYO Claude key from the workspace secrets backend ────
     backend, _ws = get_workspace_backend()
-    api_key: str | None = await backend.get(_BUILDER_KEY_SECRET)
+    api_key: str | None = await backend.get(secret_name)
 
     if not api_key:
         raise HTTPException(
@@ -379,7 +402,7 @@ async def chat_build(
                 "No Claude key connected. "
                 "Add your Claude API key to chat-to-build: "
                 "go to Settings → Secrets and create "
-                f"'{_BUILDER_KEY_SECRET}'."
+                f"'{secret_name}'."
             ),
         )
 
@@ -394,6 +417,7 @@ async def chat_build(
     )
 
     # ── 3. Drive one conversation turn ───────────────────────────────────
+    # Roles are already constrained to "user"/"assistant" by _ChatMessage.
     history = [{"role": m.role, "content": m.content} for m in body.messages]
 
     try:
@@ -402,30 +426,40 @@ async def chat_build(
         # 401/403 from Anthropic — key is likely invalid.
         # Log a warning WITHOUT the key, return a clean 400.
         logger.warning(
-            "chat_build: Anthropic authentication failed for secret '%s' — "
+            "chat_build: Anthropic authentication failed for user secret '%s' — "
             "key may be invalid or revoked. (key not logged)",
-            _BUILDER_KEY_SECRET,
+            secret_name,
         )
         raise HTTPException(
             status_code=400,
             detail=(
                 "Claude API authentication failed. "
                 "Check that your key in "
-                f"'{_BUILDER_KEY_SECRET}' is valid."
+                f"'{secret_name}' is valid."
             ),
         ) from None
     except ProviderError:
         # Network / upstream error — sanitise message (may contain auth details).
         logger.warning(
-            "chat_build: upstream Anthropic error for secret '%s'. "
+            "chat_build: upstream Anthropic error for user secret '%s'. "
             "Details suppressed to avoid key leakage.",
-            _BUILDER_KEY_SECRET,
+            secret_name,
         )
         raise HTTPException(
             status_code=502,
             detail=(
                 "Upstream error communicating with the Claude API. Please try again in a moment."
             ),
+        ) from None
+    except Exception:
+        logger.error(
+            "chat_build: unexpected error for user secret '%s'.",
+            secret_name,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred.",
         ) from None
     finally:
         # Always close the httpx client to avoid connection leaks.
