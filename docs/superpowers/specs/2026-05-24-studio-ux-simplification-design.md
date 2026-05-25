@@ -66,6 +66,13 @@ A **full-page** route `/agents/new` with a left step rail (chosen over a modal �
 
 **Architecture decision (recommendation engine):** the heuristics currently live only in the `/agent-build` markdown skill, which the API can't call. Extract them into a single testable module — **`engine/recommend.py`** (pure function: inputs → recommended stack) — exposed via a new endpoint **`POST /api/v1/builders/recommend`**. The UI wizard and (ideally) the skill both reference this one source of truth, satisfying the "fix upstream, don't fork logic" principle. The wizard then writes a normal `agent.yaml` through the existing builder path — it does **not** bypass the config parser (per the three-tier rule in CLAUDE.md).
 
+**Entry points converge on one contract.** The form wizard, a conversational builder, a Claude plugin, and the CLI are all just front-ends that must produce a **schema-validated `agent.yaml` (+ prompts/tools/RAG resources) through the existing builder path**. This lets us add richer front-ends without forking logic:
+
+- **Chat-to-build (BYO Claude key)** — a "Chat to build" tab *side-by-side* with the form on `/agents/new`, shown only when the workspace has a Claude key connected. Claude is a natural-language layer that calls the same `engine/recommend.py` heuristics (as a tool) and emits the config; **its output is validated against `engine/schema/agent.schema.json` before anything is saved** — model output is treated as untrusted (it may hallucinate fields or registry refs). Same destination as the form: a previewed `agent.yaml`.
+- **Claude plugin** — package the existing `/agent-build` skill as a distributable Claude plugin (it already scaffolds `agent.yaml` + resources). Cheapest reach for the developer persona already in Claude Code; reinforces "fix upstream, don't fork." It generates files on the user's disk (optionally pushing into the registry via the API), so it complements — not replaces — the in-product flow.
+
+These are sequenced after the form wizard (see Phasing) so the chat builder sits on the already-built recommend endpoint rather than being a throwaway prototype.
+
 ### D. Auth clarity
 
 `login.tsx` becomes a single, obvious **Sign in** (email + password, one primary button). Register is demoted to a secondary "Create one" link (separate view, not a competing tab).
@@ -138,6 +145,7 @@ Wizard: UI form → `POST /api/v1/builders/recommend` (pure heuristics in `engin
 
 - Default-login hint strictly dev-gated (§D).
 - Provider/gateway keys remain in the workspace secrets backend, never the DB (§A) — unchanged invariant.
+- **BYO Claude key (chat builder)** stored in the workspace secrets backend, never the DB, never logged; scoped to the chat-build feature. Generated YAML is schema-validated before save; model output is untrusted.
 - Gated features expose no stub/mock endpoints (§E).
 - Run the `security` review skill on the implementation diff before merge.
 
@@ -155,7 +163,9 @@ This is an epic; suggested independent, shippable phases:
 2. **Coming-soon pattern + catalog bug fix** — honesty + the red-error papercut (small, high-trust).
 3. **Model path simplification** — `ModelPathPicker` + `/models` reframe.
 4. **Onboarding** — Home Get-Started checklist.
-5. **Guided wizard** — `engine/recommend.py` + endpoint + `/agents/new` (largest; depends on 3).
+5. **Guided wizard (form)** — `engine/recommend.py` + `POST /api/v1/builders/recommend` + `/agents/new` (largest; depends on 3). The deterministic, no-key baseline.
 6. **Quickstart CLI streamlining** — independent.
+7. **Claude plugin** — package the existing `/agent-build` skill as a distributable plugin (cheap; can run in parallel; reuses the skill).
+8. **Chat-to-build tab (BYO Claude key)** — conversational front-end on `/agents/new`, reusing the recommend endpoint from phase 5 and validating output against the agent schema before save. Premium layer; depends on 5.
 
 The expert-review skills the user named map onto implementation: `ui-ux-pro-max` / `frontend-design` for the dashboard work, `architect` for the recommend-engine extraction, `security` for the auth/secrets review.
