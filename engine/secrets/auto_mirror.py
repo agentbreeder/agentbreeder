@@ -449,7 +449,7 @@ def _azure_assign_secrets_user_role(
     )
     # Deterministic assignment name per (scope, principal) → safe to retry.
     ra_name = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{vault_id}|{principal}|KeyVaultSecretsUser"))
-    params = RoleAssignmentCreateParameters(  # type: ignore[call-arg]  # SDK multi-api stub mismatch
+    params = RoleAssignmentCreateParameters(
         role_definition_id=role_def_id,
         principal_id=principal,
         principal_type="ServicePrincipal",
