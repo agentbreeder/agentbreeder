@@ -18,7 +18,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ExternalLink, Plug, Plus, Server } from "lucide-react";
+import { CheckCircle2, ChevronDown, ExternalLink, Plug, Plus, Server } from "lucide-react";
 import { useState } from "react";
 
 import { api, type CatalogProvider } from "@/lib/api";
@@ -41,6 +41,24 @@ import { cn } from "@/lib/utils";
 const DEPLOYER_ROLES = new Set(["deployer", "admin"]);
 const VIEWER_TOOLTIP = "Requires deployer role";
 
+/**
+ * Niche OpenAI-compatible providers that are collapsed behind a disclosure
+ * when `collapseAdvanced` is true. These are all the `openai_compatible`
+ * entries in `engine/providers/catalog.yaml` that serve specialist use-cases
+ * (inference APIs, fine-tuned routing, research platforms) rather than acting
+ * as the primary model source for most teams.
+ */
+const ADVANCED_PROVIDERS = new Set([
+  "cerebras",
+  "deepinfra",
+  "fireworks",
+  "groq",
+  "hyperbolic",
+  "moonshot",
+  "nvidia",
+  "together",
+]);
+
 interface ProviderCatalogProps {
   /** Optional override callback — when omitted, the built-in modal is used. */
   onConfigure?: (provider: CatalogProvider) => void;
@@ -55,6 +73,13 @@ interface ProviderCatalogProps {
   heading?: string;
   /** Helper copy shown to the right of the heading. */
   hint?: string;
+  /**
+   * When true, the eight niche OpenAI-compatible providers (cerebras, deepinfra,
+   * fireworks, groq, hyperbolic, moonshot, nvidia, together) are hidden behind a
+   * "More providers (advanced)" disclosure toggle. Primary providers render
+   * normally above it. Has no effect when `filter` is ``"gateway"``.
+   */
+  collapseAdvanced?: boolean;
 }
 
 const DEFAULT_HINT =
@@ -65,10 +90,12 @@ export function ProviderCatalog({
   filter = "openai_compatible",
   heading = "OpenAI-Compatible Catalog",
   hint = DEFAULT_HINT,
+  collapseAdvanced = false,
 }: ProviderCatalogProps) {
   const { user } = useAuth();
   const canConfigure = !!user && DEPLOYER_ROLES.has(user.role);
   const [activeProvider, setActiveProvider] = useState<CatalogProvider | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const catalogQuery = useQuery({
     queryKey: ["providers", "catalog"],
@@ -96,6 +123,16 @@ export function ProviderCatalog({
       ? allPresets
       : allPresets.filter((p) => p.type === filter);
 
+  // Split into primary vs advanced when collapseAdvanced is requested.
+  // For gateways or when the prop is off, all presets are treated as primary.
+  const shouldSplit = collapseAdvanced && filter !== "gateway";
+  const primaryPresets = shouldSplit
+    ? presets.filter((p) => !ADVANCED_PROVIDERS.has(p.name))
+    : presets;
+  const advancedPresets = shouldSplit
+    ? presets.filter((p) => ADVANCED_PROVIDERS.has(p.name))
+    : [];
+
   const statuses = statusQuery.data?.data ?? {};
 
   const handleConfigure = (preset: CatalogProvider) => {
@@ -105,6 +142,16 @@ export function ProviderCatalog({
       setActiveProvider(preset);
     }
   };
+
+  const renderRow = (preset: CatalogProvider) => (
+    <CatalogRow
+      key={preset.name}
+      preset={preset}
+      configured={statuses[preset.name] ?? false}
+      canConfigure={canConfigure}
+      onConfigure={handleConfigure}
+    />
+  );
 
   return (
     <>
@@ -169,15 +216,38 @@ export function ProviderCatalog({
                 : `No ${filter === "gateway" ? "gateways" : "providers"} in the catalog yet.`}
             </div>
           ) : (
-            presets.map((preset) => (
-              <CatalogRow
-                key={preset.name}
-                preset={preset}
-                configured={statuses[preset.name] ?? false}
-                canConfigure={canConfigure}
-                onConfigure={handleConfigure}
-              />
-            ))
+            <>
+              {primaryPresets.map(renderRow)}
+
+              {advancedPresets.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setAdvancedOpen((o) => !o)}
+                    className="flex w-full items-center gap-1.5 px-4 py-2.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                    data-testid="catalog-advanced-toggle"
+                    aria-expanded={advancedOpen}
+                  >
+                    <ChevronDown
+                      className={cn(
+                        "size-3 shrink-0 transition-transform",
+                        advancedOpen && "rotate-180",
+                      )}
+                    />
+                    More providers (advanced) — {advancedPresets.length} providers
+                  </button>
+
+                  {advancedOpen && (
+                    <div
+                      className="divide-y divide-border/50"
+                      data-testid="catalog-advanced-section"
+                    >
+                      {advancedPresets.map(renderRow)}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           )}
         </div>
       </div>
