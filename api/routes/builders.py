@@ -19,6 +19,8 @@ from api.auth import get_current_user
 from api.middleware.rbac import require_role
 from api.models.database import User
 from api.models.schemas import ApiResponse
+from engine.recommend import Recommendation, RecommendInput
+from engine.recommend import recommend as _recommend
 
 logger = logging.getLogger(__name__)
 
@@ -271,3 +273,29 @@ async def import_resource_yaml(
             message=f"{body.resource_type} '{name}' imported successfully",
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/builders/recommend
+# ---------------------------------------------------------------------------
+
+
+@router.post("/recommend", response_model=ApiResponse[Recommendation])
+async def recommend_stack(
+    body: RecommendInput,
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[Recommendation]:
+    """Return a deterministic agent-stack recommendation from the advisory heuristics.
+
+    This is a pure, stateless endpoint — it calls the engine's ``recommend()``
+    function and wraps the result in the standard ApiResponse envelope.  No DB
+    reads or writes, no LLM calls.
+    """
+    result = _recommend(body)
+    logger.info(
+        "Stack recommendation: framework=%s code_tier=%s deploy=%s",
+        result.framework,
+        result.code_tier,
+        result.deploy_target,
+    )
+    return ApiResponse(data=result)
