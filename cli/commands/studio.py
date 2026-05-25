@@ -53,7 +53,7 @@ services:
       retries: 5
 
   migrate:
-    image: agentbreeder/agentbreeder-api:latest
+    image: rajits/agentbreeder-api:latest
     command: ["alembic", "upgrade", "head"]
     environment:
       DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@postgres:5432/agentbreeder
@@ -63,7 +63,7 @@ services:
     restart: "no"
 
   api:
-    image: agentbreeder/agentbreeder-api:latest
+    image: rajits/agentbreeder-api:latest
     ports:
       - "{api_port}:8000"
     environment:
@@ -89,7 +89,7 @@ services:
       start_period: 15s
 
   dashboard:
-    image: agentbreeder/agentbreeder-dashboard:latest
+    image: rajits/agentbreeder-dashboard:latest
     ports:
       - "{dashboard_port}:3001"
     depends_on:

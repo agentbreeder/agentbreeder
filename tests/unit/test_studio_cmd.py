@@ -84,8 +84,8 @@ def test_write_compose_file_creates_file(tmp_path: Path):
         content = result_path.read_text()
         assert "8000:8000" in content
         assert "3001:3001" in content
-        assert "agentbreeder/agentbreeder-api:latest" in content
-        assert "agentbreeder/agentbreeder-dashboard:latest" in content
+        assert "rajits/agentbreeder-api:latest" in content
+        assert "rajits/agentbreeder-dashboard:latest" in content
     finally:
         studio_module._AGENTBREEDER_DIR = original_dir
         studio_module._COMPOSE_PATH = original_path
