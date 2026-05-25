@@ -8,6 +8,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-05-25
+
 ### Added
 - **Multi-cloud deploy parity (epic [#505](https://github.com/agentbreeder/agentbreeder/issues/505))** — the same `agent.yaml` now deploys to AWS ECS Fargate, GCP Cloud Run, and Azure Container Apps with identical Track J (sidecar: guardrails/cost/tracing) and Track K (secret mirroring) governance.
 - **Azure Key Vault auto-mirror ([#425](https://github.com/agentbreeder/agentbreeder/issues/425), [#197](https://github.com/agentbreeder/agentbreeder/issues/197))** — secrets declared in `agent.yaml` are mirrored to Key Vault at deploy with an idempotent "Key Vault Secrets User" RBAC grant (falls back to an access policy when the vault is in access-policy mode). The deploy uses a per-agent **user-assigned managed identity** so the principal is known before the app exists (no create-time grant race).

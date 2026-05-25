@@ -86,7 +86,7 @@ export function Footer() {
               color: 'var(--accent)',
             }}
           >
-            v2.5.1
+            v2.6.0
           </span>
         </div>
       </div>
