@@ -57,9 +57,12 @@ class TestInteractivePrompt:
     def test_empty_answer_without_ollama_falls_back_to_both(self) -> None:
         """Pressing Enter when Ollama is NOT detected picks option 3 (Both)."""
         tty, inputs = self._mock_tty_and_inputs("")
-        with tty, inputs, \
-             patch("cli.commands.quickstart._ollama_running", return_value=False), \
-             patch("cli.commands.quickstart._ollama_models", return_value=[]):
+        with (
+            tty,
+            inputs,
+            patch("cli.commands.quickstart._ollama_running", return_value=False),
+            patch("cli.commands.quickstart._ollama_models", return_value=[]),
+        ):
             assert _ask_model_source(no_ollama_flag=False) == (False, False)
 
     def test_invalid_answer_retries_then_accepts(self) -> None:
@@ -89,9 +92,7 @@ class TestOllamaDetectedDefault:
 
     def test_enter_selects_local_when_ollama_detected(self) -> None:
         """Empty input defaults to Local (skip cloud keys) when Ollama has models."""
-        tty, running, models, inputs = self._mock_tty_ollama_and_inputs(
-            ["gemma3:latest"], ""
-        )
+        tty, running, models, inputs = self._mock_tty_ollama_and_inputs(["gemma3:latest"], "")
         with tty, running, models, inputs:
             result = _ask_model_source(no_ollama_flag=False)
         assert result == (False, True)
@@ -106,18 +107,14 @@ class TestOllamaDetectedDefault:
 
     def test_can_still_choose_cloud_when_ollama_detected(self) -> None:
         """User can type '2' to choose Cloud even when Ollama is detected."""
-        tty, running, models, inputs = self._mock_tty_ollama_and_inputs(
-            ["gemma3:latest"], "2"
-        )
+        tty, running, models, inputs = self._mock_tty_ollama_and_inputs(["gemma3:latest"], "2")
         with tty, running, models, inputs:
             result = _ask_model_source(no_ollama_flag=False)
         assert result == (True, False)
 
     def test_can_still_choose_both_when_ollama_detected(self) -> None:
         """User can type '3' to choose Both even when Ollama is detected."""
-        tty, running, models, inputs = self._mock_tty_ollama_and_inputs(
-            ["gemma3:latest"], "3"
-        )
+        tty, running, models, inputs = self._mock_tty_ollama_and_inputs(["gemma3:latest"], "3")
         with tty, running, models, inputs:
             result = _ask_model_source(no_ollama_flag=False)
         assert result == (False, False)
@@ -131,7 +128,9 @@ class TestOllamaDetectedDefault:
 
     def test_no_ollama_flag_still_short_circuits_even_when_ollama_detected(self) -> None:
         """--no-ollama flag overrides everything, even detected Ollama."""
-        with patch("cli.commands.quickstart._ollama_running", return_value=True), \
-             patch("cli.commands.quickstart._ollama_models", return_value=["gemma3"]):
+        with (
+            patch("cli.commands.quickstart._ollama_running", return_value=True),
+            patch("cli.commands.quickstart._ollama_models", return_value=["gemma3"]),
+        ):
             result = _ask_model_source(no_ollama_flag=True)
         assert result == (True, False)
