@@ -25,6 +25,12 @@ RUN pip install --no-cache-dir .
 RUN useradd -m -u 1000 appuser
 USER appuser
 
+# Pre-create the runtime config dir owned by appuser. The app writes here at
+# runtime (secrets .env, builder FileStore), and a mounted named volume inherits
+# this ownership on first creation — without it the volume mounts root-owned and
+# the non-root process can't write.
+RUN mkdir -p /home/appuser/.agentbreeder
+
 EXPOSE 8000
 
 # Run API server
