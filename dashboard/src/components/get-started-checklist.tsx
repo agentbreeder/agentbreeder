@@ -198,7 +198,7 @@ export function GetStartedChecklist() {
       description: "Define your agent's persona, tools, and guardrails in the visual builder.",
       done: agentsDone,
       ctaLabel: "Create your first agent",
-      ctaHref: "/agents/builder",
+      ctaHref: "/agents/new",
     },
     {
       id: "test-playground",
