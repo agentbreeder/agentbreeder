@@ -1,0 +1,8 @@
+{
+  "name": "agent-build",
+  "version": "1.0.0",
+  "description": "Scaffold an AgentBreeder agent: an interactive architect that recommends framework, model, memory, RAG, and deploy target, then generates agent.yaml + code.",
+  "author": { "name": "AgentBreeder" },
+  "repository": "https://github.com/agentbreeder/agentbreeder",
+  "license": "Apache-2.0"
+}
