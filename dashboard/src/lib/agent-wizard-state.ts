@@ -63,8 +63,13 @@ export const initialState: AgentWizardState = {
 // Actions
 // ---------------------------------------------------------------------------
 
+/** A discriminated union where `field` and `value` are always co-typed. */
+type SetFieldAction = { type: "SET_FIELD" } & {
+  [K in keyof AgentWizardState]: { field: K; value: AgentWizardState[K] };
+}[keyof AgentWizardState];
+
 export type AgentWizardAction =
-  | { type: "SET_FIELD"; field: keyof AgentWizardState; value: AgentWizardState[keyof AgentWizardState] }
+  | SetFieldAction
   | { type: "SET_RECOMMENDATION"; recommendation: Recommendation }
   | { type: "GOTO_STEP"; step: WizardStep }
   | { type: "RESET" };

@@ -4,7 +4,7 @@
  * A 4-step guided wizard: Goal → Workflow → Stack → Create
  * Mirrors the deploy-wizard.tsx pattern: useReducer + ?step=N + StepIndicator.
  */
-import { useReducer } from "react";
+import { useEffect, useReducer } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageTitle } from "@/components/page-title";
 import { StepIndicator } from "@/components/agent-wizard/StepIndicator";
@@ -21,8 +21,28 @@ import {
 
 export default function AgentWizardPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const [, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  // On mount: read ?step=N from URL, clamp to the furthest reachable step,
+  // and jump there so that reloading /agents/new?step=3 restores the right step.
+  useEffect(() => {
+    const raw = Number(searchParams.get("step"));
+    if (!raw || raw === 1) return;
+    // Walk forward from step 1, stopping at the first step we cannot reach.
+    let target = 1 as WizardStep;
+    for (let s = 2 as WizardStep; s <= 4 && s <= raw; s = (s + 1) as WizardStep) {
+      if (canAdvance({ ...initialState, step: target }, s as WizardStep)) {
+        target = s as WizardStep;
+      } else {
+        break;
+      }
+    }
+    if (target !== 1) {
+      dispatch({ type: "GOTO_STEP", step: target });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleNext() {
     const next = (state.step + 1) as WizardStep;

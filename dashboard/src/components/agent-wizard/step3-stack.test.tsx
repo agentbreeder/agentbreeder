@@ -166,6 +166,6 @@ describe("Step3Stack", () => {
   it("does not show guidance cards when recommendation is null", () => {
     const state = makeState({ recommendation: null });
     render(withQuery(<Step3Stack state={state} dispatch={makeDispatch()} />));
-    expect(screen.queryByTestId("guidance-rag-/-knowledge")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("guidance-rag-knowledge")).not.toBeInTheDocument();
   });
 });
