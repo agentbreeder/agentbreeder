@@ -49,13 +49,22 @@ agentbreeder quickstart
 `agentbreeder quickstart` is interactive and walks you through everything:
 
 1. Detects (or installs) Docker, Podman, or nerdctl
-2. Asks how you want to run models: **Local** (Ollama, ~3 GB download), **Cloud** (OpenAI / Anthropic / Google / OpenRouter API keys), or **Both** (default)
-3. Sets up the path you chose — installs Ollama and pulls `gemma3`, collects cloud API keys, or both
-4. Frees any conflicting ports for you on confirmation
-5. Starts the full stack — API · Studio · Postgres · Redis · ChromaDB · Neo4j · MCP servers · LiteLLM
-6. Seeds RAG docs, the knowledge graph, MCP servers, and prompts
-7. Deploys 5 sample agents (`assistant`, `rag-agent`, `graph-agent`, `search-agent`, `a2a-orchestrator`)
-8. Opens Studio at [http://localhost:3001](http://localhost:3001)
+2. Asks how you want to run models — **Local**, **Cloud**, or **Both**.
+   - If Ollama is already running with models, **Local** is the default (press Enter — free, no key).
+   - Otherwise the default is **Both** (install Ollama + add cloud keys).
+3. Sets up the path you chose:
+   - **Local** — installs Ollama if needed, pulls `gemma3` (~2 GB). No API key required.
+   - **Cloud** — prompts for **OpenRouter** first (one key, 100+ models — recommended), then optionally
+     for direct OpenAI / Anthropic / Google keys behind a single yes/no gate.
+   - **Both** — local Ollama plus cloud keys.
+4. _(macOS only, if Ollama is bound to 127.0.0.1)_ Optionally rebinds Ollama to `0.0.0.0:11434` so
+   the Docker stack can reach it via `host.docker.internal`. This is **opt-in** (default: skip) —
+   it restarts Ollama. Skipping is fine if you're using cloud or gateway models.
+5. Frees any conflicting ports for you on confirmation
+6. Starts the full stack — API · Studio · Postgres · Redis · ChromaDB · Neo4j · MCP servers · LiteLLM
+7. Seeds RAG docs, the knowledge graph, MCP servers, and prompts
+8. Deploys 5 sample agents (`assistant`, `rag-agent`, `graph-agent`, `search-agent`, `a2a-orchestrator`)
+9. Opens Studio at [http://localhost:3001](http://localhost:3001)
 
 <Callout type="info" title="Already have a cloud API key?">
   Skip the ~3 GB Ollama download with the `--no-ollama` flag:
@@ -64,7 +73,24 @@ agentbreeder quickstart
   agentbreeder quickstart --no-ollama
   ```
 
-  Equivalent to choosing **Cloud** at the model-source prompt. You'll still be asked for OpenAI / Anthropic / Google / OpenRouter keys at the cloud-key step.
+  Equivalent to choosing **Cloud** at the model-source prompt. You'll be asked for **OpenRouter** first
+  (one key, 100+ models), then optionally for OpenAI / Anthropic / Google direct keys.
+</Callout>
+
+<Callout type="info" title="Ollama and the Docker stack">
+  Docker containers reach your host machine via `host.docker.internal` — not `localhost`. If Ollama is
+  bound to `127.0.0.1` only (the macOS default), the AgentBreeder API container can't reach it even
+  though `ollama run` works fine in your terminal.
+
+  Quickstart detects this and offers to rebind Ollama to `0.0.0.0:11434` (opt-in). You can also do it
+  manually:
+
+  ```bash
+  launchctl setenv OLLAMA_HOST 0.0.0.0:11434
+  osascript -e 'tell application "Ollama" to quit' && open -a Ollama
+  ```
+
+  If you skip the rebind, agents that need local models will fall back to cloud providers.
 </Callout>
 
 <Callout type="info" title="Default login">
