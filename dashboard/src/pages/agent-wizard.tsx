@@ -3,8 +3,12 @@
  *
  * A 4-step guided wizard: Goal → Workflow → Stack → Create
  * Mirrors the deploy-wizard.tsx pattern: useReducer + ?step=N + StepIndicator.
+ *
+ * A "Form | Chat" mode toggle lets the user switch between the step-by-step
+ * form wizard and the BYO-key conversational builder (ChatBuildPanel).
+ * The step reducer is untouched — it only runs in "form" mode.
  */
-import { useEffect, useReducer } from "react";
+import { useEffect, useReducer, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageTitle } from "@/components/page-title";
 import { StepIndicator } from "@/components/agent-wizard/StepIndicator";
@@ -12,6 +16,7 @@ import { Step1Goal } from "@/components/agent-wizard/Step1Goal";
 import { Step2Workflow } from "@/components/agent-wizard/Step2Workflow";
 import { Step3Stack } from "@/components/agent-wizard/Step3Stack";
 import { Step4Create } from "@/components/agent-wizard/Step4Create";
+import { ChatBuildPanel } from "@/components/agent-wizard/ChatBuildPanel";
 import {
   reducer,
   initialState,
@@ -19,7 +24,10 @@ import {
   type WizardStep,
 } from "@/lib/agent-wizard-state";
 
+type BuilderMode = "form" | "chat";
+
 export default function AgentWizardPage() {
+  const [mode, setMode] = useState<BuilderMode>("form");
   const [state, dispatch] = useReducer(reducer, initialState);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -94,17 +102,63 @@ export default function AgentWizardPage() {
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
       <header className="space-y-3">
-        <PageTitle>Create an agent</PageTitle>
-        <StepIndicator
-          current={state.step}
-          canAdvanceTo={(n) => canAdvance(state, n)}
-          onJump={handleJump}
-        />
+        <div className="flex items-center justify-between">
+          <PageTitle>Create an agent</PageTitle>
+
+          {/* Form | Chat mode toggle */}
+          <div
+            className="flex items-center rounded-lg border border-border bg-muted p-0.5"
+            role="group"
+            aria-label="Builder mode"
+          >
+            <button
+              type="button"
+              data-testid="mode-form"
+              onClick={() => setMode("form")}
+              className={
+                mode === "form"
+                  ? "rounded-md bg-background px-3 py-1 text-xs font-medium shadow-sm transition-all"
+                  : "rounded-md px-3 py-1 text-xs text-muted-foreground transition-all hover:text-foreground"
+              }
+            >
+              Form
+            </button>
+            <button
+              type="button"
+              data-testid="mode-chat"
+              onClick={() => setMode("chat")}
+              className={
+                mode === "chat"
+                  ? "rounded-md bg-background px-3 py-1 text-xs font-medium shadow-sm transition-all"
+                  : "rounded-md px-3 py-1 text-xs text-muted-foreground transition-all hover:text-foreground"
+              }
+            >
+              Chat to build
+            </button>
+          </div>
+        </div>
+
+        {/* Step indicator only in form mode */}
+        {mode === "form" && (
+          <StepIndicator
+            current={state.step}
+            canAdvanceTo={(n) => canAdvance(state, n)}
+            onJump={handleJump}
+          />
+        )}
       </header>
 
-      <main>{StepBody}</main>
+      <main>
+        {mode === "chat" ? (
+          <div className="min-h-[480px] rounded-xl border border-border bg-background">
+            <ChatBuildPanel />
+          </div>
+        ) : (
+          StepBody
+        )}
+      </main>
 
-      {showNavFooter && (
+      {mode === "form" && showNavFooter && (
         <footer className="flex justify-between pt-3 border-t border-zinc-800">
           <button
             type="button"
