@@ -47,24 +47,6 @@ interface Event {
   severity: "info" | "warning" | "critical";
 }
 
-interface CostAnomaly {
-  id: string;
-  agent_name: string;
-  detected_at: string;
-  expected_cost: number;
-  actual_cost: number;
-  spike_pct: number;
-  status: "open" | "acknowledged" | string;
-}
-
-interface CostSuggestion {
-  agent_name: string;
-  current_model: string;
-  suggested_model: string;
-  estimated_savings_pct: number;
-  reason: string;
-}
-
 interface TeamMetric {
   team: string;
   agent_count: number;
@@ -141,14 +123,12 @@ export default function AgentOpsPage() {
   const [topByErrors, setTopByErrors] = useState<Agent[]>([]);
   const [topByLatency, setTopByLatency] = useState<Agent[]>([]);
   const [topByInvocations, setTopByInvocations] = useState<Agent[]>([]);
-  const [costAnomalies, setCostAnomalies] = useState<CostAnomaly[]>([]);
-  const [costSuggestions, setCostSuggestions] = useState<CostSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [fleetRes, heatmapRes, eventsRes, teamsRes, costRes, errorsRes, latencyRes, invocRes, anomaliesRes, suggestionsRes] =
+        const [fleetRes, heatmapRes, eventsRes, teamsRes, costRes, errorsRes, latencyRes, invocRes] =
           await Promise.all([
             fetch(`${API}/fleet`).then((r) => r.json()),
             fetch(`${API}/fleet/heatmap`).then((r) => r.json()),
@@ -158,8 +138,6 @@ export default function AgentOpsPage() {
             fetch(`${API}/top-agents?metric=errors&limit=5`).then((r) => r.json()),
             fetch(`${API}/top-agents?metric=latency&limit=5`).then((r) => r.json()),
             fetch(`${API}/top-agents?metric=invocations&limit=5`).then((r) => r.json()),
-            fetch(`${API}/costs/anomalies`).then((r) => r.json()),
-            fetch(`${API}/costs/suggestions`).then((r) => r.json()),
           ]);
 
         setFleet(fleetRes.data);
@@ -170,8 +148,6 @@ export default function AgentOpsPage() {
         setTopByErrors(errorsRes.data ?? []);
         setTopByLatency(latencyRes.data ?? []);
         setTopByInvocations(invocRes.data ?? []);
-        setCostAnomalies(anomaliesRes.data ?? []);
-        setCostSuggestions(suggestionsRes.data ?? []);
       } catch (err) {
         console.error("AgentOps fetch error:", err);
       } finally {
@@ -448,100 +424,6 @@ export default function AgentOpsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
-      </div>
-
-      {/* Cost Anomalies — seeded data */}
-      <div className="rounded-lg border border-border bg-card p-5">
-        <div className="mb-4 flex items-center gap-2">
-          <h2 className="text-sm font-medium">Cost Anomalies</h2>
-          <span className="rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground">
-            Sample data
-          </span>
-        </div>
-        {loading ? (
-          <div className="py-4 text-center text-sm text-muted-foreground">Loading...</div>
-        ) : costAnomalies.length === 0 ? (
-          <div className="py-4 text-center text-sm text-muted-foreground">No anomalies detected</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="pb-2 font-medium">Agent</th>
-                  <th className="pb-2 text-right font-medium">Expected</th>
-                  <th className="pb-2 text-right font-medium">Actual</th>
-                  <th className="pb-2 text-right font-medium">Spike</th>
-                  <th className="pb-2 font-medium">Status</th>
-                  <th className="pb-2 font-medium">Detected</th>
-                </tr>
-              </thead>
-              <tbody>
-                {costAnomalies.map((a) => (
-                  <tr key={a.id} className="border-b border-border/50 last:border-0">
-                    <td className="py-2.5 font-medium">{a.agent_name}</td>
-                    <td className="py-2.5 text-right font-mono text-xs">${a.expected_cost.toFixed(2)}</td>
-                    <td className="py-2.5 text-right font-mono text-xs">${a.actual_cost.toFixed(2)}</td>
-                    <td className="py-2.5 text-right font-mono text-xs text-red-600 dark:text-red-400">
-                      +{a.spike_pct.toFixed(1)}%
-                    </td>
-                    <td className="py-2.5">
-                      <span
-                        className={cn(
-                          "rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize",
-                          a.status === "open"
-                            ? "bg-red-500/10 text-red-700 dark:text-red-400"
-                            : "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
-                        )}
-                      >
-                        {a.status}
-                      </span>
-                    </td>
-                    <td className="py-2.5 text-xs text-muted-foreground">
-                      {new Date(a.detected_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Cost Suggestions — seeded data */}
-      <div className="rounded-lg border border-border bg-card p-5">
-        <div className="mb-4 flex items-center gap-2">
-          <h2 className="text-sm font-medium">Cost Optimisation Suggestions</h2>
-          <span className="rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground">
-            Sample data
-          </span>
-        </div>
-        {loading ? (
-          <div className="py-4 text-center text-sm text-muted-foreground">Loading...</div>
-        ) : costSuggestions.length === 0 ? (
-          <div className="py-4 text-center text-sm text-muted-foreground">No suggestions available</div>
-        ) : (
-          <div className="space-y-3">
-            {costSuggestions.map((s, i) => (
-              <div key={i} className="rounded-md border border-border/60 p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="font-medium text-sm">{s.agent_name}</div>
-                  {s.estimated_savings_pct > 0 && (
-                    <span className="shrink-0 rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
-                      Save {s.estimated_savings_pct.toFixed(0)}%
-                    </span>
-                  )}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  <span className="font-mono">{s.current_model}</span>
-                  {s.current_model !== s.suggested_model && (
-                    <> → <span className="font-mono">{s.suggested_model}</span></>
-                  )}
-                </div>
-                <div className="mt-1.5 text-xs text-muted-foreground">{s.reason}</div>
-              </div>
-            ))}
           </div>
         )}
       </div>
