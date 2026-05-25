@@ -29,7 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { PageTitle } from "@/components/page-title";
-import { ComingSoonBadge } from "@/components/coming-soon-badge";
+import { ModelPathChooser } from "@/components/model-path-chooser";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ExportDropdown } from "@/components/export-dropdown";
 import { useFavorites } from "@/hooks/use-favorites";
@@ -38,8 +38,6 @@ import { SortableColumnHeader } from "@/components/ui/sortable-header";
 import { SkeletonTableRows } from "@/components/ui/skeleton-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ColumnToggle, type ColumnDefinition } from "@/components/ui/column-toggle";
-import { ProviderCatalog } from "@/components/provider-catalog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -598,70 +596,35 @@ export default function ModelsPage() {
         </div>
       </div>
 
-      {/* Provider source tabs (issues #175 + #164).
-          - Direct providers: built-in OpenAI-compatible catalog (Track F / #160).
-          - Gateways: LiteLLM + OpenRouter (Track H / #164) — same configure
-            flow as Direct, plus 3-segment model refs `<gateway>/<upstream>/<model>`.
-          - Local: Ollama / vLLM / etc. — content lands later. */}
-      <div className="mb-4">
-        <Tabs defaultValue="direct" className="gap-3">
-          <div className="flex items-center justify-between">
-            <TabsList variant="line">
-              <TabsTrigger value="direct" className="text-xs">
-                Direct providers
-              </TabsTrigger>
-              <TabsTrigger value="gateways" className="text-xs">
-                Gateways
-              </TabsTrigger>
-              <TabsTrigger
-                value="local"
-                className="text-xs"
-                disabled
-                title="Coming soon — local model runtimes"
-              >
-                Local
-              </TabsTrigger>
-            </TabsList>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!canSync || syncMutation.isPending}
-              onClick={() => canSync && syncMutation.mutate()}
-              title={
-                !canSync
-                  ? "Requires deployer role"
-                  : "Sync models from configured providers"
-              }
-              className={cn("h-7 text-xs", !canSync && "opacity-50")}
-              data-testid="models-sync-btn"
-            >
-              <RefreshCcw
-                className={cn(
-                  "mr-1 size-3",
-                  syncMutation.isPending && "animate-spin",
-                )}
-              />
-              {syncMutation.isPending ? "Syncing..." : "Sync"}
-            </Button>
-          </div>
-          <TabsContent value="direct">
-            <ProviderCatalog filter="openai_compatible" />
-          </TabsContent>
-          <TabsContent value="gateways">
-            <ProviderCatalog
-              filter="gateway"
-              heading="Model Gateways"
-              hint="Reference gateway models in agent.yaml as <gateway>/<upstream>/<model>"
+      {/* Model path chooser — Phase 3 UX simplification.
+          Replaces the flat Direct / Gateways / Local tab layout with a single
+          question: "How do you want to run models?" with three intentional paths.
+          The Sync button is passed in as syncButton so it stays in the header row. */}
+      <ModelPathChooser
+        syncButton={
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!canSync || syncMutation.isPending}
+            onClick={() => canSync && syncMutation.mutate()}
+            title={
+              !canSync
+                ? "Requires deployer role"
+                : "Sync models from configured providers"
+            }
+            className={cn("h-7 text-xs", !canSync && "opacity-50")}
+            data-testid="models-sync-btn"
+          >
+            <RefreshCcw
+              className={cn(
+                "mr-1 size-3",
+                syncMutation.isPending && "animate-spin",
+              )}
             />
-          </TabsContent>
-          <TabsContent value="local">
-            <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
-              <ComingSoonBadge feature="Local model runtimes (Ollama / llama.cpp / vLLM)" issue="#216" />
-              <p>Pull and run models locally directly from Studio. Tracking issue covers per-model run-locally action and runtime detection.</p>
-            </div>
-          </TabsContent>
-        </Tabs>
-      </div>
+            {syncMutation.isPending ? "Syncing..." : "Sync"}
+          </Button>
+        }
+      />
 
       {/* Provider filter tabs */}
       <div className="mb-3 flex items-center gap-1.5">
