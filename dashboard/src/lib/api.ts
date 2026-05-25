@@ -1171,6 +1171,42 @@ export interface SearchResult {
   score: number;
 }
 
+// --- Builder / Recommend types ---
+
+export interface RecommendInput {
+  business_goal?: string;
+  technical_use_case?: string;
+  /** subset of "a"|"b"|"c"|"d"|"e": loops, checkpoints, HITL, parallel, none */
+  state_flags?: string[];
+  /** "aws" | "gcp" | "azure" | "kubernetes" | "local" */
+  cloud_preference?: string;
+  /** "python" | "typescript" | "none" */
+  language_preference?: string;
+  /** subset of "a"|"b"|"c"|"d"|"e": unstructured, sql, graph, live-apis, none */
+  data_flags?: string[];
+  /** "realtime" | "batch" | "event_driven" | "low_volume" */
+  scale_profile?: string;
+}
+
+export interface Recommendation {
+  /** "langgraph" | "crewai" | "claude_sdk" | "openai_agents" | "google_adk" */
+  framework: string;
+  /** "full_code" | "low_code" */
+  code_tier: string;
+  model_primary: string;
+  /** "vector" | "graph" | "hybrid" | "sql_tool" | "none" */
+  rag: string;
+  /** "redis" | "postgresql" | "redis+postgresql" | "none" */
+  memory: string;
+  /** "mcp" | "a2a" | "mcp+a2a" | "none" */
+  mcp_a2a: string;
+  /** "ecs_fargate" | "cloud_run" | "azure_container_apps" | "docker_compose" */
+  deploy_target: string;
+  eval_dimensions: string[];
+  /** field → one-sentence rationale */
+  reasoning: Record<string, string>;
+}
+
 // --- API functions ---
 
 export const api = {
@@ -2286,6 +2322,13 @@ export const api = {
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),
   health: () => fetch("/health").then((r) => r.json()),
+  builders: {
+    recommend: (input: RecommendInput) =>
+      request<Recommendation>("/builders/recommend", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+  },
   secrets: {
     workspace: (workspace?: string) =>
       request<WorkspaceBackendInfo>(
