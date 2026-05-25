@@ -12,15 +12,20 @@ import yaml as pyyaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from jsonschema import Draft202012Validator
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from api.auth import get_current_user
 from api.middleware.rbac import require_role
 from api.models.database import User
 from api.models.schemas import ApiResponse
+from engine.agent_chat_builder import ChatTurnResult, run_chat_turn
+from engine.providers.anthropic_provider import AnthropicProvider
+from engine.providers.base import AuthenticationError, ProviderError
+from engine.providers.models import ProviderConfig, ProviderType
 from engine.recommend import Recommendation, RecommendInput
 from engine.recommend import recommend as _recommend
+from engine.secrets.factory import get_workspace_backend
 
 logger = logging.getLogger(__name__)
 
@@ -298,4 +303,132 @@ async def recommend_stack(
         result.code_tier,
         result.deploy_target,
     )
+    return ApiResponse(data=result)
+
+
+# ---------------------------------------------------------------------------
+# Chat-to-Build endpoint — BYO Claude key, security-sensitive
+# ---------------------------------------------------------------------------
+
+# Name of the workspace secret holding the user's Claude API key.
+# Must match the frontend key-guard constant in ChatBuildPanel.tsx.
+_BUILDER_KEY_SECRET = "AGENTBREEDER_CLAUDE_BUILDER_KEY"
+
+# Hard limits to prevent prompt-injection / resource exhaustion.
+_MAX_MESSAGES = 40
+_MAX_TOTAL_CHARS = 100_000
+
+
+class _ChatMessage(BaseModel):
+    """A single chat message (OpenAI-format)."""
+
+    role: str
+    content: str
+
+
+class ChatBuildRequest(BaseModel):
+    """Request body for POST /builders/chat."""
+
+    messages: list[_ChatMessage] = Field(..., min_length=1)
+
+    @field_validator("messages")
+    @classmethod
+    def _validate_size(cls, msgs: list[_ChatMessage]) -> list[_ChatMessage]:
+        if len(msgs) > _MAX_MESSAGES:
+            msg = (
+                f"Too many messages ({len(msgs)}). "
+                f"The chat-to-build conversation is limited to {_MAX_MESSAGES} turns."
+            )
+            raise ValueError(msg)
+        total_chars = sum(len(m.content) for m in msgs)
+        if total_chars > _MAX_TOTAL_CHARS:
+            msg = (
+                f"Message content too large ({total_chars} chars). "
+                f"Maximum total is {_MAX_TOTAL_CHARS} characters."
+            )
+            raise ValueError(msg)
+        return msgs
+
+
+@router.post("/chat", response_model=ApiResponse[ChatTurnResult])
+async def chat_build(
+    body: ChatBuildRequest,
+    _user: User = Depends(get_current_user),
+) -> ApiResponse[ChatTurnResult]:
+    """Drive one turn of the conversational agent builder powered by the user's Claude key.
+
+    Security contract:
+    - The API key is read server-side from the workspace secrets backend.
+      It is NEVER stored in the DB, NEVER returned in any response body,
+      and NEVER included in any log record.
+    - If the key is absent → HTTP 400 with a clear "add your key" message;
+      the AnthropicProvider is never constructed.
+    - Upstream Anthropic errors are sanitised before returning — the raw
+      error (which could contain auth details) is never forwarded to the client.
+    - The conversation is bounded: max {_MAX_MESSAGES} messages and
+      {_MAX_TOTAL_CHARS} total characters (enforced by Pydantic validator above).
+    """
+    # ── 1. Read the BYO Claude key from the workspace secrets backend ────
+    backend, _ws = get_workspace_backend()
+    api_key: str | None = await backend.get(_BUILDER_KEY_SECRET)
+
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No Claude key connected. "
+                "Add your Claude API key to chat-to-build: "
+                "go to Settings → Secrets and create "
+                f"'{_BUILDER_KEY_SECRET}'."
+            ),
+        )
+
+    # ── 2. Construct a fresh provider with the BYO key ───────────────────
+    # A new provider is created per request so keys are never shared across
+    # requests or reused in a stale httpx client.
+    provider = AnthropicProvider(
+        ProviderConfig(
+            provider_type=ProviderType.anthropic,
+            api_key=api_key,
+        )
+    )
+
+    # ── 3. Drive one conversation turn ───────────────────────────────────
+    history = [{"role": m.role, "content": m.content} for m in body.messages]
+
+    try:
+        result = await run_chat_turn(provider, history)
+    except AuthenticationError:
+        # 401/403 from Anthropic — key is likely invalid.
+        # Log a warning WITHOUT the key, return a clean 400.
+        logger.warning(
+            "chat_build: Anthropic authentication failed for secret '%s' — "
+            "key may be invalid or revoked. (key not logged)",
+            _BUILDER_KEY_SECRET,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Claude API authentication failed. "
+                "Check that your key in "
+                f"'{_BUILDER_KEY_SECRET}' is valid."
+            ),
+        ) from None
+    except ProviderError:
+        # Network / upstream error — sanitise message (may contain auth details).
+        logger.warning(
+            "chat_build: upstream Anthropic error for secret '%s'. "
+            "Details suppressed to avoid key leakage.",
+            _BUILDER_KEY_SECRET,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Upstream error communicating with the Claude API. Please try again in a moment."
+            ),
+        ) from None
+    finally:
+        # Always close the httpx client to avoid connection leaks.
+        await provider.close()
+
     return ApiResponse(data=result)
