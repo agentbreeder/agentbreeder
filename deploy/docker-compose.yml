@@ -46,6 +46,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      # Persist secrets set via Studio/CLI (env backend writes ~/.agentbreeder/.env)
+      # across container restarts. appuser's home is /home/appuser.
+      - agentbreeder-secrets:/home/appuser/.agentbreeder
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,3 +137,4 @@ services:
 volumes:
   pgdata:
   neo4jdata:
+  agentbreeder-secrets:

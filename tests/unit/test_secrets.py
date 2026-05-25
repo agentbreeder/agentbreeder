@@ -9,7 +9,12 @@ from datetime import UTC
 import pytest
 
 from engine.secrets.base import SecretEntry, _mask
-from engine.secrets.env_backend import EnvBackend, _parse_env_file, _write_env_file
+from engine.secrets.env_backend import (
+    EnvBackend,
+    _find_env_file,
+    _parse_env_file,
+    _write_env_file,
+)
 from engine.secrets.factory import find_secret_refs, get_backend, resolve_secret_refs
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -110,6 +115,31 @@ class TestEnvFileParsing:
         env.write_text("KEEP=yes\nDELETE=me\n")
         _write_env_file(env, {"KEEP": "yes"})
         assert "DELETE" not in env.read_text()
+
+
+# ── _find_env_file ──────────────────────────────────────────────────────────
+
+
+class TestFindEnvFile:
+    def test_returns_existing_cwd_env(self, tmp_path, monkeypatch):
+        (tmp_path / ".env").write_text("FOO=bar\n")
+        monkeypatch.chdir(tmp_path)
+        assert _find_env_file() == tmp_path / ".env"
+
+    def test_creates_in_cwd_when_writable(self, tmp_path, monkeypatch):
+        # No .env yet, but cwd is writable → prefer the project-local file.
+        monkeypatch.chdir(tmp_path)
+        assert _find_env_file() == tmp_path / ".env"
+
+    def test_falls_back_to_home_when_cwd_not_writable(self, tmp_path, monkeypatch):
+        # Mirrors the API container: cwd (/app) is root-owned, process is
+        # non-root, so cwd/.env can't be created. Must land in a writable home.
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("engine.secrets.env_backend.os.access", lambda *_: False)
+        monkeypatch.setattr("engine.secrets.env_backend.Path.home", lambda: fake_home)
+        assert _find_env_file() == fake_home / ".agentbreeder" / ".env"
 
 
 # ── EnvBackend ────────────────────────────────────────────────────────────────

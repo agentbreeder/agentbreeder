@@ -16,10 +16,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ### Fixed
 - **GCP Cloud Run inbound now routes through the sidecar ([#203](https://github.com/agentbreeder/agentbreeder/issues/203))** — the sidecar is the ingress container on `:8080` and reverse-proxies to the agent on internal `:8081`, so bearer-token auth and guardrail egress can no longer be bypassed. Previously external traffic hit the agent directly.
 - **Azure Key Vault name round-trip ([#499](https://github.com/agentbreeder/agentbreeder/issues/499))** — the mirrored secret name now matches the deployer's `keyVaultUrl` reference via a shared `sanitize_secret_name()`, making Track K functional on Container Apps.
+- **`env` secrets backend now falls back to a writable location** — `agentbreeder secret set` (and the Studio Configure modal) failed with `[Errno 13] Permission denied: '/app/.env'` when the API ran in its container, because the `env` backend always wrote to `$CWD/.env` and the image runs as a non-root user under a root-owned `/app` WORKDIR. `_find_env_file()` now writes to `~/.agentbreeder/.env` when the working directory isn't writable (matching the behavior already documented in the CLI reference). Project-local `.env` files in a writable directory are unaffected.
 
 ### Changed
 - **App Runner fails fast at validate-infra ([#501](https://github.com/agentbreeder/agentbreeder/issues/501))** — when `guardrails:` or `secrets:` are declared, App Runner (single-container, can't host the sidecar) now errors at validation instead of silently deploying without governance. ECS Fargate is the AWS parity target.
 - **Hardened the injected sidecar ([#500](https://github.com/agentbreeder/agentbreeder/issues/500))** — pinned the sidecar image to a version tag (dropped `:latest`) and added a `securityContext` across the cross-cloud injectors ([#400](https://github.com/agentbreeder/agentbreeder/issues/400)).
+- **Dev `docker compose` stack persists secrets** — the `api` image now pre-creates `/home/appuser/.agentbreeder` (owned by the runtime user) and the `api` service mounts a named `agentbreeder-secrets` volume there, so keys set through Studio/CLI survive `docker compose down`/`up` instead of living only in ephemeral container storage.
 
 ## [2.5.1] — 2026-05-22
 

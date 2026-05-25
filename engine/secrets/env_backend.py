@@ -27,11 +27,22 @@ _SKIP_KEYS = frozenset(
 
 
 def _find_env_file() -> Path:
-    """Locate the nearest .env file — cwd first, then home/.agentbreeder/.env."""
-    cwd_env = Path.cwd() / ".env"
-    if cwd_env.exists():
+    """Locate the .env file the env backend should read and write.
+
+    Resolution order:
+    1. ``$CWD/.env`` if it already exists — honor a developer's project file.
+    2. ``$CWD/.env`` if the working directory is writable — create it there
+       (the local-dev "secrets live in my project" experience).
+    3. ``~/.agentbreeder/.env`` otherwise — a guaranteed-writable home location.
+       The API image runs as a non-root user under a root-owned ``/app`` WORKDIR,
+       so ``$CWD/.env`` can't be created there; falling back to the user's home
+       (always writable, same dir as workspace.yaml) keeps ``secret set`` working.
+    """
+    cwd = Path.cwd()
+    cwd_env = cwd / ".env"
+    if cwd_env.exists() or os.access(cwd, os.W_OK):
         return cwd_env
-    return cwd_env  # will create in cwd on first write
+    return Path.home() / ".agentbreeder" / ".env"
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
