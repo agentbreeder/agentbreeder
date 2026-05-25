@@ -105,6 +105,26 @@ agentbreeder deploy --target local
 agentbreeder chat
 ```
 
+### Chat to build (BYO Claude key)
+
+AgentBreeder Studio includes a **Chat to build** tab at `/agents/new` that lets you describe your agent in plain language and have Claude generate a ready-to-deploy `agent.yaml` for you.
+
+**How it works:**
+
+1. Go to **Studio → Agents → New agent** (`/agents/new`).
+2. Click the **Chat to build** toggle (top-right of the page header).
+3. On first use, connect your Claude API key — it is stored in your workspace secrets backend under the key name `AGENTBREEDER_CLAUDE_BUILDER_KEY` (never in the database, never returned to the browser, never logged).  Get a key at [console.anthropic.com](https://console.anthropic.com).
+4. Describe what you want your agent to do.  Claude asks a few focused questions (framework, model, deploy target) and then calls the `submit_agent_spec` tool to emit a structured spec.
+5. The backend validates the spec against the `agent.yaml` JSON schema before showing it to you.  A "Create agent" button appears only when the spec is valid.
+6. Clicking **Create agent** runs the spec through the same `POST /api/v1/agents/from-yaml` path used by the form wizard — no shortcuts or schema bypasses.
+
+**Security notes:**
+
+- Your Claude API key is read server-side on every request from the workspace secrets backend.  It is never sent from the browser to the chat endpoint.
+- If the key is absent or invalid, the endpoint returns HTTP 400 with a clear "add your key" message — the provider is never constructed.
+- The conversation is bounded: maximum 40 turns and 100 000 total characters.
+- Claude's output (the agent spec) is always re-validated by `validate_config_yaml()` on the backend before `valid: true` is returned.  Untrusted model output cannot bypass the schema.
+
 ---
 
 ## Deploy to different targets
