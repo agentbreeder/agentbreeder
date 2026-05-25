@@ -47,23 +47,23 @@ def _contains_any(text: str, keywords: frozenset[str]) -> bool:
 
 _EVAL_DIMENSION_TABLE: list[tuple[frozenset[str], list[str]]] = [
     (
-        frozenset({"support"}),
+        frozenset({"support", "helpdesk", "tickets", "customer"}),
         ["deflection_rate", "escalation_accuracy", "csat_proxy", "pii_non_leakage"],
     ),
     (
-        frozenset({"financial", "report"}),
+        frozenset({"financial", "report", "accounting", "cfo"}),
         ["numerical_accuracy", "schema_correctness", "completeness", "hallucination_rate"],
     ),
     (
-        frozenset({"code", "review"}),
+        frozenset({"code", "review", "engineering", "developer"}),
         ["correctness", "security", "format_compliance", "test_pass_rate"],
     ),
     (
-        frozenset({"research", "analysis"}),
+        frozenset({"research", "analysis", "knowledge", "documents"}),
         ["citation_accuracy", "hallucination_rate", "completeness", "source_relevance"],
     ),
     (
-        frozenset({"pipeline", "data", "etl"}),
+        frozenset({"pipeline", "data", "etl", "warehouse"}),
         ["schema_validation", "row_completeness", "latency", "error_rate"],
     ),
     (
@@ -271,10 +271,10 @@ def recommend(inp: RecommendInput) -> Recommendation:
     # eval_dimensions
     # ------------------------------------------------------------------
     goal_lower = goal.lower()
-    eval_dimensions = _DEFAULT_EVAL_DIMENSIONS
+    eval_dimensions = list(_DEFAULT_EVAL_DIMENSIONS)
     for keywords, dimensions in _EVAL_DIMENSION_TABLE:
         if any(kw in goal_lower for kw in keywords):
-            eval_dimensions = dimensions
+            eval_dimensions = list(dimensions)
             break
 
     # ------------------------------------------------------------------

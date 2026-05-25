@@ -253,12 +253,35 @@ def test_sales_goal_eval_dimensions() -> None:
     assert "lead_scoring_accuracy" in r.eval_dimensions
 
 
+def test_helpdesk_keyword_hits_support_row() -> None:
+    """Non-literal 'helpdesk' maps to the support eval row (broadened keywords)."""
+    r = recommend(RecommendInput(business_goal="automate helpdesk"))
+    assert "deflection_rate" in r.eval_dimensions
+
+
+def test_customer_tickets_keyword_hits_support_row() -> None:
+    """'customer tickets' phrase (two separate keywords) maps to support eval row."""
+    r = recommend(RecommendInput(business_goal="resolve customer tickets faster"))
+    assert "deflection_rate" in r.eval_dimensions
+
+
+def test_eval_dimensions_mutation_does_not_corrupt_defaults() -> None:
+    """Mutating result.eval_dimensions must not corrupt the module-level default list."""
+    r = recommend(RecommendInput())  # hits _DEFAULT_EVAL_DIMENSIONS path
+    original_len = len(r.eval_dimensions)
+    r.eval_dimensions.append("__sentinel__")
+    # A second call must return a clean copy, unaffected by the mutation above
+    r2 = recommend(RecommendInput())
+    assert "__sentinel__" not in r2.eval_dimensions
+    assert len(r2.eval_dimensions) == original_len
+
+
 # ---------------------------------------------------------------------------
 # Default / happy-path
 # ---------------------------------------------------------------------------
 
 
-def test_default_is_sonnet_langgraph_docker() -> None:
+def test_default_is_haiku_langgraph_docker() -> None:
     r = recommend(RecommendInput())
     assert r.framework == "langgraph"
     assert r.model_primary == "claude-haiku-4-5"  # low_volume default → haiku
