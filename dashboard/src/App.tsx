@@ -58,6 +58,7 @@ import AgentOpsPage from "@/pages/agentops";
 import IncidentsPage from "@/pages/incidents";
 import CompliancePage from "@/pages/compliance";
 import DeployWizardPage from "@/pages/deploy-wizard";
+import AgentWizardPage from "@/pages/agent-wizard";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient({
@@ -142,6 +143,7 @@ export default function App() {
               <Route path="agents" element={<AgentsPage />} />
               <Route path="agents/builder" element={<AgentBuilderPage />} />
               <Route path="agents/builder/:id" element={<AgentBuilderPage />} />
+              <Route path="agents/new" element={<AgentWizardPage />} />
               <Route path="agents/register" element={<AgentRegisterPage />} />
               <Route path="agents/:id" element={<AgentDetailPage />} />
               <Route path="tools" element={<ToolsPage />} />
