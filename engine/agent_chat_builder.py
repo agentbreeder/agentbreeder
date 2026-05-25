@@ -62,9 +62,10 @@ _SUBMIT_TOOL_DEFINITION = ToolDefinition(
 SUBMIT_TOOL: ToolDefinition = _SUBMIT_TOOL_DEFINITION
 
 # ---------------------------------------------------------------------------
-# System prompt (large + static).
-# TODO: enable Anthropic prompt caching once AnthropicProvider supports cache_control
-#       blocks (system prompt is large + static).
+# System prompt (static). The large, static part of each turn is the
+# submit_agent_spec tool (its input_schema is the full agent.schema.json);
+# AnthropicProvider auto-caches it via cache_control, so it is not reprocessed
+# on every turn.
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """\

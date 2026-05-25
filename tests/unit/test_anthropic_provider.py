@@ -495,3 +495,84 @@ class TestAnthropicProviderStreamAndClose:
     def test_parse_stream_event_message_start_no_model(self) -> None:
         result = AnthropicProvider._parse_stream_event({"type": "message_start", "message": {}})
         assert result is None
+
+
+class TestAnthropicProviderPromptCaching:
+    """Auto prompt-caching: cache_control on large static system/tools."""
+
+    @staticmethod
+    def _large_tool(name: str = "submit_spec") -> ToolDefinition:
+        # A parameters schema big enough to exceed _CACHE_MIN_CHARS when serialised.
+        properties = {f"field_{i}": {"type": "string", "description": "x" * 80} for i in range(60)}
+        return ToolDefinition(
+            function=ToolFunction(
+                name=name,
+                description="A large tool",
+                parameters={"type": "object", "properties": properties},
+            )
+        )
+
+    @staticmethod
+    def _small_tool(name: str = "ping") -> ToolDefinition:
+        return ToolDefinition(
+            function=ToolFunction(
+                name=name,
+                description="ping",
+                parameters={"type": "object", "properties": {"x": {"type": "string"}}},
+            )
+        )
+
+    def test_large_tools_cache_control_on_last_tool_only(self) -> None:
+        provider = AnthropicProvider(_config())
+        tools = [self._small_tool("first"), self._large_tool("second")]
+        payload = provider._build_payload(
+            [{"role": "user", "content": "hi"}], "claude-sonnet-4-6", None, None, tools
+        )
+        # Only the last tool carries the breakpoint (it caches the whole prefix).
+        assert payload["tools"][-1]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in payload["tools"][0]
+
+    def test_small_tools_get_no_cache_control(self) -> None:
+        provider = AnthropicProvider(_config())
+        tools = [self._small_tool()]
+        payload = provider._build_payload(
+            [{"role": "user", "content": "hi"}], "claude-sonnet-4-6", None, None, tools
+        )
+        assert "cache_control" not in payload["tools"][-1]
+
+    def test_large_system_becomes_block_list_with_cache_control(self) -> None:
+        provider = AnthropicProvider(_config())
+        system = "You are a helpful agent builder. " * 200  # > 4096 chars
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": "hi"},
+        ]
+        payload = provider._build_payload(messages, "claude-sonnet-4-6", None, None, None)
+        assert isinstance(payload["system"], list)
+        assert payload["system"][0]["type"] == "text"
+        assert payload["system"][0]["text"] == system
+        assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
+
+    def test_small_system_stays_plain_string(self) -> None:
+        provider = AnthropicProvider(_config())
+        messages = [
+            {"role": "system", "content": "Be brief."},
+            {"role": "user", "content": "hi"},
+        ]
+        payload = provider._build_payload(messages, "claude-sonnet-4-6", None, None, None)
+        assert payload["system"] == "Be brief."
+
+    def test_parse_response_folds_cache_tokens_into_prompt_tokens(self) -> None:
+        provider = AnthropicProvider(_config())
+        data = _messages_response()
+        data["usage"] = {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 100,
+            "cache_read_input_tokens": 5000,
+            "output_tokens": 12,
+        }
+        result = provider._parse_response(data)
+        # prompt_tokens = 10 + 100 + 5000
+        assert result.usage.prompt_tokens == 5110
+        assert result.usage.completion_tokens == 12
+        assert result.usage.total_tokens == 5122
