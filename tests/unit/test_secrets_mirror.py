@@ -101,6 +101,27 @@ def test_deterministic_name_gcp_substitutes_slash():
     )
 
 
+def test_deterministic_name_azure_sanitizes_to_kv_legal():
+    # Azure Key Vault names allow only alphanumerics + dashes — no slashes or
+    # underscores. The name must equal what AzureKeyVaultBackend would store so
+    # the deployer's keyVaultUrl reference resolves.
+    assert (
+        deterministic_name("my-agent", "OPENAI_API_KEY", cloud="azure")
+        == "agentbreeder-my-agent-OPENAI-API-KEY"
+    )
+
+
+def test_deterministic_name_azure_matches_backend_stored_name():
+    # Round-trip guarantee: the mirror writes via AzureKeyVaultBackend with an
+    # empty prefix (see _build_target_backend), so the stored secret id must
+    # equal the deterministic_name output exactly.
+    from engine.secrets.azure_backend import AzureKeyVaultBackend
+
+    name = deterministic_name("orders", "DB_PASSWORD", cloud="azure")
+    backend = AzureKeyVaultBackend(vault_url="https://v.vault.azure.net/", prefix="")
+    assert backend._secret_id(name) == name
+
+
 # ─── mirror_secrets_to_cloud ────────────────────────────────────────────────
 
 
@@ -288,6 +309,29 @@ class TestGrantDispatcher:
         )
         assert called[0][0] == "gcp"
 
+    def test_dispatch_azure(self, monkeypatch):
+        from engine.secrets import auto_mirror
+
+        called: list[Any] = []
+
+        def fake_azure(secret_name, principal, options):
+            called.append(("azure", secret_name, principal))
+
+        monkeypatch.setattr(auto_mirror, "_azure_grant", fake_azure)
+        _run(
+            auto_mirror._grant_secret_accessor(
+                target_cloud="azure",
+                cloud_name="agentbreeder-a-K",
+                principal="00000000-0000-0000-0000-000000000001",
+                target_options={
+                    "vault_url": "https://v.vault.azure.net/",
+                    "subscription_id": "sub",
+                    "resource_group": "rg",
+                },
+            )
+        )
+        assert called[0][0] == "azure"
+
     def test_dispatch_vault_is_noop(self):
         from engine.secrets import auto_mirror
 
@@ -301,6 +345,87 @@ class TestGrantDispatcher:
             )
         )
         assert result is None
+
+
+# ─── _azure_grant ────────────────────────────────────────────────────────────
+
+
+class TestAzureGrant:
+    def test_vault_name_parsed_from_url(self):
+        from engine.secrets.auto_mirror import _vault_name_from_url
+
+        assert _vault_name_from_url("https://myvault.vault.azure.net/") == "myvault"
+        assert _vault_name_from_url("https://my-kv-123.vault.azure.net") == "my-kv-123"
+
+    def test_vault_name_none_when_unparseable(self):
+        from engine.secrets.auto_mirror import _vault_name_from_url
+
+        assert _vault_name_from_url("") is None
+
+    def test_grant_skipped_when_options_missing(self, monkeypatch):
+        # Missing subscription_id/resource_group → non-fatal no-op; the SDK
+        # application path must never be reached.
+        from engine.secrets import auto_mirror
+
+        applied: list[Any] = []
+        monkeypatch.setattr(
+            auto_mirror,
+            "_azure_apply_grant",
+            lambda **kw: applied.append(kw),
+        )
+        monkeypatch.delenv("AZURE_SUBSCRIPTION_ID", raising=False)
+        monkeypatch.delenv("AZURE_RESOURCE_GROUP", raising=False)
+
+        auto_mirror._azure_grant(
+            "agentbreeder-a-K",
+            "00000000-0000-0000-0000-000000000001",
+            {"vault_url": "https://v.vault.azure.net/"},
+        )
+        assert applied == []
+
+    def test_grant_skipped_when_principal_missing(self, monkeypatch):
+        from engine.secrets import auto_mirror
+
+        applied: list[Any] = []
+        monkeypatch.setattr(
+            auto_mirror,
+            "_azure_apply_grant",
+            lambda **kw: applied.append(kw),
+        )
+        auto_mirror._azure_grant(
+            "agentbreeder-a-K",
+            "",
+            {
+                "vault_url": "https://v.vault.azure.net/",
+                "subscription_id": "sub",
+                "resource_group": "rg",
+            },
+        )
+        assert applied == []
+
+    def test_grant_applies_when_fully_specified(self, monkeypatch):
+        from engine.secrets import auto_mirror
+
+        applied: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            auto_mirror,
+            "_azure_apply_grant",
+            lambda **kw: applied.append(kw),
+        )
+        auto_mirror._azure_grant(
+            "agentbreeder-a-K",
+            "00000000-0000-0000-0000-000000000001",
+            {
+                "vault_url": "https://myvault.vault.azure.net/",
+                "subscription_id": "sub-123",
+                "resource_group": "rg-prod",
+            },
+        )
+        assert len(applied) == 1
+        assert applied[0]["vault_name"] == "myvault"
+        assert applied[0]["subscription_id"] == "sub-123"
+        assert applied[0]["resource_group"] == "rg-prod"
+        assert applied[0]["principal"] == "00000000-0000-0000-0000-000000000001"
 
 
 # ─── _build_target_backend ──────────────────────────────────────────────────

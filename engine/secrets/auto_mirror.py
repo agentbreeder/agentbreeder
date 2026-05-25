@@ -43,7 +43,7 @@ class CloudSecretRef:
 
     logical_name: str  # e.g. OPENAI_API_KEY
     cloud_name: str  # e.g. agentbreeder/customer-support/OPENAI_API_KEY
-    cloud: str  # "aws" | "gcp" | "vault"
+    cloud: str  # "aws" | "gcp" | "azure" | "vault"
     version: str = "latest"
 
 
@@ -65,10 +65,17 @@ def deterministic_name(agent_name: str, secret_name: str, *, cloud: str) -> str:
     Format: ``agentbreeder/<agent-name>/<secret-name>``
 
     GCP secret IDs cannot contain ``/`` so we substitute ``_`` for that target.
+    Azure Key Vault names allow only alphanumerics + dashes, so we route the
+    name through the same sanitizer the Azure backend uses on write — keeping
+    the mirrored (stored) name identical to the name the deployer references.
     """
     raw = f"agentbreeder/{agent_name}/{secret_name}"
     if cloud == "gcp":
         return raw.replace("/", "_")
+    if cloud == "azure":
+        from engine.secrets.azure_backend import sanitize_secret_name
+
+        return sanitize_secret_name(raw)
     return raw
 
 
@@ -106,7 +113,7 @@ async def mirror_secrets_to_cloud(
         :class:`MirrorResult` listing ``CloudSecretRef`` entries the caller
         should hand to the container's env construction code.
     """
-    if target_cloud not in ("aws", "gcp", "vault"):
+    if target_cloud not in ("aws", "gcp", "azure", "vault"):
         msg = f"Unsupported mirror target: {target_cloud}"
         raise ValueError(msg)
 
@@ -250,6 +257,8 @@ async def _grant_secret_accessor(
         await asyncio.to_thread(_gcp_grant, cloud_name, principal, target_options)
     elif target_cloud == "aws":
         await asyncio.to_thread(_aws_grant, cloud_name, principal, target_options)
+    elif target_cloud == "azure":
+        await asyncio.to_thread(_azure_grant, cloud_name, principal, target_options)
     elif target_cloud == "vault":
         # Vault uses policies attached to tokens, not per-secret IAM.
         logger.debug("vault: skipping per-secret grant (managed via Vault policies)")
@@ -327,6 +336,177 @@ def _aws_grant(
         )
     except Exception as exc:
         logger.debug("aws grant: put_resource_policy failed: %s", exc)
+
+
+# Built-in "Key Vault Secrets User" role — data-plane secret read (get/list).
+_KEY_VAULT_SECRETS_USER_ROLE_DEF_ID = "4633458b-17de-408a-b874-0445c86b69e6"
+
+
+def _vault_name_from_url(vault_url: str) -> str | None:
+    """Extract the vault name from a Key Vault URL.
+
+    ``https://myvault.vault.azure.net/`` → ``myvault``.
+    """
+    from urllib.parse import urlparse
+
+    host = urlparse(vault_url).hostname or ""
+    name = host.split(".")[0]
+    return name or None
+
+
+def _azure_grant(secret_name: str, principal: str, options: dict[str, Any]) -> None:
+    """Grant the runtime managed identity read access to mirrored Key Vault secrets.
+
+    ``principal`` is the object/principal id of the per-agent **user-assigned**
+    managed identity the Container App runs as. Because that identity is created
+    before the app, its principal id is known at mirror time — so the grant can
+    be applied up front (no create-time race). The vault scope is used: when the
+    vault is in Azure-RBAC mode we assign the built-in *Key Vault Secrets User*
+    role; when it is in access-policy mode we add a least-privilege get/list
+    access policy. Idempotent and non-fatal — a failure never aborts the deploy.
+    """
+    vault_url = options.get("vault_url") or os.environ.get("AZURE_KEYVAULT_URL", "")
+    subscription_id = options.get("subscription_id") or os.environ.get(
+        "AZURE_SUBSCRIPTION_ID", ""
+    )
+    resource_group = options.get("resource_group") or os.environ.get(
+        "AZURE_RESOURCE_GROUP", ""
+    )
+    if not (vault_url and subscription_id and resource_group and principal):
+        logger.warning(
+            "azure grant: missing vault_url/subscription_id/resource_group/principal — "
+            "skipping grant for secret %s",
+            secret_name,
+        )
+        return
+
+    vault_name = _vault_name_from_url(vault_url)
+    if not vault_name:
+        logger.warning("azure grant: could not parse vault name from %r — skipping", vault_url)
+        return
+
+    _azure_apply_grant(
+        subscription_id=subscription_id,
+        resource_group=resource_group,
+        vault_name=vault_name,
+        principal=principal,
+    )
+
+
+def _azure_apply_grant(
+    *,
+    subscription_id: str,
+    resource_group: str,
+    vault_name: str,
+    principal: str,
+) -> None:  # pragma: no cover - exercised via integration tests with mocked SDK
+    """Apply the Key Vault grant via the Azure management SDK."""
+    try:
+        from azure.identity import DefaultAzureCredential
+        from azure.mgmt.keyvault import KeyVaultManagementClient
+    except ImportError:
+        logger.debug("azure grant: azure SDK not installed — skipping")
+        return
+
+    credential = DefaultAzureCredential()
+    kv_client = KeyVaultManagementClient(credential, subscription_id)
+    vault = kv_client.vaults.get(resource_group, vault_name)
+    props = vault.properties
+    use_rbac = bool(getattr(props, "enable_rbac_authorization", False))
+
+    if use_rbac:
+        _azure_assign_secrets_user_role(
+            credential=credential,
+            subscription_id=subscription_id,
+            vault_id=str(vault.id),
+            principal=principal,
+        )
+    else:
+        _azure_add_secret_access_policy(
+            kv_client=kv_client,
+            resource_group=resource_group,
+            vault_name=vault_name,
+            tenant_id=str(getattr(props, "tenant_id", "")),
+            principal=principal,
+        )
+
+
+def _azure_assign_secrets_user_role(
+    *,
+    credential: Any,
+    subscription_id: str,
+    vault_id: str,
+    principal: str,
+) -> None:  # pragma: no cover - exercised via integration tests with mocked SDK
+    """Assign *Key Vault Secrets User* on the vault, idempotently."""
+    import uuid
+
+    from azure.core.exceptions import HttpResponseError, ResourceExistsError
+    from azure.mgmt.authorization import AuthorizationManagementClient
+    from azure.mgmt.authorization.models import RoleAssignmentCreateParameters
+
+    client = AuthorizationManagementClient(credential, subscription_id)
+    role_def_id = (
+        f"/subscriptions/{subscription_id}"
+        f"/providers/Microsoft.Authorization/roleDefinitions/"
+        f"{_KEY_VAULT_SECRETS_USER_ROLE_DEF_ID}"
+    )
+    # Deterministic assignment name per (scope, principal) → safe to retry.
+    ra_name = str(
+        uuid.uuid5(uuid.NAMESPACE_URL, f"{vault_id}|{principal}|KeyVaultSecretsUser")
+    )
+    params = RoleAssignmentCreateParameters(  # type: ignore[call-arg]  # SDK multi-api stub mismatch
+        role_definition_id=role_def_id,
+        principal_id=principal,
+        principal_type="ServicePrincipal",
+    )
+    try:
+        client.role_assignments.create(
+            scope=vault_id, role_assignment_name=ra_name, parameters=params
+        )
+    except ResourceExistsError:
+        return
+    except HttpResponseError as exc:
+        if getattr(exc, "status_code", None) == 409 or "RoleAssignmentExists" in str(exc):
+            return
+        raise
+
+
+def _azure_add_secret_access_policy(
+    *,
+    kv_client: Any,
+    resource_group: str,
+    vault_name: str,
+    tenant_id: str,
+    principal: str,
+) -> None:  # pragma: no cover - exercised via integration tests with mocked SDK
+    """Add a least-privilege (get/list) secrets access policy for ``principal``."""
+    from azure.mgmt.keyvault.models import (
+        AccessPolicyEntry,
+        Permissions,
+        SecretPermissions,
+        VaultAccessPolicyParameters,
+        VaultAccessPolicyProperties,
+    )
+
+    kv_client.vaults.update_access_policy(
+        resource_group_name=resource_group,
+        vault_name=vault_name,
+        operation_kind="add",
+        parameters=VaultAccessPolicyParameters(
+            properties=VaultAccessPolicyProperties(
+                access_policies=[
+                    AccessPolicyEntry(
+                        tenant_id=tenant_id,
+                        object_id=principal,
+                        permissions=Permissions(
+                            secrets=[SecretPermissions.GET, SecretPermissions.LIST]
+                        ),
+                    )
+                ]
+            )
+        ),
+    )
 
 
 async def _emit_mirror_audit(

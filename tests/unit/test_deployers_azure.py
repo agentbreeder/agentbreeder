@@ -933,3 +933,111 @@ class TestBuildContainerAppBody:
         assert tags["managed-by"] == "agentbreeder"
         assert tags["agent-name"] == "my-agent"
         assert tags["team"] == "engineering"
+
+    def test_sidecar_injected_when_guardrails_active(self) -> None:
+        deployer = AzureContainerAppsDeployer()
+        config = _make_agent_config()
+        # Add guardrails to activate sidecar injection
+        config.guardrails = ["pii-filter"]
+
+        azure = _extract_azure_config(config)
+        managed_env_id = "/subscriptions/.../managedEnvironments/aca-env-prod"
+
+        body = deployer._build_container_app_body(
+            config, azure, "myregistry.azurecr.io/my-agent:1.0.0", managed_env_id
+        )
+
+        containers = body["properties"]["template"]["containers"]
+        assert len(containers) == 2
+        assert containers[0]["name"] == "my-agent"
+        assert containers[1]["name"] == "agentbreeder-sidecar"
+
+        # Ingress targetPort must be set to 8080 (the sidecar port)
+        assert body["properties"]["configuration"]["ingress"]["targetPort"] == 8080
+
+        # Agent container must have PORT=8081 env var
+        env_vars = {e["name"]: e["value"] for e in containers[0]["env"] if "value" in e}
+        assert env_vars["PORT"] == "8081"
+
+    def test_secrets_mirrored_and_mapped_as_keyvault_references(self) -> None:
+        deployer = AzureContainerAppsDeployer()
+        config = _make_agent_config()
+        azure = _extract_azure_config(config)
+        managed_env_id = "/subscriptions/.../managedEnvironments/aca-env-prod"
+
+        from engine.secrets.auto_mirror import CloudSecretRef
+        mirrored_refs = [
+            CloudSecretRef(
+                logical_name="OPENAI_API_KEY",
+                cloud_name="agentbreeder-my-agent-OPENAI-API-KEY",
+                cloud="azure",
+            )
+        ]
+
+        identity_id = (
+            "/subscriptions/sub/resourceGroups/rg/providers/"
+            "Microsoft.ManagedIdentity/userAssignedIdentities/agentbreeder-my-agent-id"
+        )
+
+        # Temporarily inject AZURE_KEYVAULT_URL into environment
+        import os
+
+        with patch.dict(os.environ, {"AZURE_KEYVAULT_URL": "https://myvault.vault.azure.net/"}):
+            body = deployer._build_container_app_body(
+                config,
+                azure,
+                "myregistry.azurecr.io/my-agent:1.0.0",
+                managed_env_id,
+                mirrored_refs=mirrored_refs,
+                identity_resource_id=identity_id,
+            )
+
+        secrets = body["properties"]["configuration"]["secrets"]
+        assert len(secrets) == 1
+        assert secrets[0]["name"] == "openai-api-key"
+        assert secrets[0]["keyVaultUrl"] == (
+            "https://myvault.vault.azure.net/secrets/agentbreeder-my-agent-OPENAI-API-KEY"
+        )
+        # The secret is read via the per-agent user-assigned identity, not "System".
+        assert secrets[0]["identity"] == identity_id
+
+        # The app binds that identity at the resource level.
+        assert body["identity"]["type"] == "UserAssigned"
+        assert identity_id in body["identity"]["userAssignedIdentities"]
+
+        # Environment variable should reference the secret
+        env_list = body["properties"]["template"]["containers"][0]["env"]
+        matching_env = [e for e in env_list if e.get("name") == "OPENAI_API_KEY"]
+        assert len(matching_env) == 1
+        assert matching_env[0]["secretRef"] == "openai-api-key"
+
+    def test_secrets_fall_back_to_system_identity_when_unprovisioned(self) -> None:
+        # If no user-assigned identity was provisioned, the secret ref degrades
+        # to the system-assigned identity and no identity block is emitted.
+        deployer = AzureContainerAppsDeployer()
+        config = _make_agent_config()
+        azure = _extract_azure_config(config)
+        managed_env_id = "/subscriptions/.../managedEnvironments/aca-env-prod"
+
+        from engine.secrets.auto_mirror import CloudSecretRef
+        mirrored_refs = [
+            CloudSecretRef(
+                logical_name="OPENAI_API_KEY",
+                cloud_name="agentbreeder-my-agent-OPENAI-API-KEY",
+                cloud="azure",
+            )
+        ]
+
+        import os
+
+        with patch.dict(os.environ, {"AZURE_KEYVAULT_URL": "https://myvault.vault.azure.net/"}):
+            body = deployer._build_container_app_body(
+                config,
+                azure,
+                "myregistry.azurecr.io/my-agent:1.0.0",
+                managed_env_id,
+                mirrored_refs=mirrored_refs,
+            )
+
+        assert body["properties"]["configuration"]["secrets"][0]["identity"] == "System"
+        assert "identity" not in body

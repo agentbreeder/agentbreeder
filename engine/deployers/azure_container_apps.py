@@ -12,6 +12,7 @@ Cloud-specific logic stays in this module — never leak Azure details elsewhere
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from typing import Any
 
@@ -28,7 +29,8 @@ from engine.deployers.base import (
     InfraResult,
 )
 from engine.runtimes.base import ContainerImage
-from engine.sidecar import validate_sidecar_config
+from engine.secrets.auto_mirror import CloudSecretRef, MirrorResult, mirror_secrets_to_cloud
+from engine.sidecar import SidecarConfig, should_inject, validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +145,9 @@ class AzureContainerAppsDeployer(BaseDeployer):
     def __init__(self) -> None:
         self._azure_config: AzureConfig | None = None
         self._image_uri: str | None = None
+        self._mirror_result: MirrorResult | None = None
+        self._identity_resource_id: str | None = None
+        self._identity_principal_id: str | None = None
 
     def _get_credential(self) -> Any:
         """Get the Azure credential using DefaultAzureCredential.
@@ -324,12 +329,103 @@ class AzureContainerAppsDeployer(BaseDeployer):
 
         logger.info("Image pushed to ACR successfully: %s", image_uri)
 
+    def _build_azure_sidecar_container(self, config: AgentConfig) -> dict[str, Any]:
+        """Build the sidecar container spec for Azure Container Apps."""
+        sc = SidecarConfig.from_agent_config(config)
+        env = [
+            {"name": "AGENT_NAME", "value": config.name},
+            {"name": "AGENT_VERSION", "value": config.version},
+            {"name": "AGENTBREEDER_SIDECAR_AGENT_URL", "value": "http://localhost:8081"},
+            {"name": "AGENTBREEDER_SIDECAR_INBOUND_ADDR", "value": ":8080"},
+            {"name": "AB_GUARDRAILS", "value": ",".join(sc.guardrails)},
+        ]
+        otel = os.environ.get("OPENTELEMETRY_ENDPOINT") or sc.otel_endpoint
+        if otel:
+            env.append({"name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": otel})
+        if api_url := os.environ.get("AGENTBREEDER_API_URL"):
+            env.append({"name": "AGENTBREEDER_API_URL", "value": api_url})
+
+        return {
+            "name": "agentbreeder-sidecar",
+            "image": sc.image,
+            "env": env,
+            "resources": {"cpu": 0.25, "memory": "0.5Gi"},
+        }
+
+    def _ensure_managed_identity(
+        self, config: AgentConfig, azure: AzureConfig
+    ) -> None:  # pragma: no cover - exercised via integration tests with mocked SDK
+        """Create-or-get the per-agent user-assigned managed identity (Track K).
+
+        The Container App runs as ``agentbreeder-<agent>-id`` so it can read
+        mirrored Key Vault secrets. Using a user-assigned identity (rather than
+        a system-assigned one) means the principal id is known *before* the app
+        is created, so the Key Vault grant can be applied up front. The greenfield
+        provisioner creates the same identity; this is idempotent with it.
+        """
+        identity_name = f"agentbreeder-{config.name}-id"
+        try:
+            from azure.mgmt.msi import ManagedServiceIdentityClient
+            from azure.mgmt.msi.models import Identity
+        except ImportError:
+            logger.warning(
+                "Azure MSI SDK not installed — cannot provision managed identity for "
+                "Key Vault access. Install with: pip install agentbreeder[azure]"
+            )
+            return
+
+        client = ManagedServiceIdentityClient(self._get_credential(), azure.subscription_id)
+        try:
+            existing = client.user_assigned_identities.get(azure.resource_group, identity_name)
+            self._identity_resource_id = existing.id
+            self._identity_principal_id = existing.principal_id
+        except Exception:
+            created = client.user_assigned_identities.create_or_update(
+                azure.resource_group,
+                identity_name,
+                Identity(location=azure.location),
+            )
+            self._identity_resource_id = created.id
+            self._identity_principal_id = created.principal_id
+
+    async def _mirror_workspace_secrets(self, config: AgentConfig, azure: AzureConfig) -> None:
+        """Mirror workspace secrets to Azure Key Vault (Track K)."""
+        secret_names = list(config.deploy.secrets or [])
+        if not secret_names:
+            self._mirror_result = MirrorResult()
+            return
+
+        vault_url = os.environ.get("AZURE_KEYVAULT_URL", "")
+        try:
+            self._mirror_result = await mirror_secrets_to_cloud(
+                agent_name=config.name,
+                secret_names=secret_names,
+                target_cloud="azure",
+                runtime_service_account=self._identity_principal_id,
+                target_options={
+                    "vault_url": vault_url,
+                    "subscription_id": azure.subscription_id,
+                    "resource_group": azure.resource_group,
+                },
+            )
+        except Exception as exc:
+            logger.error(
+                "Track K: secret mirror to Azure Key Vault failed for agent '%s': %s",
+                config.name,
+                exc,
+            )
+            self._mirror_result = MirrorResult(
+                errors={"_": f"mirror call raised: {exc}"},
+            )
+
     def _build_container_app_body(
         self,
         config: AgentConfig,
         azure: AzureConfig,
         image_uri: str,
         managed_env_id: str,
+        mirrored_refs: list[CloudSecretRef] | None = None,
+        identity_resource_id: str | None = None,
     ) -> dict[str, Any]:
         """Build the ContainerApp resource definition dict.
 
@@ -384,6 +480,51 @@ class AzureContainerAppsDeployer(BaseDeployer):
                 }
             )
 
+        # Track K: Resolve mirrored secret references. The Container App reads
+        # them via its user-assigned managed identity (granted Key Vault Secrets
+        # User up front); fall back to the system identity only if no identity
+        # was provisioned.
+        if mirrored_refs:
+            vault_url = os.environ.get("AZURE_KEYVAULT_URL", "").rstrip("/")
+            secret_identity = identity_resource_id or "System"
+            for ref in mirrored_refs:
+                secret_url = f"{vault_url}/secrets/{ref.cloud_name}"
+                secrets.append(
+                    {
+                        "name": ref.logical_name.lower().replace("_", "-"),
+                        "keyVaultUrl": secret_url,
+                        "identity": secret_identity,
+                    }
+                )
+                env_vars.append(
+                    {
+                        "name": ref.logical_name,
+                        "secretRef": ref.logical_name.lower().replace("_", "-")
+                    }
+                )
+
+        # Track J: Setup main container and optional sidecar injection
+        containers = []
+        target_port = DEFAULT_TARGET_PORT
+
+        main_container = {
+            "name": config.name,
+            "image": image_uri,
+            "env": env_vars,
+            "resources": {
+                "cpu": cpu,
+                "memory": memory,
+            },
+        }
+
+        if should_inject(config):
+            target_port = 8080
+            env_vars.append({"name": "PORT", "value": "8081"})
+            containers.append(main_container)
+            containers.append(self._build_azure_sidecar_container(config))
+        else:
+            containers.append(main_container)
+
         body: dict[str, Any] = {
             "location": azure.location,
             "tags": {
@@ -396,7 +537,7 @@ class AzureContainerAppsDeployer(BaseDeployer):
                 "managedEnvironmentId": managed_env_id,
                 "configuration": {
                     "ingress": {
-                        "targetPort": DEFAULT_TARGET_PORT,
+                        "targetPort": target_port,
                         "external": True,
                         "transport": "auto",
                     },
@@ -404,17 +545,7 @@ class AzureContainerAppsDeployer(BaseDeployer):
                     "secrets": secrets,
                 },
                 "template": {
-                    "containers": [
-                        {
-                            "name": config.name,
-                            "image": image_uri,
-                            "env": env_vars,
-                            "resources": {
-                                "cpu": cpu,
-                                "memory": memory,
-                            },
-                        }
-                    ],
+                    "containers": containers,
                     "scale": {
                         "minReplicas": min_replicas,
                         "maxReplicas": max_replicas,
@@ -422,6 +553,13 @@ class AzureContainerAppsDeployer(BaseDeployer):
                 },
             },
         }
+
+        # Bind the user-assigned identity so the app can pull Key Vault secrets.
+        if identity_resource_id:
+            body["identity"] = {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {identity_resource_id: {}},
+            }
 
         return body
 
@@ -524,12 +662,24 @@ class AzureContainerAppsDeployer(BaseDeployer):
         assert image is not None, "ContainerImage required for Azure Container Apps deployer"
         await self._push_image(image, self._image_uri)
 
+        # Step 1b (Track K): ensure the runtime identity exists, then mirror
+        # workspace secrets → Azure Key Vault and grant the identity read access.
+        if config.deploy.secrets:
+            self._ensure_managed_identity(config, azure)
+        await self._mirror_workspace_secrets(config, azure)
+
         # Step 2: Get the managed environment resource ID
         managed_env_id = await self._get_managed_environment_id(azure)
 
         # Step 3: Create or update the Container App
+        mirrored_refs = list(self._mirror_result.refs) if self._mirror_result else []
         endpoint_url = await self._create_or_update_container_app(
-            config, azure, self._image_uri, managed_env_id
+            config,
+            azure,
+            self._image_uri,
+            managed_env_id,
+            mirrored_refs=mirrored_refs,
+            identity_resource_id=self._identity_resource_id,
         )
 
         logger.info("Azure Container App deployed: %s → %s", config.name, endpoint_url)
@@ -570,6 +720,8 @@ class AzureContainerAppsDeployer(BaseDeployer):
         azure: AzureConfig,
         image_uri: str,
         managed_env_id: str,
+        mirrored_refs: list[CloudSecretRef] | None = None,
+        identity_resource_id: str | None = None,
     ) -> str:
         """Create a new Container App or update an existing one.
 
@@ -577,7 +729,14 @@ class AzureContainerAppsDeployer(BaseDeployer):
         """
         aca_client = self._get_aca_client()
 
-        body = self._build_container_app_body(config, azure, image_uri, managed_env_id)
+        body = self._build_container_app_body(
+            config,
+            azure,
+            image_uri,
+            managed_env_id,
+            mirrored_refs=mirrored_refs,
+            identity_resource_id=identity_resource_id,
+        )
 
         logger.info(
             "Creating or updating Container App '%s' in resource group '%s'",

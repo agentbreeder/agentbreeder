@@ -2233,6 +2233,32 @@ Elevate MCP from "tool connector" to a managed server hub with lifecycle managem
 - [ ] Cloud console deep links on deploy status page
 - [ ] Cloud Run deployment docs + quickstart guide
 
+#### Multi-Cloud Parity — "One agent. Three clouds. One command." (Planned — Epic #505)
+
+> The deployers (v1.5) and greenfield provisioners (#382/#383/#384) shipped, but **governance is not yet identical across clouds.** True parity = the same `agent.yaml` deploys to **AWS ECS Fargate · GCP Cloud Run · Azure Container Apps** with **Track J** (sidecar: guardrails/cost/tracing) and **Track K** (secret mirroring) behaving the same on all three.
+
+**Parity scorecard (target state):**
+
+| Capability | GCP Cloud Run | AWS ECS Fargate | Azure Container Apps |
+|---|---|---|---|
+| Greenfield provision | ✅ #382/#437 | ✅ #383 | ✅ #384 |
+| Track J — sidecar in **inbound** path | ❌ bypassed (#203) | ⚠️ ALB wiring (#400) | ✅ in-progress |
+| Track K — secret mirroring | ✅ | ✅ | ✅ (#499) |
+| Identical guardrail enforcement | — verified by #198 — | | |
+
+**What's left (ship order forced by correctness):**
+- [ ] #203 — **P0** GCP: route inbound traffic *through* the sidecar (guardrails currently bypassed on Cloud Run)
+- [x] #499 — **P0** Azure Track K: fixed invalid Key Vault secret names (shared sanitizer) + real `_azure_grant` RBAC via per-agent user-assigned identity (RBAC + access-policy modes)
+- [ ] #400 — sidecar multi-container deploy on all 3 clouds (canonical Azure injector + ECS Fargate ingress→sidecar wiring)
+- [ ] #501 — App Runner: fail-fast at validate (App Runner stays a limited single-container option; **ECS Fargate is the AWS parity target**)
+- [ ] #500 — harden injected sidecar: pin image (drop `:latest`) + securityContext
+- [ ] #198 — cross-cloud parity matrix test (same `agent.yaml`, 3 targets, guardrails fire on all)
+- [ ] #502 — dashboard: capability-aware cloud selector (surface Track J/K per cloud)
+- [ ] #503 — website: honest "Deploy Anywhere" status chips (gate full-parity claim on this epic closing)
+- [ ] #504 — adopt **Pulumi (Automation API)** for greenfield provisioning — *orthogonal, going-forward*
+
+**Decisions:** AWS parity = ECS Fargate (App Runner kept but limited, no sidecar). IaC → Pulumi going forward (provisioners are currently SDK-direct via boto3/google.cloud/azure.mgmt; parity ships on the current path regardless).
+
 #### Deployer Priority (post v1.3, in order)
 
 | Priority | Target | Milestone | Notes |
