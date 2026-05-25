@@ -1,6 +1,7 @@
 /**
  * Tests for Step3Stack — the recommendation + editable stack step.
  */
+import React from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -54,7 +55,7 @@ function makeState(overrides: Partial<AgentWizardState> = {}): AgentWizardState 
 }
 
 function makeDispatch() {
-  return vi.fn<[AgentWizardAction], void>();
+  return vi.fn() as React.Dispatch<AgentWizardAction>;
 }
 
 function withQuery(ui: React.ReactNode) {
