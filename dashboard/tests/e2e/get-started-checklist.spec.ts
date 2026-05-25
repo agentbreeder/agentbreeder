@@ -3,7 +3,7 @@
  *
  * Verifies:
  *   1. Checklist renders on Home when no agents exist, with "Create your first
- *      agent" CTA linking to /agents/builder.
+ *      agent" CTA linking to /agents/new.
  *   2. Welcome tour modal does NOT auto-open (no modal visible at / without
  *      seeding the tour-completed key — checklist is now the first-run guide).
  *   3. Dismiss control hides the checklist.
@@ -77,7 +77,7 @@ test("checklist renders on Home with no agents", async ({ authedPage: page }) =>
   await expect(page.getByTestId("step-deploy")).toBeVisible();
 });
 
-test("'Create your first agent' step is active and CTA links to /agents/builder when providers exist", async ({
+test("'Create your first agent' step is active and CTA links to /agents/new when providers exist", async ({
   authedPage: page,
 }) => {
   // Providers: 1 active → step 1 done, step 2 (create-agent) active.
@@ -112,10 +112,10 @@ test("'Create your first agent' step is active and CTA links to /agents/builder 
 
   await page.goto("/");
 
-  // cta-create-agent should be visible and point to /agents/builder.
+  // cta-create-agent should be visible and point to /agents/new.
   const cta = page.getByTestId("cta-create-agent");
   await expect(cta).toBeVisible();
-  await expect(cta).toHaveAttribute("href", "/agents/builder");
+  await expect(cta).toHaveAttribute("href", "/agents/new");
 });
 
 test("welcome tour modal does NOT auto-open on first visit", async ({
