@@ -86,6 +86,7 @@ A reusable `<ComingSoon feature issue />` page state (icon, one-line description
 - **Gate (start):** Memory builder, RAG builder, Fleet (mock data), Models→Local tab (already), "add custom OpenAI-compatible provider" (already).
 - **Keep enabled:** Agents, Tools, A2A Agents, MCP Servers, Models (Direct + Gateway), Prompts, Playground, Templates, Marketplace, Traces, Costs, Datasets, Eval Runs, Deploy Wizard, Teams, Approvals, Audit Log, Incidents, Compliance.
 - **Verify-before-gate:** during implementation, each candidate page is checked for genuine end-to-end function (not just "renders") before the final keep/gate call. The classification above is the starting point, not the verdict.
+- **Verification verdict (2026-05-25):** Memory builder, RAG builder, Incidents, Compliance, Datasets, and Eval Runs are all **real, wired implementations** → NOT gated. Fleet (`agentops`) is mostly real but its **cost anomalies + suggestions are seeded** → instead of gating the page, add a subtle "sample data" marker on those sections. The Local tab and custom-provider button are already gated via the existing `ComingSoonBadge`/`ComingSoonBanner` (`dashboard/src/components/coming-soon-badge.tsx`). Net: no new full-page gating; the honesty win is the Fleet "sample data" marker.
 
 ### F. Quickstart CLI streamlining
 
