@@ -381,14 +381,10 @@ class TestSidecarIngressRouting:
         return _build_service_template(config, gcp, "img:1.0.0")
 
     def _agent_container(self, template: dict) -> dict:
-        return next(
-            c for c in template["containers"] if c.get("name") != "agentbreeder-sidecar"
-        )
+        return next(c for c in template["containers"] if c.get("name") != "agentbreeder-sidecar")
 
     def _sidecar_container(self, template: dict) -> dict:
-        return next(
-            c for c in template["containers"] if c.get("name") == "agentbreeder-sidecar"
-        )
+        return next(c for c in template["containers"] if c.get("name") == "agentbreeder-sidecar")
 
     def test_sidecar_is_the_ingress_container(self) -> None:
         template = self._injected_template()

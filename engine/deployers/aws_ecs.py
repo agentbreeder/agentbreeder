@@ -425,7 +425,10 @@ class AWSECSDeployer(BaseDeployer):
                 },
             },
             "healthCheck": {
-                "command": ["CMD-SHELL", f"curl -f http://localhost:{agent_port}/health || exit 1"],
+                "command": [
+                    "CMD-SHELL",
+                    f"curl -f http://localhost:{agent_port}/health || exit 1",
+                ],
                 "interval": 30,
                 "timeout": 5,
                 "retries": 3,

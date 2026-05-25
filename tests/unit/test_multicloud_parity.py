@@ -59,9 +59,7 @@ def _gcp_spec() -> dict:
         _extract_cloudrun_config,
     )
 
-    config = _governed_config(
-        env_vars={"GCP_PROJECT_ID": "my-project-123"}, runtime="cloud-run"
-    )
+    config = _governed_config(env_vars={"GCP_PROJECT_ID": "my-project-123"}, runtime="cloud-run")
     gcp = _extract_cloudrun_config(config)
     template = _build_service_template(config, gcp, "img:1.0.0")
     containers = template["containers"]

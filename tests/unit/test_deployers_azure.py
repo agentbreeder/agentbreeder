@@ -966,6 +966,7 @@ class TestBuildContainerAppBody:
         managed_env_id = "/subscriptions/.../managedEnvironments/aca-env-prod"
 
         from engine.secrets.auto_mirror import CloudSecretRef
+
         mirrored_refs = [
             CloudSecretRef(
                 logical_name="OPENAI_API_KEY",
@@ -1020,6 +1021,7 @@ class TestBuildContainerAppBody:
         managed_env_id = "/subscriptions/.../managedEnvironments/aca-env-prod"
 
         from engine.secrets.auto_mirror import CloudSecretRef
+
         mirrored_refs = [
             CloudSecretRef(
                 logical_name="OPENAI_API_KEY",

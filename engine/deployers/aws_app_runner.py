@@ -345,6 +345,7 @@ class AWSAppRunnerDeployer(BaseDeployer):
 
         # Check for sidecar or secret mirroring requirements which are unsupported on AWS App Runner
         from engine.sidecar import should_inject
+
         if should_inject(config):
             msg = (
                 f"AWS App Runner does not natively support multi-container sidecars. "

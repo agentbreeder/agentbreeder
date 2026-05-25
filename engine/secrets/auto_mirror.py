@@ -366,12 +366,8 @@ def _azure_grant(secret_name: str, principal: str, options: dict[str, Any]) -> N
     access policy. Idempotent and non-fatal — a failure never aborts the deploy.
     """
     vault_url = options.get("vault_url") or os.environ.get("AZURE_KEYVAULT_URL", "")
-    subscription_id = options.get("subscription_id") or os.environ.get(
-        "AZURE_SUBSCRIPTION_ID", ""
-    )
-    resource_group = options.get("resource_group") or os.environ.get(
-        "AZURE_RESOURCE_GROUP", ""
-    )
+    subscription_id = options.get("subscription_id") or os.environ.get("AZURE_SUBSCRIPTION_ID", "")
+    resource_group = options.get("resource_group") or os.environ.get("AZURE_RESOURCE_GROUP", "")
     if not (vault_url and subscription_id and resource_group and principal):
         logger.warning(
             "azure grant: missing vault_url/subscription_id/resource_group/principal — "
@@ -452,9 +448,7 @@ def _azure_assign_secrets_user_role(
         f"{_KEY_VAULT_SECRETS_USER_ROLE_DEF_ID}"
     )
     # Deterministic assignment name per (scope, principal) → safe to retry.
-    ra_name = str(
-        uuid.uuid5(uuid.NAMESPACE_URL, f"{vault_id}|{principal}|KeyVaultSecretsUser")
-    )
+    ra_name = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{vault_id}|{principal}|KeyVaultSecretsUser"))
     params = RoleAssignmentCreateParameters(  # type: ignore[call-arg]  # SDK multi-api stub mismatch
         role_definition_id=role_def_id,
         principal_id=principal,

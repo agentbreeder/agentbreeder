@@ -500,7 +500,7 @@ class AzureContainerAppsDeployer(BaseDeployer):
                 env_vars.append(
                     {
                         "name": ref.logical_name,
-                        "secretRef": ref.logical_name.lower().replace("_", "-")
+                        "secretRef": ref.logical_name.lower().replace("_", "-"),
                     }
                 )
 
