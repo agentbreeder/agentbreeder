@@ -2,7 +2,8 @@
  * Unit tests for agent wizard Step1, Step2, StepIndicator components.
  * Step3 and Step4 tests are in their own focused test blocks here.
  */
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import React from "react";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { initialState, type AgentWizardState, type AgentWizardAction } from "@/lib/agent-wizard-state";
@@ -19,7 +20,7 @@ function makeState(overrides: Partial<AgentWizardState> = {}): AgentWizardState 
 }
 
 function makeDispatch() {
-  return vi.fn<[AgentWizardAction], void>();
+  return vi.fn() as React.Dispatch<AgentWizardAction>;
 }
 
 function withQuery(ui: React.ReactNode) {
