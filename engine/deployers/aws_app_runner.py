@@ -343,6 +343,26 @@ class AWSAppRunnerDeployer(BaseDeployer):
         # W4-37: Pre-validate sidecar before any cloud API call.
         validate_sidecar_config(config)
 
+        # Check for sidecar or secret mirroring requirements which are unsupported on AWS App Runner
+        from engine.sidecar import should_inject
+
+        if should_inject(config):
+            msg = (
+                f"AWS App Runner does not natively support multi-container sidecars. "
+                f"To deploy agent '{config.name}' with sidecar requirements "
+                f"(guardrails, tools, or A2A), please deploy to AWS ECS Fargate "
+                f"by setting deploy.runtime: ecs-fargate."
+            )
+            raise ValueError(msg)
+
+        if config.deploy.secrets:
+            msg = (
+                f"Secret mirroring (Track K) is not supported on AWS App Runner. "
+                f"To deploy agent '{config.name}' with secret mirroring, "
+                f"please deploy to AWS ECS Fargate by setting deploy.runtime: ecs-fargate."
+            )
+            raise ValueError(msg)
+
         assert self._ar_config is not None, "provision() must be called before deploy()"
         assert self._image_uri is not None, "provision() must be called before deploy()"
         assert image is not None, "ContainerImage required for App Runner deployer"

@@ -65,6 +65,10 @@ def inject_sidecar(task_definition: dict[str, Any], config: SidecarConfig) -> di
         "name": SIDECAR_NAME,
         "image": config.image,
         "essential": False,
+        # #500: least-privilege hardening — non-root, read-only root fs, no caps.
+        "user": "65532",
+        "readonlyRootFilesystem": True,
+        "linuxParameters": {"capabilities": {"drop": ["ALL"]}},
         "portMappings": [{"containerPort": config.health_port, "protocol": "tcp"}],
         "environment": [
             {"name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": config.otel_endpoint},

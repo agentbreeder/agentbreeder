@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Pattern for secret references in agent.yaml values: secret://KEY_NAME
 _SECRET_REF_RE = re.compile(r"^secret://(.+)$")
 
-SUPPORTED_BACKENDS = ("env", "keychain", "aws", "gcp", "vault")
+SUPPORTED_BACKENDS = ("env", "keychain", "aws", "gcp", "azure", "vault")
 
 
 def get_backend(backend: str | None = None, **kwargs: object) -> SecretsBackend:
@@ -73,6 +73,10 @@ def _instantiate(backend: str, kwargs: dict[str, Any]) -> SecretsBackend:
         from engine.secrets.gcp_backend import GCPSecretManagerBackend
 
         return GCPSecretManagerBackend(**kwargs)
+    if name in ("azure", "azure_key_vault"):
+        from engine.secrets.azure_backend import AzureKeyVaultBackend
+
+        return AzureKeyVaultBackend(**kwargs)
     if name in ("vault", "hashicorp_vault"):
         from engine.secrets.vault_backend import VaultBackend
 

@@ -48,6 +48,12 @@ DEFAULT_CONCURRENCY = 80
 HEALTH_CHECK_TIMEOUT = 120
 HEALTH_CHECK_INTERVAL = 5
 
+# Track J port contract (#203): Cloud Run ingress hits the sidecar on 8080; the
+# sidecar proxies to the agent on 8081. Without a sidecar the agent is the
+# ingress container on 8080.
+INGRESS_PORT = 8080
+AGENT_INTERNAL_PORT = 8081
+
 
 class CloudRunConfig(BaseModel):
     """GCP-specific configuration extracted from AgentConfig.deploy."""
@@ -216,7 +222,7 @@ def _build_service_template(
                 }
             )
 
-    container = {
+    container: dict[str, Any] = {
         "image": image_uri,
         "resources": {
             "limits": {
@@ -225,8 +231,6 @@ def _build_service_template(
             },
         },
         "env": env_list,
-        # Fix #117: use snake_case field names required by Cloud Run Python SDK v2.
-        "ports": [{"container_port": 8080}],
         "startup_probe": {
             "http_get": {"path": "/health"},
             "initial_delay_seconds": 5,
@@ -244,12 +248,22 @@ def _build_service_template(
     min_instances = scaling_min if scaling_min >= 0 else DEFAULT_MIN_INSTANCES
     max_instances = config.deploy.scaling.max or DEFAULT_MAX_INSTANCES
 
-    # Track J: optional sidecar injection — Cloud Run multi-container revisions
-    # support up to 10 containers. The sidecar fronts external traffic on
-    # config.deploy.scaling-defined ports while the agent listens on 8081.
+    # Track J: optional sidecar injection (#203). Cloud Run routes external
+    # traffic to the single container that declares `ports` (the ingress
+    # container). When a sidecar is present it must be that container so every
+    # inbound request terminates at the sidecar (bearer-token + guardrails)
+    # before reaching the agent. The agent moves to an internal port (8081),
+    # drops its `ports` declaration, and the sidecar proxies to it.
     containers_list: list[dict[str, Any]] = [container]
     if should_inject(config):
+        container["name"] = config.name
+        env_list.append({"name": "PORT", "value": str(AGENT_INTERNAL_PORT)})
+        container["startup_probe"]["http_get"]["port"] = AGENT_INTERNAL_PORT
+        container["liveness_probe"]["http_get"]["port"] = AGENT_INTERNAL_PORT
         containers_list.append(_build_cloudrun_sidecar_container(config))
+    else:
+        # Single container — it is the ingress; Cloud Run injects PORT=8080.
+        container["ports"] = [{"container_port": INGRESS_PORT}]
 
     # Fix #117 (continued): top-level template fields are also snake_case.
     template: dict[str, Any] = {
@@ -282,13 +296,12 @@ def _build_service_template(
 def _build_cloudrun_sidecar_container(config: AgentConfig) -> dict[str, Any]:
     """Build the sidecar container spec for a Cloud Run revision.
 
-    Cloud Run v2 multi-container: the first container with `ports` is the
-    "ingress" container — we leave that as the agent (existing behaviour) and
-    let the agent itself handle traffic. A future Cloud Run change can flip
-    ingress to the sidecar; for v1 we keep the proxy agent-side.
-
-    The sidecar receives all the env it needs to talk to the agent over
-    localhost (Cloud Run shares a network namespace within a revision).
+    The sidecar is the **ingress** container — it is the one that declares
+    `ports`, so Cloud Run routes all external traffic to it. It terminates
+    inbound on :8080 (bearer-token check + guardrail egress) and reverse-proxies
+    to the agent on :8081 over localhost (Cloud Run shares a network namespace
+    within a revision). This closes #203: the agent never receives an
+    unauthenticated external request.
     """
     import os as _os
 
@@ -296,9 +309,13 @@ def _build_cloudrun_sidecar_container(config: AgentConfig) -> dict[str, Any]:
     env: list[dict[str, Any]] = [
         {"name": "AGENT_NAME", "value": config.name},
         {"name": "AGENT_VERSION", "value": config.version},
-        {"name": "AGENTBREEDER_SIDECAR_AGENT_URL", "value": "http://localhost:8080"},
-        {"name": "AGENTBREEDER_SIDECAR_INBOUND_ADDR", "value": ":9080"},
+        {
+            "name": "AGENTBREEDER_SIDECAR_AGENT_URL",
+            "value": f"http://localhost:{AGENT_INTERNAL_PORT}",
+        },
+        {"name": "AGENTBREEDER_SIDECAR_INBOUND_ADDR", "value": f":{INGRESS_PORT}"},
         {"name": "AB_GUARDRAILS", "value": ",".join(sc.guardrails)},
+        {"name": "AB_COST_TRACKING", "value": str(sc.cost_tracking).lower()},
     ]
     otel = _os.getenv("OPENTELEMETRY_ENDPOINT") or sc.otel_endpoint
     if otel:
@@ -311,8 +328,19 @@ def _build_cloudrun_sidecar_container(config: AgentConfig) -> dict[str, Any]:
         "image": sc.image,
         "env": env,
         "resources": {"limits": {"cpu": "500m", "memory": "256Mi"}},
-        # Sidecar listens on a separate port; agent retains 8080 for ingress.
-        # No `ports` on this container (Cloud Run requires exactly one ingress).
+        # #500: run the sidecar as the distroless non-root user.
+        "security_context": {"run_as_user": 65532},
+        "ports": [{"container_port": INGRESS_PORT}],
+        "startup_probe": {
+            "http_get": {"path": "/health", "port": INGRESS_PORT},
+            "initial_delay_seconds": 5,
+            "period_seconds": 5,
+            "failure_threshold": 12,
+        },
+        "liveness_probe": {
+            "http_get": {"path": "/health", "port": INGRESS_PORT},
+            "period_seconds": 30,
+        },
     }
 
 

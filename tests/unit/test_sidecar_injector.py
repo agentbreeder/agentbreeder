@@ -57,6 +57,25 @@ def test_inject_sidecar_does_not_mutate_input() -> None:
     assert len(task_def["containerDefinitions"]) == original_len
 
 
+def test_default_sidecar_image_is_pinned_not_latest() -> None:
+    # #500: the injected image must be a concrete version so deploys are
+    # reproducible and a re-pulled :latest can't silently change behaviour.
+    from engine.sidecar.config import DEFAULT_SIDECAR_IMAGE
+
+    assert not DEFAULT_SIDECAR_IMAGE.endswith(":latest")
+    assert ":" in DEFAULT_SIDECAR_IMAGE
+
+
+def test_inject_sidecar_has_security_context() -> None:
+    # #500: least-privilege hardening on the ECS sidecar container.
+    task_def: dict = {"containerDefinitions": []}
+    result = inject_sidecar(task_def, SidecarConfig(enabled=True))
+    sidecar = next(c for c in result["containerDefinitions"] if c["name"] == SIDECAR_NAME)
+    assert sidecar["user"] == "65532"
+    assert sidecar["readonlyRootFilesystem"] is True
+    assert sidecar["linuxParameters"]["capabilities"]["drop"] == ["ALL"]
+
+
 def test_inject_sidecar_sidecar_is_non_essential() -> None:
     """The sidecar should be non-essential so it can't kill the agent container."""
     task_def: dict = {"containerDefinitions": []}

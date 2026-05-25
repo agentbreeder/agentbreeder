@@ -11,8 +11,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # Single source of truth for the sidecar image — kept as a constant so deployers
-# never accidentally diverge.
-DEFAULT_SIDECAR_IMAGE = "agentbreeder/agentbreeder-sidecar:latest"
+# never accidentally diverge. Pinned to a concrete version (never ":latest") so
+# a deploy is reproducible and a re-pulled image can't silently change the
+# guardrail/auth behaviour fronting an agent. Bump this in lockstep with the
+# release that publishes the matching agentbreeder-sidecar tag.
+DEFAULT_SIDECAR_IMAGE = "agentbreeder/agentbreeder-sidecar:2.5.1"
 
 # Valid port range for sidecar port-number fields.
 _MIN_PORT = 1
