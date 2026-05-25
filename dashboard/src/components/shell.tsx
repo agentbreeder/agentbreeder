@@ -5,8 +5,6 @@ import {
   Cpu,
   FileText,
   Search,
-  Moon,
-  Sun,
   Monitor,
   Activity,
   Clock,
@@ -38,7 +36,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
-import { useTheme } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
 import { useTour } from "@/hooks/use-tour";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -133,45 +130,6 @@ function saveSidebarWidth(width: number) {
   }
 }
 
-function ThemeSwitcher({ collapsed }: { collapsed: boolean }) {
-  const { theme, setTheme } = useTheme();
-  const cycle = () => {
-    const next = theme === "dark" ? "light" : theme === "light" ? "system" : "dark";
-    setTheme(next);
-  };
-  const Icon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
-
-  if (collapsed) {
-    return (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              onClick={cycle}
-              className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            />
-          }
-        >
-          <Icon className="size-3.5" />
-        </TooltipTrigger>
-        <TooltipContent side="right">
-          Theme: {theme}
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
-
-  return (
-    <button
-      onClick={cycle}
-      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-      title={`Theme: ${theme}`}
-    >
-      <Icon className="size-3.5" />
-      <span className="capitalize">{theme}</span>
-    </button>
-  );
-}
 
 function CommandSearch({ collapsed }: { collapsed: boolean }) {
   const [open, setOpen] = useState(false);
@@ -710,7 +668,6 @@ function ShellInner() {
             )}
           >
             <UserMenu collapsed={collapsed} />
-            <ThemeSwitcher collapsed={collapsed} />
             {!collapsed && (
               <div className="px-2 text-[10px] text-muted-foreground/60">
                 AgentBreeder Studio v0.1 &middot; Press{" "}
