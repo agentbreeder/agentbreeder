@@ -214,7 +214,7 @@ router_settings:
 The gateway is included in the default Docker Compose stack:
 
 ```bash
-docker compose up -d   # starts postgres, redis, API, dashboard, and litellm
+docker compose -f deploy/docker-compose.yml up -d   # starts postgres, redis, API, dashboard, and litellm
 ```
 
 The LiteLLM admin UI is available at `http://localhost:4000/ui`. The default master key is `sk-agentbreeder-quickstart` (set `LITELLM_MASTER_KEY` in `.env` for production).

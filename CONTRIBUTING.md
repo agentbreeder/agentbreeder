@@ -150,7 +150,7 @@ Studio and the CLI both talk to the FastAPI backend. You need it running for any
 
 ```bash
 # Start infrastructure first (Postgres + Redis)
-docker compose up -d postgres redis
+docker compose -f deploy/docker-compose.yml up -d postgres redis
 
 # Run database migrations
 alembic upgrade head
@@ -169,7 +169,7 @@ Changes to any file under `api/` reload automatically.
 **To start the full stack (API + all services) instead:**
 
 ```bash
-docker compose up -d
+docker compose -f deploy/docker-compose.yml up -d
 uvicorn api.main:app --reload --port 8000
 ```
 
@@ -226,7 +226,7 @@ For full end-to-end local development, open four terminal tabs:
 
 | Tab | Command | URL |
 |-----|---------|-----|
-| Services | `docker compose up -d` | — |
+| Services | `docker compose -f deploy/docker-compose.yml up -d` | — |
 | API | `uvicorn api.main:app --reload --port 8000` | `http://localhost:8000/docs` |
 | Studio | `cd dashboard && npm run dev` | `http://localhost:3001` |
 | Website | `cd website && npm run dev` | `http://localhost:3000` |

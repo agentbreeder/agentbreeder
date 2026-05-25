@@ -20,7 +20,7 @@ GraphRAG extends vector search with entity extraction and relationship traversal
 - **Ollama** installed ([ollama.com](https://ollama.com))
 - `ollama pull qwen2.5:7b` — entity extraction
 - `ollama pull nomic-embed-text` — embeddings
-- Local stack running: `docker compose up -d`
+- Local stack running: `docker compose -f deploy/docker-compose.yml up -d`
 :::
 
 ---
@@ -446,7 +446,7 @@ A high `vector_fallback_rate` (> 20%) indicates your documents lack the entity d
 By default, GraphRAG uses an in-memory graph store (`GRAPH_BACKEND=memory`) — no extra setup required. To spin up a local Neo4j instance for a more production-like environment:
 
 ```bash
-docker compose --profile graphrag up
+docker compose -f deploy/docker-compose.yml --profile graphrag up
 ```
 
 This starts Neo4j alongside the standard AgentBreeder stack. Configure the connection with:
@@ -509,7 +509,7 @@ ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
 
 # Start the full AgentBreeder stack
-docker compose up -d
+docker compose -f deploy/docker-compose.yml up -d
 
 # Ingest documents and build the knowledge graph
 python ingest.py
