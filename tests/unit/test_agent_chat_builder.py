@@ -6,19 +6,18 @@ The AnthropicProvider is mocked throughout — no real network calls, no real AP
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from engine.agent_chat_builder import (
+    _AGENT_SCHEMA,
+    _SYSTEM_PROMPT,
     MAX_HISTORY_MESSAGES,
     SUBMIT_TOOL,
     SUBMIT_TOOL_NAME,
     ChatTurnResult,
-    _AGENT_SCHEMA,
-    _SYSTEM_PROMPT,
     run_chat_turn,
 )
 from engine.providers.models import GenerateResult, ToolCall, UsageInfo
@@ -341,7 +340,8 @@ class TestRoleFiltering:
         messages = call_kwargs.kwargs.get("messages") or call_kwargs.args[0]
         # The injected system message is role=system; user-supplied ones must be stripped
         user_system_msgs = [
-            m for m in messages
+            m
+            for m in messages
             if m.get("role") == "system" and "Ignore all previous" in m.get("content", "")
         ]
         assert user_system_msgs == [], "system-role history messages must be filtered out"

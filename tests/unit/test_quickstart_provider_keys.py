@@ -45,8 +45,7 @@ class TestOpenRouterLeads:
     def test_openrouter_is_prompted_before_direct_providers(self) -> None:
         """Inputs: OpenRouter key, then decline direct providers."""
         inputs = iter(["sk-or-test", "n"])
-        with _no_ollama(), \
-             patch("cli.commands.quickstart.console.input", side_effect=inputs):
+        with _no_ollama(), patch("cli.commands.quickstart.console.input", side_effect=inputs):
             collected, _ = _collect_provider_keys({})
         assert "OPENROUTER_API_KEY" in collected
         assert collected["OPENROUTER_API_KEY"] == "sk-or-test"
@@ -58,16 +57,14 @@ class TestOpenRouterLeads:
     def test_skip_openrouter_then_decline_direct(self) -> None:
         """Skip OpenRouter (Enter) and decline direct providers."""
         inputs = iter(["", "n"])
-        with _no_ollama(), \
-             patch("cli.commands.quickstart.console.input", side_effect=inputs):
+        with _no_ollama(), patch("cli.commands.quickstart.console.input", side_effect=inputs):
             collected, _ = _collect_provider_keys({})
         assert collected == {}
 
     def test_skip_openrouter_then_enter_on_gate_also_declines(self) -> None:
         """Enter at the gate prompt declines direct providers (default N)."""
         inputs = iter(["", ""])
-        with _no_ollama(), \
-             patch("cli.commands.quickstart.console.input", side_effect=inputs):
+        with _no_ollama(), patch("cli.commands.quickstart.console.input", side_effect=inputs):
             collected, _ = _collect_provider_keys({})
         assert collected == {}
 
@@ -77,15 +74,16 @@ class TestDirectProviderGate:
 
     def test_accepting_gate_prompts_all_three_direct_providers(self) -> None:
         """y at gate → three more prompts (OpenAI, Anthropic, Google)."""
-        inputs = iter([
-            "",      # OpenRouter: skip
-            "y",     # gate: yes
-            "sk-openai",
-            "sk-ant-test",
-            "AIza-test",
-        ])
-        with _no_ollama(), \
-             patch("cli.commands.quickstart.console.input", side_effect=inputs):
+        inputs = iter(
+            [
+                "",  # OpenRouter: skip
+                "y",  # gate: yes
+                "sk-openai",
+                "sk-ant-test",
+                "AIza-test",
+            ]
+        )
+        with _no_ollama(), patch("cli.commands.quickstart.console.input", side_effect=inputs):
             collected, _ = _collect_provider_keys({})
         assert collected["OPENAI_API_KEY"] == "sk-openai"
         assert collected["ANTHROPIC_API_KEY"] == "sk-ant-test"
@@ -93,8 +91,7 @@ class TestDirectProviderGate:
 
     def test_declining_gate_skips_all_direct_providers(self) -> None:
         inputs = iter(["", "n"])
-        with _no_ollama(), \
-             patch("cli.commands.quickstart.console.input", side_effect=inputs):
+        with _no_ollama(), patch("cli.commands.quickstart.console.input", side_effect=inputs):
             collected, _ = _collect_provider_keys({})
         assert "OPENAI_API_KEY" not in collected
         assert "ANTHROPIC_API_KEY" not in collected
@@ -103,22 +100,22 @@ class TestDirectProviderGate:
     def test_enter_at_gate_is_equivalent_to_n(self) -> None:
         """Empty answer at the gate should default to N (skip direct providers)."""
         inputs = iter(["", ""])  # OpenRouter skip, gate Enter = N
-        with _no_ollama(), \
-             patch("cli.commands.quickstart.console.input", side_effect=inputs):
+        with _no_ollama(), patch("cli.commands.quickstart.console.input", side_effect=inputs):
             collected, _ = _collect_provider_keys({})
         assert "OPENAI_API_KEY" not in collected
 
     def test_can_skip_some_direct_providers(self) -> None:
         """Accepting the gate but entering blank for some keys skips those."""
-        inputs = iter([
-            "",      # OpenRouter: skip
-            "y",     # gate: yes
-            "",      # OpenAI: skip
-            "sk-ant-test",
-            "",      # Google: skip
-        ])
-        with _no_ollama(), \
-             patch("cli.commands.quickstart.console.input", side_effect=inputs):
+        inputs = iter(
+            [
+                "",  # OpenRouter: skip
+                "y",  # gate: yes
+                "",  # OpenAI: skip
+                "sk-ant-test",
+                "",  # Google: skip
+            ]
+        )
+        with _no_ollama(), patch("cli.commands.quickstart.console.input", side_effect=inputs):
             collected, _ = _collect_provider_keys({})
         assert "OPENAI_API_KEY" not in collected
         assert collected["ANTHROPIC_API_KEY"] == "sk-ant-test"
@@ -127,16 +124,14 @@ class TestDirectProviderGate:
 
 class TestAssumeYesSkipsAll:
     def test_assume_yes_skips_all_prompts(self) -> None:
-        with _no_ollama(), \
-             patch("cli.commands.quickstart.console.input") as mock_input:
+        with _no_ollama(), patch("cli.commands.quickstart.console.input") as mock_input:
             collected, has_ollama = _collect_provider_keys({}, assume_yes=True)
         assert collected == {}
         assert has_ollama is False
         mock_input.assert_not_called()
 
     def test_assume_yes_with_ollama_running(self) -> None:
-        with _with_ollama(), \
-             patch("cli.commands.quickstart.console.input") as mock_input:
+        with _with_ollama(), patch("cli.commands.quickstart.console.input") as mock_input:
             collected, has_ollama = _collect_provider_keys({}, assume_yes=True)
         assert collected == {}
         assert has_ollama is True
@@ -148,8 +143,7 @@ class TestExistingKeysKept:
         """If OPENROUTER_API_KEY already set, Enter keeps it (no new value collected)."""
         existing = {"OPENROUTER_API_KEY": "sk-or-existing-1234567890"}
         inputs = iter(["", "n"])  # keep OpenRouter, decline direct
-        with _no_ollama(), \
-             patch("cli.commands.quickstart.console.input", side_effect=inputs):
+        with _no_ollama(), patch("cli.commands.quickstart.console.input", side_effect=inputs):
             collected, _ = _collect_provider_keys(existing)
         # No new value for OpenRouter; existing untouched
         assert "OPENROUTER_API_KEY" not in collected
@@ -157,8 +151,7 @@ class TestExistingKeysKept:
     def test_existing_key_replaced_with_new_value(self) -> None:
         existing = {"OPENROUTER_API_KEY": "sk-or-old"}
         inputs = iter(["sk-or-new", "n"])
-        with _no_ollama(), \
-             patch("cli.commands.quickstart.console.input", side_effect=inputs):
+        with _no_ollama(), patch("cli.commands.quickstart.console.input", side_effect=inputs):
             collected, _ = _collect_provider_keys(existing)
         assert collected["OPENROUTER_API_KEY"] == "sk-or-new"
 

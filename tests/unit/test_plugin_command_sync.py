@@ -31,9 +31,7 @@ def test_plugin_agent_build_command_exists_and_has_frontmatter():
 
 
 def test_plugin_manifest_is_valid():
-    manifest = json.loads(
-        (REPO / "plugins/agent-build/.claude-plugin/plugin.json").read_text()
-    )
+    manifest = json.loads((REPO / "plugins/agent-build/.claude-plugin/plugin.json").read_text())
     assert manifest["name"] == "agent-build"
     market = json.loads((REPO / ".claude-plugin/marketplace.json").read_text())
     assert any(p["name"] == "agent-build" for p in market["plugins"])
