@@ -1,0 +1,10 @@
+{
+  "name": "agentbreeder",
+  "plugins": [
+    {
+      "name": "agent-build",
+      "source": { "type": "github", "repo": "agentbreeder/agentbreeder", "path": "./plugins/agent-build" },
+      "description": "Scaffold an AgentBreeder agent with the /agent-build architect."
+    }
+  ]
+}
