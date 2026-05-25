@@ -1207,6 +1207,28 @@ export interface Recommendation {
   reasoning: Record<string, string>;
 }
 
+// ---------------------------------------------------------------------------
+// Chat-to-Build types (Phase 8)
+// ---------------------------------------------------------------------------
+
+/** A single chat message in OpenAI format (role + content). */
+export interface ChatBuildMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+/** Result of one POST /builders/chat turn. */
+export interface ChatBuildResult {
+  /** The assistant's text reply. Empty string when the model went straight to the tool. */
+  assistant_message: string;
+  /** Set when Claude emitted a complete agent spec via the submit_agent_spec tool. */
+  agent_yaml: string | null;
+  /** True only when agent_yaml is set AND passed schema validation. */
+  valid: boolean;
+  /** Schema validation error messages when valid is false and agent_yaml is set. */
+  errors: string[];
+}
+
 // --- API functions ---
 
 export const api = {
@@ -2327,6 +2349,14 @@ export const api = {
       request<Recommendation>("/builders/recommend", {
         method: "POST",
         body: JSON.stringify(input),
+      }),
+    /** Drive one turn of the conversational agent builder (BYO Claude key).
+     *  The key is never sent from the browser — it is read server-side from
+     *  the workspace secrets backend. */
+    chat: (messages: ChatBuildMessage[]) =>
+      request<ChatBuildResult>("/builders/chat", {
+        method: "POST",
+        body: JSON.stringify({ messages }),
       }),
   },
   secrets: {
