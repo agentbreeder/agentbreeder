@@ -4,6 +4,7 @@ import { Bot, Wrench, Circle, ArrowRight, Activity } from "lucide-react";
 import { api, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { PageTitle } from "@/components/page-title";
+import { GetStartedChecklist } from "@/components/get-started-checklist";
 
 const STATUS_COLORS: Record<string, string> = {
   running: "text-primary",
@@ -76,6 +77,8 @@ export default function HomePage() {
       <div className="relative z-10 mb-8">
         <PageTitle subtitle="Overview">Home</PageTitle>
       </div>
+
+      <GetStartedChecklist />
 
       {/* Stats */}
       <div className="relative z-10 mb-8 grid gap-3 sm:grid-cols-3">
