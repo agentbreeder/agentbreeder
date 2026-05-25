@@ -171,13 +171,13 @@ describe("GetStartedChecklist", () => {
     });
   });
 
-  it("'Create your first agent' CTA links to /agents/builder", async () => {
+  it("'Create your first agent' CTA links to /agents/new", async () => {
     // Step 2 active (providers done, agents not).
     mockApi({ providers: 1 });
     renderChecklist(makeClient());
     await waitFor(() => {
       const link = screen.getByTestId("cta-create-agent");
-      expect(link).toHaveAttribute("href", "/agents/builder");
+      expect(link).toHaveAttribute("href", "/agents/new");
     });
   });
 });
