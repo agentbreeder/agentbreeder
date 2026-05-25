@@ -365,6 +365,67 @@ class TestBuildServiceTemplate:
 
 
 # ---------------------------------------------------------------------------
+# Track J — sidecar ingress routing (#203)
+# ---------------------------------------------------------------------------
+
+
+class TestSidecarIngressRouting:
+    """When the sidecar is injected it must front external traffic: Cloud Run
+    routes inbound to the sidecar (:8080), which proxies to the agent (:8081).
+    The agent must never be the ingress container.
+    """
+
+    def _injected_template(self) -> dict:
+        config = _make_config(guardrails=["pii_detection"])
+        gcp = _extract_cloudrun_config(config)
+        return _build_service_template(config, gcp, "img:1.0.0")
+
+    def _agent_container(self, template: dict) -> dict:
+        return next(
+            c for c in template["containers"] if c.get("name") != "agentbreeder-sidecar"
+        )
+
+    def _sidecar_container(self, template: dict) -> dict:
+        return next(
+            c for c in template["containers"] if c.get("name") == "agentbreeder-sidecar"
+        )
+
+    def test_sidecar_is_the_ingress_container(self) -> None:
+        template = self._injected_template()
+        assert len(template["containers"]) == 2
+        sidecar = self._sidecar_container(template)
+        agent = self._agent_container(template)
+        # Exactly one container declares the ingress port — it must be the sidecar.
+        assert sidecar["ports"] == [{"container_port": 8080}]
+        assert "ports" not in agent
+
+    def test_agent_listens_on_8081_with_matching_probes(self) -> None:
+        template = self._injected_template()
+        agent = self._agent_container(template)
+        env = {e["name"]: e.get("value") for e in agent["env"] if "value" in e}
+        assert env["PORT"] == "8081"
+        assert agent["startup_probe"]["http_get"]["port"] == 8081
+        assert agent["liveness_probe"]["http_get"]["port"] == 8081
+
+    def test_sidecar_proxies_to_agent_internal_port(self) -> None:
+        template = self._injected_template()
+        sidecar = self._sidecar_container(template)
+        env = {e["name"]: e.get("value") for e in sidecar["env"]}
+        assert env["AGENTBREEDER_SIDECAR_AGENT_URL"] == "http://localhost:8081"
+        assert env["AGENTBREEDER_SIDECAR_INBOUND_ADDR"] == ":8080"
+
+    def test_no_sidecar_keeps_agent_as_ingress_on_8080(self) -> None:
+        config = _make_config()  # no guardrails → no sidecar
+        gcp = _extract_cloudrun_config(config)
+        template = _build_service_template(config, gcp, "img:1.0.0")
+        assert len(template["containers"]) == 1
+        agent = template["containers"][0]
+        assert agent["ports"] == [{"container_port": 8080}]
+        # Cloud Run injects PORT for the ingress container — we must not override it.
+        assert all(e["name"] != "PORT" for e in agent["env"])
+
+
+# ---------------------------------------------------------------------------
 # GCPCloudRunDeployer.provision
 # ---------------------------------------------------------------------------
 

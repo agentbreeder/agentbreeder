@@ -2242,12 +2242,12 @@ Elevate MCP from "tool connector" to a managed server hub with lifecycle managem
 | Capability | GCP Cloud Run | AWS ECS Fargate | Azure Container Apps |
 |---|---|---|---|
 | Greenfield provision | ✅ #382/#437 | ✅ #383 | ✅ #384 |
-| Track J — sidecar in **inbound** path | ❌ bypassed (#203) | ⚠️ ALB wiring (#400) | ✅ in-progress |
+| Track J — sidecar in **inbound** path | ✅ (#203) | ⚠️ ALB wiring (#400) | ✅ in-progress |
 | Track K — secret mirroring | ✅ | ✅ | ✅ (#499) |
 | Identical guardrail enforcement | — verified by #198 — | | |
 
 **What's left (ship order forced by correctness):**
-- [ ] #203 — **P0** GCP: route inbound traffic *through* the sidecar (guardrails currently bypassed on Cloud Run)
+- [x] #203 — **P0** GCP: route inbound traffic *through* the sidecar — sidecar is now the Cloud Run ingress container (:8080), agent moved to :8081, sidecar proxies to it
 - [x] #499 — **P0** Azure Track K: fixed invalid Key Vault secret names (shared sanitizer) + real `_azure_grant` RBAC via per-agent user-assigned identity (RBAC + access-policy modes)
 - [ ] #400 — sidecar multi-container deploy on all 3 clouds (canonical Azure injector + ECS Fargate ingress→sidecar wiring)
 - [ ] #501 — App Runner: fail-fast at validate (App Runner stays a limited single-container option; **ECS Fargate is the AWS parity target**)
