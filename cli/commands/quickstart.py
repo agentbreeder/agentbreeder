@@ -1457,8 +1457,15 @@ def _ensure_ollama(skip: bool, default_model: str) -> bool:
 def _collect_provider_keys(existing_env: dict, assume_yes: bool = False) -> tuple[dict, bool]:
     """Interactively prompt for cloud API keys. Returns (new_keys_dict, has_ollama).
 
-    Under ``--yes`` the prompts are skipped — the caller is expected to have
-    already exported provider keys via the environment.
+    Prompt flow:
+      1. OpenRouter first — "one key → 100+ models (recommended)"
+      2. Single gate: "Add direct provider keys (OpenAI / Anthropic / Google)? [y/N]"
+         - y  → prompt for OpenAI, Anthropic, Google
+         - n / Enter  → skip the three direct-provider prompts
+      3. Under ``--yes`` all prompts are skipped.
+
+    Keys are written to cwd/.env via ``_write_env_key``; this function only
+    *collects* and returns them.
     """
     has_ollama = False
     try:
@@ -1466,6 +1473,11 @@ def _collect_provider_keys(existing_env: dict, assume_yes: bool = False) -> tupl
         has_ollama = resp.status_code == 200
     except (httpx.ConnectError, httpx.TimeoutException):
         pass
+
+    # Separate OpenRouter from the three direct providers so we can present
+    # it first and gate the others.
+    direct_providers = [p for p in _CLOUD_PROVIDERS if p[1] != "OPENROUTER_API_KEY"]
+    openrouter_provider = next(p for p in _CLOUD_PROVIDERS if p[1] == "OPENROUTER_API_KEY")
 
     console.print()
     console.print("  [bold]Provider status:[/bold]")
@@ -1478,7 +1490,7 @@ def _collect_provider_keys(existing_env: dict, assume_yes: bool = False) -> tupl
             "start with: [cyan]ollama serve[/cyan])[/dim]"
         )
 
-    for name, env_key, _ph, models in _CLOUD_PROVIDERS:
+    for name, env_key, _ph, models in [openrouter_provider, *direct_providers]:
         existing = existing_env.get(env_key) or os.environ.get(env_key, "")
         if existing:
             masked = existing[:10] + "..." if len(existing) > 10 else "***"
@@ -1499,16 +1511,45 @@ def _collect_provider_keys(existing_env: dict, assume_yes: bool = False) -> tupl
     console.print()
 
     collected: dict[str, str] = {}
-    for name, env_key, placeholder, _models in _CLOUD_PROVIDERS:
-        existing = existing_env.get(env_key) or os.environ.get(env_key, "")
-        if existing:
-            masked = existing[:10] + "..." if len(existing) > 10 else "***"
-            prompt = f"  {name} [dim]({masked}, Enter to keep)[/dim]: "
-        else:
-            prompt = f"  {name} [dim]({placeholder}, Enter to skip)[/dim]: "
-        val = console.input(prompt).strip()
-        if val:
-            collected[env_key] = val
+
+    # ── Step 1: OpenRouter (recommended gateway — one key, 100+ models) ──
+    or_name, or_key, or_ph, or_models = openrouter_provider
+    or_existing = existing_env.get(or_key) or os.environ.get(or_key, "")
+    if or_existing:
+        or_masked = or_existing[:10] + "..." if len(or_existing) > 10 else "***"
+        or_prompt = (
+            f"  [bold]{or_name}[/bold] [dim](one key → {or_models})[/dim] "
+            f"[dim]({or_masked}, Enter to keep)[/dim]: "
+        )
+    else:
+        or_prompt = (
+            f"  [bold]{or_name}[/bold] [dim](one key → {or_models} — recommended)[/dim] "
+            f"[dim]({or_ph}, Enter to skip)[/dim]: "
+        )
+    or_val = console.input(or_prompt).strip()
+    if or_val:
+        collected[or_key] = or_val
+
+    # ── Step 2: Gate for direct providers ──
+    console.print()
+    gate_ans = (
+        console.input(
+            "  Add direct provider keys [dim](OpenAI / Anthropic / Google)?[/dim] [y/N]: "
+        )
+        .strip()
+        .lower()
+    )
+    if gate_ans in ("y", "yes"):
+        for name, env_key, placeholder, _models in direct_providers:
+            existing = existing_env.get(env_key) or os.environ.get(env_key, "")
+            if existing:
+                masked = existing[:10] + "..." if len(existing) > 10 else "***"
+                prompt = f"  {name} [dim]({masked}, Enter to keep)[/dim]: "
+            else:
+                prompt = f"  {name} [dim]({placeholder}, Enter to skip)[/dim]: "
+            val = console.input(prompt).strip()
+            if val:
+                collected[env_key] = val
 
     return collected, has_ollama
 
