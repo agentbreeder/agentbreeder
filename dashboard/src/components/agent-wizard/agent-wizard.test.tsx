@@ -170,9 +170,8 @@ describe("Step2Workflow", () => {
 
   it("dispatches SET_FIELD when typing workflow", () => {
     const dispatch = makeDispatch();
-    render(withQuery(<Step2Workflow state={makeState()} dispatch={makeDispatch()} />));
     render(withQuery(<Step2Workflow state={makeState()} dispatch={dispatch} />));
-    fireEvent.change(screen.getAllByTestId("workflow")[1], {
+    fireEvent.change(screen.getByTestId("workflow"), {
       target: { value: "1. Receive\n2. Classify" },
     });
     expect(dispatch).toHaveBeenCalledWith({

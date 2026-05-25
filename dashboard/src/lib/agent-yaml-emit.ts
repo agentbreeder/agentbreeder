@@ -66,6 +66,27 @@ export interface AgentFormData {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Escape a string for use inside a YAML double-quoted scalar.
+ * Backslashes must be escaped first (before quote escaping) to avoid
+ * double-escaping them.
+ */
+function escapeYamlDQ(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
+ * Unescape a string that was read from inside a YAML double-quoted scalar.
+ * Strips the outer double-quotes first, then reverses `escapeYamlDQ`.
+ * Quotes must be unescaped before backslashes to mirror the emit order.
+ */
+function unescapeYamlDQ(raw: string): string {
+  // Strip leading/trailing double-quotes if present.
+  const inner = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
+  // Unescape \" → " then \\ → \
+  return inner.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
 /** TypeScript runs on the Node runtime, so `runtime.language` is "node". */
 const TYPESCRIPT_RUNTIME_LANG = "node";
 
@@ -87,8 +108,8 @@ function mapRuntimeToUiLanguage(runtimeLang: string): AgentLanguage {
 export function formDataToYaml(data: AgentFormData): string {
   const lines: string[] = [];
   lines.push(`name: ${data.name || "my-agent"}`);
-  lines.push(`version: "${data.version || "0.1.0"}"`);
-  lines.push(`description: "${data.description}"`);
+  lines.push(`version: "${escapeYamlDQ(data.version || "0.1.0")}"`);
+  lines.push(`description: "${escapeYamlDQ(data.description)}"`);
   lines.push(`team: ${data.team || "engineering"}`);
   lines.push(`owner: ${data.owner || "user@example.com"}`);
 
@@ -130,7 +151,7 @@ export function formDataToYaml(data: AgentFormData): string {
   if (data.prompts.system.startsWith("prompts/")) {
     lines.push(`  system: ${data.prompts.system}`);
   } else {
-    lines.push(`  system: "${data.prompts.system.replace(/"/g, '\\"')}"`);
+    lines.push(`  system: "${escapeYamlDQ(data.prompts.system)}"`);
   }
 
   lines.push("");
@@ -225,7 +246,7 @@ export function yamlToFormData(yaml: string): AgentFormData {
       const colonIdx = trimmed.indexOf(":");
       if (colonIdx === -1) continue;
       const key = trimmed.slice(0, colonIdx).trim();
-      const val = trimmed.slice(colonIdx + 1).trim().replace(/^"|"$/g, "");
+      const val = unescapeYamlDQ(trimmed.slice(colonIdx + 1).trim());
       currentSection = key;
       currentGatewayName = null;
       currentHeaderBlock = false;
@@ -288,7 +309,7 @@ export function yamlToFormData(yaml: string): AgentFormData {
       if (colonIdx === -1) continue;
 
       const key = trimmed.slice(0, colonIdx).trim();
-      const val = trimmed.slice(colonIdx + 1).trim().replace(/^"|"$/g, "");
+      const val = unescapeYamlDQ(trimmed.slice(colonIdx + 1).trim());
 
       if (currentSection === "model") {
         switch (key) {
