@@ -6,7 +6,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-
 /* ── Dark mode — exact match to agentbreeder.io palette ──────────────────── */
 .dark {
     /* #09090b — zinc-950, the website's true background */

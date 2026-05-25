@@ -130,7 +130,6 @@ function saveSidebarWidth(width: number) {
   }
 }
 
-
 function CommandSearch({ collapsed }: { collapsed: boolean }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");

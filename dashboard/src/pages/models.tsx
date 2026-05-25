@@ -566,7 +566,9 @@ export default function ModelsPage() {
   return (
     <div className="mx-auto max-w-5xl p-6">
       <div className="mb-6 flex items-start justify-between">
-        <PageTitle subtitle={`${total} model${total !== 1 ? "s" : ""} in registry`}>Models</PageTitle>
+        <PageTitle subtitle={`${total} model${total !== 1 ? "s" : ""} in registry`}>
+          Models
+        </PageTitle>
         <div className="flex items-center gap-2">
           {selectedIds.size > 0 && (
             <button
