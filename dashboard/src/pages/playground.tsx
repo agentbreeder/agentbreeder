@@ -479,6 +479,9 @@ function ModelChatPanel() {
       return res.data;
     },
     onSuccess: (data) => {
+      // Record first successful Playground use for the onboarding checklist.
+      try { localStorage.setItem("ag-playground-used-v1", "1"); } catch { /* private browsing */ }
+
       // Show streaming effect
       setStreamingResponse(data);
 
@@ -974,6 +977,9 @@ function AgentChatPanel() {
       return { result: res.data, elapsed };
     },
     onSuccess: ({ result, elapsed }) => {
+      // Record first successful Playground use for the onboarding checklist.
+      try { localStorage.setItem("ag-playground-used-v1", "1"); } catch { /* private browsing */ }
+
       // Round-trip the session_id so the runtime can stitch turns together.
       if (result.session_id) {
         setSessionId(result.session_id);
