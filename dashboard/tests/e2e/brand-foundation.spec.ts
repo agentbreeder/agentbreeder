@@ -20,7 +20,7 @@ test("no theme toggle is present", async ({ authedPage: page }) => {
 
 test("page titles use the Bricolage display font", async ({ authedPage: page }) => {
   // Mock the models API so the page renders without a live backend.
-  await page.route("**/api/v1/models**", (route) =>
+  await page.route("**/registry/models**", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
