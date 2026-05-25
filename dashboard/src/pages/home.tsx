@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Bot, Wrench, Circle, ArrowRight, Activity } from "lucide-react";
 import { api, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { PageTitle } from "@/components/page-title";
 
 const STATUS_COLORS: Record<string, string> = {
   running: "text-primary",
@@ -73,10 +74,7 @@ export default function HomePage() {
   return (
     <div className="ab-radial-glow mx-auto max-w-5xl p-6">
       <div className="relative z-10 mb-8">
-        <h1 className="text-lg font-semibold tracking-tight">Overview</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          AgentBreeder registry at a glance
-        </p>
+        <PageTitle subtitle="Overview">Home</PageTitle>
       </div>
 
       {/* Stats */}

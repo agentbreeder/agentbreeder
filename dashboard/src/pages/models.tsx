@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { PageTitle } from "@/components/page-title";
 import { ComingSoonBadge } from "@/components/coming-soon-badge";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ExportDropdown } from "@/components/export-dropdown";
@@ -565,12 +566,7 @@ export default function ModelsPage() {
   return (
     <div className="mx-auto max-w-5xl p-6">
       <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Models</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {total} model{total !== 1 ? "s" : ""} in registry
-          </p>
-        </div>
+        <PageTitle subtitle={`${total} model${total !== 1 ? "s" : ""} in registry`}>Models</PageTitle>
         <div className="flex items-center gap-2">
           {selectedIds.size > 0 && (
             <button
