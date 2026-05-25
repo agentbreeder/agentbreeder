@@ -3,6 +3,7 @@
  *
  * Tracks real progress via live API queries + a localStorage flag:
  *   1. Connect a model       → providers.list({status:"active"}) meta.total > 0
+ *                              (providers.list is not paginated; reads default page)
  *   2. Create your first agent → agents.list({per_page:1}) meta.total > 0
  *   3. Test in the Playground → localStorage["ag-playground-used-v1"] === "1"
  *   4. Deploy (optional)     → deploys.list({per_page:1}) meta.total > 0
@@ -19,7 +20,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -69,11 +70,8 @@ const STATE_ICON: Record<StepState, React.ReactNode> = {
   locked: <Lock className="size-4 shrink-0 text-zinc-600" />,
 };
 
-const STATE_BADGE_VARIANT: Record<StepState, "default" | "secondary" | "outline"> = {
-  done: "default",
-  active: "default",
-  locked: "secondary",
-};
+// Only the "done" badge variant is rendered (the Badge is guarded by `state === "done"`).
+const DONE_BADGE_VARIANT = "default" as const;
 
 function StepRow({
   step,
@@ -111,7 +109,7 @@ function StepRow({
           )}
           {state === "done" && (
             <Badge
-              variant={STATE_BADGE_VARIANT[state]}
+              variant={DONE_BADGE_VARIANT}
               className="bg-emerald-500/20 text-emerald-400 border-0 text-xs px-1.5 py-0"
             >
               done
@@ -120,14 +118,13 @@ function StepRow({
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">{step.description}</p>
         {(state === "active") && (
-          <Button asChild size="sm" className="mt-2">
-            <Link
-              to={step.ctaHref}
-              data-testid={`cta-${step.id}`}
-            >
-              {step.ctaLabel}
-            </Link>
-          </Button>
+          <Link
+            to={step.ctaHref}
+            data-testid={`cta-${step.id}`}
+            className={cn(buttonVariants({ variant: "default", size: "sm" }), "mt-2 inline-flex")}
+          >
+            {step.ctaLabel}
+          </Link>
         )}
         {state === "done" && (
           <Link
@@ -149,7 +146,9 @@ function StepRow({
 export function GetStartedChecklist() {
   const [dismissed, setDismissed] = useState<boolean>(() => readDismissed());
 
-  // Live queries — tiny fetches: per_page=1 just to get meta.total.
+  // Live queries — agents and deploys use per_page=1 tiny fetches to get
+  // meta.total; providers.list is not paginated so it reads meta.total from
+  // the default page.
   const providersQuery = useQuery({
     queryKey: ["onboarding-providers"],
     queryFn: () => api.providers.list({ status: "active" }),
@@ -175,6 +174,10 @@ export function GetStartedChecklist() {
   const deploysDone = (deploysQuery.data?.meta.total ?? 0) > 0;
 
   const allDone = providersDone && agentsDone && playgroundDone && deploysDone;
+
+  // While any query is still loading, render nothing so returning
+  // fully-onboarded users don't see a wrong-state flash of the checklist.
+  if (providersQuery.isPending || agentsQuery.isPending || deploysQuery.isPending) return null;
 
   // Hide when dismissed or all done.
   if (dismissed || allDone) return null;
