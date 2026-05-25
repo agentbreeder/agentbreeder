@@ -2249,10 +2249,10 @@ Elevate MCP from "tool connector" to a managed server hub with lifecycle managem
 **What's left (ship order forced by correctness):**
 - [x] #203 — **P0** GCP: route inbound traffic *through* the sidecar — sidecar is now the Cloud Run ingress container (:8080), agent moved to :8081, sidecar proxies to it
 - [x] #499 — **P0** Azure Track K: fixed invalid Key Vault secret names (shared sanitizer) + real `_azure_grant` RBAC via per-agent user-assigned identity (RBAC + access-policy modes)
-- [ ] #400 — sidecar multi-container deploy on all 3 clouds (canonical Azure injector + ECS Fargate ingress→sidecar wiring)
-- [ ] #501 — App Runner: fail-fast at validate (App Runner stays a limited single-container option; **ECS Fargate is the AWS parity target**)
-- [ ] #500 — harden injected sidecar: pin image (drop `:latest`) + securityContext
-- [ ] #198 — cross-cloud parity matrix test (same `agent.yaml`, 3 targets, guardrails fire on all)
+- [~] #400 — sidecar multi-container deploy on all 3 clouds: **container-level done** (sidecar fronts :8080, agent :8081 on GCP/ECS/Azure, verified by #198). **Remaining:** ECS ALB target-group registration (deployer is public-IP mode today; SG exposes only :8080)
+- [x] #501 — App Runner: fail-fast at deploy when guardrails/secrets declared (App Runner stays a limited single-container option; **ECS Fargate is the AWS parity target**)
+- [x] #500 — harden injected sidecar: pinned image (no `:latest`) + securityContext (ECS non-root/read-only/cap-drop; Cloud Run run_as_user; distroless non-root elsewhere)
+- [x] #198 — cross-cloud parity matrix test (one governed agent, 3 targets, asserts inbound routes through the sidecar on all)
 - [ ] #502 — dashboard: capability-aware cloud selector (surface Track J/K per cloud)
 - [ ] #503 — website: honest "Deploy Anywhere" status chips (gate full-parity claim on this epic closing)
 - [ ] #504 — adopt **Pulumi (Automation API)** for greenfield provisioning — *orthogonal, going-forward*

@@ -292,6 +292,38 @@ class TestProvision:
 # ---------------------------------------------------------------------------
 
 
+class TestAppRunnerFailFast:
+    """#501: App Runner is a single-container runtime — it cannot run the
+    sidecar. Declaring governance that needs the sidecar (guardrails/tools/A2A)
+    or secret mirroring must fail fast with a clear redirect to ECS Fargate,
+    before any cloud API call."""
+
+    @pytest.mark.asyncio
+    async def test_deploy_rejects_guardrails(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        config.guardrails = ["pii_detection"]
+        with pytest.raises(ValueError, match="App Runner does not natively support"):
+            await deployer.deploy(config, None)
+
+    @pytest.mark.asyncio
+    async def test_deploy_rejects_secrets(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        config.deploy.secrets = ["OPENAI_API_KEY"]
+        with pytest.raises(ValueError, match="Secret mirroring .* is not supported"):
+            await deployer.deploy(config, None)
+
+    @pytest.mark.asyncio
+    async def test_deploy_allows_plain_agent(self) -> None:
+        # No guardrails/secrets → the fail-fast guards must not trip; deploy
+        # proceeds past them (and then hits the normal provision-first assertion).
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        with pytest.raises(AssertionError, match="provision"):
+            await deployer.deploy(config, None)
+
+
 class TestDeploy:
     def _make_image(self) -> MagicMock:
         from pathlib import Path

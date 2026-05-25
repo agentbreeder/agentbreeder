@@ -34,7 +34,7 @@ from engine.secrets.auto_mirror import (
     MirrorResult,
     mirror_secrets_to_cloud,
 )
-from engine.sidecar import validate_sidecar_config
+from engine.sidecar import should_inject, validate_sidecar_config
 
 logger = logging.getLogger(__name__)
 
@@ -371,6 +371,13 @@ class AWSECSDeployer(BaseDeployer):
         }
         # Inject AgentBreeder platform env vars
         env_vars.update(self.get_aps_env_vars())
+
+        # Track J: if sidecar is injected, remap agent container's port to 8081
+        is_sidecar_active = should_inject(config)
+        agent_port = 8081 if is_sidecar_active else 8080
+        if is_sidecar_active:
+            env_vars["PORT"] = "8081"
+
         # Add user-defined env vars, excluding AWS_ prefixed infra vars
         for key, value in config.deploy.env_vars.items():
             if not key.startswith("AWS_"):
@@ -401,7 +408,7 @@ class AWSECSDeployer(BaseDeployer):
             "essential": True,
             "portMappings": [
                 {
-                    "containerPort": 8080,
+                    "containerPort": agent_port,
                     "protocol": "tcp",
                 }
             ],
@@ -418,7 +425,7 @@ class AWSECSDeployer(BaseDeployer):
                 },
             },
             "healthCheck": {
-                "command": ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"],
+                "command": ["CMD-SHELL", f"curl -f http://localhost:{agent_port}/health || exit 1"],
                 "interval": 30,
                 "timeout": 5,
                 "retries": 3,

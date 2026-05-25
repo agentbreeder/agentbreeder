@@ -1171,6 +1171,82 @@ class TestRegisterTaskDefinition:
 
 
 # ---------------------------------------------------------------------------
+# #400: ECS multi-container sidecar wiring
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterTaskDefinitionSidecar:
+    """When guardrails/tools/A2A are declared, the task def must carry both the
+    agent (essential, internal :8081) and the sidecar (non-essential, ingress
+    :8080) so inbound traffic terminates at the sidecar before the agent."""
+
+    @pytest.mark.asyncio
+    async def test_task_def_has_agent_and_sidecar_containers(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        config.guardrails = ["pii_detection"]
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.register_task_definition.return_value = {
+            "taskDefinition": {
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/my-agent:1"
+            }
+        }
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            await deployer._register_task_definition(
+                config, "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+            )
+
+        defs = ecs_mock.register_task_definition.call_args.kwargs["containerDefinitions"]
+        by_name = {c["name"]: c for c in defs}
+        assert "agentbreeder-sidecar" in by_name
+        agent = by_name[config.name]
+        sidecar = by_name["agentbreeder-sidecar"]
+
+        # Agent: essential, listens on the internal port, not the ingress port.
+        assert agent["essential"] is True
+        assert agent["portMappings"][0]["containerPort"] == 8081
+        agent_env = {e["name"]: e["value"] for e in agent["environment"]}
+        assert agent_env["PORT"] == "8081"
+
+        # Sidecar: non-essential ingress on 8080, proxying to the agent on 8081.
+        assert sidecar["essential"] is False
+        assert sidecar["portMappings"][0]["containerPort"] == 8080
+        sidecar_env = {e["name"]: e["value"] for e in sidecar["environment"]}
+        assert sidecar_env["AGENTBREEDER_SIDECAR_AGENT_URL"] == "http://localhost:8081"
+
+    @pytest.mark.asyncio
+    async def test_task_def_single_container_without_governance(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()  # no guardrails → no sidecar
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.register_task_definition.return_value = {
+            "taskDefinition": {
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/my-agent:1"
+            }
+        }
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            await deployer._register_task_definition(
+                config, "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+            )
+
+        defs = ecs_mock.register_task_definition.call_args.kwargs["containerDefinitions"]
+        assert [c["name"] for c in defs] == [config.name]
+        assert defs[0]["portMappings"][0]["containerPort"] == 8080
+
+
+# ---------------------------------------------------------------------------
 # teardown() — scale-to-zero exception is swallowed, delete failure raises
 # ---------------------------------------------------------------------------
 

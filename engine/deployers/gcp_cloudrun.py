@@ -315,6 +315,7 @@ def _build_cloudrun_sidecar_container(config: AgentConfig) -> dict[str, Any]:
         },
         {"name": "AGENTBREEDER_SIDECAR_INBOUND_ADDR", "value": f":{INGRESS_PORT}"},
         {"name": "AB_GUARDRAILS", "value": ",".join(sc.guardrails)},
+        {"name": "AB_COST_TRACKING", "value": str(sc.cost_tracking).lower()},
     ]
     otel = _os.getenv("OPENTELEMETRY_ENDPOINT") or sc.otel_endpoint
     if otel:
@@ -327,6 +328,8 @@ def _build_cloudrun_sidecar_container(config: AgentConfig) -> dict[str, Any]:
         "image": sc.image,
         "env": env,
         "resources": {"limits": {"cpu": "500m", "memory": "256Mi"}},
+        # #500: run the sidecar as the distroless non-root user.
+        "security_context": {"run_as_user": 65532},
         "ports": [{"container_port": INGRESS_PORT}],
         "startup_probe": {
             "http_get": {"path": "/health", "port": INGRESS_PORT},

@@ -338,6 +338,7 @@ class AzureContainerAppsDeployer(BaseDeployer):
             {"name": "AGENTBREEDER_SIDECAR_AGENT_URL", "value": "http://localhost:8081"},
             {"name": "AGENTBREEDER_SIDECAR_INBOUND_ADDR", "value": ":8080"},
             {"name": "AB_GUARDRAILS", "value": ",".join(sc.guardrails)},
+            {"name": "AB_COST_TRACKING", "value": str(sc.cost_tracking).lower()},
         ]
         otel = os.environ.get("OPENTELEMETRY_ENDPOINT") or sc.otel_endpoint
         if otel:
