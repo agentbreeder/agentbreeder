@@ -90,26 +90,11 @@ export function ProviderCatalog({
     );
   }
 
-  if (catalogQuery.error) {
-    return (
-      <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-xs text-destructive">
-        Failed to load catalog: {(catalogQuery.error as Error).message}
-      </div>
-    );
-  }
-
   const allPresets = catalogQuery.data?.data ?? [];
   const presets =
     filter === "all"
       ? allPresets
       : allPresets.filter((p) => p.type === filter);
-  if (presets.length === 0) {
-    return (
-      <div className="rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
-        No {filter === "gateway" ? "gateways" : "providers"} in the catalog yet.
-      </div>
-    );
-  }
 
   const statuses = statusQuery.data?.data ?? {};
 
@@ -123,6 +108,20 @@ export function ProviderCatalog({
 
   return (
     <>
+      {catalogQuery.error && (
+        <div className="mb-3 flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
+          <span>Couldn&apos;t reach the model catalog.</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs"
+            disabled={catalogQuery.isFetching}
+            onClick={() => catalogQuery.refetch()}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
       <div className="rounded-lg border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
           <div className="flex items-center gap-2">
@@ -163,15 +162,23 @@ export function ProviderCatalog({
         </div>
 
         <div className="divide-y divide-border/50">
-          {presets.map((preset) => (
-            <CatalogRow
-              key={preset.name}
-              preset={preset}
-              configured={statuses[preset.name] ?? false}
-              canConfigure={canConfigure}
-              onConfigure={handleConfigure}
-            />
-          ))}
+          {presets.length === 0 ? (
+            <div className="px-4 py-3 text-xs text-muted-foreground">
+              {catalogQuery.error
+                ? "Provider list unavailable — retry above."
+                : `No ${filter === "gateway" ? "gateways" : "providers"} in the catalog yet.`}
+            </div>
+          ) : (
+            presets.map((preset) => (
+              <CatalogRow
+                key={preset.name}
+                preset={preset}
+                configured={statuses[preset.name] ?? false}
+                canConfigure={canConfigure}
+                onConfigure={handleConfigure}
+              />
+            ))
+          )}
         </div>
       </div>
 
