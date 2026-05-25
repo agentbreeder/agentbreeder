@@ -289,8 +289,21 @@ class TestAnthropicProviderStatusCodes:
         provider._client = AsyncMock()
         provider._client.post = AsyncMock(return_value=mock_resp)
 
-        with pytest.raises(RateLimitError):
+        with pytest.raises(RateLimitError, match="429"):
             await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+    @pytest.mark.asyncio
+    async def test_check_status_429_body_not_in_message(self) -> None:
+        """Raw response body must not be included in the raised exception message (S4)."""
+        provider = AnthropicProvider(_config())
+        mock_resp = httpx.Response(429, text="secret-rate-limit-details")
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=mock_resp)
+
+        with pytest.raises(RateLimitError) as exc_info:
+            await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+        assert "secret-rate-limit-details" not in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_check_status_404(self) -> None:
@@ -299,8 +312,21 @@ class TestAnthropicProviderStatusCodes:
         provider._client = AsyncMock()
         provider._client.post = AsyncMock(return_value=mock_resp)
 
-        with pytest.raises(ModelNotFoundError):
+        with pytest.raises(ModelNotFoundError, match="404"):
             await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+    @pytest.mark.asyncio
+    async def test_check_status_404_body_not_in_message(self) -> None:
+        """Raw response body must not be included in the raised exception message (S4)."""
+        provider = AnthropicProvider(_config())
+        mock_resp = httpx.Response(404, text="secret-model-not-found-details")
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=mock_resp)
+
+        with pytest.raises(ModelNotFoundError) as exc_info:
+            await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+        assert "secret-model-not-found-details" not in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_check_status_500(self) -> None:
@@ -311,6 +337,19 @@ class TestAnthropicProviderStatusCodes:
 
         with pytest.raises(ProviderError, match="500"):
             await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+    @pytest.mark.asyncio
+    async def test_check_status_500_body_not_in_message(self) -> None:
+        """Raw response body must not be included in the raised exception message (S4)."""
+        provider = AnthropicProvider(_config())
+        mock_resp = httpx.Response(500, text="secret-internal-error-details")
+        provider._client = AsyncMock()
+        provider._client.post = AsyncMock(return_value=mock_resp)
+
+        with pytest.raises(ProviderError) as exc_info:
+            await provider.generate(messages=[{"role": "user", "content": "Hi"}])
+
+        assert "secret-internal-error-details" not in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_timeout_raises_provider_error(self) -> None:

@@ -41,11 +41,32 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
+// Mock useAuth — returns a stable fake user so the per-user secret name is deterministic.
+const FAKE_USER_ID = "00000000-0000-0000-0000-000000000001";
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({
+    user: {
+      id: FAKE_USER_ID,
+      email: "test@example.com",
+      name: "Test User",
+      role: "admin",
+      team: "engineering",
+    },
+    token: "fake-token",
+    isLoading: false,
+    login: vi.fn(),
+    register: vi.fn(),
+    changePassword: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const BUILDER_KEY_SECRET = "AGENTBREEDER_CLAUDE_BUILDER_KEY";
+// Per-user secret name — must match builderKeySecretName(FAKE_USER_ID) in ChatBuildPanel.tsx
+const BUILDER_KEY_SECRET = `AGENTBREEDER_CLAUDE_BUILDER_KEY__${FAKE_USER_ID}`;
 
 function makeSummary(name: string): SecretSummary {
   return {

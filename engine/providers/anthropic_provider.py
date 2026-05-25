@@ -235,11 +235,17 @@ class AnthropicProvider(ProviderBase):
         if status_code == 401 or status_code == 403:
             raise AuthenticationError("Invalid Anthropic API key")
         if status_code == 404:
-            raise ModelNotFoundError(f"Anthropic model not found: {body}")
+            # Raw body is not included to avoid leaking upstream internals.
+            logger.debug("Anthropic 404 response body: %s", body)
+            raise ModelNotFoundError("Anthropic model not found (HTTP 404)")
         if status_code == 429:
-            raise RateLimitError(f"Anthropic rate limit exceeded: {body}")
+            # Raw body is not included to avoid leaking upstream internals.
+            logger.debug("Anthropic 429 response body: %s", body)
+            raise RateLimitError("Anthropic rate limit exceeded (HTTP 429)")
         if status_code >= 400:
-            msg = f"Anthropic API error ({status_code}): {body}"
+            # Raw body is not included to avoid leaking upstream internals.
+            logger.debug("Anthropic error response body (status=%d): %s", status_code, body)
+            msg = f"Anthropic API error (HTTP {status_code})"
             raise ProviderError(msg)
 
     def _parse_response(self, data: dict[str, Any]) -> GenerateResult:
