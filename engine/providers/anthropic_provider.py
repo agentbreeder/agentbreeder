@@ -39,6 +39,15 @@ ANTHROPIC_API_BASE = "https://api.anthropic.com/v1"
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MODEL = "claude-sonnet-4-6"
 
+# Prompt caching: Anthropic caches a request prefix (order: tools → system →
+# messages) when a cache_control breakpoint is attached, subject to a minimum
+# cacheable prefix of ~1024 tokens. We estimate ~4 chars/token and auto-cache the
+# large, static parts of a request so repeated calls that re-send them (e.g. the
+# conversational agent builder's big tool schema) read from cache instead of
+# reprocessing. Caching is GA on anthropic-version 2023-06-01 — no beta header.
+_CACHE_MIN_CHARS = 4096
+_CACHE_CONTROL = {"type": "ephemeral"}
+
 # Models known to support tool use
 _TOOL_CAPABLE_PREFIXES = (
     "claude-3",
@@ -194,12 +203,31 @@ class AnthropicProvider(ProviderBase):
             # Anthropic requires max_tokens — default to 1024
             "max_tokens": max_tokens or 1024,
         }
-        if system_content:
-            payload["system"] = system_content
         if temperature is not None:
             payload["temperature"] = temperature
+
         if tools:
-            payload["tools"] = [self._convert_tool(t) for t in tools]
+            tool_payload = [self._convert_tool(t) for t in tools]
+            # A breakpoint on the LAST tool caches the entire tools prefix.
+            if len(json.dumps(tool_payload)) >= _CACHE_MIN_CHARS:
+                tool_payload[-1]["cache_control"] = dict(_CACHE_CONTROL)
+            payload["tools"] = tool_payload
+
+        if system_content:
+            # cache_control can only attach to a structured block, so promote a
+            # large system prompt to a one-block list (caches the tools+system
+            # prefix). Small prompts stay plain strings — unchanged behaviour.
+            if len(system_content) >= _CACHE_MIN_CHARS:
+                payload["system"] = [
+                    {
+                        "type": "text",
+                        "text": system_content,
+                        "cache_control": dict(_CACHE_CONTROL),
+                    }
+                ]
+            else:
+                payload["system"] = system_content
+
         return payload
 
     @staticmethod
@@ -273,15 +301,24 @@ class AnthropicProvider(ProviderBase):
         raw_finish = data.get("stop_reason", "end_turn")
         finish_reason = _FINISH_REASON_MAP.get(raw_finish, raw_finish)
 
+        # When prompt caching is active, Anthropic reports cached input tokens
+        # separately from the uncached `input_tokens`. Fold them all into
+        # prompt_tokens so cost attribution isn't undercounted.
+        prompt_tokens = (
+            usage_data.get("input_tokens", 0)
+            + usage_data.get("cache_creation_input_tokens", 0)
+            + usage_data.get("cache_read_input_tokens", 0)
+        )
+        completion_tokens = usage_data.get("output_tokens", 0)
+
         return GenerateResult(
             content=text_content,
             tool_calls=tool_calls,
             finish_reason=finish_reason,
             usage=UsageInfo(
-                prompt_tokens=usage_data.get("input_tokens", 0),
-                completion_tokens=usage_data.get("output_tokens", 0),
-                total_tokens=usage_data.get("input_tokens", 0)
-                + usage_data.get("output_tokens", 0),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens,
             ),
             model=data.get("model", ""),
             provider="anthropic",
