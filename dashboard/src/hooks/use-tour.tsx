@@ -17,7 +17,11 @@ import {
   type ReactNode,
 } from "react";
 
-const STORAGE_KEY = "ag-tour-completed-v1";
+// Bumped from v1 → v2 when auto-open was retired (Phase 4 onboarding checklist
+// replaces the tour as the first-run guide). The value-check semantics stay the
+// same; bumping forces any user who had v1 cleared to get a clean slate rather
+// than seeing a now-redundant auto-open on first load.
+const STORAGE_KEY = "ag-tour-completed-v2";
 
 interface TourState {
   /** True iff the tour overlay should be visible right now. */
@@ -41,10 +45,12 @@ function readCompleted(): boolean {
 }
 
 export function TourProvider({ children }: { children: ReactNode }) {
-  // Both flags initialize lazily from the same localStorage read so the
-  // tour is visible from the first paint when the user has never seen it.
+  // hasCompleted still reads from localStorage so the "Restart tour" link
+  // knows whether the user has ever seen the tour.
+  // isOpen initializes to false: the checklist (Phase 4) is now the first-run
+  // guide; the tour is available on-demand via the shell's "Restart tour" link.
   const [hasCompleted, setHasCompleted] = useState<boolean>(() => readCompleted());
-  const [isOpen, setIsOpen] = useState<boolean>(() => !readCompleted());
+  const [isOpen, setIsOpen] = useState<boolean>(false);
 
   const open = useCallback(() => {
     setIsOpen(true);
