@@ -168,8 +168,17 @@ async def catalog_status(
     from engine.secrets.factory import get_workspace_backend
 
     entries = list_entries()
-    backend, _ws = get_workspace_backend(workspace=workspace)
-    existing_names = {e.name for e in await backend.list()}
+
+    try:
+        backend, _ws = get_workspace_backend(workspace=workspace)
+        existing_names = {e.name for e in await backend.list()}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "catalog_status: secrets backend unavailable, returning empty statuses — %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        existing_names = set()
 
     statuses: dict[str, bool] = {}
     for name, entry in entries.items():

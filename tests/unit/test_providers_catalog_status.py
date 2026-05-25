@@ -176,3 +176,42 @@ class TestCatalogStatus:
         finally:
             for p in patches:
                 p.stop()
+
+    def test_catalog_status_degrades_gracefully_when_backend_unavailable(self) -> None:
+        """If the workspace secrets backend raises, the route returns 200 with empty statuses.
+
+        This covers the cold-start scenario where the secrets backend is not yet
+        configured — the Models page must never show a blocking 500 error.
+        """
+        headers, uid = _viewer_headers()
+        user = _make_user(uid)
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("secrets backend unavailable")
+
+        patches = [
+            patch("api.auth.decode_access_token", return_value={"sub": str(uid)}),
+            patch("api.auth.get_user_by_id", new_callable=AsyncMock, return_value=user),
+            # catalog list_entries returns two providers so we can assert they
+            # all come back False rather than missing.
+            patch(
+                "engine.providers.catalog.list_entries",
+                return_value={
+                    "nvidia": _entry("nvidia", "NVIDIA_API_KEY"),
+                    "groq": _entry("groq", "GROQ_API_KEY"),
+                },
+            ),
+            patch("engine.secrets.factory.get_workspace_backend", side_effect=_boom),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            resp = client.get("/api/v1/providers/catalog/status", headers=headers)
+            assert resp.status_code == 200, f"Expected 200 got {resp.status_code}: {resp.text}"
+            body = resp.json()
+            assert "data" in body
+            # All statuses come back unconfigured (False) rather than erroring
+            assert body["data"] == {"nvidia": False, "groq": False}
+        finally:
+            for p in patches:
+                p.stop()
