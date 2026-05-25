@@ -1375,46 +1375,55 @@ def _ensure_ollama(skip: bool, default_model: str) -> bool:
     _ok("Ollama running at [cyan]http://localhost:11434[/cyan]")
 
     # ── Verify bind is reachable from Docker containers ──
-    # On macOS, Ollama.app defaults to 127.0.0.1 only. Containers reach the
-    # host via host.docker.internal, which routes to a non-loopback IP — so a
-    # 127.0.0.1-only bind is invisible to the API container. Detect and
-    # offer to rebind to 0.0.0.0:11434 in one click.
+    # On macOS, Ollama.app defaults to 127.0.0.1 only. Docker/Podman containers
+    # reach the host via host.docker.internal, which resolves to a non-loopback
+    # IP — so a 127.0.0.1-only bind is completely invisible to the API container.
+    # The rebind is opt-in (default skip) because it restarts Ollama and most
+    # users using cloud/gateway models don't need it.
     bind_localhost = _ollama_bind_is_localhost_only()
     if bind_localhost is True:
         console.print()
         _warn(
-            "Ollama is listening on [cyan]127.0.0.1[/cyan] only — Docker "
-            "containers cannot reach it via [cyan]host.docker.internal[/cyan]."
+            "Ollama is bound to [cyan]127.0.0.1[/cyan] only. "
+            "Docker containers reach the host via [cyan]host.docker.internal[/cyan], "
+            "which routes to a non-loopback IP — so the AgentBreeder API container "
+            "cannot reach Ollama at its current bind address."
         )
         if _is_assume_yes():
+            # --yes keeps legacy behaviour: attempt the rebind automatically
             console.print("  [dim]--yes: rebinding Ollama to 0.0.0.0:11434[/dim]")
             ans = "y"
         else:
             ans = (
                 console.input(
-                    "  [bold]Rebind Ollama to 0.0.0.0:11434 so containers can "
-                    "reach it?[/bold] [dim](runs: [cyan]launchctl setenv "
-                    "OLLAMA_HOST 0.0.0.0:11434[/cyan] + restarts Ollama)[/dim] "
-                    "[Y/n]: "
+                    "  [bold]Rebind Ollama to 0.0.0.0:11434[/bold] so the Docker stack "
+                    "can reach it via [cyan]host.docker.internal[/cyan]? "
+                    "[dim](runs: [cyan]launchctl setenv OLLAMA_HOST 0.0.0.0:11434[/cyan] "
+                    "+ restarts Ollama — skip if you're using cloud/gateway models)[/dim] "
+                    "[y/N]: "
                 )
                 .strip()
                 .lower()
             )
-        if ans not in ("n", "no", "skip"):
+        if ans in ("y", "yes"):
             console.print("  [dim]Rebinding Ollama daemon...[/dim]")
             if _rebind_ollama_all_interfaces():
                 _ok("Ollama rebound to 0.0.0.0:11434 — reachable from containers")
             else:
                 _warn(
-                    "Could not auto-rebind. Run manually:\n"
+                    "Could not auto-rebind Ollama. "
+                    "Local Ollama won't be reachable from the Docker stack — "
+                    "agents will fall back to cloud providers.\n"
+                    "  To fix manually:\n"
                     "    [cyan]launchctl setenv OLLAMA_HOST 0.0.0.0:11434[/cyan]\n"
-                    '    [cyan]osascript -e \'tell application "Ollama" to '
-                    "quit'[/cyan] && [cyan]open -a Ollama[/cyan]"
+                    "    [cyan]osascript -e 'tell application \"Ollama\" to quit'[/cyan]"
+                    " && [cyan]open -a Ollama[/cyan]"
                 )
         else:
             _info(
-                "Skipping rebind — local Ollama models will be unreachable "
-                "from API container; agents will use cloud providers."
+                "Skipping Ollama rebind — local Ollama won't be reachable from the "
+                "Docker stack; agents will fall back to cloud providers. "
+                "(Set OLLAMA_HOST=0.0.0.0:11434 and restart Ollama to fix later.)"
             )
 
     # ── Pull a model ──
