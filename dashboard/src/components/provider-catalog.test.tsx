@@ -98,6 +98,32 @@ describe("ProviderCatalog — graceful catalog error degradation", () => {
     });
   });
 
+  it("shows empty-state copy when catalog resolves to an empty list (no error)", async () => {
+    (api.providers.catalog as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: [],
+    });
+
+    renderCatalog(makeClient());
+
+    expect(
+      await screen.findByText("No providers in the catalog yet.")
+    ).toBeInTheDocument();
+    // No retry button when there is no error
+    expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
+  });
+
+  it("shows 'retry above' copy in the empty-state when catalog fetch fails", async () => {
+    (api.providers.catalog as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("Network error")
+    );
+
+    renderCatalog(makeClient());
+
+    expect(
+      await screen.findByText("Provider list unavailable — retry above.")
+    ).toBeInTheDocument();
+  });
+
   it("renders normally when the catalog fetch succeeds", async () => {
     (api.providers.catalog as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: [

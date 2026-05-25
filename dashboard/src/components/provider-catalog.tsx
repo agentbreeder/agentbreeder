@@ -109,7 +109,7 @@ export function ProviderCatalog({
   return (
     <>
       {catalogQuery.error && (
-        <div className="mb-3 flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
+        <div role="status" aria-live="polite" className="mb-3 flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
           <span>Couldn&apos;t reach the model catalog.</span>
           <Button
             size="sm"
