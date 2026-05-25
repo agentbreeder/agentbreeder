@@ -78,6 +78,18 @@ All three tiers compile to the same internal format. Same deploy pipeline. Same 
 
 
 ---
+## Use with Claude Code
+
+Install the `/agent-build` architect as a Claude Code plugin:
+
+```bash
+claude plugin marketplace add agentbreeder/agentbreeder
+claude plugin install agent-build@agentbreeder
+```
+
+Then run `/agent-build` in Claude Code to scaffold an agent (it recommends framework, model, memory, RAG, and deploy target, then generates `agent.yaml` + code).
+
+---
 ## Documentation
 
 **User docs** (guides, references, examples) — [agentbreeder.io/docs](https://www.agentbreeder.io/docs)

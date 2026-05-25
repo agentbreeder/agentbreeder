@@ -87,6 +87,15 @@ agentbreeder secret sync --target gcp     # mirror to cloud-native store
 - **Fast Path** — six questions, then scaffold (you know your stack)
 - **Advisory Path** — describe your use case; it recommends framework, model, RAG, memory, MCP, deploy, evals — with reasoning — before scaffolding
 
+Install `/agent-build` as a Claude Code plugin:
+
+```bash
+claude plugin marketplace add agentbreeder/agentbreeder
+claude plugin install agent-build@agentbreeder
+```
+
+Then run `/agent-build` in Claude Code. No AgentBreeder install needed — the skill generates a complete project you can deploy with `agentbreeder deploy`.
+
 Both produce the same artifacts: `agent.yaml`, `agent.py`, `tools/`, `requirements.txt`, `.env.example`, `Dockerfile`, `deploy/`, `criteria.md`, `README.md`. Advisory adds `memory/`, `rag/`, `mcp/servers.yaml`, `tests/evals/`, `ARCHITECT_NOTES.md`, plus IDE context files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `.antigravity.md`).
 
 ```bash
