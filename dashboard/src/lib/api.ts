@@ -329,6 +329,33 @@ export interface ProviderDiscoverResult {
   total: number;
 }
 
+/**
+ * A model discovered by the Ollama auto-detection endpoint.
+ * Mirrors `DiscoveredModel` in `api/models/schemas.py`.
+ */
+export interface OllamaDiscoveredModel {
+  id: string;
+  name: string;
+  context_window: number | null;
+  max_output_tokens: number | null;
+  input_price_per_million: number | null;
+  output_price_per_million: number | null;
+  capabilities: string[];
+}
+
+/**
+ * Result of `POST /api/v1/providers/detect-ollama`.
+ * Mirrors `OllamaDetectResult` in `api/models/schemas.py`.
+ */
+export interface OllamaDetectResult {
+  /** The provider record — created or existing. */
+  provider: Provider;
+  /** Models discovered from the running Ollama instance. */
+  models: OllamaDiscoveredModel[];
+  /** True if a new provider record was created; false if one already existed. */
+  created: boolean;
+}
+
 // --- MCP Server types ---
 
 export type McpTransport = "stdio" | "sse" | "streamable_http";
@@ -1461,6 +1488,13 @@ export const api = {
         headers: getAuthHeaders(),
         body: JSON.stringify({ model }),
       }),
+    /**
+     * Auto-detect a local Ollama instance, register it as a provider, and
+     * discover + register all locally-available models.
+     * Maps to `POST /api/v1/providers/detect-ollama`.
+     */
+    detectOllama: () =>
+      request<OllamaDetectResult>("/providers/detect-ollama", { method: "POST" }),
     catalog: () => request<CatalogProvider[]>("/providers/catalog"),
     catalogStatus: (workspace?: string) =>
       request<Record<string, boolean>>(
