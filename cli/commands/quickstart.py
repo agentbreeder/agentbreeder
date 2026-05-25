@@ -1237,7 +1237,11 @@ def _ask_model_source(no_ollama_flag: bool, assume_yes: bool = False) -> tuple[b
     Choices:
       1. Local   — install Ollama, pull a model. Skip cloud key prompts.
       2. Cloud   — skip Ollama entirely. Prompt for cloud provider keys.
-      3. Both    — default; the original behavior.
+      3. Both    — local Ollama plus cloud keys.
+
+    When Ollama is already running with models, option 1 (Local) becomes the
+    default so that pressing Enter takes the free, no-key path.  When Ollama is
+    not detected, option 3 (Both) remains the default.
     """
     if no_ollama_flag:
         return (True, False)
@@ -1246,32 +1250,54 @@ def _ask_model_source(no_ollama_flag: bool, assume_yes: bool = False) -> tuple[b
     if assume_yes or not _sys.stdin.isatty():
         return (False, False)
 
-    console.print()
-    console.print(
-        Panel(
+    # Detect whether Ollama is already up with at least one model.
+    ollama_ready = _ollama_running() and bool(_ollama_models())
+
+    if ollama_ready:
+        panel_body = (
+            "[bold cyan]How do you want to run models?[/bold cyan]\n\n"
+            "  [bold]1.[/bold] [bold green]Local[/bold green] — use your local Ollama models "
+            "[dim](free, no key — press Enter)[/dim]  ← default\n"
+            "  [bold]2.[/bold] Cloud — OpenAI · Anthropic · Google · OpenRouter "
+            "[dim](BYO API key, no download)[/dim]\n"
+            "  [bold]3.[/bold] Both — local Ollama plus cloud keys"
+        )
+        default_prompt = "  Choice [1/2/3, default=1]: "
+        default_choice = "1"
+    else:
+        panel_body = (
             "[bold cyan]How do you want to run models?[/bold cyan]\n\n"
             "  [bold]1.[/bold] Local — install Ollama and pull a model "
             "[dim](~3 GB; offline / privacy)[/dim]\n"
             "  [bold]2.[/bold] Cloud — OpenAI · Anthropic · Google · OpenRouter "
             "[dim](BYO API key, no download)[/dim]\n"
             "  [bold]3.[/bold] Both — local Ollama plus cloud keys "
-            "[dim](default)[/dim]",
+            "[dim](default)[/dim]"
+        )
+        default_prompt = "  Choice [1/2/3, default=3]: "
+        default_choice = "3"
+
+    console.print()
+    console.print(
+        Panel(
+            panel_body,
             border_style="cyan",
             padding=(1, 3),
         )
     )
 
     while True:
-        answer = console.input("  Choice [1/2/3, default=3]: ").strip()
-        if answer in ("", "3"):
-            return (False, False)
-        if answer == "1":
+        answer = console.input(default_prompt).strip()
+        effective = answer if answer else default_choice
+        if effective == "1":
             return (False, True)
-        if answer == "2":
+        if effective == "2":
             console.print(
                 "  [dim]Skipping Ollama install. Equivalent flag: [bold]--no-ollama[/bold].[/dim]"
             )
             return (True, False)
+        if effective == "3":
+            return (False, False)
         console.print("  [red]Enter 1, 2, or 3.[/red]")
 
 
