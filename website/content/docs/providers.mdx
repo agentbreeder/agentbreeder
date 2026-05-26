@@ -6,8 +6,6 @@ description: How to add OpenAI-compatible LLM providers (Nvidia NIM, Groq, Toget
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
-# Providers
-
 AgentBreeder ships with a **catalog of OpenAI-compatible providers** so you can swap LLM backends with one line in `agent.yaml`. Most "new" providers (Nvidia NIM, Groq, Together, Fireworks, DeepInfra, Cerebras, Hyperbolic, Moonshot/Kimi, OpenRouter, …) speak the OpenAI Chat Completions wire format — the only differences are the base URL and the env var that holds the API key. The catalog captures both.
 
 ```yaml
@@ -267,7 +265,7 @@ Anthropic does not expose a public `/models` endpoint, so AgentBreeder ships a h
 ## See also
 
 - [`agent.yaml` reference](agent-yaml) — full schema for `model.primary` / `model.fallback`
-- [Gateway](gateway) — when to route through LiteLLM instead of calling a provider directly
+- [Gateways](gateways) — when to route through LiteLLM or OpenRouter instead of calling a provider directly
 - [How-To Guide → connect a provider](how-to)
 - [CLI reference → `provider` commands](cli-reference)
 - [CLI reference → `model` commands](cli-reference) — `agentbreeder model {list,sync,show,deprecate}`

@@ -5,8 +5,6 @@ description: Open-source platform for building, deploying, and governing enterpr
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-# AgentBreeder
-
 **Define Once. Deploy Anywhere. Govern Automatically.**
 
 AgentBreeder is an open-source platform for building, deploying, and governing enterprise AI agents.
@@ -18,10 +16,11 @@ with RBAC, cost tracking, audit trail, and org-wide discoverability automatic.
   validates RBAC, registers the agent, attributes costs, and writes an audit log — automatically.
 </Callout>
 
-<Callout type="warn" title="Deploy-target status (as of 2026-05-18)">
-  Today, only **Local (Docker Compose)** and **GCP Cloud Run (greenfield)** are end-to-end shipped
-  and supported. AWS, Azure, Kubernetes, and Claude-managed targets are in flight — most need
-  pre-existing infrastructure or are partially implemented. See the
+<Callout title="Deploy-target parity (v2.6.0)">
+  The same `agent.yaml` deploys with full governance — sidecar (guardrails, cost, tracing) and
+  secret mirroring — to **AWS ECS Fargate**, **GCP Cloud Run**, and **Azure Container Apps**, plus
+  **Local (Docker Compose)**. AWS App Runner is single-container, so it deploys without a sidecar and
+  rejects `guardrails:`/`secrets:` at validation; Kubernetes and Claude-managed are in flight. See the
   [deploy-target status table](cli-reference#agentbreeder-deploy) and
   [per-target prerequisites](deployment#prerequisites-per-target-as-of-2026-05-18) before you pick a target.
 </Callout>
@@ -54,7 +53,7 @@ eject to YAML, eject to Full Code at any time.
 
 Local (Docker Compose) · AWS ECS Fargate · AWS App Runner · GCP Cloud Run · Azure Container Apps · Kubernetes · Claude-managed
 
-> **Status:** Shipped status varies by target. Today, Local and GCP Cloud Run (greenfield) are the smoothest paths; others require pre-existing infrastructure or are partial. See the [deploy-target status table](cli-reference#agentbreeder-deploy) and [per-target prerequisites](deployment#prerequisites-per-target-as-of-2026-05-18).
+> **Status (v2.6.0):** Local, AWS ECS Fargate, GCP Cloud Run, and Azure Container Apps deploy with full governance parity (sidecar + secret mirroring). AWS App Runner runs single-container (no sidecar); Kubernetes and Claude-managed are in flight. See the [deploy-target status table](cli-reference#agentbreeder-deploy) and [per-target prerequisites](deployment#prerequisites-per-target-as-of-2026-05-18).
 
 ## Quick Navigation
 
@@ -63,7 +62,7 @@ Local (Docker Compose) · AWS ECS Fargate · AWS App Runner · GCP Cloud Run · 
 | Build your first agent in 5 minutes | [Quickstart →](quickstart) |
 | TypeScript or Go agents | [Polyglot Agents →](polyglot-agents) |
 | Deploy to a specific cloud | [How-To →](how-to) |
-| Model gateway — budgets, guardrails, caching | [Model Gateway →](gateway) |
+| Model gateway — budgets, guardrails, caching | [Gateways →](gateways) |
 | Agent YAML reference | [agent.yaml →](agent-yaml) |
 | Registry: prompts, tools, RAG, memory | [Registry Guide →](registry-guide) |
 | All CLI commands | [CLI Reference →](cli-reference) |

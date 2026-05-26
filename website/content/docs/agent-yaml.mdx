@@ -3,8 +3,6 @@ title: agent.yaml Reference
 description: The canonical YAML config format for all AgentBreeder agents.
 ---
 
-# agent.yaml Reference
-
 The `agent.yaml` file is the canonical configuration for an AgentBreeder agent. It defines everything needed to build, deploy, and govern an agent.
 
 ## TL;DR
@@ -539,7 +537,7 @@ guardrails:
 
 Deployment configuration.
 
-> **Status:** Deployer code paths exist for every value listed below. Greenfield provisioning is fully supported only for `local` and `cloud-run`; AWS, Azure, and Kubernetes targets require pre-existing infrastructure. `claude-managed` is an Anthropic-managed runtime (no AgentBreeder-managed infra). See the [deploy-target status table](cli-reference#agentbreeder-deploy).
+> **Status:** Deploy-target availability (which targets ship full governance, greenfield provisioning, and secret auto-mirror) is maintained in one canonical place — see the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -686,6 +684,27 @@ agentbreeder deploy --target container-apps  # Azure Container Apps
 agentbreeder deploy --target kubernetes      # Kubernetes (EKS/GKE/AKS/self-hosted)
 agentbreeder deploy --target claude-managed  # Anthropic Claude Managed Agents
 ```
+
+---
+
+## All Frameworks × All Deployment Targets
+
+This matrix is the canonical home for the framework/target compatibility grid — No Code, Low Code, and Full Code all compile to the same `agent.yaml`, so it applies to every builder tier equally.
+
+| | Local | App Runner | ECS Fargate | Cloud Run | Container Apps | Kubernetes | Claude Managed |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **LangGraph** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **OpenAI Agents** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Claude SDK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **CrewAI** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Google ADK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Custom** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+Every framework compiles to every target. **Governance** availability per target is a separate axis — AWS App Runner is single-container (no sidecar, no `guardrails:`/`secrets:`) and Kubernetes + Claude-managed are in flight; see the [deploy-target status table](cli-reference#agentbreeder-deploy).
+
+<Callout type="info" title="Claude Managed note">
+  When deploying to `claude-managed`, no container is built — Anthropic manages the runtime. The framework field is still required and controls how the agent logic is structured inside the managed environment.
+</Callout>
 
 ---
 

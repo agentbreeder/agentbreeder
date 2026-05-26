@@ -113,7 +113,7 @@ function Cell({ value, highlight }: { value: CellValue; highlight: boolean }) {
     >
       <span className="inline-flex items-center justify-center gap-1.5">
         {ICON[value]}
-        <span className="text-[11px]" style={{ color: value === 'yes' ? '#22c55e' : value === 'partial' ? '#fb923c' : '#52525b' }}>
+        <span className="text-[11px]" style={{ color: value === 'yes' ? '#22c55e' : value === 'partial' ? '#fb923c' : 'var(--text-dim)' }}>
           {LABEL[value]}
         </span>
       </span>
@@ -137,7 +137,7 @@ export function FrameworkComparison() {
       <table className="w-full border-collapse text-[13px]">
         <thead>
           <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-            <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.6px]" style={{ color: '#52525b', minWidth: 220 }}>
+            <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.6px]" style={{ color: 'var(--text-dim)', minWidth: 220 }}>
               Capability
             </th>
             {COLS.map((col) => (
@@ -169,7 +169,7 @@ export function FrameworkComparison() {
               <td className="px-4 py-3" style={{ color: '#e4e4e7' }}>
                 <div>{row.feature}</div>
                 {row.note && (
-                  <div className="mt-0.5 text-[11px]" style={{ color: '#52525b' }}>{row.note}</div>
+                  <div className="mt-0.5 text-[11px]" style={{ color: 'var(--text-dim)' }}>{row.note}</div>
                 )}
               </td>
               {COLS.map((col) => (
@@ -182,8 +182,8 @@ export function FrameworkComparison() {
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-5 border-t px-6 py-3" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-        <span className="text-[11px]" style={{ color: '#52525b' }}>Legend:</span>
-        {([['yes', '#22c55e', CHECK], ['partial', '#fb923c', PARTIAL], ['no', '#52525b', CROSS]] as const).map(([label, color, icon]) => (
+        <span className="text-[11px]" style={{ color: 'var(--text-dim)' }}>Legend:</span>
+        {([['yes', '#22c55e', CHECK], ['partial', '#fb923c', PARTIAL], ['no', 'var(--text-dim)', CROSS]] as const).map(([label, color, icon]) => (
           <span key={label} className="inline-flex items-center gap-1.5 text-[11px]" style={{ color }}>
             {icon} {label === 'yes' ? 'Full support' : label === 'partial' ? 'Partial / vendor-specific' : 'Not supported'}
           </span>

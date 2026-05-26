@@ -6,14 +6,12 @@ description: Auto-injected Go binary that handles tracing, cost attribution, gua
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-# Sidecar — Cross-Cutting Concerns Layer
-
 The sidecar is a single Go binary auto-injected next to every AgentBreeder agent. The agent talks to it over `localhost`; the sidecar handles **all** of the boring-but-mandatory infrastructure work — tracing, cost attribution, guardrails, A2A, MCP, and bearer-token auth — so language SDKs stay thin.
 
 One binary, every language, every wired-up deployer.
 
 <Callout type="info" title="Sidecar injection vs host-platform availability">
-  Sidecar injection is cloud-agnostic — wherever a deployer is wired up, the sidecar rides along. Which deployers are actually usable today (greenfield vs bring-your-own-cluster) is a separate question; see the [deploy-target status table](/docs/cli-reference#agentbreeder-deploy) and [prerequisites per target](/docs/deployment#prerequisites-per-target-as-of-2026-05-18).
+  Sidecar injection is cloud-agnostic — it rides along on **Local**, **AWS ECS Fargate**, **GCP Cloud Run**, and **Azure Container Apps**. The exception is **AWS App Runner**, which is single-container: it deploys without a sidecar and rejects `guardrails:`/`secrets:` at validation. For the full per-target matrix see the [deploy-target status table](/docs/cli-reference#agentbreeder-deploy) and [prerequisites per target](/docs/deployment#prerequisites-per-target-as-of-2026-05-18).
 </Callout>
 
 ---

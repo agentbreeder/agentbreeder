@@ -6,8 +6,6 @@ description: Build and deploy agents with drag-and-drop. No YAML or code require
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-# No Code — AgentBreeder Studio
-
 Build, configure, and deploy production agents entirely from AgentBreeder Studio (formerly the Dashboard).
 No YAML. No code. No DevOps knowledge required.
 
@@ -34,7 +32,7 @@ Every framework works in Studio. Pick the one that fits your use case from a dro
 
 All deployment targets are available from the **Deploy to** dropdown. Connect your cloud account once in Settings — then deploy anywhere without manual credential configuration.
 
-> **Status:** Non-local targets in the table below work via existing infrastructure today. Greenfield provisioning (auto-creating VPCs/clusters/resource-groups) is fully supported only for `local` and `cloud-run`. `claude-managed` is an Anthropic-managed runtime. See the [deploy-target status table](cli-reference#agentbreeder-deploy).
+> **Status:** Deploy-target availability (which targets ship full governance, greenfield provisioning, and secret auto-mirror) is maintained in one canonical place — see the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 | Target | What it runs on | Best for |
 |--------|----------------|----------|
@@ -262,20 +260,7 @@ You can always go deeper — you never lose what you built. See [Full Code →](
 
 ## All Frameworks × All Deployment Targets
 
-This matrix applies to No Code, Low Code, and Full Code equally.
-
-| | Local | App Runner | ECS Fargate | Cloud Run | Container Apps | Kubernetes | Claude Managed |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **LangGraph** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **OpenAI Agents** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Claude SDK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **CrewAI** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Google ADK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Custom** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-
-<Callout type="info" title="Claude Managed note">
-  When deploying to `claude-managed`, no container is built — Anthropic manages the runtime. The framework field is still required and controls how the agent logic is structured inside the managed environment.
-</Callout>
+Every framework compiles to every deployment target. The full matrix — and the per-target governance caveats — live in the [agent.yaml reference → All Frameworks × All Deployment Targets](agent-yaml#all-frameworks--all-deployment-targets).
 
 ---
 

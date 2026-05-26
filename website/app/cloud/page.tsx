@@ -2,16 +2,25 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Nav } from '@/components/nav';
 import { Footer } from '@/components/footer';
+import { WaitlistForm } from '@/components/cloud-coming';
 
 export const metadata: Metadata = {
   title: 'Cloud — Managed AgentBreeder',
   description:
     'Managed AgentBreeder at console.agentbreeder.io — hosted registry, RBAC, observability, and billing. Your agents stay in your cloud.',
   alternates: { canonical: '/cloud' },
+  openGraph: {
+    title: 'Cloud — Managed AgentBreeder',
+    description:
+      'Managed AgentBreeder at console.agentbreeder.io — hosted registry, RBAC, observability, and billing. Your agents stay in your cloud.',
+    url: '/cloud',
+    type: 'website',
+    images: [
+      { url: '/og.png', width: 1280, height: 640, alt: 'Managed AgentBreeder Cloud' },
+    ],
+  },
 };
 
-const WAITLIST_HREF =
-  'mailto:hello@agentbreeder.io?subject=AgentBreeder%20Cloud%20Waitlist&body=Please%20add%20me%20to%20the%20console.agentbreeder.io%20waitlist.%20Team%20size%3A%20___%20%7C%20Cloud%3A%20AWS%20%2F%20GCP%20%2F%20Azure%20%7C%20Use%20case%3A%20___';
 const CONSOLE_URL = 'https://console.agentbreeder.io';
 const GITHUB_URL = 'https://github.com/agentbreeder/agentbreeder';
 
@@ -95,7 +104,7 @@ export default function CloudPage() {
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <a
-              href={WAITLIST_HREF}
+              href="#waitlist"
               className="flex min-h-[44px] items-center rounded-lg px-5 text-[15px] font-bold no-underline transition-opacity hover:opacity-90"
               style={{ background: 'var(--accent)', color: '#000' }}
             >
@@ -253,13 +262,9 @@ export default function CloudPage() {
           <p className="mb-6 text-[15px] sm:text-[16px]" style={{ color: 'var(--text-muted)' }}>
             Join the waitlist and we&rsquo;ll reach out as soon as <Link href={CONSOLE_URL} className="underline" style={{ color: 'var(--accent)' }}>console.agentbreeder.io</Link> opens up access.
           </p>
-          <a
-            href={WAITLIST_HREF}
-            className="inline-flex min-h-[44px] items-center rounded-lg px-6 text-[15px] font-bold no-underline transition-opacity hover:opacity-90"
-            style={{ background: 'var(--accent)', color: '#000' }}
-          >
-            Join the waitlist &rarr;
-          </a>
+          <div className="flex justify-center">
+            <WaitlistForm />
+          </div>
         </section>
       </main>
       <Footer />

@@ -221,7 +221,7 @@ export function DeployAnywhere() {
           >
             agentbreeder deploy
           </code>{' '}
-          runs the same 8-step atomic pipeline regardless of target — Local Docker Compose or GCP Cloud Run.
+          runs the same 8-step atomic pipeline regardless of target — from Local Docker Compose to AWS ECS Fargate, GCP Cloud Run, and Azure Container Apps.
         </p>
 
         {/* Terminal window */}

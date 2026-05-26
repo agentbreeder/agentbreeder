@@ -70,8 +70,33 @@ export default async function BlogPostPage({ params }: Props) {
 
   const MDX = post.body;
 
+  const url = `https://www.agentbreeder.io/blog/${slug}`;
+  const blogPostingJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: post.title,
+    description: post.description,
+    datePublished: post.date,
+    image: post.image
+      ? `https://www.agentbreeder.io${post.image}`
+      : 'https://www.agentbreeder.io/og.png',
+    author: {
+      '@type': 'Person',
+      name: 'Rajit Saha',
+    },
+    mainEntityOfPage: url,
+    publisher: {
+      '@type': 'Organization',
+      name: 'AgentBreeder',
+      url: 'https://www.agentbreeder.io',
+      logo: 'https://www.agentbreeder.io/og.png',
+    },
+  };
+
   return (
     <>
+      {/* BlogPosting structured data — static, server-controlled frontmatter. */}
+      <script type="application/ld+json">{JSON.stringify(blogPostingJsonLd)}</script>
       <Nav />
       <main className="mx-auto max-w-[760px] px-6 py-16">
         {/* Back */}
@@ -138,8 +163,14 @@ export default async function BlogPostPage({ params }: Props) {
             className="mb-12 overflow-hidden rounded-2xl border"
             style={{ borderColor: 'var(--border)' }}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={post.image} alt={post.title} className="block w-full" />
+            <Image
+              src={post.image}
+              alt={post.title}
+              width={1280}
+              height={640}
+              className="block w-full h-auto"
+              sizes="(max-width: 768px) 100vw, 768px"
+            />
           </div>
         )}
 

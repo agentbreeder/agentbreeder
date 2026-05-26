@@ -6,8 +6,6 @@ description: Ship a registered agent to AWS, GCP, or Azure — covers the user-i
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-# Deployment
-
 Once your agent runs locally and is registered (prompts + tools + agent record), the
 deploy step packages the agent + the AgentBreeder runtime into a container, pushes it
 to your cloud's image registry, and rolls it out as a managed service with secrets and
@@ -530,12 +528,19 @@ for the full flow.
 
 ## Prerequisites per target (as of 2026-05-18)
 
-> **Status reminder:** Local and GCP Cloud Run support greenfield provisioning. The
-> targets listed below require **pre-existing infrastructure**. See the
-> [deploy-target status table](cli-reference#agentbreeder-deploy) for the canonical
-> matrix.
+> **Status reminder (v2.6.0):** Local, AWS ECS Fargate, GCP Cloud Run, and Azure
+> Container Apps deploy with **full governance parity** (sidecar + secret mirroring)
+> and support greenfield `--provision`. **AWS App Runner** is single-container — it
+> deploys without a sidecar and rejects `guardrails:` / `secrets:` at validation.
+> **Kubernetes** and **Claude-managed** are in flight (Kubernetes needs an existing
+> cluster). This page is the canonical home of the **per-target prerequisites**; for
+> the at-a-glance feature matrix see the
+> [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 ### AWS ECS Fargate (`--target ecs-fargate`)
+
+Full governance (sidecar + cost/tracing). Greenfield `--provision` creates the
+ECS footprint from scratch (see the [Greenfield mode](#user-input-contract-per-cloud-byo-existing-infra) AWS tab above). To deploy into existing infra:
 
 - AWS account ID and access credentials (Secrets Manager–backed `AWS_ACCESS_KEY_ID` /
   `AWS_SECRET_ACCESS_KEY` or an instance profile).
@@ -546,8 +551,14 @@ for the full flow.
 - (Optional) ECR repository for image storage; AgentBreeder will use a public
   registry if none is configured.
 - Region matches your `deploy.region` in `agent.yaml`.
+- **Secrets:** AWS auto-mirror is on the roadmap — pre-create entries in AWS
+  Secrets Manager and reference them by name in `deploy.secrets:`.
 
 ### AWS App Runner (`--target app-runner`)
+
+> **Single-container target.** App Runner deploys **without a sidecar**, so it
+> **rejects** `guardrails:` and `secrets:` at `validate-infra`. Use it for simple,
+> zero-governance services; pick ECS Fargate when you need the sidecar.
 
 - AWS account + credentials (same as ECS Fargate above).
 - App Runner-permitted IAM role
@@ -558,6 +569,10 @@ for the full flow.
 
 ### Azure Container Apps (`--target container-apps`)
 
+Full governance (sidecar + cost/tracing) and **secret auto-mirror to Azure Key
+Vault**. Greenfield `--provision` creates the Container Apps footprint from scratch
+(see the [Greenfield mode](#user-input-contract-per-cloud-byo-existing-infra) Azure tab above). To deploy into existing infra:
+
 - Azure subscription ID and service-principal credentials
   (`AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`).
 - Resource group, pre-created — AgentBreeder will not create it for you.
@@ -565,7 +580,7 @@ for the full flow.
 - Container Apps-permitted role assignment for the service principal.
 - (Optional) managed identity if the agent needs cross-resource access.
 
-### Kubernetes (`--target kubernetes`, EKS/GKE/AKS/self-hosted)
+### Kubernetes (`--target kubernetes`, EKS/GKE/AKS/self-hosted) — in flight
 
 - Existing cluster (no provisioning) with `kubectl` access from your dev or CI
   environment.
@@ -575,7 +590,7 @@ for the full flow.
   ConfigMaps, and Secrets in that namespace.
 - (Optional) an ingress controller and DNS records if you want external access.
 
-### Claude Managed Agents (`--target claude-managed`)
+### Claude Managed Agents (`--target claude-managed`) — in flight
 
 - Anthropic API key with managed-agents access enabled on your account.
 - No infrastructure to provision — Anthropic hosts the runtime.

@@ -6,8 +6,6 @@ description: Step-by-step recipes for common AgentBreeder tasks.
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-# How-To Guide
-
 Recipes for everything that isn't covered by `agentbreeder quickstart`. Each section is self-contained.
 
 <Callout type="info" title="New here?">
@@ -129,7 +127,7 @@ AgentBreeder Studio includes a **Chat to build** tab at `/agents/new` that lets 
 
 ## Deploy to different targets
 
-> **What's fully shipped today:** Local (Docker Compose) and GCP Cloud Run support greenfield provisioning end-to-end. AWS ECS Fargate, AWS App Runner, Azure Container Apps, Kubernetes (EKS/GKE/AKS), and Claude Managed Agents have working deployer implementations but require **existing infrastructure** — pre-provisioned VPC/subnets/IAM roles for AWS, resource group + Container Apps Environment for Azure, an existing cluster for Kubernetes. Prereq checklists are in [deployment.mdx](deployment).
+> **What's fully shipped today:** Local, AWS ECS Fargate, GCP Cloud Run, and Azure Container Apps deploy with full governance parity (sidecar + secret mirroring); AWS App Runner is single-container (no sidecar, rejects `guardrails:`/`secrets:`); Kubernetes and Claude-managed are in flight. The canonical matrix is the [deploy-target status table](cli-reference#agentbreeder-deploy); per-target prereq checklists are in [deployment.mdx](deployment#prerequisites-per-target-as-of-2026-05-18).
 
 | Target | Command | `cloud:` |
 |---|---|---|
@@ -335,7 +333,7 @@ No data leaves the machine.
 
 ## Route through the model gateway
 
-AgentBreeder ships a self-hosted [LiteLLM proxy](/docs/gateway) at `:4000` that adds budget enforcement, PII guardrails, Redis caching, and live spend tracking.
+AgentBreeder ships a self-hosted [LiteLLM proxy](/docs/gateways#self-hosted-litellm) at `:4000` that adds budget enforcement, PII guardrails, Redis caching, and live spend tracking.
 
 ```yaml
 model:

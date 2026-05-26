@@ -9,6 +9,16 @@ export const metadata: Metadata = {
   description:
     'AgentBreeder is an open-source platform for building, deploying, and governing enterprise AI agents. Built by Rajit Saha alongside his role as Director of Data Platform at Udemy + Coursera.',
   alternates: { canonical: '/about' },
+  openGraph: {
+    title: 'About AgentBreeder',
+    description:
+      'AgentBreeder is an open-source platform for building, deploying, and governing enterprise AI agents. Built by Rajit Saha alongside his role as Director of Data Platform at Udemy + Coursera.',
+    url: '/about',
+    type: 'website',
+    images: [
+      { url: '/og.png', width: 1280, height: 640, alt: 'About AgentBreeder' },
+    ],
+  },
 };
 
 const CONTACT_EMAIL = 'hello@agentbreeder.io';

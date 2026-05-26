@@ -3,8 +3,6 @@ title: Migration Overview
 description: Choose your migration path to AgentBreeder.
 ---
 
-# Migration Guides -- AgentBreeder
-
 > Bring your existing AI agents to AgentBreeder in minutes.
 > Your framework code stays the same. AgentBreeder wraps it with governance, multi-cloud deploy, and org-wide discoverability.
 
@@ -34,11 +32,11 @@ You already built an agent. It works. But now you need:
 
 | You're using... | Migration time | Difficulty | Guide |
 |----------------|---------------|------------|-------|
-| **LangGraph** | ~15 minutes | Easy | [FROM_LANGGRAPH.md](./FROM_LANGGRAPH.md) |
-| **CrewAI** | ~20 minutes | Easy | [FROM_CREWAI.md](./FROM_CREWAI.md) |
-| **OpenAI Agents SDK** | ~15 minutes | Easy | [FROM_OPENAI_AGENTS.md](./FROM_OPENAI_AGENTS.md) |
-| **Microsoft AutoGen** | ~30 minutes | Moderate | [FROM_AUTOGEN.md](./FROM_AUTOGEN.md) |
-| **Custom Python agent** | ~20 minutes | Easy | [FROM_CUSTOM.md](./FROM_CUSTOM.md) |
+| **LangGraph** | ~15 minutes | Easy | [LangGraph guide](/docs/migrations/from-langgraph) |
+| **CrewAI** | ~20 minutes | Easy | [CrewAI guide](/docs/migrations/from-crewai) |
+| **OpenAI Agents SDK** | ~15 minutes | Easy | [OpenAI Agents guide](/docs/migrations/from-openai-agents) |
+| **Microsoft AutoGen** | ~30 minutes | Moderate | [AutoGen guide](/docs/migrations/from-autogen) |
+| **Custom Python agent** | ~20 minutes | Easy | [Custom guide](/docs/migrations/from-custom) |
 | **No existing agent** | ~5 minutes | Trivial | Use `agentbreeder init` to scaffold |
 
 ---
@@ -156,7 +154,7 @@ No. Your agent code is unchanged. You add an `agent.yaml` file and run `agentbre
 Yes. Your `agent.py` still works standalone. AgentBreeder is additive.
 
 **Q: What if my framework isn't listed?**
-Use `framework: custom`. See [FROM_CUSTOM.md](./FROM_CUSTOM.md). Any Python agent that can be called via a function works.
+Use `framework: custom`. See the [Custom migration guide](/docs/migrations/from-custom). Any Python agent that can be called via a function works.
 
 **Q: Does AgentBreeder lock me in?**
 No. Your agent code has zero AgentBreeder imports. The `agent.yaml` is a declarative config file. You can stop using AG at any time and deploy your container manually.
@@ -170,8 +168,8 @@ AgentBreeder has `orchestration.yaml` for defining multi-agent workflows (sequen
 
 Pick your migration guide:
 
-1. [Migrate from LangGraph](./FROM_LANGGRAPH.md)
-2. [Migrate from CrewAI](./FROM_CREWAI.md)
-3. [Migrate from OpenAI Agents SDK](./FROM_OPENAI_AGENTS.md)
-4. [Migrate from Microsoft AutoGen](./FROM_AUTOGEN.md)
-5. [Bring Your Own Agent (Custom)](./FROM_CUSTOM.md)
+1. [Migrate from LangGraph](/docs/migrations/from-langgraph)
+2. [Migrate from CrewAI](/docs/migrations/from-crewai)
+3. [Migrate from OpenAI Agents SDK](/docs/migrations/from-openai-agents)
+4. [Migrate from Microsoft AutoGen](/docs/migrations/from-autogen)
+5. [Bring Your Own Agent (Custom)](/docs/migrations/from-custom)

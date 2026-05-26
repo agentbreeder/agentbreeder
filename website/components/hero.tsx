@@ -11,7 +11,7 @@ framework: langgraph
 
 # model config
 model:
-  primary: ollama/gemma4
+  primary: ollama/gemma3
   fallback: gpt-4o
   temperature: 0.7
 
@@ -26,7 +26,7 @@ function YamlLine({ line }: { line: string }) {
     return (
       <span>
         {comment[1]}
-        <span style={{ color: '#3f3f46', fontStyle: 'italic' }}>{comment[2]}</span>
+        <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>{comment[2]}</span>
       </span>
     );
   }
@@ -163,7 +163,7 @@ export function Hero() {
                 Deploy anywhere.
               </span>
               <br />
-              Govern free.
+              Govern automatically.
             </h1>
             <p className="mb-8 text-base sm:text-lg leading-[1.75] max-w-[480px]" style={{ color: 'var(--text-muted)' }}>
               One YAML file. Any framework. Any cloud. Governance, RBAC, cost tracking and
@@ -189,11 +189,11 @@ export function Hero() {
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
               <Link
-                href="/docs"
+                href="/docs/quickstart"
                 className="rounded-lg px-5 py-2.5 text-sm font-bold no-underline text-center transition-opacity hover:opacity-90"
                 style={{ background: 'var(--accent)', color: '#000' }}
               >
-                Read the docs →
+                Get started →
               </Link>
               <a
                 href="https://github.com/agentbreeder/agentbreeder"

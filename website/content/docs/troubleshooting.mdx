@@ -1,0 +1,146 @@
+---
+title: Troubleshooting
+description: Common deploy, auth, secret, and provider errors when running AgentBreeder — and the one-line fix for each.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+This page collects the errors you are most likely to hit when deploying and running
+agents, with the fix for each. For local-stack and quickstart issues (Docker Compose,
+port conflicts, Ollama bootstrap), see the [FAQ](faq).
+
+<Callout type="info">
+  Most deploy failures roll back cleanly — the [deploy pipeline](cli-reference#agentbreeder-deploy)
+  is atomic, so a failed step never leaves a half-provisioned agent. Read the failing
+  step name in the CLI output and jump to the matching entry below.
+</Callout>
+
+## Deploy
+
+### `validate-infra` rejects `guardrails:` or `secrets:` on AWS App Runner
+
+App Runner is a **single-container** target — it deploys without the AgentBreeder
+sidecar, so it cannot enforce guardrails or mount mirrored secrets. Either drop the
+`guardrails:` / `secrets:` blocks, or switch to a sidecar-capable target:
+
+```yaml
+deploy:
+  cloud: aws
+  runtime: ecs-fargate   # full governance (sidecar + secrets) instead of app-runner
+```
+
+See the [deploy-target status table](cli-reference#agentbreeder-deploy) for which
+targets carry the sidecar.
+
+### Deploy fails at the RBAC step with `403 / RBACDeniedError`
+
+You are deploying in **remote** mode and your token lacks the **deployer** role on the
+agent's `team`. Confirm the team on your `agent.yaml`, then have a team admin grant the
+role. RBAC is never skippable — the local-mode bypass (`--local`) is for laptop dev
+only and must not be used for production deploys. See
+[Deployment → `--remote` vs `--local`](deployment#cli---remote-vs---local).
+
+### `403: ... does not have storage.objects.get access` during `gcloud builds submit`
+
+The Cloud Build / Cloud Run service account is missing one of the four one-time IAM
+roles. Grant them once per GCP project — see
+[Deployment → One-time IAM grants](deployment#one-time-iam-grants).
+
+### `Permission denied on secret: ...` during `gcloud run deploy`
+
+The runtime service account lacks `roles/secretmanager.secretAccessor`. It is part of
+the same [one-time IAM grants](deployment#one-time-iam-grants) block.
+
+### Greenfield deploy created resources but `teardown` won't remove them
+
+`agentbreeder teardown --destroy-infra` refuses any resource that is **not** tagged
+`AgentBreeder=true`. If you renamed or hand-edited a provisioned resource, the tag was
+likely lost — remove it manually, or restore the tag so teardown can reclaim it. State
+lives in `.agentbreeder/infra-state.json`.
+
+## Secrets
+
+### A declared secret is empty in the running container
+
+The referenced name was not found in your **workspace** backend at deploy time. The
+deploy logs a warning and continues — the env var is simply absent. Set it and redeploy:
+
+```bash
+agentbreeder secret set OPENAI_API_KEY
+```
+
+See [Secrets → Auto-mirror at deploy](secrets#auto-mirror-at-deploy).
+
+### Secrets don't auto-mirror on AWS
+
+Auto-mirror ships for **GCP Cloud Run** and **Azure Container Apps** today; AWS
+auto-mirror is on the roadmap. For AWS targets, pre-create the secrets in AWS Secrets
+Manager and reference them by name in `deploy.secrets:`, or run
+`agentbreeder secret sync --target aws` before deploying.
+
+### `env` backend wrote my secret to `~/.agentbreeder/.env` instead of the project
+
+The `env` backend writes to the project `.env` only when the working directory is
+writable; otherwise it falls back to `~/.agentbreeder/.env`. Run the command from a
+writable project directory, or switch to a managed backend (`keychain`, `aws`, `gcp`,
+`vault`) for anything beyond local dev.
+
+## Authentication
+
+### Calling a deployed agent returns `401 {"detail":"Missing bearer token"}`
+
+The agent runtime is bearer-gated by `AGENT_AUTH_TOKEN`. Set the per-agent token in your
+workspace backend so the API resolves it server-side:
+
+```bash
+agentbreeder secret set <agent-name>/auth-token
+```
+
+Resolution order and the legacy env-var fallback are documented in
+[Secrets → Per-agent auth tokens](secrets#per-agent-auth-tokens).
+
+### `agentbreeder` commands return `401` against the management API
+
+Your CLI session token expired or is unset. Re-authenticate:
+
+```bash
+agentbreeder login            # writes the token to the OS keychain
+# or, for CI:
+export AGENTBREEDER_API_TOKEN=<token>
+```
+
+## Providers & gateways
+
+### Agent starts but every LLM call fails with a provider auth error
+
+The provider API key is missing from the deployed container. Add it to `deploy.secrets:`
+in `agent.yaml` (so it is mirrored at deploy) rather than `env_vars:`, then redeploy.
+
+### Ollama model calls fail with `connection refused` from a deployed agent
+
+A cloud-deployed container cannot reach `localhost` Ollama on your laptop. Either deploy
+a model that runs in the cloud (a hosted provider or a gateway model), or run the agent
+on the `local` target where Ollama is reachable. For local Ollama reachability inside
+the Compose stack, see the [FAQ](faq#llm-providers).
+
+### Gateway model ref isn't recognized (`unknown gateway` / parse error)
+
+A 3-segment ref (`<gateway>/<upstream>/<model>`) requires the gateway to be a
+`type: gateway` entry in the catalog and to be **configured** with an API key. Configure
+it from Studio's `/models → Gateways` tab or via `~/.agentbreeder/providers.local.yaml`.
+See [Gateways → 3-segment model refs](gateways#3-segment-model-refs).
+
+## Validation
+
+### `agentbreeder validate` picks the wrong schema
+
+File-type detection runs in a fixed order (filename first, then content keys). Name the
+file `agent.yaml`, `orchestration.yaml`, or `memory.yaml` so it resolves
+unambiguously. The full detection order is in
+[CLI Reference → `agentbreeder validate`](cli-reference#agentbreeder-validate).
+
+## Where to ask for more help
+
+- [FAQ](faq) — local stack, Docker, Ollama bootstrap
+- [Deployment](deployment) — per-target prerequisites and the GCP reference path
+- [GitHub Issues](https://github.com/agentbreeder/agentbreeder/issues)

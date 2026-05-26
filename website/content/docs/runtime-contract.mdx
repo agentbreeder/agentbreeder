@@ -5,8 +5,6 @@ description: The HTTP contract every AgentBreeder agent container satisfies, reg
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-# Runtime Contract v1
-
 Every AgentBreeder agent container — whether it is written in Python, TypeScript, Go, Kotlin, Rust, or .NET — exposes the **same HTTP surface**. That surface is the runtime contract. It is the only thing the platform (CLI, sidecar, A2A peers, Studio playground) assumes about an agent.
 
 The full machine-checkable spec lives at [`engine/schema/runtime-contract-v1.md`](https://github.com/agentbreeder/agentbreeder/blob/main/engine/schema/runtime-contract-v1.md), with a companion OpenAPI 3.1 document at [`engine/schema/runtime-contract-v1.openapi.yaml`](https://github.com/agentbreeder/agentbreeder/blob/main/engine/schema/runtime-contract-v1.openapi.yaml). This page is the user-facing summary.

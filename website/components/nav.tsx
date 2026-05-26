@@ -52,7 +52,7 @@ function GitHubIcon() {
 
 const GITHUB_URL = 'https://github.com/agentbreeder/agentbreeder';
 
-export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
+export function Nav() {
   const [open, setOpen] = useState(false);
 
   return (
@@ -72,46 +72,23 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
 
         {/* Center: Nav links or docs search — hidden on mobile */}
         <div className="hidden md:flex items-center justify-center">
-          {!docsSearch && (
-            <ul className="flex list-none gap-1 m-0 p-0">
-              {NAV_LINKS.map(({ href, label, highlight, icon }) => (
-                <li key={href}>
-                  <Link
-                    href={href}
-                    className="rounded-md px-3 py-1.5 text-sm no-underline transition-colors hover:text-white"
-                    style={highlight
-                      ? { color: '#c084fc', fontWeight: 600 }
-                      : { color: 'var(--text-muted)' }
-                    }
-                  >
-                    {label}
-                    {icon && <NavIcon name={icon} />}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {docsSearch && (
-            <div
-              className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm"
-              style={{
-                background: 'var(--bg-surface)',
-                borderColor: 'var(--border)',
-                color: 'var(--text-muted)',
-                width: '220px',
-              }}
-            >
-              <span>🔍</span>
-              <span>Search docs...</span>
-              <kbd
-                className="ml-auto rounded border px-1.5 py-0.5 font-mono text-[10px]"
-                style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-hover)' }}
-              >
-                ⌘K
-              </kbd>
-            </div>
-          )}
+          <ul className="flex list-none gap-1 m-0 p-0">
+            {NAV_LINKS.map(({ href, label, highlight, icon }) => (
+              <li key={href}>
+                <Link
+                  href={href}
+                  className="rounded-md px-3 py-1.5 text-sm no-underline transition-colors hover:text-white"
+                  style={highlight
+                    ? { color: '#c084fc', fontWeight: 600 }
+                    : { color: 'var(--text-muted)' }
+                  }
+                >
+                  {label}
+                  {icon && <NavIcon name={icon} />}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
 
         {/* Right: buttons — hidden on mobile */}
@@ -127,15 +104,13 @@ export function Nav({ docsSearch = false }: { docsSearch?: boolean }) {
             <GitHubIcon />
             <span className="hidden lg:inline">GitHub</span>
           </a>
-          {!docsSearch && (
-            <Link
-              href="/docs"
-              className="flex min-h-[44px] items-center rounded-lg px-4 text-sm font-bold no-underline transition-opacity hover:opacity-90"
-              style={{ background: 'var(--accent)', color: '#000' }}
-            >
-              Get Started →
-            </Link>
-          )}
+          <Link
+            href="/docs/quickstart"
+            className="flex min-h-[44px] items-center rounded-lg px-4 text-sm font-bold no-underline transition-opacity hover:opacity-90"
+            style={{ background: 'var(--accent)', color: '#000' }}
+          >
+            Get Started →
+          </Link>
         </div>
 
         {/* Hamburger — visible on mobile only */}

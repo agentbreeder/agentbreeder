@@ -5,8 +5,6 @@ description: Working example agents for every framework, cloud target, SDK, and 
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-# Examples
-
 Every example in `examples/` is a deployable agent with a real `agent.yaml` and runnable code.
 Clone the repo and run any example locally in under 5 minutes.
 
@@ -16,7 +14,7 @@ cd agentbreeder/examples/<example-name>
 agentbreeder deploy --target local
 ```
 
-> **Status:** Deployer code paths exist for every target referenced below. Greenfield provisioning (auto-creating VPCs / clusters / resource-groups) is fully supported only for `local` and `cloud-run`; AWS, Azure, and Kubernetes targets require pre-existing infrastructure. `claude-managed` is an Anthropic-managed runtime. See the [deploy-target status table](cli-reference#agentbreeder-deploy).
+> **Status:** Deploy-target availability (which targets ship full governance, greenfield provisioning, and secret auto-mirror) is maintained in one canonical place — see the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 ---
 
@@ -88,7 +86,7 @@ Use these to see how the same agent deploys to a specific cloud.
 
 Deploys to AWS App Runner — serverless containers with no VPC, no ALB, and no load balancer configuration required. Ideal for simple HTTP-accessible agents.
 
-*Prereq:* AWS targets require pre-existing IAM roles and an ECR repository. See the [deploy-target status table](cli-reference#agentbreeder-deploy).
+*Prereq:* AWS ECS Fargate ships full governance and greenfield `--provision`; on AWS pre-create secrets in Secrets Manager (auto-mirror is on the roadmap). See the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 ```yaml
 # agent.yaml
@@ -144,7 +142,7 @@ Runs a full agent locally using Ollama and any GGUF-compatible model (Gemma, Lla
 
 ```bash
 # Pull a model first
-ollama pull gemma4
+ollama pull gemma3
 
 cd examples/ollama-agent
 agentbreeder deploy --target local
@@ -153,7 +151,7 @@ agentbreeder deploy --target local
 ```yaml
 # agent.yaml
 model:
-  primary: ollama/gemma4
+  primary: ollama/gemma3
   gateway: ollama
 
 deploy:

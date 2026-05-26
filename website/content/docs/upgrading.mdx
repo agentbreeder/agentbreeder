@@ -1,11 +1,11 @@
 ---
-title: Migrations
+title: Upgrading AgentBreeder
 description: How to upgrade between AgentBreeder versions. Each entry covers the minimum changes and the no-op default that lets v1.x configs keep working.
 ---
 
 AgentBreeder is committed to **forward-only, additive changes** at the `agent.yaml` and engine layer. Every version below shows what's new, what's optional, and the smallest possible diff to take advantage.
 
-> **Destination-platform availability:** Migration guides assume your target deploy platform is GA. Not every deploy target listed in `agent.yaml` is fully shipped — see the [deploy-target status table](/docs/cli-reference#agentbreeder-deploy) for what's GA vs. beta vs. coming soon, and the [prerequisites matrix](/docs/deployment#prerequisites-per-target-as-of-2026-05-18) for setup requirements before you migrate.
+> **Destination-platform availability:** Upgrading assumes your target deploy platform is shipped. Not every deploy target listed in `agent.yaml` carries the same governance today — see the [deploy-target status table](/docs/cli-reference#agentbreeder-deploy) for current per-target status, and the [prerequisites matrix](/docs/deployment#prerequisites-per-target-as-of-2026-05-18) for setup requirements before you upgrade.
 
 ---
 

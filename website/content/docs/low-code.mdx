@@ -6,8 +6,6 @@ description: Configure agents in YAML and deploy with one command. No infrastruc
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-# Low Code — agent.yaml + CLI
-
 Write one `agent.yaml` file, run `agentbreeder deploy`. That's it.
 
 **Who this is for:** ML engineers, DevOps engineers, platform engineers, and architects who are comfortable editing YAML and running terminal commands — but don't want to write boilerplate infrastructure code.
@@ -33,7 +31,7 @@ Set `framework:` to any of the 6 supported values. AgentBreeder picks the right 
 
 Set `deploy.cloud` and optionally `deploy.runtime`.
 
-> **Status:** Deployer code paths exist for every target listed below. Greenfield provisioning (auto-creating VPCs / clusters / resource-groups) is fully supported only for `local` and `cloud-run`; AWS, Azure, and Kubernetes targets require pre-existing infrastructure. `claude-managed` is an Anthropic-managed runtime. See the [deploy-target status table](cli-reference#agentbreeder-deploy).
+> **Status:** Deploy-target availability (which targets ship full governance, greenfield provisioning, and secret auto-mirror) is maintained in one canonical place — see the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 | `cloud` | `runtime` (default) | Also supports |
 |---------|--------------------|-|
@@ -424,14 +422,7 @@ This generates a Python or TypeScript SDK project from your `agent.yaml`. Your Y
 
 ## All Frameworks × All Deployment Targets
 
-| | Local | App Runner | ECS Fargate | Cloud Run | Container Apps | Kubernetes | Claude Managed |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **LangGraph** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **OpenAI Agents** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Claude SDK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **CrewAI** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Google ADK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Custom** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+Every framework compiles to every deployment target. The full matrix — and the per-target governance caveats — live in the [agent.yaml reference → All Frameworks × All Deployment Targets](agent-yaml#all-frameworks--all-deployment-targets).
 
 ---
 

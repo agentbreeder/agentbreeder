@@ -6,8 +6,6 @@ description: Full programmatic control over agent definition, deployment, and or
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-# Full Code — Python & TypeScript SDK
-
 Build agents entirely in code with the AgentBreeder SDK. Full type safety, custom routing logic, state machines, and programmatic deploy pipelines.
 
 **Who this is for:** Senior engineers, AI researchers, ML scientists, and teams building production systems that need custom orchestration, complex evals, or CI/CD-driven deploys.
@@ -382,14 +380,7 @@ agentbreeder deploy agent.yaml \
 
 ## All Frameworks × All Deployment Targets
 
-| | Local | App Runner | ECS Fargate | Cloud Run | Container Apps | Kubernetes | Claude Managed |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **LangGraph** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **OpenAI Agents** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Claude SDK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **CrewAI** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Google ADK** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Custom** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+Every framework compiles to every deployment target. The full matrix — and the per-target governance caveats — live in the [agent.yaml reference → All Frameworks × All Deployment Targets](agent-yaml#all-frameworks--all-deployment-targets).
 
 <Callout type="info" title="Claude Managed + any framework">
   The `claude-managed` deployment target works with every framework. When framework is set to anything other than `claude_sdk`, AgentBreeder wraps your agent in a Claude-managed container adapter automatically.
