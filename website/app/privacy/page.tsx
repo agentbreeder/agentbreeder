@@ -61,6 +61,13 @@ export default function PrivacyPage() {
               message and your email address to reply and to keep a record of the
               conversation.
             </li>
+            <li>
+              <strong>Waitlist signups</strong> — if you join the AgentBreeder Cloud
+              waitlist, we store the email address you submit so we can notify you when
+              access opens. We use it for that purpose only. Email{' '}
+              <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> any time to be
+              removed.
+            </li>
           </ul>
           <p>The marketing site does <strong>not</strong> use third-party analytics, advertising trackers, or marketing cookies.</p>
         </Section>
