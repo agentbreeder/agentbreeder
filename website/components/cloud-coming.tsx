@@ -8,16 +8,17 @@ export function WaitlistForm() {
   const [error, setError] = useState('');
   const loading = status === 'loading';
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!email || loading) return;
+    const company = (e.currentTarget.elements.namedItem('company') as HTMLInputElement | null)?.value ?? '';
     setStatus('loading');
     setError('');
     try {
       const res = await fetch('/api/waitlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, company }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -43,6 +44,8 @@ export function WaitlistForm() {
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* Honeypot — hidden from users; bots that fill it are silently dropped. */}
+          <input type="text" name="company" tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden" />
           <input
             type="email"
             required

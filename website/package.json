@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "waitlist:export": "node --env-file=.env.local scripts/export-waitlist.mjs"
   },
   "dependencies": {
+    "@upstash/redis": "^1.38.0",
     "fumadocs-core": "^16.7.14",
     "fumadocs-mdx": "^14.2.13",
     "fumadocs-ui": "^16.7.14",
