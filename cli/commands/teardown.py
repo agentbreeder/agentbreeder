@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 STATE_FILE = Path.home() / ".agentbreeder" / "state.json"
 REGISTRY_DIR = Path.home() / ".agentbreeder" / "registry"
+# Project-local record of any data backend auto-provisioned at deploy time
+# (engine/builder.py writes it here). Relative to the deploy project directory.
+INFRA_STATE_FILE = Path(".agentbreeder") / "infra-state.json"
 
 AGENTBREEDER_LABEL = "managed-by=agentbreeder"
 IAM_ROLE_PREFIX = "agentbreeder-"
@@ -821,6 +824,9 @@ def teardown(
     if status == "running":
         container_removed = _teardown_container(agent_name, json_output)
 
+    # Destroy any managed data backend auto-provisioned for this project.
+    infra_destroyed = _teardown_infra_state(json_output)
+
     # Update state
     agents[agent_name]["status"] = "stopped"
     _save_state(state)
@@ -837,6 +843,7 @@ def teardown(
                     "agent": agent_name,
                     "status": "stopped",
                     "container_removed": container_removed,
+                    "infra_destroyed": infra_destroyed,
                 }
             )
             + "\n"
@@ -853,12 +860,60 @@ def teardown(
                 else "  [dim]✓ State updated (no running container found)[/dim]\n"
             )
             + "  [green]✓[/green] Registry updated\n"
+            + (
+                "  [green]✓[/green] Auto-provisioned data backend destroyed\n"
+                if infra_destroyed
+                else ""
+            )
             + "  [green]✓[/green] Status set to stopped",
             title="Teardown Complete",
             border_style="green",
         )
     )
     console.print()
+
+
+def _teardown_infra_state(json_output: bool) -> bool:
+    """Destroy a data backend auto-provisioned for this project, if any.
+
+    Reads the project-local ``.agentbreeder/infra-state.json`` written by the
+    deploy pipeline, calls the matching provisioner's ``destroy(state)`` (which
+    only removes the resources AgentBreeder created — never BYO infra), then
+    deletes the state file so a re-run doesn't double-destroy. Returns True if a
+    backend was destroyed. Best-effort: warnings never block agent teardown.
+    """
+    if not INFRA_STATE_FILE.exists():
+        return False
+
+    from engine.provisioners import InfraState, provisioner_for
+
+    try:
+        infra = InfraState.load(INFRA_STATE_FILE)
+    except Exception as e:  # noqa: BLE001 — corrupt/partial state must not block
+        if not json_output:
+            console.print(f"  [yellow]Warning:[/yellow] Could not read infra state: {e}")
+        return False
+
+    try:
+        provisioner = provisioner_for(infra.cloud)
+        asyncio.run(provisioner.destroy(infra))
+    except Exception as e:  # noqa: BLE001 — surface but continue agent teardown
+        if not json_output:
+            console.print(
+                f"  [yellow]Warning:[/yellow] Could not destroy provisioned "
+                f"{infra.cloud} backend: {e}"
+            )
+        return False
+
+    try:
+        INFRA_STATE_FILE.unlink()
+    except OSError:
+        pass
+    if not json_output:
+        console.print(
+            f"  [green]✓[/green] Destroyed auto-provisioned {infra.cloud} data backend"
+        )
+    return True
 
 
 def _teardown_container(agent_name: str, json_output: bool) -> bool:
