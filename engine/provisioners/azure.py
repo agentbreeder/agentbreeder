@@ -26,6 +26,7 @@ import secrets
 from typing import TYPE_CHECKING, Any
 
 from engine.provisioners.base import (
+    DataBackendRequest,
     InfraProvisioner,
     InfraValidationInput,
     ValidationCheck,
@@ -477,6 +478,161 @@ class AzureProvisioner(InfraProvisioner):
             )
         except Exception:  # noqa: BLE001
             logger.exception("destroy(azure): failed to delete RG %s", rg_name)
+
+    async def provision_data_backend(
+        self,
+        request: DataBackendRequest,
+        progress: ProgressCallback | None = None,
+    ) -> InfraState:
+        """Provision a PostgreSQL Flexible Server (pgvector) into BYO networking.
+
+        Unlike :meth:`provision`, this does NOT create a resource group, ACR, or
+        Container Apps environment. It joins the agent's existing resource group
+        and delegated DB subnet, ensures a per-agent Key Vault for the password,
+        creates the server (private access only), and records ONLY what it made.
+
+        The subnet (``network.db_subnet_id`` / ``AZURE_DB_SUBNET_ID``) MUST be
+        delegated to ``Microsoft.DBforPostgreSQL/flexibleServers`` — Flexible
+        Server with private access requires it. ``destroy_data_backend`` removes
+        only the server (never the BYO resource group).
+        """
+        from datetime import UTC, datetime
+
+        from engine.provisioners.state import InfraState
+
+        if request.engine != "postgres":
+            raise NotImplementedError(
+                f"Azure provision_data_backend(engine={request.engine!r}) is not "
+                "implemented yet (Azure Cache for Redis is tracked separately)."
+            )
+
+        fields = request.fields
+        region = request.region
+        subscription_id = str(fields.get("AZURE_SUBSCRIPTION_ID", "")).strip()
+        rg_name = str(fields.get("AZURE_RESOURCE_GROUP", "")).strip()
+        if not subscription_id:
+            raise ValueError("provision_data_backend(azure) requires AZURE_SUBSCRIPTION_ID")
+        if not rg_name:
+            raise ValueError("provision_data_backend(azure) requires AZURE_RESOURCE_GROUP")
+        subnet_id = str(request.network.get("db_subnet_id", "")).strip()
+        if not subnet_id:
+            raise ValueError(
+                "provision_data_backend(azure) requires a delegated DB subnet "
+                "(network.db_subnet_id / AZURE_DB_SUBNET_ID) — Flexible Server with "
+                "private access cannot be created without one."
+            )
+
+        agent_name = request.agent_name
+        db_server = f"agentbreeder-{agent_name}-db"
+        kv_name = _safe_kv_name(agent_name)
+        tags = _resource_tags(agent_name, request.agent_version)
+
+        async def _emit(msg: str) -> None:
+            logger.info("azure.provision_data_backend: %s", msg)
+            if progress is not None:
+                await progress(msg)
+
+        await _emit(f"ensuring Key Vault '{kv_name}' for DB secret")
+        kv_id, kv_uri = await self._ensure_key_vault(
+            subscription_id=subscription_id,
+            rg_name=rg_name,
+            kv_name=kv_name,
+            region=region,
+            tenant_id=str(fields.get("AZURE_TENANT_ID", "")),
+            tags=tags,
+            fields=fields,
+        )
+
+        db_password = secrets.token_urlsafe(32)
+        db_admin = "agentbreeder"
+
+        await _emit(f"ensuring PostgreSQL Flexible Server '{db_server}' (public_access=Disabled)")
+        db_id, db_fqdn = await self._ensure_postgres_flexible(
+            subscription_id=subscription_id,
+            rg_name=rg_name,
+            db_name=db_server,
+            region=region,
+            admin_user=db_admin,
+            admin_password=db_password,
+            subnet_id=subnet_id,
+            tags=tags,
+            fields=fields,
+        )
+
+        try:
+            secret_uri = await self._write_db_password_to_kv(
+                kv_uri=kv_uri,
+                secret_name=f"{db_server}-password",
+                password=db_password,
+                fields=fields,
+            )
+        except Exception:
+            logger.exception("azure.provision_data_backend: KV write failed — rolling back DB")
+            try:
+                await self._delete_postgres_flexible(
+                    subscription_id=subscription_id,
+                    rg_name=rg_name,
+                    db_name=db_server,
+                    fields=fields,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("azure.provision_data_backend: DB rollback also failed")
+            raise
+
+        state = InfraState(
+            cloud="azure",
+            region=region,
+            provisioned_by="agentbreeder.AzureProvisioner.provision_data_backend",
+            provisioned_at=datetime.now(UTC),
+            mode="provisioned",
+            # NOTE: deliberately NO "resource_group" key — that BYO RG is the
+            # user's, and the greenfield destroy() would cascade-delete it.
+            # destroy_data_backend() below removes only the server.
+            resources={
+                "postgres": {
+                    "id": db_id,
+                    "name": db_server,
+                    "fqdn": db_fqdn,
+                    "admin_user": db_admin,
+                    "database": "postgres",
+                    "public_network_access": "Disabled",
+                    "password_secret_uri": secret_uri,
+                    "subscription_id": subscription_id,
+                    "resource_group": rg_name,
+                },
+                "key_vault": {"id": kv_id, "name": kv_name, "uri": kv_uri},
+            },
+        )
+        await _emit("data backend provision complete")
+        return state
+
+    async def destroy_data_backend(self, state: InfraState) -> None:
+        """Delete ONLY the Flexible Server created by provision_data_backend.
+
+        Never touches the BYO resource group, subnet, or Key Vault — those may
+        be shared. The DB-password secret is left in the vault (cheap; the vault
+        may hold other secrets).
+        """
+        if state.cloud != "azure":
+            raise ValueError(
+                f"destroy_data_backend(azure): state.cloud is {state.cloud!r}, expected 'azure'"
+            )
+        pg = state.resources.get("postgres") or {}
+        name = pg.get("name")
+        subscription_id = pg.get("subscription_id")
+        rg_name = pg.get("resource_group")
+        if not (name and subscription_id and rg_name):
+            logger.warning(
+                "destroy_data_backend(azure): postgres state missing name/subscription/rg; "
+                "nothing to delete"
+            )
+            return
+        await self._delete_postgres_flexible(
+            subscription_id=subscription_id,
+            rg_name=rg_name,
+            db_name=name,
+            fields={},
+        )
 
     # ------------------------------------------------------------------
     # Low-level helpers — broken out so unit tests can patch them.

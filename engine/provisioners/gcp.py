@@ -7,6 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from engine.provisioners.base import (
+    DataBackendRequest,
     InfraProvisioner,
     InfraValidationInput,
     ValidationCheck,
@@ -318,6 +319,81 @@ class GCPProvisioner(InfraProvisioner):
                 await self._delete_artifact_registry_repo(name=ar["name"], fields=fields)
             except Exception:  # noqa: BLE001
                 logger.exception("destroy(gcp): failed to delete AR repo %s", ar.get("name"))
+
+    async def provision_data_backend(
+        self,
+        request: DataBackendRequest,
+        progress: ProgressCallback | None = None,
+    ) -> InfraState:
+        """Provision a Cloud SQL Postgres (pgvector) into the agent's BYO VPC.
+
+        Unlike :meth:`provision`, this skips the Artifact Registry / Service
+        Account scaffolding and only creates the Cloud SQL instance via
+        :meth:`_ensure_cloud_sql` (which manages its own Secret Manager
+        password). The instance gets a private IP on ``request.network`` —
+        which must already have Private Service Access configured (the
+        greenfield path or the operator sets this up).
+
+        Returns an :class:`InfraState` whose ``resources["cloud_sql"]`` matches
+        the greenfield shape, so ``pgvector_dsn_from_resources("gcp", ...)``
+        and :meth:`destroy` consume it directly.
+        """
+        from datetime import UTC, datetime
+
+        from engine.provisioners.state import InfraState
+
+        if request.engine != "postgres":
+            raise NotImplementedError(
+                f"GCP provision_data_backend(engine={request.engine!r}) is not "
+                "implemented yet (Memorystore Redis is tracked separately)."
+            )
+
+        fields = request.fields
+        region = request.region
+        project = str(
+            fields.get("GCP_PROJECT_ID") or fields.get("GOOGLE_CLOUD_PROJECT") or ""
+        ).strip()
+        if not project:
+            raise ValueError(
+                "provision_data_backend(gcp) requires a project "
+                "(GCP_PROJECT_ID / GOOGLE_CLOUD_PROJECT)"
+            )
+
+        vpc_network = str(request.network.get("vpc_network") or "default")
+        instance_id = _truncate_cloud_sql_instance_id(request.agent_name)
+        tier = str(fields.get("GCP_CLOUD_SQL_TIER", "db-f1-micro"))
+        db_name = str(fields.get("GCP_CLOUD_SQL_DATABASE", "agentbreeder_memory"))
+        db_user = str(fields.get("GCP_CLOUD_SQL_USER", "agentbreeder"))
+
+        async def _emit(msg: str) -> None:
+            logger.info("gcp.provision_data_backend: %s", msg)
+            if progress is not None:
+                await progress(msg)
+
+        await _emit(
+            f"ensuring Cloud SQL instance '{instance_id}' (tier={tier}) on '{vpc_network}'"
+        )
+        cloud_sql_info = await self._ensure_cloud_sql(
+            project=project,
+            region=region,
+            instance_id=instance_id,
+            tier=tier,
+            db_name=db_name,
+            db_user=db_user,
+            vpc_network=vpc_network,
+            fields=fields,
+        )
+
+        state = InfraState(
+            cloud="gcp",
+            region=region,
+            provisioned_by="agentbreeder.GCPProvisioner.provision_data_backend",
+            provisioned_at=datetime.now(UTC),
+            mode="provisioned",
+            resources={"cloud_sql": cloud_sql_info},
+        )
+        await _emit("data backend provision complete")
+        return state
 
     # ------------------------------------------------------------------
     # Low-level GCP API wrappers — broken out so unit tests can patch them.

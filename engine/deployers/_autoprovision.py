@@ -95,12 +95,41 @@ def build_pg_data_backend_request(config: AgentConfig) -> DataBackendRequest | N
 
 
 async def _resolve_db_password(cloud: str, secret_ref: str, region: str) -> str | None:
-    """Fetch the DB password from the cloud secret store by its provisioned ref."""
+    """Fetch the DB password from the cloud secret store by its provisioned ref.
+
+    ``secret_ref`` is the cloud-native reference recorded by the provisioner:
+    AWS Secrets Manager ARN, GCP Secret resource path
+    (``projects/<p>/secrets/<id>``), or Azure Key Vault secret URI
+    (``https://<vault>.vault.azure.net/secrets/<name>``).
+    """
     if cloud == "aws":
         # prefix="" so the raw ARN is used verbatim as the SecretId.
         return await AWSSecretsManagerBackend(region=region, prefix="").get(secret_ref)
-    # GCP / Azure resolution lands with their provision_data_backend (Inc 5).
-    logger.warning("No DB-password resolver wired for cloud=%s yet", cloud)
+
+    if cloud == "gcp":
+        from engine.secrets.gcp_backend import GCPSecretManagerBackend
+
+        # secret_ref = projects/<project>/secrets/<secret_id>
+        parts = secret_ref.split("/")
+        if len(parts) < 4 or "secrets" not in parts:
+            return None
+        project = parts[1]
+        secret_id = secret_ref.rsplit("/secrets/", 1)[-1]
+        # prefix="" so the already-qualified secret id is used verbatim.
+        return await GCPSecretManagerBackend(project_id=project, prefix="").get(secret_id)
+
+    if cloud == "azure":
+        from engine.secrets.azure_backend import AzureKeyVaultBackend
+
+        # secret_ref = https://<vault>.vault.azure.net/secrets/<name>[/<version>]
+        if "/secrets/" not in secret_ref:
+            return None
+        vault_url, _, tail = secret_ref.partition("/secrets/")
+        secret_name = tail.split("/", 1)[0]
+        # prefix="" so the literal secret name is used verbatim.
+        return await AzureKeyVaultBackend(vault_url=vault_url, prefix="").get(secret_name)
+
+    logger.warning("No DB-password resolver wired for cloud=%s", cloud)
     return None
 
 
