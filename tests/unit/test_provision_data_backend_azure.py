@@ -134,9 +134,5 @@ async def test_destroy_data_backend_deletes_only_the_server() -> None:
     del_rg.assert_not_called()
 
 
-async def test_redis_not_implemented_yet() -> None:
-    p = AzureProvisioner()
-    req = _request()
-    req.engine = "redis"
-    with pytest.raises(NotImplementedError):
-        await p.provision_data_backend(req)
+# Azure Cache for Redis provisioning is covered in
+# test_provision_data_backend_azure_redis.py.
