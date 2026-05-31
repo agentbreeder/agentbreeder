@@ -26,8 +26,14 @@ import httpx
 
 from engine.config_parser import AgentConfig, CloudType, parse_config
 from engine.deployers import get_deployer
+from engine.deployers._autoprovision import (
+    build_pg_data_backend_request,
+    resolve_pgvector_dsn,
+)
+from engine.deployers._pgvector_dsn import needs_managed_pgvector
 from engine.deployers.base import DeployResult
 from engine.governance import check_rbac
+from engine.provisioners import provisioner_for
 from engine.resolver import resolve_dependencies
 from engine.runtimes.registry import get_runtime_from_config
 
@@ -190,6 +196,11 @@ class DeployEngine:
         try:
             deployer = get_deployer(config.deploy.cloud, config.deploy.runtime)
             await deployer.provision(config)
+            # Auto-provision managed data backends (pgvector for a KB declared
+            # without an explicit backend_url) INTO the agent's BYO network, and
+            # inject the connection env so step 6 (which reads env_vars fresh)
+            # passes it to the container. Part of "Provision infrastructure".
+            await self._auto_provision_data_backends(config, config_path.parent)
             step5.complete()
             self._notify(step5)
         except Exception as e:
@@ -239,6 +250,49 @@ class DeployEngine:
 
         logger.info("Deploy complete: %s → %s", config.name, result.endpoint_url)
         return result
+
+    async def _auto_provision_data_backends(
+        self, config: AgentConfig, project_dir: Path | None = None
+    ) -> None:
+        """Provision managed data stores for artifacts declared without a backend_url.
+
+        Currently covers knowledge-base pgvector: when the agent declares a KB
+        with no explicit ``backend_url`` and targets a managed cloud, provision a
+        managed Postgres into the agent's BYO network and inject
+        ``KB_PGVECTOR_DSN`` into ``deploy.env_vars`` in place so the deploy step
+        passes it to the container. No-op for local/kubernetes/claude-managed
+        and for agents that already pin a ``backend_url``.
+        """
+        if not needs_managed_pgvector(config):
+            return
+
+        request = build_pg_data_backend_request(config)
+        if request is None:
+            return
+
+        logger.info(
+            "Auto-provisioning managed pgvector for '%s' on %s", config.name, request.cloud
+        )
+        provisioner = provisioner_for(request.cloud)
+        state = await provisioner.provision_data_backend(request)
+
+        # Persist what we created so `agentbreeder teardown` can destroy it.
+        if project_dir is not None:
+            state.save(project_dir / ".agentbreeder" / "infra-state.json")
+
+        dsn = await resolve_pgvector_dsn(request.cloud, state.resources, request.region)
+        if not dsn:
+            logger.warning(
+                "Provisioned pgvector for '%s' but could not assemble KB_PGVECTOR_DSN; "
+                "the agent will start without a vector store connection",
+                config.name,
+            )
+            return
+
+        if config.deploy.env_vars is None:
+            config.deploy.env_vars = {}
+        config.deploy.env_vars["KB_PGVECTOR_DSN"] = dsn
+        logger.info("Injected KB_PGVECTOR_DSN for '%s'", config.name)
 
     def _register(self, config: AgentConfig, endpoint_url: str) -> None:
         """Register the agent in the local registry and sync to the AgentBreeder API.
