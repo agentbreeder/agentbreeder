@@ -58,6 +58,20 @@ def _state() -> InfraState:
     )
 
 
+def _redis_state() -> InfraState:
+    return InfraState(
+        cloud="aws",
+        region="us-east-1",
+        provisioned_by="test",
+        provisioned_at=datetime.now(UTC),
+        mode="provisioned",
+        resources={
+            "elasticache": {"endpoint": "demo.cache.amazonaws.com", "port": 6379},
+            "security_groups": {"redis_sg_id": "sg-redis"},
+        },
+    )
+
+
 async def test_injects_dsn_for_kb_without_backend_url() -> None:
     cfg = _cfg()
     prov = MagicMock()
@@ -140,12 +154,51 @@ async def test_kb_and_memory_postgres_share_one_instance() -> None:
 
 
 async def test_memory_postgres_with_backend_url_is_skipped() -> None:
-    cfg = _cfg(
-        kbs=[], memory=MemoryConfig(backend="postgresql", backend_url="postgresql://byo")
-    )
+    cfg = _cfg(kbs=[], memory=MemoryConfig(backend="postgresql", backend_url="postgresql://byo"))
     with patch("engine.builder.provisioner_for") as prov_for:
         await DeployEngine()._auto_provision_data_backends(cfg)
     prov_for.assert_not_called()
+
+
+async def test_memory_redis_injects_redis_url_and_backend() -> None:
+    cfg = _cfg(kbs=[], memory=MemoryConfig(backend="redis"))
+    prov = MagicMock()
+    prov.provision_data_backend = AsyncMock(return_value=_redis_state())
+    with (
+        patch("engine.builder.provisioner_for", return_value=prov),
+        patch(
+            "engine.builder.resolve_redis_url",
+            AsyncMock(return_value="redis://demo.cache.amazonaws.com:6379/0"),
+        ),
+    ):
+        await DeployEngine()._auto_provision_data_backends(cfg)
+
+    prov.provision_data_backend.assert_awaited_once()
+    assert prov.provision_data_backend.await_args.args[0].engine == "redis"
+    assert cfg.deploy.env_vars["REDIS_URL"] == "redis://demo.cache.amazonaws.com:6379/0"
+    assert cfg.deploy.env_vars["MEMORY_BACKEND"] == "redis"
+
+
+async def test_kb_postgres_and_memory_redis_provision_both(tmp_path) -> None:
+    cfg = _cfg(kbs=[KnowledgeBaseRef(ref="kb/docs")], memory=MemoryConfig(backend="redis"))
+    prov = MagicMock()
+    prov.provision_data_backend = AsyncMock(side_effect=[_state(), _redis_state()])
+    with (
+        patch("engine.builder.provisioner_for", return_value=prov),
+        patch("engine.builder.resolve_pgvector_dsn", AsyncMock(return_value="postgresql://x")),
+        patch("engine.builder.resolve_redis_url", AsyncMock(return_value="redis://y:6379/0")),
+    ):
+        await DeployEngine()._auto_provision_data_backends(cfg, tmp_path)
+
+    # Two provisions: one Postgres (KB), one Redis (memory).
+    assert prov.provision_data_backend.await_count == 2
+    assert cfg.deploy.env_vars["KB_PGVECTOR_DSN"] == "postgresql://x"
+    assert cfg.deploy.env_vars["REDIS_URL"] == "redis://y:6379/0"
+    # Both footprints merged into one infra-state.
+    saved = InfraState.load(tmp_path / ".agentbreeder" / "infra-state.json")
+    assert "rds" in saved.resources
+    assert "elasticache" in saved.resources
+    assert saved.resources["security_groups"]["redis_sg_id"] == "sg-redis"
 
 
 async def test_skips_when_backend_url_present() -> None:

@@ -27,8 +27,10 @@ import httpx
 from engine.config_parser import AgentConfig, CloudType, parse_config
 from engine.deployers import get_deployer
 from engine.deployers._autoprovision import (
-    build_pg_data_backend_request,
+    build_data_backend_request,
+    needs_managed_memory_redis,
     resolve_pgvector_dsn,
+    resolve_redis_url,
 )
 from engine.deployers._pgvector_dsn import (
     needs_managed_memory_postgres,
@@ -43,6 +45,21 @@ from engine.runtimes.registry import get_runtime_from_config
 logger = logging.getLogger(__name__)
 
 REGISTRY_DIR = Path.home() / ".agentbreeder" / "registry"
+
+
+def _merge_infra_resources(into: dict[str, Any], extra: dict[str, Any]) -> None:
+    """Merge a provisioner's resources dict into an accumulator, in place.
+
+    Top-level keys are copied; the ``security_groups`` sub-dict is deep-merged so
+    a Postgres provision (``db_sg_id``) and a Redis provision (``redis_sg_id``)
+    in the same deploy both survive into one InfraState.
+    """
+    for key, value in extra.items():
+        if key == "security_groups" and isinstance(value, dict):
+            existing = into.setdefault("security_groups", {})
+            existing.update(value)
+        else:
+            into[key] = value
 
 
 class DeployError(Exception):
@@ -259,60 +276,94 @@ class DeployEngine:
     ) -> None:
         """Provision managed data stores for artifacts declared without a backend_url.
 
-        Covers Postgres-backed artifacts — knowledge-base pgvector and
-        ``memory.backend: postgresql`` — provisioning ONE managed Postgres into
-        the agent's BYO network and injecting the connection env in place so the
-        deploy step passes it to the container:
+        Covers, per managed cloud and into the agent's BYO network:
 
-        * knowledge base → ``KB_PGVECTOR_DSN``
-        * memory (postgresql) → ``DATABASE_URL`` + ``MEMORY_BACKEND=postgresql``
+        * knowledge base → managed Postgres (pgvector) → ``KB_PGVECTOR_DSN``
+        * ``memory.backend: postgresql`` → managed Postgres → ``DATABASE_URL`` +
+          ``MEMORY_BACKEND=postgresql`` (shares the KB instance when both apply)
+        * ``memory.backend: redis`` → managed Redis → ``REDIS_URL`` +
+          ``MEMORY_BACKEND=redis``
 
-        Both share the same instance when declared together. No-op for
+        Provisioned footprints are merged into one ``.agentbreeder/infra-state.json``
+        so ``agentbreeder teardown`` removes them all. No-op for
         local/kubernetes/claude-managed and for artifacts that already pin a
-        ``backend_url``. (Managed Redis for ``memory.backend: redis`` is tracked
-        separately — see the auto-provision Redis follow-up.)
+        ``backend_url``.
         """
         wants_kb = needs_managed_pgvector(config)
         wants_memory_pg = needs_managed_memory_postgres(config)
-        if not (wants_kb or wants_memory_pg):
-            return
-
-        request = build_pg_data_backend_request(config)
-        if request is None:
-            return
-
-        logger.info(
-            "Auto-provisioning managed Postgres for '%s' on %s (kb=%s, memory=%s)",
-            config.name,
-            request.cloud,
-            wants_kb,
-            wants_memory_pg,
-        )
-        provisioner = provisioner_for(request.cloud)
-        state = await provisioner.provision_data_backend(request)
-
-        # Persist what we created so `agentbreeder teardown` can destroy it.
-        if project_dir is not None:
-            state.save(project_dir / ".agentbreeder" / "infra-state.json")
-
-        dsn = await resolve_pgvector_dsn(request.cloud, state.resources, request.region)
-        if not dsn:
-            logger.warning(
-                "Provisioned Postgres for '%s' but could not assemble its DSN; the agent "
-                "will start without a vector-store / memory connection",
-                config.name,
-            )
+        wants_memory_redis = needs_managed_memory_redis(config)
+        if not (wants_kb or wants_memory_pg or wants_memory_redis):
             return
 
         if config.deploy.env_vars is None:
             config.deploy.env_vars = {}
-        if wants_kb:
-            config.deploy.env_vars["KB_PGVECTOR_DSN"] = dsn
-            logger.info("Injected KB_PGVECTOR_DSN for '%s'", config.name)
-        if wants_memory_pg:
-            config.deploy.env_vars["DATABASE_URL"] = dsn
-            config.deploy.env_vars.setdefault("MEMORY_BACKEND", "postgresql")
-            logger.info("Injected DATABASE_URL (memory=postgresql) for '%s'", config.name)
+        env = config.deploy.env_vars
+        merged_resources: dict[str, Any] = {}
+        cloud: str | None = None
+        region: str | None = None
+
+        if wants_kb or wants_memory_pg:
+            request = build_data_backend_request(config, engine="postgres")
+            if request is not None:
+                logger.info(
+                    "Auto-provisioning managed Postgres for '%s' on %s (kb=%s, memory=%s)",
+                    config.name,
+                    request.cloud,
+                    wants_kb,
+                    wants_memory_pg,
+                )
+                state = await provisioner_for(request.cloud).provision_data_backend(request)
+                cloud, region = request.cloud, request.region
+                _merge_infra_resources(merged_resources, state.resources)
+                dsn = await resolve_pgvector_dsn(request.cloud, state.resources, request.region)
+                if dsn:
+                    if wants_kb:
+                        env["KB_PGVECTOR_DSN"] = dsn
+                        logger.info("Injected KB_PGVECTOR_DSN for '%s'", config.name)
+                    if wants_memory_pg:
+                        env["DATABASE_URL"] = dsn
+                        env.setdefault("MEMORY_BACKEND", "postgresql")
+                        logger.info(
+                            "Injected DATABASE_URL (memory=postgresql) for '%s'", config.name
+                        )
+                else:
+                    logger.warning(
+                        "Provisioned Postgres for '%s' but could not assemble its DSN", config.name
+                    )
+
+        if wants_memory_redis:
+            request = build_data_backend_request(config, engine="redis")
+            if request is not None:
+                logger.info(
+                    "Auto-provisioning managed Redis for '%s' on %s", config.name, request.cloud
+                )
+                state = await provisioner_for(request.cloud).provision_data_backend(request)
+                cloud, region = request.cloud, request.region
+                _merge_infra_resources(merged_resources, state.resources)
+                url = await resolve_redis_url(request.cloud, state.resources, request.region)
+                if url:
+                    env["REDIS_URL"] = url
+                    env.setdefault("MEMORY_BACKEND", "redis")
+                    logger.info("Injected REDIS_URL (memory=redis) for '%s'", config.name)
+                else:
+                    logger.warning(
+                        "Provisioned Redis for '%s' but could not assemble REDIS_URL", config.name
+                    )
+
+        # Persist the merged footprint so teardown can destroy everything created.
+        if project_dir is not None and merged_resources and cloud and region:
+            from datetime import UTC, datetime
+
+            from engine.provisioners.state import InfraState
+
+            InfraState(
+                cloud=cloud,
+                region=region,
+                provisioned_by="agentbreeder.DeployEngine",
+                provisioned_at=datetime.now(UTC),
+                mode="provisioned",
+                resources=merged_resources,
+            ).save(project_dir / ".agentbreeder" / "infra-state.json")
 
     def _register(self, config: AgentConfig, endpoint_url: str) -> None:
         """Register the agent in the local registry and sync to the AgentBreeder API.

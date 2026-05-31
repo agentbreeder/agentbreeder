@@ -1,4 +1,4 @@
-"""Auto-provision deploy glue — build_pg_data_backend_request + resolve_pgvector_dsn.
+"""Auto-provision deploy glue — build_data_backend_request + resolve_pgvector_dsn.
 
 These pure-ish helpers sit between the deploy pipeline and the cloud
 provisioners: they translate an agent's BYO-network ``deploy.env_vars`` into a
@@ -15,11 +15,14 @@ from engine.config_parser import (
     CloudType,
     DeployConfig,
     KnowledgeBaseRef,
+    MemoryConfig,
     ModelConfig,
 )
 from engine.deployers._autoprovision import (
-    build_pg_data_backend_request,
+    build_data_backend_request,
+    needs_managed_memory_redis,
     resolve_pgvector_dsn,
+    resolve_redis_url,
 )
 
 
@@ -42,7 +45,7 @@ def _cfg(
     )
 
 
-# ------------------------------------------------ build_pg_data_backend_request
+# ------------------------------------------------ build_data_backend_request
 
 
 def test_aws_request_maps_subnets_and_security_groups() -> None:
@@ -53,7 +56,7 @@ def test_aws_request_maps_subnets_and_security_groups() -> None:
             "AWS_REGION": "eu-west-1",
         }
     )
-    req = build_pg_data_backend_request(cfg)
+    req = build_data_backend_request(cfg)
     assert req is not None
     assert req.cloud == "aws"
     assert req.region == "eu-west-1"
@@ -69,14 +72,14 @@ def test_region_falls_back_to_deploy_region() -> None:
         region="ap-south-1",
         env_vars={"AWS_VPC_SUBNETS": "subnet-a", "AWS_SECURITY_GROUPS": "sg-agent"},
     )
-    req = build_pg_data_backend_request(cfg)
+    req = build_data_backend_request(cfg)
     assert req is not None
     assert req.region == "ap-south-1"
 
 
 def test_local_cloud_yields_no_request() -> None:
     cfg = _cfg(cloud=CloudType.local, env_vars={})
-    assert build_pg_data_backend_request(cfg) is None
+    assert build_data_backend_request(cfg) is None
 
 
 # ------------------------------------------------------- resolve_pgvector_dsn
@@ -166,3 +169,66 @@ async def test_resolve_dsn_for_azure_parses_kv_uri() -> None:
         "postgresql://agentbreeder:azure-pw@"
         "agentbreeder-demo-db.postgres.database.azure.com:5432/postgres"
     )
+
+
+# --------------------------------------------------------- needs_managed_memory_redis
+
+
+def test_needs_managed_memory_redis_true_for_redis_backend() -> None:
+    cfg = _cfg(cloud=CloudType.aws, kbs=[])
+    cfg.memory = MemoryConfig(backend="redis")
+    assert needs_managed_memory_redis(cfg) is True
+
+
+def test_needs_managed_memory_redis_false_for_postgresql() -> None:
+    cfg = _cfg(cloud=CloudType.aws, kbs=[])
+    cfg.memory = MemoryConfig(backend="postgresql")
+    assert needs_managed_memory_redis(cfg) is False
+
+
+def test_needs_managed_memory_redis_false_when_backend_url_pinned() -> None:
+    cfg = _cfg(cloud=CloudType.gcp, kbs=[])
+    cfg.memory = MemoryConfig(backend="redis", backend_url="rediss://byo")
+    assert needs_managed_memory_redis(cfg) is False
+
+
+def test_needs_managed_memory_redis_false_for_local() -> None:
+    cfg = _cfg(cloud=CloudType.local, kbs=[])
+    cfg.memory = MemoryConfig(backend="redis")
+    assert needs_managed_memory_redis(cfg) is False
+
+
+# ------------------------------------------------------------- resolve_redis_url
+
+
+async def test_resolve_redis_url_aws_no_auth() -> None:
+    resources = {"elasticache": {"endpoint": "demo.cache.amazonaws.com", "port": 6379}}
+    url = await resolve_redis_url("aws", resources, "us-east-1")
+    assert url == "redis://demo.cache.amazonaws.com:6379/0"
+
+
+async def test_resolve_redis_url_gcp_no_auth() -> None:
+    resources = {"memorystore": {"host": "10.9.8.7", "port": 6379}}
+    url = await resolve_redis_url("gcp", resources, "us-central1")
+    assert url == "redis://10.9.8.7:6379/0"
+
+
+async def test_resolve_redis_url_azure_tls_with_key_from_kv() -> None:
+    resources = {
+        "redis": {
+            "hostname": "ab-demo-redis.redis.cache.windows.net",
+            "ssl_port": 6380,
+            "key_secret_uri": "https://ab-demo-kv.vault.azure.net/secrets/ab-demo-redis-key",
+        }
+    }
+    backend = AsyncMock()
+    backend.get = AsyncMock(return_value="access/key+raw")
+    with patch("engine.secrets.azure_backend.AzureKeyVaultBackend", return_value=backend):
+        url = await resolve_redis_url("azure", resources, "eastus")
+
+    # Key is URL-encoded into the rediss:// password component, SSL port used.
+    assert url == ("rediss://:access%2Fkey%2Braw@ab-demo-redis.redis.cache.windows.net:6380/0")
+
+
+async def test_resolve_redis_url_returns_none_when_absent() -> None:
+    assert await resolve_redis_url("aws", {}, "us-east-1") is None
