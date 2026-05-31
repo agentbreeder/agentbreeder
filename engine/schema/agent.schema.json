@@ -93,7 +93,7 @@
             "rust",
             "csharp"
           ],
-          "description": "Runtime language. Tier 1 (full integrations): python, node. Tier 2 (SDK only): go (shipped), kotlin/rust/csharp (in-flight — Track I phase 1)."
+          "description": "Runtime language. Tier 1 (full integrations): python, node. Tier 2 (SDK only): go (shipped), kotlin/rust/csharp (in-flight \u2014 Track I phase 1)."
         },
         "framework": {
           "type": "string",
@@ -244,11 +244,17 @@
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["name"],
+                  "required": [
+                    "name"
+                  ],
                   "additionalProperties": false,
                   "properties": {
-                    "name": {"type": "string"},
-                    "description": {"type": "string"}
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
                   }
                 },
                 "description": "Domain-specific entity categories (e.g. CONTRACT, DIAGNOSIS, MEDICATION) used in addition to the six built-in types."
@@ -289,8 +295,13 @@
                 "description": "Whether to rerank retrieved chunks"
               }
             }
+          },
+          "backend_url": {
+            "type": "string",
+            "description": "Explicit cloud-reachable vector-store DSN or graph URL for this knowledge base."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "description": "Knowledge base references"
     },
@@ -514,6 +525,18 @@
           "items": {
             "type": "string"
           }
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "redis",
+            "postgresql"
+          ],
+          "description": "Memory backend type. Omit to resolve from the registry."
+        },
+        "backend_url": {
+          "type": "string",
+          "description": "Explicit cloud-reachable connection string for the memory backend."
         }
       }
     },
@@ -586,12 +609,18 @@
           },
           "fallback_policy": {
             "type": "string",
-            "enum": ["fastest", "cheapest", "first"],
+            "enum": [
+              "fastest",
+              "cheapest",
+              "first"
+            ],
             "description": "Advisory routing hint when the gateway supports multiple upstreams. Not enforced yet."
           },
           "default_headers": {
             "type": "object",
-            "additionalProperties": { "type": "string" }
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         }
       }
