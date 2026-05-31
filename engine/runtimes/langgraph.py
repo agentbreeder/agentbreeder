@@ -18,6 +18,7 @@ from engine.runtimes.base import (
     _get_litellm_requirements,
     _should_add_litellm_sdk,
     build_env_block,
+    runtime_support_requirement,
 )
 
 LANGGRAPH_SERVER_TEMPLATE = Path(__file__).parent / "templates" / "langgraph_server.py"
@@ -178,4 +179,7 @@ class LangGraphRuntime(RuntimeBuilder):
             deps.append("langchain-openai>=0.2.0")
         if _should_add_litellm_sdk(config):
             deps.extend(_get_litellm_requirements())
+        support = runtime_support_requirement()
+        if support:
+            deps.append(support)
         return deps

@@ -18,6 +18,7 @@ from engine.runtimes.base import (
     _get_litellm_requirements,
     _should_add_litellm_sdk,
     build_env_block,
+    runtime_support_requirement,
 )
 
 OPENAI_AGENTS_SERVER_TEMPLATE = Path(__file__).parent / "templates" / "openai_agents_server.py"
@@ -171,4 +172,7 @@ class OpenAIAgentsRuntime(RuntimeBuilder):
         ]
         if _should_add_litellm_sdk(config):
             deps.extend(_get_litellm_requirements())
+        support = runtime_support_requirement()
+        if support:
+            deps.append(support)
         return deps

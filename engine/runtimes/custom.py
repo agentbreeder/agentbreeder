@@ -204,4 +204,10 @@ class CustomRuntime(RuntimeBuilder):
         ]
         if _is_litellm_model(config.model.primary):
             deps.extend(_get_litellm_requirements())
+        # NOTE: Unlike the framework runtimes, CustomRuntime intentionally does NOT
+        # auto-bundle the `agentbreeder` runtime (runtime_support_requirement()).
+        # custom_server.py imports nothing from engine/api, and custom agents own
+        # their dependency set. If a custom agent imports engine.* / api.services.*
+        # (e.g. first-party tools or resolved prompts), add `agentbreeder` to its
+        # own requirements.txt, or set AGENTBREEDER_RUNTIME_REQUIREMENT in the build env.
         return deps

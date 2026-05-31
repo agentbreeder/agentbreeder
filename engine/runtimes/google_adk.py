@@ -23,6 +23,7 @@ from engine.runtimes.base import (
     _get_litellm_requirements,
     _should_add_litellm_sdk,
     build_env_block,
+    runtime_support_requirement,
 )
 
 logger = logging.getLogger(__name__)
@@ -272,4 +273,7 @@ class GoogleADKRuntime(RuntimeBuilder):
             deps.append("google-cloud-storage>=2.0.0")
         if _should_add_litellm_sdk(config):
             deps.extend(_get_litellm_requirements())
+        support = runtime_support_requirement()
+        if support:
+            deps.append(support)
         return deps
