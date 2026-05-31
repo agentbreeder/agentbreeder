@@ -38,6 +38,7 @@ services:
       AGENTBREEDER_INSTALL_MODE: team  # falls back to env backend (no keyring inside container)
       SECRET_KEY: docker-dev-secret-key-change-in-prod
       JWT_SECRET_KEY: docker-dev-jwt-key-change-in-prod
+      AGENTBREEDER_ALLOW_LOCAL_BACKENDS: "1"
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-dev}
       # Provider keys for /playground model chat (read by LiteLLM)

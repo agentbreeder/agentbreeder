@@ -165,6 +165,27 @@ def _check_tool_refs(config: AgentConfig, project_root: Path | None) -> None:
             )
 
 
+def _warn_unreachable_local_urls(config: AgentConfig) -> None:
+    """Warn if a resolved backend URL points at localhost while deploying to a
+    real cloud — a common footgun that yields an agent that cannot reach its store.
+    This does not reject the config (an operator may use a cross-network alias)."""
+    cloud = str(config.deploy.cloud)
+    if cloud in ("local", "claude-managed"):
+        return
+    env_vars = config.deploy.env_vars or {}
+    for key in ("REDIS_URL", "DATABASE_URL", "NEO4J_URL", "KB_PGVECTOR_DSN"):
+        val = env_vars.get(key, "")
+        if "localhost" in val or "127.0.0.1" in val:
+            logger.warning(
+                "Backend URL %s=%r targets localhost but deploy.cloud=%s; the "
+                "deployed agent will likely not be able to reach it. Set an "
+                "explicit cloud-reachable backend_url.",
+                key,
+                val,
+                cloud,
+            )
+
+
 def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) -> AgentConfig:
     """Resolve all registry references in the config.
 
@@ -175,6 +196,8 @@ def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) 
     """
     _bake_prompt_ref(config, project_root)
     _check_tool_refs(config, project_root)
+    # Read once; referenced in both memory and KB blocks below.
+    allow_local = os.environ.get("AGENTBREEDER_ALLOW_LOCAL_BACKENDS") == "1"
     refs = []
     for tool in config.tools:
         if tool.ref:
@@ -211,17 +234,22 @@ def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) 
             config.deploy.env_vars = {}
 
         backend, ttl_seconds = _resolve_memory_config(config.memory.stores)
+        backend = config.memory.backend or backend  # explicit agent.yaml wins
         if backend:
             config.deploy.env_vars.setdefault("MEMORY_BACKEND", backend)
         if ttl_seconds and ttl_seconds > 0:
             config.deploy.env_vars.setdefault("MEMORY_TTL_SECONDS", str(ttl_seconds))
 
-        redis_url = os.environ.get("REDIS_URL")
-        db_url = os.environ.get("DATABASE_URL")
-        if backend == "redis" and redis_url:
-            config.deploy.env_vars.setdefault("REDIS_URL", redis_url)
-        elif backend == "postgresql" and db_url:
-            config.deploy.env_vars.setdefault("DATABASE_URL", db_url)
+        # D2 contract: explicit backend_url wins; local host env only behind a flag.
+        explicit = config.memory.backend_url
+        if backend == "redis":
+            url = explicit or (os.environ.get("REDIS_URL") if allow_local else None)
+            if url:
+                config.deploy.env_vars.setdefault("REDIS_URL", url)
+        elif backend == "postgresql":
+            url = explicit or (os.environ.get("DATABASE_URL") if allow_local else None)
+            if url:
+                config.deploy.env_vars.setdefault("DATABASE_URL", url)
 
         for store_ref in config.memory.stores:
             refs.append(f"memory:{store_ref}")
@@ -242,13 +270,26 @@ def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) 
                 config.deploy.env_vars["KB_INDEX_IDS"],
             )
 
-        # If NEO4J_URL is set in environment, inject it for graph-augmented KB search
+        # D2 contract: explicit per-KB backend_url becomes the vector-store DSN seam
+        # that managed provisioning fills when no explicit URL is given.
+        dsns = [kb.backend_url for kb in config.knowledge_bases if kb.backend_url]
+        if dsns:
+            if len(dsns) > 1:
+                logger.warning(
+                    "Multiple KB backend_url values found (%d); only the first is "
+                    "set as KB_PGVECTOR_DSN. Multi-DSN support is planned for a "
+                    "later task.",
+                    len(dsns),
+                )
+            config.deploy.env_vars.setdefault("KB_PGVECTOR_DSN", dsns[0])
+
         neo4j_url = os.environ.get("NEO4J_URL")
-        if neo4j_url and "NEO4J_URL" not in config.deploy.env_vars:
-            config.deploy.env_vars["NEO4J_URL"] = neo4j_url
-            logger.debug("Injected NEO4J_URL for agent with knowledge bases")
+        if neo4j_url and allow_local:
+            config.deploy.env_vars.setdefault("NEO4J_URL", neo4j_url)
+            logger.debug("Injected local NEO4J_URL (AGENTBREEDER_ALLOW_LOCAL_BACKENDS=1)")
 
     if refs:
         logger.debug("Dependency resolution — refs: %s", refs)
 
+    _warn_unreachable_local_urls(config)
     return config
