@@ -364,6 +364,49 @@ directly via `api.services.pgvector_rag_backend.PgvectorRAGBackend`.
 
 ---
 
+## Deploying with a managed pgvector store (cloud)
+
+When you deploy an agent that declares `knowledge_bases`, retrieval runs **inside
+the agent container** — where the local in-process index is empty. To retrieve in
+the cloud, point the knowledge base at a managed Postgres + pgvector store with
+`backend_url`:
+
+```yaml
+knowledge_bases:
+  - ref: kb/product-docs
+    backend_url: postgresql://user:pass@db.internal:5432/agentbreeder
+```
+
+At deploy time the resolver exposes this to the container as two env vars:
+
+| Env var | Source | Purpose |
+|---------|--------|---------|
+| `KB_PGVECTOR_DSN` | `knowledge_bases[].backend_url` | Connection string the runtime uses to query pgvector |
+| `KB_EMBEDDING_MODEL` | the index's embedding model | Embeds queries the same way the documents were ingested |
+
+At invoke time the runtime embeds the user query with `KB_EMBEDDING_MODEL`, runs a
+cosine-similarity search against the pgvector store for each attached index, and
+prepends the top-k chunks as context — **nothing is read from the machine you
+deployed from**.
+
+### Per-cloud pgvector notes
+
+The `vector` extension must be available on the managed Postgres:
+
+- **AWS RDS** — supported on PostgreSQL ≥ 15.2; the extension is created via
+  `rds_superuser` (no parameter-group change needed).
+- **GCP Cloud SQL** — pgvector is built in; connect over the instance's private IP.
+- **Azure Database for PostgreSQL Flexible Server** — `VECTOR` must be in the
+  `azure.extensions` server parameter before `CREATE EXTENSION` succeeds.
+
+<Callout type="info" title="Automatic provisioning is on the roadmap">
+Today, supply an explicit `backend_url` to a Postgres you manage. Having
+`agentbreeder deploy` provision a managed pgvector store for you (no
+`backend_url` required) is planned — see the cloud-agnostic deployment epic.
+</Callout>
+
+---
+
 ## API Reference
 
 | Method | Path | Description |
@@ -382,12 +425,14 @@ directly via `api.services.pgvector_rag_backend.PgvectorRAGBackend`.
 
 ```yaml
 knowledge_bases:
-  - ref: string    # required — registry reference (kb/name)
+  - ref: string          # required — registry reference (kb/name)
+    backend_url: string  # optional — explicit pgvector DSN for cloud retrieval
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `ref` | string | Yes | Registry reference in format `kb/{name}` |
+| `backend_url` | string | No | Explicit cloud-reachable pgvector DSN. Exposed to the agent as `KB_PGVECTOR_DSN`; see [Deploying with a managed pgvector store](#deploying-with-a-managed-pgvector-store-cloud). |
 
 ---
 
