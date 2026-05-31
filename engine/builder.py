@@ -30,7 +30,10 @@ from engine.deployers._autoprovision import (
     build_pg_data_backend_request,
     resolve_pgvector_dsn,
 )
-from engine.deployers._pgvector_dsn import needs_managed_pgvector
+from engine.deployers._pgvector_dsn import (
+    needs_managed_memory_postgres,
+    needs_managed_pgvector,
+)
 from engine.deployers.base import DeployResult
 from engine.governance import check_rbac
 from engine.provisioners import provisioner_for
@@ -256,14 +259,22 @@ class DeployEngine:
     ) -> None:
         """Provision managed data stores for artifacts declared without a backend_url.
 
-        Currently covers knowledge-base pgvector: when the agent declares a KB
-        with no explicit ``backend_url`` and targets a managed cloud, provision a
-        managed Postgres into the agent's BYO network and inject
-        ``KB_PGVECTOR_DSN`` into ``deploy.env_vars`` in place so the deploy step
-        passes it to the container. No-op for local/kubernetes/claude-managed
-        and for agents that already pin a ``backend_url``.
+        Covers Postgres-backed artifacts — knowledge-base pgvector and
+        ``memory.backend: postgresql`` — provisioning ONE managed Postgres into
+        the agent's BYO network and injecting the connection env in place so the
+        deploy step passes it to the container:
+
+        * knowledge base → ``KB_PGVECTOR_DSN``
+        * memory (postgresql) → ``DATABASE_URL`` + ``MEMORY_BACKEND=postgresql``
+
+        Both share the same instance when declared together. No-op for
+        local/kubernetes/claude-managed and for artifacts that already pin a
+        ``backend_url``. (Managed Redis for ``memory.backend: redis`` is tracked
+        separately — see the auto-provision Redis follow-up.)
         """
-        if not needs_managed_pgvector(config):
+        wants_kb = needs_managed_pgvector(config)
+        wants_memory_pg = needs_managed_memory_postgres(config)
+        if not (wants_kb or wants_memory_pg):
             return
 
         request = build_pg_data_backend_request(config)
@@ -271,7 +282,11 @@ class DeployEngine:
             return
 
         logger.info(
-            "Auto-provisioning managed pgvector for '%s' on %s", config.name, request.cloud
+            "Auto-provisioning managed Postgres for '%s' on %s (kb=%s, memory=%s)",
+            config.name,
+            request.cloud,
+            wants_kb,
+            wants_memory_pg,
         )
         provisioner = provisioner_for(request.cloud)
         state = await provisioner.provision_data_backend(request)
@@ -283,16 +298,21 @@ class DeployEngine:
         dsn = await resolve_pgvector_dsn(request.cloud, state.resources, request.region)
         if not dsn:
             logger.warning(
-                "Provisioned pgvector for '%s' but could not assemble KB_PGVECTOR_DSN; "
-                "the agent will start without a vector store connection",
+                "Provisioned Postgres for '%s' but could not assemble its DSN; the agent "
+                "will start without a vector-store / memory connection",
                 config.name,
             )
             return
 
         if config.deploy.env_vars is None:
             config.deploy.env_vars = {}
-        config.deploy.env_vars["KB_PGVECTOR_DSN"] = dsn
-        logger.info("Injected KB_PGVECTOR_DSN for '%s'", config.name)
+        if wants_kb:
+            config.deploy.env_vars["KB_PGVECTOR_DSN"] = dsn
+            logger.info("Injected KB_PGVECTOR_DSN for '%s'", config.name)
+        if wants_memory_pg:
+            config.deploy.env_vars["DATABASE_URL"] = dsn
+            config.deploy.env_vars.setdefault("MEMORY_BACKEND", "postgresql")
+            logger.info("Injected DATABASE_URL (memory=postgresql) for '%s'", config.name)
 
     def _register(self, config: AgentConfig, endpoint_url: str) -> None:
         """Register the agent in the local registry and sync to the AgentBreeder API.

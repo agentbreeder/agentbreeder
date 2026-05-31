@@ -17,6 +17,7 @@ from engine.config_parser import (
     CloudType,
     DeployConfig,
     KnowledgeBaseRef,
+    MemoryConfig,
     ModelConfig,
 )
 from engine.provisioners.state import InfraState
@@ -26,6 +27,7 @@ def _cfg(
     *,
     cloud: CloudType = CloudType.aws,
     kbs: list[KnowledgeBaseRef] | None = None,
+    memory: MemoryConfig | None = None,
     env_vars: dict[str, str] | None = None,
 ) -> AgentConfig:
     return AgentConfig(
@@ -36,6 +38,7 @@ def _cfg(
         framework="langgraph",
         model=ModelConfig(primary="gpt-4o"),
         knowledge_bases=kbs if kbs is not None else [KnowledgeBaseRef(ref="kb/docs")],
+        memory=memory,
         deploy=DeployConfig(
             cloud=cloud,
             env_vars=env_vars
@@ -101,6 +104,48 @@ async def test_no_state_file_without_project_dir() -> None:
     ):
         await DeployEngine()._auto_provision_data_backends(cfg, None)
     assert cfg.deploy.env_vars["KB_PGVECTOR_DSN"] == "postgresql://x"
+
+
+async def test_memory_postgres_injects_database_url_and_backend() -> None:
+    cfg = _cfg(kbs=[], memory=MemoryConfig(backend="postgresql"))
+    prov = MagicMock()
+    prov.provision_data_backend = AsyncMock(return_value=_state())
+    with (
+        patch("engine.builder.provisioner_for", return_value=prov),
+        patch("engine.builder.resolve_pgvector_dsn", AsyncMock(return_value="postgresql://x")),
+    ):
+        await DeployEngine()._auto_provision_data_backends(cfg)
+
+    prov.provision_data_backend.assert_awaited_once()
+    assert cfg.deploy.env_vars["DATABASE_URL"] == "postgresql://x"
+    assert cfg.deploy.env_vars["MEMORY_BACKEND"] == "postgresql"
+    # No KB declared → no pgvector env.
+    assert "KB_PGVECTOR_DSN" not in cfg.deploy.env_vars
+
+
+async def test_kb_and_memory_postgres_share_one_instance() -> None:
+    cfg = _cfg(kbs=[KnowledgeBaseRef(ref="kb/docs")], memory=MemoryConfig(backend="postgresql"))
+    prov = MagicMock()
+    prov.provision_data_backend = AsyncMock(return_value=_state())
+    with (
+        patch("engine.builder.provisioner_for", return_value=prov),
+        patch("engine.builder.resolve_pgvector_dsn", AsyncMock(return_value="postgresql://x")),
+    ):
+        await DeployEngine()._auto_provision_data_backends(cfg)
+
+    # Provision Postgres at most once even when both KB + memory want it.
+    prov.provision_data_backend.assert_awaited_once()
+    assert cfg.deploy.env_vars["KB_PGVECTOR_DSN"] == "postgresql://x"
+    assert cfg.deploy.env_vars["DATABASE_URL"] == "postgresql://x"
+
+
+async def test_memory_postgres_with_backend_url_is_skipped() -> None:
+    cfg = _cfg(
+        kbs=[], memory=MemoryConfig(backend="postgresql", backend_url="postgresql://byo")
+    )
+    with patch("engine.builder.provisioner_for") as prov_for:
+        await DeployEngine()._auto_provision_data_backends(cfg)
+    prov_for.assert_not_called()
 
 
 async def test_skips_when_backend_url_present() -> None:
