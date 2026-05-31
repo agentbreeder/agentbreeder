@@ -25,6 +25,40 @@ DEFAULT_PG_PORT = 5432
 DEFAULT_DB_NAME = "agentbreeder"
 DEFAULT_DB_USER = "agentbreeder"
 
+# Clouds for which we provision a managed Postgres for pgvector.
+_MANAGED_PG_CLOUDS = {"aws", "gcp", "azure"}
+
+# Where each provisioner stores the DB-password secret reference.
+_SECRET_REF_KEYS = {
+    "aws": "secret_arn",
+    "gcp": "password_secret",
+    "azure": "password_secret_uri",
+}
+
+
+def needs_managed_pgvector(config: Any) -> bool:
+    """Whether the deploy should provision a managed pgvector store.
+
+    True when the agent declares ``knowledge_bases``, none pins an explicit
+    ``backend_url`` (P1 contract: an explicit DSN always wins), and the target
+    is a managed cloud. Local / claude-managed / kubernetes are out of scope.
+    """
+    kbs = getattr(config, "knowledge_bases", None) or []
+    if not kbs:
+        return False
+    if any(getattr(kb, "backend_url", None) for kb in kbs):
+        return False
+    deploy = getattr(config, "deploy", None)
+    cloud = getattr(deploy, "cloud", None)
+    cloud_val = getattr(cloud, "value", cloud)
+    return cloud_val in _MANAGED_PG_CLOUDS
+
+
+def pgvector_secret_ref(cloud: str, resources: dict[str, Any]) -> str | None:
+    """Return the DB-password secret reference for the provisioned DB."""
+    key = _SECRET_REF_KEYS.get(cloud)
+    return resources.get(key) if key else None
+
 
 def build_pgvector_dsn(
     host: str,

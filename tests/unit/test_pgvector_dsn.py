@@ -64,3 +64,53 @@ def test_dsn_from_resources_returns_none_without_host():
 
 def test_dsn_from_resources_unknown_cloud():
     assert pgvector_dsn_from_resources("digitalocean", {"endpoint": "x"}, "pw") is None
+
+
+# ---------------------------------------------------------------------------
+# needs_managed_pgvector / pgvector_secret_ref
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from engine.deployers._pgvector_dsn import (  # noqa: E402
+    needs_managed_pgvector,
+    pgvector_secret_ref,
+)
+
+
+def _config(kbs, cloud):
+    return SimpleNamespace(
+        knowledge_bases=kbs,
+        deploy=SimpleNamespace(cloud=SimpleNamespace(value=cloud)),
+    )
+
+
+def test_needs_managed_pgvector_true_for_kb_without_backend_url_on_cloud():
+    cfg = _config([SimpleNamespace(ref="kb/docs", backend_url=None)], "aws")
+    assert needs_managed_pgvector(cfg) is True
+
+
+def test_needs_managed_pgvector_false_when_backend_url_pinned():
+    cfg = _config([SimpleNamespace(ref="kb/docs", backend_url="postgresql://x")], "gcp")
+    assert needs_managed_pgvector(cfg) is False
+
+
+def test_needs_managed_pgvector_false_without_kbs():
+    assert needs_managed_pgvector(_config([], "azure")) is False
+
+
+def test_needs_managed_pgvector_false_for_local():
+    cfg = _config([SimpleNamespace(ref="kb/docs", backend_url=None)], "local")
+    assert needs_managed_pgvector(cfg) is False
+
+
+def test_pgvector_secret_ref_per_cloud():
+    assert pgvector_secret_ref("aws", {"secret_arn": "arn:x"}) == "arn:x"
+    assert pgvector_secret_ref("gcp", {"password_secret": "projects/p/secrets/s"}) == (
+        "projects/p/secrets/s"
+    )
+    assert pgvector_secret_ref("azure", {"password_secret_uri": "https://v/secrets/s"}) == (
+        "https://v/secrets/s"
+    )
+    assert pgvector_secret_ref("aws", {}) is None
+    assert pgvector_secret_ref("nope", {"secret_arn": "x"}) is None
