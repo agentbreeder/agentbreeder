@@ -126,6 +126,23 @@ def _resolve_memory_config(store_refs: list[str]) -> tuple[str, int]:
         return "postgresql", 0
 
 
+def _infer_memory_backend(backend_url: str | None) -> str | None:
+    """Infer the memory backend from an explicit ``backend_url`` scheme.
+
+    Lets a user point an agent at a managed store with just
+    ``memory.backend_url: redis://…`` (or ``postgresql://…``) — without also
+    restating ``memory.backend``. Returns ``None`` for an unknown/empty scheme.
+    """
+    if not backend_url:
+        return None
+    scheme = backend_url.split("://", 1)[0].lower()
+    if scheme in ("redis", "rediss"):
+        return "redis"
+    if scheme in ("postgres", "postgresql"):
+        return "postgresql"
+    return None
+
+
 class ResolutionError(Exception):
     """Raised when a registry reference cannot be resolved."""
 
@@ -263,7 +280,10 @@ def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) 
             config.deploy.env_vars = {}
 
         backend, ttl_seconds = _resolve_memory_config(config.memory.stores)
-        backend = config.memory.backend or backend  # explicit agent.yaml wins
+        # Precedence: explicit agent.yaml backend > backend_url scheme > registry.
+        backend = (
+            config.memory.backend or _infer_memory_backend(config.memory.backend_url) or backend
+        )
         if backend:
             config.deploy.env_vars.setdefault("MEMORY_BACKEND", backend)
         if ttl_seconds and ttl_seconds > 0:
