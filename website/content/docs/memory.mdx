@@ -83,6 +83,40 @@ That's it. The agent now has a sliding window of the last 50 messages per sessio
 
 ---
 
+## Deploying with a managed memory backend (cloud)
+
+For a deployed agent, point memory at a managed Redis or Postgres you control with
+`backend_url`. AgentBreeder infers the backend from the URL scheme, so you don't
+need to restate `backend`:
+
+```yaml
+memory:
+  backend_url: rediss://prod-cache.aws:6379         # → MEMORY_BACKEND=redis
+  # or:
+  # backend_url: postgresql://user:pass@db.internal:5432/mem   # → MEMORY_BACKEND=postgresql
+```
+
+At deploy time the resolver injects these into the agent container:
+
+| Env var | Source |
+|---------|--------|
+| `MEMORY_BACKEND` | explicit `memory.backend`, else inferred from the `backend_url` scheme |
+| `REDIS_URL` / `DATABASE_URL` | `memory.backend_url` (Redis vs Postgres, by scheme) |
+| `MEMORY_TTL_SECONDS` | the memory store's TTL |
+
+The runtime's MemoryManager connects to that backend on startup and persists
+conversation turns there — **no connection string is read from the machine you
+deployed from**. A `backend_url` pointing at `localhost` while deploying to a real
+cloud is flagged at deploy time.
+
+<Callout type="info" title="Automatic provisioning is on the roadmap">
+Today, supply an explicit `backend_url` to a Redis/Postgres you manage. Having
+`agentbreeder deploy` provision a managed cache/database for you is planned — see
+the cloud-agnostic deployment epic.
+</Callout>
+
+---
+
 ## Patterns
 
 ### Single-agent conversation history

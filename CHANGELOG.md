@@ -20,6 +20,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
   empty in the cloud). The resolver also pins `KB_EMBEDDING_MODEL` so queries are embedded with the
   same model used at ingest. GCP Cloud SQL now records its private IP, and Azure Flexible Server
   allow-lists the `vector` extension (`azure.extensions`), so a provisioned Postgres can serve pgvector.
+- Cloud memory (P3): `memory.backend_url` alone is now enough to target a managed Redis/Postgres —
+  the resolver infers `MEMORY_BACKEND` from the URL scheme (`redis(s)://` → redis, `postgres(ql)://`
+  → postgresql) and wires `REDIS_URL`/`DATABASE_URL` accordingly. The deployed runtime persists
+  conversation history to that managed store, with nothing read from the deploy host.
 
 ### Changed
 - Deploy no longer forwards the deploy host's local `REDIS_URL`/`DATABASE_URL`/`NEO4J_URL` to cloud
