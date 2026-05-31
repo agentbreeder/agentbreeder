@@ -26,6 +26,7 @@ from botocore.exceptions import (
 )
 
 from engine.provisioners.base import (
+    DataBackendRequest,
     InfraProvisioner,
     InfraValidationInput,
     ValidationCheck,
@@ -447,6 +448,102 @@ class AWSProvisioner(InfraProvisioner):
                 await self._delete_vpc(ec2=ec2, vpc_id=vpc["vpc_id"])
             except Exception:  # noqa: BLE001
                 logger.exception("destroy(aws): failed to delete VPC %s", vpc.get("vpc_id"))
+
+    async def provision_data_backend(
+        self,
+        request: DataBackendRequest,
+        progress: ProgressCallback | None = None,
+    ) -> InfraState:
+        """Provision a managed Postgres (pgvector) into the agent's BYO VPC.
+
+        Unlike :meth:`provision`, this creates NO greenfield networking — it
+        joins the existing VPC/subnets the deployer already uses, adding only a
+        dedicated DB security group (5432 from the agent SG, never the
+        internet) and the RDS instance itself. Reuses :meth:`_provision_rds`,
+        so every security invariant there (private, encrypted, password →
+        Secrets Manager, rollback-on-secret-failure) holds unchanged.
+
+        Returns an :class:`InfraState` whose ``resources["rds"]`` is the same
+        shape the greenfield path records, so
+        ``pgvector_dsn_from_resources("aws", ...)`` consumes it directly.
+        """
+        from datetime import UTC, datetime
+
+        from engine.provisioners.state import InfraState
+
+        if request.engine != "postgres":
+            raise NotImplementedError(
+                f"AWS provision_data_backend(engine={request.engine!r}) is not "
+                "implemented yet (Redis/ElastiCache is tracked separately)."
+            )
+
+        fields = request.fields
+        region = request.region
+        agent_name = request.agent_name
+        agent_version = request.agent_version
+        net = request.network
+
+        vpc_id = net.get("vpc_id")
+        subnet_ids = list(net.get("subnet_ids", []))
+        agent_sg_ids = list(net.get("agent_security_group_ids", []))
+        if not vpc_id:
+            raise ValueError("provision_data_backend(aws) requires network.vpc_id")
+        if not subnet_ids:
+            raise ValueError("provision_data_backend(aws) requires network.subnet_ids")
+
+        ec2 = _client("ec2", region, fields)
+        rds = _client("rds", region, fields)
+        secrets_client = _client("secretsmanager", region, fields)
+
+        async def _emit(msg: str) -> None:
+            logger.info("aws.provision_data_backend: %s", msg)
+            if progress is not None:
+                await progress(msg)
+
+        # 1. Dedicated DB security group in the BYO VPC: 5432 from agent SG only.
+        await _emit(f"ensuring DB security group in {vpc_id}")
+        db_sg_id = self._ensure_security_group(
+            ec2=ec2,
+            vpc_id=vpc_id,
+            name=f"agentbreeder-db-{agent_name}"[:255],
+            description=f"AgentBreeder DB ingress (5432 from agent SG) for {agent_name}",
+            agent_name=agent_name,
+            agent_version=agent_version,
+        )
+        for src_sg in agent_sg_ids:
+            self._authorize_ingress(
+                ec2=ec2,
+                sg_id=db_sg_id,
+                protocol="tcp",
+                from_port=DB_PORT,
+                to_port=DB_PORT,
+                source_sg_id=src_sg,
+            )
+
+        # 2. RDS Postgres in the supplied subnets, bound to the new DB SG.
+        await _emit("provisioning RDS PostgreSQL (this can take 10-15 min)")
+        rds_info = await self._provision_rds(
+            rds=rds,
+            ec2=ec2,
+            secrets_client=secrets_client,
+            vpc_id=vpc_id,
+            private_subnet_ids=subnet_ids,
+            db_sg_id=db_sg_id,
+            agent_name=agent_name,
+            agent_version=agent_version,
+            progress=progress,
+        )
+
+        state = InfraState(
+            cloud="aws",
+            region=region,
+            provisioned_by="agentbreeder.AWSProvisioner.provision_data_backend",
+            provisioned_at=datetime.now(UTC),
+            mode="provisioned",
+            resources={"rds": rds_info, "db_security_group_id": db_sg_id},
+        )
+        await _emit("data backend provision complete")
+        return state
 
     # ------------------------------------------------------------------
     # Low-level helpers — each idempotent, each broken out for unit tests.

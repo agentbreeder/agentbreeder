@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib
 
 from engine.provisioners.base import (
+    DataBackendRequest,
     InfraProvisioner,
     InfraValidationInput,
     ValidationCheck,
@@ -68,6 +69,7 @@ __all__ = [
     "CloudMode",
     "CloudName",
     "CloudRequirements",
+    "DataBackendRequest",
     "InfraProvisioner",
     "InfraState",
     "InfraValidationInput",
