@@ -6,7 +6,7 @@ This module is the thin, cloud-aware seam that:
 
 1. translates the agent's BYO-network ``deploy.env_vars`` into a
    :class:`~engine.provisioners.base.DataBackendRequest`
-   (:func:`build_pg_data_backend_request`), and
+   (:func:`build_data_backend_request`), and
 2. turns the provisioner's returned resources dict back into a
    ``KB_PGVECTOR_DSN`` (:func:`resolve_pgvector_dsn`), resolving the DB password
    from the cloud secret store — the password is written ONLY to the secret
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from engine.deployers._pgvector_dsn import (
     pgvector_dsn_from_resources,
@@ -43,13 +44,15 @@ def _split(raw: str | None) -> list[str]:
     return [s.strip() for s in (raw or "").split(",") if s.strip()]
 
 
-def build_pg_data_backend_request(config: AgentConfig) -> DataBackendRequest | None:
-    """Build a Postgres :class:`DataBackendRequest` from an agent config.
+def build_data_backend_request(
+    config: AgentConfig, engine: str = "postgres"
+) -> DataBackendRequest | None:
+    """Build a :class:`DataBackendRequest` (Postgres or Redis) from an agent config.
 
-    Returns ``None`` when the deploy target is not a managed-Postgres cloud
-    (e.g. ``local`` / ``kubernetes`` / ``claude-managed``). The network identifiers
-    are read from the SAME ``deploy.env_vars`` keys the cloud deployer uses, so
-    the provisioned DB lands in the agent's own VPC/network.
+    Returns ``None`` when the deploy target is not a managed cloud (e.g.
+    ``local`` / ``kubernetes`` / ``claude-managed``). The network identifiers are
+    read from the SAME ``deploy.env_vars`` keys the cloud deployer uses, so the
+    provisioned store lands in the agent's own VPC/network.
     """
     deploy = config.deploy
     cloud = getattr(deploy.cloud, "value", deploy.cloud)
@@ -88,10 +91,29 @@ def build_pg_data_backend_request(config: AgentConfig) -> DataBackendRequest | N
         region=region,
         agent_name=config.name,
         agent_version=config.version,
-        engine="postgres",
+        engine=engine,
         network=network,
         fields=fields,
     )
+
+
+def needs_managed_memory_redis(config: Any) -> bool:
+    """Whether the deploy should provision a managed Redis for memory.
+
+    True when the agent declares ``memory`` with ``backend: redis`` and no
+    explicit ``backend_url``, and the target is a managed cloud.
+    """
+    memory = getattr(config, "memory", None)
+    if memory is None:
+        return False
+    if getattr(memory, "backend", None) != "redis":
+        return False
+    if getattr(memory, "backend_url", None):
+        return False
+    deploy = getattr(config, "deploy", None)
+    cloud = getattr(deploy, "cloud", None)
+    cloud_val = getattr(cloud, "value", cloud)
+    return cloud_val in ("aws", "gcp", "azure")
 
 
 async def _resolve_db_password(cloud: str, secret_ref: str, region: str) -> str | None:
@@ -150,3 +172,48 @@ async def resolve_pgvector_dsn(cloud: str, resources: dict[str, Any], region: st
         logger.warning("Could not resolve DB password for %s pgvector backend", cloud)
         return None
     return pgvector_dsn_from_resources(cloud, inner, password)
+
+
+# InfraState.resources sub-key holding the provisioned Redis, per cloud.
+PROVISIONED_REDIS_RESOURCE_KEY = {
+    "aws": "elasticache",
+    "gcp": "memorystore",
+    "azure": "redis",
+}
+
+
+async def resolve_redis_url(cloud: str, resources: dict[str, Any], region: str) -> str | None:
+    """Assemble a ``REDIS_URL`` from a provisioned Redis resources dict.
+
+    AWS/GCP caches are network-isolated and unauthenticated → ``redis://``.
+    Azure Cache for Redis is TLS + access-key authenticated → ``rediss://`` with
+    the key fetched from Key Vault. Returns ``None`` when the store or its
+    coordinates cannot be resolved.
+    """
+    inner = resources.get(PROVISIONED_REDIS_RESOURCE_KEY.get(cloud, ""))
+    if not inner:
+        return None
+
+    if cloud == "aws":
+        host = inner.get("endpoint")
+        port = inner.get("port", 6379)
+        return f"redis://{host}:{port}/0" if host else None
+
+    if cloud == "gcp":
+        host = inner.get("host")
+        port = inner.get("port", 6379)
+        return f"redis://{host}:{port}/0" if host else None
+
+    if cloud == "azure":
+        host = inner.get("hostname")
+        ssl_port = inner.get("ssl_port", 6380)
+        secret_uri = inner.get("key_secret_uri")
+        if not (host and secret_uri):
+            return None
+        key = await _resolve_db_password("azure", secret_uri, region)
+        if key is None:
+            logger.warning("Could not resolve Azure Redis access key from Key Vault")
+            return None
+        return f"rediss://:{quote(key, safe='')}@{host}:{ssl_port}/0"
+
+    return None
