@@ -486,14 +486,18 @@ class AWSProvisioner(InfraProvisioner):
         vpc_id = net.get("vpc_id")
         subnet_ids = list(net.get("subnet_ids", []))
         agent_sg_ids = list(net.get("agent_security_group_ids", []))
-        if not vpc_id:
-            raise ValueError("provision_data_backend(aws) requires network.vpc_id")
         if not subnet_ids:
             raise ValueError("provision_data_backend(aws) requires network.subnet_ids")
 
         ec2 = _client("ec2", region, fields)
         rds = _client("rds", region, fields)
         secrets_client = _client("secretsmanager", region, fields)
+
+        # The ECS BYO contract supplies subnets + SGs but no VPC id; derive it
+        # from the first subnet so the DB security group lands in the right VPC.
+        if not vpc_id:
+            described = ec2.describe_subnets(SubnetIds=[subnet_ids[0]])
+            vpc_id = described["Subnets"][0]["VpcId"]
 
         async def _emit(msg: str) -> None:
             logger.info("aws.provision_data_backend: %s", msg)
@@ -540,7 +544,11 @@ class AWSProvisioner(InfraProvisioner):
             provisioned_by="agentbreeder.AWSProvisioner.provision_data_backend",
             provisioned_at=datetime.now(UTC),
             mode="provisioned",
-            resources={"rds": rds_info, "db_security_group_id": db_sg_id},
+            # Record ONLY what we created (the RDS instance + its dedicated DB
+            # security group) — never the BYO VPC/subnets/agent SG. destroy()
+            # reads these exact keys, so teardown removes the DB + SG and leaves
+            # the user's network untouched.
+            resources={"rds": rds_info, "security_groups": {"db_sg_id": db_sg_id}},
         )
         await _emit("data backend provision complete")
         return state

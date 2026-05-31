@@ -134,6 +134,71 @@ class TestTeardownCommand:
             assert result.exit_code == 0
             assert "Torn down" in result.output
 
+    def test_teardown_destroys_auto_provisioned_infra(self) -> None:
+        """A project with .agentbreeder/infra-state.json gets its DB destroyed."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            state_file.write_text(json.dumps(_sample_state()))
+            registry_dir = Path(tmpdir) / "registry"
+            registry_dir.mkdir()
+            (registry_dir / "agents.json").write_text(json.dumps(_sample_registry()))
+
+            infra_file = Path(tmpdir) / "infra-state.json"
+            infra_file.write_text(
+                json.dumps(
+                    {
+                        "cloud": "aws",
+                        "region": "us-east-1",
+                        "provisioned_by": "test",
+                        "provisioned_at": "2026-05-31T00:00:00+00:00",
+                        "mode": "provisioned",
+                        "resources": {"rds": {"db_instance_identifier": "agentbreeder-demo"}},
+                    }
+                )
+            )
+
+            provisioner = MagicMock()
+            provisioner.destroy = AsyncMock()
+            with (
+                patch("cli.commands.teardown.STATE_FILE", state_file),
+                patch("cli.commands.teardown.REGISTRY_DIR", registry_dir),
+                patch("cli.commands.teardown.INFRA_STATE_FILE", infra_file),
+                patch("cli.commands.teardown._teardown_container", return_value=True),
+                patch(
+                    "engine.provisioners.provisioner_for", return_value=provisioner
+                ) as prov_for,
+            ):
+                result = runner.invoke(app, ["teardown", "my-agent", "--force"])
+
+            assert result.exit_code == 0
+            prov_for.assert_called_once_with("aws")
+            provisioner.destroy.assert_awaited_once()
+            destroyed_state = provisioner.destroy.await_args.args[0]
+            assert destroyed_state.cloud == "aws"
+            # State file removed so a re-run doesn't double-destroy.
+            assert not infra_file.exists()
+
+    def test_teardown_no_infra_state_is_noop(self) -> None:
+        """No infra-state.json → no provisioner call, teardown still succeeds."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            state_file.write_text(json.dumps(_sample_state()))
+            registry_dir = Path(tmpdir) / "registry"
+            registry_dir.mkdir()
+            (registry_dir / "agents.json").write_text(json.dumps(_sample_registry()))
+            with (
+                patch("cli.commands.teardown.STATE_FILE", state_file),
+                patch("cli.commands.teardown.REGISTRY_DIR", registry_dir),
+                patch("cli.commands.teardown.INFRA_STATE_FILE", Path(tmpdir) / "absent.json"),
+                patch("cli.commands.teardown._teardown_container", return_value=True),
+                patch("engine.provisioners.provisioner_for") as prov_for,
+            ):
+                result = runner.invoke(app, ["teardown", "my-agent", "--force"])
+            assert result.exit_code == 0
+            prov_for.assert_not_called()
+
     def test_teardown_json_output(self) -> None:
         """--json should produce JSON and skip confirmation."""
         with tempfile.TemporaryDirectory() as tmpdir:
