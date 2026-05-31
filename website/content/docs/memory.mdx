@@ -109,33 +109,44 @@ conversation turns there — **no connection string is read from the machine you
 deployed from**. A `backend_url` pointing at `localhost` while deploying to a real
 cloud is flagged at deploy time.
 
-### Automatic provisioning (Postgres)
+### Automatic provisioning (no `backend_url`)
 
-If you set `backend: postgresql` **without** a `backend_url` and deploy to
-AWS/GCP/Azure, `agentbreeder deploy` provisions a managed Postgres into the
-agent's own BYO network and injects `DATABASE_URL` + `MEMORY_BACKEND=postgresql`
-for you:
+If you set `backend` (either `postgresql` or `redis`) **without** a `backend_url`
+and deploy to AWS/GCP/Azure, `agentbreeder deploy` provisions a managed store
+into the agent's own BYO network and injects the connection env for you:
 
 ```yaml
 memory:
   stores: [conversation-history]
-  backend: postgresql        # no backend_url → auto-provisioned
+  backend: redis             # or postgresql — no backend_url → auto-provisioned
 ```
 
-If the same agent also declares a knowledge base (pgvector), **both share a
-single provisioned Postgres instance** — it's created at most once per deploy.
-The DB password is stored only in the cloud secret manager, the footprint is
-recorded in `.agentbreeder/infra-state.json`, and `agentbreeder teardown
-<agent>` destroys it. See [RAG → Automatic provisioning](/docs/rag) for the
-per-cloud networking requirements (BYO subnets / Private Service Access /
-delegated subnet).
+| `backend` | Provisioned store (per cloud) | Injected env |
+|-----------|-------------------------------|--------------|
+| `postgresql` | AWS RDS · GCP Cloud SQL · Azure Flexible Server | `DATABASE_URL` + `MEMORY_BACKEND=postgresql` |
+| `redis` | AWS ElastiCache · GCP Memorystore · Azure Cache for Redis | `REDIS_URL` + `MEMORY_BACKEND=redis` |
 
-<Callout type="info" title="Redis auto-provisioning is in progress">
-Managed Redis (`backend: redis`) is not auto-provisioned yet — point it at an
-explicit `backend_url` (e.g. `rediss://…`) for now. Auto-provisioned ElastiCache
-/ Memorystore / Azure Cache for Redis is tracked as a follow-up. `backend_url`
-always short-circuits provisioning; `local`/`kubernetes`/`claude-managed` are out
-of scope.
+**Postgres** sharing: if the same agent also declares a knowledge base
+(pgvector), the KB and `postgresql` memory **share a single provisioned
+instance** — Postgres is created at most once per deploy.
+
+**Redis** auth: AWS/GCP caches are network-isolated and unauthenticated
+(`redis://…`); Azure Cache for Redis is TLS + access-key authenticated
+(`rediss://…`), the key stored in Key Vault. (A KB pgvector Postgres and `redis`
+memory in the same agent provision two stores.)
+
+Secrets (DB passwords / Redis keys) live only in the cloud secret manager. The
+provisioned footprint is recorded in `.agentbreeder/infra-state.json`, and
+`agentbreeder teardown <agent>` destroys everything it created. See
+[RAG → Automatic provisioning](/docs/rag) for the per-cloud networking
+requirements (BYO subnets / Private Service Access / delegated subnet).
+
+<Callout type="info" title="backend_url always wins">
+An explicit `backend_url` short-circuits auto-provisioning — point it at a store
+you manage and AgentBreeder won't create one. Auto-provisioning applies only to
+`aws` / `gcp` / `azure`; `local`, `kubernetes`, and `claude-managed` are out of
+scope. For full Redis network isolation on Azure, use a Premium cache with VNet
+injection / private endpoint.
 </Callout>
 
 ---
