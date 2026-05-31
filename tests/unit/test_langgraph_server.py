@@ -1019,3 +1019,80 @@ class TestInvokeHistoryField:
         assert resp.status_code == 200
         assert resp.json()["history"] == []
         srv._agent = None
+
+
+# ---------------------------------------------------------------------------
+# KB context injection from a provisioned pgvector store (P2)
+# ---------------------------------------------------------------------------
+
+
+class TestKBPgvectorInjection:
+    """When KB_PGVECTOR_DSN is set, the runtime embeds the query and searches
+    the provisioned pgvector store directly (the in-memory store is empty in a
+    deployed container)."""
+
+    async def test_inject_queries_pgvector_when_dsn_set(self, monkeypatch):
+        monkeypatch.setenv("KB_PGVECTOR_DSN", "postgresql://u:p@db.internal:5432/agentbreeder")
+        monkeypatch.setenv("KB_EMBEDDING_MODEL", "openai/text-embedding-3-small")
+        srv = _import_server()
+
+        embed_result = MagicMock()
+        embed_result.vectors = [[0.1, 0.2, 0.3]]
+
+        async def fake_embed(texts, model=None):
+            assert model == "openai/text-embedding-3-small"
+            return embed_result
+
+        backend = MagicMock()
+        backend.connect = AsyncMock()
+        backend.search = AsyncMock(
+            return_value=[
+                {
+                    "chunk_id": "c1",
+                    "text": "alpha document body",
+                    "metadata": {"source": "alpha.pdf"},
+                    "score": 0.92,
+                    "distance": 0.08,
+                }
+            ]
+        )
+
+        captured: dict = {}
+
+        def fake_create(config, index_id):
+            captured["dsn"] = config.get("dsn")
+            captured["index_id"] = index_id
+            return backend
+
+        monkeypatch.setattr("api.services.rag_service.embed_texts", fake_embed)
+        monkeypatch.setattr(
+            "api.services.pgvector_rag_backend.create_pgvector_backend", fake_create
+        )
+
+        out = await srv._inject_kb_context("find alpha", ["idx-uuid-1"], top_k=3)
+
+        assert "<knowledge_base_context>" in out
+        assert "alpha document body" in out
+        assert "[source: alpha.pdf]" in out
+        backend.connect.assert_awaited_once()
+        backend.search.assert_awaited_once()
+        assert captured["dsn"].startswith("postgresql://")
+        assert captured["index_id"] == "idx-uuid-1"
+
+    async def test_inject_falls_back_to_in_memory_without_dsn(self, monkeypatch):
+        monkeypatch.delenv("KB_PGVECTOR_DSN", raising=False)
+        srv = _import_server()
+
+        # No DSN → pgvector path must not be taken; create_pgvector_backend
+        # should never be called.
+        sentinel = MagicMock(side_effect=AssertionError("pgvector must not be used"))
+        monkeypatch.setattr("api.services.pgvector_rag_backend.create_pgvector_backend", sentinel)
+
+        store = MagicMock()
+        store.get_index.return_value = None
+        store.list_indexes.return_value = ([], 0)
+        monkeypatch.setattr("api.services.rag_service.get_rag_store", lambda: store)
+
+        out = await srv._inject_kb_context("q", ["missing-index"], top_k=2)
+        assert out == ""
+        sentinel.assert_not_called()

@@ -156,9 +156,56 @@ def _load_agent() -> Any:
 
 KB_TOP_K: int = int(os.getenv("KB_TOP_K", "5"))
 
+# When a managed vector store was provisioned (or an explicit backend_url was
+# given), the deployer injects its DSN here. The in-memory RAGStore is empty in
+# a deployed container, so KB retrieval must go straight to this store.
+KB_PGVECTOR_DSN: str = os.getenv("KB_PGVECTOR_DSN", "")
+KB_EMBEDDING_MODEL: str = os.getenv("KB_EMBEDDING_MODEL", "openai/text-embedding-3-small")
+
+# Cache of connected pgvector backends, keyed by RAG index id.
+_kb_pgvector_backends: dict[str, Any] = {}
+
 # ---------------------------------------------------------------------------
 # Knowledge-base context injection
 # ---------------------------------------------------------------------------
+
+
+async def _search_pgvector(query: str, kb_index_ids: list[str], top_k: int) -> list[str]:
+    """Embed the query and search the provisioned pgvector store per index.
+
+    Returns a list of ``[source: …]\\n{text}`` chunk strings (possibly empty).
+    Imports are deferred so the module loads without the engine present.
+    """
+    from api.services.pgvector_rag_backend import create_pgvector_backend
+    from api.services.rag_service import embed_texts
+
+    try:
+        embed_result = await embed_texts([query], model=KB_EMBEDDING_MODEL)
+        query_vec = embed_result.vectors[0]
+    except Exception as exc:
+        logger.warning("KB query embedding failed: %s", exc)
+        return []
+
+    hits: list[str] = []
+    for index_id in kb_index_ids:
+        backend = _kb_pgvector_backends.get(index_id)
+        if backend is None:
+            try:
+                backend = create_pgvector_backend({"dsn": KB_PGVECTOR_DSN}, index_id=index_id)
+                await backend.connect()
+                _kb_pgvector_backends[index_id] = backend
+            except Exception as exc:
+                logger.warning("pgvector backend unavailable for index %s: %s", index_id, exc)
+                continue
+        try:
+            results = await backend.search(query_vec, top_k=top_k)
+        except Exception as exc:
+            logger.warning("pgvector KB search failed for index %s: %s", index_id, exc)
+            continue
+        for r in results:
+            source = (r.get("metadata") or {}).get("source", index_id)
+            hits.append(f"[source: {source}]\n{r['text']}")
+    return hits
 
 
 async def _inject_kb_context(query: str, kb_index_ids: list[str], top_k: int = KB_TOP_K) -> str:
@@ -178,6 +225,15 @@ async def _inject_kb_context(query: str, kb_index_ids: list[str], top_k: int = K
     """
     if not kb_index_ids or not query:
         return ""
+
+    # Provisioned / explicit managed store: query pgvector directly. The
+    # in-memory RAGStore below is empty in a deployed container.
+    if KB_PGVECTOR_DSN:
+        pg_hits = await _search_pgvector(query, kb_index_ids, top_k)
+        if not pg_hits:
+            return ""
+        chunks_text = "\n\n---\n\n".join(pg_hits)
+        return f"<knowledge_base_context>\n{chunks_text}\n</knowledge_base_context>"
 
     try:
         from api.services.rag_service import get_rag_store
