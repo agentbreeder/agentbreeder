@@ -10,8 +10,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from engine.provisioners.base import DataBackendRequest
 from engine.provisioners.gcp import GCPProvisioner
 from engine.provisioners.state import InfraState
