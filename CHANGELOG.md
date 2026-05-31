@@ -24,17 +24,22 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
   the resolver infers `MEMORY_BACKEND` from the URL scheme (`redis(s)://` → redis, `postgres(ql)://`
   → postgresql) and wires `REDIS_URL`/`DATABASE_URL` accordingly. The deployed runtime persists
   conversation history to that managed store, with nothing read from the deploy host.
-- **Auto-provision managed Postgres at deploy.** When an agent declares a knowledge base, or
-  `memory.backend: postgresql`, *without* a `backend_url` and targets AWS/GCP/Azure, `agentbreeder
-  deploy` now provisions a managed Postgres **into the agent's own BYO network** (AWS RDS in your
-  VPC/subnets behind a dedicated DB security group; GCP Cloud SQL private IP on your VPC; Azure
-  Flexible Server on your delegated subnet) and injects `KB_PGVECTOR_DSN` / `DATABASE_URL`
-  automatically. The DB password is generated and stored only in the cloud secret manager — never on
-  disk. A knowledge base and postgresql memory share a single instance. The footprint is recorded in
-  `.agentbreeder/infra-state.json`, and `agentbreeder teardown <agent>` destroys it (only what
-  AgentBreeder created — never your VPC/resource group). `backend_url` always wins, and
-  local/kubernetes/claude-managed are out of scope. Managed Redis auto-provision
-  (`memory.backend: redis`) is in progress — for now point it at a `backend_url`.
+- **Auto-provision managed data backends at deploy.** When an agent declares a knowledge base, or
+  `memory.backend` (`postgresql` or `redis`), *without* a `backend_url` and targets AWS/GCP/Azure,
+  `agentbreeder deploy` now provisions a managed store **into the agent's own BYO network** and
+  injects the connection env automatically:
+  - **Postgres** (KB pgvector / `memory.backend: postgresql`) → AWS RDS · GCP Cloud SQL (private IP)
+    · Azure Flexible Server (delegated subnet) → `KB_PGVECTOR_DSN` / `DATABASE_URL`. A KB and
+    postgresql memory share a single instance.
+  - **Redis** (`memory.backend: redis`) → AWS ElastiCache · GCP Memorystore · Azure Cache for Redis
+    → `REDIS_URL`. AWS/GCP are network-isolated (`redis://`); Azure is TLS + access-key (`rediss://`).
+
+  Each store lands behind a dedicated security group / private network (5432/6379 from the agent
+  only, never the internet). Passwords / access keys are stored only in the cloud secret manager —
+  never on disk. The footprint is recorded in `.agentbreeder/infra-state.json`, and `agentbreeder
+  teardown <agent>` destroys everything it created (never your VPC / resource group). `backend_url`
+  always wins; local/kubernetes/claude-managed are out of scope. Per-cloud SDK provisioning is
+  validated against live clouds during rollout.
 
 ### Changed
 - Deploy no longer forwards the deploy host's local `REDIS_URL`/`DATABASE_URL`/`NEO4J_URL` to cloud
