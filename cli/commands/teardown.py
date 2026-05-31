@@ -910,9 +910,7 @@ def _teardown_infra_state(json_output: bool) -> bool:
     except OSError:
         pass
     if not json_output:
-        console.print(
-            f"  [green]✓[/green] Destroyed auto-provisioned {infra.cloud} data backend"
-        )
+        console.print(f"  [green]✓[/green] Destroyed auto-provisioned {infra.cloud} data backend")
     return True
 
 

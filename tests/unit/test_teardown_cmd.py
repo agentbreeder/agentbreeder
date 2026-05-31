@@ -166,9 +166,7 @@ class TestTeardownCommand:
                 patch("cli.commands.teardown.REGISTRY_DIR", registry_dir),
                 patch("cli.commands.teardown.INFRA_STATE_FILE", infra_file),
                 patch("cli.commands.teardown._teardown_container", return_value=True),
-                patch(
-                    "engine.provisioners.provisioner_for", return_value=provisioner
-                ) as prov_for,
+                patch("engine.provisioners.provisioner_for", return_value=provisioner) as prov_for,
             ):
                 result = runner.invoke(app, ["teardown", "my-agent", "--force"])
 
