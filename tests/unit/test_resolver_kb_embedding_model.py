@@ -20,7 +20,9 @@ def _store_with(indexes):
 
 
 def test_resolves_embedding_model_by_slug(monkeypatch):
-    idx = SimpleNamespace(name="product-docs", id="i1", embedding_model="openai/text-embedding-3-large")
+    idx = SimpleNamespace(
+        name="product-docs", id="i1", embedding_model="openai/text-embedding-3-large"
+    )
     monkeypatch.setattr("api.services.rag_service.get_rag_store", lambda: _store_with([idx]))
     assert (
         resolver._resolve_kb_embedding_model([KnowledgeBaseRef(ref="kb/product-docs")])

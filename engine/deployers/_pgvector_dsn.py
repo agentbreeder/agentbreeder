@@ -118,4 +118,6 @@ def pgvector_dsn_from_resources(
     else:
         return None
 
-    return build_pgvector_dsn(host=host, database=database, user=user, password=password, port=port)
+    return build_pgvector_dsn(
+        host=host, database=database, user=user, password=password, port=port
+    )
