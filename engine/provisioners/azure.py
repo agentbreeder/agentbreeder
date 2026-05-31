@@ -484,26 +484,28 @@ class AzureProvisioner(InfraProvisioner):
         request: DataBackendRequest,
         progress: ProgressCallback | None = None,
     ) -> InfraState:
-        """Provision a PostgreSQL Flexible Server (pgvector) into BYO networking.
+        """Provision a Postgres Flexible Server (pgvector) or Azure Cache for Redis.
 
         Unlike :meth:`provision`, this does NOT create a resource group, ACR, or
-        Container Apps environment. It joins the agent's existing resource group
-        and delegated DB subnet, ensures a per-agent Key Vault for the password,
-        creates the server (private access only), and records ONLY what it made.
+        Container Apps environment. It joins the agent's existing resource group,
+        ensures a per-agent Key Vault for the secret, creates the store, and
+        records ONLY what it made (never the BYO resource group, whose greenfield
+        ``destroy()`` would cascade-delete the user's resources).
+        ``destroy_data_backend`` removes only the store.
 
-        The subnet (``network.db_subnet_id`` / ``AZURE_DB_SUBNET_ID``) MUST be
-        delegated to ``Microsoft.DBforPostgreSQL/flexibleServers`` — Flexible
-        Server with private access requires it. ``destroy_data_backend`` removes
-        only the server (never the BYO resource group).
+        Postgres requires a subnet delegated to
+        ``Microsoft.DBforPostgreSQL/flexibleServers`` (``AZURE_DB_SUBNET_ID``).
+        Redis uses a TLS-only public endpoint authenticated by an access key
+        (stored in Key Vault) — for full network isolation use a Premium cache
+        with VNet injection / private endpoint (real-cloud hardening).
         """
         from datetime import UTC, datetime
 
         from engine.provisioners.state import InfraState
 
-        if request.engine != "postgres":
+        if request.engine not in ("postgres", "redis"):
             raise NotImplementedError(
-                f"Azure provision_data_backend(engine={request.engine!r}) is not "
-                "implemented yet (Azure Cache for Redis is tracked separately)."
+                f"Azure provision_data_backend(engine={request.engine!r}) is not supported."
             )
 
         fields = request.fields
@@ -514,8 +516,11 @@ class AzureProvisioner(InfraProvisioner):
             raise ValueError("provision_data_backend(azure) requires AZURE_SUBSCRIPTION_ID")
         if not rg_name:
             raise ValueError("provision_data_backend(azure) requires AZURE_RESOURCE_GROUP")
-        subnet_id = str(request.network.get("db_subnet_id", "")).strip()
-        if not subnet_id:
+        # Fail fast on the delegated-subnet requirement before any cloud call.
+        if (
+            request.engine == "postgres"
+            and not str(request.network.get("db_subnet_id", "")).strip()
+        ):
             raise ValueError(
                 "provision_data_backend(azure) requires a delegated DB subnet "
                 "(network.db_subnet_id / AZURE_DB_SUBNET_ID) — Flexible Server with "
@@ -523,7 +528,6 @@ class AzureProvisioner(InfraProvisioner):
             )
 
         agent_name = request.agent_name
-        db_server = f"agentbreeder-{agent_name}-db"
         kv_name = _safe_kv_name(agent_name)
         tags = _resource_tags(agent_name, request.agent_version)
 
@@ -532,7 +536,7 @@ class AzureProvisioner(InfraProvisioner):
             if progress is not None:
                 await progress(msg)
 
-        await _emit(f"ensuring Key Vault '{kv_name}' for DB secret")
+        await _emit(f"ensuring Key Vault '{kv_name}' for the data-store secret")
         kv_id, kv_uri = await self._ensure_key_vault(
             subscription_id=subscription_id,
             rg_name=rg_name,
@@ -543,10 +547,69 @@ class AzureProvisioner(InfraProvisioner):
             fields=fields,
         )
 
+        if request.engine == "postgres":
+            resources = await self._provision_azure_postgres(
+                fields=fields,
+                region=region,
+                subscription_id=subscription_id,
+                rg_name=rg_name,
+                agent_name=agent_name,
+                kv_uri=kv_uri,
+                tags=tags,
+                network=request.network,
+                emit=_emit,
+            )
+        else:  # redis
+            resources = await self._provision_azure_redis(
+                fields=fields,
+                region=region,
+                subscription_id=subscription_id,
+                rg_name=rg_name,
+                agent_name=agent_name,
+                kv_uri=kv_uri,
+                tags=tags,
+                emit=_emit,
+            )
+        resources["key_vault"] = {"id": kv_id, "name": kv_name, "uri": kv_uri}
+
+        state = InfraState(
+            cloud="azure",
+            region=region,
+            provisioned_by="agentbreeder.AzureProvisioner.provision_data_backend",
+            provisioned_at=datetime.now(UTC),
+            mode="provisioned",
+            # NOTE: deliberately NO "resource_group" key — the BYO RG is the
+            # user's; destroy_data_backend() removes only the store.
+            resources=resources,
+        )
+        await _emit("data backend provision complete")
+        return state
+
+    async def _provision_azure_postgres(
+        self,
+        *,
+        fields: dict[str, Any],
+        region: str,
+        subscription_id: str,
+        rg_name: str,
+        agent_name: str,
+        kv_uri: str,
+        tags: dict[str, str],
+        network: dict[str, Any],
+        emit: Any,
+    ) -> dict[str, Any]:
+        subnet_id = str(network.get("db_subnet_id", "")).strip()
+        if not subnet_id:
+            raise ValueError(
+                "provision_data_backend(azure) requires a delegated DB subnet "
+                "(network.db_subnet_id / AZURE_DB_SUBNET_ID) — Flexible Server with "
+                "private access cannot be created without one."
+            )
+        db_server = f"agentbreeder-{agent_name}-db"
         db_password = secrets.token_urlsafe(32)
         db_admin = "agentbreeder"
 
-        await _emit(f"ensuring PostgreSQL Flexible Server '{db_server}' (public_access=Disabled)")
+        await emit(f"ensuring PostgreSQL Flexible Server '{db_server}' (public_access=Disabled)")
         db_id, db_fqdn = await self._ensure_postgres_flexible(
             subscription_id=subscription_id,
             rg_name=rg_name,
@@ -579,59 +642,107 @@ class AzureProvisioner(InfraProvisioner):
                 logger.exception("azure.provision_data_backend: DB rollback also failed")
             raise
 
-        state = InfraState(
-            cloud="azure",
+        return {
+            "postgres": {
+                "id": db_id,
+                "name": db_server,
+                "fqdn": db_fqdn,
+                "admin_user": db_admin,
+                "database": "postgres",
+                "public_network_access": "Disabled",
+                "password_secret_uri": secret_uri,
+                "subscription_id": subscription_id,
+                "resource_group": rg_name,
+            }
+        }
+
+    async def _provision_azure_redis(
+        self,
+        *,
+        fields: dict[str, Any],
+        region: str,
+        subscription_id: str,
+        rg_name: str,
+        agent_name: str,
+        kv_uri: str,
+        tags: dict[str, str],
+        emit: Any,
+    ) -> dict[str, Any]:
+        cache_name = _safe_redis_name(agent_name)
+        await emit(f"ensuring Azure Cache for Redis '{cache_name}' (TLS-only)")
+        cache_id, hostname, ssl_port, primary_key = await self._ensure_azure_redis(
+            subscription_id=subscription_id,
+            rg_name=rg_name,
+            cache_name=cache_name,
             region=region,
-            provisioned_by="agentbreeder.AzureProvisioner.provision_data_backend",
-            provisioned_at=datetime.now(UTC),
-            mode="provisioned",
-            # NOTE: deliberately NO "resource_group" key — that BYO RG is the
-            # user's, and the greenfield destroy() would cascade-delete it.
-            # destroy_data_backend() below removes only the server.
-            resources={
-                "postgres": {
-                    "id": db_id,
-                    "name": db_server,
-                    "fqdn": db_fqdn,
-                    "admin_user": db_admin,
-                    "database": "postgres",
-                    "public_network_access": "Disabled",
-                    "password_secret_uri": secret_uri,
-                    "subscription_id": subscription_id,
-                    "resource_group": rg_name,
-                },
-                "key_vault": {"id": kv_id, "name": kv_name, "uri": kv_uri},
-            },
+            tags=tags,
+            fields=fields,
         )
-        await _emit("data backend provision complete")
-        return state
+
+        try:
+            secret_uri = await self._write_db_password_to_kv(
+                kv_uri=kv_uri,
+                secret_name=f"{cache_name}-key",
+                password=primary_key,
+                fields=fields,
+            )
+        except Exception:
+            logger.exception("azure.provision_data_backend: KV write failed — rolling back Redis")
+            try:
+                await self._delete_azure_redis(
+                    subscription_id=subscription_id,
+                    rg_name=rg_name,
+                    cache_name=cache_name,
+                    fields=fields,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("azure.provision_data_backend: Redis rollback also failed")
+            raise
+
+        return {
+            "redis": {
+                "id": cache_id,
+                "name": cache_name,
+                "hostname": hostname,
+                "ssl_port": ssl_port,
+                "key_secret_uri": secret_uri,
+                "subscription_id": subscription_id,
+                "resource_group": rg_name,
+            }
+        }
 
     async def destroy_data_backend(self, state: InfraState) -> None:
-        """Delete ONLY the Flexible Server created by provision_data_backend.
+        """Delete ONLY the store created by provision_data_backend.
 
         Never touches the BYO resource group, subnet, or Key Vault — those may
-        be shared. The DB-password secret is left in the vault (cheap; the vault
-        may hold other secrets).
+        be shared. The secret is left in the vault (cheap; the vault may hold
+        other secrets).
         """
         if state.cloud != "azure":
             raise ValueError(
                 f"destroy_data_backend(azure): state.cloud is {state.cloud!r}, expected 'azure'"
             )
-        pg = state.resources.get("postgres") or {}
-        name = pg.get("name")
-        subscription_id = pg.get("subscription_id")
-        rg_name = pg.get("resource_group")
-        if not (name and subscription_id and rg_name):
-            logger.warning(
-                "destroy_data_backend(azure): postgres state missing name/subscription/rg; "
-                "nothing to delete"
-            )
-            return
-        await self._delete_postgres_flexible(
-            subscription_id=subscription_id,
-            rg_name=rg_name,
-            db_name=name,
-            fields={},
+        if pg := state.resources.get("postgres"):
+            if pg.get("name") and pg.get("subscription_id") and pg.get("resource_group"):
+                await self._delete_postgres_flexible(
+                    subscription_id=pg["subscription_id"],
+                    rg_name=pg["resource_group"],
+                    db_name=pg["name"],
+                    fields={},
+                )
+                return
+        if rc := state.resources.get("redis"):
+            if rc.get("name") and rc.get("subscription_id") and rc.get("resource_group"):
+                await self._delete_azure_redis(
+                    subscription_id=rc["subscription_id"],
+                    rg_name=rc["resource_group"],
+                    cache_name=rc["name"],
+                    fields={},
+                )
+                return
+        logger.warning(
+            "destroy_data_backend(azure): no postgres/redis store with full coordinates; "
+            "nothing to delete"
         )
 
     # ------------------------------------------------------------------
@@ -1105,6 +1216,73 @@ class AzureProvisioner(InfraProvisioner):
             poller.result(timeout=_LRO_TIMEOUT_SEC)
         except ResourceNotFoundError:
             logger.debug("postgres flexible server %s already absent", db_name)
+
+    async def _ensure_azure_redis(
+        self,
+        *,
+        subscription_id: str,
+        rg_name: str,
+        cache_name: str,
+        region: str,
+        tags: dict[str, str],
+        fields: dict[str, Any],
+    ) -> tuple[str, str, int, str]:
+        """Create a TLS-only Standard C0 Azure Cache for Redis, idempotently.
+
+        Returns ``(resource_id, hostname, ssl_port, primary_access_key)``. The
+        cache enforces TLS 1.2 and disables the non-SSL port; the primary access
+        key is the caller's to store in Key Vault. Provisioning takes 15-20 min
+        on first create.
+        """
+        from azure.core.exceptions import ResourceNotFoundError
+        from azure.mgmt.redis import RedisManagementClient
+        from azure.mgmt.redis.models import RedisCreateParameters, Sku
+
+        creds = _credentials(fields)
+        client = RedisManagementClient(creds, subscription_id)
+        try:
+            redis_obj = client.redis.get(rg_name, cache_name)
+        except ResourceNotFoundError:
+            params = RedisCreateParameters(
+                location=region,
+                sku=Sku(name="Standard", family="C", capacity=0),
+                enable_non_ssl_port=False,
+                minimum_tls_version="1.2",
+                tags=tags,
+            )
+            poller = client.redis.begin_create(rg_name, cache_name, params)
+            redis_obj = poller.result(timeout=_LRO_TIMEOUT_SEC)
+
+        keys = client.redis.list_keys(rg_name, cache_name)
+        ssl_port = getattr(redis_obj, "ssl_port", None) or 6380
+        return redis_obj.id, redis_obj.host_name, ssl_port, keys.primary_key
+
+    async def _delete_azure_redis(
+        self,
+        *,
+        subscription_id: str,
+        rg_name: str,
+        cache_name: str,
+        fields: dict[str, Any],
+    ) -> None:
+        from azure.core.exceptions import ResourceNotFoundError
+        from azure.mgmt.redis import RedisManagementClient
+
+        creds = _credentials(fields)
+        client = RedisManagementClient(creds, subscription_id)
+        try:
+            poller = client.redis.begin_delete(rg_name, cache_name)
+            poller.result(timeout=_LRO_TIMEOUT_SEC)
+        except ResourceNotFoundError:
+            logger.debug("azure cache for redis %s already absent", cache_name)
+
+
+def _safe_redis_name(agent_name: str) -> str:
+    """Azure Cache for Redis names: 1-63 alphanumeric + hyphen, DNS-unique."""
+    base = re.sub(r"[^a-zA-Z0-9-]", "-", agent_name.lower())[:30].strip("-")
+    if not base:
+        base = "default"
+    return f"ab-{base}-redis"[:63]
 
 
 def _safe_kv_name(agent_name: str) -> str:
