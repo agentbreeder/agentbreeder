@@ -48,6 +48,28 @@ def needs_managed_pgvector(config: Any) -> bool:
         return False
     if any(getattr(kb, "backend_url", None) for kb in kbs):
         return False
+    return _targets_managed_pg_cloud(config)
+
+
+def needs_managed_memory_postgres(config: Any) -> bool:
+    """Whether the deploy should provision a managed Postgres for memory.
+
+    True when the agent declares ``memory`` with ``backend: postgresql`` and no
+    explicit ``backend_url`` (an explicit DSN always wins), and the target is a
+    managed cloud. The same managed instance also backs pgvector when both are
+    declared — the deploy hook provisions Postgres at most once.
+    """
+    memory = getattr(config, "memory", None)
+    if memory is None:
+        return False
+    if getattr(memory, "backend", None) != "postgresql":
+        return False
+    if getattr(memory, "backend_url", None):
+        return False
+    return _targets_managed_pg_cloud(config)
+
+
+def _targets_managed_pg_cloud(config: Any) -> bool:
     deploy = getattr(config, "deploy", None)
     cloud = getattr(deploy, "cloud", None)
     cloud_val = getattr(cloud, "value", cloud)
