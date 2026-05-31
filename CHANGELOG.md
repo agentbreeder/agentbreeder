@@ -15,6 +15,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - `agent.yaml`: `knowledge_bases[].backend_url`, `memory.backend`, `memory.backend_url` for pointing
   agents at explicit, cloud-reachable RAG/memory backends. `knowledge_bases[].backend_url` is exposed
   to the agent as `KB_PGVECTOR_DSN`.
+- Cloud RAG retrieval (P2): a deployed agent now embeds the user query and retrieves from its
+  managed **pgvector** store at invoke time via `KB_PGVECTOR_DSN` (the in-container in-memory index is
+  empty in the cloud). The resolver also pins `KB_EMBEDDING_MODEL` so queries are embedded with the
+  same model used at ingest. GCP Cloud SQL now records its private IP, and Azure Flexible Server
+  allow-lists the `vector` extension (`azure.extensions`), so a provisioned Postgres can serve pgvector.
 
 ### Changed
 - Deploy no longer forwards the deploy host's local `REDIS_URL`/`DATABASE_URL`/`NEO4J_URL` to cloud

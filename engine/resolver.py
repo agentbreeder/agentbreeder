@@ -68,6 +68,33 @@ def _resolve_kb_index_ids(kb_refs: list[KnowledgeBaseRef]) -> list[str]:
     return resolved
 
 
+def _resolve_kb_embedding_model(kb_refs: list[KnowledgeBaseRef]) -> str | None:
+    """Return the embedding model of the first resolvable KB index.
+
+    The deployed runtime must embed queries with the SAME model used at
+    ingest time, otherwise vector similarity is meaningless. We pin it via
+    ``KB_EMBEDDING_MODEL``. Returns ``None`` when no index is resolvable (the
+    runtime then falls back to its built-in default).
+    """
+    if not kb_refs:
+        return None
+    try:
+        from api.services.rag_service import get_rag_store
+
+        store = get_rag_store()
+        all_indexes, _ = store.list_indexes(page=1, per_page=1000)
+        name_to_model = {idx.name: getattr(idx, "embedding_model", None) for idx in all_indexes}
+    except Exception:  # RAGStore unavailable (engine running standalone)
+        return None
+
+    for kb in kb_refs:
+        slug = kb.ref.split("/")[-1]
+        model = name_to_model.get(slug) or name_to_model.get(kb.ref)
+        if model:
+            return model
+    return None
+
+
 def _resolve_memory_config(store_refs: list[str]) -> tuple[str, int]:
     """Return (backend, ttl_seconds) for the agent's memory configuration.
 
@@ -269,6 +296,13 @@ def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) 
                 len(kb_index_ids),
                 config.deploy.env_vars["KB_INDEX_IDS"],
             )
+
+        # Pin the embedding model so the runtime embeds queries the same way
+        # the documents were embedded at ingest (required for the pgvector
+        # retrieval path). Falls back to the runtime default when unknown.
+        embedding_model = _resolve_kb_embedding_model(config.knowledge_bases)
+        if embedding_model:
+            config.deploy.env_vars.setdefault("KB_EMBEDDING_MODEL", embedding_model)
 
         # D2 contract: explicit per-KB backend_url becomes the vector-store DSN seam
         # that managed provisioning fills when no explicit URL is given.
