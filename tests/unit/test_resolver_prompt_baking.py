@@ -4,8 +4,13 @@ from engine.resolver import resolve_dependencies
 
 def _cfg(system: str | None):
     return AgentConfig(
-        name="x", version="1.0.0", team="t", owner="o@e.com", framework="langgraph",
-        model=ModelConfig(primary="claude-sonnet-4"), deploy=DeployConfig(cloud="aws"),
+        name="x",
+        version="1.0.0",
+        team="t",
+        owner="o@e.com",
+        framework="langgraph",
+        model=ModelConfig(primary="claude-sonnet-4"),
+        deploy=DeployConfig(cloud="aws"),
         prompts=PromptsConfig(system=system),
     )
 

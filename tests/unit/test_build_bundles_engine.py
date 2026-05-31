@@ -37,4 +37,6 @@ def test_built_image_installs_engine_and_bakes_prompt(tmp_path, monkeypatch):
 
     reqs = (image.context_dir / "requirements.txt").read_text()
     assert "agentbreeder==1.2.3" in reqs.splitlines()  # engine bundled (Task 2)
-    assert 'AGENT_SYSTEM_PROMPT="You are a baked agent."' in image.dockerfile_content  # prompt baked (Task 4)
+    assert (
+        'AGENT_SYSTEM_PROMPT="You are a baked agent."' in image.dockerfile_content
+    )  # prompt baked (Task 4)

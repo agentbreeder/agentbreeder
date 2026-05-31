@@ -24,6 +24,7 @@ def _write_yaml(content: str) -> Path:
 # Pydantic-model unit tests (existing)
 # ---------------------------------------------------------------------------
 
+
 def test_kb_ref_accepts_backend_url():
     kb = KnowledgeBaseRef(ref="kb/product-docs", backend_url="postgresql://h/db")
     assert kb.backend_url == "postgresql://h/db"

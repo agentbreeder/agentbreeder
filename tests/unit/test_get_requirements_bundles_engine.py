@@ -11,15 +11,26 @@ from engine.runtimes.openai_agents import OpenAIAgentsRuntime
 def _cfg(model="claude-sonnet-4"):
     return AgentConfig(
         # framework is unused by get_requirements(); any valid enum value works here
-        name="x", version="1.0.0", team="t", owner="o@e.com", framework="langgraph",
-        model=ModelConfig(primary=model), deploy=DeployConfig(cloud="aws"),
+        name="x",
+        version="1.0.0",
+        team="t",
+        owner="o@e.com",
+        framework="langgraph",
+        model=ModelConfig(primary=model),
+        deploy=DeployConfig(cloud="aws"),
     )
 
 
-@pytest.mark.parametrize("runtime", [
-    LangGraphRuntime(), ClaudeSDKRuntime(), OpenAIAgentsRuntime(),
-    CrewAIRuntime(), GoogleADKRuntime(),
-])
+@pytest.mark.parametrize(
+    "runtime",
+    [
+        LangGraphRuntime(),
+        ClaudeSDKRuntime(),
+        OpenAIAgentsRuntime(),
+        CrewAIRuntime(),
+        GoogleADKRuntime(),
+    ],
+)
 def test_get_requirements_includes_agentbreeder(runtime, monkeypatch):
     monkeypatch.setenv("AGENTBREEDER_RUNTIME_REQUIREMENT", "agentbreeder==1.2.3")
     deps = runtime.get_requirements(_cfg())
