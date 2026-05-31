@@ -164,7 +164,5 @@ async def test_vpc_id_derived_from_subnet_when_absent(fake_clients) -> None:
     assert create_sg.call_args.kwargs["VpcId"] == "vpc-derived"
 
 
-async def test_redis_engine_not_implemented_yet(fake_clients) -> None:
-    with patch("engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)):
-        with pytest.raises(NotImplementedError):
-            await AWSProvisioner().provision_data_backend(_request(engine="redis"))
+# Redis (ElastiCache) provisioning is covered in
+# test_provision_data_backend_aws_redis.py.

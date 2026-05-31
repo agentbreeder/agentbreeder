@@ -47,6 +47,7 @@ PRIVATE_SUBNET_CIDRS = ("10.0.3.0/24", "10.0.4.0/24")
 TLS_LISTENER_POLICY = "ELBSecurityPolicy-TLS13-1-2-2021-06"
 DB_NAME = "agentbreeder_memory"
 DB_PORT = 5432
+REDIS_PORT = 6379
 ALB_HTTP_PORT = 80
 ALB_HTTPS_PORT = 443
 AGENT_CONTAINER_PORT = 8080
@@ -405,6 +406,19 @@ class AWSProvisioner(InfraProvisioner):
                     "destroy(aws): failed to delete RDS %s", rds_info.get("db_instance_identifier")
                 )
 
+        # 2b. ElastiCache Redis (deleted before its SG so the SG can be removed).
+        if ec_info := resources.get("elasticache"):
+            try:
+                await self._delete_elasticache(
+                    elasticache=_client("elasticache", region, fields),
+                    cluster_id=ec_info["cluster_id"],
+                    subnet_group=ec_info.get("subnet_group"),
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "destroy(aws): failed to delete ElastiCache %s", ec_info.get("cluster_id")
+                )
+
         # 3. IAM execution role.
         if role := resources.get("iam_execution_role"):
             try:
@@ -428,7 +442,7 @@ class AWSProvisioner(InfraProvisioner):
         # 5. Security groups + network + VPC.
         ec2 = _client("ec2", region, fields)
         if sgs := resources.get("security_groups"):
-            for key in ("db_sg_id", "agent_sg_id", "alb_sg_id"):
+            for key in ("db_sg_id", "redis_sg_id", "agent_sg_id", "alb_sg_id"):
                 sg_id = sgs.get(key)
                 if not sg_id:
                     continue
@@ -454,27 +468,26 @@ class AWSProvisioner(InfraProvisioner):
         request: DataBackendRequest,
         progress: ProgressCallback | None = None,
     ) -> InfraState:
-        """Provision a managed Postgres (pgvector) into the agent's BYO VPC.
+        """Provision a managed Postgres (pgvector) or Redis into the BYO VPC.
 
         Unlike :meth:`provision`, this creates NO greenfield networking — it
         joins the existing VPC/subnets the deployer already uses, adding only a
-        dedicated DB security group (5432 from the agent SG, never the
-        internet) and the RDS instance itself. Reuses :meth:`_provision_rds`,
-        so every security invariant there (private, encrypted, password →
-        Secrets Manager, rollback-on-secret-failure) holds unchanged.
+        dedicated data-store security group (Postgres 5432 / Redis 6379 from the
+        agent SG, never the internet) and the store itself. Reuses
+        :meth:`_provision_rds` / :meth:`_provision_elasticache`.
 
-        Returns an :class:`InfraState` whose ``resources["rds"]`` is the same
-        shape the greenfield path records, so
-        ``pgvector_dsn_from_resources("aws", ...)`` consumes it directly.
+        Returns an :class:`InfraState` whose ``resources`` records ONLY what was
+        created (the store + its dedicated SG) under the exact keys
+        :meth:`destroy` reads, so teardown removes the store + SG and leaves the
+        user's network untouched.
         """
         from datetime import UTC, datetime
 
         from engine.provisioners.state import InfraState
 
-        if request.engine != "postgres":
+        if request.engine not in ("postgres", "redis"):
             raise NotImplementedError(
-                f"AWS provision_data_backend(engine={request.engine!r}) is not "
-                "implemented yet (Redis/ElastiCache is tracked separately)."
+                f"AWS provision_data_backend(engine={request.engine!r}) is not supported."
             )
 
         fields = request.fields
@@ -490,11 +503,9 @@ class AWSProvisioner(InfraProvisioner):
             raise ValueError("provision_data_backend(aws) requires network.subnet_ids")
 
         ec2 = _client("ec2", region, fields)
-        rds = _client("rds", region, fields)
-        secrets_client = _client("secretsmanager", region, fields)
 
         # The ECS BYO contract supplies subnets + SGs but no VPC id; derive it
-        # from the first subnet so the DB security group lands in the right VPC.
+        # from the first subnet so the data-store SG lands in the right VPC.
         if not vpc_id:
             described = ec2.describe_subnets(SubnetIds=[subnet_ids[0]])
             vpc_id = described["Subnets"][0]["VpcId"]
@@ -504,8 +515,61 @@ class AWSProvisioner(InfraProvisioner):
             if progress is not None:
                 await progress(msg)
 
-        # 1. Dedicated DB security group in the BYO VPC: 5432 from agent SG only.
-        await _emit(f"ensuring DB security group in {vpc_id}")
+        if request.engine == "postgres":
+            resources = await self._provision_postgres_backend(
+                ec2=ec2,
+                fields=fields,
+                region=region,
+                vpc_id=vpc_id,
+                subnet_ids=subnet_ids,
+                agent_sg_ids=agent_sg_ids,
+                agent_name=agent_name,
+                agent_version=agent_version,
+                emit=_emit,
+                progress=progress,
+            )
+        else:  # redis
+            resources = await self._provision_redis_backend(
+                ec2=ec2,
+                fields=fields,
+                region=region,
+                vpc_id=vpc_id,
+                subnet_ids=subnet_ids,
+                agent_sg_ids=agent_sg_ids,
+                agent_name=agent_name,
+                agent_version=agent_version,
+                emit=_emit,
+            )
+
+        state = InfraState(
+            cloud="aws",
+            region=region,
+            provisioned_by="agentbreeder.AWSProvisioner.provision_data_backend",
+            provisioned_at=datetime.now(UTC),
+            mode="provisioned",
+            resources=resources,
+        )
+        await _emit("data backend provision complete")
+        return state
+
+    async def _provision_postgres_backend(
+        self,
+        *,
+        ec2: Any,
+        fields: dict[str, Any],
+        region: str,
+        vpc_id: str,
+        subnet_ids: list[str],
+        agent_sg_ids: list[str],
+        agent_name: str,
+        agent_version: str,
+        emit: Any,
+        progress: ProgressCallback | None,
+    ) -> dict[str, Any]:
+        rds = _client("rds", region, fields)
+        secrets_client = _client("secretsmanager", region, fields)
+
+        await emit(f"ensuring DB security group in {vpc_id}")
         db_sg_id = self._ensure_security_group(
             ec2=ec2,
             vpc_id=vpc_id,
@@ -524,8 +588,7 @@ class AWSProvisioner(InfraProvisioner):
                 source_sg_id=src_sg,
             )
 
-        # 2. RDS Postgres in the supplied subnets, bound to the new DB SG.
-        await _emit("provisioning RDS PostgreSQL (this can take 10-15 min)")
+        await emit("provisioning RDS PostgreSQL (this can take 10-15 min)")
         rds_info = await self._provision_rds(
             rds=rds,
             ec2=ec2,
@@ -537,21 +600,142 @@ class AWSProvisioner(InfraProvisioner):
             agent_version=agent_version,
             progress=progress,
         )
+        return {"rds": rds_info, "security_groups": {"db_sg_id": db_sg_id}}
 
-        state = InfraState(
-            cloud="aws",
-            region=region,
-            provisioned_by="agentbreeder.AWSProvisioner.provision_data_backend",
-            provisioned_at=datetime.now(UTC),
-            mode="provisioned",
-            # Record ONLY what we created (the RDS instance + its dedicated DB
-            # security group) — never the BYO VPC/subnets/agent SG. destroy()
-            # reads these exact keys, so teardown removes the DB + SG and leaves
-            # the user's network untouched.
-            resources={"rds": rds_info, "security_groups": {"db_sg_id": db_sg_id}},
+    async def _provision_redis_backend(
+        self,
+        *,
+        ec2: Any,
+        fields: dict[str, Any],
+        region: str,
+        vpc_id: str,
+        subnet_ids: list[str],
+        agent_sg_ids: list[str],
+        agent_name: str,
+        agent_version: str,
+        emit: Any,
+    ) -> dict[str, Any]:
+        elasticache = _client("elasticache", region, fields)
+
+        await emit(f"ensuring Redis security group in {vpc_id}")
+        redis_sg_id = self._ensure_security_group(
+            ec2=ec2,
+            vpc_id=vpc_id,
+            name=f"agentbreeder-redis-{agent_name}"[:255],
+            description=f"AgentBreeder Redis ingress (6379 from agent SG) for {agent_name}",
+            agent_name=agent_name,
+            agent_version=agent_version,
         )
-        await _emit("data backend provision complete")
-        return state
+        for src_sg in agent_sg_ids:
+            self._authorize_ingress(
+                ec2=ec2,
+                sg_id=redis_sg_id,
+                protocol="tcp",
+                from_port=REDIS_PORT,
+                to_port=REDIS_PORT,
+                source_sg_id=src_sg,
+            )
+
+        await emit("provisioning ElastiCache Redis")
+        ec_info = await self._provision_elasticache(
+            elasticache=elasticache,
+            subnet_ids=subnet_ids,
+            redis_sg_id=redis_sg_id,
+            agent_name=agent_name,
+            agent_version=agent_version,
+        )
+        return {"elasticache": ec_info, "security_groups": {"redis_sg_id": redis_sg_id}}
+
+    async def _provision_elasticache(
+        self,
+        *,
+        elasticache: Any,
+        subnet_ids: list[str],
+        redis_sg_id: str,
+        agent_name: str,
+        agent_version: str,
+    ) -> dict[str, Any]:
+        """Provision a single-node ElastiCache Redis in the supplied subnets.
+
+        Idempotent: an existing cluster is adopted. Network-isolated (private
+        subnets + a SG that only admits the agent SG on 6379); no AUTH token is
+        set — isolation is provided by the SG, matching the RDS DB-SG model.
+        """
+        cluster_id = f"agentbreeder-{agent_name}".lower()[:40].rstrip("-")
+        subnet_group = f"agentbreeder-{agent_name}-cache".lower()[:255].rstrip("-")
+        tags = [
+            {"Key": "AgentBreeder", "Value": "true"},
+            {"Key": "AgentName", "Value": agent_name},
+            {"Key": "Version", "Value": agent_version},
+        ]
+
+        # 1. Cache subnet group (idempotent).
+        try:
+            elasticache.describe_cache_subnet_groups(CacheSubnetGroupName=subnet_group)
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "CacheSubnetGroupNotFoundFault":
+                raise
+            elasticache.create_cache_subnet_group(
+                CacheSubnetGroupName=subnet_group,
+                CacheSubnetGroupDescription=f"AgentBreeder Redis subnets for {agent_name}",
+                SubnetIds=subnet_ids,
+                Tags=tags,
+            )
+
+        # 2. Existing cluster? Adopt it.
+        try:
+            existing = elasticache.describe_cache_clusters(
+                CacheClusterId=cluster_id, ShowCacheNodeInfo=True
+            )
+            node = existing["CacheClusters"][0]["CacheNodes"][0]["Endpoint"]
+            return {
+                "cluster_id": cluster_id,
+                "endpoint": node.get("Address"),
+                "port": node.get("Port", REDIS_PORT),
+                "engine": "redis",
+                "subnet_group": subnet_group,
+            }
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "CacheClusterNotFound":
+                raise
+
+        # 3. Create a fresh single-node cluster.
+        elasticache.create_cache_cluster(
+            CacheClusterId=cluster_id,
+            Engine="redis",
+            CacheNodeType="cache.t3.micro",
+            NumCacheNodes=1,
+            CacheSubnetGroupName=subnet_group,
+            SecurityGroupIds=[redis_sg_id],
+            Tags=tags,
+        )
+
+        # 4. Wait for availability, then read the node endpoint.
+        try:
+            waiter = elasticache.get_waiter("cache_cluster_available")
+            waiter.wait(CacheClusterId=cluster_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("ElastiCache waiter unavailable; proceeding without final endpoint")
+
+        endpoint: str | None = None
+        port = REDIS_PORT
+        try:
+            described = elasticache.describe_cache_clusters(
+                CacheClusterId=cluster_id, ShowCacheNodeInfo=True
+            )
+            node = described["CacheClusters"][0]["CacheNodes"][0]["Endpoint"]
+            endpoint = node.get("Address")
+            port = node.get("Port", REDIS_PORT)
+        except Exception:  # noqa: BLE001
+            logger.warning("Could not read ElastiCache endpoint for %s", cluster_id)
+
+        return {
+            "cluster_id": cluster_id,
+            "endpoint": endpoint,
+            "port": port,
+            "engine": "redis",
+            "subnet_group": subnet_group,
+        }
 
     # ------------------------------------------------------------------
     # Low-level helpers — each idempotent, each broken out for unit tests.
@@ -1335,6 +1519,35 @@ class AWSProvisioner(InfraProvisioner):
                 SkipFinalSnapshot=False,
                 FinalDBSnapshotIdentifier=snap_id,
             )
+
+    async def _delete_elasticache(
+        self, *, elasticache: Any, cluster_id: str, subnet_group: str | None
+    ) -> None:
+        """Delete an ElastiCache Redis cluster (tag-guarded) + its subnet group.
+
+        Waits for the cluster to be gone before dropping the subnet group, which
+        cannot be deleted while the cluster still references it.
+        """
+        described = elasticache.describe_cache_clusters(CacheClusterId=cluster_id)
+        arn = described["CacheClusters"][0].get("ARN")
+        if arn:
+            tag_list = elasticache.list_tags_for_resource(ResourceName=arn).get("TagList", [])
+            if not _has_agentbreeder_tag(tag_list):
+                raise PermissionError(
+                    f"destroy(aws): refusing to delete ElastiCache {cluster_id!r} — "
+                    "missing AgentBreeder=true tag"
+                )
+        elasticache.delete_cache_cluster(CacheClusterId=cluster_id)
+        try:
+            waiter = elasticache.get_waiter("cache_cluster_deleted")
+            waiter.wait(CacheClusterId=cluster_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("ElastiCache delete waiter unavailable for %s", cluster_id)
+        if subnet_group:
+            try:
+                elasticache.delete_cache_subnet_group(CacheSubnetGroupName=subnet_group)
+            except Exception:  # noqa: BLE001
+                logger.warning("Could not delete cache subnet group %s", subnet_group)
 
     async def _delete_iam_role(self, *, iam: Any, role_name: str) -> None:
         role = iam.get_role(RoleName=role_name)["Role"]
