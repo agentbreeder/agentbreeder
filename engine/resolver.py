@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 from engine.a2a.tool_generator import generate_subagent_tools
 from engine.config_parser import AgentConfig, KnowledgeBaseRef, ToolRef
@@ -100,13 +101,51 @@ class ResolutionError(Exception):
     """Raised when a registry reference cannot be resolved."""
 
 
-def resolve_dependencies(config: AgentConfig) -> AgentConfig:
+def _bake_prompt_ref(config: AgentConfig, project_root: Path | None) -> None:
+    """Resolve a ``prompts/<name>`` system-prompt ref into a literal string at
+    deploy time, so the container receives it via ``AGENT_SYSTEM_PROMPT`` instead
+    of resolving over the network at runtime. Unresolvable refs are left as-is
+    (the runtime can still try) with a warning."""
+    from engine.prompt_resolver import (  # local import avoids import cycles
+        PromptNotFoundError,
+        is_prompt_ref,
+        resolve_prompt,
+    )
+
+    system = config.prompts.system
+    if not system or not is_prompt_ref(system):
+        return
+    try:
+        resolved = resolve_prompt(system, project_root)
+    except PromptNotFoundError:
+        logger.warning(
+            "Prompt ref %r could not be resolved at deploy time; the container "
+            "will attempt runtime resolution.",
+            system,
+        )
+        return
+    except Exception as exc:  # deploy-time best-effort: never crash the deploy
+        logger.warning(
+            "Unexpected error resolving prompt ref %r at deploy time; leaving it "
+            "for runtime resolution. Error: %s",
+            system,
+            exc,
+        )
+        return
+    if resolved:
+        config.prompts.system = resolved
+        logger.info("Baked prompt ref %r into AGENT_SYSTEM_PROMPT at deploy", system)
+
+
+def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) -> AgentConfig:
     """Resolve all registry references in the config.
 
     - Tool and knowledge base refs are passed through (stub for v0.1).
     - Subagent refs are resolved into auto-generated call_{name} tools.
     - MCP server refs are passed through for sidecar deployment.
+    - System prompt refs are baked into the config at deploy time.
     """
+    _bake_prompt_ref(config, project_root)
     refs = []
     for tool in config.tools:
         if tool.ref:
