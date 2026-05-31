@@ -59,6 +59,23 @@ def _redis_key(approval_id: str) -> str:
     return f"approval:{approval_id}"
 
 
+def _decode(value: object) -> object:
+    """Coerce a single Redis value to str when it arrives as bytes."""
+    return value.decode() if isinstance(value, bytes) else value
+
+
+def _decode_hash(data: dict) -> dict[str, str]:
+    """Normalise a Redis hash to str keys/values.
+
+    The app's Redis pool sets ``decode_responses=True`` (see
+    ``api.database._get_redis_pool``), so in production every hash field is
+    already ``str``. This helper makes the route robust to clients that do
+    *not* decode (returning ``bytes`` keys like ``b"status"``) so reads never
+    raise ``KeyError`` on an otherwise-valid record.
+    """
+    return {_decode(k): _decode(v) for k, v in data.items()}  # type: ignore[misc]
+
+
 def _build_response(data: dict) -> ApprovalResponse:
     """Convert a Redis hash (all strings) back to an ApprovalResponse."""
     decided_at: datetime | None = None
@@ -130,13 +147,13 @@ async def list_approvals(
 
     IDs whose TTL has expired are silently pruned from the tracking set.
     """
-    all_ids: set[str] = await redis.smembers("approvals:all")
+    all_ids: set[str] = {_decode(i) for i in await redis.smembers("approvals:all")}  # type: ignore[misc]
     results: list[ApprovalResponse] = []
     expired_ids: list[str] = []
 
     for approval_id in all_ids:
         key = _redis_key(approval_id)
-        data: dict[str, str] = await redis.hgetall(key)
+        data: dict[str, str] = _decode_hash(await redis.hgetall(key))
         if not data:
             # Key expired — clean up the tracking set lazily
             expired_ids.append(approval_id)
@@ -159,7 +176,7 @@ async def get_approval(
 ) -> ApprovalResponse:
     """Get the current status of an approval request."""
     key = _redis_key(approval_id)
-    data: dict[str, str] = await redis.hgetall(key)
+    data: dict[str, str] = _decode_hash(await redis.hgetall(key))
     if not data:
         raise HTTPException(status_code=404, detail="Approval request not found")
     return _build_response(data)
@@ -174,7 +191,7 @@ async def approve(
 ) -> ApprovalResponse:
     """Approve a pending tool call, unblocking the agent."""
     key = _redis_key(approval_id)
-    data: dict[str, str] = await redis.hgetall(key)
+    data: dict[str, str] = _decode_hash(await redis.hgetall(key))
     if not data:
         raise HTTPException(status_code=404, detail="Approval request not found")
     if data["status"] != "pending":
@@ -201,7 +218,7 @@ async def reject(
 ) -> ApprovalResponse:
     """Reject a pending tool call — the agent will receive a rejection error."""
     key = _redis_key(approval_id)
-    data: dict[str, str] = await redis.hgetall(key)
+    data: dict[str, str] = _decode_hash(await redis.hgetall(key))
     if not data:
         raise HTTPException(status_code=404, detail="Approval request not found")
     if data["status"] != "pending":

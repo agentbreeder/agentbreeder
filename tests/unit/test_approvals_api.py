@@ -177,3 +177,36 @@ def test_cannot_reject_approved_request() -> None:
     client.post(f"/api/v1/approvals/{approval_id}/approve")
     resp = client.post(f"/api/v1/approvals/{approval_id}/reject")
     assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Robustness: a Redis client that does NOT decode responses returns bytes keys
+# (e.g. b"status"). The route must still read records without KeyError. This
+# guards the regression where reads 500'd on bytes-keyed hashes. See #524.
+# ---------------------------------------------------------------------------
+
+
+def test_reads_survive_non_decoding_redis_client() -> None:
+    """get / approve / reject / list work even when Redis returns bytes."""
+    raw = fakeredis.aioredis.FakeRedis(decode_responses=False)
+
+    async def _override():
+        yield raw
+
+    app.dependency_overrides[get_redis] = _override
+    try:
+        approval_id = _create_approval()["approval_id"]
+
+        got = client.get(f"/api/v1/approvals/{approval_id}")
+        assert got.status_code == 200, got.text
+        assert got.json()["approval_id"] == approval_id
+        assert got.json()["status"] == "pending"
+
+        approved = client.post(f"/api/v1/approvals/{approval_id}/approve?decided_by=op")
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["status"] == "approved"
+
+        listed = client.get("/api/v1/approvals/?status=approved").json()
+        assert any(a["approval_id"] == approval_id for a in listed)
+    finally:
+        app.dependency_overrides.pop(get_redis, None)

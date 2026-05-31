@@ -1,0 +1,20 @@
+# Trivy ignore list — CVEs with NO upstream fix available as of 2026-05-31.
+# Each entry MUST be removed once a patched version ships. Tracked in #524.
+#
+# Do NOT add fixable vulnerabilities here — bump the dependency/base image
+# instead. This file is only for advisories where no fix exists yet.
+
+# chromadb CVE-2026-45829 (CRITICAL, pre-auth RCE on the Chroma *server*).
+# chromadb 1.5.9 is the latest release on PyPI; no patched version exists.
+# AgentBreeder uses chromadb only as an HttpClient in deploy/seed/seed.py +
+# quickstart — it does not run/expose a Chroma server to untrusted input, so
+# the server-side injection is not reachable from our attack surface.
+# Remove when chromadb ships a fix (>1.5.9). See #524.
+CVE-2026-45829
+
+# perl-base CVE-2026-42496 + CVE-2026-8376 (CRITICAL) — perl-base 5.40.1-6 in
+# the debian 13 base image of agentbreeder-api. No fixed perl-base released by
+# Debian yet. AgentBreeder does not invoke Perl; transitive OS package only.
+# Remove when Debian publishes a fix and the base image is rebuilt. See #524.
+CVE-2026-42496
+CVE-2026-8376
