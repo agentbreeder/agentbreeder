@@ -78,9 +78,5 @@ async def test_requires_project() -> None:
         await p.provision_data_backend(req)
 
 
-async def test_redis_not_implemented_yet() -> None:
-    p = GCPProvisioner()
-    req = _request()
-    req.engine = "redis"
-    with pytest.raises(NotImplementedError):
-        await p.provision_data_backend(req)
+# Memorystore Redis provisioning is covered in
+# test_provision_data_backend_gcp_redis.py.

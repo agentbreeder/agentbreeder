@@ -297,6 +297,15 @@ class GCPProvisioner(InfraProvisioner):
                         "destroy(gcp): failed to delete Cloud SQL %s", sql.get("instance_id")
                     )
 
+        if mem := resources.get("memorystore"):
+            if mem.get("name"):
+                try:
+                    await self._delete_memorystore(name=mem["name"], fields=fields)
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "destroy(gcp): failed to delete Memorystore %s", mem.get("instance_id")
+                    )
+
         if vpc := resources.get("vpc_connector"):
             if vpc.get("name"):
                 try:
@@ -325,27 +334,22 @@ class GCPProvisioner(InfraProvisioner):
         request: DataBackendRequest,
         progress: ProgressCallback | None = None,
     ) -> InfraState:
-        """Provision a Cloud SQL Postgres (pgvector) into the agent's BYO VPC.
+        """Provision a Cloud SQL Postgres (pgvector) or Memorystore Redis.
 
         Unlike :meth:`provision`, this skips the Artifact Registry / Service
-        Account scaffolding and only creates the Cloud SQL instance via
-        :meth:`_ensure_cloud_sql` (which manages its own Secret Manager
-        password). The instance gets a private IP on ``request.network`` —
-        which must already have Private Service Access configured (the
-        greenfield path or the operator sets this up).
-
-        Returns an :class:`InfraState` whose ``resources["cloud_sql"]`` matches
-        the greenfield shape, so ``pgvector_dsn_from_resources("gcp", ...)``
-        and :meth:`destroy` consume it directly.
+        Account scaffolding. Both stores attach to ``request.network`` (the
+        agent's BYO VPC), which must already have Private Service Access
+        configured. Returns an :class:`InfraState` whose ``resources`` records
+        ``cloud_sql`` or ``memorystore`` — the shape :meth:`destroy` and the DSN
+        / URL builders consume directly.
         """
         from datetime import UTC, datetime
 
         from engine.provisioners.state import InfraState
 
-        if request.engine != "postgres":
+        if request.engine not in ("postgres", "redis"):
             raise NotImplementedError(
-                f"GCP provision_data_backend(engine={request.engine!r}) is not "
-                "implemented yet (Memorystore Redis is tracked separately)."
+                f"GCP provision_data_backend(engine={request.engine!r}) is not supported."
             )
 
         fields = request.fields
@@ -360,29 +364,46 @@ class GCPProvisioner(InfraProvisioner):
             )
 
         vpc_network = str(request.network.get("vpc_network") or "default")
-        instance_id = _truncate_cloud_sql_instance_id(request.agent_name)
-        tier = str(fields.get("GCP_CLOUD_SQL_TIER", "db-f1-micro"))
-        db_name = str(fields.get("GCP_CLOUD_SQL_DATABASE", "agentbreeder_memory"))
-        db_user = str(fields.get("GCP_CLOUD_SQL_USER", "agentbreeder"))
 
         async def _emit(msg: str) -> None:
             logger.info("gcp.provision_data_backend: %s", msg)
             if progress is not None:
                 await progress(msg)
 
-        await _emit(
-            f"ensuring Cloud SQL instance '{instance_id}' (tier={tier}) on '{vpc_network}'"
-        )
-        cloud_sql_info = await self._ensure_cloud_sql(
-            project=project,
-            region=region,
-            instance_id=instance_id,
-            tier=tier,
-            db_name=db_name,
-            db_user=db_user,
-            vpc_network=vpc_network,
-            fields=fields,
-        )
+        if request.engine == "postgres":
+            instance_id = _truncate_cloud_sql_instance_id(request.agent_name)
+            tier = str(fields.get("GCP_CLOUD_SQL_TIER", "db-f1-micro"))
+            db_name = str(fields.get("GCP_CLOUD_SQL_DATABASE", "agentbreeder_memory"))
+            db_user = str(fields.get("GCP_CLOUD_SQL_USER", "agentbreeder"))
+            await _emit(
+                f"ensuring Cloud SQL instance '{instance_id}' (tier={tier}) on '{vpc_network}'"
+            )
+            cloud_sql_info = await self._ensure_cloud_sql(
+                project=project,
+                region=region,
+                instance_id=instance_id,
+                tier=tier,
+                db_name=db_name,
+                db_user=db_user,
+                vpc_network=vpc_network,
+                fields=fields,
+            )
+            resources: dict[str, Any] = {"cloud_sql": cloud_sql_info}
+        else:  # redis
+            instance_id = _truncate_cloud_sql_instance_id(request.agent_name)
+            size_gb = int(fields.get("GCP_MEMORYSTORE_SIZE_GB", 1))
+            await _emit(
+                f"ensuring Memorystore Redis '{instance_id}' ({size_gb}GB) on '{vpc_network}'"
+            )
+            memorystore_info = await self._ensure_memorystore(
+                project=project,
+                region=region,
+                instance_id=instance_id,
+                size_gb=size_gb,
+                vpc_network=vpc_network,
+                fields=fields,
+            )
+            resources = {"memorystore": memorystore_info}
 
         state = InfraState(
             cloud="gcp",
@@ -390,7 +411,7 @@ class GCPProvisioner(InfraProvisioner):
             provisioned_by="agentbreeder.GCPProvisioner.provision_data_backend",
             provisioned_at=datetime.now(UTC),
             mode="provisioned",
-            resources={"cloud_sql": cloud_sql_info},
+            resources=resources,
         )
         await _emit("data backend provision complete")
         return state
@@ -498,6 +519,69 @@ class GCPProvisioner(InfraProvisioner):
             client.delete_service_account(name=sa_resource)
         except NotFound:
             logger.debug("service account %s already absent", sa_email)
+
+    async def _ensure_memorystore(
+        self,
+        *,
+        project: str,
+        region: str,
+        instance_id: str,
+        size_gb: int,
+        vpc_network: str,
+        fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create a BASIC-tier Memorystore Redis on the BYO VPC, idempotently.
+
+        Returns the InfraState record (host + port). No AUTH is enabled —
+        access is restricted to the authorized network, matching the Cloud SQL
+        private-IP model. If the instance already exists it is returned
+        untouched.
+        """
+        from google.api_core.exceptions import NotFound
+        from google.cloud import redis_v1
+
+        creds = _credentials(fields)
+        client = redis_v1.CloudRedisClient(credentials=creds)
+        parent = f"projects/{project}/locations/{region}"
+        name = f"{parent}/instances/{instance_id}"
+        network = (
+            vpc_network
+            if vpc_network.startswith("projects/")
+            else f"projects/{project}/global/networks/{vpc_network}"
+        )
+
+        try:
+            instance = client.get_instance(name=name)
+            logger.debug("memorystore instance %s already exists", instance_id)
+        except NotFound:
+            instance = redis_v1.Instance(
+                name=name,
+                tier=redis_v1.Instance.Tier.BASIC,
+                memory_size_gb=size_gb,
+                authorized_network=network,
+                connect_mode=redis_v1.Instance.ConnectMode.DIRECT_PEERING,
+            )
+            op = client.create_instance(parent=parent, instance_id=instance_id, instance=instance)
+            instance = op.result(timeout=1800.0)
+
+        return {
+            "instance_id": instance_id,
+            "name": name,
+            "host": getattr(instance, "host", None),
+            "port": getattr(instance, "port", 6379) or 6379,
+            "region": region,
+            "project": project,
+            "vpc_network": vpc_network,
+            "engine": "redis",
+        }
+
+    async def _delete_memorystore(self, *, name: str, fields: dict[str, Any]) -> None:
+        from google.cloud import redis_v1
+
+        creds = _credentials(fields)
+        client = redis_v1.CloudRedisClient(credentials=creds)
+        op = client.delete_instance(name=name)
+        op.result(timeout=1800.0)
 
     async def _ensure_cloud_sql(
         self,
