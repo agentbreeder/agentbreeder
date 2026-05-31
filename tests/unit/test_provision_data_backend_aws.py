@@ -91,9 +91,7 @@ def fake_clients() -> dict[str, MagicMock]:
 
 
 async def test_postgres_returns_state_with_rds_resource(fake_clients) -> None:
-    with patch(
-        "engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)
-    ):
+    with patch("engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)):
         state = await AWSProvisioner().provision_data_backend(_request())
 
     assert state.cloud == "aws"
@@ -108,9 +106,7 @@ async def test_postgres_returns_state_with_rds_resource(fake_clients) -> None:
 
 async def test_does_not_create_a_vpc(fake_clients) -> None:
     """BYO network — the focused path must NEVER create greenfield networking."""
-    with patch(
-        "engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)
-    ):
+    with patch("engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)):
         await AWSProvisioner().provision_data_backend(_request())
 
     fake_clients["ec2"].create_vpc.assert_not_called()
@@ -119,9 +115,7 @@ async def test_does_not_create_a_vpc(fake_clients) -> None:
 
 
 async def test_db_sg_ingress_is_from_agent_sg_only(fake_clients) -> None:
-    with patch(
-        "engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)
-    ):
+    with patch("engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)):
         await AWSProvisioner().provision_data_backend(_request())
 
     ec2 = fake_clients["ec2"]
@@ -137,9 +131,7 @@ async def test_db_sg_ingress_is_from_agent_sg_only(fake_clients) -> None:
 
 
 async def test_rds_provisioned_into_supplied_subnets(fake_clients) -> None:
-    with patch(
-        "engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)
-    ):
+    with patch("engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)):
         await AWSProvisioner().provision_data_backend(_request())
 
     create_subnet_group = fake_clients["rds"].create_db_subnet_group
@@ -151,9 +143,7 @@ async def test_rds_provisioned_into_supplied_subnets(fake_clients) -> None:
 
 
 async def test_password_never_appears_in_state(fake_clients) -> None:
-    with patch(
-        "engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)
-    ):
+    with patch("engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)):
         state = await AWSProvisioner().provision_data_backend(_request())
 
     blob = state.model_dump_json()
@@ -161,9 +151,20 @@ async def test_password_never_appears_in_state(fake_clients) -> None:
     assert pw not in blob
 
 
+async def test_vpc_id_derived_from_subnet_when_absent(fake_clients) -> None:
+    """The ECS BYO contract exposes subnets + SGs but no VPC id — derive it."""
+    fake_clients["ec2"].describe_subnets.return_value = {"Subnets": [{"VpcId": "vpc-derived"}]}
+    req = _request()
+    req.network.pop("vpc_id")  # only subnet_ids + agent SGs supplied
+    with patch("engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)):
+        await AWSProvisioner().provision_data_backend(req)
+
+    fake_clients["ec2"].describe_subnets.assert_called_once_with(SubnetIds=["subnet-a"])
+    create_sg = fake_clients["ec2"].create_security_group
+    assert create_sg.call_args.kwargs["VpcId"] == "vpc-derived"
+
+
 async def test_redis_engine_not_implemented_yet(fake_clients) -> None:
-    with patch(
-        "engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)
-    ):
+    with patch("engine.provisioners.aws._client", side_effect=_client_factory(fake_clients)):
         with pytest.raises(NotImplementedError):
             await AWSProvisioner().provision_data_backend(_request(engine="redis"))
