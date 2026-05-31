@@ -97,6 +97,10 @@ class DeployEngine:
         user: str = "local",
     ) -> DeployResult:
         """Run the full deploy pipeline."""
+        # Absolutize early so config_path.parent is always an absolute project root,
+        # regardless of whether the CLI, API, or orchestrator passed a relative path.
+        config_path = config_path.resolve()
+
         deployer = None
         config: AgentConfig | None = None
 
@@ -146,7 +150,7 @@ class DeployEngine:
         step3.start()
         self._notify(step3)
         try:
-            config = resolve_dependencies(config)
+            config = resolve_dependencies(config, config_path.parent)
             step3.complete()
             self._notify(step3)
         except Exception as e:
