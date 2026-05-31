@@ -19,6 +19,7 @@ from engine.runtimes.base import (
     RuntimeValidationResult,
     _is_litellm_model,
     build_env_block,
+    runtime_support_requirement,
 )
 
 logger = logging.getLogger(__name__)
@@ -298,10 +299,14 @@ class ClaudeSDKRuntime(RuntimeBuilder):
         deps. Claude SDK runtimes never add ``litellm`` — Claude models are
         always routed through the native Anthropic client.
         """
-        return [
+        deps = [
             "anthropic>=0.50.0",
             "fastapi>=0.110.0",
             "uvicorn[standard]>=0.27.0",
             "httpx>=0.27.0",
             "pydantic>=2.0.0",
         ]
+        support = runtime_support_requirement()
+        if support:
+            deps.append(support)
+        return deps

@@ -8,6 +8,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Added
+- Agent images now bundle the AgentBreeder runtime (`agentbreeder` dist), so registry-ref
+  prompts, first-party tools, RAG and memory work on AWS/GCP/Azure — not just self-contained agents.
+  Override the bundled requirement via `AGENTBREEDER_RUNTIME_REQUIREMENT`.
+- `agent.yaml`: `knowledge_bases[].backend_url`, `memory.backend`, `memory.backend_url` for pointing
+  agents at explicit, cloud-reachable RAG/memory backends. `knowledge_bases[].backend_url` is exposed
+  to the agent as `KB_PGVECTOR_DSN`.
+
+### Changed
+- Deploy no longer forwards the deploy host's local `REDIS_URL`/`DATABASE_URL`/`NEO4J_URL` to cloud
+  agents. Set an explicit `backend_url`, or `AGENTBREEDER_ALLOW_LOCAL_BACKENDS=1` for local dev. A
+  warning is logged when a resolved backend URL targets localhost on a cloud deploy.
+
 ## [2.6.0] — 2026-05-25
 
 ### Added

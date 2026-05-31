@@ -87,12 +87,19 @@ jobs:
         # the caller gives it. Our usage in api/services/auth.py uses HS256
         # with `settings.jwt_secret_key`; production deployments must set a
         # strong secret (>=32 bytes of entropy). See #452 for the risk note.
+        # Ignore CVE-2026-45829 (chromadb): pre-auth RCE on the Chroma
+        # *server*. chromadb 1.5.9 is the latest on PyPI — no fixed version
+        # exists. We use chromadb only as an HttpClient in deploy/seed/seed.py
+        # + quickstart and never expose a Chroma server to untrusted input,
+        # so the server-side injection is not reachable. Remove when chromadb
+        # ships a fix (>1.5.9). Tracked in #524.
         run: |
           pip-audit --skip-editable \
             --ignore-vuln CVE-2024-23342 \
             --ignore-vuln CVE-2026-3219 \
             --ignore-vuln CVE-2026-6357 \
-            --ignore-vuln PYSEC-2025-183
+            --ignore-vuln PYSEC-2025-183 \
+            --ignore-vuln CVE-2026-45829
 
   # ── npm dependency audit ────────────────────────────────────────────────────
   npm-audit:
@@ -143,6 +150,9 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           exit-code: "0"   # upload regardless; gate below
+          # Suppress unfixable CVEs (no upstream patch); documented per-CVE
+          # in .trivyignore and tracked in #524.
+          trivyignores: .trivyignore
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -158,6 +168,9 @@ jobs:
           format: table
           severity: CRITICAL
           exit-code: "1"
+          # Suppress unfixable CVEs (no upstream patch); documented per-CVE
+          # in .trivyignore and tracked in #524.
+          trivyignores: .trivyignore
 
   # NOTE: dependency-review removed — requires GitHub Advanced Security
   # which is not available on this repository. Re-enable when GHAS is active.

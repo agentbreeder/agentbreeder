@@ -141,6 +141,10 @@ AgentBreeder Studio includes a **Chat to build** tab at `/agents/new` that lets 
 
 Cloud auth is the standard CLI for each provider (`gcloud auth login`, `aws configure`, `az login`, `kubectl` context). Secrets named in `deploy.secrets:` must already exist in the target cloud's secret store — or use `agentbreeder secret sync --target <cloud>`.
 
+<Callout type="info" title="Local backends in Docker Compose">
+  When you deploy an agent locally, AgentBreeder no longer forwards your machine's `REDIS_URL`/`DATABASE_URL`/`NEO4J_URL` to the agent container. The bundled `deploy/docker-compose.yml` sets `AGENTBREEDER_ALLOW_LOCAL_BACKENDS=1` on the `api` service so local dev works out of the box. For cloud deploys, set an explicit `backend_url` on each `knowledge_bases` entry or `memory` block in your `agent.yaml` instead — see the [agent.yaml reference](agent-yaml#knowledge_bases) for the RAG/memory fields.
+</Callout>
+
 ### Reference: GCP Cloud Run end-to-end
 
 The `microlearning-ebook-agent` example ships a verified `scripts/deploy_gcp.sh` that automates the full chain — APIs, Artifact Registry, Secret Manager, Cloud Build, Cloud Run — in one command:

@@ -471,11 +471,36 @@ List of knowledge base references.
 knowledge_bases:
   - ref: kb/product-docs
   - ref: kb/return-policy
+    backend_url: postgresql://pgvector-host:5432/rag_db   # optional explicit DSN
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `ref` | string | **Yes** | Registry reference path. |
+| `backend_url` | string | No | Explicit cloud-reachable vector-store DSN (pgvector) or graph URL for this knowledge base. Overrides the registry-resolved default at deploy time. |
+
+---
+
+### `memory`
+
+Memory store references. Each entry must match a `memory.yaml` store entry (e.g. a Redis buffer window or PostgreSQL entity store).
+
+```yaml
+memory:
+  stores:
+    - mem/session-buffer
+    - mem/entity-store
+  backend: redis             # "redis" | "postgresql" — omit to resolve from registry
+  backend_url: redis://memory-host:6379   # optional explicit connection string
+```
+
+> **Cloud backends.** A deployed agent never inherits your laptop's `REDIS_URL`/`DATABASE_URL`. Either set `backend_url` explicitly, or let `agentbreeder deploy` provision a managed backend. For local Docker Compose, set `AGENTBREEDER_ALLOW_LOCAL_BACKENDS=1` to reuse the compose services.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `stores` | string[] | No | List of memory store refs (e.g. `mem/session-buffer`, `mem/entity-store`). |
+| `backend` | string | No | Memory backend type: `"redis"` or `"postgresql"`. Omit to resolve from the registry. |
+| `backend_url` | string | No | Explicit cloud-reachable connection string for the memory backend. Overrides the registry-resolved default at deploy time. |
 
 ---
 

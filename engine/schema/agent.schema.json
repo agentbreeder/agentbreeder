@@ -289,8 +289,13 @@
                 "description": "Whether to rerank retrieved chunks"
               }
             }
+          },
+          "backend_url": {
+            "type": "string",
+            "description": "Explicit cloud-reachable vector-store DSN or graph URL for this knowledge base."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "description": "Knowledge base references"
     },
@@ -514,6 +519,18 @@
           "items": {
             "type": "string"
           }
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "redis",
+            "postgresql"
+          ],
+          "description": "Memory backend type. Omit to resolve from the registry."
+        },
+        "backend_url": {
+          "type": "string",
+          "description": "Explicit cloud-reachable connection string for the memory backend."
         }
       }
     },

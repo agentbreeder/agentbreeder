@@ -123,6 +123,9 @@ class EntityExtractionConfig(BaseModel):
 class KnowledgeBaseRef(BaseModel):
     ref: str
     entity_extraction: EntityExtractionConfig | None = None
+    backend_url: str | None = (
+        None  # explicit cloud-reachable vector-store DSN (pgvector) or graph URL
+    )
 
 
 class SubagentRef(BaseModel):
@@ -149,6 +152,8 @@ class MemoryConfig(BaseModel):
     """Memory configuration — references to memory.yaml store entries."""
 
     stores: list[str] = Field(default_factory=list)
+    backend: Literal["redis", "postgresql"] | None = None  # matches schema enum
+    backend_url: str | None = None  # explicit, cloud-reachable connection string
 
 
 class PromptsConfig(BaseModel):
