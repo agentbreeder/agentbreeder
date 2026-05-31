@@ -24,6 +24,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
   the resolver infers `MEMORY_BACKEND` from the URL scheme (`redis(s)://` → redis, `postgres(ql)://`
   → postgresql) and wires `REDIS_URL`/`DATABASE_URL` accordingly. The deployed runtime persists
   conversation history to that managed store, with nothing read from the deploy host.
+- **Auto-provision managed Postgres at deploy.** When an agent declares a knowledge base, or
+  `memory.backend: postgresql`, *without* a `backend_url` and targets AWS/GCP/Azure, `agentbreeder
+  deploy` now provisions a managed Postgres **into the agent's own BYO network** (AWS RDS in your
+  VPC/subnets behind a dedicated DB security group; GCP Cloud SQL private IP on your VPC; Azure
+  Flexible Server on your delegated subnet) and injects `KB_PGVECTOR_DSN` / `DATABASE_URL`
+  automatically. The DB password is generated and stored only in the cloud secret manager — never on
+  disk. A knowledge base and postgresql memory share a single instance. The footprint is recorded in
+  `.agentbreeder/infra-state.json`, and `agentbreeder teardown <agent>` destroys it (only what
+  AgentBreeder created — never your VPC/resource group). `backend_url` always wins, and
+  local/kubernetes/claude-managed are out of scope. Managed Redis auto-provision
+  (`memory.backend: redis`) is in progress — for now point it at a `backend_url`.
 
 ### Changed
 - Deploy no longer forwards the deploy host's local `REDIS_URL`/`DATABASE_URL`/`NEO4J_URL` to cloud

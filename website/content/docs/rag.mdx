@@ -399,10 +399,40 @@ The `vector` extension must be available on the managed Postgres:
 - **Azure Database for PostgreSQL Flexible Server** — `VECTOR` must be in the
   `azure.extensions` server parameter before `CREATE EXTENSION` succeeds.
 
-<Callout type="info" title="Automatic provisioning is on the roadmap">
-Today, supply an explicit `backend_url` to a Postgres you manage. Having
-`agentbreeder deploy` provision a managed pgvector store for you (no
-`backend_url` required) is planned — see the cloud-agnostic deployment epic.
+### Automatic provisioning (no `backend_url`)
+
+If you **omit** `backend_url`, `agentbreeder deploy` provisions a managed Postgres
+for you and injects `KB_PGVECTOR_DSN` automatically:
+
+```yaml
+knowledge_bases:
+  - ref: kb/product-docs        # no backend_url → auto-provisioned
+```
+
+The store is created **into the agent's own BYO network** (the same VPC/subnets
+you already deploy into) so the agent reaches it over private networking:
+
+- **AWS** — an RDS PostgreSQL instance in your `AWS_VPC_SUBNETS`, behind a
+  dedicated DB security group that allows `5432` only from the agent's security
+  group (never the internet). The VPC is derived from your subnets.
+- **GCP** — a Cloud SQL instance with a **private IP** on your VPC network. The
+  network must have Private Service Access configured.
+- **Azure** — a PostgreSQL Flexible Server on a subnet **delegated** to
+  `Microsoft.DBforPostgreSQL/flexibleServers` (set `AZURE_DB_SUBNET_ID`).
+
+The DB password is generated at deploy time and written **only** to the cloud
+secret manager (AWS Secrets Manager / GCP Secret Manager / Azure Key Vault) —
+never to disk or the agent image. The provisioned footprint is recorded in
+`.agentbreeder/infra-state.json`; `agentbreeder teardown <agent>` destroys it,
+removing only what AgentBreeder created (the DB + its security group) and never
+your VPC, subnets, or resource group.
+
+<Callout type="info" title="backend_url always wins">
+An explicit `backend_url` short-circuits auto-provisioning — point it at a
+Postgres you manage and AgentBreeder won't create one. Auto-provisioning applies
+only to `aws` / `gcp` / `azure`; `local`, `kubernetes`, and `claude-managed` are
+out of scope. Per-cloud SDK provisioning is validated against live clouds during
+rollout.
 </Callout>
 
 ---

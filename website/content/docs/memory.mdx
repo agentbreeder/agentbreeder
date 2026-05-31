@@ -109,10 +109,33 @@ conversation turns there — **no connection string is read from the machine you
 deployed from**. A `backend_url` pointing at `localhost` while deploying to a real
 cloud is flagged at deploy time.
 
-<Callout type="info" title="Automatic provisioning is on the roadmap">
-Today, supply an explicit `backend_url` to a Redis/Postgres you manage. Having
-`agentbreeder deploy` provision a managed cache/database for you is planned — see
-the cloud-agnostic deployment epic.
+### Automatic provisioning (Postgres)
+
+If you set `backend: postgresql` **without** a `backend_url` and deploy to
+AWS/GCP/Azure, `agentbreeder deploy` provisions a managed Postgres into the
+agent's own BYO network and injects `DATABASE_URL` + `MEMORY_BACKEND=postgresql`
+for you:
+
+```yaml
+memory:
+  stores: [conversation-history]
+  backend: postgresql        # no backend_url → auto-provisioned
+```
+
+If the same agent also declares a knowledge base (pgvector), **both share a
+single provisioned Postgres instance** — it's created at most once per deploy.
+The DB password is stored only in the cloud secret manager, the footprint is
+recorded in `.agentbreeder/infra-state.json`, and `agentbreeder teardown
+<agent>` destroys it. See [RAG → Automatic provisioning](/docs/rag) for the
+per-cloud networking requirements (BYO subnets / Private Service Access /
+delegated subnet).
+
+<Callout type="info" title="Redis auto-provisioning is in progress">
+Managed Redis (`backend: redis`) is not auto-provisioned yet — point it at an
+explicit `backend_url` (e.g. `rediss://…`) for now. Auto-provisioned ElastiCache
+/ Memorystore / Azure Cache for Redis is tracked as a follow-up. `backend_url`
+always short-circuits provisioning; `local`/`kubernetes`/`claude-managed` are out
+of scope.
 </Callout>
 
 ---
