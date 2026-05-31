@@ -906,6 +906,29 @@ class AzureProvisioner(InfraProvisioner):
         poller = client.servers.begin_create(rg_name, db_name, server)
         # PG Flexible Server can take 15+ min on the first run.
         result = poller.result(timeout=_LRO_TIMEOUT_SEC)
+
+        # Allow-list the pgvector extension. Azure Flexible Server refuses
+        # CREATE EXTENSION unless the extension is present in the
+        # ``azure.extensions`` server parameter, so the agent's pgvector
+        # backend would otherwise fail to initialise. (#523)
+        try:
+            from azure.mgmt.rdbms.postgresql_flexibleservers.models import Configuration
+
+            cfg_poller = client.configurations.begin_update(
+                rg_name,
+                db_name,
+                "azure.extensions",
+                Configuration(value="VECTOR", source="user-override"),
+            )
+            cfg_poller.result(timeout=_LRO_TIMEOUT_SEC)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "postgres flexible: could not allow-list pgvector on %s "
+                "(azure.extensions); RAG retrieval may fail until it is set: %s",
+                db_name,
+                exc,
+            )
+
         return result.id, result.fully_qualified_domain_name
 
     async def _delete_postgres_flexible(
