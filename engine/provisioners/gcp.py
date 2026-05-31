@@ -20,6 +20,20 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 
+def _select_private_ip(ip_addresses: Any) -> str | None:
+    """Return the PRIVATE IP from a Cloud SQL instance's ``ip_addresses`` list.
+
+    Robust to proto-plus enums (``ip.type_``) and plain objects (``ip.type``);
+    matches on the enum *name* so it works without importing the SDK in tests.
+    """
+    for ip in ip_addresses or []:
+        ip_type = getattr(ip, "type_", getattr(ip, "type", None))
+        name = getattr(ip_type, "name", None) or str(ip_type)
+        if name == "PRIVATE" or name.endswith(".PRIVATE"):
+            return getattr(ip, "ip_address", None)
+    return None
+
+
 def _check(resource: str, fn) -> ValidationCheck:  # noqa: ANN001
     """Run an SDK lookup, translating google-cloud exceptions into a ValidationCheck."""
     try:
@@ -563,10 +577,22 @@ class GCPProvisioner(InfraProvisioner):
                     _await_operation(op)
             raise
 
+        # Capture the private IP so the deployer can build a KB_PGVECTOR_DSN /
+        # MEMORY_DATABASE_URL without a Cloud SQL Auth Proxy. (#523)
+        private_ip: str | None = None
+        try:
+            inst = admin.get(
+                request=sql_v1.SqlInstancesGetRequest(project=project, instance=instance_id)
+            )
+            private_ip = _select_private_ip(getattr(inst, "ip_addresses", None))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cloud sql: could not read private IP for %s: %s", instance_id, exc)
+
         return {
             "instance_id": instance_id,
             "instance_name": instance_resource_name,
             "connection_name": connection_name,
+            "private_ip": private_ip,
             "database": db_name,
             "user": db_user,
             "tier": tier,
