@@ -117,3 +117,15 @@ class InfraProvisioner(ABC):
         raise NotImplementedError(
             f"{type(self).__name__} does not implement provision_data_backend yet."
         )
+
+    async def destroy_data_backend(self, state: InfraState) -> None:
+        """Tear down a data store created by :meth:`provision_data_backend`.
+
+        Default: delegate to :meth:`destroy`, which is safe for clouds whose
+        focused state records ONLY the resources AgentBreeder created (AWS:
+        ``rds`` + DB security group; GCP: ``cloud_sql``) and skips absent keys.
+        Clouds whose :meth:`destroy` would over-reach on a BYO footprint (e.g.
+        Azure deletes the whole resource group) override this to remove only the
+        data store.
+        """
+        await self.destroy(state)

@@ -896,7 +896,7 @@ def _teardown_infra_state(json_output: bool) -> bool:
 
     try:
         provisioner = provisioner_for(infra.cloud)
-        asyncio.run(provisioner.destroy(infra))
+        asyncio.run(provisioner.destroy_data_backend(infra))
     except Exception as e:  # noqa: BLE001 — surface but continue agent teardown
         if not json_output:
             console.print(

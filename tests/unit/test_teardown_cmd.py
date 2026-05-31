@@ -160,7 +160,7 @@ class TestTeardownCommand:
             )
 
             provisioner = MagicMock()
-            provisioner.destroy = AsyncMock()
+            provisioner.destroy_data_backend = AsyncMock()
             with (
                 patch("cli.commands.teardown.STATE_FILE", state_file),
                 patch("cli.commands.teardown.REGISTRY_DIR", registry_dir),
@@ -174,8 +174,8 @@ class TestTeardownCommand:
 
             assert result.exit_code == 0
             prov_for.assert_called_once_with("aws")
-            provisioner.destroy.assert_awaited_once()
-            destroyed_state = provisioner.destroy.await_args.args[0]
+            provisioner.destroy_data_backend.assert_awaited_once()
+            destroyed_state = provisioner.destroy_data_backend.await_args.args[0]
             assert destroyed_state.cloud == "aws"
             # State file removed so a re-run doesn't double-destroy.
             assert not infra_file.exists()
