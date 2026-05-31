@@ -83,7 +83,9 @@ def _resolve_kb_embedding_model(kb_refs: list[KnowledgeBaseRef]) -> str | None:
 
         store = get_rag_store()
         all_indexes, _ = store.list_indexes(page=1, per_page=1000)
-        name_to_model = {idx.name: getattr(idx, "embedding_model", None) for idx in all_indexes}
+        name_to_model: dict[str, str | None] = {
+            idx.name: getattr(idx, "embedding_model", None) for idx in all_indexes
+        }
     except Exception:  # RAGStore unavailable (engine running standalone)
         return None
 
@@ -91,7 +93,7 @@ def _resolve_kb_embedding_model(kb_refs: list[KnowledgeBaseRef]) -> str | None:
         slug = kb.ref.split("/")[-1]
         model = name_to_model.get(slug) or name_to_model.get(kb.ref)
         if model:
-            return model
+            return str(model)
     return None
 
 
