@@ -137,6 +137,34 @@ def _bake_prompt_ref(config: AgentConfig, project_root: Path | None) -> None:
         logger.info("Baked prompt ref %r into AGENT_SYSTEM_PROMPT at deploy", system)
 
 
+def _check_tool_refs(config: AgentConfig, project_root: Path | None) -> None:
+    """Best-effort deploy-time check that ``ref: tools/<name>`` entries resolve to a
+    local file or a first-party ``engine.tools.standard`` tool (now bundled in the
+    image). Missing tools warn rather than raise — registry/network tools may only
+    resolve at runtime."""
+    from engine.tool_resolver import ToolNotFoundError, is_tool_ref, resolve_tool
+
+    for tool in config.tools:
+        ref = tool.ref
+        if not ref or not is_tool_ref(ref):
+            continue
+        try:
+            resolve_tool(ref, project_root=project_root)
+        except ToolNotFoundError:
+            logger.warning(
+                "Tool ref %r did not resolve to a local or first-party tool at "
+                "deploy; relying on runtime/registry resolution.",
+                ref,
+            )
+        except Exception as exc:  # deploy-time best-effort: never crash the deploy
+            logger.warning(
+                "Unexpected error checking tool ref %r at deploy time; leaving it "
+                "for runtime resolution. Error: %s",
+                ref,
+                exc,
+            )
+
+
 def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) -> AgentConfig:
     """Resolve all registry references in the config.
 
@@ -146,6 +174,7 @@ def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) 
     - System prompt refs are baked into the config at deploy time.
     """
     _bake_prompt_ref(config, project_root)
+    _check_tool_refs(config, project_root)
     refs = []
     for tool in config.tools:
         if tool.ref:
