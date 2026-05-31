@@ -6,12 +6,17 @@ Framework-specific logic MUST stay inside engine/runtimes/ — never leak it els
 
 from __future__ import annotations
 
+import logging
+import os
 from abc import ABC, abstractmethod
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from engine.config_parser import AgentConfig
+
+logger = logging.getLogger(__name__)
 
 # Model string prefixes that indicate LiteLLM should handle routing instead of the
 # framework's native SDK.  Any model string starting with one of these values will
@@ -41,6 +46,37 @@ def _is_litellm_model(model: str) -> bool:
 def _get_litellm_requirements() -> list[str]:
     """Return the pip dependencies needed for LiteLLM model routing."""
     return ["litellm>=1.40.0"]
+
+
+def runtime_support_requirement() -> str | None:
+    """Return the pip requirement that bundles the AgentBreeder runtime into an
+    agent image, or ``None`` when bundling is disabled.
+
+    A deployed agent's ``server.py`` template and any resolved first-party tools
+    import from ``engine.*`` / ``api.services.*``. Those modules ship in the
+    ``agentbreeder`` distribution, so adding it to the image's ``requirements.txt``
+    is what makes those imports resolve in the container. Without it they
+    ``ImportError`` at runtime on every non-local target.
+
+    Override with ``AGENTBREEDER_RUNTIME_REQUIREMENT`` (a pinned version, a VCS
+    URL, or a local wheel path). Set it to an empty/whitespace string to opt out
+    — useful for fully self-contained agents that import nothing from the engine.
+    """
+    override = os.getenv("AGENTBREEDER_RUNTIME_REQUIREMENT")
+    if override is not None:
+        stripped = override.strip()
+        return stripped or None
+    try:
+        return f"agentbreeder=={version('agentbreeder')}"
+    except PackageNotFoundError:
+        # Source checkout without the dist installed (e.g. CI unit tests):
+        # fall back to an unpinned requirement so images still build.
+        logger.warning(
+            "agentbreeder distribution not found; bundling an UNPINNED "
+            "'agentbreeder' requirement into the agent image. Set "
+            "AGENTBREEDER_RUNTIME_REQUIREMENT to pin it explicitly."
+        )
+        return "agentbreeder"
 
 
 def _should_add_litellm_sdk(config: AgentConfig) -> bool:
