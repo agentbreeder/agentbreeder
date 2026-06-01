@@ -6,7 +6,13 @@ data:
   AGENTBREEDER_ENV: "production"
   # CORS_ORIGINS is parsed as a JSON array by pydantic-settings, so it MUST be
   # JSON — a comma-separated string raises a settings error at API startup.
+  # Only allow the plaintext (http://) origin when TLS is off; with TLS on,
+  # restrict to https:// so credentialed requests never accept a plaintext origin.
+  {{- if .Values.ingress.tls.enabled }}
+  CORS_ORIGINS: {{ printf "[\"https://%s\"]" .Values.host | quote }}
+  {{- else }}
   CORS_ORIGINS: {{ printf "[\"https://%s\",\"http://%s\"]" .Values.host .Values.host | quote }}
+  {{- end }}
   {{- range $k, $v := .Values.api.env }}
   {{ $k }}: {{ $v | quote }}
   {{- end }}
