@@ -422,9 +422,7 @@ class DockerComposeDeployer(BaseDeployer):
                 )
                 logger.info("Started co-deployed MCP server: %s", name)
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Failed to start MCP server %s (continuing): %s", r.name, exc
-                )
+                logger.warning("Failed to start MCP server %s (continuing): %s", r.name, exc)
 
     async def health_check(
         self, deploy_result: DeployResult, timeout: int = 60, interval: int = 2

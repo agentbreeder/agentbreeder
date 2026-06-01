@@ -12,7 +12,8 @@ def test_ecs_injects_codeploy_container():
     )
     td = inject_mcp_containers_ecs({"containerDefinitions": [{"name": "app"}]}, resolved)
     names = {c["name"] for c in td["containerDefinitions"]}
-    assert "mcp-a" in names and "app" in names
+    assert "mcp-a" in names
+    assert "app" in names
     mcp = [c for c in td["containerDefinitions"] if c["name"] == "mcp-a"][0]
     assert mcp["image"] == "img:1"
     assert mcp["essential"] is False
@@ -23,7 +24,9 @@ def test_ecs_skips_remote_only():
     from engine.config_parser import McpServerRef
     from engine.deployers.mcp_sidecar import inject_mcp_containers_ecs, resolve_mcp_servers
 
-    resolved = resolve_mcp_servers([McpServerRef(ref="mcp/a", transport="sse", url="https://x/sse")])
+    resolved = resolve_mcp_servers(
+        [McpServerRef(ref="mcp/a", transport="sse", url="https://x/sse")]
+    )
     td = inject_mcp_containers_ecs({"containerDefinitions": []}, resolved)
     assert td["containerDefinitions"] == []  # remote → no container
 
@@ -62,4 +65,5 @@ def test_compose_injects_codeploy_service():
 
     resolved = resolve_mcp_servers([McpServerRef(ref="mcp/a", transport="sse", image="img:1")])
     services = inject_mcp_containers_compose({"app": {}}, resolved)
-    assert "mcp-a" in services and services["mcp-a"]["image"] == "img:1"
+    assert "mcp-a" in services
+    assert services["mcp-a"]["image"] == "img:1"
