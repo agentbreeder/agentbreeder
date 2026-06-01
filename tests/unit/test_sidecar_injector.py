@@ -212,3 +212,57 @@ class TestSidecarConfigMcp:
 
         sc = SidecarConfig.from_agent_config(self._agent([]))
         assert sc.mcp_servers == {}
+
+
+class TestInjectorMcpEnv:
+    def _cfg(self):
+        from engine.sidecar.config import SidecarConfig
+
+        return SidecarConfig(
+            mcp_servers={"a": {"transport": "http", "url": "http://localhost:3100"}}
+        )
+
+    def _env_value(self, env_list):
+        for e in env_list:
+            if e["name"] == "AGENTBREEDER_SIDECAR_MCP_SERVERS":
+                return e["value"]
+        return None
+
+    def test_ecs_emits_mcp_env(self):
+        import json
+
+        from engine.sidecar.injector import inject_sidecar
+
+        td = inject_sidecar({}, self._cfg())
+        sidecar = [c for c in td["containerDefinitions"] if c["name"] == "agentbreeder-sidecar"][0]
+        val = self._env_value(sidecar["environment"])
+        assert json.loads(val) == {"a": {"transport": "http", "url": "http://localhost:3100"}}
+
+    def test_cloudrun_emits_mcp_env(self):
+        from engine.sidecar.injector import inject_cloudrun_sidecar
+
+        spec = inject_cloudrun_sidecar({}, self._cfg())
+        containers = spec["spec"]["template"]["spec"]["containers"]
+        sidecar = [c for c in containers if c["name"] == "agentbreeder-sidecar"][0]
+        assert self._env_value(sidecar["env"]) is not None
+
+    def test_compose_emits_mcp_env(self):
+        import json
+
+        from engine.sidecar.injector import inject_compose_sidecar
+
+        services = inject_compose_sidecar({}, self._cfg())
+        env = services["agentbreeder-sidecar"]["environment"]
+        assert json.loads(env["AGENTBREEDER_SIDECAR_MCP_SERVERS"]) == {
+            "a": {"transport": "http", "url": "http://localhost:3100"}
+        }
+
+    def test_no_mcp_no_env(self):
+        from engine.sidecar.config import SidecarConfig
+        from engine.sidecar.injector import inject_compose_sidecar
+
+        services = inject_compose_sidecar({}, SidecarConfig())
+        assert (
+            "AGENTBREEDER_SIDECAR_MCP_SERVERS"
+            not in services["agentbreeder-sidecar"]["environment"]
+        )
