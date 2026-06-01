@@ -475,6 +475,15 @@ class AWSECSDeployer(BaseDeployer):
         if should_inject(config):
             partial: dict[str, Any] = {"containerDefinitions": container_defs}
             partial = inject_sidecar(partial, SidecarConfig.from_agent_config(config))
+            if config.mcp_servers:
+                from engine.deployers.mcp_sidecar import (
+                    inject_mcp_containers_ecs,
+                    resolve_mcp_servers,
+                )
+
+                partial = inject_mcp_containers_ecs(
+                    partial, resolve_mcp_servers(config.mcp_servers)
+                )
             container_defs = partial["containerDefinitions"]
 
         kwargs: dict[str, Any] = {

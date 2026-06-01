@@ -345,6 +345,15 @@ class AzureContainerAppsDeployer(BaseDeployer):
             env.append({"name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": otel})
         if api_url := os.environ.get("AGENTBREEDER_API_URL"):
             env.append({"name": "AGENTBREEDER_API_URL", "value": api_url})
+        if sc.mcp_servers:
+            import json as _json
+
+            env.append(
+                {
+                    "name": "AGENTBREEDER_SIDECAR_MCP_SERVERS",
+                    "value": _json.dumps(sc.mcp_servers),
+                }
+            )
 
         return {
             "name": "agentbreeder-sidecar",
@@ -523,6 +532,15 @@ class AzureContainerAppsDeployer(BaseDeployer):
             env_vars.append({"name": "PORT", "value": "8081"})
             containers.append(main_container)
             containers.append(self._build_azure_sidecar_container(config))
+            if config.mcp_servers:
+                from engine.deployers.mcp_sidecar import (
+                    inject_mcp_containers_azure,
+                    resolve_mcp_servers,
+                )
+
+                containers = inject_mcp_containers_azure(
+                    containers, resolve_mcp_servers(config.mcp_servers)
+                )
         else:
             containers.append(main_container)
 
