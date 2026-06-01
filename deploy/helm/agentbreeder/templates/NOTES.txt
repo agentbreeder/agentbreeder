@@ -1,0 +1,15 @@
+AgentBreeder is installing.
+
+  Studio:  https://{{ .Values.host }}
+  API:     https://{{ .Values.host }}/api/v1
+  Docs:    https://{{ .Values.host }}/api/docs
+
+{{- if not .Values.ingress.tls.enabled }}
+
+⚠  TLS is disabled. For production, set ingress.tls.enabled=true and provide a
+   TLS secret (or use cert-manager). Also override secrets.secretKey and
+   secrets.jwtSecretKey with strong random values.
+{{- end }}
+
+Check rollout:
+  kubectl get pods -l app=agentbreeder
