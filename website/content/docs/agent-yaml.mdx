@@ -446,20 +446,36 @@ subagents:
 
 ### `mcp_servers`
 
-List of MCP server references to deploy as sidecars alongside the agent.
+List of MCP server references the agent can call. At deploy time each entry is
+either **forwarded** to a remote URL or **co-deployed** as a sidecar container,
+and the AgentBreeder sidecar exposes it to the agent at
+`http://localhost:9091/mcp/<name>`.
 
 ```yaml
 mcp_servers:
-  - ref: mcp/zendesk
+  - ref: mcp/zendesk          # registry reference
     transport: sse
+    url: https://mcp.acme.com/sse   # remote server — sidecar forwards here
   - ref: mcp/slack
-    transport: stdio
+    transport: sse
+    image: acme/mcp-slack:1.2.3     # co-deployed as a sidecar container
+    port: 3100                       # localhost port (auto from 3100 if omitted)
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `ref` | string | **Yes** | — | Registry reference path to the MCP server. |
 | `transport` | string | No | `stdio` | MCP transport type: `stdio`, `sse`, `streamable_http`. |
+| `url` | string | No | — | Remote HTTP/SSE MCP server URL. When set, the sidecar forwards directly to it (no container is co-deployed). |
+| `image` | string | No | — | Container image to co-deploy as an MCP sidecar (reachable over localhost). |
+| `port` | integer | No | `3100+` | Localhost port for a co-deployed MCP container. Auto-assigned from 3100 when omitted. |
+
+When neither `url` nor `image` is given, the deployer co-deploys a
+conventionally-named image (`agentbreeder/mcp-<name>:latest`). Co-deploy works on
+multi-container targets (AWS ECS, GCP Cloud Run, Azure Container Apps,
+docker-compose); single-container targets (App Runner) can only use remote `url`
+servers. A **remote** `stdio` server cannot be forwarded — use `sse`/`http`, or
+co-deploy an `image`.
 
 ---
 

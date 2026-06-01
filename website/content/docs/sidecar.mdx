@@ -179,6 +179,17 @@ resp = httpx.post(
   v1 supports HTTP / SSE upstream MCP servers. Stdio transport is deferred to a follow-up — see the TODO in `sidecar/internal/mcp/mcp.go`.
 </Callout>
 
+### How the map gets populated
+
+You rarely write the map above by hand. When an agent declares
+[`mcp_servers`](/docs/agent-yaml#mcp_servers), the deployer resolves each entry
+to a forwarding target and passes the sidecar a JSON map via the
+`AGENTBREEDER_SIDECAR_MCP_SERVERS` env var (env overrides any mounted
+`sidecar.yaml`). A remote `url` is forwarded as-is; an `image` is co-deployed as
+a sibling container and forwarded over `localhost:<port>`. Because forwarding is
+HTTP/SSE-only, a co-deployed server always speaks HTTP on its port and a *remote
+stdio* server is skipped.
+
 ---
 
 ## Cost events
