@@ -9,6 +9,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Added
+- **MCP server deployment (P4)**: `agent.yaml` `mcp_servers` now deploy end-to-end. A new optional
+  `url`/`image`/`port` on each entry lets you forward to a **remote** HTTP/SSE MCP server or
+  **co-deploy** a container MCP server as a sidecar (AWS ECS, GCP Cloud Run, Azure Container Apps,
+  docker-compose). The deployer resolves each ref and hands the Go sidecar a `{name:{transport,url}}`
+  map via `AGENTBREEDER_SIDECAR_MCP_SERVERS`, so the agent reaches every server at
+  `http://localhost:9091/mcp/<name>`.
 - Agent images now bundle the AgentBreeder runtime (`agentbreeder` dist), so registry-ref
   prompts, first-party tools, RAG and memory work on AWS/GCP/Azure — not just self-contained agents.
   Override the bundled requirement via `AGENTBREEDER_RUNTIME_REQUIREMENT`.

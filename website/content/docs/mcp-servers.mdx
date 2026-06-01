@@ -375,6 +375,35 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
 ```
 
+### Deploying with an agent — forward vs co-deploy
+
+At deploy time every `mcp_servers` entry in `agent.yaml` resolves to one of two
+shapes, and the AgentBreeder sidecar exposes it to the agent at
+`http://localhost:9091/mcp/<name>`:
+
+- **Forward (remote)** — set `url:` to a remote HTTP/SSE MCP server. The sidecar
+  forwards JSON-RPC straight to it; nothing is co-deployed. Works on every
+  deploy target.
+- **Co-deploy (container)** — set `image:` (or omit both and rely on the
+  `agentbreeder/mcp-<name>:latest` convention). The image runs as a sibling
+  container on multi-container targets (AWS ECS, GCP Cloud Run, Azure Container
+  Apps, docker-compose), reachable over `localhost:<port>`.
+
+```yaml
+mcp_servers:
+  - ref: mcp/docs
+    transport: sse
+    url: https://docs.example.com/mcp     # forwarded
+  - ref: mcp/zendesk
+    transport: sse
+    image: agentbreeder/mcp-zendesk:1.0.0  # co-deployed
+    port: 3100
+```
+
+Forwarding is HTTP/SSE-only: a co-deployed server speaks HTTP on its port, and a
+*remote* `stdio` server cannot be forwarded (use `sse`/`http`, or co-deploy an
+image). Single-container targets (App Runner) support remote `url` servers only.
+
 ---
 
 ## API Reference
