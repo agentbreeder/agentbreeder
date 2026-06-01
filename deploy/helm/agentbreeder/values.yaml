@@ -1,0 +1,68 @@
+# AgentBreeder self-hosting values. See website/content/docs/self-hosting.mdx.
+
+image:
+  registry: docker.io
+  repository: rajits
+  apiImage: agentbreeder-api
+  dashboardImage: agentbreeder-dashboard
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Public hostname the platform is served on (used by Ingress + CORS).
+host: agentbreeder.local
+
+api:
+  replicas: 1
+  port: 8000
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  # Extra non-secret env passed to the API container.
+  env: {}
+
+dashboard:
+  replicas: 1
+  port: 3001
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# Secrets. In production set these via --set or a pre-created secret (existingSecret).
+secrets:
+  existingSecret: ""        # if set, all keys below are read from this Secret
+  secretKey: "change-me-to-a-random-256-bit-key"
+  jwtSecretKey: "change-me"
+
+# Connection strings. When postgresql/redis subcharts are enabled these are
+# auto-derived and these explicit values are ignored.
+externalDatabaseUrl: ""     # e.g. postgresql+asyncpg://user:pw@host:5432/db
+externalRedisUrl: ""        # e.g. redis://host:6379
+
+# Run `alembic upgrade head` as a pre-install/upgrade Job.
+migrate:
+  enabled: true
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: agentbreeder-tls   # pre-created TLS secret, or cert-manager-managed
+
+# Bundled datastores (toggle off to use externalDatabaseUrl/externalRedisUrl).
+postgresql:
+  enabled: true
+  auth:
+    username: agentbreeder
+    password: agentbreeder
+    database: agentbreeder
+  primary:
+    persistence:
+      size: 8Gi
+
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false

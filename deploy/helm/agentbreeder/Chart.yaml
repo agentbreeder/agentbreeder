@@ -1,0 +1,18 @@
+apiVersion: v2
+name: agentbreeder
+description: Self-host the AgentBreeder platform (Studio + API + Postgres + Redis) on Kubernetes.
+type: application
+version: 0.1.0
+appVersion: "2.6.0"
+home: https://agentbreeder.io
+sources:
+  - https://github.com/agentbreeder/agentbreeder
+dependencies:
+  - name: postgresql
+    version: "15.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "19.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
