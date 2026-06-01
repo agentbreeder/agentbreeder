@@ -20,6 +20,7 @@ Auto-injection helper:
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import os
 from typing import Any
@@ -90,6 +91,14 @@ def inject_sidecar(task_definition: dict[str, Any], config: SidecarConfig) -> di
         },
     }
 
+    if config.mcp_servers:
+        sidecar_container["environment"].append(
+            {
+                "name": "AGENTBREEDER_SIDECAR_MCP_SERVERS",
+                "value": json.dumps(config.mcp_servers),
+            }
+        )
+
     containers.append(sidecar_container)
     logger.info("Injected observability sidecar into ECS task definition")
     return result
@@ -141,6 +150,14 @@ def inject_cloudrun_sidecar(service_spec: dict[str, Any], config: SidecarConfig)
         "ports": [{"containerPort": config.health_port}],
     }
 
+    if config.mcp_servers:
+        sidecar["env"].append(
+            {
+                "name": "AGENTBREEDER_SIDECAR_MCP_SERVERS",
+                "value": json.dumps(config.mcp_servers),
+            }
+        )
+
     containers.append(sidecar)
     logger.info("Injected observability sidecar into Cloud Run service spec")
     return result
@@ -186,6 +203,10 @@ def inject_compose_sidecar(
         "ports": [f"{config.health_port}:{config.health_port}"],
         "depends_on": [agent_service],
     }
+    if config.mcp_servers:
+        result[SIDECAR_NAME]["environment"]["AGENTBREEDER_SIDECAR_MCP_SERVERS"] = json.dumps(
+            config.mcp_servers
+        )
     logger.info("Injected sidecar into docker-compose services")
     return result
 
