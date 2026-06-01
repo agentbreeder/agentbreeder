@@ -23,7 +23,9 @@ class TestMcpServerRefFields:
     def test_inline_image(self):
         from engine.config_parser import McpServerRef
 
-        ref = McpServerRef(ref="mcp/slack", transport="sse", image="acme/mcp-slack:1.2.3", port=3100)
+        ref = McpServerRef(
+            ref="mcp/slack", transport="sse", image="acme/mcp-slack:1.2.3", port=3100
+        )
         assert ref.image == "acme/mcp-slack:1.2.3"
         assert ref.port == 3100
 
@@ -33,11 +35,15 @@ class TestResolveMcpServers:
         from engine.config_parser import McpServerRef
         from engine.deployers.mcp_sidecar import resolve_mcp_servers
 
-        out = resolve_mcp_servers([McpServerRef(ref="mcp/z", transport="sse", url="https://x/sse")])
+        out = resolve_mcp_servers(
+            [McpServerRef(ref="mcp/z", transport="sse", url="https://x/sse")]
+        )
         assert len(out) == 1
         r = out[0]
-        assert r.name == "z" and r.co_deploy is False
-        assert r.url == "https://x/sse" and r.image is None
+        assert r.name == "z"
+        assert r.co_deploy is False
+        assert r.url == "https://x/sse"
+        assert r.image is None
 
     def test_inline_image_autoport(self):
         from engine.config_parser import McpServerRef
@@ -48,8 +54,10 @@ class TestResolveMcpServers:
             base_port=3100,
         )
         r = out[0]
-        assert r.co_deploy is True and r.image == "img:1"
-        assert r.port == 3100 and r.url == "http://localhost:3100"
+        assert r.co_deploy is True
+        assert r.image == "img:1"
+        assert r.port == 3100
+        assert r.url == "http://localhost:3100"
 
     def test_convention_fallback(self):
         from engine.config_parser import McpServerRef
@@ -69,7 +77,8 @@ class TestResolveMcpServers:
             return McpServerInfo(name=name, transport="sse", endpoint="https://reg/sse")
 
         out = resolve_mcp_servers([McpServerRef(ref="mcp/z")], registry_lookup=lookup)
-        assert out[0].url == "https://reg/sse" and out[0].co_deploy is False
+        assert out[0].url == "https://reg/sse"
+        assert out[0].co_deploy is False
 
     def test_env_map_skips_remote_stdio(self):
         from engine.config_parser import McpServerRef
