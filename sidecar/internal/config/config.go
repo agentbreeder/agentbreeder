@@ -7,6 +7,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -183,6 +184,23 @@ func (c *Config) overlayEnv() {
 			parts := strings.SplitN(kv, "=", 2)
 			if len(parts) == 2 {
 				c.OTLPHeaders[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+			}
+		}
+	}
+
+	// MCP server map as JSON: {"name":{"transport":"http","url":"..."}}.
+	// Env entries override file entries key-by-key so a deployer can wire MCP
+	// upstreams without shipping a YAML file.
+	if raw := os.Getenv("AGENTBREEDER_SIDECAR_MCP_SERVERS"); raw != "" {
+		parsed := map[string]MCPServerSpec{}
+		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+			fmt.Fprintf(os.Stderr, "sidecar: ignoring malformed AGENTBREEDER_SIDECAR_MCP_SERVERS: %v\n", err)
+		} else {
+			if c.MCPServers == nil {
+				c.MCPServers = map[string]MCPServerSpec{}
+			}
+			for name, spec := range parsed {
+				c.MCPServers[name] = spec
 			}
 		}
 	}

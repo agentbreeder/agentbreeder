@@ -214,3 +214,47 @@ func TestIsDisabled(t *testing.T) {
 		}
 	}
 }
+
+func TestOverlayEnvMCPServers(t *testing.T) {
+	t.Setenv("AGENT_NAME", "a")
+	t.Setenv("AGENTBREEDER_SIDECAR_ALLOW_NO_AUTH", "1")
+	t.Setenv("AGENTBREEDER_SIDECAR_MCP_SERVERS",
+		`{"zendesk":{"transport":"http","url":"http://localhost:3100"}}`)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	spec, ok := cfg.MCPServers["zendesk"]
+	if !ok {
+		t.Fatalf("zendesk not parsed: %+v", cfg.MCPServers)
+	}
+	if spec.Transport != "http" || spec.URL != "http://localhost:3100" {
+		t.Fatalf("bad spec: %+v", spec)
+	}
+}
+
+func TestOverlayEnvMCPServersWinsOverFile(t *testing.T) {
+	t.Setenv("AGENTBREEDER_SIDECAR_MCP_SERVERS",
+		`{"z":{"transport":"sse","url":"http://env"}}`)
+	c := &Config{MCPServers: map[string]MCPServerSpec{
+		"z": {Transport: "http", URL: "http://file"},
+	}}
+	c.overlayEnv()
+	if c.MCPServers["z"].URL != "http://env" {
+		t.Fatalf("env should win: %+v", c.MCPServers["z"])
+	}
+}
+
+func TestOverlayEnvMCPServersMalformedIgnored(t *testing.T) {
+	t.Setenv("AGENT_NAME", "a")
+	t.Setenv("AGENTBREEDER_SIDECAR_ALLOW_NO_AUTH", "1")
+	t.Setenv("AGENTBREEDER_SIDECAR_MCP_SERVERS", `{not json`)
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load should not fail on malformed MCP env: %v", err)
+	}
+	if len(cfg.MCPServers) != 0 {
+		t.Fatalf("expected no MCP servers, got: %+v", cfg.MCPServers)
+	}
+}
