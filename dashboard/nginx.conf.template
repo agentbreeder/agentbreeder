@@ -1,11 +1,9 @@
 server {
-    listen 3001;
-
-    set $api_upstream http://api:8000;
+    listen ${LISTEN_PORT};
 
     location /api/ {
         resolver 127.0.0.11 valid=30s ipv6=off;
-        proxy_pass $api_upstream;
+        proxy_pass ${API_UPSTREAM};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -14,7 +12,7 @@ server {
 
     location /health {
         resolver 127.0.0.11 valid=30s ipv6=off;
-        proxy_pass $api_upstream;
+        proxy_pass ${API_UPSTREAM};
         proxy_set_header Host $host;
     }
 
