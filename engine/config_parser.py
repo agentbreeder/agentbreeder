@@ -142,10 +142,19 @@ class SubagentRef(BaseModel):
 
 
 class McpServerRef(BaseModel):
-    """Reference to an MCP server to attach as a sidecar."""
+    """Reference to an MCP server to attach to an agent.
+
+    ``ref`` is the registry reference (e.g. ``mcp/zendesk``). For self-contained
+    deploys the connection can be given inline so no running registry is needed:
+    set ``url`` for a remote HTTP/SSE MCP server, or ``image`` to co-deploy a
+    container MCP server as a sidecar (reachable on ``port`` over localhost).
+    """
 
     ref: str
     transport: str = "stdio"
+    url: str | None = None
+    image: str | None = None
+    port: int | None = None
 
 
 class MemoryConfig(BaseModel):

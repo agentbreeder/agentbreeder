@@ -556,6 +556,20 @@
             ],
             "default": "stdio",
             "description": "Transport protocol"
+          },
+          "url": {
+            "type": "string",
+            "description": "Remote HTTP/SSE MCP server URL. When set, the sidecar forwards to it directly."
+          },
+          "image": {
+            "type": "string",
+            "description": "Container image to co-deploy as an MCP sidecar (reachable over localhost)."
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Localhost port for a co-deployed MCP sidecar container. Auto-assigned from 3100 if omitted."
           }
         }
       },
