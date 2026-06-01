@@ -261,6 +261,15 @@ def _build_service_template(
         container["startup_probe"]["http_get"]["port"] = AGENT_INTERNAL_PORT
         container["liveness_probe"]["http_get"]["port"] = AGENT_INTERNAL_PORT
         containers_list.append(_build_cloudrun_sidecar_container(config))
+        if config.mcp_servers:
+            from engine.deployers.mcp_sidecar import (
+                inject_mcp_containers_cloudrun,
+                resolve_mcp_servers,
+            )
+
+            containers_list = inject_mcp_containers_cloudrun(
+                containers_list, resolve_mcp_servers(config.mcp_servers)
+            )
     else:
         # Single container — it is the ingress; Cloud Run injects PORT=8080.
         container["ports"] = [{"container_port": INGRESS_PORT}]
@@ -322,6 +331,15 @@ def _build_cloudrun_sidecar_container(config: AgentConfig) -> dict[str, Any]:
         env.append({"name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": otel})
     if api_url := _os.getenv("AGENTBREEDER_API_URL"):
         env.append({"name": "AGENTBREEDER_API_URL", "value": api_url})
+    if sc.mcp_servers:
+        import json as _json
+
+        env.append(
+            {
+                "name": "AGENTBREEDER_SIDECAR_MCP_SERVERS",
+                "value": _json.dumps(sc.mcp_servers),
+            }
+        )
 
     return {
         "name": "agentbreeder-sidecar",

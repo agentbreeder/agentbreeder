@@ -192,20 +192,20 @@ def inject_mcp_containers_ecs(
 
 
 def inject_mcp_containers_cloudrun(
-    service_spec: dict[str, Any], resolved: list[ResolvedMcpServer]
-) -> dict[str, Any]:
-    """Append co-deployed MCP server containers to a Cloud Run v2 service spec."""
-    result = copy.deepcopy(service_spec)
-    spec = result.setdefault("spec", {})
-    template = spec.setdefault("template", {})
-    tmpl_spec = template.setdefault("spec", {})
-    containers: list[dict[str, Any]] = tmpl_spec.setdefault("containers", [])
-    existing = {c.get("name") for c in containers}
+    containers: list[dict[str, Any]], resolved: list[ResolvedMcpServer]
+) -> list[dict[str, Any]]:
+    """Append co-deployed MCP server containers to a Cloud Run v2 container list.
+
+    Cloud Run revisions share a network namespace, so a co-deployed MCP server is
+    reachable by the sidecar over ``localhost:<port>``. Returns a new list.
+    """
+    result = copy.deepcopy(containers)
+    existing = {c.get("name") for c in result}
     for r in _codeploy(resolved):
         cname = f"mcp-{r.name}"
         if cname in existing:
             continue
-        containers.append(
+        result.append(
             {
                 "name": cname,
                 "image": r.image,
@@ -213,7 +213,6 @@ def inject_mcp_containers_cloudrun(
                     {"name": "MCP_TRANSPORT", "value": "http"},
                     {"name": "PORT", "value": str(r.port)},
                 ],
-                "ports": [{"containerPort": r.port}],
             }
         )
     return result

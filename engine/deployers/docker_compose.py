@@ -304,6 +304,8 @@ class DockerComposeDeployer(BaseDeployer):
         sidecar_id: str | None = None
         if should_inject(config):
             sidecar_id = await self._start_sidecar(client, config, container_name)
+            if sidecar_id and config.mcp_servers:
+                await self._start_mcp_sidecars(client, config, f"{container_name}-sidecar")
 
         self._state["agents"][config.name] = {
             "port": port,
@@ -361,6 +363,10 @@ class DockerComposeDeployer(BaseDeployer):
         }
         if sidecar_cfg.otel_endpoint:
             env["OTEL_EXPORTER_OTLP_ENDPOINT"] = sidecar_cfg.otel_endpoint
+        if sidecar_cfg.mcp_servers:
+            import json as _json
+
+            env["AGENTBREEDER_SIDECAR_MCP_SERVERS"] = _json.dumps(sidecar_cfg.mcp_servers)
 
         try:
             sidecar = client.containers.run(
@@ -376,6 +382,49 @@ class DockerComposeDeployer(BaseDeployer):
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to start sidecar (continuing without): %s", exc)
             return None
+
+    async def _start_mcp_sidecars(
+        self,
+        client: Any,
+        config: AgentConfig,
+        sidecar_name: str,
+    ) -> None:
+        """Co-deploy each image-backed MCP server sharing the sidecar netns.
+
+        The MCP container joins the sidecar's network namespace
+        (``network=container:<sidecar>``) so the sidecar reaches it on
+        ``localhost:<port>`` — the same contract used on ECS/Cloud Run/Azure.
+        Best-effort: a failure is logged but never fails the deploy.
+        """
+        import docker
+
+        from engine.deployers.mcp_sidecar import resolve_mcp_servers
+
+        for r in resolve_mcp_servers(config.mcp_servers):
+            if not (r.co_deploy and r.image):
+                continue
+            name = f"{sidecar_name}-mcp-{r.name}"
+            try:
+                client.containers.get(name)
+                logger.info("MCP sidecar already running: %s", name)
+                continue
+            except docker.errors.NotFound:
+                pass
+            try:
+                client.containers.run(
+                    r.image,
+                    name=name,
+                    environment={"MCP_TRANSPORT": "http", "PORT": str(r.port)},
+                    network=f"container:{sidecar_name}",
+                    detach=True,
+                    remove=False,
+                    labels={"agentbreeder.agent": config.name, "agentbreeder.mcp": r.name},
+                )
+                logger.info("Started co-deployed MCP server: %s", name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to start MCP server %s (continuing): %s", r.name, exc
+                )
 
     async def health_check(
         self, deploy_result: DeployResult, timeout: int = 60, interval: int = 2
