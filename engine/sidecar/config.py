@@ -52,6 +52,8 @@ class SidecarConfig:
     agent_port: int = 8081
     auth_token_env: str = "AGENT_AUTH_TOKEN"
     api_url_env: str = "AGENTBREEDER_API_URL"
+    # MCP server forwarding map for the Go sidecar: {name: {transport, url}}.
+    mcp_servers: dict[str, dict[str, str]] = field(default_factory=dict)
 
     @classmethod
     def from_deploy_config(cls, deploy_sidecar: dict[str, Any] | None) -> SidecarConfig:
@@ -77,13 +79,22 @@ class SidecarConfig:
     def from_agent_config(cls, agent_config: Any) -> SidecarConfig:
         """Build a SidecarConfig from a parsed AgentConfig.
 
-        Reads guardrails declared at the top level of agent.yaml and any
-        deploy.env_vars hint. Used by deployers that auto-inject the sidecar.
+        Reads top-level guardrails and resolves any ``mcp_servers`` into the
+        forwarding map the Go sidecar consumes. MCP resolution here is offline
+        (inline url/image + convention) — registry enrichment happens earlier
+        in the deploy pipeline when a session is available.
         """
         guardrails = _normalise_guardrails(getattr(agent_config, "guardrails", []) or [])
+        mcp_refs = getattr(agent_config, "mcp_servers", None) or []
+        mcp_map: dict[str, dict[str, str]] = {}
+        if mcp_refs:
+            from engine.deployers.mcp_sidecar import build_sidecar_env_map, resolve_mcp_servers
+
+            mcp_map = build_sidecar_env_map(resolve_mcp_servers(mcp_refs))
         return cls(
             enabled=True,
             guardrails=guardrails,
+            mcp_servers=mcp_map,
         )
 
 
