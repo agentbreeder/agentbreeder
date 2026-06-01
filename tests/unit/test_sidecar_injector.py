@@ -187,3 +187,28 @@ def test_sidecar_config_from_dict() -> None:
     assert cfg.guardrails == ["pii_detection"]
     assert cfg.otel_endpoint == "http://custom:4317"
     assert cfg.cost_tracking is False
+
+
+class TestSidecarConfigMcp:
+    def _agent(self, mcp):
+        from engine.config_parser import McpServerRef
+
+        class _A:
+            guardrails = []
+            mcp_servers = [McpServerRef(**m) for m in mcp]
+
+        return _A()
+
+    def test_mcp_servers_populated_from_image(self):
+        from engine.sidecar.config import SidecarConfig
+
+        sc = SidecarConfig.from_agent_config(
+            self._agent([{"ref": "mcp/a", "transport": "sse", "image": "img:1", "port": 3100}])
+        )
+        assert sc.mcp_servers == {"a": {"transport": "sse", "url": "http://localhost:3100"}}
+
+    def test_no_mcp_means_empty(self):
+        from engine.sidecar.config import SidecarConfig
+
+        sc = SidecarConfig.from_agent_config(self._agent([]))
+        assert sc.mcp_servers == {}
