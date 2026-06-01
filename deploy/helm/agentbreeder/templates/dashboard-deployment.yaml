@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agentbreeder.fullname" . }}-dashboard
+  labels: { app: agentbreeder, component: dashboard }
+spec:
+  replicas: {{ .Values.dashboard.replicas }}
+  selector:
+    matchLabels: { app: agentbreeder, component: dashboard }
+  template:
+    metadata:
+      labels: { app: agentbreeder, component: dashboard }
+    spec:
+      containers:
+        - name: dashboard
+          image: {{ include "agentbreeder.dashboardImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.dashboard.port }}
+          env:
+            - name: API_UPSTREAM
+              value: {{ printf "http://%s-api:%v" (include "agentbreeder.fullname" .) .Values.api.port | quote }}
+            - name: LISTEN_PORT
+              value: {{ .Values.dashboard.port | quote }}
+          resources: {{- toYaml .Values.dashboard.resources | nindent 12 }}
