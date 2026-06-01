@@ -9,6 +9,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Added
+- **Studio self-hosting (P5)**: a Helm chart (`deploy/helm/agentbreeder`) deploys the full platform
+  (Studio + API + migrations) on Kubernetes, with toggleable bundled Postgres/Redis subcharts, a
+  TLS-capable Ingress, and auto-generated signing keys. The dashboard image now renders its nginx
+  upstream from env (`API_UPSTREAM`/`LISTEN_PORT`) at startup, so the same image self-hosts anywhere.
+  See docs → Self-Hosting.
 - **MCP server deployment (P4)**: `agent.yaml` `mcp_servers` now deploy end-to-end. A new optional
   `url`/`image`/`port` on each entry lets you forward to a **remote** HTTP/SSE MCP server or
   **co-deploy** a container MCP server as a sidecar (AWS ECS, GCP Cloud Run, Azure Container Apps,
