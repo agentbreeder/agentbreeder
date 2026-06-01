@@ -98,6 +98,7 @@ Then run `/agent-build` in Claude Code to scaffold an agent (it recommends frame
 |---|---|
 | [How-To guides](https://www.agentbreeder.io/docs/how-to) | Install, deploy, orchestrate, evaluate |
 | [Quickstart](https://www.agentbreeder.io/docs/quickstart) | Full local platform in one command |
+| [Self-hosting](https://www.agentbreeder.io/docs/self-hosting) | Run the platform on your own Kubernetes via Helm (`deploy/helm/agentbreeder`) |
 | [CLI reference](https://www.agentbreeder.io/docs/cli-reference) | All commands and flags |
 | [SDK reference](https://www.agentbreeder.io/docs/full-code) | Python + TypeScript full-code SDK |
 
