@@ -5,7 +5,9 @@ image:
   repository: rajits
   apiImage: agentbreeder-api
   dashboardImage: agentbreeder-dashboard
-  tag: latest
+  # Pinned to the chart's appVersion (not a mutable `latest`) for reproducible
+  # installs. Override per environment, or pin by digest for supply-chain safety.
+  tag: "2.6.0"
   pullPolicy: IfNotPresent
 
 # Public hostname the platform is served on (used by Ingress + CORS).
@@ -27,11 +29,13 @@ dashboard:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { cpu: 500m, memory: 256Mi }
 
-# Secrets. In production set these via --set or a pre-created secret (existingSecret).
+# Application signing keys. Left empty they are auto-generated (random, and
+# preserved across upgrades via a cluster lookup) so no known default ever ships.
+# Set explicitly, or point existingSecret at a pre-created Secret, to manage them.
 secrets:
   existingSecret: ""        # if set, all keys below are read from this Secret
-  secretKey: "change-me-to-a-random-256-bit-key"
-  jwtSecretKey: "change-me"
+  secretKey: ""             # auto-generated when empty
+  jwtSecretKey: ""          # auto-generated when empty
 
 # Connection strings. When postgresql/redis subcharts are enabled these are
 # auto-derived and these explicit values are ignored.
@@ -51,11 +55,14 @@ ingress:
     secretName: agentbreeder-tls   # pre-created TLS secret, or cert-manager-managed
 
 # Bundled datastores (toggle off to use externalDatabaseUrl/externalRedisUrl).
+# Passwords have NO default — set them explicitly (e.g.
+# `--set postgresql.auth.password=$(openssl rand -hex 16)`) so no known
+# credential ever ships. Install aborts if a bundled store has no password.
 postgresql:
   enabled: true
   auth:
     username: agentbreeder
-    password: agentbreeder
+    password: ""            # REQUIRED when enabled — no default
     database: agentbreeder
   primary:
     persistence:
@@ -65,4 +72,5 @@ redis:
   enabled: true
   architecture: standalone
   auth:
-    enabled: false
+    enabled: true           # auth on by default
+    password: ""            # REQUIRED when enabled — no default

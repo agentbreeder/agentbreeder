@@ -4,11 +4,20 @@ AgentBreeder is installing.
   API:     https://{{ .Values.host }}/api/v1
   Docs:    https://{{ .Values.host }}/api/docs
 
+Signing keys (SECRET_KEY / JWT_SECRET_KEY) were auto-generated and stored in the
+{{ include "agentbreeder.fullname" . }}-secrets Secret (preserved across upgrades).
+Set secrets.secretKey/jwtSecretKey or secrets.existingSecret to manage them yourself.
 {{- if not .Values.ingress.tls.enabled }}
 
-⚠  TLS is disabled. For production, set ingress.tls.enabled=true and provide a
-   TLS secret (or use cert-manager). Also override secrets.secretKey and
-   secrets.jwtSecretKey with strong random values.
+⚠  TLS is DISABLED — traffic to https://{{ .Values.host }} is served over plaintext
+   and CORS allows the http:// origin. For any non-eval use, set
+   ingress.tls.enabled=true with a TLS secret (or cert-manager); the chart then
+   adds an HTTP→HTTPS redirect and restricts CORS to https://.
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+
+ℹ  Bundled Postgres/Redis are for evaluation. For production prefer external
+   managed stores (postgresql.enabled=false + externalDatabaseUrl, likewise Redis).
 {{- end }}
 
 Check rollout:

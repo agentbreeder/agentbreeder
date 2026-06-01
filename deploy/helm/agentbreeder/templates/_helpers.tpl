@@ -12,17 +12,19 @@
 
 {{- define "agentbreeder.databaseUrl" -}}
 {{- if .Values.postgresql.enabled -}}
-{{- printf "postgresql+asyncpg://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password .Release.Name .Values.postgresql.auth.database -}}
+{{- $pw := required "postgresql.auth.password must be set when postgresql.enabled (e.g. --set postgresql.auth.password=...), or disable it and set externalDatabaseUrl" .Values.postgresql.auth.password -}}
+{{- printf "postgresql+asyncpg://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username $pw .Release.Name .Values.postgresql.auth.database -}}
 {{- else -}}
-{{- .Values.externalDatabaseUrl -}}
+{{- required "externalDatabaseUrl must be set when postgresql.enabled=false" .Values.externalDatabaseUrl -}}
 {{- end -}}
 {{- end -}}
 
 {{- define "agentbreeder.redisUrl" -}}
 {{- if .Values.redis.enabled -}}
-{{- printf "redis://%s-redis-master:6379" .Release.Name -}}
+{{- $pw := required "redis.auth.password must be set when redis.enabled (e.g. --set redis.auth.password=...), or disable it and set externalRedisUrl" .Values.redis.auth.password -}}
+{{- printf "redis://:%s@%s-redis-master:6379" $pw .Release.Name -}}
 {{- else -}}
-{{- .Values.externalRedisUrl -}}
+{{- required "externalRedisUrl must be set when redis.enabled=false" .Values.externalRedisUrl -}}
 {{- end -}}
 {{- end -}}
 
