@@ -1,6 +1,6 @@
 ---
 title: Deployment
-description: Ship a registered agent to AWS, GCP, or Azure — covers the user-input contract per cloud (BYO existing infra), plus the GCP Cloud Run path end-to-end as the verified reference example.
+description: Ship a registered agent to AWS, GCP, or Azure — covers the user-input contract per cloud (BYO existing infra), plus two verified end-to-end references: GCP Cloud Run and AWS ECS Fargate (with auto-provisioned RDS pgvector + ElastiCache Redis).
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -12,9 +12,11 @@ to your cloud's image registry, and rolls it out as a managed service with secre
 auth wired in.
 
 AgentBreeder supports three clouds — **AWS**, **GCP**, and **Azure** — plus local
-Docker Compose for development. This page covers the **GCP Cloud Run** path end-to-end
-as the verified reference example; the same pattern applies to AWS ECS / App Runner
-and Azure Container Apps with the per-cloud user-input contract below.
+Docker Compose for development. This page covers **two** verified end-to-end reference
+deploys — [**GCP Cloud Run**](#what-the-deploy-script-does) and
+[**AWS ECS Fargate**](#aws-ecs-fargate--end-to-end-verified) (with auto-provisioned RDS
+pgvector + ElastiCache) — and the same pattern applies to AWS App Runner and Azure
+Container Apps with the per-cloud user-input contract below.
 
 <Callout type="info" title="Reference deploy">
   The microlearning-ebook-agent example is **deployed and serving** at
@@ -477,6 +479,189 @@ curl -X POST $URL/invoke -d '{"input":"x"}' -H "Content-Type: application/json"
 | **Persistent sessions** | Switch the agent's `google_adk.session_backend` from `memory` to `database` and point at Cloud SQL. The runtime wrapper already supports it. |
 | **Outputs to GCS** | Set `EBOOK_OUTPUT_DIR=/tmp` in env and have a tool upload to GCS. The container filesystem is ephemeral — Cloud Run wipes it between requests. |
 | **Cold-start latency** | Bump `--min-instances 1`. Cost trade-off: ~$5–10/month per always-on instance vs. ~3 s warm-up on first request. |
+
+---
+
+## AWS ECS Fargate — end-to-end (verified)
+
+The GCP walkthrough above is mirrored here for **AWS ECS Fargate**, the
+full-governance AWS target (sidecar + cost/tracing). This path is verified
+against live AWS: a feature-rich agent — NVIDIA Llama-3.1-8B, a pgvector
+knowledge base, Redis-backed memory, and a web-search tool — deploys, serves,
+answers a multi-turn chat, and tears down with **zero orphaned resources**.
+
+<Callout type="info" title="What makes ECS Fargate special">
+  Declare a knowledge base or `memory:` **without** a `backend_url` and the
+  deployer **auto-provisions** the managed data stores (RDS pgvector,
+  ElastiCache Redis) into your existing VPC at deploy time, wires the connection
+  env in, and removes them again on teardown. You write the agent; the data
+  tier is a side effect of deploying.
+</Callout>
+
+### The agent
+
+```yaml
+# agent.yaml
+name: nvidia-support-agent
+version: 0.1.0
+framework: langgraph
+
+model:
+  primary: nvidia/meta/llama-3.1-8b-instruct   # called directly from AWS
+  temperature: 0.3
+  max_tokens: 1024
+
+prompts:
+  system: prompts/support-system               # registry-resolved at build
+
+knowledge_bases:
+  - ref: kb/validation-docs                     # → auto-provisions RDS pgvector
+memory:
+  backend: redis                                # → auto-provisions ElastiCache
+  stores: [session-buffer]
+tools:
+  - ref: tools/web_search                       # first-party tool
+
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling: { min: 1, max: 1, target_cpu: 70 }
+  resources:
+    cpu: "512"        # Fargate task CPU units — see note below
+    memory: "1024"    # Fargate task memory, MiB
+  env_vars:
+    # BYO network the agent + its data stores join (existing infra):
+    AWS_ACCOUNT_ID: "<account-id>"
+    AWS_REGION: us-east-1
+    AWS_VPC_SUBNETS: "subnet-aaaa,subnet-bbbb"
+    AWS_SECURITY_GROUPS: "sg-agent"
+    AWS_ECS_CLUSTER: agentbreeder-validation
+    AWS_EXECUTION_ROLE_ARN: "arn:aws:iam::<account-id>:role/<exec-role>"
+    AWS_TASK_ROLE_ARN: "arn:aws:iam::<account-id>:role/<task-role>"
+    NVIDIA_API_KEY: "<nvapi-...>"               # injected at deploy
+    LOG_LEVEL: info
+```
+
+<Callout type="warn" title="Fargate task sizes are exact">
+  `resources.cpu` / `resources.memory` are passed to ECS as **Fargate task-size
+  units**: CPU in units (`256`, `512`, `1024`, `2048`, `4096`) and memory in MiB
+  (`512`, `1024`, …) — and the two must be a [valid
+  pairing](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-task-defs.html#fargate-tasks-size).
+  Using vCPU notation like `cpu: "0.5"` fails task-definition registration with
+  *"Invalid 'cpu' setting for task."*
+</Callout>
+
+### Prerequisites
+
+```bash
+# 1. AWS credentials (default chain — env, ~/.aws/credentials, or instance profile)
+aws sts get-caller-identity
+
+# 2. A running local Docker daemon — the deployer builds + pushes the image
+docker info >/dev/null    # must succeed
+
+# 3. NVIDIA_API_KEY (or your model provider's key) available to the deploy
+```
+
+Plus the BYO AWS infra referenced in `env_vars`:
+
+| Resource | Requirement |
+|---|---|
+| **VPC + subnets** | ≥2 subnets across AZs; public IP is assigned to the task ENI so the agent is reachable. |
+| **Agent security group** | Allows the agent's port (8080) from your caller / load balancer. |
+| **ECS cluster** | An existing cluster named in `AWS_ECS_CLUSTER`. |
+| **Execution role** | Has `AmazonECSTaskExecutionRolePolicy` (ECR pull + CloudWatch Logs `CreateLogStream`/`PutLogEvents`). |
+| **CloudWatch log group** | The task logs to `/agentbreeder/<agent>`. Pre-create it, **or** grant the execution role `logs:CreateLogGroup` so the awslogs driver can auto-create it. |
+
+### Run the deploy
+
+```bash
+cd nvidia-support-agent
+agentbreeder deploy agent.yaml --target ecs-fargate
+```
+
+The deploy runs the standard 8-stage pipeline and prints the live endpoint:
+
+```
+╭────────────────────────────── Deployed ──────────────────────────────╮
+│ Deploy successful!                                                    │
+│   Agent:    nvidia-support-agent                                      │
+│   Version:  0.1.0                                                     │
+│   Endpoint: http://13.220.147.220:8080                               │
+╰───────────────────────────────────────────────────────────────────────╯
+```
+
+The endpoint is the **public IP of the running task's ENI** (ECS Fargate has no
+stable DNS without an ALB, so the deployer reads the ENI's public IP and returns
+`http://<public-ip>:8080`). For a stable hostname + TLS, front the service with
+an Application Load Balancer.
+
+### What gets deployed (all related assets)
+
+| Stage | Asset created | Notes |
+|---|---|---|
+| Build container | Local Docker image | Bundles `engine/` + the agent so registry-ref prompts/tools/RAG resolve at runtime. |
+| Provision infra | **ECR repository** | `agentbreeder-<agent>`; image pushed here. |
+| Provision infra | **RDS pgvector** (`db.t3.micro`) | Auto-provisioned for the knowledge base; private, encrypted; `KB_PGVECTOR_DSN` injected. DB password lives only in Secrets Manager. |
+| Provision infra | **ElastiCache Redis** (`cache.t3.micro`) | Auto-provisioned for `memory.backend: redis`; `REDIS_URL` injected. |
+| Provision infra | **Dedicated security groups** | One each for Postgres (5432) and Redis (6379), reachable from the agent SG only — never the internet. |
+| Deploy | **ECS task definition** | Fargate; awslogs → `/agentbreeder/<agent>`; secrets + env wired in. |
+| Deploy | **ECS service** | `assignPublicIp=ENABLED`; waits for the task to reach steady state. |
+| Return endpoint | **`http://<public-ip>:8080`** | Resolved from the task ENI. |
+
+Each data store is tagged `AgentBreeder=true` so teardown can remove **exactly**
+what the deploy created and never touch your VPC, cluster, or roles.
+
+### Verify + chat
+
+```bash
+URL=http://13.220.147.220:8080
+
+# /health is open (ECS health probe)
+curl $URL/health
+# {"status":"healthy","agent_name":"nvidia-support-agent","version":"0.1.0"}
+
+# Chat — input is a message object; the response carries the model + tokens
+curl -X POST $URL/invoke -H 'Content-Type: application/json' \
+  -d '{"input":{"message":"Hi! What can you help me with?"}}'
+# {"output":{"messages":[{"content":"What can I assist you with today?",
+#   "response_metadata":{"model_name":"meta/llama-3.1-8b-instruct", ...}}]},
+#  "thread_id":"6662..."}
+
+# Multi-turn — pass the returned thread_id to use the Redis-backed memory
+curl -X POST $URL/invoke -H 'Content-Type: application/json' \
+  -d '{"input":{"message":"and what was my last question?"},"thread_id":"6662..."}'
+```
+
+### Teardown (no orphans, no leaks)
+
+Teardown is two complementary moves — compute/registry, then the
+auto-provisioned data tier:
+
+```bash
+# 1. Remove the ECS service, task definitions, and ECR repository
+agentbreeder teardown --cloud aws --region us-east-1 --agent nvidia-support-agent
+
+# 2. Remove the auto-provisioned data backends recorded in .agentbreeder/infra-state.json
+#    (RDS + ElastiCache + their dedicated SGs, subnet groups, and the DB-password
+#    secret) — ephemeral stores are destroyed fully, with no final snapshot to bill.
+agentbreeder teardown nvidia-support-agent
+```
+
+Both are tag-gated: teardown refuses to delete anything not carrying
+`AgentBreeder=true`, so a drifted state file can never widen the blast radius to
+your own VPC or cluster.
+
+### Troubleshooting
+
+| Symptom | Cause + fix |
+|---|---|
+| `Connection refused` fetching Docker API version | Local Docker daemon isn't running. Start Docker Desktop (`open -a Docker`) and retry. On multi-user macs the deployer prefers your own `~/.docker/run/docker.sock` over a root-owned `/var/run/docker.sock` symlink. |
+| `Credentials store docker-credential-gcloud exited` | A registry cred-helper in `~/.docker/config.json` is interfering. The deployer authenticates to ECR explicitly; run with an isolated `DOCKER_CONFIG` pointing at a dir whose `config.json` is `{"auths":{}}`. |
+| `Invalid 'cpu' setting for task` | Use Fargate task-size units (`cpu: "512"`, `memory: "1024"`), not vCPU notation. See the callout above. |
+| Task stuck `PENDING` → `STOPPED`, `ResourceInitializationError … logs:CreateLogGroup … AccessDenied` | The execution role can't create the log group. Pre-create `/agentbreeder/<agent>` or grant `logs:CreateLogGroup`. |
+| `ServiceNotActiveException: Service was not ACTIVE` | A prior failed deploy left the service `DRAINING`/`INACTIVE`. Delete it (`aws ecs delete-service --force`) and redeploy. |
 
 ---
 
