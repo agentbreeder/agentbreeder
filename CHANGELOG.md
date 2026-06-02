@@ -51,6 +51,23 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
   teardown <agent>` destroys everything it created (never your VPC / resource group). `backend_url`
   always wins; local/kubernetes/claude-managed are out of scope. Per-cloud SDK provisioning is
   validated against live clouds during rollout.
+- NVIDIA NIM as a local gateway model provider: `deploy/litellm_config.yaml` exposes
+  `nvidia/meta/llama-3.1-8b-instruct` (via `nvidia_nim/…`) and the API + LiteLLM compose services
+  read `NVIDIA_API_KEY`, so an `agent.yaml` can target an NVIDIA-hosted model through the gateway.
+
+### Fixed
+- **AWS ECS deploy now returns a reachable endpoint.** The deployer previously returned a
+  placeholder `https://<name>.<region>.ecs.local` URL, so the post-deploy health check could never
+  reach the task and tore the service back down. It now reads the running task's ENI public IP
+  (`assignPublicIp=ENABLED`) and returns `http://<public-ip>:8080`, falling back to the placeholder
+  only when no public IP exists (e.g. private subnets). Surfaced during real-cloud validation.
+- AWS ECS image build no longer fails with `PermissionError(13)` on a shared/multi-user host whose
+  `/var/run/docker.sock` symlinks to another user's root-owned socket — the deployer now honors
+  `DOCKER_HOST` and otherwise prefers the current user's Docker Desktop socket
+  (`~/.docker/run/docker.sock`).
+- LangGraph image build now copies any bundled local wheels into the build context **before**
+  `pip install -r requirements.txt`, so deploying from an unpublished dev checkout
+  (`AGENTBREEDER_RUNTIME_REQUIREMENT=./*.whl`) resolves the path requirement instead of erroring.
 
 ### Changed
 - Deploy no longer forwards the deploy host's local `REDIS_URL`/`DATABASE_URL`/`NEO4J_URL` to cloud

@@ -15,6 +15,10 @@ model_list:
     litellm_params:
       model: gemini/gemini-2.5-flash
       api_key: os.environ/GOOGLE_API_KEY
+  - model_name: nvidia/meta/llama-3.1-8b-instruct
+    litellm_params:
+      model: nvidia_nim/meta/llama-3.1-8b-instruct
+      api_key: os.environ/NVIDIA_API_KEY
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
