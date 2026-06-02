@@ -58,6 +58,13 @@ site/
 .cache/
 .playwright-mcp/
 
+# Real-cloud validation artifacts (local-only)
+.auth/
+.validation/
+.e2e-state.json
+coverage.json
+output/
+
 # Claude Code internal tooling (settings, skills, memory — not for contributors)
 .claude/
 .remember/

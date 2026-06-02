@@ -123,12 +123,23 @@ class LangGraphRuntime(RuntimeBuilder):
             ollama_extra = ""
             if config.model.primary.startswith("ollama/"):
                 ollama_extra = '\nENV OLLAMA_BASE_URL="http://agentbreeder-ollama:11434"'
+            template = DOCKERFILE_TEMPLATE
+            # When the runtime is bundled as a local wheel (e.g. deploying from an
+            # unpublished dev checkout via AGENTBREEDER_RUNTIME_REQUIREMENT=./*.whl),
+            # the wheel must be COPYied into the image BEFORE `pip install -r`, which
+            # the cache-friendly "COPY requirements.txt first" ordering skips. Copy
+            # any bundled wheels just before the install so the path requirement
+            # resolves; no-op for the common (published-dependency) case.
+            wheels = sorted(p.name for p in build_dir.glob("*.whl"))
+            if wheels:
+                copy_wheels = "".join(f"COPY {w} ./\n" for w in wheels)
+                template = template.replace(
+                    "COPY requirements.txt .\n",
+                    "COPY requirements.txt .\n" + copy_wheels,
+                    1,
+                )
             dockerfile_content = (
-                DOCKERFILE_TEMPLATE.rstrip()
-                + "\n\n# Agent configuration\n"
-                + env_block
-                + ollama_extra
-                + "\n"
+                template.rstrip() + "\n\n# Agent configuration\n" + env_block + ollama_extra + "\n"
             )
             dockerfile.write_text(dockerfile_content)
 
