@@ -26,6 +26,9 @@
 | **v1.9** | Polyglot Runtime | Node.js/TypeScript first-class runtime — 8 TS framework templates, NodeRuntimeFamily, @agentbreeder/aps-client, mcp-server.schema.json, `agentbreeder init --language node` | #129 | Done |
 | **v2.0** | Quality & Testing | Exhaustive live Docker Playwright suite: providers, prompts, tools, RAG, MCP, agents (no-code + low-code), execution, tracing, evals, costs, RBAC — 104 tests, 15 spec files | M38 | Done |
 | **v2.6** | Website Production Readiness | Marketing site at agentbreeder.io: WCAG 2.1 AA compliance, branded 404, `/about` `/privacy` `/terms` `/cloud` pages, `robots.txt` + `sitemap.xml`, design-system token centralization, `console.agentbreeder.io` launch prep | [#495](https://github.com/agentbreeder/agentbreeder/issues/495) | In Progress |
+| **v2.7** | ECS Deploy Hardening | Live-validated AWS ECS Fargate end-to-end deploy incl. the MCP/sidecar topology: cpu/mem unit normalization, log-group pre-create, container logging, local-wheel build, `$PORT` honoring, python healthcheck, sidecar `AGENT_NAME`/auth + pullable image, public-IP endpoint resolution, server input normalization, and first-class MCP tool loading (`agenthub.mcp.load_mcp_tools`) | [#532](https://github.com/agentbreeder/agentbreeder/pull/532) | Done (PR open) |
+
+> **v2.7 follow-ups** (deferred from PR #532): inject `AGENTBREEDER_MCP_SERVERS` into the non-ECS multi-container deployers — [#533](https://github.com/agentbreeder/agentbreeder/issues/533); route `load_mcp_tools` through the sidecar passthrough for guardrails/tracing — [#534](https://github.com/agentbreeder/agentbreeder/issues/534).
 
 ---
 
