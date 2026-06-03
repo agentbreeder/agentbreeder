@@ -150,3 +150,99 @@ class MCPServe:
 # ---------------------------------------------------------------------------
 
 serve = MCPServe()
+
+
+# ---------------------------------------------------------------------------
+# Client side — load tools from MCP servers the deployer wired in
+# ---------------------------------------------------------------------------
+
+# Env var the deployer populates with the resolved MCP forwarding map:
+# {"<name>": {"transport": "...", "url": "http://localhost:<port>"}}
+MCP_SERVERS_ENV = "AGENTBREEDER_MCP_SERVERS"
+
+
+def load_mcp_tools(*, attempts: int = 8, delay: float = 3.0) -> list[Any]:
+    """Load LangChain tools from the MCP servers attached to this deployment.
+
+    Reads the ``AGENTBREEDER_MCP_SERVERS`` env var (injected by the deployer
+    when an agent declares ``mcp_servers``) and returns the servers' tools as
+    LangChain ``BaseTool`` objects, ready to hand to ``create_react_agent`` or
+    ``model.bind_tools(...)``. This is the supported way for a Full Code
+    LangGraph agent to consume co-deployed MCP tools — no hand-rolled client.
+
+    Resilient by design: returns ``[]`` when no servers are configured, and
+    retries while a slow-starting MCP sidecar container comes up. ``langchain-
+    mcp-adapters`` is imported lazily so the SDK has no hard dependency on it.
+
+    Example::
+
+        from agenthub.mcp import load_mcp_tools
+        from langgraph.prebuilt import create_react_agent
+
+        graph = create_react_agent(model, load_mcp_tools())
+    """
+    import json
+    import os
+
+    raw = os.environ.get(MCP_SERVERS_ENV, "").strip()
+    if not raw:
+        return []
+    try:
+        servers = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        logger.warning("Invalid %s: %s — no MCP tools loaded", MCP_SERVERS_ENV, exc)
+        return []
+
+    connections = {
+        name: {
+            "url": cfg["url"],
+            "transport": cfg.get("transport", "streamable_http"),
+        }
+        for name, cfg in servers.items()
+        if isinstance(cfg, dict) and cfg.get("url")
+    }
+    if not connections:
+        return []
+
+    return _load_tools_blocking(connections, attempts=attempts, delay=delay)
+
+
+def _load_tools_blocking(
+    connections: dict[str, dict[str, str]], *, attempts: int, delay: float
+) -> list[Any]:
+    """Drive the async MCP client to completion, with startup retries.
+
+    Works whether or not an event loop is already running (the agent module is
+    imported from within the server's loop), running in a worker thread when one
+    is active so a bare ``asyncio.run`` can't fail.
+    """
+    import asyncio
+    import time
+
+    async def _fetch() -> list[Any]:
+        from langchain_mcp_adapters.client import MultiServerMCPClient
+
+        return await MultiServerMCPClient(connections).get_tools()
+
+    def _drive() -> list[Any]:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(_fetch())
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(_fetch())).result()
+
+    last_err: Exception | None = None
+    for i in range(attempts):
+        try:
+            tools = _drive()
+            logger.info("Loaded %d MCP tool(s) from %s", len(tools), ", ".join(connections))
+            return tools
+        except Exception as exc:  # noqa: BLE001 — startup race with MCP container
+            last_err = exc
+            logger.warning("MCP tools not ready (attempt %d/%d): %s", i + 1, attempts, exc)
+            time.sleep(delay)
+    logger.error("Giving up loading MCP tools: %s — running without them", last_err)
+    return []

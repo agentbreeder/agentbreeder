@@ -374,7 +374,9 @@ async def invoke(request: InvokeRequest) -> InvokeResponse:
         configurable["thread_id"] = thread_id
         config: dict[str, Any] = {**base_config, "configurable": configurable}
 
-        input_data = request.input
+        # Accept a bare string / {"message": ...} and coerce to the messages
+        # shape the graph expects, so the documented invoke payload works.
+        input_data = _normalize_input(request.input)
 
         # Pre-invoke: load conversation history from memory store.
         if _memory is not None:
@@ -443,6 +445,31 @@ async def resume(request: ResumeRequest) -> InvokeResponse:
     except Exception as e:
         logger.exception("Agent resume failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _normalize_input(input_data: Any) -> Any:
+    """Coerce convenience input shapes into the ``messages`` form graphs expect.
+
+    Most LangGraph agents (and ``create_react_agent``) key on ``messages``, but
+    callers naturally send a bare string or ``{"message": "hi"}`` (which is what
+    the CLI's deploy hint shows). Without this, that text never reaches the graph
+    — the model sees an empty conversation. We convert:
+
+      - ``"hi"``                       → ``{"messages": [user "hi"]}``
+      - ``{"message"/"input"/...: "hi"}`` → ``{"messages": [user "hi"], ...rest}``
+
+    Anything already carrying ``messages`` (or a custom-state dict with no known
+    single-message key) is passed through untouched.
+    """
+    if isinstance(input_data, str):
+        return {"messages": [{"role": "user", "content": input_data}]}
+    if isinstance(input_data, dict) and "messages" not in input_data:
+        for key in ("message", "input", "query", "question", "prompt", "text"):
+            value = input_data.get(key)
+            if isinstance(value, str):
+                rest = {k: v for k, v in input_data.items() if k != key}
+                return {"messages": [{"role": "user", "content": value}], **rest}
+    return input_data
 
 
 def _extract_query(input_data: dict[str, Any]) -> str:

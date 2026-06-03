@@ -1096,3 +1096,36 @@ class TestKBPgvectorInjection:
         out = await srv._inject_kb_context("q", ["missing-index"], top_k=2)
         assert out == ""
         sentinel.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _normalize_input — convenience input shapes → messages
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeInput:
+    def test_bare_string_becomes_user_message(self):
+        srv = _import_server()
+        assert srv._normalize_input("hi") == {"messages": [{"role": "user", "content": "hi"}]}
+
+    def test_message_key_becomes_messages(self):
+        srv = _import_server()
+        assert srv._normalize_input({"message": "hello"}) == {
+            "messages": [{"role": "user", "content": "hello"}]
+        }
+
+    def test_other_keys_preserved(self):
+        srv = _import_server()
+        out = srv._normalize_input({"message": "hi", "session_id": "s1"})
+        assert out["messages"] == [{"role": "user", "content": "hi"}]
+        assert out["session_id"] == "s1"
+
+    def test_existing_messages_passed_through(self):
+        srv = _import_server()
+        data = {"messages": [{"role": "user", "content": "x"}]}
+        assert srv._normalize_input(data) is data
+
+    def test_custom_state_without_known_key_unchanged(self):
+        srv = _import_server()
+        data = {"my_field": 123}
+        assert srv._normalize_input(data) == {"my_field": 123}

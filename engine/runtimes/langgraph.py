@@ -196,6 +196,10 @@ class LangGraphRuntime(RuntimeBuilder):
             deps.append("langchain-openai>=0.2.0")
         if _should_add_litellm_sdk(config):
             deps.extend(_get_litellm_requirements())
+        # MCP servers → the agent loads their tools via langchain-mcp-adapters
+        # (agenthub.mcp.load_mcp_tools).
+        if config.mcp_servers:
+            deps.append("langchain-mcp-adapters>=0.1.0")
         support = runtime_support_requirement()
         if support:
             deps.append(support)

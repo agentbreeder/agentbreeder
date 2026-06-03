@@ -404,6 +404,30 @@ Forwarding is HTTP/SSE-only: a co-deployed server speaks HTTP on its port, and a
 *remote* `stdio` server cannot be forwarded (use `sse`/`http`, or co-deploy an
 image). Single-container targets (App Runner) support remote `url` servers only.
 
+### Using MCP tools in a Full Code agent
+
+Declaring `mcp_servers` injects the resolved forwarding map into the agent
+container as the `AGENTBREEDER_MCP_SERVERS` env var (each entry points at a
+co-deployed container over `localhost:<port>` or a remote `url`). A Full Code
+LangGraph agent turns that into bound, callable tools with one helper — no
+hand-rolled MCP client:
+
+```python
+from agenthub.mcp import load_mcp_tools
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+
+model = ChatOpenAI(model="gpt-4o")
+# Loads every declared MCP server's tools as LangChain tools. Returns [] when
+# none are configured, and retries while a co-deployed sidecar container starts.
+graph = create_react_agent(model, load_mcp_tools())
+```
+
+`load_mcp_tools()` reads `AGENTBREEDER_MCP_SERVERS`, connects to each server via
+`langchain-mcp-adapters` (auto-added to the image when `mcp_servers` is set),
+and returns the tools ready to bind — the LLM decides when to call them. No-Code
+/ Low-Code agents get this wiring generated for them.
+
 ---
 
 ## API Reference

@@ -426,6 +426,20 @@ class AWSECSDeployer(BaseDeployer):
         if is_sidecar_active:
             env_vars["PORT"] = "8081"
 
+        # Expose the resolved MCP forwarding map to the agent so it can load the
+        # co-deployed servers' tools via agenthub.mcp.load_mcp_tools().
+        if config.mcp_servers:
+            import json
+
+            from engine.deployers.mcp_sidecar import (
+                build_sidecar_env_map,
+                resolve_mcp_servers,
+            )
+
+            mcp_map = build_sidecar_env_map(resolve_mcp_servers(config.mcp_servers))
+            if mcp_map:
+                env_vars["AGENTBREEDER_MCP_SERVERS"] = json.dumps(mcp_map)
+
         # Add user-defined env vars, excluding AWS_ prefixed infra vars
         for key, value in config.deploy.env_vars.items():
             if not key.startswith("AWS_"):

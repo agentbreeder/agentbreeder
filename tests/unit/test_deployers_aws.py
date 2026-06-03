@@ -1792,3 +1792,45 @@ class TestResolveTaskEndpoint:
             url = await deployer._resolve_task_endpoint(config)
 
         assert url is None
+
+
+class TestMcpServerEnvInjection:
+    """When mcp_servers are declared, the agent container gets the forwarding
+    map via AGENTBREEDER_MCP_SERVERS so agenthub.mcp.load_mcp_tools() works."""
+
+    def test_agent_env_carries_mcp_servers_map(self) -> None:
+        from engine.config_parser import McpServerRef
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        config.mcp_servers = [
+            McpServerRef(
+                ref="mcp/example-tools", transport="streamable_http", url="http://remote/mcp"
+            )
+        ]
+        deployer._aws_config = _extract_ecs_config(config)
+
+        container_def = deployer._build_container_definition(
+            config, "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+        )
+
+        env = {e["name"]: e["value"] for e in container_def["environment"]}
+        assert "AGENTBREEDER_MCP_SERVERS" in env
+        import json
+
+        parsed = json.loads(env["AGENTBREEDER_MCP_SERVERS"])
+        assert "example-tools" in parsed
+        assert parsed["example-tools"]["url"] == "http://remote/mcp"
+
+    def test_no_mcp_env_when_no_servers(self) -> None:
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        deployer._aws_config = _extract_ecs_config(config)
+        container_def = deployer._build_container_definition(
+            config, "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+        )
+        env = {e["name"] for e in container_def["environment"]}
+        assert "AGENTBREEDER_MCP_SERVERS" not in env
