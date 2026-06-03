@@ -120,7 +120,18 @@ def _resolve_memory_config(store_refs: list[str]) -> tuple[str, int]:
                     return cfg.backend_type, int(ttl)
             return "postgresql", 0
 
-        return asyncio.run(_fetch())
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop — safe to drive one directly.
+            return asyncio.run(_fetch())
+        # A loop is already running in this thread (the CLI wraps deploy in
+        # asyncio.run), so asyncio.run() would raise and leak an un-awaited
+        # coroutine. Run the fetch in a dedicated worker thread instead.
+        import concurrent.futures  # noqa: PLC0415
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(_fetch())).result()
     except Exception:
         logger.debug("MemoryService not available; using postgresql backend default")
         return "postgresql", 0

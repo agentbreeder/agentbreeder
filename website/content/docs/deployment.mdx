@@ -543,13 +543,14 @@ deploy:
     LOG_LEVEL: info
 ```
 
-<Callout type="warn" title="Fargate task sizes are exact">
-  `resources.cpu` / `resources.memory` are passed to ECS as **Fargate task-size
-  units**: CPU in units (`256`, `512`, `1024`, `2048`, `4096`) and memory in MiB
-  (`512`, `1024`, …) — and the two must be a [valid
-  pairing](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-task-defs.html#fargate-tasks-size).
-  Using vCPU notation like `cpu: "0.5"` fails task-definition registration with
-  *"Invalid 'cpu' setting for task."*
+<Callout type="info" title="CPU/memory notation is normalized for you">
+  `resources.cpu` / `resources.memory` accept **either** vCPU/Gi notation
+  (`cpu: "1"`, `memory: "2Gi"` — what the rest of the docs use) **or** raw
+  Fargate task-size units (`cpu: "512"`, `memory: "1024"` MiB). The deployer
+  converts vCPU→CPU units (1 vCPU = 1024) and Gi→MiB before registering the
+  task definition. The resulting pair must still be a [valid Fargate
+  combination](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-task-defs.html#fargate-tasks-size)
+  (e.g. `cpu: "0.5"` + `memory: "1Gi"`).
 </Callout>
 
 ### Prerequisites
@@ -571,8 +572,8 @@ Plus the BYO AWS infra referenced in `env_vars`:
 | **VPC + subnets** | ≥2 subnets across AZs; public IP is assigned to the task ENI so the agent is reachable. |
 | **Agent security group** | Allows the agent's port (8080) from your caller / load balancer. |
 | **ECS cluster** | An existing cluster named in `AWS_ECS_CLUSTER`. |
-| **Execution role** | Has `AmazonECSTaskExecutionRolePolicy` (ECR pull + CloudWatch Logs `CreateLogStream`/`PutLogEvents`). |
-| **CloudWatch log group** | The task logs to `/agentbreeder/<agent>`. Pre-create it, **or** grant the execution role `logs:CreateLogGroup` so the awslogs driver can auto-create it. |
+| **Execution role** | Has `AmazonECSTaskExecutionRolePolicy` (ECR pull + CloudWatch Logs `CreateLogStream`/`PutLogEvents`). No extra `logs:CreateLogGroup` permission is needed. |
+| **CloudWatch log group** | The deployer pre-creates `/agentbreeder/<agent>` with your operator credentials, so the stock execution role above is sufficient — the task itself never calls `CreateLogGroup`. |
 
 ### Run the deploy
 
@@ -659,8 +660,8 @@ your own VPC or cluster.
 |---|---|
 | `Connection refused` fetching Docker API version | Local Docker daemon isn't running. Start Docker Desktop (`open -a Docker`) and retry. On multi-user macs the deployer prefers your own `~/.docker/run/docker.sock` over a root-owned `/var/run/docker.sock` symlink. |
 | `Credentials store docker-credential-gcloud exited` | A registry cred-helper in `~/.docker/config.json` is interfering. The deployer authenticates to ECR explicitly; run with an isolated `DOCKER_CONFIG` pointing at a dir whose `config.json` is `{"auths":{}}`. |
-| `Invalid 'cpu' setting for task` | Use Fargate task-size units (`cpu: "512"`, `memory: "1024"`), not vCPU notation. See the callout above. |
-| Task stuck `PENDING` → `STOPPED`, `ResourceInitializationError … logs:CreateLogGroup … AccessDenied` | The execution role can't create the log group. Pre-create `/agentbreeder/<agent>` or grant `logs:CreateLogGroup`. |
+| `Invalid 'cpu' setting for task` | The normalized `cpu`/`memory` pair isn't a [valid Fargate combination](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-task-defs.html#fargate-tasks-size). Both `cpu: "1"` (vCPU) and `cpu: "1024"` (units) are accepted — pick a memory value the chosen CPU size supports. |
+| Task stuck `PENDING` → `STOPPED`, `ResourceInitializationError … logs:CreateLogGroup … AccessDenied` | Pre-2.x deployers relied on the task creating its own log group. Current deployers pre-create `/agentbreeder/<agent>` for you — upgrade `agentbreeder`, or as a stopgap pre-create the group manually. |
 | `ServiceNotActiveException: Service was not ACTIVE` | A prior failed deploy left the service `DRAINING`/`INACTIVE`. Delete it (`aws ecs delete-service --force`) and redeploy. |
 
 ---

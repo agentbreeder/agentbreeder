@@ -12,6 +12,7 @@ Cloud-specific logic stays in this module — never leak AWS details elsewhere.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -42,6 +43,55 @@ logger = logging.getLogger(__name__)
 DEFAULT_REGION = "us-east-1"
 DEFAULT_CPU = "512"  # ECS task CPU units (256, 512, 1024, 2048, 4096)
 DEFAULT_MEMORY = "1024"  # ECS task memory in MiB
+
+# Fargate caps CPU at 16 vCPU. Any value <= this (or fractional) is read as a
+# vCPU count; larger values are assumed to already be in CPU units.
+_MAX_VCPU = 16
+
+
+def _normalize_cpu(value: str | None) -> str:
+    """Convert a CPU spec to ECS Fargate CPU units (1 vCPU = 1024 units).
+
+    Accepts vCPU notation (``"1"``, ``"0.5"``, ``"2"``) and raw CPU-unit
+    notation (``"512"``, ``"1024"``). The documented ``agent.yaml`` uses vCPU
+    notation, so ``cpu: "1"`` must become ``"1024"`` while ``cpu: "512"``
+    (already units) passes through unchanged.
+    """
+    raw = (value or "").strip().lower().removesuffix("vcpu").strip()
+    match = re.match(r"^([0-9]*\.?[0-9]+)$", raw)
+    if not match:
+        digits = "".join(c for c in raw if c.isdigit())
+        return digits or DEFAULT_CPU
+    num = float(match.group(1))
+    if num <= 0:
+        return DEFAULT_CPU
+    # Fractional or small-integer values are vCPU counts (e.g. 0.5, 1, 2);
+    # larger values are already CPU units (e.g. 256, 1024).
+    if num != int(num) or num <= _MAX_VCPU:
+        return str(int(round(num * 1024)))
+    return str(int(num))
+
+
+def _normalize_memory(value: str | None) -> str:
+    """Convert a memory spec to ECS Fargate memory in MiB.
+
+    Accepts Kubernetes-style quantities (``"2Gi"``, ``"512Mi"``), plain
+    GB/MB suffixes (``"2G"``, ``"512M"``) and raw MiB integers (``"1024"``).
+    """
+    raw = (value or "").strip()
+    match = re.match(r"^([0-9]*\.?[0-9]+)\s*([a-zA-Z]*)$", raw)
+    if not match:
+        digits = "".join(c for c in raw if c.isdigit())
+        return digits or DEFAULT_MEMORY
+    num = float(match.group(1))
+    unit = match.group(2).lower()
+    if unit in ("gi", "g", "gb"):
+        mib = num * 1024
+    else:  # "", "mi", "m", "mb" — already MiB-scale
+        mib = num
+    return str(int(round(mib))) if mib > 0 else DEFAULT_MEMORY
+
+
 HEALTH_CHECK_TIMEOUT = 120
 HEALTH_CHECK_INTERVAL = 5
 WAITER_DELAY = 15  # seconds between waiter polls
@@ -354,12 +404,10 @@ class AWSECSDeployer(BaseDeployer):
         """Build the ECS container definition dict."""
         # Resource config — ECS uses CPU units (1 vCPU = 1024 units)
         resources = config.deploy.resources
-        # Allow override via int string; default to task-level values
-        cpu = resources.cpu or DEFAULT_CPU
-        memory = resources.memory or DEFAULT_MEMORY
-        # Strip non-numeric characters if user passed "512m" style
-        cpu_str = "".join(c for c in cpu if c.isdigit()) or DEFAULT_CPU
-        memory_str = "".join(c for c in memory if c.isdigit()) or DEFAULT_MEMORY
+        # Normalize vCPU/Gi notation (cpu:"1", memory:"2Gi") to Fargate's
+        # CPU units / MiB. Raw-unit notation passes through unchanged.
+        cpu_str = _normalize_cpu(resources.cpu)
+        memory_str = _normalize_memory(resources.memory)
 
         # Environment variables
         env_vars: dict[str, str] = {
@@ -421,7 +469,11 @@ class AWSECSDeployer(BaseDeployer):
                         self._aws_config.region if self._aws_config else DEFAULT_REGION
                     ),
                     "awslogs-stream-prefix": "ecs",
-                    "awslogs-create-group": "true",
+                    # The deployer pre-creates the log group (see
+                    # _ensure_log_group), so the task's execution role does not
+                    # need logs:CreateLogGroup — only the perms in the stock
+                    # AmazonECSTaskExecutionRolePolicy.
+                    "awslogs-create-group": "false",
                 },
             },
             "healthCheck": {
@@ -439,6 +491,32 @@ class AWSECSDeployer(BaseDeployer):
             container["secrets"] = ecs_secrets
         return container
 
+    async def _ensure_log_group(self, config: AgentConfig) -> None:
+        """Pre-create the CloudWatch log group for this agent.
+
+        We create ``/agentbreeder/<agent>`` with the operator's credentials so
+        the task execution role does not need ``logs:CreateLogGroup`` — a BYO
+        role carrying only ``AmazonECSTaskExecutionRolePolicy`` (which grants
+        CreateLogStream + PutLogEvents but not CreateLogGroup) would otherwise
+        fail every task with ``ResourceInitializationError``.
+        """
+        logs = self._get_boto3_client("logs")
+        log_group = f"/agentbreeder/{config.name}"
+        try:
+            logs.create_log_group(logGroupName=log_group)
+            logger.info("Created CloudWatch log group: %s", log_group)
+        except Exception as exc:  # noqa: BLE001 — boto3 raises dynamic client errors
+            name = type(exc).__name__
+            if "ResourceAlreadyExists" in name or "ResourceAlreadyExists" in str(exc):
+                logger.debug("Log group %s already exists", log_group)
+            else:
+                logger.warning(
+                    "Could not pre-create log group %s: %s — the task execution "
+                    "role must grant logs:CreateLogGroup",
+                    log_group,
+                    exc,
+                )
+
     async def _register_task_definition(self, config: AgentConfig, image_uri: str) -> str:
         """Register an ECS task definition and return its ARN."""
         ecs = self._get_boto3_client("ecs")
@@ -448,11 +526,8 @@ class AWSECSDeployer(BaseDeployer):
         aws = self._aws_config
 
         resources = config.deploy.resources
-        cpu_str = "".join(c for c in (resources.cpu or DEFAULT_CPU) if c.isdigit()) or DEFAULT_CPU
-        memory_str = (
-            "".join(c for c in (resources.memory or DEFAULT_MEMORY) if c.isdigit())
-            or DEFAULT_MEMORY
-        )
+        cpu_str = _normalize_cpu(resources.cpu)
+        memory_str = _normalize_memory(resources.memory)
 
         mirrored_refs = list(self._mirror_result.refs) if self._mirror_result else []
         container_def = self._build_container_definition(
@@ -681,6 +756,10 @@ class AWSECSDeployer(BaseDeployer):
 
         # Step 1b (Track K): mirror workspace secrets → AWS Secrets Manager
         await self._mirror_workspace_secrets(config, aws)
+
+        # Step 1c: pre-create the CloudWatch log group so a stock execution
+        # role (without logs:CreateLogGroup) can still launch tasks.
+        await self._ensure_log_group(config)
 
         # Step 2: Register task definition
         self._task_definition_arn = await self._register_task_definition(config, self._image_uri)
