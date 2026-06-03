@@ -8,7 +8,25 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Fixed
+- **AWS ECS Fargate deploy hardening** (live-validated end-to-end, incl. the MCP/sidecar topology):
+  `resources.cpu`/`memory` accept both vCPU/Gi and raw-unit notation (normalized to Fargate units);
+  the CloudWatch log group is pre-created (stock execution role suffices — no `logs:CreateLogGroup`);
+  injected sidecar + MCP containers ship logs to CloudWatch; the agent honors `$PORT` (8081 behind the
+  sidecar) and uses a `python` healthcheck (`python:slim` has no `curl`); the sidecar receives
+  `AGENT_NAME`/`AGENT_VERSION` + a no-auth fallback and drops its impossible distroless `curl`
+  healthcheck; the default sidecar image points at the published `rajits/agentbreeder-sidecar`.
+- `engine/resolver._resolve_memory_config` no longer leaks a "coroutine never awaited" warning when
+  called from within a running event loop (runs the registry lookup in a worker thread).
+
 ### Added
+- **First-class MCP tool loading for Full Code agents**: `agenthub.mcp.load_mcp_tools()` reads the
+  `AGENTBREEDER_MCP_SERVERS` map the deployer injects and returns the co-deployed servers' tools as
+  LangChain tools (`create_react_agent(model, load_mcp_tools())`). The langgraph runtime bundles
+  `langchain-mcp-adapters` when `mcp_servers` is declared.
+- The langgraph agent server normalizes convenience input shapes — a bare string or
+  `{"input":{"message":"…"}}` is coerced to the `messages` list the graph expects (previously the
+  user text never reached the model).
 - **Studio self-hosting (P5)**: a Helm chart (`deploy/helm/agentbreeder`) deploys the full platform
   (Studio + API + migrations) on Kubernetes, with toggleable bundled Postgres/Redis subcharts, a
   TLS-capable Ingress, and auto-generated signing keys. The dashboard image now renders its nginx

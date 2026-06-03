@@ -3074,7 +3074,7 @@ agentbreeder/
 
 ---
 
-*Last updated: 2026-05-14 — 30 open issues, 109 closed*
+*Last updated: 2026-06-03 — 175 open issues, 143 closed*
 *Status: v0.1–v1.2 complete (M1–M23). v1.3–v1.7 done. v1.8 done (connectors + schedule + Ollama/OpenRouter). v1.9 done (Node.js polyglot runtime — 8 TS templates, NodeRuntimeFamily, @agentbreeder/aps-client, mcp-server.schema.json, agentbreeder init --language node). v2.0 done (M38 E2E suite — 104 tests, 15 spec files). v2.1 done (real backends across 8 dashboard pages + auto-seed registry + daily models-sync). v2.2+ planned (Cloud integration modules — see above). Open issues: 30 | Closed: 109.*
 
 ## Milestone M38 — Exhaustive Live Docker E2E Test Suite
