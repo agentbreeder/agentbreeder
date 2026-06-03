@@ -469,17 +469,24 @@ class AWSECSDeployer(BaseDeployer):
                         self._aws_config.region if self._aws_config else DEFAULT_REGION
                     ),
                     "awslogs-stream-prefix": "ecs",
-                    # The deployer pre-creates the log group (see
-                    # _ensure_log_group), so the task's execution role does not
-                    # need logs:CreateLogGroup — only the perms in the stock
-                    # AmazonECSTaskExecutionRolePolicy.
-                    "awslogs-create-group": "false",
+                    # awslogs-create-group is deliberately omitted: the deployer
+                    # pre-creates the log group (see _ensure_log_group), so the
+                    # task's execution role needs only the stock
+                    # AmazonECSTaskExecutionRolePolicy (no logs:CreateLogGroup).
+                    # AWS rejects this option when set to "false" — it must be
+                    # "true" or absent, so we leave it out entirely.
                 },
             },
             "healthCheck": {
+                # Use python (always present in the runtime image) rather than
+                # curl, which the python:slim base image does not ship.
                 "command": [
                     "CMD-SHELL",
-                    f"curl -f http://localhost:{agent_port}/health || exit 1",
+                    (
+                        'python -c "import urllib.request; '
+                        f"urllib.request.urlopen('http://localhost:{agent_port}/health')\" "
+                        "|| exit 1"
+                    ),
                 ],
                 "interval": 30,
                 "timeout": 5,
@@ -560,6 +567,22 @@ class AWSECSDeployer(BaseDeployer):
                     partial, resolve_mcp_servers(config.mcp_servers)
                 )
             container_defs = partial["containerDefinitions"]
+
+        # Ensure every container (agent + injected sidecar/MCP) ships logs to
+        # CloudWatch. The injected containers carry no logConfiguration of their
+        # own, so without this their stdout is lost and crashes are undebuggable.
+        for cdef in container_defs:
+            cdef.setdefault(
+                "logConfiguration",
+                {
+                    "logDriver": "awslogs",
+                    "options": {
+                        "awslogs-group": f"/agentbreeder/{config.name}",
+                        "awslogs-region": aws.region,
+                        "awslogs-stream-prefix": "ecs",
+                    },
+                },
+            )
 
         kwargs: dict[str, Any] = {
             "family": config.name,
@@ -767,7 +790,12 @@ class AWSECSDeployer(BaseDeployer):
         # Step 3 & 4: Create/update service and wait for stability
         await self._create_or_update_service(config, self._task_definition_arn)
 
-        endpoint_url = f"https://{config.name}.{aws.region}.ecs.local"
+        # Resolve the running task's real public endpoint so the health check
+        # (and the returned URL) hit the live agent rather than the unresolvable
+        # placeholder. Falls back to the placeholder when no public IP is found.
+        endpoint_url = await self._resolve_task_endpoint(config) or (
+            f"https://{config.name}.{aws.region}.ecs.local"
+        )
 
         logger.info("ECS Fargate service deployed: %s → %s", config.name, endpoint_url)
 
@@ -778,6 +806,46 @@ class AWSECSDeployer(BaseDeployer):
             agent_name=config.name,
             version=config.version,
         )
+
+    async def _resolve_task_endpoint(self, config: AgentConfig, port: int = 8080) -> str | None:
+        """Resolve the running task's public endpoint (``http://<ip>:<port>``).
+
+        ECS Fargate tasks with ``assignPublicIp=ENABLED`` get a public IP on
+        their ENI. We read it so the deploy returns a reachable URL and the
+        health check can verify the live agent. ``port`` 8080 is the public
+        ingress (the sidecar when injected, otherwise the agent). Returns
+        ``None`` if no public IP can be resolved.
+        """
+        assert self._aws_config is not None
+        aws = self._aws_config
+        try:
+            ecs = self._get_boto3_client("ecs")
+            task_arns = ecs.list_tasks(
+                cluster=aws.ecs_cluster, serviceName=config.name, desiredStatus="RUNNING"
+            ).get("taskArns", [])
+            if not task_arns:
+                return None
+            task = ecs.describe_tasks(cluster=aws.ecs_cluster, tasks=task_arns[:1])["tasks"][0]
+            eni_id = next(
+                (
+                    d.get("value")
+                    for att in task.get("attachments", [])
+                    for d in att.get("details", [])
+                    if d.get("name") == "networkInterfaceId"
+                ),
+                None,
+            )
+            if not eni_id:
+                return None
+            ec2 = self._get_boto3_client("ec2")
+            enis = ec2.describe_network_interfaces(NetworkInterfaceIds=[eni_id])
+            public_ip = enis["NetworkInterfaces"][0].get("Association", {}).get("PublicIp")
+            if not public_ip:
+                return None
+            return f"http://{public_ip}:{port}"
+        except Exception as exc:  # noqa: BLE001 — best-effort resolution
+            logger.warning("Could not resolve task public endpoint for '%s': %s", config.name, exc)
+            return None
 
     async def health_check(
         self,

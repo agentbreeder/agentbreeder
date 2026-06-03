@@ -266,3 +266,49 @@ class TestInjectorMcpEnv:
             "AGENTBREEDER_SIDECAR_MCP_SERVERS"
             not in services["agentbreeder-sidecar"]["environment"]
         )
+
+
+# ---------------------------------------------------------------------------
+# Agent identity + auth env (sidecar config loader requirements)
+# ---------------------------------------------------------------------------
+
+
+def _sidecar_env(result: dict) -> dict[str, str]:
+    sc = next(c for c in result["containerDefinitions"] if c["name"] == SIDECAR_NAME)
+    return {e["name"]: e["value"] for e in sc["environment"]}
+
+
+def test_inject_sidecar_sets_agent_name_and_version() -> None:
+    """The Go sidecar's config loader requires AGENT_NAME; AGENT_VERSION too."""
+    task_def = {"containerDefinitions": [{"name": "agent", "image": "a:1"}]}
+    config = SidecarConfig(enabled=True, name="my-agent", version="2.0.0")
+    env = _sidecar_env(inject_sidecar(task_def, config))
+
+    assert env["AGENT_NAME"] == "my-agent"
+    assert env["AGENT_VERSION"] == "2.0.0"
+
+
+def test_inject_sidecar_allows_no_auth_when_no_token() -> None:
+    """Without a token the sidecar must be told to allow no-auth, or it won't boot."""
+    config = SidecarConfig(enabled=True, name="a")
+    env = _sidecar_env(inject_sidecar({"containerDefinitions": []}, config))
+
+    assert env["AGENTBREEDER_SIDECAR_ALLOW_NO_AUTH"] == "1"
+    assert "AGENT_AUTH_TOKEN" not in env
+
+
+def test_inject_sidecar_forwards_auth_token_when_present() -> None:
+    """A configured token is forwarded and no-auth is NOT enabled."""
+    config = SidecarConfig(enabled=True, name="a", auth_token="s3cret")
+    env = _sidecar_env(inject_sidecar({"containerDefinitions": []}, config))
+
+    assert env["AGENT_AUTH_TOKEN"] == "s3cret"
+    assert "AGENTBREEDER_SIDECAR_ALLOW_NO_AUTH" not in env
+
+
+def test_inject_sidecar_has_no_curl_healthcheck() -> None:
+    """The distroless sidecar can't run a CMD-SHELL curl probe, so omit it."""
+    config = SidecarConfig(enabled=True, name="a")
+    result = inject_sidecar({"containerDefinitions": []}, config)
+    sc = next(c for c in result["containerDefinitions"] if c["name"] == SIDECAR_NAME)
+    assert "healthCheck" not in sc

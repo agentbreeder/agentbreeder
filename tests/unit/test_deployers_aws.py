@@ -1737,4 +1737,58 @@ class TestLogGroupPrecreation:
 
         log_opts = container_def["logConfiguration"]["options"]
         # We pre-create the group, so the task must NOT attempt CreateLogGroup.
-        assert log_opts["awslogs-create-group"] == "false"
+        # AWS rejects awslogs-create-group="false", so the option is omitted.
+        assert "awslogs-create-group" not in log_opts
+
+
+class TestResolveTaskEndpoint:
+    """Resolve the running task's public IP into a reachable http endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_resolves_public_ip_endpoint(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.list_tasks.return_value = {"taskArns": ["arn:task/abc"]}
+        ecs_mock.describe_tasks.return_value = {
+            "tasks": [
+                {
+                    "attachments": [
+                        {"details": [{"name": "networkInterfaceId", "value": "eni-123"}]}
+                    ]
+                }
+            ]
+        }
+        ec2_mock = MagicMock()
+        ec2_mock.describe_network_interfaces.return_value = {
+            "NetworkInterfaces": [{"Association": {"PublicIp": "203.0.113.7"}}]
+        }
+
+        with patch.object(
+            deployer,
+            "_get_boto3_client",
+            side_effect=_mock_boto3_client({"ecs": ecs_mock, "ec2": ec2_mock}),
+        ):
+            url = await deployer._resolve_task_endpoint(config)
+
+        assert url == "http://203.0.113.7:8080"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_running_task(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.list_tasks.return_value = {"taskArns": []}
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            url = await deployer._resolve_task_endpoint(config)
+
+        assert url is None

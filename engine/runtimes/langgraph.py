@@ -19,6 +19,7 @@ from engine.runtimes.base import (
     _should_add_litellm_sdk,
     build_env_block,
     runtime_support_requirement,
+    stage_local_wheel,
 )
 
 LANGGRAPH_SERVER_TEMPLATE = Path(__file__).parent / "templates" / "langgraph_server.py"
@@ -42,9 +43,11 @@ USER agent
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8080/health').raise_for_status()"
+    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://localhost:'+os.environ.get('PORT','8080')+'/health')"
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+# Honor $PORT: when the observability sidecar is injected the deployer sets
+# PORT=8081 so the sidecar can front public traffic on 8080.
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8080}"]
 """
 
 
@@ -110,8 +113,14 @@ class LangGraphRuntime(RuntimeBuilder):
                 existing_requirements = requirements_file.read_text()
 
             framework_deps = self.get_requirements(config)
-            all_deps = set(existing_requirements.strip().splitlines()) | set(framework_deps)
-            requirements_file.write_text("\n".join(sorted(all_deps)) + "\n")
+            all_deps = sorted(
+                set(existing_requirements.strip().splitlines()) | set(framework_deps)
+            )
+            # If a local wheel was requested (e.g. a dev build via
+            # AGENTBREEDER_RUNTIME_REQUIREMENT), copy it into the context and
+            # rewrite the requirement to a bare filename so pip can install it.
+            wheel_name = stage_local_wheel(build_dir, all_deps)
+            requirements_file.write_text("\n".join(all_deps) + "\n")
 
             # Copy the server wrapper template
             if LANGGRAPH_SERVER_TEMPLATE.exists():
@@ -130,6 +139,14 @@ class LangGraphRuntime(RuntimeBuilder):
                 + ollama_extra
                 + "\n"
             )
+            if wheel_name:
+                # COPY the wheel in before `pip install` runs (the template
+                # installs requirements before `COPY . .`).
+                dockerfile_content = dockerfile_content.replace(
+                    "COPY requirements.txt .\n",
+                    f"COPY requirements.txt .\nCOPY {wheel_name} ./\n",
+                    1,
+                )
             dockerfile.write_text(dockerfile_content)
 
             tag = f"agentbreeder/{config.name}:{config.version}"
