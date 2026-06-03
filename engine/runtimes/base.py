@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 from abc import ABC, abstractmethod
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -78,35 +77,6 @@ def runtime_support_requirement() -> str | None:
             "AGENTBREEDER_RUNTIME_REQUIREMENT to pin it explicitly."
         )
         return "agentbreeder"
-
-
-def stage_local_wheel(build_dir: Path, requirements: list[str]) -> str | None:
-    """Make a local-wheel requirement installable inside the image.
-
-    ``AGENTBREEDER_RUNTIME_REQUIREMENT`` may be a local wheel path (e.g. a dev
-    build). The Dockerfile copies ``requirements.txt`` and runs ``pip install``
-    *before* ``COPY . .``, so a wheel referenced by a host path (or a bare
-    filename that isn't present yet) makes pip fail with ``No such file``.
-
-    This copies the first local-wheel requirement into ``build_dir``, rewrites
-    its entry in ``requirements`` (in place) to the bare filename, and returns
-    that filename so the caller can ``COPY`` it before ``pip install``. Returns
-    ``None`` when no requirement is a resolvable local wheel (PyPI specs, VCS
-    URLs, and remote wheel URLs are left untouched).
-    """
-    for i, req in enumerate(requirements):
-        candidate = req.strip()
-        if not candidate.endswith(".whl") or "://" in candidate:
-            continue
-        wheel_path = Path(candidate)
-        if not wheel_path.is_file():
-            continue
-        dest = build_dir / wheel_path.name
-        if not dest.exists():
-            shutil.copy2(wheel_path, dest)
-        requirements[i] = wheel_path.name
-        return wheel_path.name
-    return None
 
 
 def _should_add_litellm_sdk(config: AgentConfig) -> bool:

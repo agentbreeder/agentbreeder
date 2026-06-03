@@ -97,6 +97,32 @@ HEALTH_CHECK_INTERVAL = 5
 WAITER_DELAY = 15  # seconds between waiter polls
 WAITER_MAX_ATTEMPTS = 40  # 40 * 15s = 10 minutes
 
+# Public-facing container port for a Fargate task (the agent, or the sidecar
+# when one is injected — both terminate inbound on 8080).
+AGENT_PUBLIC_PORT = 8080
+
+
+def _docker_client() -> Any:
+    """Return a Docker client that works on multi-user machines.
+
+    Honors ``DOCKER_HOST``; otherwise prefers the current user's Docker Desktop
+    socket (``~/.docker/run/docker.sock``) over ``/var/run/docker.sock`` — on a
+    shared host the latter can symlink to another user's root-owned socket,
+    which makes the Python SDK fail with ``PermissionError(13)`` even though the
+    ``docker`` CLI (which uses the Desktop context) works fine.
+    """
+    import os
+    from pathlib import Path
+
+    import docker
+
+    if os.environ.get("DOCKER_HOST"):
+        return docker.from_env()
+    user_socket = Path.home() / ".docker" / "run" / "docker.sock"
+    if user_socket.exists():
+        return docker.DockerClient(base_url=f"unix://{user_socket}")
+    return docker.from_env()
+
 
 class AWSECSConfig(BaseModel):
     """AWS-specific configuration extracted from AgentConfig.deploy."""
@@ -343,7 +369,7 @@ class AWSECSDeployer(BaseDeployer):
         to build, tag, and push the image.
         """
         try:
-            import docker
+            import docker  # noqa: F401  # presence check for a friendly error message
         except ImportError as e:
             msg = "Docker SDK not installed. Run: pip install docker"
             raise ImportError(msg) from e
@@ -359,7 +385,7 @@ class AWSECSDeployer(BaseDeployer):
 
         token = base64.b64decode(auth_data["authorizationToken"]).decode("utf-8")
         username, password = token.split(":", 1)
-        docker_client = docker.from_env()
+        docker_client = _docker_client()
 
         # Build the image locally
         logger.info("Building Docker image: %s", image.tag)
@@ -623,6 +649,54 @@ class AWSECSDeployer(BaseDeployer):
         logger.info("Registered task definition: %s", task_def_arn)
         return task_def_arn
 
+    async def _resolve_task_endpoint(self, config: AgentConfig) -> str | None:
+        """Return ``http://<public-ip>:8080`` for the service's running task.
+
+        ECS Fargate exposes no stable DNS without an ALB, but a task launched
+        with ``assignPublicIp=ENABLED`` gets a public IP on its ENI. We read it
+        so the deployed agent has a reachable endpoint. Returns ``None`` if no
+        running task or no public IP is found (caller falls back to a placeholder).
+        """
+        assert self._aws_config is not None
+        aws = self._aws_config
+        ecs = self._get_boto3_client("ecs")
+        ec2 = self._get_boto3_client("ec2")
+
+        task_arns = ecs.list_tasks(
+            cluster=aws.ecs_cluster, serviceName=config.name, desiredStatus="RUNNING"
+        ).get("taskArns", [])
+        if not task_arns:
+            logger.warning("No running task for service '%s'; using placeholder URL", config.name)
+            return None
+
+        described = ecs.describe_tasks(cluster=aws.ecs_cluster, tasks=task_arns[:1])
+        tasks = described.get("tasks", [])
+        if not tasks:
+            return None
+
+        eni_id: str | None = None
+        for attachment in tasks[0].get("attachments", []):
+            for detail in attachment.get("details", []):
+                if detail.get("name") == "networkInterfaceId":
+                    eni_id = detail.get("value")
+                    break
+            if eni_id:
+                break
+        if not eni_id:
+            return None
+
+        enis = ec2.describe_network_interfaces(NetworkInterfaceIds=[eni_id]).get(
+            "NetworkInterfaces", []
+        )
+        if not enis:
+            return None
+        public_ip = (enis[0].get("Association") or {}).get("PublicIp")
+        if not public_ip:
+            logger.warning("Task ENI %s has no public IP for '%s'", eni_id, config.name)
+            return None
+
+        return f"http://{public_ip}:{AGENT_PUBLIC_PORT}"
+
     async def _create_or_update_service(self, config: AgentConfig, task_def_arn: str) -> None:
         """Create a new ECS service or update an existing one."""
         ecs = self._get_boto3_client("ecs")
@@ -804,9 +878,10 @@ class AWSECSDeployer(BaseDeployer):
         # Step 3 & 4: Create/update service and wait for stability
         await self._create_or_update_service(config, self._task_definition_arn)
 
-        # Resolve the running task's real public endpoint so the health check
-        # (and the returned URL) hit the live agent rather than the unresolvable
-        # placeholder. Falls back to the placeholder when no public IP is found.
+        # Resolve the running task's public endpoint. ECS gives no stable DNS
+        # without an ALB, but the task ENI has a public IP (assignPublicIp
+        # ENABLED), so we expose http://<public-ip>:8080. Falls back to the
+        # internal placeholder if no public IP is found (e.g. private subnets).
         endpoint_url = await self._resolve_task_endpoint(config) or (
             f"https://{config.name}.{aws.region}.ecs.local"
         )
@@ -820,46 +895,6 @@ class AWSECSDeployer(BaseDeployer):
             agent_name=config.name,
             version=config.version,
         )
-
-    async def _resolve_task_endpoint(self, config: AgentConfig, port: int = 8080) -> str | None:
-        """Resolve the running task's public endpoint (``http://<ip>:<port>``).
-
-        ECS Fargate tasks with ``assignPublicIp=ENABLED`` get a public IP on
-        their ENI. We read it so the deploy returns a reachable URL and the
-        health check can verify the live agent. ``port`` 8080 is the public
-        ingress (the sidecar when injected, otherwise the agent). Returns
-        ``None`` if no public IP can be resolved.
-        """
-        assert self._aws_config is not None
-        aws = self._aws_config
-        try:
-            ecs = self._get_boto3_client("ecs")
-            task_arns = ecs.list_tasks(
-                cluster=aws.ecs_cluster, serviceName=config.name, desiredStatus="RUNNING"
-            ).get("taskArns", [])
-            if not task_arns:
-                return None
-            task = ecs.describe_tasks(cluster=aws.ecs_cluster, tasks=task_arns[:1])["tasks"][0]
-            eni_id = next(
-                (
-                    d.get("value")
-                    for att in task.get("attachments", [])
-                    for d in att.get("details", [])
-                    if d.get("name") == "networkInterfaceId"
-                ),
-                None,
-            )
-            if not eni_id:
-                return None
-            ec2 = self._get_boto3_client("ec2")
-            enis = ec2.describe_network_interfaces(NetworkInterfaceIds=[eni_id])
-            public_ip = enis["NetworkInterfaces"][0].get("Association", {}).get("PublicIp")
-            if not public_ip:
-                return None
-            return f"http://{public_ip}:{port}"
-        except Exception as exc:  # noqa: BLE001 — best-effort resolution
-            logger.warning("Could not resolve task public endpoint for '%s': %s", config.name, exc)
-            return None
 
     async def health_check(
         self,

@@ -13,6 +13,7 @@ Every resource is tagged ``AgentBreeder=true`` + ``AgentName`` + ``Version``;
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 from typing import TYPE_CHECKING, Any
@@ -400,6 +401,9 @@ class AWSProvisioner(InfraProvisioner):
                     rds=_client("rds", region, fields),
                     db_id=rds_info["db_instance_identifier"],
                     no_final_snapshot=no_final_snapshot,
+                    subnet_group=rds_info.get("subnet_group"),
+                    secret_arn=rds_info.get("secret_arn"),
+                    secretsmanager=_client("secretsmanager", region, fields),
                 )
             except Exception:  # noqa: BLE001
                 logger.exception(
@@ -462,6 +466,15 @@ class AWSProvisioner(InfraProvisioner):
                 await self._delete_vpc(ec2=ec2, vpc_id=vpc["vpc_id"])
             except Exception:  # noqa: BLE001
                 logger.exception("destroy(aws): failed to delete VPC %s", vpc.get("vpc_id"))
+
+    async def destroy_data_backend(self, state: InfraState) -> None:
+        """Tear down an auto-provisioned data store.
+
+        Unlike :meth:`destroy` (whose default preserves a final RDS snapshot for
+        a full stack), an auto-provisioned backend is ephemeral — destroy it
+        fully, leaving no snapshot to leak/bill.
+        """
+        await self.destroy(state, no_final_snapshot=True)
 
     async def provision_data_backend(
         self,
@@ -1500,7 +1513,16 @@ class AWSProvisioner(InfraProvisioner):
         if target_group_arn:
             elbv2.delete_target_group(TargetGroupArn=target_group_arn)
 
-    async def _delete_rds(self, *, rds: Any, db_id: str, no_final_snapshot: bool) -> None:
+    async def _delete_rds(
+        self,
+        *,
+        rds: Any,
+        db_id: str,
+        no_final_snapshot: bool,
+        subnet_group: str | None = None,
+        secret_arn: str | None = None,
+        secretsmanager: Any = None,
+    ) -> None:
         described = rds.describe_db_instances(DBInstanceIdentifier=db_id)
         inst = described["DBInstances"][0]
         tag_list = rds.list_tags_for_resource(ResourceName=inst["DBInstanceArn"]).get(
@@ -1519,6 +1541,28 @@ class AWSProvisioner(InfraProvisioner):
                 SkipFinalSnapshot=False,
                 FinalDBSnapshotIdentifier=snap_id,
             )
+
+        # Wait for the instance to be fully deleted before removing the resources
+        # it still references (subnet group, security group) — otherwise AWS
+        # raises DependencyViolation and they leak.
+        try:
+            rds.get_waiter("db_instance_deleted").wait(DBInstanceIdentifier=db_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("RDS delete waiter unavailable for %s", db_id)
+
+        if subnet_group:
+            try:
+                rds.delete_db_subnet_group(DBSubnetGroupName=subnet_group)
+            except Exception:  # noqa: BLE001
+                logger.warning("Could not delete RDS subnet group %s", subnet_group)
+
+        # The auto-generated password secret is AgentBreeder's to remove — force
+        # delete so it doesn't linger through a recovery window.
+        if secret_arn and secretsmanager is not None:
+            try:
+                secretsmanager.delete_secret(SecretId=secret_arn, ForceDeleteWithoutRecovery=True)
+            except Exception:  # noqa: BLE001
+                logger.warning("Could not delete DB password secret %s", secret_arn)
 
     async def _delete_elasticache(
         self, *, elasticache: Any, cluster_id: str, subnet_group: str | None
@@ -1582,14 +1626,28 @@ class AWSProvisioner(InfraProvisioner):
             )
         ecs.delete_cluster(cluster=cluster_name)
 
-    async def _delete_security_group(self, *, ec2: Any, sg_id: str) -> None:
+    async def _delete_security_group(
+        self, *, ec2: Any, sg_id: str, max_attempts: int = 12, delay_seconds: float = 10.0
+    ) -> None:
         sg = ec2.describe_security_groups(GroupIds=[sg_id])["SecurityGroups"][0]
         tags = sg.get("Tags", [])
         if not _has_agentbreeder_tag(tags):
             raise PermissionError(
                 f"destroy(aws): refusing to delete SG {sg_id!r} — missing AgentBreeder=true tag"
             )
-        ec2.delete_security_group(GroupId=sg_id)
+        # A just-deleted RDS/ElastiCache instance can keep its ENIs (and thus the
+        # SG reference) for a short while, so DeleteSecurityGroup transiently
+        # raises DependencyViolation. Retry until the dependency clears.
+        for attempt in range(max_attempts):
+            try:
+                ec2.delete_security_group(GroupId=sg_id)
+                return
+            except ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code")
+                if code == "DependencyViolation" and attempt < max_attempts - 1:
+                    await asyncio.sleep(delay_seconds)
+                    continue
+                raise
 
     async def _delete_network(self, *, ec2: Any, net: dict[str, Any]) -> None:
         # NAT gateway(s) first — they hold ENIs in subnets.

@@ -19,7 +19,6 @@ from engine.runtimes.base import (
     _should_add_litellm_sdk,
     build_env_block,
     runtime_support_requirement,
-    stage_local_wheel,
 )
 
 LANGGRAPH_SERVER_TEMPLATE = Path(__file__).parent / "templates" / "langgraph_server.py"
@@ -116,10 +115,6 @@ class LangGraphRuntime(RuntimeBuilder):
             all_deps = sorted(
                 set(existing_requirements.strip().splitlines()) | set(framework_deps)
             )
-            # If a local wheel was requested (e.g. a dev build via
-            # AGENTBREEDER_RUNTIME_REQUIREMENT), copy it into the context and
-            # rewrite the requirement to a bare filename so pip can install it.
-            wheel_name = stage_local_wheel(build_dir, all_deps)
             requirements_file.write_text("\n".join(all_deps) + "\n")
 
             # Copy the server wrapper template
@@ -132,21 +127,24 @@ class LangGraphRuntime(RuntimeBuilder):
             ollama_extra = ""
             if config.model.primary.startswith("ollama/"):
                 ollama_extra = '\nENV OLLAMA_BASE_URL="http://agentbreeder-ollama:11434"'
-            dockerfile_content = (
-                DOCKERFILE_TEMPLATE.rstrip()
-                + "\n\n# Agent configuration\n"
-                + env_block
-                + ollama_extra
-                + "\n"
-            )
-            if wheel_name:
-                # COPY the wheel in before `pip install` runs (the template
-                # installs requirements before `COPY . .`).
-                dockerfile_content = dockerfile_content.replace(
+            template = DOCKERFILE_TEMPLATE
+            # When the runtime is bundled as a local wheel (e.g. deploying from an
+            # unpublished dev checkout via AGENTBREEDER_RUNTIME_REQUIREMENT=./*.whl),
+            # the wheel must be COPYied into the image BEFORE `pip install -r`, which
+            # the cache-friendly "COPY requirements.txt first" ordering skips. Copy
+            # any bundled wheels just before the install so the path requirement
+            # resolves; no-op for the common (published-dependency) case.
+            wheels = sorted(p.name for p in build_dir.glob("*.whl"))
+            if wheels:
+                copy_wheels = "".join(f"COPY {w} ./\n" for w in wheels)
+                template = template.replace(
                     "COPY requirements.txt .\n",
-                    f"COPY requirements.txt .\nCOPY {wheel_name} ./\n",
+                    "COPY requirements.txt .\n" + copy_wheels,
                     1,
                 )
+            dockerfile_content = (
+                template.rstrip() + "\n\n# Agent configuration\n" + env_block + ollama_extra + "\n"
+            )
             dockerfile.write_text(dockerfile_content)
 
             tag = f"agentbreeder/{config.name}:{config.version}"

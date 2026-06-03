@@ -12,7 +12,6 @@ from engine.provisioners import (
     CloudName,
     InfraProvisioner,
     InfraState,
-    InfraValidationInput,
     get_requirements,
     provisioner_for,
 )
@@ -113,22 +112,3 @@ def test_provisioner_for_missing_sdk_raises_helpful_import_error(monkeypatch) ->
 
     with pytest.raises(ImportError, match=r"agentbreeder\[aws\]"):
         provisioner_for("aws")
-
-
-async def test_provision_destroy_raise_not_implemented_for_now() -> None:
-    """Greenfield provisioning is deferred to #382-#384."""
-    if not _cloud_sdk_installed("aws"):
-        pytest.skip("aws SDK not installed in this venv")
-    p = provisioner_for("aws")
-    payload = InfraValidationInput(cloud="aws", region="us-east-1", mode="simple", fields={})
-    with pytest.raises(NotImplementedError, match="#378"):
-        await p.provision(payload)
-    state = InfraState(
-        cloud="aws",
-        region="us-east-1",
-        provisioned_by="t",
-        provisioned_at=datetime.now(),
-        mode="validated",
-    )
-    with pytest.raises(NotImplementedError, match="#378"):
-        await p.destroy(state)

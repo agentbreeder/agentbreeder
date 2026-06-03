@@ -652,7 +652,9 @@ async def test_destroy_refuses_untagged_rds() -> None:
     iam.get_role.return_value = {"Role": {"Tags": [{"Key": "AgentBreeder", "Value": "true"}]}}
     iam.list_attached_role_policies.return_value = {"AttachedPolicies": []}
 
-    builders = {"ec2": ec2, "ecs": ecs, "iam": iam, "rds": rds}
+    # destroy() always builds a secretsmanager client when RDS is present (to clean
+    # up the generated DB-password secret), so the fake factory must serve it too.
+    builders = {"ec2": ec2, "ecs": ecs, "iam": iam, "rds": rds, "secretsmanager": MagicMock()}
     state = _provisioned_state(with_rds=True)
     with patch("engine.provisioners.aws._client", side_effect=_client_factory(builders)):
         # destroy() swallows individual delete exceptions; we assert via call counts.
@@ -685,7 +687,9 @@ async def test_destroy_takes_final_snapshot_by_default() -> None:
     iam.get_role.return_value = {"Role": {"Tags": [{"Key": "AgentBreeder", "Value": "true"}]}}
     iam.list_attached_role_policies.return_value = {"AttachedPolicies": []}
 
-    builders = {"ec2": ec2, "ecs": ecs, "iam": iam, "rds": rds}
+    # destroy() always builds a secretsmanager client when RDS is present (to clean
+    # up the generated DB-password secret), so the fake factory must serve it too.
+    builders = {"ec2": ec2, "ecs": ecs, "iam": iam, "rds": rds, "secretsmanager": MagicMock()}
     state = _provisioned_state(with_rds=True)
     with patch("engine.provisioners.aws._client", side_effect=_client_factory(builders)):
         await AWSProvisioner().destroy(state)
@@ -721,7 +725,9 @@ async def test_destroy_skips_snapshot_when_explicitly_requested() -> None:
     iam.get_role.return_value = {"Role": {"Tags": [{"Key": "AgentBreeder", "Value": "true"}]}}
     iam.list_attached_role_policies.return_value = {"AttachedPolicies": []}
 
-    builders = {"ec2": ec2, "ecs": ecs, "iam": iam, "rds": rds}
+    # destroy() always builds a secretsmanager client when RDS is present (to clean
+    # up the generated DB-password secret), so the fake factory must serve it too.
+    builders = {"ec2": ec2, "ecs": ecs, "iam": iam, "rds": rds, "secretsmanager": MagicMock()}
     state = _provisioned_state(with_rds=True)
     with patch("engine.provisioners.aws._client", side_effect=_client_factory(builders)):
         await AWSProvisioner().destroy(state, no_final_snapshot=True)

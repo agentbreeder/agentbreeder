@@ -1061,6 +1061,9 @@ class TestPushImage:
 
         # Set up docker mock
         mock_docker = MagicMock()
+        # _docker_client() may return docker.from_env() or docker.DockerClient(...)
+        # depending on the host's socket layout — alias both to one configured mock.
+        mock_docker.DockerClient.return_value = mock_docker.from_env.return_value
         built_image = MagicMock()
         mock_docker.from_env.return_value.images.build.return_value = (built_image, [])
         # Push stream yields an error chunk
@@ -1113,6 +1116,9 @@ class TestPushImage:
         }
 
         mock_docker = MagicMock()
+        # _docker_client() may return docker.from_env() or docker.DockerClient(...)
+        # depending on the host's socket layout — alias both to one configured mock.
+        mock_docker.DockerClient.return_value = mock_docker.from_env.return_value
         built_image = MagicMock()
         # Build logs include a 'stream' chunk
         mock_docker.from_env.return_value.images.build.return_value = (
