@@ -24,11 +24,26 @@ Container Apps with the per-cloud user-input contract below.
   this page was generated from that deploy.
 </Callout>
 
-<Callout type="info" title="Which targets ship greenfield?">
-  For the canonical, up-to-date matrix of which `--target` values provision
-  infrastructure from scratch versus which require pre-existing infra, see the
-  [deploy-target status table in the CLI reference](cli-reference#agentbreeder-deploy).
-  This page focuses on the **actionable prerequisites** for each target — see
+<Callout type="info" title="Greenfield vs. existing account — which surface does what">
+  AgentBreeder supports **two starting points** for every cloud:
+
+  - **Existing account / BYO infra** — you already have a VPC, subnets, an ECS
+    cluster, and an execution role. Both the **CLI** (`agentbreeder deploy`) and
+    **Studio** deploy into them. This is the path the two verified walkthroughs
+    on this page use.
+  - **Greenfield** — a fresh account with no networking. AgentBreeder provisions
+    the whole footprint (VPC, subnets, NAT, security groups, cluster, IAM, and —
+    when declared — RDS/ALB) for you. Today this ships through the **Studio
+    deploy wizard** (Step 3 → *Provision for me*) and the deployments job API;
+    CLI parity (`deploy --provision`) is on the
+    [roadmap](https://github.com/agentbreeder/agentbreeder/issues/383).
+
+  Independently of which path you pick, the CLI and Studio both **auto-provision
+  the data tier** (RDS pgvector / ElastiCache Redis) when an agent declares
+  `memory:` or a knowledge base without a `backend_url`. For the at-a-glance
+  matrix, see the
+  [deploy-target status table in the CLI reference](cli-reference#agentbreeder-deploy);
+  for actionable per-target prerequisites, see
   [Prerequisites per target](#prerequisites-per-target-as-of-2026-05-18) below.
 </Callout>
 
@@ -73,7 +88,10 @@ Both modes are served by two API endpoints:
 
 In simple mode AgentBreeder uses ECS cluster `agentbreeder-default`, IAM role
 `agentbreeder-ecs-execution-role`, the default VPC, and the default security group.
-These are auto-created on first deploy in greenfield mode (coming with [#383](https://github.com/agentbreeder/agentbreeder/issues/383)).
+Those defaults must already exist for a **CLI** deploy. To have AgentBreeder
+create them for you on a fresh account, use **Greenfield mode** (below) via the
+Studio wizard; the equivalent CLI auto-create is on the
+[roadmap](https://github.com/agentbreeder/agentbreeder/issues/383).
 
 **Full mode adds:**
 
@@ -94,10 +112,24 @@ These are auto-created on first deploy in greenfield mode (coming with [#383](ht
 `ec2:DescribeSecurityGroups`, `ecs:DescribeClusters`, `iam:GetRole`,
 `ecr:DescribeRepositories`.
 
-**Greenfield mode (`agentbreeder deploy --target aws --provision`):**
+**Greenfield mode (Studio → "Provision for me"):**
 
-For fresh AWS accounts, AgentBreeder creates the minimum-viable ECS Fargate
-footprint end-to-end. Only `AWS_REGION` and a credential chain are required.
+For a fresh AWS account with no networking, AgentBreeder creates the
+minimum-viable ECS Fargate footprint end-to-end. Today this runs through the
+**Studio deploy wizard** (Step 3 → *Provision for me*) and the deployments job
+API (`POST /api/v1/deployments` with `infra_mode: "provision"`), which drives the
+`AWSProvisioner.provision()` greenfield path with live SSE progress and
+partial-rollback on failure. Only `AWS_REGION` and a credential chain are
+required — no pre-existing cluster, subnets, or roles. See [Deploying from
+Studio](#deploying-from-studio) for the walkthrough.
+
+<Callout type="info" title="CLI greenfield is on the roadmap">
+  `agentbreeder deploy --target aws --provision` ([#383](https://github.com/agentbreeder/agentbreeder/issues/383))
+  will run this same provisioner from the terminal. Until it ships, the **CLI
+  deploys into existing infra** (the BYO fields above are required) — but it
+  still **auto-provisions the data tier** (RDS pgvector / ElastiCache Redis) when
+  you declare `memory:` or a knowledge base without a `backend_url`.
+</Callout>
 
 | Resource | Notes |
 |---|---|
@@ -145,11 +177,15 @@ You still need the four IAM roles documented in [One-time IAM grants](#one-time-
 `resourcemanager:GetProject`, `artifactregistry:GetRepository`,
 `iam:GetServiceAccount`.
 
-**Greenfield mode (`agentbreeder deploy --target gcp --provision`):**
+**Greenfield mode (Studio → "Provision for me"):**
 
 For fresh GCP projects, AgentBreeder can create infrastructure on your behalf
-in place of the "Full mode" inputs above. Only `GOOGLE_CLOUD_PROJECT` and
-`GCP_REGION` are required; everything else is opt-in via environment flags.
+in place of the "Full mode" inputs above. Like AWS, this runs through the
+**Studio deploy wizard** and the deployments job API today; CLI parity
+(`deploy --target gcp --provision`) is on the
+[roadmap](https://github.com/agentbreeder/agentbreeder/issues/383). Only
+`GOOGLE_CLOUD_PROJECT` and `GCP_REGION` are required; everything else is opt-in
+via environment flags.
 
 | Flag | Effect |
 |---|---|
@@ -220,11 +256,15 @@ In simple mode AgentBreeder uses Resource Group `agentbreeder-rg`, auto-creates 
 `ContainerRegistryManagementClient.registries.get`,
 `ContainerAppsAPIClient.managed_environments.get`.
 
-**Greenfield mode (`agentbreeder deploy --target azure --provision`):**
+**Greenfield mode (Studio → "Provision for me"):**
 
 For fresh Azure subscriptions, AgentBreeder creates the minimum-viable
-Container Apps footprint end-to-end. Only `AZURE_SUBSCRIPTION_ID` and a
-credential chain (service-principal env vars or `az login`) are required.
+Container Apps footprint end-to-end. Like AWS and GCP, this runs through the
+**Studio deploy wizard** and the deployments job API today; CLI parity
+(`deploy --target azure --provision`) is on the
+[roadmap](https://github.com/agentbreeder/agentbreeder/issues/383). Only
+`AZURE_SUBSCRIPTION_ID` and a credential chain (service-principal env vars or
+`az login`) are required.
 
 | Resource | Notes |
 |---|---|
@@ -490,6 +530,15 @@ against live AWS: a feature-rich agent — NVIDIA Llama-3.1-8B, a pgvector
 knowledge base, Redis-backed memory, and a web-search tool — deploys, serves,
 answers a multi-turn chat, and tears down with **zero orphaned resources**.
 
+<Callout type="info" title="This is the existing-account (BYO) path">
+  This walkthrough uses the **CLI** deploying into an **existing** VPC, subnets,
+  cluster, and execution role (named in `deploy.env_vars` below) — the data tier
+  (RDS + ElastiCache) is the only thing auto-provisioned. If you're starting from
+  a **fresh AWS account** with no networking, use the greenfield
+  [Studio wizard](#deploying-from-studio) instead, which creates the VPC, NAT,
+  cluster, and IAM for you.
+</Callout>
+
 <Callout type="info" title="What makes ECS Fargate special">
   Declare a knowledge base or `memory:` **without** a `backend_url` and the
   deployer **auto-provisions** the managed data stores (RDS pgvector,
@@ -715,18 +764,22 @@ for the full flow.
 ## Prerequisites per target (as of 2026-05-18)
 
 > **Status reminder (v2.6.0):** Local, AWS ECS Fargate, GCP Cloud Run, and Azure
-> Container Apps deploy with **full governance parity** (sidecar + secret mirroring)
-> and support greenfield `--provision`. **AWS App Runner** is single-container — it
-> deploys without a sidecar and rejects `guardrails:` / `secrets:` at validation.
-> **Kubernetes** and **Claude-managed** are in flight (Kubernetes needs an existing
-> cluster). This page is the canonical home of the **per-target prerequisites**; for
-> the at-a-glance feature matrix see the
-> [deploy-target status table](cli-reference#agentbreeder-deploy).
+> Container Apps deploy with **full governance parity** (sidecar + secret mirroring).
+> Greenfield provisioning (creating the VPC/cluster/IAM from scratch) ships through
+> the **Studio deploy wizard** today; the CLI `--provision` flag is on the
+> [roadmap](https://github.com/agentbreeder/agentbreeder/issues/383), so **CLI
+> deploys currently require existing infra** (plus auto-provisioned data backends).
+> **AWS App Runner** is single-container — it deploys without a sidecar and rejects
+> `guardrails:` / `secrets:` at validation. **Kubernetes** and **Claude-managed**
+> are in flight (Kubernetes needs an existing cluster). This page is the canonical
+> home of the **per-target prerequisites**; for the at-a-glance feature matrix see
+> the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 ### AWS ECS Fargate (`--target ecs-fargate`)
 
-Full governance (sidecar + cost/tracing). Greenfield `--provision` creates the
-ECS footprint from scratch (see the [Greenfield mode](#user-input-contract-per-cloud-byo-existing-infra) AWS tab above). To deploy into existing infra:
+Full governance (sidecar + cost/tracing). For a fresh account, greenfield
+provisioning creates the ECS footprint from scratch via the
+[Studio wizard](#deploying-from-studio) (see the [Greenfield mode](#user-input-contract-per-cloud-byo-existing-infra) AWS tab above; CLI `--provision` is on the [roadmap](https://github.com/agentbreeder/agentbreeder/issues/383)). To deploy into existing infra from the CLI:
 
 - AWS account ID and access credentials (Secrets Manager–backed `AWS_ACCESS_KEY_ID` /
   `AWS_SECRET_ACCESS_KEY` or an instance profile).
@@ -756,8 +809,9 @@ ECS footprint from scratch (see the [Greenfield mode](#user-input-contract-per-c
 ### Azure Container Apps (`--target container-apps`)
 
 Full governance (sidecar + cost/tracing) and **secret auto-mirror to Azure Key
-Vault**. Greenfield `--provision` creates the Container Apps footprint from scratch
-(see the [Greenfield mode](#user-input-contract-per-cloud-byo-existing-infra) Azure tab above). To deploy into existing infra:
+Vault**. For a fresh subscription, greenfield provisioning creates the Container
+Apps footprint from scratch via the [Studio wizard](#deploying-from-studio) (see
+the [Greenfield mode](#user-input-contract-per-cloud-byo-existing-infra) Azure tab above; CLI `--provision` is on the [roadmap](https://github.com/agentbreeder/agentbreeder/issues/383)). To deploy into existing infra from the CLI:
 
 - Azure subscription ID and service-principal credentials
   (`AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`).
@@ -786,15 +840,62 @@ Vault**. Greenfield `--provision` creates the Container Apps footprint from scra
 
 ## Deploying from Studio
 
-From v2.4, Studio provides a 5-step wizard at `/deploy-wizard`:
+Studio's deploy wizard (`Studio → Deploys → New deploy`, route `/deploy-wizard`)
+is the **graphical home of greenfield provisioning** — and it handles existing
+accounts too. It is a 5-step flow:
 
-1. **Agent** — pick a registered agent. The wizard auto-detects whether the agent requires approval.
-2. **Target** — choose cloud + region. Per-region cost estimate is shown inline (static client-side table, ±10%).
-3. **Infra** — BYO existing infra (validated read-only via `POST /api/v1/deployments/validate-infra`) or "Provision for me" (greenfield).
-4. **Config** — env vars, secrets, scaling, DB tier (only shown when the agent declares `memory:`).
-5. **Live deploy** — real-time SSE progress stream with 6 phase indicators (provisioning → building → pushing → deploying → health_checking → registering).
+1. **Agent** — pick a registered agent. The wizard auto-detects whether the agent
+   requires approval (`access.require_approval: true`).
+2. **Target** — choose cloud (**AWS** · ECS Fargate, **GCP** · Cloud Run, **Azure**
+   · Container Apps) and region. A per-region cost estimate is shown inline (static
+   client-side table, ±10%).
+3. **Infra** — this is where you choose your starting point:
+   - **Bring your own infrastructure** — enter your existing account fields
+     (`mode=simple` or `full` from the [contract above](#user-input-contract-per-cloud-byo-existing-infra))
+     and click **Validate infrastructure**. The wizard calls
+     `POST /api/v1/deployments/validate-infra` (read-only) and shows a per-resource
+     ✅/❌ checklist. You can't advance until validation passes.
+   - **Provision for me** *(greenfield, BETA)* — a `ResourcePreviewTree` lists every
+     resource AgentBreeder will create with a per-line and total monthly cost
+     estimate. You must tick **"I understand this creates cloud resources billable
+     to my account"** before advancing.
+4. **Config** — env vars, secret references, scaling (min / max / target CPU %), and
+   DB tier (shown only when the agent declares `memory:`).
+5. **Live deploy** — submits `POST /api/v1/deployments` (with `infra_mode` set to
+   `byo` or `provision`) and opens an SSE stream
+   (`GET /api/v1/deployments/{job_id}/stream`) with six phase indicators:
+   **provisioning → building → pushing → deploying → health_checking →
+   registering**. On a greenfield run the `provisioning` phase streams each
+   resource (VPC → subnets → NAT → cluster → IAM → RDS/ALB) as it is created.
 
-Drafts auto-save to localStorage every 250ms; refresh-safe. Agents with `access.require_approval: true` are routed through the existing `/approvals` queue and the wizard polls until an admin approves, then switches to the SSE stream.
+<Callout type="warn" title="Provision-for-me is BETA">
+  The greenfield path reliably **provisions the infrastructure** (VPC, subnets,
+  NAT, cluster, IAM, and — when declared — RDS/ALB) and records it for rollback.
+  The hand-off that then **builds and serves the agent into that fresh footprint**
+  is still being finalized. For a guaranteed end-to-end deploy today, provision
+  with the wizard (or pre-create infra yourself) and run the verified BYO
+  [CLI walkthrough](#aws-ecs-fargate--end-to-end-verified) against it.
+</Callout>
+
+**What greenfield provisioning creates** is exactly the per-cloud footprint in the
+[Greenfield mode](#user-input-contract-per-cloud-byo-existing-infra) tables above —
+all tagged `AgentBreeder=true` so teardown can safely target only what it made.
+
+**If a greenfield deploy fails mid-provision**, the wizard exposes a **Roll back**
+action that calls `POST /api/v1/deployments/{job_id}/destroy-partial`, which runs
+the provisioner's `destroy()` against whatever was recorded in the job's
+`InfraState` — no orphaned VPC, NAT, or RDS left billing.
+
+Drafts auto-save to localStorage every 250ms (refresh-safe). Agents with
+`access.require_approval: true` route through the `/approvals` queue; the wizard
+polls until an admin approves, then switches to the SSE stream.
+
+<Callout type="info" title="Tearing down a Studio greenfield deploy">
+  Greenfield resources are recorded in the job's `InfraState`. Remove them with
+  the wizard's **Roll back** action, or from the terminal with
+  `agentbreeder teardown <agent> --cloud aws --region <region>` — both refuse to
+  touch any resource missing the `AgentBreeder=true` tag.
+</Callout>
 
 ---
 
