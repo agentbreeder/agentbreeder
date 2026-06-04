@@ -1618,3 +1618,225 @@ class TestDeployNoPriorProvision:
         assert deployer._aws_config is not None
         assert deployer._image_uri is not None
         assert result.status == "running"
+
+
+# ---------------------------------------------------------------------------
+# Resource unit conversion + log-group pre-creation (deployer hardening)
+# ---------------------------------------------------------------------------
+
+
+class TestResourceUnitConversion:
+    """The documented agent.yaml uses vCPU/Gi notation (cpu:"1", memory:"2Gi").
+    Fargate's RegisterTaskDefinition needs CPU units (1 vCPU = 1024) and MiB.
+    The deployer must convert, while still accepting raw-unit notation.
+    """
+
+    @pytest.mark.parametrize(
+        "cpu_in,mem_in,cpu_out,mem_out",
+        [
+            ("1", "2Gi", "1024", "2048"),  # documented vCPU/Gi notation
+            ("512", "1024", "512", "1024"),  # raw Fargate units pass through
+            ("0.5", "1Gi", "512", "1024"),  # fractional vCPU
+            ("2", "4Gi", "2048", "4096"),
+            ("256", "512Mi", "256", "512"),  # raw units + Mi suffix
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_register_task_definition_normalizes_resources(
+        self, cpu_in: str, mem_in: str, cpu_out: str, mem_out: str
+    ) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        config.deploy.resources.cpu = cpu_in
+        config.deploy.resources.memory = mem_in
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.register_task_definition.return_value = {
+            "taskDefinition": {
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/my-agent:1"
+            }
+        }
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            await deployer._register_task_definition(
+                config, "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+            )
+
+        kwargs = ecs_mock.register_task_definition.call_args.kwargs
+        # Task-level cpu/memory are strings in MiB / CPU units
+        assert kwargs["cpu"] == cpu_out
+        assert kwargs["memory"] == mem_out
+        # Container-level values are ints and must match
+        container = kwargs["containerDefinitions"][0]
+        assert container["cpu"] == int(cpu_out)
+        assert container["memory"] == int(mem_out)
+
+    def test_build_container_definition_normalizes_resources(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        config.deploy.resources.cpu = "1"
+        config.deploy.resources.memory = "2Gi"
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        container_def = deployer._build_container_definition(
+            config, "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+        )
+
+        assert container_def["cpu"] == 1024
+        assert container_def["memory"] == 2048
+
+
+class TestLogGroupPrecreation:
+    """A BYO execution role with only AmazonECSTaskExecutionRolePolicy lacks
+    logs:CreateLogGroup, so the deployer must pre-create the group itself and
+    stop asking the awslogs driver to create it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_ensure_log_group_creates_named_group(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        logs_mock = MagicMock()
+        with patch.object(deployer, "_get_boto3_client", return_value=logs_mock):
+            await deployer._ensure_log_group(config)
+
+        logs_mock.create_log_group.assert_called_once()
+        assert (
+            logs_mock.create_log_group.call_args.kwargs["logGroupName"] == "/agentbreeder/my-agent"
+        )
+
+    @pytest.mark.asyncio
+    async def test_ensure_log_group_tolerates_already_exists(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        class ResourceAlreadyExistsError(Exception):
+            pass
+
+        logs_mock = MagicMock()
+        logs_mock.create_log_group.side_effect = ResourceAlreadyExistsError(
+            "log group already exists"
+        )
+        # Should not raise.
+        with patch.object(deployer, "_get_boto3_client", return_value=logs_mock):
+            await deployer._ensure_log_group(config)
+
+    def test_container_definition_does_not_auto_create_log_group(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        container_def = deployer._build_container_definition(
+            config, "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+        )
+
+        log_opts = container_def["logConfiguration"]["options"]
+        # We pre-create the group, so the task must NOT attempt CreateLogGroup.
+        # AWS rejects awslogs-create-group="false", so the option is omitted.
+        assert "awslogs-create-group" not in log_opts
+
+
+class TestResolveTaskEndpoint:
+    """Resolve the running task's public IP into a reachable http endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_resolves_public_ip_endpoint(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.list_tasks.return_value = {"taskArns": ["arn:task/abc"]}
+        ecs_mock.describe_tasks.return_value = {
+            "tasks": [
+                {
+                    "attachments": [
+                        {"details": [{"name": "networkInterfaceId", "value": "eni-123"}]}
+                    ]
+                }
+            ]
+        }
+        ec2_mock = MagicMock()
+        ec2_mock.describe_network_interfaces.return_value = {
+            "NetworkInterfaces": [{"Association": {"PublicIp": "203.0.113.7"}}]
+        }
+
+        with patch.object(
+            deployer,
+            "_get_boto3_client",
+            side_effect=_mock_boto3_client({"ecs": ecs_mock, "ec2": ec2_mock}),
+        ):
+            url = await deployer._resolve_task_endpoint(config)
+
+        assert url == "http://203.0.113.7:8080"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_running_task(self) -> None:
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer._aws_config = _extract_ecs_config(config)
+
+        ecs_mock = MagicMock()
+        ecs_mock.list_tasks.return_value = {"taskArns": []}
+
+        with patch.object(deployer, "_get_boto3_client", return_value=ecs_mock):
+            url = await deployer._resolve_task_endpoint(config)
+
+        assert url is None
+
+
+class TestMcpServerEnvInjection:
+    """When mcp_servers are declared, the agent container gets the forwarding
+    map via AGENTBREEDER_MCP_SERVERS so agenthub.mcp.load_mcp_tools() works."""
+
+    def test_agent_env_carries_mcp_servers_map(self) -> None:
+        from engine.config_parser import McpServerRef
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        config.mcp_servers = [
+            McpServerRef(
+                ref="mcp/example-tools", transport="streamable_http", url="http://remote/mcp"
+            )
+        ]
+        deployer._aws_config = _extract_ecs_config(config)
+
+        container_def = deployer._build_container_definition(
+            config, "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+        )
+
+        env = {e["name"]: e["value"] for e in container_def["environment"]}
+        assert "AGENTBREEDER_MCP_SERVERS" in env
+        import json
+
+        parsed = json.loads(env["AGENTBREEDER_MCP_SERVERS"])
+        assert "example-tools" in parsed
+        assert parsed["example-tools"]["url"] == "http://remote/mcp"
+
+    def test_no_mcp_env_when_no_servers(self) -> None:
+        from engine.deployers.aws_ecs import _extract_ecs_config
+
+        deployer = _make_deployer()
+        config = _make_agent_config()
+        deployer._aws_config = _extract_ecs_config(config)
+        container_def = deployer._build_container_definition(
+            config, "123.dkr.ecr.us-east-1.amazonaws.com/my-agent:1.0.0"
+        )
+        env = {e["name"] for e in container_def["environment"]}
+        assert "AGENTBREEDER_MCP_SERVERS" not in env

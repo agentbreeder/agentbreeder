@@ -321,3 +321,15 @@ class TestAgentDirPrecondition:
                 )
         finally:
             f.unlink(missing_ok=True)
+
+
+def test_langgraph_requirements_add_mcp_adapters_when_mcp_present():
+    """langchain-mcp-adapters is bundled only when the agent declares MCP servers."""
+    from engine.config_parser import McpServerRef
+    from engine.runtimes.langgraph import LangGraphRuntime
+
+    rt = LangGraphRuntime()
+    cfg = _make_config()  # helper in this module
+    assert not any("mcp-adapters" in d for d in rt.get_requirements(cfg))
+    cfg.mcp_servers = [McpServerRef(ref="mcp/x", url="http://x")]
+    assert any("langchain-mcp-adapters" in d for d in rt.get_requirements(cfg))

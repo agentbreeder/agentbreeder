@@ -168,3 +168,50 @@ class TestModuleSingleton:
 
     def test_serve_tool_names_is_list(self):
         assert isinstance(serve.tool_names, list)
+
+
+# ---------------------------------------------------------------------------
+# load_mcp_tools — client-side loading from the injected env map
+# ---------------------------------------------------------------------------
+
+
+class TestLoadMcpTools:
+    def test_returns_empty_when_env_unset(self, monkeypatch):
+        from sdk.python.agenthub.mcp import load_mcp_tools
+
+        monkeypatch.delenv("AGENTBREEDER_MCP_SERVERS", raising=False)
+        assert load_mcp_tools() == []
+
+    def test_returns_empty_on_invalid_json(self, monkeypatch):
+        from sdk.python.agenthub.mcp import load_mcp_tools
+
+        monkeypatch.setenv("AGENTBREEDER_MCP_SERVERS", "{not json")
+        assert load_mcp_tools() == []
+
+    def test_builds_connections_and_loads(self, monkeypatch):
+        import sdk.python.agenthub.mcp as mcpmod
+
+        monkeypatch.setenv(
+            "AGENTBREEDER_MCP_SERVERS",
+            '{"tools": {"transport": "streamable_http", "url": "http://localhost:3100/"}}',
+        )
+        captured = {}
+
+        def _fake_drive(connections, *, attempts, delay):
+            captured["connections"] = connections
+            return ["tool-a", "tool-b"]
+
+        monkeypatch.setattr(mcpmod, "_load_tools_blocking", _fake_drive)
+        tools = mcpmod.load_mcp_tools()
+
+        assert tools == ["tool-a", "tool-b"]
+        assert captured["connections"] == {
+            "tools": {"url": "http://localhost:3100/", "transport": "streamable_http"}
+        }
+
+    def test_skips_entries_without_url(self, monkeypatch):
+        import sdk.python.agenthub.mcp as mcpmod
+
+        monkeypatch.setenv("AGENTBREEDER_MCP_SERVERS", '{"bad": {"transport": "stdio"}}')
+        # No usable connections → returns [] without attempting a load.
+        assert mcpmod.load_mcp_tools() == []

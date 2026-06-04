@@ -15,7 +15,7 @@ from typing import Any
 # a deploy is reproducible and a re-pulled image can't silently change the
 # guardrail/auth behaviour fronting an agent. Bump this in lockstep with the
 # release that publishes the matching agentbreeder-sidecar tag.
-DEFAULT_SIDECAR_IMAGE = "agentbreeder/agentbreeder-sidecar:2.5.1"
+DEFAULT_SIDECAR_IMAGE = "rajits/agentbreeder-sidecar:2.6.0"
 
 # Valid port range for sidecar port-number fields.
 _MIN_PORT = 1
@@ -46,6 +46,11 @@ class SidecarConfig:
     otel_endpoint: str = field(default_factory=lambda: os.getenv("OPENTELEMETRY_ENDPOINT", ""))
     guardrails: list[str] = field(default_factory=list)
     cost_tracking: bool = True
+    # Agent identity + auth — the Go sidecar's config loader requires AGENT_NAME
+    # and, unless a token is supplied, AGENTBREEDER_SIDECAR_ALLOW_NO_AUTH=1.
+    name: str = ""
+    version: str = ""
+    auth_token: str = ""
     health_port: int = 8080
     # When sidecar is injected the agent listens on this internal port and
     # the sidecar forwards public traffic from health_port.
@@ -91,10 +96,15 @@ class SidecarConfig:
             from engine.deployers.mcp_sidecar import build_sidecar_env_map, resolve_mcp_servers
 
             mcp_map = build_sidecar_env_map(resolve_mcp_servers(mcp_refs))
+        deploy = getattr(agent_config, "deploy", None)
+        env_vars = getattr(deploy, "env_vars", {}) if deploy else {}
         return cls(
             enabled=True,
             guardrails=guardrails,
             mcp_servers=mcp_map,
+            name=str(getattr(agent_config, "name", "") or ""),
+            version=str(getattr(agent_config, "version", "") or ""),
+            auth_token=str((env_vars or {}).get("AGENT_AUTH_TOKEN", "") or ""),
         )
 
 

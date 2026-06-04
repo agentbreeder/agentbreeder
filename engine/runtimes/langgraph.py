@@ -42,9 +42,11 @@ USER agent
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8080/health').raise_for_status()"
+    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://localhost:'+os.environ.get('PORT','8080')+'/health')"
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+# Honor $PORT: when the observability sidecar is injected the deployer sets
+# PORT=8081 so the sidecar can front public traffic on 8080.
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8080}"]
 """
 
 
@@ -110,8 +112,10 @@ class LangGraphRuntime(RuntimeBuilder):
                 existing_requirements = requirements_file.read_text()
 
             framework_deps = self.get_requirements(config)
-            all_deps = set(existing_requirements.strip().splitlines()) | set(framework_deps)
-            requirements_file.write_text("\n".join(sorted(all_deps)) + "\n")
+            all_deps = sorted(
+                set(existing_requirements.strip().splitlines()) | set(framework_deps)
+            )
+            requirements_file.write_text("\n".join(all_deps) + "\n")
 
             # Copy the server wrapper template
             if LANGGRAPH_SERVER_TEMPLATE.exists():
@@ -190,6 +194,10 @@ class LangGraphRuntime(RuntimeBuilder):
             deps.append("langchain-openai>=0.2.0")
         if _should_add_litellm_sdk(config):
             deps.extend(_get_litellm_requirements())
+        # MCP servers → the agent loads their tools via langchain-mcp-adapters
+        # (agenthub.mcp.load_mcp_tools).
+        if config.mcp_servers:
+            deps.append("langchain-mcp-adapters>=0.1.0")
         support = runtime_support_requirement()
         if support:
             deps.append(support)

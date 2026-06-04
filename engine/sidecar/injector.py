@@ -75,21 +75,29 @@ def inject_sidecar(task_definition: dict[str, Any], config: SidecarConfig) -> di
             {"name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": config.otel_endpoint},
             {"name": "AB_COST_TRACKING", "value": str(config.cost_tracking).lower()},
             {"name": "AB_GUARDRAILS", "value": ",".join(config.guardrails)},
+            # AGENT_NAME is required by the sidecar's config loader.
+            {"name": "AGENT_NAME", "value": config.name},
+            {"name": "AGENT_VERSION", "value": config.version},
             {
                 "name": "AGENTBREEDER_SIDECAR_AGENT_URL",
                 "value": f"http://localhost:{config.agent_port}",
             },
         ],
-        "healthCheck": {
-            "command": [
-                "CMD-SHELL",
-                f"curl -f http://localhost:{config.health_port}/health || exit 1",
-            ],
-            "interval": 30,
-            "timeout": 5,
-            "retries": 3,
-        },
+        # No container healthCheck: the sidecar image is distroless (no shell or
+        # curl), so a CMD-SHELL probe can never pass. It's non-essential and
+        # fronts the agent, whose own health check governs task health.
     }
+
+    # Auth: forward a configured token, else explicitly allow no-auth so the
+    # sidecar starts (it refuses to boot without one of these).
+    if config.auth_token:
+        sidecar_container["environment"].append(
+            {"name": "AGENT_AUTH_TOKEN", "value": config.auth_token}
+        )
+    else:
+        sidecar_container["environment"].append(
+            {"name": "AGENTBREEDER_SIDECAR_ALLOW_NO_AUTH", "value": "1"}
+        )
 
     if config.mcp_servers:
         sidecar_container["environment"].append(
