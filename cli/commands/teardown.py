@@ -894,14 +894,25 @@ def _teardown_infra_state(json_output: bool) -> bool:
             console.print(f"  [yellow]Warning:[/yellow] Could not read infra state: {e}")
         return False
 
+    # A greenfield footprint (created by `deploy --provision`) records the whole
+    # stack — VPC, subnets, cluster, IAM — so it needs the full destroy(). A
+    # data-only footprint (auto-provisioned RDS/Redis into BYO infra) uses the
+    # focused destroy_data_backend() so it never touches the user's own network.
+    greenfield_keys = {"vpc", "network", "ecs_cluster", "iam_execution_role"}
+    is_greenfield = bool(greenfield_keys & set(infra.resources))
+    backend_label = "infrastructure" if is_greenfield else "data backend"
+
     try:
         provisioner = provisioner_for(infra.cloud)
-        asyncio.run(provisioner.destroy_data_backend(infra))
+        if is_greenfield:
+            asyncio.run(provisioner.destroy(infra))
+        else:
+            asyncio.run(provisioner.destroy_data_backend(infra))
     except Exception as e:  # noqa: BLE001 — surface but continue agent teardown
         if not json_output:
             console.print(
                 f"  [yellow]Warning:[/yellow] Could not destroy provisioned "
-                f"{infra.cloud} backend: {e}"
+                f"{infra.cloud} {backend_label}: {e}"
             )
         return False
 
@@ -910,7 +921,9 @@ def _teardown_infra_state(json_output: bool) -> bool:
     except OSError:
         pass
     if not json_output:
-        console.print(f"  [green]✓[/green] Destroyed auto-provisioned {infra.cloud} data backend")
+        console.print(
+            f"  [green]✓[/green] Destroyed auto-provisioned {infra.cloud} {backend_label}"
+        )
     return True
 
 

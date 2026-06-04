@@ -152,6 +152,46 @@ class TestDeployCommand:
             len(call_kwargs[0]) > 1 and call_kwargs[0][1] == "aws"
         )
 
+    def test_deploy_provision_flag_passed_to_engine(self) -> None:
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+        f.write(VALID_YAML)
+        f.close()
+
+        mock_result = MagicMock()
+        mock_result.agent_name = "test-agent"
+        mock_result.version = "1.0.0"
+        mock_result.endpoint_url = "http://localhost:8080"
+        mock_result.model_dump.return_value = {}
+
+        with patch("cli.commands.deploy.DeployEngine") as mock_engine_cls:
+            engine_inst = mock_engine_cls.return_value
+            engine_inst.deploy = AsyncMock(return_value=mock_result)
+            result = runner.invoke(
+                app, ["deploy", f.name, "--target", "ecs-fargate", "--provision", "--local"]
+            )
+
+        assert result.exit_code == 0
+        assert engine_inst.deploy.call_args[1]["provision"] is True
+
+    def test_deploy_no_provision_flag_defaults_false(self) -> None:
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+        f.write(VALID_YAML)
+        f.close()
+
+        mock_result = MagicMock()
+        mock_result.agent_name = "test-agent"
+        mock_result.version = "1.0.0"
+        mock_result.endpoint_url = "http://localhost:8080"
+        mock_result.model_dump.return_value = {}
+
+        with patch("cli.commands.deploy.DeployEngine") as mock_engine_cls:
+            engine_inst = mock_engine_cls.return_value
+            engine_inst.deploy = AsyncMock(return_value=mock_result)
+            result = runner.invoke(app, ["deploy", f.name, "--local"])
+
+        assert result.exit_code == 0
+        assert engine_inst.deploy.call_args[1]["provision"] is False
+
 
 # ── Secret Subcommands ─────────────────────────────────────────────
 

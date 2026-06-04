@@ -103,30 +103,53 @@ def deploy(
         "--local",
         help="Run the deploy engine in-process (no RBAC, dev/offline use only).",
     ),
+    provision: bool = typer.Option(
+        False,
+        "--provision",
+        "-p",
+        help=(
+            "Greenfield-provision the cloud footprint (VPC, subnets, cluster, IAM) "
+            "for a fresh account before deploying. AWS only; local mode only."
+        ),
+    ),
 ) -> None:
     """Deploy an agent from an agent.yaml configuration file."""
     use_remote = _resolve_mode(remote, local)
+    if use_remote and provision:
+        console.print(
+            "[red]--provision is local-only for now[/red] — greenfield provisioning "
+            "from the API/Studio path is tracked separately (#537). Re-run with "
+            "[bold]--local --provision[/bold], or use the Studio deploy wizard."
+        )
+        raise typer.Exit(code=2)
     if use_remote:
         _deploy_remote(config_path, target, json_output)
     else:
-        _deploy_local(config_path, target, json_output)
+        _deploy_local(config_path, target, json_output, provision)
 
 
 # ── Local mode (preserved verbatim from the pre-#416 implementation) ────────
 
 
-def _deploy_local(config_path: Path, target: str, json_output: bool) -> None:
+def _deploy_local(
+    config_path: Path, target: str, json_output: bool, provision: bool = False
+) -> None:
     """Run the deploy engine in-process — same flow as before #416.
 
     Kept for dev/offline use; explicitly bypasses every server-side gate
     (RBAC, audit log, team-scoped credentials). Production deploys should
     always go through ``--remote``.
+
+    When ``provision`` is set, the engine greenfield-provisions the cloud
+    footprint before deploying (AWS only; #537).
     """
     if not json_output:
+        provision_note = " [yellow](+ greenfield provisioning)[/yellow]" if provision else ""
         console.print()
         console.print(
             Panel(
-                f"[bold]Deploying[/bold] {config_path.name} → [cyan]{target}[/cyan] "
+                f"[bold]Deploying[/bold] {config_path.name} → [cyan]{target}[/cyan]"
+                f"{provision_note} "
                 "[dim](local mode — RBAC/audit bypassed)[/dim]",
                 title="AgentBreeder",
                 border_style="blue",
@@ -150,7 +173,9 @@ def _deploy_local(config_path: Path, target: str, json_output: bool) -> None:
     engine = DeployEngine(on_step=on_step)
 
     try:
-        result = asyncio.run(engine.deploy(config_path=config_path, target=target))
+        result = asyncio.run(
+            engine.deploy(config_path=config_path, target=target, provision=provision)
+        )
 
         if json_output:
             console.print(json_lib.dumps(result.model_dump(), indent=2))
