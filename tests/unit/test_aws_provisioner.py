@@ -413,6 +413,25 @@ async def test_agent_sg_opens_8080_to_internet_when_public_ingress_requested(
     assert agent_cidr_calls[0].kwargs["IpPermissions"][0]["FromPort"] == 8080
 
 
+@pytest.mark.asyncio
+async def test_provision_waits_for_nat_available_before_routing(fake_clients_minimal) -> None:
+    """A new NAT gateway starts 'pending' and cannot be a route target until
+    'available'. provision() must wait, else CreateRoute fails with
+    InvalidNatGatewayID.NotFound (caught in #537 live validation)."""
+    ec2 = fake_clients_minimal["ec2"]
+    waiter = MagicMock()
+    ec2.get_waiter.return_value = waiter
+
+    with patch(
+        "engine.provisioners.aws._client", side_effect=_client_factory(fake_clients_minimal)
+    ):
+        await AWSProvisioner().provision(_payload())
+
+    ec2.get_waiter.assert_any_call("nat_gateway_available")
+    waited_ids = [c.kwargs.get("NatGatewayIds") for c in waiter.wait.call_args_list]
+    assert ["nat-1"] in waited_ids
+
+
 # -- RDS security invariants -----------------------------------------------
 
 

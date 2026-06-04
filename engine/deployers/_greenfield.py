@@ -38,11 +38,15 @@ def _aws_env(state: InfraState) -> dict[str, str]:
 
     public_subnets = network.get("public_subnet_ids", []) or []
     private_subnets = network.get("private_subnet_ids", []) or []
+    role_arn = str(res["iam_execution_role"]["arn"])
+    # arn:aws:iam::<account-id>:role/<name> → the deployer requires the account ID.
+    account_id = role_arn.split(":")[4] if role_arn.count(":") >= 4 else ""
 
     env: dict[str, str] = {
         # Inputs aws_ecs.py::_extract_ecs_config reads.
+        "AWS_ACCOUNT_ID": account_id,
         "AWS_ECS_CLUSTER": str(res["ecs_cluster"]["name"]),
-        "AWS_EXECUTION_ROLE_ARN": str(res["iam_execution_role"]["arn"]),
+        "AWS_EXECUTION_ROLE_ARN": role_arn,
         # The agent task ENI joins the public subnets and gets a public IP.
         "AWS_VPC_SUBNETS": ",".join(public_subnets),
         "AWS_SECURITY_GROUPS": str(sgs["agent_sg_id"]),

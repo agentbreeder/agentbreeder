@@ -948,21 +948,27 @@ class AWSProvisioner(InfraProvisioner):
             ]
         )
         if nats := existing.get("NatGateways", []):
-            return nats[0]["NatGatewayId"]
-        eip = ec2.allocate_address(
-            Domain="vpc",
-            TagSpecifications=[
-                {"ResourceType": "elastic-ip", "Tags": _tags(agent_name, agent_version)}
-            ],
-        )
-        nat = ec2.create_nat_gateway(
-            SubnetId=subnet_id,
-            AllocationId=eip["AllocationId"],
-            TagSpecifications=[
-                {"ResourceType": "natgateway", "Tags": _tags(agent_name, agent_version)}
-            ],
-        )
-        return nat["NatGateway"]["NatGatewayId"]
+            nat_id = nats[0]["NatGatewayId"]
+        else:
+            eip = ec2.allocate_address(
+                Domain="vpc",
+                TagSpecifications=[
+                    {"ResourceType": "elastic-ip", "Tags": _tags(agent_name, agent_version)}
+                ],
+            )
+            nat = ec2.create_nat_gateway(
+                SubnetId=subnet_id,
+                AllocationId=eip["AllocationId"],
+                TagSpecifications=[
+                    {"ResourceType": "natgateway", "Tags": _tags(agent_name, agent_version)}
+                ],
+            )
+            nat_id = nat["NatGateway"]["NatGatewayId"]
+        # A NAT gateway starts in "pending" and is not a valid route target until
+        # it reaches "available" (1-2 min). Block here so the caller's CreateRoute
+        # doesn't fail with InvalidNatGatewayID.NotFound.
+        ec2.get_waiter("nat_gateway_available").wait(NatGatewayIds=[nat_id])
+        return nat_id
 
     def _ensure_route_table(
         self,

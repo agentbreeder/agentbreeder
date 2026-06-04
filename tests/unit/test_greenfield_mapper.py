@@ -57,6 +57,8 @@ def test_aws_mapper_emits_the_env_the_ecs_deployer_reads() -> None:
     assert env["AWS_VPC_SUBNETS"] == "subnet-pub1,subnet-pub2"
     assert env["AWS_SECURITY_GROUPS"] == "sg-agent"
     assert env["AWS_REGION"] == "us-east-1"
+    # Required by the ECS deployer — derived from the execution-role ARN.
+    assert env["AWS_ACCOUNT_ID"] == "123456789012"
 
 
 def test_aws_mapper_exposes_vpc_and_private_subnets_for_the_data_tier() -> None:
