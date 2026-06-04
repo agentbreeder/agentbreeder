@@ -368,6 +368,70 @@ async def test_alb_sg_accepts_internet_traffic_on_80_443(
         assert c.kwargs["IpPermissions"][0]["IpRanges"] == [{"CidrIp": "0.0.0.0/0"}]
 
 
+@pytest.mark.asyncio
+async def test_agent_sg_has_no_internet_ingress_by_default(fake_clients_minimal) -> None:
+    """Default greenfield: the agent SG accepts 8080 from the ALB SG only, never
+    from the internet. Preserves the ALB-fronted architecture."""
+    with patch(
+        "engine.provisioners.aws._client", side_effect=_client_factory(fake_clients_minimal)
+    ):
+        await AWSProvisioner().provision(_payload())
+
+    ec2 = fake_clients_minimal["ec2"]
+    agent_calls = [
+        c
+        for c in ec2.authorize_security_group_ingress.call_args_list
+        if c.kwargs.get("GroupId") == "sg-agent"
+    ]
+    # Exactly one rule, sourced from the ALB SG — no CIDR ingress.
+    assert len(agent_calls) == 1
+    perms = agent_calls[0].kwargs["IpPermissions"][0]
+    assert perms["UserIdGroupPairs"][0]["GroupId"] == "sg-alb"
+    assert "IpRanges" not in perms
+
+
+@pytest.mark.asyncio
+async def test_agent_sg_opens_8080_to_internet_when_public_ingress_requested(
+    fake_clients_minimal,
+) -> None:
+    """With AWS_AGENT_PUBLIC_INGRESS set, the agent SG also accepts 8080 from
+    0.0.0.0/0 so the ECS deployer's public-IP task (assignPublicIp=ENABLED) is
+    reachable without an ALB. The runtime gates /invoke with a bearer token."""
+    with patch(
+        "engine.provisioners.aws._client", side_effect=_client_factory(fake_clients_minimal)
+    ):
+        await AWSProvisioner().provision(_payload(AWS_AGENT_PUBLIC_INGRESS="true"))
+
+    ec2 = fake_clients_minimal["ec2"]
+    agent_cidr_calls = [
+        c
+        for c in ec2.authorize_security_group_ingress.call_args_list
+        if c.kwargs.get("GroupId") == "sg-agent"
+        and c.kwargs["IpPermissions"][0].get("IpRanges") == [{"CidrIp": "0.0.0.0/0"}]
+    ]
+    assert len(agent_cidr_calls) == 1
+    assert agent_cidr_calls[0].kwargs["IpPermissions"][0]["FromPort"] == 8080
+
+
+@pytest.mark.asyncio
+async def test_provision_waits_for_nat_available_before_routing(fake_clients_minimal) -> None:
+    """A new NAT gateway starts 'pending' and cannot be a route target until
+    'available'. provision() must wait, else CreateRoute fails with
+    InvalidNatGatewayID.NotFound (caught in #537 live validation)."""
+    ec2 = fake_clients_minimal["ec2"]
+    waiter = MagicMock()
+    ec2.get_waiter.return_value = waiter
+
+    with patch(
+        "engine.provisioners.aws._client", side_effect=_client_factory(fake_clients_minimal)
+    ):
+        await AWSProvisioner().provision(_payload())
+
+    ec2.get_waiter.assert_any_call("nat_gateway_available")
+    waited_ids = [c.kwargs.get("NatGatewayIds") for c in waiter.wait.call_args_list]
+    assert ["nat-1"] in waited_ids
+
+
 # -- RDS security invariants -----------------------------------------------
 
 

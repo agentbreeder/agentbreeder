@@ -307,6 +307,7 @@ agentbreeder deploy CONFIG_PATH [--target TARGET] [--json] [--remote | --local]
 | `--target`, `-t` | No | `local` | Deploy target. See supported values below. |
 | `--remote` | No | Auto | POST to the API server (RBAC + audit enforced). Auto-enabled when `$AGENTBREEDER_URL` is set. |
 | `--local` | No | Auto | Run the deploy engine in-process. Use for dev / offline work; bypasses RBAC + audit. |
+| `--provision`, `-p` | No | Off | Greenfield-provision the cloud footprint (VPC, subnets, NAT, cluster, IAM) for a fresh account before deploying, then inject the IDs into the deploy. **AWS only; local mode only** for now (`--local --provision`). The footprint is recorded in `.agentbreeder/infra-state.json` and removed by `agentbreeder teardown`. |
 | `--json` | No | Off | Emit JSON to stdout (for CI/scripting). |
 
 **Remote vs. local mode**
@@ -328,9 +329,10 @@ This is the **canonical deploy-target status table** for AgentBreeder — other 
 
 **Greenfield vs. existing account.** The **CLI** (`agentbreeder deploy`) deploys
 into **existing infrastructure** — a VPC, subnets, cluster, and execution role you
-already have (the per-cloud BYO contract). **Greenfield** provisioning (creating that
-footprint from scratch) ships today through the **Studio deploy wizard** (Step 3 →
-*Provision for me*); the CLI `--provision` flag is on the
+already have (the per-cloud BYO contract) — **or**, on **AWS**, greenfield-provisions
+that footprint from scratch with `--provision`. For **GCP/Azure**, greenfield ships
+through the **Studio deploy wizard** (Step 3 → *Provision for me*); CLI `--provision`
+for those clouds is on the
 [roadmap](https://github.com/agentbreeder/agentbreeder/issues/383). Independently,
 **both surfaces auto-provision the data tier** (RDS pgvector / ElastiCache Redis) when
 an agent declares `memory:` or a knowledge base without a `backend_url`.
@@ -338,18 +340,20 @@ an agent declares `memory:` or a knowledge base without a `backend_url`.
 | Target | Status | Greenfield provisioning | Sidecar (governance) | Secret auto-mirror |
 |--------|--------|--------------------------|----------------------|--------------------|
 | `local` (Docker Compose) | ✅ Shipped | ✅ (nothing to provision) | ✅ | n/a (local `.env`) |
-| `ecs-fargate` (AWS) | ✅ Shipped | ✅ Studio wizard¹ · CLI BYO + auto data tier | ✅ | 🟡 Roadmap — pre-create in Secrets Manager |
+| `ecs-fargate` (AWS) | ✅ Shipped | ✅ **CLI `--provision`** + Studio wizard¹ | ✅ | 🟡 Roadmap — pre-create in Secrets Manager |
 | `cloud-run` (GCP) | ✅ Shipped | ✅ Studio wizard¹ · CLI BYO + auto data tier | ✅ | ✅ |
 | `container-apps` (Azure) | ✅ Shipped | ✅ Studio wizard¹ · CLI BYO + auto data tier | ✅ | ✅ |
-| `app-runner` (AWS) | ✅ Shipped (single-container) | CLI BYO only — wizard provisions ECS Fargate, not App Runner | ❌ — rejects `guardrails:`/`secrets:` | ❌ — not supported |
+| `app-runner` (AWS) | ✅ Shipped (single-container) | CLI BYO only — `--provision`/wizard provision ECS Fargate, not App Runner | ❌ — rejects `guardrails:`/`secrets:` | ❌ — not supported |
 | `kubernetes` (EKS/GKE/AKS/self-hosted) | 🟡 In flight | ❌ — needs existing cluster + kubeconfig | ✅ (when usable) | 🟡 Roadmap |
 | `claude-managed` (Anthropic) | 🟡 In flight | n/a — runtime is Anthropic-managed | n/a | n/a |
 
-¹ Greenfield provisioning runs through **Studio → Deploys → New deploy** (the
-`/deploy-wizard` flow) and the deployments job API (`POST /api/v1/deployments` with
-`infra_mode: "provision"`). See [Deployment → Deploying from Studio](deployment#deploying-from-studio).
-The equivalent CLI flag (`agentbreeder deploy --provision`) is not yet shipped — from
-the terminal, deploy into existing infra (BYO) or pre-create the footprint first.
+¹ **AWS** greenfield ships from the CLI today (`agentbreeder deploy --target
+ecs-fargate --provision --local`) and from **Studio → Deploys → New deploy** (the
+`/deploy-wizard` flow) + the deployments job API (`POST /api/v1/deployments` with
+`infra_mode: "provision"`). See [Deployment → Greenfield mode](deployment#user-input-contract-per-cloud-byo-existing-infra)
+and [Deploying from Studio](deployment#deploying-from-studio). For **GCP/Azure**, CLI
+`--provision` is not yet shipped — use the Studio wizard, deploy into existing infra
+(BYO), or pre-create the footprint first.
 
 Each `--target` value maps to one cloud + runtime combination:
 

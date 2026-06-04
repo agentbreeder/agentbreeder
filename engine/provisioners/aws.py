@@ -242,6 +242,11 @@ class AWSProvisioner(InfraProvisioner):
         has_memory = bool(fields.get("AWS_HAS_MEMORY"))
         is_public = str(fields.get("AWS_ACCESS_VISIBILITY", "")).lower() == "public"
         multi_az_nat = str(fields.get("AWS_MULTI_AZ_NAT", "")).strip() in {"1", "true", "yes"}
+        # When the agent is NOT fronted by an ALB (the CLI deployer reaches it at
+        # the task ENI's public IP via assignPublicIp=ENABLED), the agent SG must
+        # accept the agent port directly. The runtime gates /invoke with a bearer
+        # token; /health stays open.
+        direct_public_ingress = bool(fields.get("AWS_AGENT_PUBLIC_INGRESS"))
 
         ec2 = _client("ec2", region, fields)
         ecs = _client("ecs", region, fields)
@@ -283,6 +288,7 @@ class AWSProvisioner(InfraProvisioner):
             agent_name=agent_name,
             agent_version=agent_version,
             include_db_sg=has_memory,
+            direct_public_ingress=direct_public_ingress,
         )
         resources["security_groups"] = sgs
 
@@ -942,21 +948,27 @@ class AWSProvisioner(InfraProvisioner):
             ]
         )
         if nats := existing.get("NatGateways", []):
-            return nats[0]["NatGatewayId"]
-        eip = ec2.allocate_address(
-            Domain="vpc",
-            TagSpecifications=[
-                {"ResourceType": "elastic-ip", "Tags": _tags(agent_name, agent_version)}
-            ],
-        )
-        nat = ec2.create_nat_gateway(
-            SubnetId=subnet_id,
-            AllocationId=eip["AllocationId"],
-            TagSpecifications=[
-                {"ResourceType": "natgateway", "Tags": _tags(agent_name, agent_version)}
-            ],
-        )
-        return nat["NatGateway"]["NatGatewayId"]
+            nat_id = nats[0]["NatGatewayId"]
+        else:
+            eip = ec2.allocate_address(
+                Domain="vpc",
+                TagSpecifications=[
+                    {"ResourceType": "elastic-ip", "Tags": _tags(agent_name, agent_version)}
+                ],
+            )
+            nat = ec2.create_nat_gateway(
+                SubnetId=subnet_id,
+                AllocationId=eip["AllocationId"],
+                TagSpecifications=[
+                    {"ResourceType": "natgateway", "Tags": _tags(agent_name, agent_version)}
+                ],
+            )
+            nat_id = nat["NatGateway"]["NatGatewayId"]
+        # A NAT gateway starts in "pending" and is not a valid route target until
+        # it reaches "available" (1-2 min). Block here so the caller's CreateRoute
+        # doesn't fail with InvalidNatGatewayID.NotFound.
+        ec2.get_waiter("nat_gateway_available").wait(NatGatewayIds=[nat_id])
+        return nat_id
 
     def _ensure_route_table(
         self,
@@ -1031,6 +1043,7 @@ class AWSProvisioner(InfraProvisioner):
         agent_name: str,
         agent_version: str,
         include_db_sg: bool,
+        direct_public_ingress: bool = False,
     ) -> dict[str, str | None]:
         alb_sg_id = self._ensure_security_group(
             ec2=ec2,
@@ -1075,6 +1088,17 @@ class AWSProvisioner(InfraProvisioner):
             to_port=AGENT_CONTAINER_PORT,
             source_sg_id=alb_sg_id,
         )
+        # No ALB in front (CLI public-IP deploy): also accept the agent port
+        # directly from the internet so the task ENI's public IP is reachable.
+        if direct_public_ingress:
+            self._authorize_ingress(
+                ec2=ec2,
+                sg_id=agent_sg_id,
+                protocol="tcp",
+                from_port=AGENT_CONTAINER_PORT,
+                to_port=AGENT_CONTAINER_PORT,
+                cidr="0.0.0.0/0",
+            )
 
         db_sg_id: str | None = None
         if include_db_sg:

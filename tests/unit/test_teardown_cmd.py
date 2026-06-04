@@ -178,6 +178,53 @@ class TestTeardownCommand:
             # State file removed so a re-run doesn't double-destroy.
             assert not infra_file.exists()
 
+    def test_teardown_destroys_full_greenfield_footprint(self) -> None:
+        """A greenfield footprint (vpc + ecs_cluster) gets a full destroy(), not
+        just the data backend, so no VPC/cluster/IAM is left orphaned (#537)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            state_file.write_text(json.dumps(_sample_state()))
+            registry_dir = Path(tmpdir) / "registry"
+            registry_dir.mkdir()
+            (registry_dir / "agents.json").write_text(json.dumps(_sample_registry()))
+
+            infra_file = Path(tmpdir) / "infra-state.json"
+            infra_file.write_text(
+                json.dumps(
+                    {
+                        "cloud": "aws",
+                        "region": "us-east-1",
+                        "provisioned_by": "agentbreeder.DeployEngine",
+                        "provisioned_at": "2026-06-04T00:00:00+00:00",
+                        "mode": "provisioned",
+                        "resources": {
+                            "vpc": {"vpc_id": "vpc-1"},
+                            "ecs_cluster": {"name": "agentbreeder-demo"},
+                            "rds": {"db_instance_identifier": "agentbreeder-demo"},
+                        },
+                    }
+                )
+            )
+
+            provisioner = MagicMock()
+            provisioner.destroy = AsyncMock()
+            provisioner.destroy_data_backend = AsyncMock()
+            with (
+                patch("cli.commands.teardown.STATE_FILE", state_file),
+                patch("cli.commands.teardown.REGISTRY_DIR", registry_dir),
+                patch("cli.commands.teardown.INFRA_STATE_FILE", infra_file),
+                patch("cli.commands.teardown._teardown_container", return_value=True),
+                patch("engine.provisioners.provisioner_for", return_value=provisioner),
+            ):
+                result = runner.invoke(app, ["teardown", "my-agent", "--force"])
+
+            assert result.exit_code == 0
+            provisioner.destroy.assert_awaited_once()
+            provisioner.destroy_data_backend.assert_not_awaited()
+            assert not infra_file.exists()
+
     def test_teardown_no_infra_state_is_noop(self) -> None:
         """No infra-state.json → no provisioner call, teardown still succeeds."""
         with tempfile.TemporaryDirectory() as tmpdir:

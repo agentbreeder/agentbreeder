@@ -282,7 +282,9 @@ class TestLocalPathPreserved:
             def __init__(self, *, on_step: Any) -> None:
                 self.on_step = on_step
 
-            async def deploy(self, *, config_path: Any, target: str) -> Any:
+            async def deploy(
+                self, *, config_path: Any, target: str, provision: bool = False
+            ) -> Any:
                 called["engine"] = True
                 from types import SimpleNamespace
 
@@ -322,7 +324,9 @@ class TestLocalPathPreserved:
             def __init__(self, *, on_step: Any) -> None:
                 self.on_step = on_step
 
-            async def deploy(self, *, config_path: Any, target: str) -> Any:
+            async def deploy(
+                self, *, config_path: Any, target: str, provision: bool = False
+            ) -> Any:
                 called["engine"] = True
                 from types import SimpleNamespace
 

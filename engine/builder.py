@@ -32,13 +32,14 @@ from engine.deployers._autoprovision import (
     resolve_pgvector_dsn,
     resolve_redis_url,
 )
+from engine.deployers._greenfield import infra_state_to_env
 from engine.deployers._pgvector_dsn import (
     needs_managed_memory_postgres,
     needs_managed_pgvector,
 )
 from engine.deployers.base import DeployResult
 from engine.governance import check_rbac
-from engine.provisioners import provisioner_for
+from engine.provisioners import InfraValidationInput, provisioner_for
 from engine.resolver import resolve_dependencies
 from engine.runtimes.registry import get_runtime_from_config
 
@@ -121,8 +122,15 @@ class DeployEngine:
         config_path: Path,
         target: str | None = None,
         user: str = "local",
+        provision: bool = False,
     ) -> DeployResult:
-        """Run the full deploy pipeline."""
+        """Run the full deploy pipeline.
+
+        When ``provision`` is set (``agentbreeder deploy --provision``), Step 5
+        greenfield-provisions the cloud footprint (AWS only for now, #537) and
+        injects its IDs into ``deploy.env_vars`` before the deployer runs, so a
+        fresh account needs no pre-existing VPC/cluster/role.
+        """
         # Absolutize early so config_path.parent is always an absolute project root,
         # regardless of whether the CLI, API, or orchestrator passed a relative path.
         config_path = config_path.resolve()
@@ -214,6 +222,9 @@ class DeployEngine:
         step5.start()
         self._notify(step5)
         try:
+            # Greenfield: create the cloud footprint and inject its IDs into
+            # deploy.env_vars BEFORE the deployer validates/uses them (#537).
+            await self._maybe_provision_greenfield(config, config_path.parent, provision)
             deployer = get_deployer(config.deploy.cloud, config.deploy.runtime)
             await deployer.provision(config)
             # Auto-provision managed data backends (pgvector for a KB declared
@@ -270,6 +281,105 @@ class DeployEngine:
 
         logger.info("Deploy complete: %s → %s", config.name, result.endpoint_url)
         return result
+
+    def _persist_infra_resources(
+        self, project_dir: Path, cloud: str, region: str, new_resources: dict[str, Any]
+    ) -> None:
+        """Merge ``new_resources`` into ``.agentbreeder/infra-state.json``.
+
+        Loads any existing footprint first so a greenfield network/cluster and a
+        later auto-provisioned data tier both survive into one state file that
+        ``agentbreeder teardown`` can fully reverse.
+        """
+        from datetime import UTC, datetime
+
+        from engine.provisioners.state import InfraState
+
+        state_path = project_dir / ".agentbreeder" / "infra-state.json"
+        merged: dict[str, Any] = {}
+        existing = InfraState.load_or_none(state_path)
+        if existing is not None:
+            _merge_infra_resources(merged, existing.resources)
+        _merge_infra_resources(merged, new_resources)
+        InfraState(
+            cloud=cloud,
+            region=region,
+            provisioned_by="agentbreeder.DeployEngine",
+            provisioned_at=datetime.now(UTC),
+            mode="provisioned",
+            resources=merged,
+        ).save(state_path)
+
+    async def _maybe_provision_greenfield(
+        self, config: AgentConfig, project_dir: Path, provision: bool
+    ) -> None:
+        """Greenfield-provision the cloud footprint for ``--provision`` and feed
+        its IDs into ``deploy.env_vars`` so the existing deploy path serves the
+        agent into it. AWS only for now (#537); GCP/Azure greenfield ship via the
+        Studio wizard.
+
+        No-op unless ``provision`` is set. Respects BYO infra already supplied in
+        ``env_vars`` and reuses a previously-recorded greenfield footprint rather
+        than provisioning a duplicate.
+        """
+        if not provision:
+            return
+
+        cloud = config.deploy.cloud
+        if cloud in (CloudType.local, CloudType.claude_managed):
+            return  # nothing to provision
+
+        if cloud != CloudType.aws:
+            raise DeployError(
+                f"--provision currently supports AWS only (got {cloud.value!r}). "
+                "Use the Studio deploy wizard for GCP/Azure greenfield (#537)."
+            )
+
+        from engine.provisioners.state import InfraState
+
+        if config.deploy.env_vars is None:
+            config.deploy.env_vars = {}
+        env = config.deploy.env_vars
+
+        # BYO infra already supplied → respect it, skip greenfield.
+        if env.get("AWS_ECS_CLUSTER") and env.get("AWS_VPC_SUBNETS"):
+            logger.info(
+                "Existing AWS infra in env_vars for '%s'; skipping greenfield provisioning",
+                config.name,
+            )
+            return
+
+        state_path = project_dir / ".agentbreeder" / "infra-state.json"
+        existing = InfraState.load_or_none(state_path)
+        if (
+            existing is not None
+            and existing.mode == "provisioned"
+            and "ecs_cluster" in existing.resources
+        ):
+            logger.info("Reusing greenfield infra recorded at %s", state_path)
+            state = existing
+        else:
+            region = config.deploy.region or env.get("AWS_REGION") or "us-east-1"
+            fields = dict(env)  # carries creds + any user overrides
+            fields.setdefault("AWS_AGENT_NAME", config.name)
+            fields.setdefault("AWS_AGENT_VERSION", config.version)
+            fields.setdefault("AWS_DEFAULT_REGION", region)
+            # CLI deploys reach the task at its public IP (assignPublicIp), no ALB.
+            fields.setdefault("AWS_AGENT_PUBLIC_INGRESS", "true")
+
+            async def _emit(msg: str) -> None:
+                logger.info("greenfield(aws): %s", msg)
+
+            logger.info("Greenfield-provisioning AWS footprint for '%s'", config.name)
+            payload = InfraValidationInput(
+                cloud="aws", region=region, mode="simple", fields=fields
+            )
+            state = await provisioner_for("aws").provision(payload, progress=_emit)
+            self._persist_infra_resources(project_dir, "aws", region, state.resources)
+
+        # Inject the provisioned IDs without clobbering anything the user set.
+        for key, value in infra_state_to_env("aws", state).items():
+            env.setdefault(key, value)
 
     async def _auto_provision_data_backends(
         self, config: AgentConfig, project_dir: Path | None = None
@@ -351,19 +461,9 @@ class DeployEngine:
                     )
 
         # Persist the merged footprint so teardown can destroy everything created.
+        # Merges with any greenfield footprint already recorded for this project.
         if project_dir is not None and merged_resources and cloud and region:
-            from datetime import UTC, datetime
-
-            from engine.provisioners.state import InfraState
-
-            InfraState(
-                cloud=cloud,
-                region=region,
-                provisioned_by="agentbreeder.DeployEngine",
-                provisioned_at=datetime.now(UTC),
-                mode="provisioned",
-                resources=merged_resources,
-            ).save(project_dir / ".agentbreeder" / "infra-state.json")
+            self._persist_infra_resources(project_dir, cloud, region, merged_resources)
 
     def _register(self, config: AgentConfig, endpoint_url: str) -> None:
         """Register the agent in the local registry and sync to the AgentBreeder API.
