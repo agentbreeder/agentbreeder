@@ -129,7 +129,7 @@ agentbreeder quickstart [--cloud TARGET] [--no-browser] [--skip-seed] [--dev] [-
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--cloud` | — | Also deploy to cloud after local setup. `aws` (ECS Fargate), `gcp` (Cloud Run), and `azure` (Container Apps) all ship with full governance parity and greenfield `--provision`. Secret auto-mirror ships for GCP + Azure; on AWS, pre-create secrets in Secrets Manager. See the [deploy-target status table](#agentbreeder-deploy). |
+| `--cloud` | — | Also deploy to cloud after local setup. `aws` (ECS Fargate), `gcp` (Cloud Run), and `azure` (Container Apps) all ship with full governance parity. This CLI path deploys into **existing** infra (plus auto-provisioned RDS/Redis data backends); greenfield provisioning ships via the [Studio deploy wizard](deployment#deploying-from-studio). Secret auto-mirror ships for GCP + Azure; on AWS, pre-create secrets in Secrets Manager. See the [deploy-target status table](#agentbreeder-deploy). |
 | `--no-browser` | Off | Don't open Studio at `http://localhost:3001` |
 | `--skip-seed` | Off | Skip ChromaDB + Neo4j seeding (fast restart) |
 | `--dev` | Off | Build API and Studio from local source instead of pulling images |
@@ -326,15 +326,30 @@ Mode is picked by these rules, in order:
 
 This is the **canonical deploy-target status table** for AgentBreeder — other docs link here rather than repeating it. As of **v2.6.0**, the same `agent.yaml` deploys with **full governance parity** — the sidecar (guardrails, cost, tracing) plus secret mirroring — to **Local**, **AWS ECS Fargate**, **GCP Cloud Run**, and **Azure Container Apps**. **AWS App Runner** is single-container: it deploys *without* a sidecar and **rejects** `guardrails:` / `secrets:` at `validate-infra`. **Kubernetes** and **Claude-managed** are in flight.
 
+**Greenfield vs. existing account.** The **CLI** (`agentbreeder deploy`) deploys
+into **existing infrastructure** — a VPC, subnets, cluster, and execution role you
+already have (the per-cloud BYO contract). **Greenfield** provisioning (creating that
+footprint from scratch) ships today through the **Studio deploy wizard** (Step 3 →
+*Provision for me*); the CLI `--provision` flag is on the
+[roadmap](https://github.com/agentbreeder/agentbreeder/issues/383). Independently,
+**both surfaces auto-provision the data tier** (RDS pgvector / ElastiCache Redis) when
+an agent declares `memory:` or a knowledge base without a `backend_url`.
+
 | Target | Status | Greenfield provisioning | Sidecar (governance) | Secret auto-mirror |
 |--------|--------|--------------------------|----------------------|--------------------|
-| `local` (Docker Compose) | ✅ Shipped | ✅ | ✅ | n/a (local `.env`) |
-| `ecs-fargate` (AWS) | ✅ Shipped | ✅ `--provision` | ✅ | 🟡 Roadmap — pre-create in Secrets Manager |
-| `cloud-run` (GCP) | ✅ Shipped | ✅ `--provision` | ✅ | ✅ |
-| `container-apps` (Azure) | ✅ Shipped | ✅ `--provision` | ✅ | ✅ |
-| `app-runner` (AWS) | ✅ Shipped (single-container) | ✅ `--provision` | ❌ — rejects `guardrails:`/`secrets:` | ❌ — not supported |
+| `local` (Docker Compose) | ✅ Shipped | ✅ (nothing to provision) | ✅ | n/a (local `.env`) |
+| `ecs-fargate` (AWS) | ✅ Shipped | ✅ Studio wizard¹ · CLI BYO + auto data tier | ✅ | 🟡 Roadmap — pre-create in Secrets Manager |
+| `cloud-run` (GCP) | ✅ Shipped | ✅ Studio wizard¹ · CLI BYO + auto data tier | ✅ | ✅ |
+| `container-apps` (Azure) | ✅ Shipped | ✅ Studio wizard¹ · CLI BYO + auto data tier | ✅ | ✅ |
+| `app-runner` (AWS) | ✅ Shipped (single-container) | CLI BYO only — wizard provisions ECS Fargate, not App Runner | ❌ — rejects `guardrails:`/`secrets:` | ❌ — not supported |
 | `kubernetes` (EKS/GKE/AKS/self-hosted) | 🟡 In flight | ❌ — needs existing cluster + kubeconfig | ✅ (when usable) | 🟡 Roadmap |
 | `claude-managed` (Anthropic) | 🟡 In flight | n/a — runtime is Anthropic-managed | n/a | n/a |
+
+¹ Greenfield provisioning runs through **Studio → Deploys → New deploy** (the
+`/deploy-wizard` flow) and the deployments job API (`POST /api/v1/deployments` with
+`infra_mode: "provision"`). See [Deployment → Deploying from Studio](deployment#deploying-from-studio).
+The equivalent CLI flag (`agentbreeder deploy --provision`) is not yet shipped — from
+the terminal, deploy into existing infra (BYO) or pre-create the footprint first.
 
 Each `--target` value maps to one cloud + runtime combination:
 

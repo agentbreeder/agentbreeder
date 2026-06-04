@@ -86,7 +86,7 @@ Use these to see how the same agent deploys to a specific cloud.
 
 Deploys to AWS App Runner — serverless containers with no VPC, no ALB, and no load balancer configuration required. Ideal for simple HTTP-accessible agents.
 
-*Prereq:* AWS ECS Fargate ships full governance and greenfield `--provision`; on AWS pre-create secrets in Secrets Manager (auto-mirror is on the roadmap). See the [deploy-target status table](cli-reference#agentbreeder-deploy).
+*Prereq:* AWS ECS Fargate ships full governance; greenfield provisioning is available via the [Studio deploy wizard](deployment#deploying-from-studio) (CLI `--provision` is on the roadmap), so CLI deploys use existing infra plus auto-provisioned data backends. On AWS, pre-create secrets in Secrets Manager (auto-mirror is on the roadmap). See the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 ```yaml
 # agent.yaml
