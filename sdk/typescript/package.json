@@ -1,7 +1,7 @@
 {
   "name": "@agentbreeder/sdk",
   "version": "0.1.0",
-  "description": "TypeScript SDK for AgentBreeder \u2014 Define Once. Deploy Anywhere.",
+  "description": "TypeScript SDK for AgentBreeder — Define Once. Deploy Anywhere.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -27,7 +27,7 @@
     "@types/node": "^20.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vitest": "^4.1.8"
   },
   "peerDependenciesMeta": {
     "@modelcontextprotocol/sdk": {
