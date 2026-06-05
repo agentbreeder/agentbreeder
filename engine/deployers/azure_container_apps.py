@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any
 
@@ -43,6 +44,49 @@ DEFAULT_MEMORY = "1.0Gi"
 DEFAULT_TARGET_PORT = 8080
 HEALTH_CHECK_TIMEOUT = 120
 HEALTH_CHECK_INTERVAL = 5
+
+
+def _normalize_aca_cpu(value: str | None) -> float:
+    """Convert a CPU spec to Azure Container Apps fractional cores.
+
+    ACA wants a numeric core count (``0.5``, ``1.0``, ``2.0``). Accepts vCPU
+    notation (``"1"``, ``"0.5"``) and millicpu (``"500m"`` → ``0.5``).
+    """
+    raw = (value or "").strip().lower().removesuffix("vcpu").strip()
+    if raw.endswith("m"):
+        try:
+            return float(raw[:-1].strip()) / 1000
+        except ValueError:
+            return DEFAULT_CPU
+    match = re.match(r"^([0-9]*\.?[0-9]+)$", raw)
+    if not match:
+        return DEFAULT_CPU
+    num = float(match.group(1))
+    return num if num > 0 else DEFAULT_CPU
+
+
+def _normalize_aca_memory(value: str | None) -> str:
+    """Convert a memory spec to the ACA canonical form ``"<x.x>Gi"``.
+
+    Accepts Kubernetes-style quantities (``"2Gi"``, ``"512Mi"``), plain GB/MB
+    suffixes (``"2G"``, ``"512M"``) and raw MiB integers (``"2048"`` →
+    ``"2.0Gi"``). ACA only accepts Gi-denominated memory.
+    """
+    raw = (value or "").strip()
+    match = re.match(r"^([0-9]*\.?[0-9]+)\s*([a-zA-Z]*)$", raw)
+    if not match:
+        return DEFAULT_MEMORY
+    num = float(match.group(1))
+    unit = match.group(2).lower()
+    if num <= 0:
+        return DEFAULT_MEMORY
+    if unit in ("gi", "g", "gb"):
+        gi = num
+    else:  # "", "mi", "m", "mb" — MiB-scale → Gi
+        gi = num / 1024
+    # Canonical ACA form: drop trailing zeros ("2.0Gi" → "2Gi", keep "0.5Gi").
+    text = f"{gi:.2f}".rstrip("0").rstrip(".")
+    return f"{text}Gi"
 
 
 class AzureConfig(BaseModel):
@@ -442,13 +486,11 @@ class AzureContainerAppsDeployer(BaseDeployer):
         Constructs the template for the Container App resource including
         ingress, registry credentials, container spec, and scaling rules.
         """
-        # Parse resource config — Azure Container Apps uses numeric CPU
-        cpu_str = config.deploy.resources.cpu or str(DEFAULT_CPU)
-        try:
-            cpu = float(cpu_str)
-        except ValueError:
-            cpu = DEFAULT_CPU
-        memory = config.deploy.resources.memory or DEFAULT_MEMORY
+        # Parse resource config — Azure Container Apps uses numeric (fractional
+        # core) CPU and Gi-denominated memory. Normalize the documented
+        # agent.yaml notation (vCPU + Gi/Mi/G/M/raw) into those forms.
+        cpu = _normalize_aca_cpu(config.deploy.resources.cpu)
+        memory = _normalize_aca_memory(config.deploy.resources.memory)
 
         # Environment variables for the container
         env_vars = [
@@ -465,6 +507,26 @@ class AzureContainerAppsDeployer(BaseDeployer):
         for key, value in config.deploy.env_vars.items():
             if not key.startswith("AZURE_"):
                 env_vars.append({"name": key, "value": value})
+
+        # Expose the resolved MCP forwarding map to the agent so it can load the
+        # co-deployed servers' tools via agenthub.mcp.load_mcp_tools() (#533 —
+        # parity with aws_ecs.py).
+        if config.mcp_servers:
+            import json as _mcp_json
+
+            from engine.deployers.mcp_sidecar import (
+                build_sidecar_env_map,
+                resolve_mcp_servers,
+            )
+
+            mcp_map = build_sidecar_env_map(resolve_mcp_servers(config.mcp_servers))
+            if mcp_map:
+                env_vars.append(
+                    {
+                        "name": "AGENTBREEDER_MCP_SERVERS",
+                        "value": _mcp_json.dumps(mcp_map),
+                    }
+                )
 
         # Scaling
         min_replicas = max(0, config.deploy.scaling.min)

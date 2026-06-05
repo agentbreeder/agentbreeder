@@ -12,6 +12,7 @@ Cloud-specific logic stays in this module — never leak GCP details elsewhere.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -53,6 +54,61 @@ HEALTH_CHECK_INTERVAL = 5
 # ingress container on 8080.
 INGRESS_PORT = 8080
 AGENT_INTERNAL_PORT = 8081
+
+# Cloud Run caps CPU at 8 vCPU. Values at/below this are read as a vCPU count.
+_MAX_VCPU = 8
+
+
+def _normalize_cloudrun_cpu(value: str | None) -> str:
+    """Convert a CPU spec to a Cloud Run-valid limit.
+
+    Cloud Run expects whole vCPU (``"1"``, ``"2"``) or millicpu (``"500m"``).
+    Accepts vCPU notation (``"1"``, ``"0.5"``) and millicpu (``"500m"``); raw
+    CPU-unit notation (``"1024"``, AWS-style) is interpreted as vCPU/1024.
+    Cloud Run requires >= 1 vCPU when concurrency > 1, so sub-1.0 values are
+    clamped to ``"1000m"`` (matches the prior #119 behaviour).
+    """
+    raw = (value or "").strip().lower().removesuffix("vcpu").strip()
+    if raw.endswith("m"):
+        digits = raw[:-1].strip()
+        try:
+            milli = float(digits)
+        except ValueError:
+            return DEFAULT_CPU
+        return "1000m" if milli < 1000 else str(int(round(milli / 1000)))
+    match = re.match(r"^([0-9]*\.?[0-9]+)$", raw)
+    if not match:
+        return DEFAULT_CPU
+    num = float(match.group(1))
+    if num <= 0:
+        return DEFAULT_CPU
+    # Large integers are AWS-style CPU units (1024 = 1 vCPU); convert.
+    if num > _MAX_VCPU:
+        num = num / 1024
+    if num < 1.0:
+        return "1000m"  # Cloud Run minimum for concurrency > 1
+    return str(int(round(num)))
+
+
+def _normalize_cloudrun_memory(value: str | None) -> str:
+    """Convert a memory spec to a Cloud Run-valid limit (``"<n>Mi"``/``"<n>Gi"``).
+
+    Cloud Run only accepts ``Mi``/``Gi`` suffixes. Accepts Kubernetes-style
+    quantities (``"2Gi"``, ``"512Mi"``), plain GB/MB suffixes (``"2G"``,
+    ``"512M"``) and raw MiB integers (``"1024"`` → ``"1024Mi"``).
+    """
+    raw = (value or "").strip()
+    match = re.match(r"^([0-9]*\.?[0-9]+)\s*([a-zA-Z]*)$", raw)
+    if not match:
+        return DEFAULT_MEMORY
+    num = float(match.group(1))
+    unit = match.group(2).lower()
+    if num <= 0:
+        return DEFAULT_MEMORY
+    if unit in ("gi", "g", "gb"):
+        return f"{int(round(num))}Gi"
+    # "", "mi", "m", "mb" — already MiB-scale.
+    return f"{int(round(num))}Mi"
 
 
 class CloudRunConfig(BaseModel):
@@ -148,14 +204,12 @@ def _build_service_template(
     This produces the template dict used by the Cloud Run v2 API
     to define the service's container spec, scaling, and resource limits.
     """
-    # Parse resource config
-    # Fix #119: Cloud Run requires >= 1 vCPU when concurrency > 1.
-    # Normalise the value first, then clamp to 1000m if below 1.0 vCPU.
-    cpu_str = str(config.deploy.resources.cpu or DEFAULT_CPU)
-    cpu_val = float(cpu_str.replace("m", "")) / (1000 if cpu_str.endswith("m") else 1)
-    if cpu_val < 1.0:
-        cpu_str = "1000m"  # Cloud Run minimum for concurrency > 1
-    memory = config.deploy.resources.memory or DEFAULT_MEMORY
+    # Parse resource config. Cloud Run accepts only whole-vCPU/millicpu CPU and
+    # Mi/Gi memory; normalize the documented agent.yaml notation (vCPU + Gi/Mi/
+    # G/M/raw) into those forms. Fix #119: clamp CPU to >= 1 vCPU for
+    # concurrency > 1 (handled inside the normalizer).
+    cpu_str = _normalize_cloudrun_cpu(config.deploy.resources.cpu)
+    memory = _normalize_cloudrun_memory(config.deploy.resources.memory)
 
     # Environment variables for the container
     # Fix #120: env vars whose value starts with "secret://" are wired as
@@ -180,6 +234,21 @@ def _build_service_template(
     for key, value in config.deploy.env_vars.items():
         if not key.startswith("GCP_") and not key.startswith("GOOGLE_"):
             plain_env_vars[key] = value
+
+    # Expose the resolved MCP forwarding map to the agent so it can load the
+    # co-deployed servers' tools via agenthub.mcp.load_mcp_tools() (#533 —
+    # parity with aws_ecs.py).
+    if config.mcp_servers:
+        import json as _mcp_json
+
+        from engine.deployers.mcp_sidecar import (
+            build_sidecar_env_map,
+            resolve_mcp_servers,
+        )
+
+        mcp_map = build_sidecar_env_map(resolve_mcp_servers(config.mcp_servers))
+        if mcp_map:
+            plain_env_vars["AGENTBREEDER_MCP_SERVERS"] = _mcp_json.dumps(mcp_map)
 
     # Build the env list, resolving secret:// references into SecretKeyRef entries.
     env_list: list[dict[str, Any]] = []
@@ -326,6 +395,13 @@ def _build_cloudrun_sidecar_container(config: AgentConfig) -> dict[str, Any]:
         {"name": "AB_GUARDRAILS", "value": ",".join(sc.guardrails)},
         {"name": "AB_COST_TRACKING", "value": str(sc.cost_tracking).lower()},
     ]
+    # Auth: forward a configured token, else explicitly allow no-auth so the
+    # sidecar boots (it refuses to start without one of these). Parity with
+    # engine.sidecar.injector.inject_sidecar.
+    if sc.auth_token:
+        env.append({"name": "AGENT_AUTH_TOKEN", "value": sc.auth_token})
+    else:
+        env.append({"name": "AGENTBREEDER_SIDECAR_ALLOW_NO_AUTH", "value": "1"})
     otel = _os.getenv("OPENTELEMETRY_ENDPOINT") or sc.otel_endpoint
     if otel:
         env.append({"name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": otel})

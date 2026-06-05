@@ -12,6 +12,28 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [2.7.0] — 2026-06-16
 
+### Added
+- **GCP + Azure deploy parity with AWS** (multi-cloud parity epic #505). The same
+  `agent.yaml` now reaches feature parity across all three managed clouds:
+  - **MCP discovery on every cloud** — the GCP Cloud Run and Azure Container Apps
+    deployers now inject the agent-facing `AGENTBREEDER_MCP_SERVERS` env so
+    `agenthub.mcp.load_mcp_tools()` discovers co-deployed MCP servers (was AWS-only;
+    closes #533).
+  - **CLI greenfield `--provision` for GCP and Azure** — `agentbreeder deploy
+    --target cloud-run --provision --local` and `--target container-apps --provision
+    --local` now stand up a fresh footprint, mapping the provisioned IDs into the
+    deploy (was AWS-only; #537). GCP greenfield additionally builds a dedicated VPC +
+    subnet + Cloud NAT + a Private Service Access range (for Cloud SQL private IP),
+    matching the AWS VPC story; the footprint is torn down by `agentbreeder teardown`.
+
+### Fixed
+- **GCP sidecar boot-auth** — the Cloud Run sidecar now emits `AGENT_AUTH_TOKEN`
+  (or `AGENTBREEDER_SIDECAR_ALLOW_NO_AUTH=1`) so it starts, matching the AWS injector.
+- **GCP/Azure resource normalization** — `resources.cpu`/`memory` accept the
+  documented `agent.yaml` notation (vCPU + `Gi`/`Mi`/`G`/`M`/raw) and render
+  Cloud Run (Mi/Gi, whole vCPU/millicpu) and Container Apps (fractional cores,
+  canonical `<x>Gi`) valid values.
+
 ### Security
 - **Bumped `vitest` to `^4.1.8` in `sdk/typescript`** (was `^1.6.0`), clearing a critical advisory
   (GHSA — Vitest UI server arbitrary file read/execute, fixed in 4.1.0). Dev/test-only dependency;

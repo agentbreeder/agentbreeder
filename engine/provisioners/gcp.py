@@ -218,6 +218,28 @@ class GCPProvisioner(InfraProvisioner):
             "project": project,
         }
 
+        # ---- 2.5 Greenfield VPC network + subnet + Cloud NAT + PSA -------
+        # When GCP_PROVISION_VPC is set (the CLI `deploy --provision` path), build
+        # a dedicated custom-mode VPC so the agent + data tier share a private
+        # network — parity with the AWS greenfield VPC story (#505). The network
+        # name then drives the VPC connector + Cloud SQL private-IP steps below.
+        if _should_provision_vpc_network(fields):
+            network_name = str(fields.get("GCP_VPC_NAME") or f"{_truncate_network_id(agent_name)}")
+            subnet_name = str(fields.get("GCP_SUBNET_NAME") or f"{network_name}-subnet")
+            await _emit(
+                f"ensuring VPC network '{network_name}' + subnet '{subnet_name}' in {region}"
+            )
+            network_info = await self._ensure_vpc_network(
+                project=project,
+                region=region,
+                network_name=network_name,
+                subnet_name=subnet_name,
+                fields=fields,
+            )
+            resources["network"] = network_info
+            # Downstream steps (connector, Cloud SQL) target the new network.
+            fields["GCP_VPC_NAME"] = network_name
+
         # ---- 3. Serverless VPC Access Connector (optional, #436) -------
         if _should_provision_vpc_connector(fields):
             connector_id = _truncate_connector_id(agent_name)
@@ -313,6 +335,17 @@ class GCPProvisioner(InfraProvisioner):
                 except Exception:  # noqa: BLE001
                     logger.exception(
                         "destroy(gcp): failed to delete VPC connector %s", vpc.get("name")
+                    )
+
+        # Greenfield VPC (network + subnet + firewall + Cloud NAT + PSA). Deleted
+        # after the connector / Cloud SQL that depend on it.
+        if net := resources.get("network"):
+            if net.get("name"):
+                try:
+                    await self._delete_vpc_network(info=net, fields=fields)
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "destroy(gcp): failed to delete VPC network %s", net.get("name")
                     )
 
         if sa := resources.get("service_account"):
@@ -790,6 +823,250 @@ class GCPProvisioner(InfraProvisioner):
             except NotFound:
                 logger.debug("cloud sql secret %s already absent", secret_name)
 
+    async def _ensure_vpc_network(
+        self,
+        *,
+        project: str,
+        region: str,
+        network_name: str,
+        subnet_name: str,
+        fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Greenfield-create a custom-mode VPC + regional subnet, with Cloud NAT
+        for egress and a Private Service Access range for Cloud SQL private IP.
+
+        Idempotent throughout — every resource is get-before-create. Returns a
+        resource dict recorded in ``InfraState.resources["network"]`` and reversed
+        by :meth:`_delete_vpc_network` at teardown. Cloud NAT and PSA are gated by
+        ``GCP_PROVISION_NAT`` / ``GCP_PROVISION_PSA`` (both default-on).
+        """
+        import asyncio
+
+        from google.api_core.exceptions import NotFound
+        from google.cloud import compute_v1
+
+        creds = _credentials(fields)
+        subnet_cidr = str(fields.get("GCP_SUBNET_CIDR", "10.20.0.0/20"))
+        network_url = f"projects/{project}/global/networks/{network_name}"
+
+        def _ensure_network() -> None:
+            networks = compute_v1.NetworksClient(credentials=creds)
+            try:
+                networks.get(project=project, network=network_name)
+                return
+            except NotFound:
+                pass
+            net = compute_v1.Network(name=network_name, auto_create_subnetworks=False)
+            networks.insert(project=project, network_resource=net).result()
+
+        def _ensure_subnet() -> None:
+            subnets = compute_v1.SubnetworksClient(credentials=creds)
+            try:
+                subnets.get(project=project, region=region, subnetwork=subnet_name)
+                return
+            except NotFound:
+                pass
+            sn = compute_v1.Subnetwork(
+                name=subnet_name,
+                ip_cidr_range=subnet_cidr,
+                region=region,
+                network=network_url,
+                private_ip_google_access=True,
+            )
+            subnets.insert(project=project, region=region, subnetwork_resource=sn).result()
+
+        def _ensure_firewall() -> None:
+            # Allow internal traffic within the subnet (agent ↔ sidecar ↔ data).
+            fw_name = f"{network_name}-allow-internal"
+            firewalls = compute_v1.FirewallsClient(credentials=creds)
+            try:
+                firewalls.get(project=project, firewall=fw_name)
+                return
+            except NotFound:
+                pass
+            rule = compute_v1.Firewall(
+                name=fw_name,
+                network=network_url,
+                direction="INGRESS",
+                source_ranges=[subnet_cidr],
+                allowed=[
+                    compute_v1.Allowed(I_p_protocol="tcp"),
+                    compute_v1.Allowed(I_p_protocol="udp"),
+                    compute_v1.Allowed(I_p_protocol="icmp"),
+                ],
+            )
+            firewalls.insert(project=project, firewall_resource=rule).result()
+
+        await asyncio.to_thread(_ensure_network)
+        await asyncio.to_thread(_ensure_subnet)
+        await asyncio.to_thread(_ensure_firewall)
+
+        info: dict[str, Any] = {
+            "name": network_name,
+            "network_url": network_url,
+            "subnet": subnet_name,
+            "subnet_cidr": subnet_cidr,
+            "region": region,
+            "project": project,
+        }
+
+        # Cloud Router + NAT so scale-to-zero containers on private IPs can still
+        # pull images / reach external APIs (parity with the AWS NAT gateway).
+        if str(fields.get("GCP_PROVISION_NAT", "true")).lower() not in ("false", "0", ""):
+            router_name = f"{network_name}-router"
+            nat_name = f"{network_name}-nat"
+            await asyncio.to_thread(
+                self._ensure_cloud_nat,
+                project=project,
+                region=region,
+                network_url=network_url,
+                router_name=router_name,
+                nat_name=nat_name,
+                creds=creds,
+            )
+            info["router"] = router_name
+            info["nat"] = nat_name
+
+        # Private Service Access range + peering so Cloud SQL gets a private IP on
+        # this network (Cloud SQL private-IP requires a configured PSA range).
+        if str(fields.get("GCP_PROVISION_PSA", "true")).lower() not in ("false", "0", ""):
+            psa_range = str(fields.get("GCP_PSA_RANGE_NAME", f"{network_name}-psa"))
+            await asyncio.to_thread(
+                self._ensure_private_service_access,
+                project=project,
+                network_name=network_name,
+                range_name=psa_range,
+                creds=creds,
+                fields=fields,
+            )
+            info["psa_range"] = psa_range
+
+        return info
+
+    def _ensure_cloud_nat(
+        self,
+        *,
+        project: str,
+        region: str,
+        network_url: str,
+        router_name: str,
+        nat_name: str,
+        creds: Any,
+    ) -> None:
+        """Create a Cloud Router + Cloud NAT (auto IP, all subnet ranges)."""
+        from google.api_core.exceptions import NotFound
+        from google.cloud import compute_v1
+
+        routers = compute_v1.RoutersClient(credentials=creds)
+        try:
+            router = routers.get(project=project, region=region, router=router_name)
+        except NotFound:
+            router = compute_v1.Router(name=router_name, network=network_url)
+            routers.insert(project=project, region=region, router_resource=router).result()
+            router = routers.get(project=project, region=region, router=router_name)
+
+        if any(n.name == nat_name for n in router.nats):
+            return
+        nat = compute_v1.RouterNat(
+            name=nat_name,
+            nat_ip_allocate_option="AUTO_ONLY",
+            source_subnetwork_ip_ranges_to_nat="ALL_SUBNETWORKS_ALL_IP_RANGES",
+        )
+        router.nats.append(nat)
+        routers.patch(
+            project=project, region=region, router=router_name, router_resource=router
+        ).result()
+
+    def _ensure_private_service_access(
+        self,
+        *,
+        project: str,
+        network_name: str,
+        range_name: str,
+        creds: Any,
+        fields: dict[str, Any],
+    ) -> None:
+        """Allocate a PSA IP range + create the servicenetworking peering so
+        managed services (Cloud SQL) can be reached on a private IP."""
+        from google.api_core.exceptions import Conflict, NotFound
+        from google.cloud import compute_v1
+
+        addresses = compute_v1.GlobalAddressesClient(credentials=creds)
+        prefix_length = int(fields.get("GCP_PSA_PREFIX_LENGTH", 16))
+        try:
+            addresses.get(project=project, address=range_name)
+        except NotFound:
+            addr = compute_v1.Address(
+                name=range_name,
+                purpose="VPC_PEERING",
+                address_type="INTERNAL",
+                prefix_length=prefix_length,
+                network=f"projects/{project}/global/networks/{network_name}",
+            )
+            try:
+                addresses.insert(project=project, address_resource=addr).result()
+            except Conflict:
+                pass
+
+        # Peering connection via the Service Networking API (discovery client).
+        try:
+            from googleapiclient import discovery
+        except ImportError:
+            logger.warning(
+                "google-api-python-client not installed — skipping PSA peering for %s",
+                network_name,
+            )
+            return
+        svc = discovery.build("servicenetworking", "v1", credentials=creds, cache_discovery=False)
+        network_path = f"projects/{project}/global/networks/{network_name}"
+        body = {"network": network_path, "reservedPeeringRanges": [range_name]}
+        try:
+            svc.services().connections().create(
+                parent="services/servicenetworking.googleapis.com", body=body
+            ).execute()
+        except Exception as exc:  # noqa: BLE001 — peering may already exist
+            # A pre-existing connection returns 400 ALREADY_EXISTS; treat as done.
+            if "ALREADY_EXISTS" not in str(exc) and "already" not in str(exc).lower():
+                raise
+
+    async def _delete_vpc_network(self, *, info: dict[str, Any], fields: dict[str, Any]) -> None:
+        """Reverse :meth:`_ensure_vpc_network` in dependency order: NAT/router →
+        firewall → subnet → network (PSA peering range is left for the operator —
+        deleting it requires the peering be removed first and is rarely needed)."""
+        import asyncio
+
+        from google.api_core.exceptions import NotFound
+        from google.cloud import compute_v1
+
+        creds = _credentials(fields)
+        project = str(info.get("project") or fields.get("GOOGLE_CLOUD_PROJECT", ""))
+        region = str(info.get("region", ""))
+        network_name = str(info["name"])
+
+        def _delete() -> None:
+            if info.get("router"):
+                routers = compute_v1.RoutersClient(credentials=creds)
+                with contextlib.suppress(NotFound):
+                    routers.delete(
+                        project=project, region=region, router=str(info["router"])
+                    ).result()
+            firewalls = compute_v1.FirewallsClient(credentials=creds)
+            with contextlib.suppress(NotFound):
+                firewalls.delete(
+                    project=project, firewall=f"{network_name}-allow-internal"
+                ).result()
+            if info.get("subnet"):
+                subnets = compute_v1.SubnetworksClient(credentials=creds)
+                with contextlib.suppress(NotFound):
+                    subnets.delete(
+                        project=project, region=region, subnetwork=str(info["subnet"])
+                    ).result()
+            networks = compute_v1.NetworksClient(credentials=creds)
+            with contextlib.suppress(NotFound):
+                networks.delete(project=project, network=network_name).result()
+
+        await asyncio.to_thread(_delete)
+
     async def _ensure_vpc_connector(
         self,
         *,
@@ -901,6 +1178,12 @@ class GCPProvisioner(InfraProvisioner):
             crm.projects().setIamPolicy(resource=project, body={"policy": policy}).execute()
 
 
+def _should_provision_vpc_network(fields: dict[str, Any]) -> bool:
+    """Trigger predicate for greenfield VPC creation (CLI ``deploy --provision``)."""
+    flag = fields.get("GCP_PROVISION_VPC")
+    return flag in (True, 1, "1", "true", "True", "yes")
+
+
 def _should_provision_vpc_connector(fields: dict[str, Any]) -> bool:
     """Trigger predicate: explicit opt-in, or implicit when Cloud SQL needs private IP.
 
@@ -927,6 +1210,17 @@ def _truncate_connector_id(agent_name: str) -> str:
     if len(safe) < 2:
         safe = (safe + "-c")[:25]
     return safe[:25]
+
+
+def _truncate_network_id(agent_name: str) -> str:
+    """VPC network names: lowercase letters/digits/hyphens, start with a letter,
+    1-63 chars. Mirrors the per-agent identity of the SA + connector."""
+    raw = f"ab-{agent_name[:55]}-vpc".lower()
+    safe = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in raw)
+    safe = safe.strip("-")
+    if not safe or not safe[0].isalpha():
+        safe = f"ab-{safe}".strip("-")
+    return safe[:63]
 
 
 def _await_operation(op: Any, timeout: float = 1800.0) -> Any:
