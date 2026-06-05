@@ -8,6 +8,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Security
+- **Bumped `vitest` to `^4.1.8` in `sdk/typescript`** (was `^1.6.0`), clearing a critical advisory
+  (GHSA — Vitest UI server arbitrary file read/execute, fixed in 4.1.0). Dev/test-only dependency;
+  all 94 SDK tests pass on the new major. (`dashboard` was already on a patched 4.1.x.)
+
 ### Fixed
 - **AWS ECS Fargate deploy hardening** (live-validated end-to-end, incl. the MCP/sidecar topology):
   `resources.cpu`/`memory` accept both vCPU/Gi and raw-unit notation (normalized to Fargate units);
@@ -20,6 +25,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
   called from within a running event loop (runs the registry lookup in a worker thread).
 
 ### Added
+- **CLI greenfield AWS provisioning** — `agentbreeder deploy --provision` (`-p`) now stands up the
+  full AWS footprint (VPC, public/private subnets, NAT gateway, ECS cluster, IAM execution role,
+  security groups) before deploying, for accounts with no pre-existing infrastructure. The
+  provisioned `InfraState` is persisted to `infra-state.json` (next to the agent YAML) and reused
+  idempotently on redeploys, and is mapped into the deployer env (incl. an auto-derived
+  `AWS_ACCOUNT_ID`). `agentbreeder teardown` reverses the greenfield footprint. GCP/Azure greenfield
+  provisioning remain on the roadmap. (#539)
 - **First-class MCP tool loading for Full Code agents**: `agenthub.mcp.load_mcp_tools()` reads the
   `AGENTBREEDER_MCP_SERVERS` map the deployer injects and returns the co-deployed servers' tools as
   LangChain tools (`create_react_agent(model, load_mcp_tools())`). The langgraph runtime bundles
