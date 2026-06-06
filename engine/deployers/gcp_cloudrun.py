@@ -595,13 +595,9 @@ class GCPCloudRunDeployer(BaseDeployer):
         Requires `gcloud auth configure-docker` to have been run for the
         Artifact Registry region.
         """
-        try:
-            import docker
-        except ImportError as e:
-            msg = "Docker SDK not installed. Run: pip install docker"
-            raise ImportError(msg) from e
+        from engine.deployers._docker import docker_client
 
-        client = docker.from_env()
+        client = docker_client()
 
         # Build the image locally first
         logger.info("Building Docker image: %s", image.tag)

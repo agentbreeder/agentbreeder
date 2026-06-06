@@ -756,7 +756,9 @@ class TestPushImage:
         mock_client.images.push.return_value = [{"status": "Pushed"}]
 
         mock_docker = MagicMock()
+        # docker_client() may return docker.from_env() or docker.DockerClient(...)
         mock_docker.from_env.return_value = mock_client
+        mock_docker.DockerClient.return_value = mock_client
 
         with patch.dict("sys.modules", {"docker": mock_docker}):
             await deployer._push_image(image, image_uri)
@@ -777,7 +779,9 @@ class TestPushImage:
         mock_client.images.push.return_value = [{"error": "access denied"}]
 
         mock_docker = MagicMock()
+        # docker_client() may return docker.from_env() or docker.DockerClient(...)
         mock_docker.from_env.return_value = mock_client
+        mock_docker.DockerClient.return_value = mock_client
 
         with (
             patch.dict("sys.modules", {"docker": mock_docker}),

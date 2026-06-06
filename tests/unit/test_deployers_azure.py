@@ -501,7 +501,9 @@ class TestDeploy:
         mock_docker_client.images.push.return_value = iter([{"status": "Pushed"}])
 
         mock_docker = MagicMock()
+        # docker_client() may return docker.from_env() or docker.DockerClient(...)
         mock_docker.from_env.return_value = mock_docker_client
+        mock_docker.DockerClient.return_value = mock_docker_client
 
         with patch.dict(sys.modules, {"docker": mock_docker}):
             await deployer._push_image(image, "myregistry.azurecr.io/my-agent:1.0.0")

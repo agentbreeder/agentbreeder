@@ -328,13 +328,9 @@ class AzureContainerAppsDeployer(BaseDeployer):
         Requires `az acr login --name <registry>` or AZURE_REGISTRY_USERNAME/PASSWORD
         to be set for authentication.
         """
-        try:
-            import docker
-        except ImportError as e:
-            msg = "Docker SDK not installed. Run: pip install docker"
-            raise ImportError(msg) from e
+        from engine.deployers._docker import docker_client
 
-        client = docker.from_env()
+        client = docker_client()
 
         # Build the image locally first
         logger.info("Building Docker image: %s", image.tag)

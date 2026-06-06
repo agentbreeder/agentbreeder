@@ -117,10 +117,18 @@ def _gcp_greenfield_fields(fields: dict[str, Any], config: AgentConfig, region: 
     # provision(gcp) requires GOOGLE_CLOUD_PROJECT; recover it from GCP_PROJECT_ID.
     if not fields.get("GOOGLE_CLOUD_PROJECT") and fields.get("GCP_PROJECT_ID"):
         fields["GOOGLE_CLOUD_PROJECT"] = fields["GCP_PROJECT_ID"]
-    # Create a dedicated VPC + Serverless connector so the agent and data tier
-    # share a private network (matches the AWS VPC story).
-    fields.setdefault("GCP_PROVISION_VPC", "true")
-    fields.setdefault("GCP_PROVISION_VPC_CONNECTOR", "true")
+    # Cloud Run is serverless and reaches the public internet without a VPC, so a
+    # greenfield VPC + Serverless connector is only worth building when the agent
+    # has a private managed data tier to reach (Cloud SQL private IP / Memorystore).
+    # For a stateless agent, greenfield stays minimal (Artifact Registry + SA).
+    needs_private_net = (
+        needs_managed_pgvector(config)
+        or needs_managed_memory_postgres(config)
+        or needs_managed_memory_redis(config)
+    )
+    if needs_private_net:
+        fields.setdefault("GCP_PROVISION_VPC", "true")
+        fields.setdefault("GCP_PROVISION_VPC_CONNECTOR", "true")
 
 
 def _azure_greenfield_fields(fields: dict[str, Any], config: AgentConfig, region: str) -> None:
