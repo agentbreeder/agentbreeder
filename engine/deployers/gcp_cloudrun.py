@@ -422,8 +422,11 @@ def _build_cloudrun_sidecar_container(config: AgentConfig) -> dict[str, Any]:
         "image": sc.image,
         "env": env,
         "resources": {"limits": {"cpu": "500m", "memory": "256Mi"}},
-        # #500: run the sidecar as the distroless non-root user.
-        "security_context": {"run_as_user": 65532},
+        # #500: the sidecar runs as a non-root user (uid 65532). Cloud Run v2's
+        # Container has no security_context field — it derives the run-as user
+        # from the image's Dockerfile USER, which the distroless sidecar image
+        # already sets to nonroot. Setting it here makes the Admin API reject
+        # the revision with "Unknown field for Container: security_context".
         "ports": [{"container_port": INGRESS_PORT}],
         "startup_probe": {
             "http_get": {"path": "/health", "port": INGRESS_PORT},
@@ -783,21 +786,20 @@ class GCPCloudRunDeployer(BaseDeployer):
         }
         ingress = ingress_map.get(gcp.ingress, IngressTraffic.INGRESS_TRAFFIC_ALL)
 
-        # Try to get existing service first
-        try:
+        from google.api_core.exceptions import AlreadyExists, NotFound
+
+        async def _update_existing() -> Any:
             existing = await run_client.get_service(request=GetServiceRequest(name=service_name))
             logger.info("Updating existing Cloud Run service: %s", config.name)
-
             existing.template = RevisionTemplate(template_dict)
             existing.ingress = ingress
-
             operation = await run_client.update_service(
                 request=UpdateServiceRequest(service=existing)
             )
-            service = await operation.result()
-        except Exception:
-            logger.info("Creating new Cloud Run service: %s", config.name)
+            return await operation.result()
 
+        async def _create_new() -> Any:
+            logger.info("Creating new Cloud Run service: %s", config.name)
             service_obj = Service(
                 template=RevisionTemplate(template_dict),
                 ingress=ingress,
@@ -808,7 +810,6 @@ class GCPCloudRunDeployer(BaseDeployer):
                     "team": config.team,
                 },
             )
-
             operation = await run_client.create_service(
                 request=CreateServiceRequest(
                     parent=parent,
@@ -816,7 +817,21 @@ class GCPCloudRunDeployer(BaseDeployer):
                     service_id=config.name,
                 )
             )
-            service = await operation.result()
+            return await operation.result()
+
+        # Idempotent upsert. Update the service when it already exists, create it
+        # otherwise. The W4-35 stale-cleanup path may leave a delete in flight, so
+        # each direction falls back to its inverse on the opposite error: a service
+        # that vanishes mid-update (NotFound) is created, and one that reappears
+        # mid-create (AlreadyExists) is patched. Without this, retrying a deploy
+        # that partially created a service fails with HTTP 400 "already exists".
+        try:
+            service = await _update_existing()
+        except NotFound:
+            try:
+                service = await _create_new()
+            except AlreadyExists:
+                service = await _update_existing()
 
         # Extract the service URL
         service_url = service.uri

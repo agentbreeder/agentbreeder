@@ -79,6 +79,33 @@ def runtime_support_requirement() -> str | None:
         return "agentbreeder"
 
 
+def inject_wheel_copies(template: str, build_dir: Path) -> str:
+    """Insert ``COPY <wheel> ./`` lines into a Dockerfile template for any
+    ``*.whl`` bundled in ``build_dir``.
+
+    When the runtime is bundled as a local wheel (deploying from an unpublished
+    dev checkout via ``AGENTBREEDER_RUNTIME_REQUIREMENT=./*.whl``), the wheel
+    must be ``COPY``ed into the image *before* ``pip install -r requirements.txt``
+    runs — the cache-friendly "COPY requirements.txt first" ordering would
+    otherwise leave the path requirement unresolvable and fail the build with a
+    non-zero pip exit. The wheel COPYs are inserted right after the first
+    ``COPY requirements.txt .`` so layer caching of dependencies is preserved.
+
+    No-op for the common case of published dependencies (no wheels in the
+    context). Shared across every pip-based Python runtime so dev-checkout
+    deploys behave identically regardless of framework.
+    """
+    wheels = sorted(p.name for p in build_dir.glob("*.whl"))
+    if not wheels:
+        return template
+    copy_wheels = "".join(f"COPY {w} ./\n" for w in wheels)
+    return template.replace(
+        "COPY requirements.txt .\n",
+        "COPY requirements.txt .\n" + copy_wheels,
+        1,
+    )
+
+
 def _should_add_litellm_sdk(config: AgentConfig) -> bool:
     """Return True only when the LiteLLM Python SDK should be injected.
 

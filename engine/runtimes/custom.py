@@ -20,6 +20,7 @@ from engine.runtimes.base import (
     _get_litellm_requirements,
     _is_litellm_model,
     build_env_block,
+    inject_wheel_copies,
 )
 
 CUSTOM_SERVER_TEMPLATE = Path(__file__).parent / "templates" / "custom_server.py"
@@ -43,9 +44,11 @@ USER agent
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8080/health').raise_for_status()"
+    CMD python -c "import os,httpx; httpx.get('http://localhost:'+os.environ.get('PORT','8080')+'/health').raise_for_status()"
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+# Honor $PORT: when the observability sidecar is injected the deployer sets
+# PORT=8081 so the agent listens on an internal port and the sidecar owns 8080.
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8080}"]
 """
 
 
@@ -157,7 +160,7 @@ class CustomRuntime(RuntimeBuilder):
                 if config.model.primary.startswith("ollama/"):
                     ollama_extra = '\nENV OLLAMA_BASE_URL="http://agentbreeder-ollama:11434"'
                 dockerfile_content = (
-                    FALLBACK_DOCKERFILE.rstrip()
+                    inject_wheel_copies(FALLBACK_DOCKERFILE, build_dir).rstrip()
                     + "\n\n# Agent configuration\n"
                     + env_block
                     + ollama_extra

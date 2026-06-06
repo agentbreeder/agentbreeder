@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from engine.provisioners.base import (
@@ -19,6 +21,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from engine.provisioners.state import InfraState
 
 logger = logging.getLogger(__name__)
+
+# A freshly-created service account is eventually consistent: GCP may take
+# several seconds (occasionally up to ~a minute) before it can be read back or
+# referenced as a member in a project setIamPolicy call. Bound the waits so a
+# genuinely failing provision still surfaces instead of hanging.
+_SA_PROPAGATION_TIMEOUT = 120.0  # seconds
+_IAM_BINDING_TIMEOUT = 120.0  # seconds
 
 
 def _select_private_ip(ip_addresses: Any) -> str | None:
@@ -538,6 +547,32 @@ class GCPProvisioner(InfraProvisioner):
             )
         except AlreadyExists:
             logger.debug("service account %s created concurrently", sa_email)
+
+        # Wait for the new SA to propagate before any caller binds IAM roles to
+        # it — GCP IAM is eventually consistent and a too-early setIamPolicy
+        # fails with "Service account ... does not exist".
+        await self._await_sa_propagation(client=client, sa_resource=sa_resource)
+
+    async def _await_sa_propagation(self, *, client: Any, sa_resource: str) -> None:
+        """Block until a just-created service account is readable, or time out."""
+        from google.api_core.exceptions import NotFound
+
+        deadline = time.monotonic() + _SA_PROPAGATION_TIMEOUT
+        interval = 2.0
+        while True:
+            try:
+                client.get_service_account(name=sa_resource)
+                return
+            except NotFound:
+                if time.monotonic() >= deadline:
+                    logger.warning(
+                        "service account %s not readable after %.0fs; proceeding",
+                        sa_resource,
+                        _SA_PROPAGATION_TIMEOUT,
+                    )
+                    return
+                await asyncio.sleep(min(interval, max(0.0, deadline - time.monotonic())))
+                interval = min(interval * 1.5, 15.0)
 
     async def _delete_service_account(
         self, *, project: str, sa_email: str, fields: dict[str, Any]
@@ -1147,9 +1182,16 @@ class GCPProvisioner(InfraProvisioner):
         roles: list[str],
         fields: dict[str, Any],
     ) -> None:
-        """Idempotently bind each role to the SA on the project IAM policy."""
+        """Idempotently bind each role to the SA on the project IAM policy.
+
+        Retries the read-modify-write with backoff: a freshly-created SA is
+        rejected by setIamPolicy ("does not exist") until it propagates, and a
+        concurrent policy change yields a 409 etag conflict. Both recover by
+        re-fetching the policy and re-applying, so we re-read inside the loop.
+        """
         try:
             from googleapiclient import discovery
+            from googleapiclient.errors import HttpError
         except ImportError:
             logger.warning(
                 "google-api-python-client not installed — skipping IAM binding for %s",
@@ -1158,24 +1200,47 @@ class GCPProvisioner(InfraProvisioner):
             return
 
         crm = discovery.build("cloudresourcemanager", "v1", cache_discovery=False)
-        policy = (
-            crm.projects()
-            .getIamPolicy(resource=project, body={"options": {"requestedPolicyVersion": 1}})
-            .execute()
-        )
         member = f"serviceAccount:{sa_email}"
-        mutated = False
-        for role in roles:
-            binding = next((b for b in policy.get("bindings", []) if b["role"] == role), None)
-            if binding:
-                if member not in binding["members"]:
-                    binding["members"].append(member)
+
+        def _apply_once() -> None:
+            policy = (
+                crm.projects()
+                .getIamPolicy(resource=project, body={"options": {"requestedPolicyVersion": 1}})
+                .execute()
+            )
+            mutated = False
+            for role in roles:
+                binding = next((b for b in policy.get("bindings", []) if b["role"] == role), None)
+                if binding:
+                    if member not in binding["members"]:
+                        binding["members"].append(member)
+                        mutated = True
+                else:
+                    policy.setdefault("bindings", []).append({"role": role, "members": [member]})
                     mutated = True
-            else:
-                policy.setdefault("bindings", []).append({"role": role, "members": [member]})
-                mutated = True
-        if mutated:
-            crm.projects().setIamPolicy(resource=project, body={"policy": policy}).execute()
+            if mutated:
+                crm.projects().setIamPolicy(resource=project, body={"policy": policy}).execute()
+
+        deadline = time.monotonic() + _IAM_BINDING_TIMEOUT
+        interval = 2.0
+        while True:
+            try:
+                _apply_once()
+                return
+            except HttpError as e:
+                status = getattr(getattr(e, "resp", None), "status", None)
+                msg = str(e)
+                transient = status == 409 or (status == 400 and "does not exist" in msg)
+                if not transient or time.monotonic() >= deadline:
+                    raise
+                logger.info(
+                    "IAM binding for %s not ready (HTTP %s); retrying in %.0fs",
+                    sa_email,
+                    status,
+                    interval,
+                )
+                await asyncio.sleep(min(interval, max(0.0, deadline - time.monotonic())))
+                interval = min(interval * 1.5, 15.0)
 
 
 def _should_provision_vpc_network(fields: dict[str, Any]) -> bool:

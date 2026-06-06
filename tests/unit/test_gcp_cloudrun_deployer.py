@@ -410,6 +410,22 @@ class TestSidecarIngressRouting:
         assert env["AGENTBREEDER_SIDECAR_AGENT_URL"] == "http://localhost:8081"
         assert env["AGENTBREEDER_SIDECAR_INBOUND_ADDR"] == ":8080"
 
+    def test_template_builds_valid_run_v2_revision_template(self) -> None:
+        """The assembled template dict must construct a real Cloud Run v2
+        RevisionTemplate without raising. This guards against emitting any
+        container field the API rejects — e.g. ``security_context``, which is
+        not a Cloud Run v2 Container field (Cloud Run derives the run-as user
+        from the image's Dockerfile USER, not the Admin API)."""
+        from google.cloud import run_v2
+
+        template = self._injected_template()  # agent + sidecar
+        # Must not raise "Unknown field for Container: ...".
+        run_v2.RevisionTemplate(template)
+
+    def test_sidecar_omits_unsupported_security_context(self) -> None:
+        sidecar = self._sidecar_container(self._injected_template())
+        assert "security_context" not in sidecar
+
     def test_no_sidecar_keeps_agent_as_ingress_on_8080(self) -> None:
         config = _make_config()  # no guardrails → no sidecar
         gcp = _extract_cloudrun_config(config)
@@ -788,3 +804,92 @@ class TestPushImage:
             pytest.raises(RuntimeError, match="Image push failed"),
         ):
             await deployer._push_image(image, image_uri)
+
+
+# ---------------------------------------------------------------------------
+# GCPCloudRunDeployer._create_or_update_service — idempotent upsert
+# ---------------------------------------------------------------------------
+
+
+def _fake_run_op(uri: str) -> MagicMock:
+    """Build a fake long-running operation whose result() yields a service."""
+    svc = MagicMock()
+    svc.uri = uri
+    op = MagicMock()
+    op.result = AsyncMock(return_value=svc)
+    return op
+
+
+def _idempotency_deployer_and_config():
+    deployer = GCPCloudRunDeployer()
+    config = _make_config()
+    config.access.visibility = Visibility.public
+    gcp = _extract_cloudrun_config(config)
+    deployer._gcp_config = gcp
+    return deployer, config, gcp
+
+
+class TestCreateOrUpdateServiceIdempotency:
+    """The upsert must survive retries against partially-created services."""
+
+    @pytest.mark.asyncio
+    async def test_updates_when_service_exists(self) -> None:
+        deployer, config, gcp = _idempotency_deployer_and_config()
+        mock_client = MagicMock()
+        from google.cloud.run_v2 import Service
+
+        mock_client.get_service = AsyncMock(return_value=Service())
+        mock_client.update_service = AsyncMock(
+            return_value=_fake_run_op("https://updated.a.run.app")
+        )
+        mock_client.create_service = AsyncMock()
+
+        with patch.object(deployer, "_get_run_client", return_value=mock_client):
+            url = await deployer._create_or_update_service(config, gcp, "img:1")
+
+        assert url == "https://updated.a.run.app"
+        mock_client.update_service.assert_awaited_once()
+        mock_client.create_service.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_creates_when_service_missing(self) -> None:
+        from google.api_core.exceptions import NotFound
+
+        deployer, config, gcp = _idempotency_deployer_and_config()
+        mock_client = MagicMock()
+        mock_client.get_service = AsyncMock(side_effect=NotFound("nope"))
+        mock_client.update_service = AsyncMock()
+        mock_client.create_service = AsyncMock(
+            return_value=_fake_run_op("https://created.a.run.app")
+        )
+
+        with patch.object(deployer, "_get_run_client", return_value=mock_client):
+            url = await deployer._create_or_update_service(config, gcp, "img:1")
+
+        assert url == "https://created.a.run.app"
+        mock_client.create_service.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_create_race_falls_back_to_update(self) -> None:
+        """get_service says NotFound, create races a settling delete and returns
+        AlreadyExists — the deployer must patch the resurfaced service."""
+        from google.api_core.exceptions import AlreadyExists, NotFound
+        from google.cloud.run_v2 import Service
+
+        deployer, config, gcp = _idempotency_deployer_and_config()
+        mock_client = MagicMock()
+        # First get_service (in _update_existing) → NotFound; second (the
+        # fallback _update_existing after AlreadyExists) → found.
+        mock_client.get_service = AsyncMock(side_effect=[NotFound("nope"), Service()])
+        mock_client.create_service = AsyncMock(side_effect=AlreadyExists("exists"))
+        mock_client.update_service = AsyncMock(
+            return_value=_fake_run_op("https://recovered.a.run.app")
+        )
+
+        with patch.object(deployer, "_get_run_client", return_value=mock_client):
+            url = await deployer._create_or_update_service(config, gcp, "img:1")
+
+        assert url == "https://recovered.a.run.app"
+        mock_client.create_service.assert_awaited_once()
+        assert mock_client.get_service.await_count == 2
+        mock_client.update_service.assert_awaited_once()
