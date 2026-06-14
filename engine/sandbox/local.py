@@ -59,9 +59,7 @@ class LocalSandbox:
             return []
         return sorted(str(p.relative_to(self.root)) for p in base.rglob("*") if p.is_file())
 
-    async def exec(  # pragma: no cover - exercised in Task A3
-        self, cmd: builtins.list[str], timeout: float = 30.0
-    ) -> ExecResult:
+    async def exec(self, cmd: builtins.list[str], timeout: float = 30.0) -> ExecResult:
         timeout = min(timeout, _MAX_EXEC_TIMEOUT)
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -84,7 +82,7 @@ class LocalSandbox:
             exit_code=proc.returncode if proc.returncode is not None else -1,
         )
 
-    async def snapshot(self) -> bytes:  # pragma: no cover - exercised in Task A3
+    async def snapshot(self) -> bytes:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for path in sorted(self.root.rglob("*")):
