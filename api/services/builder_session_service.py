@@ -21,10 +21,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.database import BuilderSession
 from engine.agent_chat_builder import run_chat_turn_stream
+from engine.coding_agent.engines import engine_for
+from engine.sandbox.base import select_sandbox_mode
+from engine.sandbox.local import LocalSandbox
 
 
 def _json(obj: Any) -> str:
     return _jsonlib.dumps(obj)
+
+
+class CloudSandboxUnavailable(RuntimeError):  # noqa: N818 — semantic name; not an error suffix
+    """Cloud sandbox selected but not available yet (Wave 4)."""
+
+
+def _make_sandbox() -> LocalSandbox:
+    mode = select_sandbox_mode()
+    if mode == "local":
+        return LocalSandbox()
+    if mode == "cloud":
+        raise CloudSandboxUnavailable("CloudSandbox is not available yet (Wave 4)")
+    raise CloudSandboxUnavailable("Sandbox is disabled (AGENTBREEDER_SANDBOX=disabled)")
 
 
 class SessionEventBus:
@@ -112,3 +128,40 @@ class BuilderSessionService:
         # Durable commit: the streaming response can outlive get_db's commit
         # timing, so flush alone is not enough — persist explicitly here.
         await self._db.commit()
+
+    async def run_eject(self, sess, provider, instruction: str, engine_name: str):
+        """Run the coding agent in a sandbox; stream events; persist files."""
+        sandbox = _make_sandbox()
+        state = dict(sess.state or {})
+        for path, content in (state.get("files") or {}).items():
+            await sandbox.write(path, content)
+        if state.get("agent_yaml"):
+            await sandbox.write("agent.yaml", state["agent_yaml"])
+
+        engine = engine_for(engine_name, provider=provider)
+        try:
+            async for evt in engine.run(instruction, state.get("history", []), sandbox):
+                if evt.type == "token":
+                    yield {"event": "token", "data": _json({"text": evt.text})}
+                elif evt.type == "tool_call":
+                    yield {"event": "tool_call", "data": _json({"tool": evt.tool_name})}
+                elif evt.type == "file_change":
+                    try:
+                        content = await sandbox.read(evt.path)
+                    except FileNotFoundError:
+                        content = ""
+                    yield {
+                        "event": "file_change",
+                        "data": _json(
+                            {"path": evt.path, "diff": evt.diff, "content": content}
+                        ),
+                    }
+                elif evt.type == "done":
+                    yield {"event": "complete", "data": _json({"summary": evt.text})}
+                elif evt.type == "error":
+                    yield {"event": "error", "data": _json({"detail": evt.error})}
+            state["files"] = {p: await sandbox.read(p) for p in await sandbox.list(".")}
+            await self.save_state(sess, state)
+            await self._db.commit()
+        finally:
+            await sandbox.close()

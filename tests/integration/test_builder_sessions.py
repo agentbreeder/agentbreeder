@@ -174,3 +174,88 @@ def test_messages_requires_key(client, _override_db, monkeypatch):
             json={"content": "hi"},
         )
     assert r.status_code == 400
+
+
+# --- C5: /eject coding-agent route tests -----------------------------------
+
+
+def test_eject_streams_file_change_with_content(client, _override_db, monkeypatch):
+    from engine.coding_agent.base import AgentEvent
+
+    sess = _fake_session()
+    sess.engine = "claude"
+
+    class _FakeEngine:
+        name = "claude"
+        async def run(self, instruction, history, sandbox, bounds=None):
+            await sandbox.write("agent.py", "print('hi')\n")
+            yield AgentEvent(type="file_change", path="agent.py", diff="+print('hi')")
+            yield AgentEvent(type="done", text="done")
+
+    monkeypatch.setattr(
+        "api.services.builder_session_service.engine_for",
+        lambda name, provider: _FakeEngine(),
+    )
+    monkeypatch.setattr(
+        "api.services.builder_session_service.select_sandbox_mode", lambda: "local"
+    )
+    monkeypatch.setattr(
+        "api.routes.builder_sessions.select_sandbox_mode", lambda: "local"
+    )
+
+    class _Backend:
+        async def get(self, _name):
+            return "sk-ant-test"
+    monkeypatch.setattr(
+        "api.routes.builder_sessions.get_workspace_backend", lambda: (_Backend(), None)
+    )
+
+    class _Provider:
+        def __init__(self, *a, **k): pass
+        async def close(self): pass
+    monkeypatch.setattr("api.routes.builder_sessions.AnthropicProvider", _Provider)
+
+    async def _fake_save_state(self, s, state):
+        s.state = state
+    monkeypatch.setattr(
+        "api.services.builder_session_service.BuilderSessionService.save_state", _fake_save_state
+    )
+
+    with patch("api.routes.builder_sessions.BuilderSessionService.get",
+               new=AsyncMock(return_value=sess)):
+        r = client.post(
+            "/api/v1/builder/sessions/11111111-1111-1111-1111-111111111111/eject",
+            json={"instruction": "add a custom tool"},
+        )
+    assert r.status_code == 200
+    assert "event: file_change" in r.text
+    assert "print('hi')" in r.text  # content present in the frame
+
+
+def test_eject_blocked_when_sandbox_cloud(client, _override_db, monkeypatch):
+    monkeypatch.setattr(
+        "api.routes.builder_sessions.select_sandbox_mode", lambda: "cloud"
+    )
+    with patch("api.routes.builder_sessions.BuilderSessionService.get",
+               new=AsyncMock(return_value=_fake_session())):
+        r = client.post(
+            "/api/v1/builder/sessions/11111111-1111-1111-1111-111111111111/eject",
+            json={"instruction": "x"},
+        )
+    assert r.status_code == 409
+
+
+def test_eject_requires_key(client, _override_db, monkeypatch):
+    monkeypatch.setattr("api.routes.builder_sessions.select_sandbox_mode", lambda: "local")
+    class _Backend:
+        async def get(self, _name): return None
+    monkeypatch.setattr(
+        "api.routes.builder_sessions.get_workspace_backend", lambda: (_Backend(), None)
+    )
+    with patch("api.routes.builder_sessions.BuilderSessionService.get",
+               new=AsyncMock(return_value=_fake_session())):
+        r = client.post(
+            "/api/v1/builder/sessions/11111111-1111-1111-1111-111111111111/eject",
+            json={"instruction": "x"},
+        )
+    assert r.status_code == 400
