@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -21,8 +23,11 @@ from api.models.schemas import (
 from api.routes.builders import _builder_key_name, _no_key_detail
 from api.services.builder_session_service import BuilderSessionService, SessionEventBus
 from engine.providers.anthropic_provider import AnthropicProvider
+from engine.providers.base import AuthenticationError, ProviderError
 from engine.providers.models import ProviderConfig, ProviderType
 from engine.secrets.factory import get_workspace_backend
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/builder/sessions", tags=["builder-sessions"])
 
@@ -109,6 +114,24 @@ async def post_message(
         try:
             async for frame in svc.run_interview_turn(sess, provider, body.content):
                 yield frame
+        except AuthenticationError:
+            logger.warning(
+                "builder /messages: auth failed for session %s (key not logged)", session_id
+            )
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {"detail": "Claude API authentication failed.", "code": "auth_error"}
+                ),
+            }
+        except ProviderError:
+            logger.warning("builder /messages: upstream error for session %s", session_id)
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {"detail": "Upstream Claude API error.", "code": "upstream_error"}
+                ),
+            }
         finally:
             await provider.close()
 

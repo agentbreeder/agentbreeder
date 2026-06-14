@@ -98,10 +98,17 @@ class BuilderSessionService:
                 r = evt.result
                 if r.agent_yaml:
                     state["agent_yaml"] = r.agent_yaml
-                    yield {"event": "spec_update", "data": _json(
-                        {"agent_yaml": r.agent_yaml, "valid": r.valid, "errors": r.errors})}
+                    yield {
+                        "event": "spec_update",
+                        "data": _json(
+                            {"agent_yaml": r.agent_yaml, "valid": r.valid, "errors": r.errors}
+                        ),
+                    }
                 history.append({"role": "assistant", "content": r.assistant_message})
                 yield {"event": "done", "data": _json(asdict(r))}
 
         state["history"] = history
         await self.save_state(sess, state)
+        # Durable commit: the streaming response can outlive get_db's commit
+        # timing, so flush alone is not enough — persist explicitly here.
+        await self._db.commit()
