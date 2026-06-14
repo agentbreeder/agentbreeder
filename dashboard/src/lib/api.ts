@@ -1303,6 +1303,28 @@ export interface ChatBuildResult {
   setup_request?: ChatBuildSetupRequest | null;
 }
 
+/**
+ * A persisted conversational-builder session. Mirrors the backend
+ * `BuilderSessionResponse`: chat `history`, the generated `agent_yaml`, any
+ * ejected `files` (path → content), and the deploy job id once deployed.
+ */
+export interface BuilderSession {
+  id: string;
+  team: string;
+  engine: "claude" | "codex";
+  agent_yaml: string | null;
+  files: Record<string, string>;
+  deploy_job_id: string | null;
+  history: { role: string; content: string }[];
+}
+
+/** A single file produced/updated by an eject turn (the `file_change` SSE frame). */
+export interface BuilderFileChange {
+  path: string;
+  diff: string;
+  content: string;
+}
+
 // --- API functions ---
 
 export const api = {
@@ -2443,6 +2465,38 @@ export const api = {
         { method: "POST", body: JSON.stringify({ messages }) },
         onEvent,
       ),
+  },
+  builderSessions: {
+    create: (engine: "claude" | "codex" = "claude") =>
+      request<BuilderSession>("/builder/sessions", {
+        method: "POST",
+        body: JSON.stringify({ engine }),
+      }),
+    get: (id: string) => request<BuilderSession>(`/builder/sessions/${id}`),
+    list: () => request<BuilderSession[]>("/builder/sessions"),
+    sendMessage: (
+      id: string,
+      content: string,
+      onEvent: (event: string, data: unknown) => void,
+    ) =>
+      streamSSE(
+        `/builder/sessions/${id}/messages`,
+        { method: "POST", body: JSON.stringify({ content }) },
+        onEvent,
+      ),
+    eject: (
+      id: string,
+      instruction: string,
+      onEvent: (event: string, data: unknown) => void,
+      engine?: "claude" | "codex",
+    ) =>
+      streamSSE(
+        `/builder/sessions/${id}/eject`,
+        { method: "POST", body: JSON.stringify({ instruction, engine }) },
+        onEvent,
+      ),
+    deploy: (id: string) =>
+      request<BuilderSession>(`/builder/sessions/${id}/deploy`, { method: "POST" }),
   },
   secrets: {
     workspace: (workspace?: string) =>
