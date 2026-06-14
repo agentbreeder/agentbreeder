@@ -438,6 +438,29 @@ class DeployJobResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BuilderSessionResponse(BaseModel):
+    id: str
+    team: str
+    engine: str
+    agent_yaml: str | None = None
+    files: dict[str, str] = Field(default_factory=dict)
+    deploy_job_id: str | None = None
+    history: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class BuilderSessionCreateRequest(BaseModel):
+    engine: str = "claude"  # "claude" | "codex"
+
+
+class BuilderMessageRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=10_000)
+
+
+class BuilderEjectRequest(BaseModel):
+    instruction: str = Field(..., min_length=1, max_length=4000)
+    engine: str | None = None  # override session engine for this run
+
+
 class DeployLogEntry(BaseModel):
     timestamp: str
     level: str
