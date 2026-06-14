@@ -201,9 +201,12 @@ async def deploy_from_session(
     body = DeployRequest(config_yaml=agent_yaml, target="local")
     team_id, _agent = await _resolve_deploy_team(body, db)
     await enforce_team_role(user, team_id, "deployer")
-    _new_agent, job = await DeployService.create_agent_and_deploy(
-        db, yaml_content=agent_yaml, target="local"
-    )
+    try:
+        _new_agent, job = await DeployService.create_agent_and_deploy(
+            db, yaml_content=agent_yaml, target="local"
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     await AuditService.log_event(
         actor=user.email,
         action="deploy.create",
@@ -236,11 +239,11 @@ async def stream_session(
     Emits a ``ping`` every 15s of idle to keep the connection alive and to
     notice client disconnects.
     """
-    svc = BuilderSessionService(db, _bus(request))
+    bus = _bus(request)
+    svc = BuilderSessionService(db, bus)
     sess = await svc.get(session_id, team=user.team)
     if sess is None:
         raise HTTPException(status_code=404, detail="Builder session not found")
-    bus = _bus(request)
 
     async def generator() -> AsyncGenerator[dict, None]:
         async with bus.subscribe(str(session_id)) as queue:
