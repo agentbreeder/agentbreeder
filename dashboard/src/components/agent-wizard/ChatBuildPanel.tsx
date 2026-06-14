@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { SetupCard } from "./SetupCard";
+import { CodeArtifactPanel } from "./CodeArtifactPanel";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -214,10 +215,14 @@ function SpecReadyCard({
   agentYaml,
   valid,
   errors,
+  onEjectToCode,
+  ejecting,
 }: {
   agentYaml: string;
   valid: boolean;
   errors: string[];
+  onEjectToCode: () => void;
+  ejecting: boolean;
 }) {
   const navigate = useNavigate();
   const [logs, setLogs] = useState<string[]>([]);
@@ -348,6 +353,22 @@ function SpecReadyCard({
           {deployError}
         </p>
       )}
+      <Button
+        data-testid="eject-code-btn"
+        variant="outline"
+        onClick={onEjectToCode}
+        disabled={ejecting}
+        className="w-full"
+      >
+        {ejecting ? (
+          <>
+            <Loader2 className="mr-2 size-4 animate-spin" />
+            Generating code…
+          </>
+        ) : (
+          "Eject to code"
+        )}
+      </Button>
       {logs.length > 0 && (
         <pre className="rounded-lg bg-background border border-border px-3 py-2 text-[11px] max-h-40 overflow-y-auto">
           {logs.join("\n")}
@@ -379,6 +400,12 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [pendingSetup, setPendingSetup] = useState<ChatBuildSetupRequest | null>(null);
+
+  // ── Eject-to-code (Wave 3) ───────────────────────────────────────────
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [files, setFiles] = useState<Record<string, string>>({});
+  const [artifactTab, setArtifactTab] = useState<"spec" | "code" | "deploy">("spec");
+  const [ejecting, setEjecting] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -514,6 +541,45 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
     void sendStreaming(buildHistory(confirmation));
   }
 
+  // ── Lazy builder-session creation ─────────────────────────────────────
+  // Created on first eject. Returns the session id (unwraps ApiResponse.data).
+  const ensureSession = useCallback(async (): Promise<string> => {
+    if (sessionId) return sessionId;
+    const res = await api.builderSessions.create("claude");
+    const id = res.data.id;
+    setSessionId(id);
+    return id;
+  }, [sessionId]);
+
+  // ── Eject the validated spec to generated code ────────────────────────
+  const handleEject = useCallback(async () => {
+    setEjecting(true);
+    setSendError(null);
+    try {
+      const id = await ensureSession();
+      await api.builderSessions.eject(
+        id,
+        "Generate the agent.py, tools, and tests for this spec.",
+        (event, data) => {
+          if (event === "file_change") {
+            const change = data as { path: string; diff: string; content: string };
+            setFiles((prev) => ({ ...prev, [change.path]: change.content }));
+          } else if (event === "complete") {
+            setEjecting(false);
+            setArtifactTab("code");
+          } else if (event === "error") {
+            setEjecting(false);
+            setSendError((data as { detail?: string }).detail ?? "Code generation failed.");
+          }
+        },
+      );
+    } catch (err) {
+      setSendError((err as Error).message || "Code generation failed.");
+    } finally {
+      setEjecting(false);
+    }
+  }, [ensureSession]);
+
   // ── Auto-send initialPrompt once the key is confirmed ────────────────
   // Placed here so sendStreaming + buildHistory are already in scope.
   useEffect(() => {
@@ -606,13 +672,68 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
           />
         )}
 
-        {/* Spec card */}
-        {pendingSpec && (
+        {/* Spec card / artifact panel.
+            Invalid specs render the bare card (no tabs). A valid spec gets the
+            tabbed artifact panel: Spec · Code · Deploy. */}
+        {pendingSpec && !pendingSpec.valid && (
           <SpecReadyCard
             agentYaml={pendingSpec.agent_yaml!}
             valid={pendingSpec.valid}
             errors={pendingSpec.errors}
+            onEjectToCode={() => void handleEject()}
+            ejecting={ejecting}
           />
+        )}
+
+        {pendingSpec && pendingSpec.valid && (
+          <div
+            data-testid="artifact-panel"
+            className="rounded-xl border border-border overflow-hidden"
+          >
+            <div role="tablist" className="flex border-b border-border bg-muted/40">
+              {(["spec", "code", "deploy"] as const).map((tab) => {
+                const label = tab === "spec" ? "Spec" : tab === "code" ? "Code" : "Deploy";
+                const selected = artifactTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    data-testid={`artifact-tab-${tab}`}
+                    onClick={() => setArtifactTab(tab)}
+                    className={cn(
+                      "px-4 py-2 text-sm font-medium transition-colors",
+                      selected
+                        ? "border-b-2 border-primary text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <div role="tabpanel" className="p-4">
+              {/* The spec card owns the deploy flow + logs, so it stays mounted
+                  across tab switches (hidden, not unmounted, to preserve deploy
+                  state). It backs both the Spec and Deploy tabs. */}
+              <div className={cn(artifactTab === "code" && "hidden")}>
+                <SpecReadyCard
+                  agentYaml={pendingSpec.agent_yaml!}
+                  valid={pendingSpec.valid}
+                  errors={pendingSpec.errors}
+                  onEjectToCode={() => void handleEject()}
+                  ejecting={ejecting}
+                />
+              </div>
+              {artifactTab === "code" && (
+                <div className="h-72">
+                  <CodeArtifactPanel files={files} />
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Error banner */}

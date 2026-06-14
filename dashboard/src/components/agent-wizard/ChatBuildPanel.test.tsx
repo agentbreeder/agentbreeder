@@ -33,6 +33,12 @@ vi.mock("@/lib/api", () => ({
       create: vi.fn(),
       getDetail: vi.fn(),
     },
+    builderSessions: {
+      create: vi.fn(),
+      get: vi.fn(),
+      eject: vi.fn(),
+      deploy: vi.fn(),
+    },
     mcpServers: {
       create: vi.fn(),
       discover: vi.fn(),
@@ -604,5 +610,70 @@ describe("ChatBuildPanel initialPrompt", () => {
 
     // chatStream should NOT have been called
     expect(api.builders.chatStream).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: Eject to code (Wave 3)
+// ---------------------------------------------------------------------------
+
+describe("ChatBuildPanel — eject to code", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockNavigate.mockClear();
+    vi.mocked(api.secrets.list).mockImplementation(withKeyResponse);
+  });
+
+  const VALID_YAML =
+    "name: my-agent\nversion: 1.0.0\nteam: engineering\n" +
+    "owner: alice@example.com\nframework: langgraph\n" +
+    "model:\n  primary: claude-sonnet-4-6\ndeploy:\n  cloud: aws\n";
+
+  it("ejects the validated spec to code and shows generated files in the Code tab", async () => {
+    vi.mocked(api.builders.chatStream).mockImplementation(async (_m, onEvent) => {
+      onEvent("done", { assistant_message: "", agent_yaml: VALID_YAML, valid: true, errors: [] });
+    });
+    vi.mocked(api.builderSessions.create).mockResolvedValue(
+      apiResp({
+        id: "sess-1",
+        team: "engineering",
+        engine: "claude",
+        agent_yaml: VALID_YAML,
+        files: {},
+        deploy_job_id: null,
+        history: [],
+      } as never),
+    );
+    vi.mocked(api.builderSessions.eject).mockImplementation(
+      async (_id: string, _instruction: string, onEvent: (e: string, d: unknown) => void) => {
+        onEvent("file_change", { path: "agent.py", diff: "+x", content: "print('hi')\n" });
+        onEvent("complete", { summary: "done" });
+      },
+    );
+
+    renderPanel();
+    fireEvent.change(await screen.findByTestId("chat-input"), { target: { value: "build it" } });
+    fireEvent.click(screen.getByTestId("send-btn"));
+
+    // Validated spec appears with the Eject-to-code action.
+    const ejectBtn = await screen.findByTestId("eject-code-btn");
+    fireEvent.click(ejectBtn);
+
+    // A session is lazily created, then the eject stream runs.
+    await waitFor(() => expect(api.builderSessions.create).toHaveBeenCalledWith("claude"));
+    await waitFor(() =>
+      expect(api.builderSessions.eject).toHaveBeenCalledWith(
+        "sess-1",
+        expect.any(String),
+        expect.any(Function),
+      ),
+    );
+
+    // On "complete" the panel auto-switches to the Code tab; the file is shown.
+    await waitFor(() => expect(screen.getByText("agent.py")).toBeInTheDocument());
+
+    // Explicitly clicking the Code tab keeps the file visible (CodeArtifactPanel rendered).
+    fireEvent.click(screen.getByTestId("artifact-tab-code"));
+    expect(screen.getByText("agent.py")).toBeInTheDocument();
   });
 });
