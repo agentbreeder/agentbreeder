@@ -192,9 +192,9 @@ from api.routes.deployments import limiter as _deployments_limiter  # noqa: E402
 app.state.limiter = _deployments_limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Builder session SSE bus (Wave 3, spec §6). Set at module load so the bus
-# exists even when the app is used without the lifespan context (e.g. bare
-# TestClient(app) in tests). The lifespan handler re-assigns it on startup.
+# Builder session SSE bus (Wave 3, spec §6). Set at module load (not in the
+# lifespan handler) so the bus exists even when the app is used without the
+# lifespan context (e.g. bare TestClient(app) in tests).
 from api.services.builder_session_service import SessionEventBus as _SessionEventBus  # noqa: E402
 
 app.state.builder_event_bus = _SessionEventBus()

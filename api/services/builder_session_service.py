@@ -10,14 +10,21 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json as _jsonlib
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import asdict
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.database import BuilderSession
+from engine.agent_chat_builder import run_chat_turn_stream
+
+
+def _json(obj: Any) -> str:
+    return _jsonlib.dumps(obj)
 
 
 class SessionEventBus:
@@ -75,3 +82,26 @@ class BuilderSessionService:
     async def save_state(self, sess: BuilderSession, state: dict[str, Any]) -> None:
         sess.state = state
         await self._db.flush()
+
+    async def run_interview_turn(self, sess, provider, user_text: str):
+        """Async-generate SSE frames for one interview turn; persists history."""
+        state = dict(sess.state or {})
+        history = list(state.get("history", []))
+        history.append({"role": "user", "content": user_text})
+
+        async for evt in run_chat_turn_stream(provider, history):
+            if evt.type == "token":
+                yield {"event": "token", "data": _json({"text": evt.text})}
+            elif evt.type == "setup_request" and evt.setup is not None:
+                yield {"event": "setup_request", "data": _json(asdict(evt.setup))}
+            elif evt.type == "done" and evt.result is not None:
+                r = evt.result
+                if r.agent_yaml:
+                    state["agent_yaml"] = r.agent_yaml
+                    yield {"event": "spec_update", "data": _json(
+                        {"agent_yaml": r.agent_yaml, "valid": r.valid, "errors": r.errors})}
+                history.append({"role": "assistant", "content": r.assistant_message})
+                yield {"event": "done", "data": _json(asdict(r))}
+
+        state["history"] = history
+        await self.save_state(sess, state)

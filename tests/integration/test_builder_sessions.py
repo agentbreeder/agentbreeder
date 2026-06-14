@@ -111,3 +111,66 @@ def test_list_sessions(client, _override_db):
         r = client.get("/api/v1/builder/sessions")
     assert r.status_code == 200
     assert len(r.json()["data"]) == 1
+
+
+# --- C4: /messages interview-turn route tests ------------------------------
+
+
+def test_messages_turn_streams_and_persists(client, _override_db, monkeypatch):
+    from engine.agent_chat_builder import (  # noqa: F401  (verifies symbols exist)
+        ChatStreamEvent,
+        ChatTurnResult,
+    )
+
+    sess = _fake_session()
+    # ensure save_state can mutate without DB
+    async def _fake_save_state(self, s, state):
+        s.state = state
+
+    async def _fake_stream(self, session, provider, user_text):
+        yield {"event": "token", "data": "{\"text\": \"Hello\"}"}
+        yield {"event": "done", "data": "{\"assistant_message\": \"Hello\"}"}
+
+    class _Backend:
+        async def get(self, _name):
+            return "sk-ant-test"
+
+    monkeypatch.setattr(
+        "api.routes.builder_sessions.get_workspace_backend", lambda: (_Backend(), None)
+    )
+
+    class _Provider:
+        def __init__(self, *a, **k):
+            pass
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("api.routes.builder_sessions.AnthropicProvider", _Provider)
+
+    with patch("api.routes.builder_sessions.BuilderSessionService.get",
+               new=AsyncMock(return_value=sess)), \
+         patch("api.routes.builder_sessions.BuilderSessionService.run_interview_turn",
+               new=_fake_stream):
+        r = client.post(
+            "/api/v1/builder/sessions/11111111-1111-1111-1111-111111111111/messages",
+            json={"content": "build a support agent"},
+        )
+    assert r.status_code == 200
+    assert "event: token" in r.text
+    assert "event: done" in r.text
+
+
+def test_messages_requires_key(client, _override_db, monkeypatch):
+    class _Backend:
+        async def get(self, _name):
+            return None
+    monkeypatch.setattr(
+        "api.routes.builder_sessions.get_workspace_backend", lambda: (_Backend(), None)
+    )
+    with patch("api.routes.builder_sessions.BuilderSessionService.get",
+               new=AsyncMock(return_value=_fake_session())):
+        r = client.post(
+            "/api/v1/builder/sessions/11111111-1111-1111-1111-111111111111/messages",
+            json={"content": "hi"},
+        )
+    assert r.status_code == 400

@@ -3,19 +3,26 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette.sse import EventSourceResponse
 
 from api.auth import get_current_user
 from api.database import get_db
 from api.models.database import User
 from api.models.schemas import (
     ApiResponse,
+    BuilderMessageRequest,
     BuilderSessionCreateRequest,
     BuilderSessionResponse,
 )
+from api.routes.builders import _builder_key_name, _no_key_detail
 from api.services.builder_session_service import BuilderSessionService, SessionEventBus
+from engine.providers.anthropic_provider import AnthropicProvider
+from engine.providers.models import ProviderConfig, ProviderType
+from engine.secrets.factory import get_workspace_backend
 
 router = APIRouter(prefix="/api/v1/builder/sessions", tags=["builder-sessions"])
 
@@ -74,3 +81,35 @@ async def get_session(
     if sess is None:
         raise HTTPException(status_code=404, detail="Builder session not found")
     return ApiResponse(data=_to_response(sess))
+
+
+@router.post("/{session_id}/messages")
+async def post_message(
+    session_id: uuid.UUID,
+    body: BuilderMessageRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EventSourceResponse:
+    svc = BuilderSessionService(db, _bus(request))
+    sess = await svc.get(session_id, team=user.team)
+    if sess is None:
+        raise HTTPException(status_code=404, detail="Builder session not found")
+
+    secret_name = _builder_key_name(user)
+    backend, _ws = get_workspace_backend()
+    api_key = await backend.get(secret_name)
+    if not api_key:
+        raise HTTPException(status_code=400, detail=_no_key_detail(secret_name))
+
+    async def generator() -> AsyncGenerator[dict, None]:
+        provider = AnthropicProvider(
+            ProviderConfig(provider_type=ProviderType.anthropic, api_key=api_key)
+        )
+        try:
+            async for frame in svc.run_interview_turn(sess, provider, body.content):
+                yield frame
+        finally:
+            await provider.close()
+
+    return EventSourceResponse(generator())
