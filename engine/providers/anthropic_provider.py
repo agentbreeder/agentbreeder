@@ -125,6 +125,11 @@ class AnthropicProvider(ProviderBase):
         payload = self._build_payload(messages, resolved_model, temperature, max_tokens, tools)
         payload["stream"] = True
 
+        # Per-index accumulator for tool_use content blocks.
+        # Keyed by block index; each entry holds the block id, name, and the
+        # running concatenation of input_json_delta.partial_json fragments.
+        _tool_blocks: dict[int, dict[str, str]] = {}
+
         async with self._client.stream("POST", "/messages", json=payload) as resp:
             self._check_status(resp.status_code, "")
             async for line in resp.aiter_lines():
@@ -135,11 +140,67 @@ class AnthropicProvider(ProviderBase):
                     continue
                 try:
                     event_data = json.loads(data)
-                    chunk = self._parse_stream_event(event_data)
-                    if chunk is not None:
-                        yield chunk
                 except json.JSONDecodeError:
                     logger.warning("Failed to parse Anthropic stream event: %s", data)
+                    continue
+
+                event_type = event_data.get("type")
+
+                # ── Tool-use block accumulation ───────────────────────────
+                if event_type == "content_block_start":
+                    block = event_data.get("content_block", {})
+                    if block.get("type") == "tool_use":
+                        idx = event_data.get("index", 0)
+                        _tool_blocks[idx] = {
+                            "id": block.get("id", ""),
+                            "name": block.get("name", ""),
+                            "json_buf": "",
+                        }
+                    continue
+
+                if event_type == "content_block_delta":
+                    idx = event_data.get("index", 0)
+                    delta = event_data.get("delta", {})
+                    delta_type = delta.get("type")
+                    if delta_type == "input_json_delta" and idx in _tool_blocks:
+                        _tool_blocks[idx]["json_buf"] += delta.get("partial_json", "")
+                        continue
+                    # text_delta (and any unknown delta type) fall through to
+                    # the stateless parser below
+
+                if event_type == "content_block_stop":
+                    idx = event_data.get("index", 0)
+                    if idx in _tool_blocks:
+                        entry = _tool_blocks.pop(idx)
+                        yield StreamChunk(
+                            tool_calls=[
+                                ToolCall(
+                                    id=entry["id"],
+                                    function_name=entry["name"],
+                                    function_arguments=entry["json_buf"],
+                                )
+                            ],
+                            model="",
+                        )
+                    continue
+
+                # ── Stateless events (text deltas, message_start, finish) ─
+                chunk = self._parse_stream_event(event_data)
+                if chunk is not None:
+                    yield chunk
+
+        # Safety: flush any tool blocks that never received content_block_stop
+        for entry in _tool_blocks.values():
+            yield StreamChunk(
+                tool_calls=[
+                    ToolCall(
+                        id=entry["id"],
+                        function_name=entry["name"],
+                        function_arguments=entry["json_buf"],
+                    )
+                ],
+                model="",
+            )
 
     async def list_models(self) -> list[ModelInfo]:
         response = await self._request("GET", "/models")

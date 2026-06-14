@@ -41,6 +41,66 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
   return res.json();
 }
 
+/**
+ * Stream a Server-Sent-Events endpoint using fetch (so the Authorization
+ * header works — EventSource cannot set headers). Calls `onEvent(event, data)`
+ * for each parsed `event:`/`data:` frame. Resolves when the stream closes.
+ */
+export async function streamSSE(
+  path: string,
+  init: RequestInit,
+  onEvent: (event: string, data: unknown) => void,
+): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: { ...getAuthHeaders(), ...((init.headers as Record<string, string> | undefined) ?? {}) },
+  });
+  if (res.status === 401) {
+    localStorage.removeItem("ag-token");
+    if (window.location.pathname !== "/login") window.location.href = "/login";
+    throw new Error("Session expired");
+  }
+  if (!res.ok || !res.body) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `API error ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        let event = "message";
+        const dataLines: string[] = [];
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+        }
+        if (dataLines.length === 0) continue;
+        const dataStr = dataLines.join("\n");
+        let data: unknown = dataStr;
+        try {
+          data = JSON.parse(dataStr);
+        } catch {
+          /* keep raw string */
+        }
+        onEvent(event, data);
+      }
+    }
+  } finally {
+    void reader.cancel();
+  }
+}
+
 // --- Agent types ---
 
 export type AgentStatus = "deploying" | "running" | "stopped" | "failed" | "degraded" | "error";
@@ -1217,6 +1277,18 @@ export interface ChatBuildMessage {
   content: string;
 }
 
+/**
+ * A dependency the agent needs that the user must provide inline before the spec
+ * can finish — emitted as a `setup_request` SSE event when the model calls the
+ * `request_setup` tool. The captured value goes straight to the secrets / MCP
+ * backend; the spec records only the reference (name).
+ */
+export interface ChatBuildSetupRequest {
+  kind: "secret" | "mcp" | "provider";
+  name: string;
+  reason?: string;
+}
+
 /** Result of one POST /builders/chat turn. */
 export interface ChatBuildResult {
   /** The assistant's text reply. Empty string when the model went straight to the tool. */
@@ -1227,6 +1299,8 @@ export interface ChatBuildResult {
   valid: boolean;
   /** Schema validation error messages when valid is false and agent_yaml is set. */
   errors: string[];
+  /** Set when the model called request_setup instead of submitting the spec. */
+  setup_request?: ChatBuildSetupRequest | null;
 }
 
 // --- API functions ---
@@ -2358,6 +2432,17 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ messages }),
       }),
+    /** Streaming variant of `chat` — uses SSE so tokens arrive incrementally.
+     *  Calls `onEvent("token", { text })` per chunk and `onEvent("done", { agent_yaml })` at end. */
+    chatStream: (
+      messages: ChatBuildMessage[],
+      onEvent: (event: string, data: unknown) => void,
+    ) =>
+      streamSSE(
+        "/builders/chat/stream",
+        { method: "POST", body: JSON.stringify({ messages }) },
+        onEvent,
+      ),
   },
   secrets: {
     workspace: (workspace?: string) =>

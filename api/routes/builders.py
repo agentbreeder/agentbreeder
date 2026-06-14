@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import AsyncGenerator
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,13 +15,19 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, Field, field_validator
+from sse_starlette.sse import EventSourceResponse
 from starlette.concurrency import run_in_threadpool
 
 from api.auth import get_current_user
 from api.middleware.rbac import require_role
 from api.models.database import User
 from api.models.schemas import ApiResponse
-from engine.agent_chat_builder import MAX_HISTORY_MESSAGES, ChatTurnResult, run_chat_turn
+from engine.agent_chat_builder import (
+    MAX_HISTORY_MESSAGES,
+    ChatTurnResult,
+    run_chat_turn,
+    run_chat_turn_stream,
+)
 from engine.providers.anthropic_provider import AnthropicProvider
 from engine.providers.base import AuthenticationError, ProviderError
 from engine.providers.models import ProviderConfig, ProviderType
@@ -57,6 +65,13 @@ def _load_schema(resource_type: str) -> dict[str, Any]:
     schema = json.loads(schema_file.read_text())
     _SCHEMA_CACHE[resource_type] = schema
     return schema
+
+
+def _no_key_detail(secret_name: str) -> str:
+    return (
+        "No Claude key connected. Add your Claude API key in "
+        f"Settings → Secrets as '{secret_name}'."
+    )
 
 
 def _validate_resource_type(resource_type: str) -> None:
@@ -398,12 +413,7 @@ async def chat_build(
     if not api_key:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "No Claude key connected. "
-                "Add your Claude API key to chat-to-build: "
-                "go to Settings → Secrets and create "
-                f"'{secret_name}'."
-            ),
+            detail=_no_key_detail(secret_name),
         )
 
     # ── 2. Construct a fresh provider with the BYO key ───────────────────
@@ -466,3 +476,64 @@ async def chat_build(
         await provider.close()
 
     return ApiResponse(data=result)
+
+
+@router.post("/chat/stream")
+async def chat_build_stream(
+    body: ChatBuildRequest,
+    current_user: User = Depends(get_current_user),
+) -> EventSourceResponse:
+    """Streaming variant of POST /builders/chat.
+
+    Identical BYO-key security contract: the key is read server-side from the
+    workspace secrets backend (AGENTBREEDER_CLAUDE_BUILDER_KEY__{user.id}),
+    never stored, never returned, never logged. Emits SSE events:
+      - "token": {"text": "..."}   incremental assistant text
+      - "done":  the final ChatTurnResult as JSON
+      - "error": {"detail": "..."} on upstream/auth failure
+    """
+    secret_name = _builder_key_name(current_user)
+    backend, _ws = get_workspace_backend()
+    api_key: str | None = await backend.get(secret_name)
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail=_no_key_detail(secret_name),
+        )
+
+    history = [{"role": m.role, "content": m.content} for m in body.messages]
+
+    async def generator() -> AsyncGenerator[dict[str, str], None]:
+        provider = None
+        try:
+            provider = AnthropicProvider(
+                ProviderConfig(provider_type=ProviderType.anthropic, api_key=api_key)
+            )
+            async for evt in run_chat_turn_stream(provider, history):
+                if evt.type == "token":
+                    yield {"event": "token", "data": json.dumps({"text": evt.text})}
+                elif evt.type == "setup_request" and evt.setup is not None:
+                    yield {"event": "setup_request", "data": json.dumps(asdict(evt.setup))}
+                elif evt.type == "done" and evt.result is not None:
+                    yield {"event": "done", "data": json.dumps(asdict(evt.result))}
+        except AuthenticationError:
+            logger.warning(
+                "chat_build_stream: auth failed for '%s' (key not logged)", secret_name
+            )
+            yield {
+                "event": "error",
+                "data": json.dumps({"detail": "Claude API authentication failed.", "code": "auth_error"}),
+            }
+        except ProviderError:
+            logger.warning(
+                "chat_build_stream: upstream error for '%s'.", secret_name
+            )
+            yield {
+                "event": "error",
+                "data": json.dumps({"detail": "Upstream Claude API error.", "code": "upstream_error"}),
+            }
+        finally:
+            if provider is not None:
+                await provider.close()
+
+    return EventSourceResponse(generator())
