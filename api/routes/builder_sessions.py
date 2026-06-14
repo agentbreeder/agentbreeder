@@ -1,0 +1,76 @@
+"""BuilderSession API (Wave 3, spec §6) — create / get / list (more in C4-C6)."""
+
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.auth import get_current_user
+from api.database import get_db
+from api.models.database import User
+from api.models.schemas import (
+    ApiResponse,
+    BuilderSessionCreateRequest,
+    BuilderSessionResponse,
+)
+from api.services.builder_session_service import BuilderSessionService, SessionEventBus
+
+router = APIRouter(prefix="/api/v1/builder/sessions", tags=["builder-sessions"])
+
+
+def _bus(request: Request) -> SessionEventBus:
+    return request.app.state.builder_event_bus
+
+
+def _to_response(sess: object) -> BuilderSessionResponse:
+    st = getattr(sess, "state", None) or {}
+    return BuilderSessionResponse(
+        id=str(sess.id),
+        team=sess.team,
+        engine=sess.engine,
+        agent_yaml=st.get("agent_yaml"),
+        files=st.get("files", {}),
+        deploy_job_id=st.get("deploy_job_id"),
+        history=st.get("history", []),
+    )
+
+
+@router.post("", response_model=ApiResponse[BuilderSessionResponse])
+async def create_session(
+    body: BuilderSessionCreateRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[BuilderSessionResponse]:
+    if body.engine not in ("claude", "codex"):
+        raise HTTPException(status_code=400, detail="engine must be 'claude' or 'codex'")
+    svc = BuilderSessionService(db, _bus(request))
+    sess = await svc.create(team=user.team, user_id=user.id, engine=body.engine)
+    return ApiResponse(data=_to_response(sess))
+
+
+@router.get("", response_model=ApiResponse[list[BuilderSessionResponse]])
+async def list_sessions(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[list[BuilderSessionResponse]]:
+    svc = BuilderSessionService(db, _bus(request))
+    rows = await svc.list_for_team(user.team)
+    return ApiResponse(data=[_to_response(s) for s in rows])
+
+
+@router.get("/{session_id}", response_model=ApiResponse[BuilderSessionResponse])
+async def get_session(
+    session_id: uuid.UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[BuilderSessionResponse]:
+    svc = BuilderSessionService(db, _bus(request))
+    sess = await svc.get(session_id, team=user.team)
+    if sess is None:
+        raise HTTPException(status_code=404, detail="Builder session not found")
+    return ApiResponse(data=_to_response(sess))

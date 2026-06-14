@@ -17,6 +17,7 @@ from api.routes import (
     approvals,
     audit,
     auth,
+    builder_sessions,
     builders,
     compliance,
     costs,
@@ -191,6 +192,13 @@ from api.routes.deployments import limiter as _deployments_limiter  # noqa: E402
 app.state.limiter = _deployments_limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Builder session SSE bus (Wave 3, spec §6). Set at module load so the bus
+# exists even when the app is used without the lifespan context (e.g. bare
+# TestClient(app) in tests). The lifespan handler re-assigns it on startup.
+from api.services.builder_session_service import SessionEventBus as _SessionEventBus  # noqa: E402
+
+app.state.builder_event_bus = _SessionEventBus()
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -207,6 +215,7 @@ app.add_middleware(APIVersionMiddleware)
 app.include_router(auth.router)
 app.include_router(agents.router)
 app.include_router(builders.router)
+app.include_router(builder_sessions.router)
 app.include_router(deploys.router)
 app.include_router(deployments.router)
 app.include_router(prompts.router)
