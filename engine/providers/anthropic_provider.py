@@ -241,22 +241,60 @@ class AnthropicProvider(ProviderBase):
 
     def _build_payload(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: str,
         temperature: float | None,
         max_tokens: int | None,
         tools: list[ToolDefinition] | None,
     ) -> dict[str, Any]:
-        # Split system message out; Anthropic puts it in a top-level field
+        # Split system message out; Anthropic puts it in a top-level field.
+        # Tool-loop turns (assistant tool_calls + role="tool" results) are
+        # translated into Anthropic tool_use / tool_result content blocks.
         system_content: str | None = None
         non_system: list[dict[str, Any]] = []
+        pending_tool_results: list[dict[str, Any]] = []
+
+        def _flush_tool_results() -> None:
+            if pending_tool_results:
+                non_system.append({"role": "user", "content": list(pending_tool_results)})
+                pending_tool_results.clear()
+
         for msg in messages:
-            if msg.get("role") == "system":
+            role = msg.get("role", "user")
+            if role == "system":
                 system_content = msg.get("content", "")
+                continue
+            if role == "tool":
+                pending_tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": msg.get("tool_call_id", ""),
+                        "content": msg.get("content", ""),
+                    }
+                )
+                continue
+            _flush_tool_results()
+            if role == "assistant" and msg.get("tool_calls"):
+                blocks: list[dict[str, Any]] = []
+                if msg.get("content"):
+                    blocks.append({"type": "text", "text": msg["content"]})
+                for tc in msg["tool_calls"]:
+                    name = tc.get("function_name") or tc.get("function", {}).get("name", "")
+                    raw = tc.get("function_arguments") or tc.get("function", {}).get(
+                        "arguments", "{}"
+                    )
+                    try:
+                        parsed = json.loads(raw) if isinstance(raw, str) else raw
+                    except json.JSONDecodeError:
+                        parsed = {}
+                    blocks.append(
+                        {"type": "tool_use", "id": tc.get("id", ""), "name": name, "input": parsed}
+                    )
+                non_system.append({"role": "assistant", "content": blocks})
             else:
-                role = msg.get("role", "user")
                 # Anthropic uses "assistant" same as OpenAI; "user" → "user"
                 non_system.append({"role": role, "content": msg.get("content", "")})
+        _flush_tool_results()
 
         payload: dict[str, Any] = {
             "model": model,
