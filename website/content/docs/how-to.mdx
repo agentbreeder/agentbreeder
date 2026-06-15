@@ -152,9 +152,17 @@ Once the chat has produced a validated `agent.yaml`, an **Eject to code** button
 - **Watch the code stream in.** The coding agent writes files into a sandbox workspace and you see live file diffs land in a new **Code** tab in the chat. It can run the generated tests in the sandbox and iterate on failures before handing back.
 - **Deploy from the same thread.** When the code is ready, deploy it straight from the conversation. This is the same governed deploy as everywhere else — RBAC, audit trail, and registry registration all apply.
 
-<Callout type="warning" title="Code generation runs in a local sandbox">
-  Eject-to-code executes in a **local** sandbox on the machine running Studio — `AGENTBREEDER_SANDBOX=local` is the default. In cloud / multi-tenant mode this is gated off: the eject endpoint returns **HTTP 409** until the managed cloud sandbox ships in a later release. Self-hosted users with `AGENTBREEDER_SANDBOX=local` get the full flow today; on [console.agentbreeder.io](https://console.agentbreeder.io) the **Eject to code** button is disabled for now.
+<Callout type="info" title="Where code generation runs">
+  Eject-to-code runs in a sandbox selected by `AGENTBREEDER_SANDBOX`:
+
+  - **`local`** (default) — runs on the machine running Studio. Right for self-hosted, single-user setups.
+  - **`cloud`** — runs in a managed microVM, isolated per session, so multi-tenant deployments never execute user code in-process. Pick the backend with `AGENTBREEDER_SANDBOX_BACKEND` (default `e2b`; `fake` is for tests). The cloud backend enforces path containment, per-file size and exec-timeout caps, and a default-deny egress allowlist.
+  - **`disabled`** — the eject endpoint is turned off entirely.
+
+  On [console.agentbreeder.io](https://console.agentbreeder.io) the cloud sandbox is metered: each eject is charged actual **sandbox-minutes** against your plan's daily quota (a pre-check returns **HTTP 429** when the cap is already met), on top of the per-turn quota the chat builder uses.
 </Callout>
+
+**Builder analytics.** Studio › **Builder** shows the conversational-builder funnel for your team — Converse → Spec validated → Eject → Deploy → Live — with the drop-off at each step, a north-star "time to first deployed agent" (p50/p90), and per-engine scorecards. Events are structural and PII-free (no message or prompt bodies are ever recorded), and the view is scoped to your own team.
 
 ---
 
