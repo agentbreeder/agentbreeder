@@ -676,4 +676,100 @@ describe("ChatBuildPanel — eject to code", () => {
     fireEvent.click(screen.getByTestId("artifact-tab-code"));
     expect(screen.getByText("agent.py")).toBeInTheDocument();
   });
+
+  it("surfaces an error when eject emits an error event", async () => {
+    vi.mocked(api.builders.chatStream).mockImplementation(async (_m, onEvent) => {
+      onEvent("done", { assistant_message: "", agent_yaml: VALID_YAML, valid: true, errors: [] });
+    });
+    vi.mocked(api.builderSessions.create).mockResolvedValue(
+      apiResp({
+        id: "sess-err",
+        team: "engineering",
+        engine: "claude",
+        agent_yaml: VALID_YAML,
+        files: {},
+        deploy_job_id: null,
+        history: [],
+      } as never),
+    );
+    vi.mocked(api.builderSessions.eject).mockImplementation(
+      async (_id: string, _instruction: string, onEvent: (e: string, d: unknown) => void) => {
+        onEvent("error", { detail: "boom" });
+      },
+    );
+
+    renderPanel();
+    fireEvent.change(await screen.findByTestId("chat-input"), { target: { value: "build it" } });
+    fireEvent.click(screen.getByTestId("send-btn"));
+
+    const ejectBtn = await screen.findByTestId("eject-code-btn");
+    fireEvent.click(ejectBtn);
+
+    // The error is surfaced via the chat error banner (same path as sendError).
+    await waitFor(() => expect(screen.getByText("boom")).toBeInTheDocument());
+  });
+
+  it("reuses a single builder session across multiple ejects", async () => {
+    vi.mocked(api.builders.chatStream).mockImplementation(async (_m, onEvent) => {
+      onEvent("done", { assistant_message: "", agent_yaml: VALID_YAML, valid: true, errors: [] });
+    });
+    vi.mocked(api.builderSessions.create).mockResolvedValue(
+      apiResp({
+        id: "sess-reuse",
+        team: "engineering",
+        engine: "claude",
+        agent_yaml: VALID_YAML,
+        files: {},
+        deploy_job_id: null,
+        history: [],
+      } as never),
+    );
+    vi.mocked(api.builderSessions.eject).mockImplementation(
+      async (_id: string, _instruction: string, onEvent: (e: string, d: unknown) => void) => {
+        onEvent("file_change", { path: "agent.py", diff: "+x", content: "print('hi')\n" });
+        onEvent("complete", { summary: "done" });
+      },
+    );
+
+    renderPanel();
+    fireEvent.change(await screen.findByTestId("chat-input"), { target: { value: "build it" } });
+    fireEvent.click(screen.getByTestId("send-btn"));
+
+    // First eject (button lives on the Spec tab).
+    const ejectBtn = await screen.findByTestId("eject-code-btn");
+    fireEvent.click(ejectBtn);
+    await waitFor(() => expect(api.builderSessions.create).toHaveBeenCalledTimes(1));
+    // Eject auto-switches to the Code tab; go back to Spec to eject again.
+    await waitFor(() => expect(screen.getByText("agent.py")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("artifact-tab-spec"));
+
+    // Second eject reuses the session — create is NOT called again.
+    fireEvent.click(screen.getByTestId("eject-code-btn"));
+    await waitFor(() => expect(api.builderSessions.eject).toHaveBeenCalledTimes(2));
+    expect(api.builderSessions.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("Deploy tab shows deploy controls but not the spec YAML", async () => {
+    vi.mocked(api.builders.chatStream).mockImplementation(async (_m, onEvent) => {
+      onEvent("done", { assistant_message: "", agent_yaml: VALID_YAML, valid: true, errors: [] });
+    });
+
+    renderPanel();
+    fireEvent.change(await screen.findByTestId("chat-input"), { target: { value: "build it" } });
+    fireEvent.click(screen.getByTestId("send-btn"));
+
+    // Spec tab (default) shows the YAML preview + Create/Eject controls.
+    await waitFor(() => expect(screen.getByTestId("create-agent-btn")).toBeInTheDocument());
+    expect(screen.getByText(/owner: alice@example.com/)).toBeInTheDocument();
+    expect(screen.getByTestId("eject-code-btn")).toBeInTheDocument();
+
+    // Switch to the Deploy tab.
+    fireEvent.click(screen.getByTestId("artifact-tab-deploy"));
+
+    // Deploy controls remain; spec YAML and Create/Eject are hidden.
+    expect(screen.getByTestId("deploy-agent-btn")).toBeInTheDocument();
+    expect(screen.queryByText(/owner: alice@example.com/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-agent-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("eject-code-btn")).not.toBeInTheDocument();
+  });
 });

@@ -39,6 +39,10 @@ import { CodeArtifactPanel } from "./CodeArtifactPanel";
  */
 const BUILDER_KEY_PREFIX = "AGENTBREEDER_CLAUDE_BUILDER_KEY";
 
+/** Ordered keys for the artifact-panel tabs. Drives render + keyboard nav. */
+const ARTIFACT_TABS = ["spec", "code", "deploy"] as const;
+type ArtifactTab = (typeof ARTIFACT_TABS)[number];
+
 /**
  * Return the workspace secret name for the current user's BYO Claude API key.
  * Mirrors the Python function _builder_key_name(user) in api/routes/builders.py.
@@ -217,12 +221,20 @@ function SpecReadyCard({
   errors,
   onEjectToCode,
   ejecting,
+  view = "full",
 }: {
   agentYaml: string;
   valid: boolean;
   errors: string[];
   onEjectToCode: () => void;
   ejecting: boolean;
+  /**
+   * Which controls to render. "full" (default) shows the YAML spec preview plus
+   * Create / Deploy / Eject. "deploy" hides the spec YAML and the Create/Eject
+   * controls, leaving only the deploy button + logs + endpoint link — this backs
+   * the Deploy tab while sharing the same mounted instance (deploy state preserved).
+   */
+  view?: "full" | "deploy";
 }) {
   const navigate = useNavigate();
   const [logs, setLogs] = useState<string[]>([]);
@@ -305,31 +317,37 @@ function SpecReadyCard({
     >
       <div className="flex items-center gap-2 text-sm font-medium text-green-600 dark:text-green-400">
         <CheckCircle className="size-4" />
-        Agent spec ready
+        {view === "deploy" ? "Deploy agent" : "Agent spec ready"}
       </div>
-      <pre className="rounded-lg bg-background border border-border px-3 py-2 text-[11px] leading-relaxed overflow-x-auto max-h-48">
-        {agentYaml}
-      </pre>
-      <Button
-        data-testid="create-agent-btn"
-        onClick={() => createMutation.mutate()}
-        disabled={createMutation.isPending}
-        className="w-full"
-      >
-        {createMutation.isPending ? (
-          <>
-            <Loader2 className="mr-2 size-4 animate-spin" />
-            Creating agent…
-          </>
-        ) : (
-          "Create agent"
-        )}
-      </Button>
-      {createMutation.isError && (
-        <p className="text-xs text-destructive flex items-center gap-1">
-          <AlertCircle className="size-3" />
-          {(createMutation.error as Error).message}
-        </p>
+      {view === "full" && (
+        <pre className="rounded-lg bg-background border border-border px-3 py-2 text-[11px] leading-relaxed overflow-x-auto max-h-48">
+          {agentYaml}
+        </pre>
+      )}
+      {view === "full" && (
+        <>
+          <Button
+            data-testid="create-agent-btn"
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending}
+            className="w-full"
+          >
+            {createMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Creating agent…
+              </>
+            ) : (
+              "Create agent"
+            )}
+          </Button>
+          {createMutation.isError && (
+            <p className="text-xs text-destructive flex items-center gap-1">
+              <AlertCircle className="size-3" />
+              {(createMutation.error as Error).message}
+            </p>
+          )}
+        </>
       )}
       <Button
         data-testid="deploy-agent-btn"
@@ -353,22 +371,24 @@ function SpecReadyCard({
           {deployError}
         </p>
       )}
-      <Button
-        data-testid="eject-code-btn"
-        variant="outline"
-        onClick={onEjectToCode}
-        disabled={ejecting}
-        className="w-full"
-      >
-        {ejecting ? (
-          <>
-            <Loader2 className="mr-2 size-4 animate-spin" />
-            Generating code…
-          </>
-        ) : (
-          "Eject to code"
-        )}
-      </Button>
+      {view === "full" && (
+        <Button
+          data-testid="eject-code-btn"
+          variant="outline"
+          onClick={onEjectToCode}
+          disabled={ejecting}
+          className="w-full"
+        >
+          {ejecting ? (
+            <>
+              <Loader2 className="mr-2 size-4 animate-spin" />
+              Generating code…
+            </>
+          ) : (
+            "Eject to code"
+          )}
+        </Button>
+      )}
       {logs.length > 0 && (
         <pre className="rounded-lg bg-background border border-border px-3 py-2 text-[11px] max-h-40 overflow-y-auto">
           {logs.join("\n")}
@@ -404,11 +424,30 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
   // ── Eject-to-code (Wave 3) ───────────────────────────────────────────
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [files, setFiles] = useState<Record<string, string>>({});
-  const [artifactTab, setArtifactTab] = useState<"spec" | "code" | "deploy">("spec");
+  const [artifactTab, setArtifactTab] = useState<ArtifactTab>("spec");
   const [ejecting, setEjecting] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const tabRefs = useRef<Partial<Record<ArtifactTab, HTMLButtonElement | null>>>({});
+
+  // ── Roving-tabindex keyboard nav for the artifact tablist ─────────────
+  const handleTabKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      setArtifactTab((current) => {
+        const idx = ARTIFACT_TABS.indexOf(current);
+        const delta = e.key === "ArrowRight" ? 1 : -1;
+        const next =
+          ARTIFACT_TABS[(idx + delta + ARTIFACT_TABS.length) % ARTIFACT_TABS.length];
+        // Focus the newly selected tab after React commits the update.
+        requestAnimationFrame(() => tabRefs.current[next]?.focus());
+        return next;
+      });
+    },
+    [],
+  );
 
   // Per-user secret name — stable once the user is loaded.
   const secretName = user ? builderKeySecretName(user.id) : null;
@@ -565,10 +604,8 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
             const change = data as { path: string; diff: string; content: string };
             setFiles((prev) => ({ ...prev, [change.path]: change.content }));
           } else if (event === "complete") {
-            setEjecting(false);
             setArtifactTab("code");
           } else if (event === "error") {
-            setEjecting(false);
             setSendError((data as { detail?: string }).detail ?? "Code generation failed.");
           }
         },
@@ -690,16 +727,27 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
             data-testid="artifact-panel"
             className="rounded-xl border border-border overflow-hidden"
           >
-            <div role="tablist" className="flex border-b border-border bg-muted/40">
-              {(["spec", "code", "deploy"] as const).map((tab) => {
+            <div
+              role="tablist"
+              aria-label="Build artifacts"
+              onKeyDown={handleTabKeyDown}
+              className="flex border-b border-border bg-muted/40"
+            >
+              {ARTIFACT_TABS.map((tab) => {
                 const label = tab === "spec" ? "Spec" : tab === "code" ? "Code" : "Deploy";
                 const selected = artifactTab === tab;
                 return (
                   <button
                     key={tab}
+                    ref={(el) => {
+                      tabRefs.current[tab] = el;
+                    }}
                     type="button"
                     role="tab"
+                    id={`artifact-tab-${tab}`}
                     aria-selected={selected}
+                    aria-controls="artifact-tabpanel"
+                    tabIndex={selected ? 0 : -1}
                     data-testid={`artifact-tab-${tab}`}
                     onClick={() => setArtifactTab(tab)}
                     className={cn(
@@ -714,10 +762,17 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
                 );
               })}
             </div>
-            <div role="tabpanel" className="p-4">
+            <div
+              role="tabpanel"
+              id="artifact-tabpanel"
+              aria-labelledby={`artifact-tab-${artifactTab}`}
+              tabIndex={0}
+              className="p-4"
+            >
               {/* The spec card owns the deploy flow + logs, so it stays mounted
                   across tab switches (hidden, not unmounted, to preserve deploy
-                  state). It backs both the Spec and Deploy tabs. */}
+                  state). It backs both the Spec and Deploy tabs — the `view` prop
+                  narrows it to deploy-only controls on the Deploy tab. */}
               <div className={cn(artifactTab === "code" && "hidden")}>
                 <SpecReadyCard
                   agentYaml={pendingSpec.agent_yaml!}
@@ -725,6 +780,7 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
                   errors={pendingSpec.errors}
                   onEjectToCode={() => void handleEject()}
                   ejecting={ejecting}
+                  view={artifactTab === "deploy" ? "deploy" : "full"}
                 />
               </div>
               {artifactTab === "code" && (
