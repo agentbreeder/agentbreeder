@@ -59,6 +59,7 @@ import IncidentsPage from "@/pages/incidents";
 import CompliancePage from "@/pages/compliance";
 import DeployWizardPage from "@/pages/deploy-wizard";
 import AgentWizardPage from "@/pages/agent-wizard";
+import BuilderInsightsPage from "@/pages/builder-insights";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient({
@@ -177,6 +178,7 @@ export default function App() {
               <Route path="teams" element={<TeamsPage />} />
               <Route path="teams/:id" element={<TeamDetailPage />} />
               <Route path="costs" element={<CostsPage />} />
+              <Route path="builder-insights" element={<BuilderInsightsPage />} />
               <Route path="budgets" element={<BudgetsPage />} />
               <Route path="audit" element={<AuditPage />} />
               <Route path="lineage" element={<LineagePage />} />

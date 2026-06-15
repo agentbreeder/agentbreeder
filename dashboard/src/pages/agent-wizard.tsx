@@ -27,10 +27,17 @@ import {
 type BuilderMode = "form" | "chat";
 
 export default function AgentWizardPage() {
-  const [mode, setMode] = useState<BuilderMode>("form");
-  const [state, dispatch] = useReducer(reducer, initialState);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  // If ?mode=chat is in the URL, default to chat mode.
+  const [mode, setMode] = useState<BuilderMode>(
+    searchParams.get("mode") === "chat" ? "chat" : "form",
+  );
+  const [state, dispatch] = useReducer(reducer, initialState);
+
+  // Capture ?prompt= once (stable across re-renders).
+  const promptParam = searchParams.get("prompt") ?? undefined;
 
   // On mount: read ?step=N from URL, clamp to the furthest reachable step,
   // and jump there so that reloading /agents/new?step=3 restores the right step.
@@ -151,7 +158,7 @@ export default function AgentWizardPage() {
       <main>
         {mode === "chat" ? (
           <div className="min-h-[480px] rounded-xl border border-border bg-background">
-            <ChatBuildPanel />
+            <ChatBuildPanel initialPrompt={promptParam} />
           </div>
         ) : (
           StepBody

@@ -438,6 +438,29 @@ class DeployJobResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BuilderSessionResponse(BaseModel):
+    id: str
+    team: str
+    engine: str
+    agent_yaml: str | None = None
+    files: dict[str, str] = Field(default_factory=dict)
+    deploy_job_id: str | None = None
+    history: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class BuilderSessionCreateRequest(BaseModel):
+    engine: str = "claude"  # "claude" | "codex"
+
+
+class BuilderMessageRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=10_000)
+
+
+class BuilderEjectRequest(BaseModel):
+    instruction: str = Field(..., min_length=1, max_length=4000)
+    engine: str | None = None  # override session engine for this run
+
+
 class DeployLogEntry(BaseModel):
     timestamp: str
     level: str
@@ -1552,3 +1575,39 @@ class PrincipalGroupResponse(BaseModel):
 
 class GroupMemberAdd(BaseModel):
     member_id: str = Field(..., description="User email or service_principal ID")
+
+
+# --- Analytics (W4 builder funnel) ---
+
+
+class AnalyticsEventIngest(BaseModel):
+    """PII-free structural product-analytics event (design §11.2)."""
+
+    event: str = Field(..., min_length=1, max_length=64)
+    engine: str | None = Field(default=None, max_length=20)
+    session_id: uuid.UUID | None = None  # typed -> pydantic 422s on bad UUIDs
+    props: dict[str, Any] = Field(default_factory=dict)
+
+
+class FunnelStage(BaseModel):
+    key: str
+    label: str
+    count: int
+    dropoff_pct: float  # vs previous stage; 0.0 for the first
+
+
+class EngineScorecard(BaseModel):
+    engine: str
+    samples: int
+    spec_validity_rate: float
+    deploy_success_rate: float
+    turns_to_spec: float
+    hallucinated_field_rate: float
+
+
+class FunnelMetrics(BaseModel):
+    period: str
+    time_to_first_deploy_p50_s: float | None = None
+    time_to_first_deploy_p90_s: float | None = None
+    stages: list[FunnelStage] = Field(default_factory=list)
+    engines: list[EngineScorecard] = Field(default_factory=list)

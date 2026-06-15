@@ -9,6 +9,31 @@ from api.main import app
 client = TestClient(app)
 
 
+def _route_paths(application) -> list[str]:
+    """Collect every route path, flattening included routers.
+
+    Starlette >=1.3 wraps ``include_router()`` results in an ``_IncludedRouter``
+    object that has no ``.path`` (the real routes live on ``original_router``),
+    so a flat ``[r.path for r in app.routes]`` raises AttributeError. This walks
+    plain routes, mounts, and included routers uniformly.
+    """
+    paths: list[str] = []
+    stack = list(getattr(application, "routes", []))
+    guard = 0
+    while stack and guard < 20000:
+        guard += 1
+        route = stack.pop()
+        path = getattr(route, "path", None)
+        if isinstance(path, str):
+            paths.append(path)
+        original = getattr(route, "original_router", None)
+        if original is not None:
+            stack.extend(getattr(original, "routes", []))
+        elif getattr(route, "routes", None):
+            stack.extend(route.routes)
+    return paths
+
+
 class TestHealthEndpoint:
     def test_health_returns_200(self) -> None:
         response = client.get("/health")
@@ -24,12 +49,12 @@ class TestAPIConfig:
         assert app.title == "AgentBreeder API"
 
     def test_api_has_agent_routes(self) -> None:
-        routes = [r.path for r in app.routes]
-        assert "/api/v1/agents" in routes or any("/api/v1/agents" in r for r in routes)
+        routes = _route_paths(app)
+        assert any("/api/v1/agents" in r for r in routes)
 
     def test_api_has_registry_routes(self) -> None:
-        routes = [r.path for r in app.routes]
-        assert any("/api/v1/registry" in str(r) for r in routes)
+        routes = _route_paths(app)
+        assert any("/api/v1/registry" in r for r in routes)
 
     def test_api_has_cors(self) -> None:
         response = client.options("/health", headers={"Origin": "http://localhost:3000"})

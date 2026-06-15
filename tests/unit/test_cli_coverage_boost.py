@@ -2371,7 +2371,9 @@ class TestEjectRemainingBranches:
 
     def test_eject_unsupported_sdk(self) -> None:
         """eject command with unsupported --sdk value."""
-        from click.exceptions import Exit as ClickExit
+        # The command raises typer.Exit; catch that directly. typer >=0.26
+        # bundles its own click, so typer.Exit is no longer click.exceptions.Exit.
+        from typer import Exit as TyperExit
 
         from cli.commands.eject import eject as eject_fn
 
@@ -2379,7 +2381,7 @@ class TestEjectRemainingBranches:
         f.write(VALID_YAML)
         f.close()
 
-        with pytest.raises(ClickExit) as exc_info:
+        with pytest.raises(TyperExit) as exc_info:
             eject_fn(
                 config_path=Path(f.name),
                 sdk="ruby",

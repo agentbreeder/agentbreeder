@@ -117,6 +117,23 @@ agentbreeder quickstart --cloud aws    # also: gcp | azure
 
 ---
 
+## Build from a conversation
+
+The fastest way to create and deploy an agent is through the conversational builder in Studio. No `agent.yaml` editing required.
+
+1. Open Studio at [http://localhost:3001](http://localhost:3001) and go to the **Agents** page. If you have no agents yet, the empty-state prompt "What do you want to build today?" is already waiting — type there or pick one of the example starters.
+2. The builder interviews you with 3–5 focused questions (framework, model, deploy target, any tools you need) — answers stream back token-by-token as you type.
+3. When it has enough information it generates a complete `agent.yaml`, shown inline in the thread for you to review or tweak.
+4. Click **Deploy now**. Live deploy logs stream directly in the conversation thread. When the pipeline finishes you get a live endpoint link — paste it straight into `agentbreeder chat` or your app.
+
+<Callout type="info" title="Claude API key required">
+  The chat builder drives a Claude model to generate your `agent.yaml`. You need to add your Claude API key once: go to **Settings → Secrets** and paste the key under **Claude API Key**. It is stored securely in the workspace secrets backend — it is never written to the database, never returned to the browser, and never logged. Get a key at [console.anthropic.com](https://console.anthropic.com).
+
+  The builder works identically whether you are running locally or on AgentBreeder cloud at [console.agentbreeder.io](https://console.agentbreeder.io).
+</Callout>
+
+---
+
 ## Build your own agent
 
 ```bash
@@ -172,5 +189,6 @@ The 8-step deploy pipeline (parse → RBAC → resolve deps → build container 
 | Deploy to AWS / GCP / Azure / Kubernetes | [How-To: Deploy →](how-to#deploy-to-different-targets) |
 | Add knowledge bases (RAG / GraphRAG) | [RAG →](rag) · [GraphRAG →](graphrag) |
 | Add tools / MCP servers | [MCP servers →](mcp-servers) |
+| Chat to build (conversational) | [How-To: Chat to build →](how-to#chat-to-build-byo-claude-key) |
 | Visual builder | [No Code →](no-code) |
 | Python / TypeScript SDK | [Full Code →](full-code) |

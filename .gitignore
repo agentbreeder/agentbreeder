@@ -72,3 +72,25 @@ output/
 # Internal research and competitive intelligence — not for public repo
 research/
 linkedin-content.docx
+
+# Local scratch / diagnostic output (never committed)
+.a1.txt
+.audit_out.txt
+.diskdiag*.txt
+.verify.txt
+
+# Gate-tool scratch dir (regenerated each run, never committed)
+.tmp-gate/
+.tmp-gate
+
+# Loose local preview/marketing image scratch (not part of the repo)
+/arch-layers.png
+/blog-full.png
+/blog-post-full.png
+/comparison-table.png
+/comparison-updated.png
+/hero-preview.png
+/hero2-preview.png
+/postcard.png
+/postcard-square.png
+/postcard-stack.png

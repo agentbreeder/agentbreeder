@@ -11,13 +11,21 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Send, User, Key, Loader2, CheckCircle, AlertCircle, Plus } from "lucide-react";
-import { api, type ChatBuildMessage, type ChatBuildResult } from "@/lib/api";
+import {
+  api,
+  type ChatBuildMessage,
+  type ChatBuildResult,
+  type ChatBuildSetupRequest,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { track } from "@/lib/analytics";
 import { useAuth } from "@/hooks/use-auth";
+import { SetupCard } from "./SetupCard";
+import { CodeArtifactPanel } from "./CodeArtifactPanel";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -31,6 +39,10 @@ import { useAuth } from "@/hooks/use-auth";
  * Must match the Python helper _builder_key_name() in api/routes/builders.py.
  */
 const BUILDER_KEY_PREFIX = "AGENTBREEDER_CLAUDE_BUILDER_KEY";
+
+/** Ordered keys for the artifact-panel tabs. Drives render + keyboard nav. */
+const ARTIFACT_TABS = ["spec", "code", "deploy"] as const;
+type ArtifactTab = (typeof ARTIFACT_TABS)[number];
 
 /**
  * Return the workspace secret name for the current user's BYO Claude API key.
@@ -208,12 +220,28 @@ function SpecReadyCard({
   agentYaml,
   valid,
   errors,
+  onEjectToCode,
+  ejecting,
+  view = "full",
 }: {
   agentYaml: string;
   valid: boolean;
   errors: string[];
+  onEjectToCode: () => void;
+  ejecting: boolean;
+  /**
+   * Which controls to render. "full" (default) shows the YAML spec preview plus
+   * Create / Deploy / Eject. "deploy" hides the spec YAML and the Create/Eject
+   * controls, leaving only the deploy button + logs + endpoint link — this backs
+   * the Deploy tab while sharing the same mounted instance (deploy state preserved).
+   */
+  view?: "full" | "deploy";
 }) {
   const navigate = useNavigate();
+  const [logs, setLogs] = useState<string[]>([]);
+  const [endpoint, setEndpoint] = useState<string | null>(null);
+  const [deploying, setDeploying] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
 
   const createMutation = useMutation({
     mutationFn: () => api.agents.fromYaml(agentYaml),
@@ -222,6 +250,44 @@ function SpecReadyCard({
       navigate(`/agents/${agent.id}`);
     },
   });
+
+  async function handleDeploy() {
+    setDeploying(true);
+    setLogs([]);
+    setEndpoint(null);
+    setDeployError(null);
+    try {
+      // TODO(Wave 2): expose deploy target selector (currently local-only)
+      const job = await api.deploys.create({ config_yaml: agentYaml, target: "local" });
+      const jobId = job.data.id;
+      const seen = new Set<string>();
+      const terminal = new Set(["completed", "failed"]);
+      // Poll up to ~5 min (250 * 1.2s) — guard against an unbounded loop.
+      for (let i = 0; i < 250; i++) {
+        const detail = (await api.deploys.getDetail(jobId)).data;
+        for (const entry of detail.logs) {
+          const key = `${entry.timestamp}:${entry.message}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            setLogs((prev) => [...prev, entry.message]);
+          }
+        }
+        if (terminal.has(detail.status)) {
+          if (detail.status === "completed") {
+            setEndpoint(`/agents/${detail.agent_id}`);
+          } else {
+            setDeployError(detail.error_message ?? "Deploy failed.");
+          }
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+    } catch (err) {
+      setDeployError((err as Error).message || "Deploy failed.");
+    } finally {
+      setDeploying(false);
+    }
+  }
 
   if (!valid) {
     return (
@@ -252,31 +318,90 @@ function SpecReadyCard({
     >
       <div className="flex items-center gap-2 text-sm font-medium text-green-600 dark:text-green-400">
         <CheckCircle className="size-4" />
-        Agent spec ready
+        {view === "deploy" ? "Deploy agent" : "Agent spec ready"}
       </div>
-      <pre className="rounded-lg bg-background border border-border px-3 py-2 text-[11px] leading-relaxed overflow-x-auto max-h-48">
-        {agentYaml}
-      </pre>
+      {view === "full" && (
+        <pre className="rounded-lg bg-background border border-border px-3 py-2 text-[11px] leading-relaxed overflow-x-auto max-h-48">
+          {agentYaml}
+        </pre>
+      )}
+      {view === "full" && (
+        <>
+          <Button
+            data-testid="create-agent-btn"
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending}
+            className="w-full"
+          >
+            {createMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Creating agent…
+              </>
+            ) : (
+              "Create agent"
+            )}
+          </Button>
+          {createMutation.isError && (
+            <p className="text-xs text-destructive flex items-center gap-1">
+              <AlertCircle className="size-3" />
+              {(createMutation.error as Error).message}
+            </p>
+          )}
+        </>
+      )}
       <Button
-        data-testid="create-agent-btn"
-        onClick={() => createMutation.mutate()}
-        disabled={createMutation.isPending}
+        data-testid="deploy-agent-btn"
+        variant="secondary"
+        onClick={() => void handleDeploy()}
+        disabled={deploying}
         className="w-full"
       >
-        {createMutation.isPending ? (
+        {deploying ? (
           <>
             <Loader2 className="mr-2 size-4 animate-spin" />
-            Creating agent…
+            Deploying…
           </>
         ) : (
-          "Create agent"
+          "Deploy now"
         )}
       </Button>
-      {createMutation.isError && (
+      {deployError && (
         <p className="text-xs text-destructive flex items-center gap-1">
           <AlertCircle className="size-3" />
-          {(createMutation.error as Error).message}
+          {deployError}
         </p>
+      )}
+      {view === "full" && (
+        <Button
+          data-testid="eject-code-btn"
+          variant="outline"
+          onClick={onEjectToCode}
+          disabled={ejecting}
+          className="w-full"
+        >
+          {ejecting ? (
+            <>
+              <Loader2 className="mr-2 size-4 animate-spin" />
+              Generating code…
+            </>
+          ) : (
+            "Eject to code"
+          )}
+        </Button>
+      )}
+      {logs.length > 0 && (
+        <pre className="rounded-lg bg-background border border-border px-3 py-2 text-[11px] max-h-40 overflow-y-auto">
+          {logs.join("\n")}
+        </pre>
+      )}
+      {endpoint && (
+        <Link
+          to={endpoint}
+          className="text-xs underline text-green-600"
+        >
+          Agent deployed — view it
+        </Link>
       )}
     </div>
   );
@@ -286,15 +411,47 @@ function SpecReadyCard({
 // Main ChatBuildPanel component
 // ---------------------------------------------------------------------------
 
-export function ChatBuildPanel() {
+export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {}) {
   const { user } = useAuth();
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState("");
   const [pendingSpec, setPendingSpec] = useState<ChatBuildResult | null>(null);
   const [keyConnected, setKeyConnected] = useState(false);
+  const [streaming, setStreaming] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [pendingSetup, setPendingSetup] = useState<ChatBuildSetupRequest | null>(null);
+
+  // ── Eject-to-code (Wave 3) ───────────────────────────────────────────
+  // Active coding engine for this builder session. Single source of truth for
+  // both the lazy session creation and analytics tagging.
+  const engine: "claude" | "codex" = "claude";
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [files, setFiles] = useState<Record<string, string>>({});
+  const [artifactTab, setArtifactTab] = useState<ArtifactTab>("spec");
+  const [ejecting, setEjecting] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const tabRefs = useRef<Partial<Record<ArtifactTab, HTMLButtonElement | null>>>({});
+
+  // ── Roving-tabindex keyboard nav for the artifact tablist ─────────────
+  const handleTabKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      setArtifactTab((current) => {
+        const idx = ARTIFACT_TABS.indexOf(current);
+        const delta = e.key === "ArrowRight" ? 1 : -1;
+        const next =
+          ARTIFACT_TABS[(idx + delta + ARTIFACT_TABS.length) % ARTIFACT_TABS.length];
+        // Focus the newly selected tab after React commits the update.
+        requestAnimationFrame(() => tabRefs.current[next]?.focus());
+        return next;
+      });
+    },
+    [],
+  );
 
   // Per-user secret name — stable once the user is loaded.
   const secretName = user ? builderKeySecretName(user.id) : null;
@@ -310,37 +467,15 @@ export function ChatBuildPanel() {
     (secretName !== null &&
       (secretsList?.data ?? []).some((s) => s.name === secretName));
 
+  // ── Auto-send ref — declared early; effect is placed after sendStreaming ──
+  const autoSentRef = useRef(false);
+
   // ── Auto-scroll ───────────────────────────────────────────────────────
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [entries, pendingSpec]);
-
-  // ── Chat mutation ─────────────────────────────────────────────────────
-  const chatMutation = useMutation({
-    mutationFn: (msgs: ChatBuildMessage[]) => api.builders.chat(msgs),
-    onSuccess: (res) => {
-      const result = res.data;
-
-      if (result.agent_yaml) {
-        // Claude submitted a spec — show the spec card.
-        setPendingSpec(result);
-        if (result.assistant_message) {
-          setEntries((prev) => [
-            ...prev,
-            { id: generateId(), role: "assistant", content: result.assistant_message },
-          ]);
-        }
-      } else {
-        // Plain text reply — add to conversation.
-        setEntries((prev) => [
-          ...prev,
-          { id: generateId(), role: "assistant", content: result.assistant_message },
-        ]);
-      }
-    },
-  });
+  }, [entries, pendingSpec, streaming]);
 
   // ── Build the message history to send ────────────────────────────────
   function buildHistory(currentInput: string): ChatBuildMessage[] {
@@ -352,9 +487,71 @@ export function ChatBuildPanel() {
     return history;
   }
 
+  // ── Streaming send ────────────────────────────────────────────────────
+  const sendStreaming = useCallback(
+    async (msgs: ChatBuildMessage[]) => {
+      setSending(true);
+      setStreaming("");
+      setSendError(null);
+      let acc = "";
+      let setupRequested = false;
+      try {
+        await api.builders.chatStream(msgs, (event, data) => {
+          if (event === "token") {
+            acc += (data as { text: string }).text;
+            setStreaming(acc);
+          } else if (event === "setup_request") {
+            // The agent needs a dependency — render an inline card in the thread.
+            setupRequested = true;
+            setPendingSetup(data as ChatBuildSetupRequest);
+          } else if (event === "done") {
+            const result = data as ChatBuildResult;
+            setStreaming(null);
+            if (result.setup_request) {
+              // Fallback: the done payload also carries the setup request.
+              setupRequested = true;
+              setPendingSetup(result.setup_request);
+            }
+            if (result.agent_yaml) {
+              // Claude submitted a spec — show the spec card.
+              setPendingSpec(result);
+              if (result.assistant_message) {
+                setEntries((prev) => [
+                  ...prev,
+                  { id: generateId(), role: "assistant", content: result.assistant_message },
+                ]);
+              }
+            } else if (!setupRequested) {
+              // Plain text reply — add to conversation. Skipped while a setup card
+              // is pending so we don't show an empty assistant bubble.
+              setEntries((prev) => [
+                ...prev,
+                { id: generateId(), role: "assistant", content: result.assistant_message || acc },
+              ]);
+            } else if (result.assistant_message) {
+              // Setup pending, but the model also said something — keep it.
+              setEntries((prev) => [
+                ...prev,
+                { id: generateId(), role: "assistant", content: result.assistant_message },
+              ]);
+            }
+          } else if (event === "error") {
+            setSendError((data as { detail?: string }).detail ?? "Something went wrong.");
+          }
+        });
+      } catch (err) {
+        setSendError((err as Error).message || "Something went wrong.");
+      } finally {
+        setSending(false);
+        setStreaming(null);
+      }
+    },
+    [],
+  );
+
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || chatMutation.isPending) return;
+    if (!trimmed || sending) return;
 
     // Add user message to UI immediately.
     setEntries((prev) => [
@@ -363,15 +560,82 @@ export function ChatBuildPanel() {
     ]);
     setInput("");
     setPendingSpec(null);
+    setPendingSetup(null);
+    setSendError(null);
 
     // Reset textarea height.
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
     }
 
-    chatMutation.mutate(buildHistory(trimmed));
+    void sendStreaming(buildHistory(trimmed));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, entries, chatMutation]);
+  }, [input, entries, sending, sendStreaming]);
+
+  // ── Inline setup card completed → thread the confirmation and continue ─
+  // Defined as a plain closure (not memoised) so it always sees the latest
+  // `entries` when SetupCard fires onComplete.
+  function handleSetupComplete(confirmation: string) {
+    setPendingSetup(null);
+    setEntries((prev) => [
+      ...prev,
+      { id: generateId(), role: "user", content: confirmation },
+    ]);
+    void sendStreaming(buildHistory(confirmation));
+  }
+
+  // ── Lazy builder-session creation ─────────────────────────────────────
+  // Created on first eject. Returns the session id (unwraps ApiResponse.data).
+  const ensureSession = useCallback(async (): Promise<string> => {
+    if (sessionId) return sessionId;
+    const res = await api.builderSessions.create(engine);
+    const id = res.data.id;
+    setSessionId(id);
+    return id;
+  }, [sessionId, engine]);
+
+  // ── Eject the validated spec to generated code ────────────────────────
+  const handleEject = useCallback(async () => {
+    setEjecting(true);
+    setSendError(null);
+    track("eject_to_code_started", { engine });
+    try {
+      const id = await ensureSession();
+      await api.builderSessions.eject(
+        id,
+        "Generate the agent.py, tools, and tests for this spec.",
+        (event, data) => {
+          if (event === "file_change") {
+            const change = data as { path: string; diff: string; content: string };
+            track("coding_agent_turn", { path: change.path });
+            setFiles((prev) => ({ ...prev, [change.path]: change.content }));
+          } else if (event === "complete") {
+            track("eject_to_code_completed");
+            setArtifactTab("code");
+          } else if (event === "error") {
+            setSendError((data as { detail?: string }).detail ?? "Code generation failed.");
+          }
+        },
+      );
+    } catch (err) {
+      setSendError((err as Error).message || "Code generation failed.");
+    } finally {
+      setEjecting(false);
+    }
+  }, [ensureSession]);
+
+  // ── Auto-send initialPrompt once the key is confirmed ────────────────
+  // Placed here so sendStreaming + buildHistory are already in scope.
+  useEffect(() => {
+    if (!hasKey || !initialPrompt || autoSentRef.current) return;
+    autoSentRef.current = true;
+    setEntries((prev) => [
+      ...prev,
+      { id: generateId(), role: "user", content: initialPrompt },
+    ]);
+    void sendStreaming(buildHistory(initialPrompt));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasKey]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -409,7 +673,7 @@ export function ChatBuildPanel() {
         ref={scrollRef}
         className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0"
       >
-        {entries.length === 0 && !chatMutation.isPending && (
+        {entries.length === 0 && !sending && (
           <div className="text-center text-sm text-muted-foreground pt-8 space-y-2">
             <Bot className="size-8 mx-auto text-primary/40" />
             <p>Describe the agent you want to build.</p>
@@ -424,8 +688,15 @@ export function ChatBuildPanel() {
           <ChatBubble key={entry.id} entry={entry} />
         ))}
 
-        {/* Loading indicator */}
-        {chatMutation.isPending && (
+        {/* Streaming bubble — shows incremental tokens or a spinner while waiting for the first token */}
+        {streaming !== null && (
+          <ChatBubble
+            entry={{ id: "streaming", role: "assistant", content: streaming || "…" }}
+          />
+        )}
+
+        {/* Loading spinner — shown while sending but before any token arrives */}
+        {sending && streaming === null && (
           <div className="flex gap-3">
             <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Bot className="size-4" />
@@ -436,21 +707,103 @@ export function ChatBuildPanel() {
           </div>
         )}
 
-        {/* Spec card */}
-        {pendingSpec && (
+        {/* Inline dependency-capture card */}
+        {pendingSetup && (
+          <SetupCard
+            request={pendingSetup}
+            onComplete={handleSetupComplete}
+            onSkip={() => setPendingSetup(null)}
+          />
+        )}
+
+        {/* Spec card / artifact panel.
+            Invalid specs render the bare card (no tabs). A valid spec gets the
+            tabbed artifact panel: Spec · Code · Deploy. */}
+        {pendingSpec && !pendingSpec.valid && (
           <SpecReadyCard
             agentYaml={pendingSpec.agent_yaml!}
             valid={pendingSpec.valid}
             errors={pendingSpec.errors}
+            onEjectToCode={() => void handleEject()}
+            ejecting={ejecting}
           />
         )}
 
+        {pendingSpec && pendingSpec.valid && (
+          <div
+            data-testid="artifact-panel"
+            className="rounded-xl border border-border overflow-hidden"
+          >
+            <div
+              role="tablist"
+              aria-label="Build artifacts"
+              onKeyDown={handleTabKeyDown}
+              className="flex border-b border-border bg-muted/40"
+            >
+              {ARTIFACT_TABS.map((tab) => {
+                const label = tab === "spec" ? "Spec" : tab === "code" ? "Code" : "Deploy";
+                const selected = artifactTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    ref={(el) => {
+                      tabRefs.current[tab] = el;
+                    }}
+                    type="button"
+                    role="tab"
+                    id={`artifact-tab-${tab}`}
+                    aria-selected={selected}
+                    aria-controls="artifact-tabpanel"
+                    tabIndex={selected ? 0 : -1}
+                    data-testid={`artifact-tab-${tab}`}
+                    onClick={() => setArtifactTab(tab)}
+                    className={cn(
+                      "px-4 py-2 text-sm font-medium transition-colors",
+                      selected
+                        ? "border-b-2 border-primary text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <div
+              role="tabpanel"
+              id="artifact-tabpanel"
+              aria-labelledby={`artifact-tab-${artifactTab}`}
+              tabIndex={0}
+              className="p-4"
+            >
+              {/* The spec card owns the deploy flow + logs, so it stays mounted
+                  across tab switches (hidden, not unmounted, to preserve deploy
+                  state). It backs both the Spec and Deploy tabs — the `view` prop
+                  narrows it to deploy-only controls on the Deploy tab. */}
+              <div className={cn(artifactTab === "code" && "hidden")}>
+                <SpecReadyCard
+                  agentYaml={pendingSpec.agent_yaml!}
+                  valid={pendingSpec.valid}
+                  errors={pendingSpec.errors}
+                  onEjectToCode={() => void handleEject()}
+                  ejecting={ejecting}
+                  view={artifactTab === "deploy" ? "deploy" : "full"}
+                />
+              </div>
+              {artifactTab === "code" && (
+                <div className="h-72">
+                  <CodeArtifactPanel files={files} />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Error banner */}
-        {chatMutation.isError && (
+        {sendError && (
           <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive flex items-center gap-2">
             <AlertCircle className="size-4 shrink-0" />
-            {(chatMutation.error as Error).message ||
-              "Something went wrong. Please try again."}
+            {sendError}
           </div>
         )}
       </div>
@@ -475,11 +828,11 @@ export function ChatBuildPanel() {
           <Button
             size="icon"
             onClick={handleSend}
-            disabled={!input.trim() || chatMutation.isPending}
+            disabled={!input.trim() || sending}
             data-testid="send-btn"
             className="shrink-0"
           >
-            {chatMutation.isPending ? (
+            {sending ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
               <Send className="size-4" />

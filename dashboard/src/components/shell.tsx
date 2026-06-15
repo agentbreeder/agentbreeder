@@ -70,6 +70,7 @@ const MARKETPLACE_NAV = [
 const OBSERVABILITY_NAV = [
   { to: "/traces", icon: Activity, label: "Traces" },
   { to: "/costs", icon: DollarSign, label: "Costs" },
+  { to: "/builder-insights", icon: BarChart3, label: "Builder" },
 ] as const;
 
 const EVALUATION_NAV = [
