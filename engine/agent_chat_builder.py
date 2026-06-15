@@ -220,13 +220,18 @@ def _normalise_history(history: list[dict[str, Any]], caller: str) -> list[dict[
     if len(history) > MAX_HISTORY_MESSAGES:
         logger.warning(
             "%s: history has %d messages (max %d); truncating to last %d",
-            caller, len(history), MAX_HISTORY_MESSAGES, MAX_HISTORY_MESSAGES,
+            caller,
+            len(history),
+            MAX_HISTORY_MESSAGES,
+            MAX_HISTORY_MESSAGES,
         )
         history = history[-MAX_HISTORY_MESSAGES:]
     allowed_roles = {"user", "assistant"}
     filtered = [m for m in history if m.get("role") in allowed_roles]
     if len(filtered) != len(history):
-        logger.warning("%s: dropped %d message(s) with invalid role", caller, len(history) - len(filtered))
+        logger.warning(
+            "%s: dropped %d message(s) with invalid role", caller, len(history) - len(filtered)
+        )
     return filtered
 
 

@@ -517,20 +517,20 @@ async def chat_build_stream(
                 elif evt.type == "done" and evt.result is not None:
                     yield {"event": "done", "data": json.dumps(asdict(evt.result))}
         except AuthenticationError:
-            logger.warning(
-                "chat_build_stream: auth failed for '%s' (key not logged)", secret_name
-            )
+            logger.warning("chat_build_stream: auth failed for '%s' (key not logged)", secret_name)
             yield {
                 "event": "error",
-                "data": json.dumps({"detail": "Claude API authentication failed.", "code": "auth_error"}),
+                "data": json.dumps(
+                    {"detail": "Claude API authentication failed.", "code": "auth_error"}
+                ),
             }
         except ProviderError:
-            logger.warning(
-                "chat_build_stream: upstream error for '%s'.", secret_name
-            )
+            logger.warning("chat_build_stream: upstream error for '%s'.", secret_name)
             yield {
                 "event": "error",
-                "data": json.dumps({"detail": "Upstream Claude API error.", "code": "upstream_error"}),
+                "data": json.dumps(
+                    {"detail": "Upstream Claude API error.", "code": "upstream_error"}
+                ),
             }
         finally:
             if provider is not None:

@@ -15,7 +15,6 @@ import pytest
 from engine.providers.anthropic_provider import AnthropicProvider
 from engine.providers.models import ProviderConfig, ProviderType, StreamChunk, ToolCall
 
-
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 

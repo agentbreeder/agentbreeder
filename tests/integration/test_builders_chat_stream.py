@@ -1,4 +1,5 @@
 """Integration tests for POST /api/v1/builders/chat/stream."""
+
 from __future__ import annotations
 
 import pytest
@@ -21,9 +22,7 @@ def test_chat_stream_requires_key(client: TestClient, monkeypatch: pytest.Monkey
         async def get(self, _name: str) -> None:
             return None
 
-    monkeypatch.setattr(
-        "api.routes.builders.get_workspace_backend", lambda: (_Backend(), None)
-    )
+    monkeypatch.setattr("api.routes.builders.get_workspace_backend", lambda: (_Backend(), None))
 
     resp = client.post(
         "/api/v1/builders/chat/stream",
@@ -42,9 +41,7 @@ def test_chat_stream_emits_token_and_done_events(
         async def get(self, _name: str) -> str:
             return "sk-ant-test"
 
-    monkeypatch.setattr(
-        "api.routes.builders.get_workspace_backend", lambda: (_Backend(), None)
-    )
+    monkeypatch.setattr("api.routes.builders.get_workspace_backend", lambda: (_Backend(), None))
 
     class _Provider:
         def __init__(self, *_a: object, **_k: object) -> None:
@@ -55,9 +52,7 @@ def test_chat_stream_emits_token_and_done_events(
 
     monkeypatch.setattr("api.routes.builders.AnthropicProvider", _Provider)
 
-    async def _fake_stream(
-        _provider: object, _history: list[dict[str, str]]
-    ):  # type: ignore[return]
+    async def _fake_stream(_provider: object, _history: list[dict[str, str]]):  # type: ignore[return]
         yield ChatStreamEvent(type="token", text="Hello")
         yield ChatStreamEvent(
             type="done",
@@ -89,9 +84,7 @@ def test_chat_stream_emits_setup_request_event(
         async def get(self, _name: str) -> str:
             return "sk-ant-test"
 
-    monkeypatch.setattr(
-        "api.routes.builders.get_workspace_backend", lambda: (_Backend(), None)
-    )
+    monkeypatch.setattr("api.routes.builders.get_workspace_backend", lambda: (_Backend(), None))
 
     class _Provider:
         def __init__(self, *_a: object, **_k: object) -> None:
@@ -102,9 +95,7 @@ def test_chat_stream_emits_setup_request_event(
 
     monkeypatch.setattr("api.routes.builders.AnthropicProvider", _Provider)
 
-    async def _fake_stream(
-        _provider: object, _history: list[dict[str, str]]
-    ):  # type: ignore[return]
+    async def _fake_stream(_provider: object, _history: list[dict[str, str]]):  # type: ignore[return]
         yield ChatStreamEvent(
             type="setup_request",
             setup=SetupRequest(kind="mcp", name="zendesk", reason="read tickets"),
@@ -144,9 +135,7 @@ def test_chat_stream_auth_error_yields_sse_error_event(
         async def get(self, _name: str) -> str:
             return "sk-ant-test"
 
-    monkeypatch.setattr(
-        "api.routes.builders.get_workspace_backend", lambda: (_Backend(), None)
-    )
+    monkeypatch.setattr("api.routes.builders.get_workspace_backend", lambda: (_Backend(), None))
 
     class _Provider:
         def __init__(self, *_a: object, **_k: object) -> None:
@@ -162,9 +151,7 @@ def test_chat_stream_auth_error_yields_sse_error_event(
     # NOT forwarded to the client in any form.
     _LEAK_CANARY = "secret-canary-token-must-not-appear-in-response"
 
-    async def _raise_auth(
-        _provider: object, _history: list[dict[str, str]]
-    ):  # type: ignore[return]
+    async def _raise_auth(_provider: object, _history: list[dict[str, str]]):  # type: ignore[return]
         raise AuthenticationError(f"401 Unauthorized — {_LEAK_CANARY}")
         yield  # make this an async generator
 
@@ -197,9 +184,7 @@ def test_chat_stream_provider_error_yields_sse_error_event(
         async def get(self, _name: str) -> str:
             return "sk-ant-test"
 
-    monkeypatch.setattr(
-        "api.routes.builders.get_workspace_backend", lambda: (_Backend(), None)
-    )
+    monkeypatch.setattr("api.routes.builders.get_workspace_backend", lambda: (_Backend(), None))
 
     class _Provider:
         def __init__(self, *_a: object, **_k: object) -> None:
@@ -213,9 +198,7 @@ def test_chat_stream_provider_error_yields_sse_error_event(
     # The canary text must not be forwarded to the client in any form.
     _LEAK_CANARY = "raw-upstream-detail-must-not-appear-CANARY"
 
-    async def _raise_provider(
-        _provider: object, _history: list[dict[str, str]]
-    ):  # type: ignore[return]
+    async def _raise_provider(_provider: object, _history: list[dict[str, str]]):  # type: ignore[return]
         raise ProviderError(f"503 Service Unavailable — {_LEAK_CANARY}")
         yield  # make this an async generator
 

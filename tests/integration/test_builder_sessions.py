@@ -393,16 +393,29 @@ async def test_stream_subscribes_and_relays_published_events(monkeypatch):
 
 def test_deploy_invalid_yaml_returns_404(client, _override_db, monkeypatch):
     from unittest.mock import AsyncMock
+
     sess = _fake_session()
-    sess.state = {"history": [], "agent_yaml": "name: x\nteam: engineering\n",
-                  "files": {}, "deploy_job_id": None, "satisfied": []}
-    monkeypatch.setattr("api.routes.builder_sessions._resolve_deploy_team",
-                        AsyncMock(return_value=("engineering", None)))
-    monkeypatch.setattr("api.routes.builder_sessions.enforce_team_role", AsyncMock(return_value=None))
-    monkeypatch.setattr("api.routes.builder_sessions.DeployService.create_agent_and_deploy",
-                        AsyncMock(side_effect=ValueError("bad config")))
-    with patch("api.routes.builder_sessions.BuilderSessionService.get",
-               new=AsyncMock(return_value=sess)):
+    sess.state = {
+        "history": [],
+        "agent_yaml": "name: x\nteam: engineering\n",
+        "files": {},
+        "deploy_job_id": None,
+        "satisfied": [],
+    }
+    monkeypatch.setattr(
+        "api.routes.builder_sessions._resolve_deploy_team",
+        AsyncMock(return_value=("engineering", None)),
+    )
+    monkeypatch.setattr(
+        "api.routes.builder_sessions.enforce_team_role", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        "api.routes.builder_sessions.DeployService.create_agent_and_deploy",
+        AsyncMock(side_effect=ValueError("bad config")),
+    )
+    with patch(
+        "api.routes.builder_sessions.BuilderSessionService.get", new=AsyncMock(return_value=sess)
+    ):
         r = client.post("/api/v1/builder/sessions/11111111-1111-1111-1111-111111111111/deploy")
     assert r.status_code == 404
 

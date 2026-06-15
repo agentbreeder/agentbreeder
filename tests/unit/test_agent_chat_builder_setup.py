@@ -5,6 +5,7 @@ The interviewer can call a `request_setup` tool to ask the user for a dependency
 dedicated `setup_request` event; the non-streaming path sets `ChatTurnResult.setup_request`.
 A real spec submission always wins over a setup request in the same turn.
 """
+
 from __future__ import annotations
 
 import json
@@ -67,7 +68,10 @@ async def test_stream_emits_setup_request_then_done():
         ]
     )
     events = [
-        e async for e in run_chat_turn_stream(provider, [{"role": "user", "content": "support agent"}])
+        e
+        async for e in run_chat_turn_stream(
+            provider, [{"role": "user", "content": "support agent"}]
+        )
     ]
 
     setups = [e for e in events if e.type == "setup_request"]
@@ -92,7 +96,9 @@ async def test_stream_spec_submission_wins_over_setup_request():
             StreamChunk(tool_calls=[_setup_call("secret", "ZENDESK_API_KEY")]),
             StreamChunk(
                 tool_calls=[
-                    ToolCall(id="t1", function_name=SUBMIT_TOOL_NAME, function_arguments=_VALID_SPEC)
+                    ToolCall(
+                        id="t1", function_name=SUBMIT_TOOL_NAME, function_arguments=_VALID_SPEC
+                    )
                 ]
             ),
             StreamChunk(finish_reason="tool_calls"),
@@ -115,7 +121,11 @@ async def test_stream_malformed_setup_args_degrade_to_text_reply():
             StreamChunk(content="Hmm."),
             StreamChunk(
                 tool_calls=[
-                    ToolCall(id="s1", function_name=REQUEST_SETUP_TOOL_NAME, function_arguments="{not json")
+                    ToolCall(
+                        id="s1",
+                        function_name=REQUEST_SETUP_TOOL_NAME,
+                        function_arguments="{not json",
+                    )
                 ]
             ),
             StreamChunk(finish_reason="tool_calls"),
@@ -149,4 +159,5 @@ async def test_non_stream_sets_setup_request_field():
 def test_stream_event_supports_setup_type():
     evt = ChatStreamEvent(type="setup_request", setup=SetupRequest(kind="secret", name="X"))
     assert evt.type == "setup_request"
-    assert evt.setup is not None and evt.setup.name == "X"
+    assert evt.setup is not None
+    assert evt.setup.name == "X"

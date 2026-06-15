@@ -1,9 +1,10 @@
 """Unit tests for the streaming agent-builder driver."""
+
 from __future__ import annotations
 
 import pytest
 
-from engine.agent_chat_builder import ChatStreamEvent, run_chat_turn_stream
+from engine.agent_chat_builder import run_chat_turn_stream
 from engine.providers.models import StreamChunk, ToolCall
 
 
@@ -31,7 +32,9 @@ async def test_stream_emits_text_tokens_then_done():
             StreamChunk(finish_reason="stop"),
         ]
     )
-    events = [e async for e in run_chat_turn_stream(provider, [{"role": "user", "content": "hello"}])]
+    events = [
+        e async for e in run_chat_turn_stream(provider, [{"role": "user", "content": "hello"}])
+    ]
 
     tokens = [e.text for e in events if e.type == "token"]
     done = [e for e in events if e.type == "done"]
@@ -51,11 +54,17 @@ async def test_stream_handles_spec_submission():
     )
     provider = FakeStreamingProvider(
         [
-            StreamChunk(tool_calls=[ToolCall(id="t1", function_name="submit_agent_spec", function_arguments=spec)]),
+            StreamChunk(
+                tool_calls=[
+                    ToolCall(id="t1", function_name="submit_agent_spec", function_arguments=spec)
+                ]
+            ),
             StreamChunk(finish_reason="tool_calls"),
         ]
     )
-    events = [e async for e in run_chat_turn_stream(provider, [{"role": "user", "content": "build it"}])]
+    events = [
+        e async for e in run_chat_turn_stream(provider, [{"role": "user", "content": "build it"}])
+    ]
 
     done = [e for e in events if e.type == "done"]
     assert len(done) == 1

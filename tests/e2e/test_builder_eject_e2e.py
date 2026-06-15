@@ -20,9 +20,7 @@ from engine.sandbox.local import LocalSandbox
 
 _KEY = os.environ.get("AGENTBREEDER_E2E_ANTHROPIC_KEY")
 
-pytestmark = pytest.mark.skipif(
-    not _KEY, reason="AGENTBREEDER_E2E_ANTHROPIC_KEY not set"
-)
+pytestmark = pytest.mark.skipif(not _KEY, reason="AGENTBREEDER_E2E_ANTHROPIC_KEY not set")
 
 
 @pytest.mark.asyncio
