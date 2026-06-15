@@ -677,6 +677,65 @@ describe("ChatBuildPanel — eject to code", () => {
     expect(screen.getByText("agent.py")).toBeInTheDocument();
   });
 
+  it("emits the eject funnel analytics events", async () => {
+    vi.mocked(api.builders.chatStream).mockImplementation(async (_m, onEvent) => {
+      onEvent("done", { assistant_message: "", agent_yaml: VALID_YAML, valid: true, errors: [] });
+    });
+    vi.mocked(api.builderSessions.create).mockResolvedValue(
+      apiResp({
+        id: "sess-analytics",
+        team: "engineering",
+        engine: "claude",
+        agent_yaml: VALID_YAML,
+        files: {},
+        deploy_job_id: null,
+        history: [],
+      } as never),
+    );
+    vi.mocked(api.builderSessions.eject).mockImplementation(
+      async (_id: string, _instruction: string, onEvent: (e: string, d: unknown) => void) => {
+        onEvent("file_change", { path: "agent.py", diff: "+x", content: "print('hi')\n" });
+        onEvent("complete", { summary: "done" });
+      },
+    );
+
+    // Spy on the CustomEvent dispatch that track() uses.
+    const events: { event: string; props: Record<string, unknown> }[] = [];
+    const dispatchSpy = vi
+      .spyOn(window, "dispatchEvent")
+      .mockImplementation((e: Event) => {
+        if (e instanceof CustomEvent && e.type === "agentbreeder:analytics") {
+          events.push(e.detail);
+        }
+        return true;
+      });
+
+    try {
+      renderPanel();
+      fireEvent.change(await screen.findByTestId("chat-input"), { target: { value: "build it" } });
+      fireEvent.click(screen.getByTestId("send-btn"));
+
+      const ejectBtn = await screen.findByTestId("eject-code-btn");
+      fireEvent.click(ejectBtn);
+
+      await waitFor(() =>
+        expect(events.map((e) => e.event)).toEqual(
+          expect.arrayContaining([
+            "eject_to_code_started",
+            "coding_agent_turn",
+            "eject_to_code_completed",
+          ]),
+        ),
+      );
+      const started = events.find((e) => e.event === "eject_to_code_started");
+      expect(started?.props).toMatchObject({ engine: "claude" });
+      const turn = events.find((e) => e.event === "coding_agent_turn");
+      expect(turn?.props).toMatchObject({ path: "agent.py" });
+    } finally {
+      dispatchSpy.mockRestore();
+    }
+  });
+
   it("surfaces an error when eject emits an error event", async () => {
     vi.mocked(api.builders.chatStream).mockImplementation(async (_m, onEvent) => {
       onEvent("done", { assistant_message: "", agent_yaml: VALID_YAML, valid: true, errors: [] });

@@ -22,6 +22,7 @@ import {
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { track } from "@/lib/analytics";
 import { useAuth } from "@/hooks/use-auth";
 import { SetupCard } from "./SetupCard";
 import { CodeArtifactPanel } from "./CodeArtifactPanel";
@@ -594,6 +595,7 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
   const handleEject = useCallback(async () => {
     setEjecting(true);
     setSendError(null);
+    track("eject_to_code_started", { engine: "claude" });
     try {
       const id = await ensureSession();
       await api.builderSessions.eject(
@@ -602,8 +604,10 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
         (event, data) => {
           if (event === "file_change") {
             const change = data as { path: string; diff: string; content: string };
+            track("coding_agent_turn", { path: change.path });
             setFiles((prev) => ({ ...prev, [change.path]: change.content }));
           } else if (event === "complete") {
+            track("eject_to_code_completed");
             setArtifactTab("code");
           } else if (event === "error") {
             setSendError((data as { detail?: string }).detail ?? "Code generation failed.");
