@@ -144,6 +144,18 @@ Once you connect (or **Skip**) the card, the conversation continues automaticall
 
 **On AgentBreeder cloud:** The chat builder works identically at [console.agentbreeder.io](https://console.agentbreeder.io). The cloud control plane proxies requests to the OSS builder and meters each conversational turn against your plan's daily quota.
 
+**Eject to code — when YAML isn't enough:**
+
+Once the chat has produced a validated `agent.yaml`, an **Eject to code** button appears in the thread. Clicking it hands the project to a coding agent that writes real code — `agent.py`, a `tools/` directory, and tests — for when you need custom logic beyond what YAML config can express. This is tier mobility in the builder itself: **No Code → Low Code (YAML) → Full Code**, without leaving the conversation.
+
+- **Pick your engine.** Choose **Claude** (a Claude Agent SDK-style agentic loop) or **Codex** (OpenAI), selectable per session. Claude uses the same BYO key the chat builder already reads from your workspace secrets backend; Codex uses a separate OpenAI key stored alongside it.
+- **Watch the code stream in.** The coding agent writes files into a sandbox workspace and you see live file diffs land in a new **Code** tab in the chat. It can run the generated tests in the sandbox and iterate on failures before handing back.
+- **Deploy from the same thread.** When the code is ready, deploy it straight from the conversation. This is the same governed deploy as everywhere else — RBAC, audit trail, and registry registration all apply.
+
+<Callout type="warning" title="Code generation runs in a local sandbox">
+  Eject-to-code executes in a **local** sandbox on the machine running Studio — `AGENTBREEDER_SANDBOX=local` is the default. In cloud / multi-tenant mode this is gated off: the eject endpoint returns **HTTP 409** until the managed cloud sandbox ships in a later release. Self-hosted users with `AGENTBREEDER_SANDBOX=local` get the full flow today; on [console.agentbreeder.io](https://console.agentbreeder.io) the **Eject to code** button is disabled for now.
+</Callout>
+
 ---
 
 ## Deploy to different targets
