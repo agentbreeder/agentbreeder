@@ -1325,6 +1325,62 @@ export interface BuilderFileChange {
   content: string;
 }
 
+// ---------------------------------------------------------------------------
+// Analytics funnel types (W4)
+// ---------------------------------------------------------------------------
+
+/** One step of the conversational-builder conversion funnel. */
+export interface FunnelStage {
+  key: string;
+  label: string;
+  count: number;
+  /** Percentage of sessions lost relative to the previous stage. */
+  dropoff_pct: number;
+}
+
+/** Per coding-engine quality scorecard (claude vs codex, etc.). */
+export interface EngineScorecard {
+  engine: string;
+  samples: number;
+  spec_validity_rate: number;
+  deploy_success_rate: number;
+  turns_to_spec: number;
+  hallucinated_field_rate: number;
+}
+
+/** Aggregate builder funnel metrics for a period. */
+export interface FunnelMetrics {
+  period: string;
+  time_to_first_deploy_p50_s: number | null;
+  time_to_first_deploy_p90_s: number | null;
+  stages: FunnelStage[];
+  engines: EngineScorecard[];
+}
+
+/**
+ * Fire-and-forget POST of an analytics event to the ingest endpoint. Never
+ * throws and never blocks the caller — failures are swallowed. PII-free: only
+ * the event name, an optional engine tag, and non-sensitive props are sent.
+ * Used by the `track()` seam in `analytics.ts`.
+ */
+export function ingestAnalytics(
+  event: string,
+  props: Record<string, unknown> = {},
+): void {
+  try {
+    void fetch(`${BASE}/analytics/events`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ event, engine: props.engine ?? null, props }),
+      keepalive: true,
+    }).catch(() => {
+      /* analytics is best-effort — never surface failures */
+    });
+  } catch {
+    /* fetch unavailable (SSR) — ignore */
+  }
+}
+
 // --- API functions ---
 
 export const api = {
@@ -2497,6 +2553,10 @@ export const api = {
       ),
     deploy: (id: string) =>
       request<BuilderSession>(`/builder/sessions/${id}/deploy`, { method: "POST" }),
+  },
+  analytics: {
+    funnel: (period: string = "7d") =>
+      request<FunnelMetrics>(`/analytics/funnel?period=${encodeURIComponent(period)}`),
   },
   secrets: {
     workspace: (workspace?: string) =>

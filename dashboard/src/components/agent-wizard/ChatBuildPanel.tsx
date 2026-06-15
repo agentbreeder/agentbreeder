@@ -423,6 +423,9 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
   const [pendingSetup, setPendingSetup] = useState<ChatBuildSetupRequest | null>(null);
 
   // ── Eject-to-code (Wave 3) ───────────────────────────────────────────
+  // Active coding engine for this builder session. Single source of truth for
+  // both the lazy session creation and analytics tagging.
+  const engine: "claude" | "codex" = "claude";
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [files, setFiles] = useState<Record<string, string>>({});
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>("spec");
@@ -585,17 +588,17 @@ export function ChatBuildPanel({ initialPrompt }: { initialPrompt?: string } = {
   // Created on first eject. Returns the session id (unwraps ApiResponse.data).
   const ensureSession = useCallback(async (): Promise<string> => {
     if (sessionId) return sessionId;
-    const res = await api.builderSessions.create("claude");
+    const res = await api.builderSessions.create(engine);
     const id = res.data.id;
     setSessionId(id);
     return id;
-  }, [sessionId]);
+  }, [sessionId, engine]);
 
   // ── Eject the validated spec to generated code ────────────────────────
   const handleEject = useCallback(async () => {
     setEjecting(true);
     setSendError(null);
-    track("eject_to_code_started", { engine: "claude" });
+    track("eject_to_code_started", { engine });
     try {
       const id = await ensureSession();
       await api.builderSessions.eject(
