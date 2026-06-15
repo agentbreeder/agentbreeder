@@ -146,7 +146,10 @@ async def get_funnel(
     prev: int | None = None
     for key, label in _FUNNEL:
         c = counts[key]
-        dropoff = 0.0 if prev in (None, 0) else round((1 - c / prev) * 100, 1)
+        if prev is None or prev == 0:
+            dropoff = 0.0
+        else:
+            dropoff = round((1 - c / prev) * 100, 1)
         stages.append(FunnelStage(key=key, label=label, count=c, dropoff_pct=dropoff))
         prev = c
 

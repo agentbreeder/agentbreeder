@@ -17,6 +17,7 @@ import io
 import os
 import shlex
 import zipfile
+from typing import Any
 
 from engine.sandbox.base import ExecResult
 
@@ -29,7 +30,8 @@ class E2BBackend:
     """Thin adapter over e2b's AsyncSandbox. One microVM per builder session."""
 
     def __init__(self) -> None:
-        self._sbx = None  # type: ignore[var-annotated]
+        # e2b AsyncSandbox (untyped here so the dep stays optional).
+        self._sbx: Any = None
 
     async def start(self) -> None:
         from e2b import AsyncSandbox  # imported lazily so the dep stays optional
@@ -45,7 +47,7 @@ class E2BBackend:
         await self._sbx.files.write(self._abs(path), content)
 
     async def read_file(self, path: str) -> str:
-        return await self._sbx.files.read(self._abs(path))
+        return str(await self._sbx.files.read(self._abs(path)))
 
     async def list_files(self, directory: str = ".") -> builtins.list[str]:
         base = _WORKDIR if directory in (".", "") else self._abs(directory)
