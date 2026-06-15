@@ -79,6 +79,10 @@ linkedin-content.docx
 .diskdiag*.txt
 .verify.txt
 
+# Gate-tool scratch dir (regenerated each run, never committed)
+.tmp-gate/
+.tmp-gate
+
 # Loose local preview/marketing image scratch (not part of the repo)
 /arch-layers.png
 /blog-full.png
