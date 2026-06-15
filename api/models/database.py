@@ -1030,3 +1030,19 @@ class ComplianceScan(Base):
         Index("ix_compliance_scans_ran_at", "ran_at"),
         Index("ix_compliance_scans_overall_status", "overall_status"),
     )
+
+
+class AnalyticsEvent(Base):
+    """Structural product-analytics event (W4). PII-free: no message/prompt bodies."""
+
+    __tablename__ = "analytics_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    event: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    engine: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    team: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    props: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
