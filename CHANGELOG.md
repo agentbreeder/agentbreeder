@@ -9,6 +9,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Security
+- **Cleared `dashboard` high-severity advisories via npm `overrides`** — pinned `hono` to
+  `^4.12.25` (transitive through the `shadcn` CLI → MCP SDK; fixes the IPv6 deny-rule bypass,
+  Set-Cookie injection, JWT-scheme, and mount-prefix advisories) and `esbuild` to `^0.28.1`
+  (transitive through `vite`; fixes the Deno-module integrity and dev-server file-read advisories).
+  Both are build/dev-time dependencies not bundled into the shipped app. No `vite` major bump —
+  `npm audit` now reports 0 vulnerabilities, and the dashboard build + 227 tests pass.
 - **Bumped `vitest` to `^4.1.8` in `sdk/typescript`** (was `^1.6.0`), clearing a critical advisory
   (GHSA — Vitest UI server arbitrary file read/execute, fixed in 4.1.0). Dev/test-only dependency;
   all 94 SDK tests pass on the new major. (`dashboard` was already on a patched 4.1.x.)
