@@ -37,6 +37,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
   called from within a running event loop (runs the registry lookup in a worker thread).
 
 ### Added
+- **Studio Conversational Builder (Waves 1–4)** — a chat-first agent builder: converse to a
+  validated `agent.yaml`, eject to real code in a sandbox (Claude or Codex engine), and deploy
+  through the governed pipeline, all from one thread. Wave 4 adds a managed **CloudSandbox** over a
+  pluggable backend (`AGENTBREEDER_SANDBOX=cloud`, `AGENTBREEDER_SANDBOX_BACKEND=e2b` via the
+  optional `[cloud]` extra) with per-session microVM isolation, path containment, byte/exec caps,
+  and a default-deny egress allowlist; a PII-free product-analytics funnel (ingest + funnel API with
+  p50/p90 time-to-first-deploy, and a team-scoped **Studio › Builder** view); and a Codex eject
+  gated e2e for engine parity. Cloud deployments meter actual sandbox-minutes (429 pre-check) in the
+  companion `agentbreeder-cloud` change. (#555)
 - **CLI greenfield AWS provisioning** — `agentbreeder deploy --provision` (`-p`) now stands up the
   full AWS footprint (VPC, public/private subnets, NAT gateway, ECS cluster, IAM execution role,
   security groups) before deploying, for accounts with no pre-existing infrastructure. The

@@ -156,16 +156,43 @@ class OpenAIProvider(ProviderBase):
 
     def _build_payload(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: str,
         temperature: float | None,
         max_tokens: int | None,
         tools: list[ToolDefinition] | None,
         stream: bool,
     ) -> dict[str, Any]:
+        # Translate our internal ToolCall shape (function_name / function_arguments)
+        # into OpenAI's wire shape (function.name / function.arguments). Plain-text
+        # turns and tool-result turns pass through verbatim.
+        norm_messages: list[dict[str, Any]] = []
+        for msg in messages:
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                norm_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": msg.get("content") or None,
+                        "tool_calls": [
+                            {
+                                "id": tc.get("id", ""),
+                                "type": "function",
+                                "function": {
+                                    "name": tc.get("function_name")
+                                    or tc.get("function", {}).get("name", ""),
+                                    "arguments": tc.get("function_arguments")
+                                    or tc.get("function", {}).get("arguments", "{}"),
+                                },
+                            }
+                            for tc in msg["tool_calls"]
+                        ],
+                    }
+                )
+            else:
+                norm_messages.append(dict(msg))
         payload: dict[str, Any] = {
             "model": model,
-            "messages": messages,
+            "messages": norm_messages,
         }
         if temperature is not None:
             payload["temperature"] = temperature

@@ -156,7 +156,7 @@ class TestRunChatTurnTextTurn:
 
     @pytest.mark.asyncio
     async def test_provider_called_with_tools(self) -> None:
-        """generate() must be called with the submit_agent_spec tool."""
+        """generate() must be called with both builder tools (submit + request_setup)."""
         provider = _make_provider(_text_result("Ok!"))
         history = [{"role": "user", "content": "hello"}]
 
@@ -166,8 +166,10 @@ class TestRunChatTurnTextTurn:
         call_kwargs = provider.generate.call_args
         passed_tools = call_kwargs.kwargs.get("tools")
         assert passed_tools is not None, "tools must be passed to generate()"
-        assert len(passed_tools) == 1
-        assert passed_tools[0].function.name == SUBMIT_TOOL_NAME
+        tool_names = {t.function.name for t in passed_tools}
+        # Wave 2 added request_setup alongside submit_agent_spec.
+        assert SUBMIT_TOOL_NAME in tool_names
+        assert "request_setup" in tool_names
 
     @pytest.mark.asyncio
     async def test_system_prompt_included(self) -> None:

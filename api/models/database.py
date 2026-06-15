@@ -163,6 +163,30 @@ class DeployJob(Base):
     agent: Mapped[Agent] = relationship(back_populates="deploy_jobs")
 
 
+class BuilderSession(Base):
+    """A resumable conversational-builder session (Wave 3).
+
+    state JSON holds: {history: [...], agent_yaml: str|None, files: {path: content},
+    deploy_job_id: str|None, satisfied: [...refs]}. Tenant-scoped by team; deploy
+    still flows through the governed /deploys pipeline (never bypassed)."""
+
+    __tablename__ = "builder_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    engine: Mapped[str] = mapped_column(String(20), default="claude", nullable=False)
+    state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Tool(Base):
     """A tool or MCP server in the registry."""
 
@@ -1005,4 +1029,20 @@ class ComplianceScan(Base):
     __table_args__ = (
         Index("ix_compliance_scans_ran_at", "ran_at"),
         Index("ix_compliance_scans_overall_status", "overall_status"),
+    )
+
+
+class AnalyticsEvent(Base):
+    """Structural product-analytics event (W4). PII-free: no message/prompt bodies."""
+
+    __tablename__ = "analytics_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    event: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    engine: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    team: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    props: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
     )

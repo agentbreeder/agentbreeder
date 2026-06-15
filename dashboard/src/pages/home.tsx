@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Bot, Wrench, Circle, ArrowRight, Activity } from "lucide-react";
 import { api, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { PageTitle } from "@/components/page-title";
 import { GetStartedChecklist } from "@/components/get-started-checklist";
+import { BuildFrontDoor } from "@/components/home/BuildFrontDoor";
 
 const STATUS_COLORS: Record<string, string> = {
   running: "text-primary",
@@ -55,6 +56,8 @@ function RecentAgent({ agent }: { agent: Agent }) {
 }
 
 export default function HomePage() {
+  const navigate = useNavigate();
+
   const agentsQuery = useQuery({
     queryKey: ["agents", {}],
     queryFn: () => api.agents.list({ per_page: 5 }),
@@ -72,13 +75,31 @@ export default function HomePage() {
   const totalTools = toolsQuery.data?.meta.total ?? 0;
   const running = agents.filter((a) => a.status === "running").length;
 
+  // Show the conversational front door only when the workspace has no agents yet
+  // and the query has finished loading (so we don't flash it while loading).
+  const isEmptyWorkspace = !agentsQuery.isLoading && totalAgents === 0;
+
+  function handleFrontDoorStart(prompt: string) {
+    navigate(`/agents/new?prompt=${encodeURIComponent(prompt)}&mode=chat`);
+  }
+
   return (
     <div className="ab-radial-glow mx-auto max-w-5xl p-6">
       <div className="relative z-10 mb-8">
         <PageTitle subtitle="Overview">Home</PageTitle>
       </div>
 
-      <GetStartedChecklist />
+      {/* Conversational front door — primary hero when workspace is empty */}
+      {isEmptyWorkspace && (
+        <div className="relative z-10 mb-8">
+          <BuildFrontDoor onStart={handleFrontDoorStart} />
+        </div>
+      )}
+
+      {/* Setup progress — secondary block (always rendered) */}
+      <div className={isEmptyWorkspace ? "relative z-10 mb-8" : undefined}>
+        <GetStartedChecklist />
+      </div>
 
       {/* Stats */}
       <div className="relative z-10 mb-8 grid gap-3 sm:grid-cols-3">
