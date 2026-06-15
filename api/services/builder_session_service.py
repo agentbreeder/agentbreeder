@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json as _jsonlib
+import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import asdict
@@ -22,7 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.models.database import BuilderSession
 from engine.agent_chat_builder import run_chat_turn_stream
 from engine.coding_agent.engines import engine_for
-from engine.sandbox.base import select_sandbox_mode
+from engine.sandbox.backends import make_backend_from_env
+from engine.sandbox.base import Sandbox, select_sandbox_mode
+from engine.sandbox.cloud import CloudSandbox
 from engine.sandbox.local import LocalSandbox
 
 
@@ -34,12 +37,12 @@ class CloudSandboxUnavailable(RuntimeError):  # noqa: N818 — semantic name; no
     """Cloud sandbox selected but not available yet (Wave 4)."""
 
 
-def _make_sandbox() -> LocalSandbox:
+def _make_sandbox() -> Sandbox:
     mode = select_sandbox_mode()
     if mode == "local":
         return LocalSandbox()
     if mode == "cloud":
-        raise CloudSandboxUnavailable("CloudSandbox is not available yet (Wave 4)")
+        return CloudSandbox(make_backend_from_env())
     raise CloudSandboxUnavailable("Sandbox is disabled (AGENTBREEDER_SANDBOX=disabled)")
 
 
@@ -139,6 +142,7 @@ class BuilderSessionService:
             await sandbox.write("agent.yaml", state["agent_yaml"])
 
         engine = engine_for(engine_name, provider=provider)
+        t0 = time.monotonic()
         try:
             async for evt in engine.run(instruction, state.get("history", []), sandbox):
                 if evt.type == "token":
@@ -152,14 +156,24 @@ class BuilderSessionService:
                         content = ""
                     yield {
                         "event": "file_change",
-                        "data": _json(
-                            {"path": evt.path, "diff": evt.diff, "content": content}
-                        ),
+                        "data": _json({"path": evt.path, "diff": evt.diff, "content": content}),
                     }
                 elif evt.type == "done":
-                    yield {"event": "complete", "data": _json({"summary": evt.text})}
+                    yield {
+                        "event": "complete",
+                        "data": _json(
+                            {
+                                "summary": evt.text,
+                                "code": "ok",
+                                "sandbox_seconds": round(time.monotonic() - t0, 3),
+                            }
+                        ),
+                    }
                 elif evt.type == "error":
-                    yield {"event": "error", "data": _json({"detail": evt.error})}
+                    yield {
+                        "event": "error",
+                        "data": _json({"detail": evt.error, "code": "engine_error"}),
+                    }
             state["files"] = {p: await sandbox.read(p) for p in await sandbox.list(".")}
             await self.save_state(sess, state)
             await self._db.commit()
