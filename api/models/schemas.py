@@ -1575,3 +1575,39 @@ class PrincipalGroupResponse(BaseModel):
 
 class GroupMemberAdd(BaseModel):
     member_id: str = Field(..., description="User email or service_principal ID")
+
+
+# --- Analytics (W4 builder funnel) ---
+
+
+class AnalyticsEventIngest(BaseModel):
+    """PII-free structural product-analytics event (design §11.2)."""
+
+    event: str = Field(..., min_length=1, max_length=64)
+    engine: str | None = None
+    session_id: str | None = None
+    props: dict[str, Any] = Field(default_factory=dict)
+
+
+class FunnelStage(BaseModel):
+    key: str
+    label: str
+    count: int
+    dropoff_pct: float  # vs previous stage; 0.0 for the first
+
+
+class EngineScorecard(BaseModel):
+    engine: str
+    samples: int
+    spec_validity_rate: float
+    deploy_success_rate: float
+    turns_to_spec: float
+    hallucinated_field_rate: float
+
+
+class FunnelMetrics(BaseModel):
+    period: str
+    time_to_first_deploy_p50_s: float | None = None
+    time_to_first_deploy_p90_s: float | None = None
+    stages: list[FunnelStage] = Field(default_factory=list)
+    engines: list[EngineScorecard] = Field(default_factory=list)

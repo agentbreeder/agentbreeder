@@ -14,6 +14,7 @@ from api.routes import (
     a2a,
     agentops,
     agents,
+    analytics,
     approvals,
     audit,
     auth,
@@ -246,6 +247,7 @@ app.include_router(secrets_route.router)
 
 # v2 routes (preview)
 app.include_router(agents_v2.router)
+app.include_router(analytics.router)
 
 
 @app.get("/health")
