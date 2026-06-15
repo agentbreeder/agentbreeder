@@ -1584,8 +1584,8 @@ class AnalyticsEventIngest(BaseModel):
     """PII-free structural product-analytics event (design §11.2)."""
 
     event: str = Field(..., min_length=1, max_length=64)
-    engine: str | None = None
-    session_id: str | None = None
+    engine: str | None = Field(default=None, max_length=20)
+    session_id: uuid.UUID | None = None  # typed -> pydantic 422s on bad UUIDs
     props: dict[str, Any] = Field(default_factory=dict)
 
 

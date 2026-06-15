@@ -7,10 +7,10 @@ bodies. A retention job (TTL) prunes old rows (see ops runbook).
 
 from __future__ import annotations
 
-import uuid
+import math
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,29 @@ _FUNNEL: list[tuple[str, str]] = [
     ("deploy_started", "Deploy"),
     ("deploy_succeeded", "Live"),
 ]
+
+# Server-side allowlist — mirrors dashboard/src/lib/analytics.ts ANALYTICS_EVENTS.
+# Unknown events are rejected so a client cannot pollute the funnel taxonomy.
+_INGESTABLE_EVENTS: frozenset[str] = frozenset(
+    {
+        "builder_session_started",
+        "user_message_sent",
+        "stack_recommended",
+        "setup_card_shown",
+        "setup_card_completed",
+        "spec_validated",
+        "eject_to_code_started",
+        "eject_to_code_completed",
+        "coding_agent_turn",
+        "deploy_started",
+        "deploy_succeeded",
+        "deploy_failed",
+        "first_invoke",
+    }
+)
+
+# Sane upper bound (7 days, in seconds) so a poisoned props value can't skew p90.
+_MAX_DEPLOY_SECONDS = 604800.0
 
 _PERIODS = {"7d": 7, "30d": 30, "all": 3650}
 
@@ -80,11 +103,13 @@ async def ingest_event(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[dict]:
+    if body.event not in _INGESTABLE_EVENTS:
+        raise HTTPException(status_code=422, detail=f"unknown analytics event: {body.event!r}")
     row = AnalyticsEvent(
         event=body.event,
         engine=body.engine,
-        team=getattr(user, "team", None),
-        session_id=uuid.UUID(body.session_id) if body.session_id else None,
+        team=getattr(user, "team", None),  # server-stamped; never client-supplied
+        session_id=body.session_id,  # typed uuid.UUID | None (pydantic-validated)
         props=body.props or {},
     )
     db.add(row)
@@ -95,18 +120,25 @@ async def ingest_event(
 @router.get("/analytics/funnel")
 async def get_funnel(
     period: str = Query("7d"),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[FunnelMetrics]:
     days = _PERIODS.get(period, 7)
     since = datetime.now(UTC) - timedelta(days=days)
+    # Scope to the caller's team — never expose cross-tenant funnel data. A
+    # global/staff view would be a separate, admin-gated endpoint.
+    team = getattr(user, "team", None)
 
     counts: dict[str, int] = {}
     for key, _label in _FUNNEL:
         res = await db.execute(
             select(func.count())
             .select_from(AnalyticsEvent)
-            .where(AnalyticsEvent.event == key, AnalyticsEvent.created_at >= since)
+            .where(
+                AnalyticsEvent.event == key,
+                AnalyticsEvent.created_at >= since,
+                AnalyticsEvent.team == team,
+            )
         )
         counts[key] = int(res.scalar_one())
 
@@ -118,18 +150,25 @@ async def get_funnel(
         stages.append(FunnelStage(key=key, label=label, count=c, dropoff_pct=dropoff))
         prev = c
 
-    # p50/p90 time-to-first-deploy from deploy_succeeded props
+    # p50/p90 time-to-first-deploy from deploy_succeeded props (team-scoped).
     res = await db.execute(
         select(AnalyticsEvent.props).where(
             AnalyticsEvent.event == "deploy_succeeded",
             AnalyticsEvent.created_at >= since,
+            AnalyticsEvent.team == team,
         )
     )
-    times = [
-        float(p["time_to_deploy_s"])
-        for (p,) in res.all()
-        if isinstance(p, dict) and p.get("time_to_deploy_s") is not None
-    ]
+    # Defensive coercion: ignore non-numeric / non-finite / out-of-range values so a
+    # client-poisoned props field cannot 500 the route or skew the percentile.
+    times: list[float] = []
+    for (p,) in res.all():
+        if not isinstance(p, dict):
+            continue
+        v = p.get("time_to_deploy_s")
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        if math.isfinite(v) and 0 <= v <= _MAX_DEPLOY_SECONDS:
+            times.append(float(v))
     metrics = FunnelMetrics(
         period=period,
         stages=stages,

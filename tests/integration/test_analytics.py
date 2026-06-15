@@ -13,9 +13,24 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def test_ingest_rejects_unknown_event(client):
+def test_ingest_rejects_overlong_event(client):
     # Body validation (event too long) fails before the route body / DB.
     r = client.post("/api/v1/analytics/events", json={"event": "x" * 100})
+    assert r.status_code == 422
+
+
+def test_ingest_rejects_unknown_event(client):
+    # Well-formed but not on the server-side allowlist -> 422 before DB.
+    r = client.post("/api/v1/analytics/events", json={"event": "totally_made_up"})
+    assert r.status_code == 422
+
+
+def test_ingest_rejects_bad_session_id(client):
+    # Malformed UUID is rejected by pydantic (422) rather than 500 in the route.
+    r = client.post(
+        "/api/v1/analytics/events",
+        json={"event": "spec_validated", "session_id": "not-a-uuid"},
+    )
     assert r.status_code == 422
 
 
