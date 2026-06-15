@@ -9,11 +9,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Security
-- **Cleared `dashboard` high-severity advisories via npm `overrides`** — pinned `hono` to
-  `^4.12.25` (transitive through the `shadcn` CLI → MCP SDK; fixes the IPv6 deny-rule bypass,
-  Set-Cookie injection, JWT-scheme, and mount-prefix advisories) and `esbuild` to `^0.28.1`
-  (transitive through `vite`; fixes the Deno-module integrity and dev-server file-read advisories).
-  Both are build/dev-time dependencies not bundled into the shipped app. No `vite` major bump —
+- **Cleared `dashboard` high-severity advisories via npm `overrides` + a `vite` patch bump** —
+  pinned `hono` to `^4.12.25` (transitive through the `shadcn` CLI → MCP SDK; fixes the IPv6
+  deny-rule bypass, Set-Cookie injection, JWT-scheme, and mount-prefix advisories) and `esbuild`
+  to `^0.28.1` (transitive through `vite`; fixes the Deno-module integrity and dev-server
+  file-read advisories). A second wave of advisories surfaced afterward and is cleared here too:
+  bumped `vite` to `^7.3.5` (fixes the high-severity `launch-editor` NTLMv2 UNC disclosure and the
+  `server.fs.deny` Windows-alternate-path bypass — patched in 7.3.4, **no `vite` 8 major bump**),
+  and added overrides for `@babel/core` `^7.29.7` (transitive through `@vitejs/plugin-react` /
+  `shadcn` / `eslint-plugin-react-hooks`; fixes the sourceMappingURL arbitrary-file-read advisory)
+  and `js-yaml` `^4.2.0` (transitive through `eslint` / `cosmiconfig`; fixes the merge-key
+  quadratic-complexity DoS). All are build/dev-time dependencies not bundled into the shipped app.
   `npm audit` now reports 0 vulnerabilities, and the dashboard build + 227 tests pass.
 - **Bumped `vitest` to `^4.1.8` in `sdk/typescript`** (was `^1.6.0`), clearing a critical advisory
   (GHSA — Vitest UI server arbitrary file read/execute, fixed in 4.1.0). Dev/test-only dependency;
