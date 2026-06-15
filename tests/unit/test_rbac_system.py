@@ -1004,7 +1004,22 @@ class TestRBACRoutes:
 
     def test_rbac_router_registered(self, client: TestClient) -> None:
         """The /api/v1/rbac prefix must be reachable (even if auth-gated)."""
-        routes = [str(r.path) for r in client.app.routes]
+        # Starlette >=1.3 wraps include_router() results in _IncludedRouter
+        # (no .path); flatten via original_router so this survives the bump.
+        routes: list[str] = []
+        stack = list(client.app.routes)
+        guard = 0
+        while stack and guard < 20000:
+            guard += 1
+            route = stack.pop()
+            path = getattr(route, "path", None)
+            if isinstance(path, str):
+                routes.append(path)
+            original = getattr(route, "original_router", None)
+            if original is not None:
+                stack.extend(getattr(original, "routes", []))
+            elif getattr(route, "routes", None):
+                stack.extend(route.routes)
         rbac_routes = [r for r in routes if r.startswith("/api/v1/rbac")]
         assert len(rbac_routes) > 0, "RBAC routes must be registered in the app"
 
