@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -1106,6 +1106,7 @@ function VisualBuilderForm({
 
 export default function AgentBuilderPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const { markDirty, markClean, isBlocked, confirmNavigation, cancelNavigation } = useUnsavedChanges();
 
@@ -1116,6 +1117,7 @@ export default function AgentBuilderPage() {
   const [formData, setFormData] = useState<AgentFormData>(() => yamlToFormData(DEFAULT_YAML));
   const [deployOpen, setDeployOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Canvas state for the visual builder (ReactFlow)
   const [canvasNodes, setCanvasNodes] = useState<import("@xyflow/react").Node<CanvasNodeData>[]>(() => {
@@ -1293,8 +1295,13 @@ export default function AgentBuilderPage() {
     toast({ title: "YAML copied to clipboard", variant: "success" });
   }, [mode, yaml, formData, toast]);
 
-  const handleSave = useCallback(() => {
-    const content = mode === "yaml" ? yaml : formDataToYaml(formData);
+  const handleSave = useCallback(async () => {
+    const content =
+      mode === "yaml"
+        ? yaml
+        : mode === "visual"
+          ? formDataToYaml(formData)
+          : graphToYaml(canvasNodes, canvasEdges);
     const validation = validateAgentYaml(content);
     const hasErrors = validation.some((i) => i.status === "fail");
 
@@ -1303,9 +1310,32 @@ export default function AgentBuilderPage() {
       return;
     }
 
-    markClean();
-    toast({ title: "Agent configuration saved", variant: "success" });
-  }, [mode, yaml, formData, markClean, toast]);
+    setSaving(true);
+    try {
+      if (id) {
+        // Existing agent — the API only supports metadata updates outside a
+        // deploy; model/tool/prompt changes take effect on the next deploy.
+        const version = content.match(/^version:\s*["']?([^"'\n]+)/m)?.[1]?.trim();
+        const description = content.match(/^description:\s*["']?([^"'\n]*)/m)?.[1]?.trim();
+        await api.agents.update(id, { version, description });
+        markClean();
+        toast({ title: "Agent updated", variant: "success" });
+      } else {
+        const created = await api.agents.fromYaml(content);
+        markClean();
+        toast({ title: `Agent "${created.data.name}" registered`, variant: "success" });
+        navigate(`/agents/builder/${created.data.id}`);
+      }
+    } catch (err) {
+      toast({
+        title: "Save failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }, [mode, yaml, formData, canvasNodes, canvasEdges, id, markClean, toast, navigate]);
 
   // Current YAML for validation panel (sync from visual/canvas mode if needed)
   const currentYaml = mode === "yaml"
@@ -1426,9 +1456,15 @@ export default function AgentBuilderPage() {
               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
               {copied ? "Copied" : "Copy"}
             </Button>
-            <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2 text-xs" onClick={handleSave}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={handleSave}
+              disabled={saving}
+            >
               <Save className="size-3.5" />
-              Save
+              {saving ? "Saving..." : "Save"}
             </Button>
             <SubmitForReview
               resourceType="agent"

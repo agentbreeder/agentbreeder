@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { authFetch } from "@/lib/api";
 import { Activity, AlertTriangle, DollarSign, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -130,14 +131,14 @@ export default function AgentOpsPage() {
       try {
         const [fleetRes, heatmapRes, eventsRes, teamsRes, costRes, errorsRes, latencyRes, invocRes] =
           await Promise.all([
-            fetch(`${API}/fleet`).then((r) => r.json()),
-            fetch(`${API}/fleet/heatmap`).then((r) => r.json()),
-            fetch(`${API}/events?limit=20`).then((r) => r.json()),
-            fetch(`${API}/teams`).then((r) => r.json()),
-            fetch(`${API}/top-agents?metric=cost&limit=5`).then((r) => r.json()),
-            fetch(`${API}/top-agents?metric=errors&limit=5`).then((r) => r.json()),
-            fetch(`${API}/top-agents?metric=latency&limit=5`).then((r) => r.json()),
-            fetch(`${API}/top-agents?metric=invocations&limit=5`).then((r) => r.json()),
+            authFetch(`${API}/fleet`).then((r) => r.json()),
+            authFetch(`${API}/fleet/heatmap`).then((r) => r.json()),
+            authFetch(`${API}/events?limit=20`).then((r) => r.json()),
+            authFetch(`${API}/teams`).then((r) => r.json()),
+            authFetch(`${API}/top-agents?metric=cost&limit=5`).then((r) => r.json()),
+            authFetch(`${API}/top-agents?metric=errors&limit=5`).then((r) => r.json()),
+            authFetch(`${API}/top-agents?metric=latency&limit=5`).then((r) => r.json()),
+            authFetch(`${API}/top-agents?metric=invocations&limit=5`).then((r) => r.json()),
           ]);
 
         setFleet(fleetRes.data);

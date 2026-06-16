@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { authFetch } from "@/lib/api";
 import {
   Cloud,
   Zap,
@@ -345,14 +346,14 @@ export default function GatewayPage() {
 
     try {
       const [statusRes, modelsRes, providersRes, logsRaw, costsRes] = await Promise.all([
-        fetch(`${API_BASE}/status`).then((r) => r.json()),
-        fetch(`${API_BASE}/models?per_page=200`).then((r) => r.json()),
-        fetch(`${API_BASE}/providers`).then((r) => r.json()),
-        fetch(`${API_BASE}/logs?per_page=20`).then(async (r) => ({
+        authFetch(`${API_BASE}/status`).then((r) => r.json()),
+        authFetch(`${API_BASE}/models?per_page=200`).then((r) => r.json()),
+        authFetch(`${API_BASE}/providers`).then((r) => r.json()),
+        authFetch(`${API_BASE}/logs?per_page=20`).then(async (r) => ({
           status: r.status,
           body: await r.json().catch(() => ({})),
         })),
-        fetch(`${API_BASE}/costs/comparison`).then((r) => r.json()),
+        authFetch(`${API_BASE}/costs/comparison`).then((r) => r.json()),
       ]);
 
       setTiers(statusRes.data ?? []);
@@ -377,7 +378,7 @@ export default function GatewayPage() {
   }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     fetchAll();
   }, []);
 

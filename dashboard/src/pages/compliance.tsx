@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { authFetch } from "@/lib/api";
 import { CheckCircle, XCircle, AlertCircle, Download, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -69,7 +70,7 @@ export default function CompliancePage() {
   const [reportFormat, setReportFormat] = useState<"json" | "csv" | "pdf">("json");
 
   useEffect(() => {
-    fetch(`${API}/compliance/status`)
+    authFetch(`${API}/compliance/status`)
       .then((r) => r.json())
       .then((json) => setStatus(json.data))
       .catch(console.error)
@@ -79,7 +80,7 @@ export default function CompliancePage() {
   async function generateReport() {
     setReportLoading(true);
     try {
-      const res = await fetch(`${API}/compliance/report?format=${reportFormat}`);
+      const res = await authFetch(`${API}/compliance/report?format=${reportFormat}`);
       const json = await res.json();
       setLastReport(json.data);
       setShowReportModal(false);

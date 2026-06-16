@@ -318,3 +318,80 @@ class TestRunScan:
         assert _overall_status([_r("pass"), _r("partial")]) == "partial"
         assert _overall_status([_r("partial"), _r("fail")]) == "non_compliant"
         assert _overall_status([_r("pass"), _r("skipped")]) == "compliant"
+
+
+# ---------------------------------------------------------------------------
+# Aborted-transaction recovery (rollback after SQL errors)
+# ---------------------------------------------------------------------------
+
+
+class _FailingSession:
+    """Session stub whose queries always fail — every control must roll back
+    so the (real) Postgres transaction is no longer aborted for later
+    controls and the final ``compliance_scans`` INSERT."""
+
+    def __init__(self) -> None:
+        self.rollbacks = 0
+        # Present as PostgreSQL so dialect-gated controls run their queries.
+        from types import SimpleNamespace
+
+        self.bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+    async def execute(self, *_args, **_kwargs):
+        from sqlalchemy.exc import SQLAlchemyError
+
+        raise SQLAlchemyError("simulated query failure")
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+class TestSqlErrorRollback:
+    @pytest.mark.asyncio
+    async def test_audit_log_retention_rolls_back(self) -> None:
+        db = _FailingSession()
+        result = await check_audit_log_retention(db)  # type: ignore[arg-type]
+        assert result.status == "skipped"
+        assert db.rollbacks == 1
+
+    @pytest.mark.asyncio
+    async def test_rbac_enforced_rolls_back(self) -> None:
+        db = _FailingSession()
+        result = await check_rbac_enforced(db)  # type: ignore[arg-type]
+        assert result.status == "skipped"
+        assert db.rollbacks == 1
+
+    @pytest.mark.asyncio
+    async def test_mfa_enabled_rolls_back(self) -> None:
+        db = _FailingSession()
+        result = await check_mfa_enabled(db)  # type: ignore[arg-type]
+        assert result.status == "skipped"
+        assert db.rollbacks == 1
+
+    @pytest.mark.asyncio
+    async def test_db_ssl_rolls_back_twice_when_fallback_also_fails(self) -> None:
+        db = _FailingSession()
+        result = await check_db_ssl_enabled(db)  # type: ignore[arg-type]
+        assert result.status == "skipped"
+        # Primary sslinfo query AND the pg_stat_ssl fallback both fail —
+        # each must clear the aborted transaction.
+        assert db.rollbacks == 2
+
+    @pytest.mark.asyncio
+    async def test_scanner_rolls_back_when_control_raises(self) -> None:
+        from engine.compliance.controls import Control
+
+        async def _exploding_check(db):  # noqa: ANN001
+            raise RuntimeError("control blew up")
+
+        control = Control(
+            control_id="exploding",
+            name="Exploding control",
+            category="Test",
+            standards=(),
+            check=_exploding_check,
+        )
+        db = _FailingSession()
+        summary = await run_compliance_scan(db, controls=(control,))  # type: ignore[arg-type]
+        assert summary.results[0].status == "skipped"
+        assert db.rollbacks == 1

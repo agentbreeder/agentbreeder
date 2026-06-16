@@ -460,6 +460,20 @@ function ShellInner() {
     saveSidebarWidth(sidebarWidth);
   }, [sidebarWidth]);
 
+  // Auto-collapse to the icon rail on narrow viewports so content keeps a
+  // usable width on mobile; expands again when the viewport grows.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const apply = () => {
+      if (mq.matches) {
+        setSidebarWidth(SIDEBAR_MIN);
+      }
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
   const showHelp = useCallback(() => setShortcutsOpen(true), []);
   const openNewResource = useCallback(() => setNewResourceOpen(true), []);
   const onChordStart = useCallback(() => setChordActive(true), []);

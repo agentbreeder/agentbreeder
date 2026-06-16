@@ -91,6 +91,12 @@ async def run_compliance_scan(
             result = await control.check(db)
         except Exception as exc:  # noqa: BLE001 — defensive: never crash the scan
             logger.exception("Control '%s' raised during scan", control.control_id)
+            # A failed SQL statement leaves the Postgres transaction aborted;
+            # roll back so later controls and the final INSERT can proceed.
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001 — rollback is best-effort
+                logger.warning("Rollback after failed control errored", exc_info=True)
             result = ControlResult(
                 control_id=control.control_id,
                 name=control.name,

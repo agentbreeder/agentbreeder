@@ -21,6 +21,29 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+/**
+ * Drop-in replacement for `window.fetch` that attaches the Authorization
+ * header and redirects to /login on a 401, mirroring `request()`. Use this
+ * for endpoints that don't fit the ApiResponse<T> envelope helpers below.
+ */
+export async function authFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+): Promise<Response> {
+  const res = await fetch(input, {
+    ...init,
+    headers: { ...getAuthHeaders(), ...(init.headers ?? {}) },
+  });
+  if (res.status === 401) {
+    localStorage.removeItem("ag-token");
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
+    throw new Error("Session expired");
+  }
+  return res;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse<T>> {
   const res = await fetch(`${BASE}${path}`, {
     headers: getAuthHeaders(),
@@ -1407,6 +1430,20 @@ export const api = {
     clone: (id: string, body: { name: string; version: string }) =>
       request<Agent>(`/agents/${id}/clone`, {
         method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (
+      id: string,
+      body: {
+        version?: string;
+        description?: string;
+        endpoint_url?: string;
+        status?: AgentStatus;
+        tags?: string[];
+      }
+    ) =>
+      request<Agent>(`/agents/${id}`, {
+        method: "PUT",
         body: JSON.stringify(body),
       }),
     validate: (yamlContent: string) =>
