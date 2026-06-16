@@ -190,11 +190,17 @@ class TestDiagnoseRuntimeFailure:
         assert "Docker Desktop" in joined or "OrbStack" in joined
 
     def test_podman_daemon_down(self) -> None:
-        lines = quickstart._diagnose_runtime_failure("podman")
+        # Strip DOCKER_HOST so a developer shell with that set (e.g. Rancher
+        # Desktop) doesn't short-circuit on the stale-socket branch.
+        env = {k: v for k, v in __import__("os").environ.items() if k != "DOCKER_HOST"}
+        with patch.dict("os.environ", env, clear=True):
+            lines = quickstart._diagnose_runtime_failure("podman")
         joined = "\n".join(lines)
         assert "podman machine start" in joined
 
     def test_unknown_binary_falls_back_generic(self) -> None:
-        lines = quickstart._diagnose_runtime_failure("nerdctl")
+        env = {k: v for k, v in __import__("os").environ.items() if k != "DOCKER_HOST"}
+        with patch.dict("os.environ", env, clear=True):
+            lines = quickstart._diagnose_runtime_failure("nerdctl")
         joined = "\n".join(lines)
         assert "nerdctl" in joined
