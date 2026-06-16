@@ -9,7 +9,7 @@ Required env vars (consumed by the LiteLLM-backed endpoints):
   (default ``http://localhost:4000``).
 - ``LITELLM_MASTER_KEY`` — master key used to authenticate against
   ``/health``, ``/v1/models``, ``/v1/provider/info``, ``/spend/logs`` etc.
-  (default ``sk-agentbreeder-quickstart``).
+  Required; gateway endpoints return empty/503 when unset.
 
 If LiteLLM is not running, ``/logs`` returns ``503`` with an empty
 ``data: []`` and a clear error message; it never falls back to fake data.
@@ -41,7 +41,7 @@ from api.services.gateway_logs_service import (
 # ---------------------------------------------------------------------------
 
 _LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:4000")
-_LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "sk-agentbreeder-quickstart")
+_LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "")
 
 
 def _litellm_headers() -> dict:

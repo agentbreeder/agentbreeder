@@ -11,7 +11,7 @@ Required env vars:
 - ``LITELLM_BASE_URL`` — base URL of the LiteLLM proxy (default
   ``http://localhost:4000``).
 - ``LITELLM_MASTER_KEY`` — master key used to authenticate against
-  ``/spend/logs`` (default ``sk-agentbreeder-quickstart``).
+  ``/spend/logs``. Required; returns empty list when unset.
 
 If the LiteLLM proxy is not reachable, callers get an
 :class:`GatewayLogsUnavailableError` and should respond with an empty list
@@ -39,7 +39,7 @@ def _base_url() -> str:
 
 
 def _master_key() -> str:
-    return os.getenv("LITELLM_MASTER_KEY", "sk-agentbreeder-quickstart")
+    return os.getenv("LITELLM_MASTER_KEY", "")
 
 
 def _headers() -> dict[str, str]:

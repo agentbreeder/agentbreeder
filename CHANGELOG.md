@@ -8,6 +8,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+---
+
+## [2.7.0] — 2026-06-16
+
 ### Security
 - **Bumped `vitest` to `^4.1.8` in `sdk/typescript`** (was `^1.6.0`), clearing a critical advisory
   (GHSA — Vitest UI server arbitrary file read/execute, fixed in 4.1.0). Dev/test-only dependency;
