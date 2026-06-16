@@ -21,10 +21,21 @@ export default function DeployWizardPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [resumePromptOpen, setResumePromptOpen] = useState(false);
-  const [hasHydrated, setHasHydrated] = useState(false);
+  const [resumePromptOpen, setResumePromptOpen] = useState(() => {
+    const agentParam = new URLSearchParams(window.location.search).get("agentId");
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return false;
+    try {
+      const draft = JSON.parse(raw) as { agentId?: string };
+      return Boolean(draft.agentId) && (!agentParam || draft.agentId === agentParam);
+    } catch {
+      localStorage.removeItem(DRAFT_KEY);
+      return false;
+    }
+  });
+  const [hasHydrated] = useState(true);
 
-  // ----- Mount: read query params + localStorage, possibly prompt to resume.
+  // ----- Mount: read query params and prefill from URL.
   useEffect(() => {
     const stepParam = Number(searchParams.get("step")) || undefined;
     const agentParam = searchParams.get("agentId") ?? undefined;
@@ -38,20 +49,6 @@ export default function DeployWizardPage() {
         step: stepParam as Step | undefined,
       });
     }
-
-    const raw = localStorage.getItem(DRAFT_KEY);
-    if (raw) {
-      try {
-        const draft = JSON.parse(raw);
-        // If draft is for a different agent than what's in the URL, prompt.
-        if (draft.agentId && (!agentParam || draft.agentId === agentParam)) {
-          setResumePromptOpen(true);
-        }
-      } catch {
-        localStorage.removeItem(DRAFT_KEY);
-      }
-    }
-    setHasHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -340,10 +340,7 @@ export default function GatewayPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeSection, setActiveSection] = useState<Section>("routing");
 
-  async function fetchAll(isRefresh = false) {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-
+  async function loadData() {
     try {
       const [statusRes, modelsRes, providersRes, logsRaw, costsRes] = await Promise.all([
         authFetch(`${API_BASE}/status`).then((r) => r.json()),
@@ -377,9 +374,15 @@ export default function GatewayPage() {
     }
   }
 
+  function fetchAll(isRefresh = false) {
+    if (isRefresh) setRefreshing(true);
+    void loadData();
+  }
+
   useEffect(() => {
-     
-    fetchAll();
+    // loadData only calls setState after awaits — no synchronous state updates
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadData();
   }, []);
 
   const totalModels = models.length;
