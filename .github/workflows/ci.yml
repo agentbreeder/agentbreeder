@@ -98,6 +98,11 @@ jobs:
           git config --global user.email "ci@agentbreeder.dev"
           git config --global user.name "AgentBreeder CI"
 
+      - name: Apply database migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@localhost:5432/agentbreeder_test
+        run: alembic upgrade head
+
       - name: Run unit + integration tests with coverage
         env:
           DATABASE_URL: postgresql+asyncpg://agentbreeder:agentbreeder@localhost:5432/agentbreeder_test
