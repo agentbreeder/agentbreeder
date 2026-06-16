@@ -74,8 +74,93 @@ def test_aws_mapper_returns_only_strings() -> None:
     assert all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())
 
 
+def _gcp_state() -> InfraState:
+    """A representative greenfield InfraState as GCPProvisioner.provision() returns it."""
+    return InfraState(
+        cloud="gcp",
+        region="us-central1",
+        provisioned_by="agentbreeder.GCPProvisioner",
+        provisioned_at=datetime.now(UTC),
+        mode="provisioned",
+        resources={
+            "artifact_registry": {
+                "name": "projects/my-proj/locations/us-central1/repositories/agentbreeder",
+                "repo": "agentbreeder",
+                "region": "us-central1",
+            },
+            "service_account": {
+                "email": "ab-my-agent@my-proj.iam.gserviceaccount.com",
+                "sa_id": "ab-my-agent",
+                "project": "my-proj",
+            },
+            "vpc_connector": {
+                "name": "projects/my-proj/locations/us-central1/connectors/ab-my-agent",
+                "network": "ab-my-agent-vpc",
+            },
+            "network": {"name": "ab-my-agent-vpc", "subnet": "ab-my-agent-subnet"},
+        },
+    )
+
+
+def test_gcp_mapper_emits_the_env_the_cloudrun_deployer_reads() -> None:
+    env = infra_state_to_env("gcp", _gcp_state())
+    assert env["GCP_PROJECT_ID"] == "my-proj"
+    assert env["GCP_SERVICE_ACCOUNT"] == "ab-my-agent@my-proj.iam.gserviceaccount.com"
+    assert env["GCP_ARTIFACT_REGISTRY_REPO"] == "agentbreeder"
+    assert env["GCP_REGION"] == "us-central1"
+    assert env["GCP_VPC_CONNECTOR"].endswith("/connectors/ab-my-agent")
+    # Data tier lands in the greenfield VPC.
+    assert env["GCP_VPC_NAME"] == "ab-my-agent-vpc"
+    assert all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())
+
+
+def _azure_state() -> InfraState:
+    """A representative greenfield InfraState as AzureProvisioner.provision() returns it."""
+    return InfraState(
+        cloud="azure",
+        region="eastus",
+        provisioned_by="agentbreeder.AzureProvisioner",
+        provisioned_at=datetime.now(UTC),
+        mode="provisioned",
+        resources={
+            "resource_group": {
+                "id": "/subscriptions/sub-123/resourceGroups/ab-my-agent-rg",
+                "name": "ab-my-agent-rg",
+                "region": "eastus",
+            },
+            "container_apps_environment": {"id": "...", "name": "ab-my-agent-env"},
+            "acr": {
+                "id": "...",
+                "name": "abmyagentacr",
+                "login_server": "abmyagentacr.azurecr.io",
+            },
+            "managed_identity": {"id": "...", "name": "ab-my-agent-id"},
+            "vnet": {
+                "id": "...",
+                "name": "ab-my-agent-vnet",
+                "db_subnet_id": "/subscriptions/sub-123/.../subnets/db",
+            },
+            "key_vault": {"id": "...", "name": "abkv", "uri": "https://abkv.vault.azure.net/"},
+        },
+    )
+
+
+def test_azure_mapper_emits_the_env_the_aca_deployer_reads() -> None:
+    env = infra_state_to_env("azure", _azure_state())
+    assert env["AZURE_SUBSCRIPTION_ID"] == "sub-123"
+    assert env["AZURE_RESOURCE_GROUP"] == "ab-my-agent-rg"
+    assert env["AZURE_CONTAINER_APPS_ENV"] == "ab-my-agent-env"
+    assert env["AZURE_REGISTRY_SERVER"] == "abmyagentacr.azurecr.io"
+    assert env["AZURE_LOCATION"] == "eastus"
+    # Data tier lands in the greenfield VNet's delegated subnet.
+    assert env["AZURE_VNET_NAME"] == "ab-my-agent-vnet"
+    assert env["AZURE_DB_SUBNET_ID"].endswith("/subnets/db")
+    assert env["AZURE_KEYVAULT_URL"] == "https://abkv.vault.azure.net/"
+    assert all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())
+
+
 def test_unsupported_cloud_raises() -> None:
     state = _aws_state()
-    state.cloud = "gcp"
+    state.cloud = "kubernetes"
     with pytest.raises(NotImplementedError):
-        infra_state_to_env("gcp", state)
+        infra_state_to_env("kubernetes", state)

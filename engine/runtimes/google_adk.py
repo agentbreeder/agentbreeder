@@ -23,6 +23,7 @@ from engine.runtimes.base import (
     _get_litellm_requirements,
     _should_add_litellm_sdk,
     build_env_block,
+    inject_wheel_copies,
     runtime_support_requirement,
 )
 
@@ -110,9 +111,12 @@ USER agent
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \\
-    CMD python -c "import httpx; httpx.get('http://localhost:8080/health').raise_for_status()"
+    CMD python -c "import os,httpx; httpx.get('http://localhost:'+os.environ.get('PORT','8080')+'/health').raise_for_status()"
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+# Honor $PORT: when the observability sidecar is injected the deployer sets
+# PORT=8081 so the agent listens on an internal port and the sidecar owns 8080.
+# Braces are doubled because this template is rendered with str.format().
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${{PORT:-8080}}"]
 """
 
 
@@ -224,7 +228,7 @@ class GoogleADKRuntime(RuntimeBuilder):
             # Build Dockerfile
             env_block = build_env_block(config, "google_adk")
             adk_env_block = _build_adk_env_block(config)
-            dockerfile_content = DOCKERFILE_TEMPLATE.format(
+            dockerfile_content = inject_wheel_copies(DOCKERFILE_TEMPLATE, build_dir).format(
                 env_block=env_block,
                 adk_env_block=adk_env_block,
             )
