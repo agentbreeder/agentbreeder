@@ -416,7 +416,10 @@ class TestSidecarIngressRouting:
         container field the API rejects — e.g. ``security_context``, which is
         not a Cloud Run v2 Container field (Cloud Run derives the run-as user
         from the image's Dockerfile USER, not the Admin API)."""
-        from google.cloud import run_v2
+        run_v2 = pytest.importorskip(
+            "google.cloud.run_v2",
+            reason="google-cloud-run not installed (pip install agentbreeder[gcp])",
+        )
 
         template = self._injected_template()  # agent + sidecar
         # Must not raise "Unknown field for Container: ...".
@@ -834,9 +837,13 @@ class TestCreateOrUpdateServiceIdempotency:
 
     @pytest.mark.asyncio
     async def test_updates_when_service_exists(self) -> None:
+        run_v2 = pytest.importorskip(
+            "google.cloud.run_v2",
+            reason="google-cloud-run not installed (pip install agentbreeder[gcp])",
+        )
+        Service = run_v2.Service
         deployer, config, gcp = _idempotency_deployer_and_config()
         mock_client = MagicMock()
-        from google.cloud.run_v2 import Service
 
         mock_client.get_service = AsyncMock(return_value=Service())
         mock_client.update_service = AsyncMock(
@@ -853,7 +860,11 @@ class TestCreateOrUpdateServiceIdempotency:
 
     @pytest.mark.asyncio
     async def test_creates_when_service_missing(self) -> None:
-        from google.api_core.exceptions import NotFound
+        api_core_exc = pytest.importorskip(
+            "google.api_core.exceptions",
+            reason="google-cloud-run not installed (pip install agentbreeder[gcp])",
+        )
+        NotFound = api_core_exc.NotFound
 
         deployer, config, gcp = _idempotency_deployer_and_config()
         mock_client = MagicMock()
@@ -873,8 +884,17 @@ class TestCreateOrUpdateServiceIdempotency:
     async def test_create_race_falls_back_to_update(self) -> None:
         """get_service says NotFound, create races a settling delete and returns
         AlreadyExists — the deployer must patch the resurfaced service."""
-        from google.api_core.exceptions import AlreadyExists, NotFound
-        from google.cloud.run_v2 import Service
+        api_core_exc = pytest.importorskip(
+            "google.api_core.exceptions",
+            reason="google-cloud-run not installed (pip install agentbreeder[gcp])",
+        )
+        AlreadyExists = api_core_exc.AlreadyExists
+        NotFound = api_core_exc.NotFound
+        run_v2 = pytest.importorskip(
+            "google.cloud.run_v2",
+            reason="google-cloud-run not installed (pip install agentbreeder[gcp])",
+        )
+        Service = run_v2.Service
 
         deployer, config, gcp = _idempotency_deployer_and_config()
         mock_client = MagicMock()

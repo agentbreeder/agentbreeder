@@ -92,6 +92,7 @@ gcp = [
     "google-cloud-iam>=2.15.0",
     "google-cloud-redis>=2.15.0",
     "google-cloud-resource-manager>=1.12.0",
+    "google-cloud-run>=0.10.0",
     "google-cloud-secret-manager>=2.20.0",
     "google-cloud-sql>=1.6.0",
     "google-cloud-vpc-access>=1.10.0",
