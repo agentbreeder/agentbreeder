@@ -118,33 +118,35 @@ jobs:
               sys.exit(1)
           "
 
-      - name: Pre-build & locally-tag images (so quickstart uses THIS PR's code)
-        # The compose file references `rajits/agentbreeder-api:latest` and
-        # `rajits/agentbreeder-dashboard:latest` by default. Pulling those
-        # would test the published images (Bug #3 if stale). Instead, build
-        # the API + dashboard images from this PR's source and tag them with
-        # the same names — the compose `pull` step is a no-op against local
-        # images, and quickstart uses them transparently.
-        # (We can't use `--dev` here: when run from a pipx install, --dev
-        # resolves dashboard/sidecar relative to site-packages, which don't
-        # ship those source dirs. Pre-tagging avoids that path entirely.)
+      - name: Editable install from source (for quickstart --dev)
+        # The pipx install above validates Bug #1 (wheel ships deploy/) and
+        # Bug #4 (no dev-version pin). But running `agentbreeder quickstart
+        # --dev` needs source-tree access (dashboard/, sidecar/) because
+        # quickstart resolves REPO_ROOT from the package install path. Pipx
+        # site-packages don't ship those dirs, so we install editable from
+        # the checkout for the actual end-to-end run. The published Docker
+        # Hub images would be pulled by `compose pull` and then rebuilt by
+        # `compose up -d --build` (what `--dev` adds), so the smoke
+        # exercises THIS PR's code regardless of what's on Docker Hub.
         run: |
-          set -e
-          docker build -f Dockerfile -t rajits/agentbreeder-api:latest .
-          docker build -f dashboard/Dockerfile -t rajits/agentbreeder-dashboard:latest dashboard
-          docker images | grep agentbreeder
+          pip install -e .
+          # Editable installs need the SDK present too — install from local
+          # SDK wheel built earlier so we don't depend on PyPI.
+          pip install sdk/python/dist/agentbreeder_sdk-*.whl --force-reinstall --no-deps
+          python -c "from cli.main import app; print('cli loads ok')"
 
-      - name: Run quickstart (headless, scripted)
+      - name: Run quickstart (headless, scripted, --dev)
         id: quickstart
         run: |
           set -o pipefail
           mkdir -p /tmp/qs-logs
           # --yes: accept all prompts; --no-browser: headless; --skip-doctor:
           # CI runners don't need a doctor check; --no-ollama: skip ~3 GB
-          # local-model download (this is cloud-only smoke). No --dev because
-          # we pre-built the API/dashboard images above with the published
-          # tags — quickstart will use those locally instead of pulling.
-          agentbreeder quickstart --yes --no-browser --skip-doctor --no-ollama \
+          # local-model download (this is cloud-only smoke); --dev: rebuild
+          # the API/dashboard images from THIS PR's source after the (stale)
+          # compose pull, so the smoke exercises this PR's actual code and
+          # not whatever happens to be on Docker Hub.
+          python -m cli.main quickstart --yes --no-browser --skip-doctor --no-ollama --dev \
             2>&1 | tee /tmp/qs-logs/quickstart.log
 
       - name: Assert "Quickstart Complete" appears in output
