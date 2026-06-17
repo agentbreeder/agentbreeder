@@ -1,0 +1,261 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Smoke tests for issue #560 — recurrent release-blocking bug classes
+# ─────────────────────────────────────────────────────────────────────────────
+# These run on every PR and every push to main, BEFORE the release workflow
+# can publish anything. The goal: catch the four bug classes that have broken
+# users in past releases:
+#
+#   Job: quickstart-smoke      → protects Bug #1 (missing deploy/*.yml in
+#                                 wheel) AND Bug #4 (dev-version pin in
+#                                 generated requirements.txt). pipx-installs
+#                                 the freshly-built wheel into a clean env
+#                                 and drives `agentbreeder quickstart` to
+#                                 the "Quickstart Complete" banner.
+#   Job: api-image-import-smoke → protects Bug #3 (stale Docker Hub images
+#                                  / API image broken at import time).
+#                                  Builds the API image from THIS PR (no
+#                                  push, no Docker Hub creds needed) and
+#                                  asserts `from api.main import app`
+#                                  succeeds inside it.
+#   Job: secrets-endpoint-smoke → protects Bug #5 (GET /api/v1/secrets
+#                                  returned 500 when no secrets existed).
+#                                  Reuses the stack brought up by
+#                                  quickstart-smoke and asserts the endpoint
+#                                  responds 200 with a `data` key.
+#   Job: local-deploy-smoke    → protects Bug #4 + general runtime-builder
+#                                 regressions. Runs
+#                                 `agentbreeder deploy examples/langgraph-
+#                                 agent/agent.yaml --target local`
+#                                 end-to-end and asserts exit 0.
+#
+# This workflow does NOT publish anything. The release workflow
+# (.github/workflows/release.yml) only triggers on tags (`v*.*.*`) and is
+# unaffected. To gate releases on these smokes, ensure the tag is created
+# only AFTER a green main commit — these jobs already run on push to main.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Smoke (Quickstart + Release Gates)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: smoke-quickstart-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Job 1: Build the wheel and drive `agentbreeder quickstart` ─────────────
+  # Catches Bug #1 (missing deploy/*.yml in published wheel) and Bug #4
+  # (dev-version pin in generated requirements.txt) — both surface as
+  # quickstart failing inside a clean Linux container.
+  quickstart-smoke:
+    name: Quickstart Smoke (pipx wheel install + bootstrap)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build + pipx
+        run: |
+          python -m pip install --upgrade pip
+          pip install build pipx
+          python -m pipx ensurepath
+
+      - name: Build SDK wheel (dependency of agentbreeder)
+        # Stamp a deterministic dev version so the wheel installs without
+        # hatch-vcs needing git tags during PR builds.
+        run: |
+          export HATCH_VCS_PRETEND_VERSION="0.0.0+ci"
+          cd sdk/python && python -m build --wheel
+          ls -la dist/
+
+      - name: Build agentbreeder wheel
+        run: |
+          export HATCH_VCS_PRETEND_VERSION="0.0.0+ci"
+          python -m build --wheel
+          ls -la dist/
+
+      - name: pipx install agentbreeder from local wheel
+        run: |
+          # Install the SDK first so the CLI wheel can find it (pipx
+          # creates an isolated venv per app, so we inject the SDK).
+          WHEEL=$(ls dist/agentbreeder-*.whl | head -1)
+          SDK_WHEEL=$(ls sdk/python/dist/agentbreeder_sdk-*.whl | head -1)
+          echo "Installing CLI wheel: $WHEEL"
+          echo "Injecting SDK wheel: $SDK_WHEEL"
+          pipx install --pip-args="--no-deps" "$WHEEL" || pipx install "$WHEEL"
+          pipx inject agentbreeder "$SDK_WHEEL" --force || true
+          # Make sure runtime deps are present in the pipx venv
+          pipx runpip agentbreeder install -r <(pipx runpip agentbreeder show agentbreeder 2>/dev/null | awk '/Requires:/ {gsub(",",""); for (i=2;i<=NF;i++) print $i}') || true
+          pipx ensurepath
+          # Reload PATH for this step
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify agentbreeder CLI is on PATH
+        run: |
+          which agentbreeder
+          agentbreeder --version || agentbreeder --help | head -5
+
+      - name: Verify deploy/*.yml shipped in the wheel (Bug #1 guard)
+        run: |
+          WHEEL=$(ls dist/agentbreeder-*.whl | head -1)
+          python -c "
+          import zipfile, sys
+          names = zipfile.ZipFile('$WHEEL').namelist()
+          deploy_files = [n for n in names if n.startswith('deploy/') and n.endswith('.yml')]
+          print('deploy/*.yml in wheel:', deploy_files)
+          if not deploy_files:
+              print('FAIL: no deploy/*.yml files in wheel — Bug #1 has regressed')
+              sys.exit(1)
+          "
+
+      - name: Run quickstart (headless, scripted)
+        id: quickstart
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/qs-logs
+          # --yes: accept all prompts; --no-browser: headless; --skip-doctor:
+          # CI runners don't need a doctor check; --no-ollama: skip ~3 GB
+          # local-model download (this is cloud-only smoke).
+          agentbreeder quickstart --yes --no-browser --skip-doctor --no-ollama \
+            2>&1 | tee /tmp/qs-logs/quickstart.log
+
+      - name: Assert "Quickstart Complete" appears in output
+        # The success banner is rendered as a Rich Rule: "Quickstart
+        # Complete". If we don't see it, the bootstrap didn't reach the
+        # final step — fail hard.
+        run: |
+          if grep -q "Quickstart Complete" /tmp/qs-logs/quickstart.log; then
+            echo "Studio ready — quickstart hit completion banner."
+          else
+            echo "FAIL: 'Quickstart Complete' banner not found in quickstart output."
+            echo "── Last 200 lines of quickstart log ──"
+            tail -200 /tmp/qs-logs/quickstart.log
+            exit 1
+          fi
+
+      - name: Job 3 — GET /api/v1/secrets returns 200 with data key (Bug #5 guard)
+        # Reuses the stack quickstart just brought up.
+        run: |
+          set -e
+          # Log in as the seeded default admin (see api/main.py
+          # _seed_default_admin: admin@agentbreeder.local / plant).
+          LOGIN_RESPONSE=$(curl -sf -X POST http://localhost:8000/api/v1/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@agentbreeder.local","password":"plant"}')
+          echo "Login response (truncated): $(echo "$LOGIN_RESPONSE" | head -c 200)"
+          TOKEN=$(echo "$LOGIN_RESPONSE" | python -c "import json,sys; print(json.load(sys.stdin)['data']['access_token'])")
+          if [ -z "$TOKEN" ]; then
+            echo "FAIL: could not obtain JWT for seeded admin"
+            exit 1
+          fi
+
+          # Now hit the secrets endpoint.
+          HTTP_CODE=$(curl -s -o /tmp/secrets-resp.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            http://localhost:8000/api/v1/secrets)
+          echo "HTTP status: $HTTP_CODE"
+          cat /tmp/secrets-resp.json
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "FAIL: GET /api/v1/secrets returned $HTTP_CODE, expected 200 (Bug #5)"
+            exit 1
+          fi
+          python -c "
+          import json,sys
+          body = json.load(open('/tmp/secrets-resp.json'))
+          if 'data' not in body:
+              print('FAIL: response missing data key')
+              sys.exit(1)
+          print('OK: data key present, type=', type(body['data']).__name__)
+          "
+
+      - name: Job 4 — agentbreeder deploy --target local (Bug #4 + runtime guard)
+        # Drives the deploy pipeline end-to-end against the local docker
+        # compose stack. Exit 0 means the runtime builder produced an
+        # image and the deployer accepted it.
+        env:
+          AGENTBREEDER_API_URL: http://localhost:8000
+        run: |
+          set -o pipefail
+          agentbreeder deploy examples/langgraph-agent/agent.yaml --target local \
+            2>&1 | tee /tmp/qs-logs/deploy.log
+          DEPLOY_EXIT=${PIPESTATUS[0]}
+          if [ "$DEPLOY_EXIT" != "0" ]; then
+            echo "FAIL: agentbreeder deploy returned exit code $DEPLOY_EXIT"
+            tail -200 /tmp/qs-logs/deploy.log
+            exit "$DEPLOY_EXIT"
+          fi
+
+      - name: Tail logs on failure
+        if: failure()
+        run: |
+          echo "── quickstart.log (last 200 lines) ──"
+          tail -200 /tmp/qs-logs/quickstart.log || true
+          echo "── deploy.log (last 200 lines) ──"
+          tail -200 /tmp/qs-logs/deploy.log || true
+          echo "── docker compose ps ──"
+          docker ps -a || true
+          echo "── api container logs ──"
+          docker logs $(docker ps -aqf "name=api" | head -1) 2>&1 | tail -100 || true
+
+      - name: Upload quickstart logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quickstart-smoke-logs
+          path: /tmp/qs-logs/
+          retention-days: 7
+
+      - name: Tear down stack
+        if: always()
+        run: |
+          # Best-effort — quickstart uses deploy/docker-compose.yml under
+          # the hood. The compose file lives in the repo we just checked
+          # out, so this cleans up properly.
+          docker compose -f deploy/docker-compose.yml down -v --remove-orphans || true
+
+  # ── Job 2: Build API image from PR and verify it imports cleanly ───────────
+  # Catches Bug #3 (Docker Hub images stale / broken at import time). We do
+  # NOT pull rajits/agentbreeder-api:latest — that would just re-confirm
+  # what's already public. We build from THIS PR's Dockerfile and assert
+  # `from api.main import app` works inside it.
+  #
+  # No Docker Hub creds are touched. push: false.
+  api-image-import-smoke:
+    name: API Image Import Smoke (build-only, no push)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build API image (local tag, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: agentbreeder-api:smoke-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run import smoke inside the API image
+        run: |
+          docker run --rm \
+            -e SECRET_KEY=ci-smoke \
+            -e JWT_SECRET_KEY=ci-smoke \
+            -e DATABASE_URL=postgresql+asyncpg://x:x@localhost:5432/x \
+            -e REDIS_URL=redis://localhost:6379 \
+            agentbreeder-api:smoke-${{ github.sha }} \
+            python -c "from api.main import app; print('imports ok:', app.title)"

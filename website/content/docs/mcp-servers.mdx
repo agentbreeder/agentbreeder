@@ -291,16 +291,14 @@ At deploy time, AgentBreeder:
 <Tabs items={['Python', 'TypeScript']}>
   <Tab value="Python">
 ```python
-from agenthub import Agent
+from agenthub import Agent, Tool
 
 agent = (
     Agent("support-agent")
         .with_framework("langgraph")
-        .with_tools([
-            "mcp-servers/zendesk",      # MCP server
-            "mcp-servers/slack",
-            "tools/order-lookup",       # regular function tool
-        ])
+        .with_tool(Tool.from_ref("mcp-servers/zendesk"))   # MCP server
+        .with_tool(Tool.from_ref("mcp-servers/slack"))
+        .with_tool(Tool.from_ref("tools/order-lookup"))    # regular function tool
         .with_deploy(cloud="aws", runtime="app-runner")
 )
 ```

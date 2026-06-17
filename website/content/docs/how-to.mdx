@@ -127,11 +127,16 @@ agentbreeder chat
 
 ### Chat to build (BYO Claude key)
 
-AgentBreeder Studio's home page greets you with a conversational front door — **"What do you want to build today?"** — whenever you have no agents yet, and is also reachable any time at **Studio → Agents → New agent** (`/agents/new`). Type what you want or pick an example starter and the builder takes it from there.
+AgentBreeder Studio's **Home** page (`/`) greets you with a conversational front door — **"What do you want to build today?"** — plus a row of example starters. The same builder is also reachable at **Studio → Agents → New agent** (`/agents/new`) via the **Chat to build** tab. Type what you want or pick a starter and the builder takes it from there.
 
 **One-time setup — add your Claude API key:**
 
-Go to **Settings → Secrets** and paste your key under **Claude API Key**. It is stored in the workspace secrets backend under `AGENTBREEDER_CLAUDE_BUILDER_KEY` — never in the database, never returned to the browser, never logged. Get a key at [console.anthropic.com](https://console.anthropic.com).
+You have two ways to add it (either works — the key is stored once and reused for every chat-to-build session):
+
+- **In Studio** — open `/agents/new`, switch to the **Chat to build** tab. The first time the key is missing you'll see an inline **Claude API Key** card right above the chat input — paste your key there and hit save.
+- **From the CLI** — run `agentbreeder secret set AGENTBREEDER_CLAUDE_BUILDER_KEY` ([CLI reference →](cli-reference#agentbreeder-secret-set)). You'll be prompted for the value; it is never echoed.
+
+Either path writes to the workspace secrets backend under `AGENTBREEDER_CLAUDE_BUILDER_KEY` — never the database, never returned to the browser, never logged. Get a key at [console.anthropic.com](https://console.anthropic.com).
 
 <Callout type="info" title="Key stored once, used server-side">
   Your Claude API key is read on the server for every builder request. It is never sent from the browser to the chat endpoint. If the key is absent or invalid, the endpoint returns HTTP 400 with a clear message — the provider is never constructed.
@@ -139,7 +144,7 @@ Go to **Settings → Secrets** and paste your key under **Claude API Key**. It i
 
 **How it works:**
 
-1. Land on Studio's home page or go to **Agents → New agent** (`/agents/new`). If you have no agents the empty-state prompt is already focused — just start typing.
+1. Land on Studio's **Home** page (`/`) — the chat input is focused and ready — or go to **Agents → New agent** (`/agents/new`) and select the **Chat to build** tab. Just start typing.
 2. Describe what you want your agent to do. The builder's responses stream back token-by-token as Claude writes them — no waiting for the full reply.
 3. Claude asks 3–5 focused follow-up questions (framework, model, deploy target, any tools or integrations you need) and then emits a structured spec.
 4. The backend validates the spec against the `agent.yaml` JSON schema before surfacing it to you. A **Deploy now** button appears only when the spec is valid.
@@ -202,7 +207,11 @@ Once the chat has produced a validated `agent.yaml`, an **Eject to code** button
 | Kubernetes (EKS / GKE / AKS) | `agentbreeder deploy agent.yaml --target kubernetes` | `kubernetes` |
 | Anthropic Claude Managed | `agentbreeder deploy agent.yaml --target claude-managed` | `claude-managed` |
 
-Cloud auth is the standard CLI for each provider (`gcloud auth login`, `aws configure`, `az login`, `kubectl` context). Secrets named in `deploy.secrets:` must already exist in the target cloud's secret store — or use `agentbreeder secret sync --target <cloud>`.
+<Callout type="warning" title="claude-managed is in beta">
+  The `claude-managed` deployer calls Anthropic's Managed Agents API behind the `anthropic-beta: managed-agents-2026-04-01` header. It is marked **In flight** in the [deploy-target status table](cli-reference#agentbreeder-deploy) — the CLI surface and `claude_managed:` schema may shift while the upstream beta evolves. Expect rough edges around environment provisioning and teardown. No container is built; the runtime is fully managed by Anthropic, so `guardrails:`, `secrets:` mirroring, and the AgentBreeder sidecar do **not** apply to this target.
+</Callout>
+
+Cloud auth is the standard CLI for each provider (`gcloud auth login`, `aws configure`, `az login`, `kubectl` context). For GCP specifically, agentbreeder auto-detects your project ID in this order: (1) `deploy.env_vars.GCP_PROJECT_ID`, (2) `deploy.env_vars.GOOGLE_CLOUD_PROJECT`, (3) shell `$GCP_PROJECT_ID`, (4) shell `$GOOGLE_CLOUD_PROJECT`, then (5) `gcloud config get-value project` — so once you've run `gcloud config set project <id>`, you usually don't need to set anything in `agent.yaml`. Secrets named in `deploy.secrets:` must already exist in the target cloud's secret store — or use `agentbreeder secret sync --target <cloud>`.
 
 <Callout type="info" title="Local backends in Docker Compose">
   When you deploy an agent locally, AgentBreeder no longer forwards your machine's `REDIS_URL`/`DATABASE_URL`/`NEO4J_URL` to the agent container. The bundled `deploy/docker-compose.yml` sets `AGENTBREEDER_ALLOW_LOCAL_BACKENDS=1` on the `api` service so local dev works out of the box. For cloud deploys, set an explicit `backend_url` on each `knowledge_bases` entry or `memory` block in your `agent.yaml` instead — see the [agent.yaml reference](agent-yaml#knowledge_bases) for the RAG/memory fields.
@@ -249,7 +258,7 @@ agentbreeder registry tool push tools/my_tool.ts        # node:/abs/path
 agentbreeder registry tool push engine.tools.standard.web_search  # in-process
 ```
 
-Verify in Studio at `/prompts` (with **Test** tab) and `/tools` (with **Try it** tab).
+Verify in Studio: the prompt now appears in the list at `/prompts` and the tool at `/tools`. Click into the individual entity — `/prompts/<id>` or `/tools/<id>` — to reveal the **Test** and **Try it** tabs respectively. These tabs only render on the detail page (once at least one prompt or tool exists); the list-level empty state never shows them.
 
 ---
 
@@ -488,17 +497,25 @@ Programmatic equivalent: see [Full Code →](full-code).
 ## Use the Python SDK
 
 ```python
-from agenthub import Agent
+from agenthub import Agent, Tool
 
 agent = (
     Agent("support-agent", version="1.0.0", team="engineering")
     .with_model(primary="claude-sonnet-4", fallback="gpt-4o")
-    .with_tools(["tools/zendesk-mcp", "tools/order-lookup"])
-    .with_prompts(system="prompts/support-system-v3")
+    .with_tool(Tool.from_ref("tools/zendesk-mcp"))
+    .with_tool(Tool.from_ref("tools/order-lookup"))
+    .with_prompt(system="prompts/support-system-v3")
     .with_deploy(cloud="gcp", min_scale=1, max_scale=10)
 )
 agent.to_yaml("agent.yaml")
 agent.deploy()
+```
+
+`.with_tool(...)` is singular and takes a single `Tool` instance — chain it once per tool, or loop:
+
+```python
+for ref in ["tools/zendesk-mcp", "tools/order-lookup"]:
+    agent = agent.with_tool(Tool.from_ref(ref))
 ```
 
 Full reference: [Full Code →](full-code).

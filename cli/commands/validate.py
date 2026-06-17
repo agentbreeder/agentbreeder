@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import typer
@@ -10,9 +11,120 @@ from rich.panel import Panel
 from rich.table import Table
 from ruamel.yaml import YAML
 
-from engine.config_parser import validate_config
+from engine.config_parser import (
+    AgentConfig,
+    ConfigValidationError,
+    ValidationResult,
+    validate_config,
+)
 
 console = Console()
+logger = logging.getLogger(__name__)
+
+
+def _runtime_files_required(config: AgentConfig) -> bool:
+    """Return True when this config's runtime materializes a container image.
+
+    Claude Managed Agents (``deploy.cloud == "claude-managed"``) are
+    deployed without building a container — Anthropic manages the runtime,
+    so ``agent.py`` / ``requirements.txt`` are not required.
+    """
+    try:
+        cloud = (config.deploy.cloud or "").lower() if config.deploy else ""
+    except AttributeError:
+        cloud = ""
+    return cloud != "claude-managed"
+
+
+def _validate_agent_files(config: AgentConfig, agent_dir: Path) -> list[ConfigValidationError]:
+    """Run the matching runtime's on-disk validate() and translate to CLI errors.
+
+    Mirrors what ``agentbreeder deploy`` does at step 4/6 (the build step) so
+    `validate` catches missing ``agent.py`` / ``requirements.txt`` / ``main.go``
+    BEFORE the user hits the build phase.
+
+    Returns an empty list when the runtime accepts the directory.
+    """
+    if not _runtime_files_required(config):
+        return []
+
+    # Import lazily so missing runtime deps (e.g. in slim CLI installs that
+    # don't ship every framework runtime) don't break schema-only validation.
+    try:
+        from engine.runtimes.registry import (
+            UnsupportedLanguageError,
+            get_runtime_from_config,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("runtime registry import failed: %s", exc)
+        return []
+
+    try:
+        runtime = get_runtime_from_config(config)
+    except UnsupportedLanguageError as exc:
+        return [
+            ConfigValidationError(
+                path="runtime.language",
+                message=str(exc),
+                suggestion=(
+                    "Set runtime.language to one of the supported values "
+                    "(python, node, go), or remove the runtime block to "
+                    "default to Python."
+                ),
+            )
+        ]
+    except Exception as exc:
+        logger.debug("get_runtime_from_config raised: %s", exc)
+        return [
+            ConfigValidationError(
+                path="framework",
+                message=f"Could not resolve runtime for framework/runtime: {exc}",
+                suggestion="Check that 'framework' or 'runtime' is set correctly.",
+            )
+        ]
+
+    try:
+        result = runtime.validate(agent_dir, config)
+    except Exception as exc:
+        logger.debug("runtime.validate raised: %s", exc)
+        return [
+            ConfigValidationError(
+                path=str(agent_dir),
+                message=f"Runtime validation crashed: {exc}",
+                suggestion=(
+                    "This is a bug in the runtime. Please report it with your agent.yaml."
+                ),
+            )
+        ]
+
+    if result.valid:
+        return []
+
+    errors: list[ConfigValidationError] = []
+    # Prefer the structured ``error_items`` when available — they carry
+    # path / suggestion hints. Fall back to the plain string list for
+    # legacy runtimes that haven't migrated yet.
+    items = list(getattr(result, "error_items", []) or [])
+    if items:
+        for item in items:
+            errors.append(
+                ConfigValidationError(
+                    path=item.path or str(agent_dir),
+                    message=item.message,
+                    suggestion=item.suggestion
+                    or "Add the missing file next to agent.yaml and re-run validate.",
+                )
+            )
+    else:
+        for msg in result.errors or []:
+            errors.append(
+                ConfigValidationError(
+                    path=str(agent_dir),
+                    message=msg,
+                    suggestion="Add the missing file next to agent.yaml and re-run validate.",
+                )
+            )
+    return errors
 
 
 def _detect_config_type(path: Path) -> str:
@@ -136,6 +248,17 @@ def validate(
         return
     else:
         result = validate_config(config_path)
+        # Runtime-file prereq check — only when schema parse succeeded and we
+        # have a parsed AgentConfig. Catches the "validate passes but deploy
+        # fails at step 4/6 with 'Missing agent.py'" class of bug.
+        if result.valid and result.config is not None:
+            runtime_errors = _validate_agent_files(result.config, config_path.parent)
+            if runtime_errors:
+                result = ValidationResult(
+                    valid=False,
+                    errors=runtime_errors,
+                    config=result.config,
+                )
 
     if json_output:
         import json

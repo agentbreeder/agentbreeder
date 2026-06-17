@@ -83,6 +83,7 @@ def deploy(
         help=(
             "Deploy target: local | gcp | cloud-run | aws | ecs-fargate"
             " | azure | container-apps | kubernetes | eks | gke | aks"
+            " | claude-managed"
         ),
     ),
     json_output: bool = typer.Option(

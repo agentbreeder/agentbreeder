@@ -111,12 +111,15 @@ agentbreeder quickstart
   bound to `127.0.0.1` only (the macOS default), the AgentBreeder API container can't reach it even
   though `ollama run` works fine in your terminal.
 
-  Quickstart detects this and offers to rebind Ollama to `0.0.0.0:11434` (opt-in). You can also do it
-  manually:
+  Quickstart detects this and will attempt to rebind Ollama to `0.0.0.0:11434` (opt-in). If the
+  auto-rebind fails — for example because a brew/launchd supervisor restarts Ollama or because the
+  Ollama.app process can't be killed cleanly — quickstart will print the manual rebind steps below.
+
+  Manual rebind:
 
   ```bash
   launchctl setenv OLLAMA_HOST 0.0.0.0:11434
-  osascript -e 'tell application "Ollama" to quit' && open -a Ollama
+  pkill -f Ollama.app && open -a Ollama   # pkill avoids the "really quit?" GUI dialog
   ```
 
   If you skip the rebind, agents that need local models will fall back to cloud providers.
@@ -152,13 +155,13 @@ agentbreeder quickstart --cloud aws    # also: gcp | azure
 
 The fastest way to create and deploy an agent is through the conversational builder in Studio. No `agent.yaml` editing required.
 
-1. Open Studio at [http://localhost:3001](http://localhost:3001) and go to the **Agents** page. If you have no agents yet, the empty-state prompt "What do you want to build today?" is already waiting — type there or pick one of the example starters.
+1. Open Studio at [http://localhost:3001](http://localhost:3001). The **Home** page (`/`) greets you with the conversational front door — **"What do you want to build today?"** — and a row of example starters. Type there to start. (The **Agents** page (`/agents`) shows your existing agents; when empty it prompts you with "Pick a path to ship your first agent" and two starter cards — pick **Chat to build** to jump into the same conversational builder at `/agents/new`.)
 2. The builder interviews you with 3–5 focused questions (framework, model, deploy target, any tools you need) — answers stream back token-by-token as you type.
 3. When it has enough information it generates a complete `agent.yaml`, shown inline in the thread for you to review or tweak.
 4. Click **Deploy now**. Live deploy logs stream directly in the conversation thread. When the pipeline finishes you get a live endpoint link — paste it straight into `agentbreeder chat` or your app.
 
 <Callout type="info" title="Claude API key required">
-  The chat builder drives a Claude model to generate your `agent.yaml`. You need to add your Claude API key once: go to **Settings → Secrets** and paste the key under **Claude API Key**. It is stored securely in the workspace secrets backend — it is never written to the database, never returned to the browser, and never logged. Get a key at [console.anthropic.com](https://console.anthropic.com).
+  The chat builder drives a Claude model to generate your `agent.yaml`. You need to add your Claude API key once — either inline in Studio (open `/agents/new` → **Chat to build** tab; the **Claude API Key** card appears above the chat input until the key is set) or from the CLI (`agentbreeder secret set AGENTBREEDER_CLAUDE_BUILDER_KEY` — see the [CLI reference](cli-reference#agentbreeder-secret-set)). Either path stores it in the workspace secrets backend — never written to the database, returned to the browser, or logged. Get a key at [console.anthropic.com](https://console.anthropic.com).
 
   The builder works identically whether you are running locally or on AgentBreeder cloud at [console.agentbreeder.io](https://console.agentbreeder.io).
 </Callout>

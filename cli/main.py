@@ -275,6 +275,7 @@ from cli.commands import (
     deploy,
     describe,
     down,
+    eject as eject_cmd,
     init_cmd,
     list_cmd,
     logs,
@@ -345,6 +346,7 @@ app.command(name="studio")(studio.studio)
 app.command(name="up")(up.up)
 app.command(name="down")(down.down)
 app.command(name="init")(init_cmd.init)
+app.command(name="eject")(eject_cmd.eject)
 app.command(name="deploy")(deploy.deploy)
 app.command(name="validate")(validate.validate)
 app.command(name="list")(list_cmd.list_entities)

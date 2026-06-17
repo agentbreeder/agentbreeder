@@ -64,7 +64,7 @@ All 7 deployment targets available via `.with_deploy()`:
 ### Install and full-featured deploy
 
 ```python
-from agenthub import Agent
+from agenthub import Agent, Tool
 
 agent = (
     Agent("support-agent")
@@ -79,10 +79,8 @@ agent = (
             fallback="gpt-4o",
             temperature=0.7,
         )
-        .with_tools([
-            "tools/zendesk-mcp",
-            "tools/order-lookup",
-        ])
+        .with_tool(Tool.from_ref("tools/zendesk-mcp"))
+        .with_tool(Tool.from_ref("tools/order-lookup"))
         .with_knowledge_bases([
             "kb/product-docs",
             "kb/return-policy",
@@ -112,13 +110,14 @@ print(result.endpoint)
 <Tabs items={['LangGraph', 'Claude SDK', 'CrewAI', 'Google ADK', 'OpenAI Agents', 'Custom']}>
   <Tab value="LangGraph">
 ```python
-from agenthub import Agent
+from agenthub import Agent, Tool
 
 agent = (
     Agent("research-agent")
         .with_framework("langgraph")
         .with_model(primary="claude-sonnet-4")
-        .with_tools(["tools/web-search", "tools/arxiv"])
+        .with_tool(Tool.from_ref("tools/web-search"))
+        .with_tool(Tool.from_ref("tools/arxiv"))
         .with_deploy(cloud="gcp", runtime="cloud-run")
 )
 ```
@@ -142,13 +141,14 @@ agent = (
   </Tab>
   <Tab value="CrewAI">
 ```python
-from agenthub import Agent
+from agenthub import Agent, Tool
 
 agent = (
     Agent("research-crew")
         .with_framework("crewai")
         .with_model(primary="gpt-4o")
-        .with_tools(["tools/web-search", "tools/wikipedia"])
+        .with_tool(Tool.from_ref("tools/web-search"))
+        .with_tool(Tool.from_ref("tools/wikipedia"))
         .with_deploy(cloud="local")
 )
 ```
@@ -174,13 +174,13 @@ agent = (
   </Tab>
   <Tab value="OpenAI Agents">
 ```python
-from agenthub import Agent
+from agenthub import Agent, Tool
 
 agent = (
     Agent("triage-agent")
         .with_framework("openai_agents")
         .with_model(primary="gpt-4o-mini", fallback="gpt-4o")
-        .with_tools(["tools/zendesk-mcp"])
+        .with_tool(Tool.from_ref("tools/zendesk-mcp"))
         .with_deploy(cloud="azure", runtime="container-apps")
 )
 ```

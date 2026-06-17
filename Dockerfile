@@ -17,6 +17,7 @@ COPY connectors/ connectors/
 COPY sdk/ sdk/
 COPY alembic/ alembic/
 COPY alembic.ini ./
+COPY deploy/ deploy/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir .

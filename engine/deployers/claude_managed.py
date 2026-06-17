@@ -39,15 +39,69 @@ BETA_HEADER = "managed-agents-2026-04-01"
 def _get_anthropic_client() -> Any:
     """Get the Anthropic client with managed-agents beta capabilities.
 
+    Returns an :class:`AsyncAnthropic` instance because every call site in
+    this module awaits its responses; using the sync :class:`Anthropic`
+    client would raise ``TypeError: object Agent can't be used in 'await'
+    expression`` at runtime (bug #12 — second half).
+
+    TODO(bug #12): The Managed Agents API surface is in beta and the
+    Anthropic SDK has drifted. We've observed ``'Beta' object has no
+    attribute 'agents'`` at runtime when the installed SDK version doesn't
+    expose ``client.beta.agents`` / ``client.beta.environments``. The
+    ``anthropic`` package is currently *unpinned* in pyproject.toml, so we
+    cannot tell from here whether the user has a compatible release. The
+    deployer below catches ``AttributeError`` and raises a friendlier
+    error pointing at the SDK pin work. Once the Managed Agents surface
+    stabilises (or we pin ``anthropic>=X.Y``), this TODO can come out.
+
     Raises ImportError with install instructions if the SDK is missing.
     """
     try:
-        from anthropic import Anthropic
+        from anthropic import AsyncAnthropic
     except ImportError as e:
         msg = "anthropic SDK is not installed. Run: pip install anthropic"
         raise ImportError(msg) from e
 
-    return Anthropic()
+    return AsyncAnthropic()
+
+
+def _beta_agents_or_explain(client: Any) -> Any:
+    """Return ``client.beta.agents`` or raise a precise error.
+
+    The Managed Agents beta path is unstable across SDK releases and the
+    ``anthropic`` pin is currently floating in pyproject.toml. If the
+    surface has been renamed/moved, ``client.beta.agents`` raises
+    ``AttributeError`` deep inside ``provision()``, leaving the user with
+    no idea what to install. Surface a precise message instead.
+    """
+    try:
+        return client.beta.agents
+    except AttributeError as exc:
+        msg = (
+            "Your installed anthropic SDK does not expose `client.beta.agents` — "
+            "the Managed Agents beta API has either not landed in this version "
+            "or has been renamed/moved (bug #12). Install a Managed-Agents-"
+            "capable build, e.g. `pip install --upgrade anthropic`, and re-run."
+        )
+        raise RuntimeError(msg) from exc
+
+
+def _beta_environments_or_explain(client: Any) -> Any:
+    """Return ``client.beta.environments`` or raise a precise error.
+
+    Same rationale as :func:`_beta_agents_or_explain` — see bug #12.
+    """
+    try:
+        return client.beta.environments
+    except AttributeError as exc:
+        msg = (
+            "Your installed anthropic SDK does not expose `client.beta.environments` "
+            "— the Managed Agents Environments beta API has either not landed in "
+            "this version or has been renamed/moved (bug #12). Install a "
+            "Managed-Agents-capable build, e.g. `pip install --upgrade anthropic`, "
+            "and re-run."
+        )
+        raise RuntimeError(msg) from exc
 
 
 def _build_anthropic_endpoint(agent_id: str, environment_id: str) -> str:
@@ -104,7 +158,7 @@ class ClaudeManagedDeployer(BaseDeployer):
             config.model.primary,
         )
 
-        agent = await client.beta.agents.create(
+        agent = await _beta_agents_or_explain(client).create(
             name=config.name,
             model=config.model.primary,
             system=system_prompt,
@@ -113,7 +167,7 @@ class ClaudeManagedDeployer(BaseDeployer):
         self._agent_id = agent.id
         logger.info("Created Anthropic Agent: %s (version %s)", agent.id, agent.version)
 
-        environment = await client.beta.environments.create(
+        environment = await _beta_environments_or_explain(client).create(
             name=f"{config.name}-env",
             config={
                 "type": "cloud",

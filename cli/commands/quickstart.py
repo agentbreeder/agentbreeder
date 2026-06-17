@@ -60,6 +60,9 @@ def _set_assume_yes(value: bool) -> None:
 REPO_ROOT = Path(__file__).parent.parent.parent
 DEPLOY_DIR = REPO_ROOT / "deploy"
 QS_COMPOSE = DEPLOY_DIR / "docker-compose.quickstart.yml"
+# Podman-specific override (host-gateway → host.containers.internal). Layered
+# on top of QS_COMPOSE when the active runtime is podman; see bug #2.
+QS_COMPOSE_PODMAN = DEPLOY_DIR / "docker-compose.podman.yml"
 QS_LITELLM = DEPLOY_DIR / "litellm_config.quickstart.yaml"
 EXAMPLES_QS = REPO_ROOT / "examples" / "quickstart"
 MCP_WORKSPACE = DEPLOY_DIR / "mcp_workspace"
@@ -311,6 +314,60 @@ def _detect_runtime() -> tuple[str, str] | None:
 def _runtime_is_running(binary: str) -> bool:
     result = subprocess.run([binary, "info"], capture_output=True, text=True)
     return result.returncode == 0
+
+
+# ── Runtime cache (shared with `agentbreeder down`) ─────────────────────────
+#
+# Bug #7 (issue #560): `agentbreeder down --clean` previously hardcoded
+# `docker`, so stacks brought up with podman/nerdctl couldn't be torn down.
+# We persist the runtime quickstart picked so subsequent CLI commands
+# (currently `down`) route to the same binary.
+
+RUNTIME_CACHE_PATH = Path.home() / ".agentbreeder" / "quickstart-runtime.json"
+
+
+def _save_runtime_cache(binary: str, compose_cmd: str) -> None:
+    """Persist the active container runtime for sibling commands.
+
+    Failures are non-fatal — quickstart should never abort because we can't
+    write a small JSON file.
+    """
+    import json as _json  # local import to keep top of module lean
+
+    try:
+        RUNTIME_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        RUNTIME_CACHE_PATH.write_text(
+            _json.dumps({"runtime": binary, "compose": compose_cmd}) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        # Best-effort cache. `down` will fall back to live detection.
+        pass
+
+
+def _load_runtime_cache() -> tuple[str, str] | None:
+    """Read the persisted runtime, or None if missing/corrupt."""
+    import json as _json
+
+    if not RUNTIME_CACHE_PATH.exists():
+        return None
+    try:
+        payload = _json.loads(RUNTIME_CACHE_PATH.read_text(encoding="utf-8"))
+        binary = payload.get("runtime")
+        compose = payload.get("compose")
+        if isinstance(binary, str) and isinstance(compose, str) and binary and compose:
+            return (binary, compose)
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _clear_runtime_cache() -> None:
+    """Remove the cache so the next CLI invocation re-detects."""
+    try:
+        RUNTIME_CACHE_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 # ── Container-runtime diagnostics (issue #467) ─────────────────────────────
@@ -588,14 +645,47 @@ def _install_instructions() -> list[str]:
 
 
 def _wait_http(url: str, timeout: int = 120, interval: float = 3.0) -> bool:
+    """Poll ``url`` until a non-5xx response or ``timeout`` elapses.
+
+    Catches every transient httpx error (including ``RemoteProtocolError``
+    from a server disconnecting mid-startup — bug #9) so the retry loop can
+    keep trying until the deadline. Returns True on success, False when
+    the deadline is reached without a usable response.
+    """
     start = time.monotonic()
     while time.monotonic() - start < timeout:
         try:
             resp = httpx.get(url, timeout=4.0)
             if resp.status_code < 500:
                 return True
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError):
+        except (httpx.HTTPError, httpx.InvalidURL):
+            # HTTPError is the umbrella for ConnectError, ReadTimeout,
+            # ConnectTimeout, ReadError, RemoteProtocolError, ProtocolError,
+            # etc. — anything transient should be treated as "not ready yet".
             pass
+        time.sleep(interval)
+    return False
+
+
+def _wait_port_free(port: int, timeout: float = 5.0, interval: float = 0.2) -> bool:
+    """Poll until ``port`` is no longer accepting connections on localhost.
+
+    Used by :func:`_rebind_ollama_all_interfaces` to wait for the previous
+    Ollama daemon to fully release :11434 before we spawn its replacement.
+    Returns True if the port becomes free, False if the deadline elapses.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.5)
+        try:
+            sock.connect(("127.0.0.1", port))
+            # Successful connect means something is still listening.
+            sock.close()
+        except (ConnectionRefusedError, OSError):
+            # Refused = port is free → we can proceed.
+            sock.close()
+            return True
         time.sleep(interval)
     return False
 
@@ -636,6 +726,23 @@ def _dashboard_smoke_check(url: str) -> tuple[bool, str | None]:
 # ── Docker / Compose helpers ────────────────────────────────────────────────
 
 
+def _compose_files_for(compose_cmd: str) -> list[str]:
+    """Return the list of `-f <file>` arguments for the active runtime.
+
+    Layers in `deploy/docker-compose.podman.yml` on top of the base file
+    when podman is the active runtime, so containers don't choke on
+    docker's `host-gateway` magic string (bug #2).
+    """
+    files: list[str] = ["-f", str(QS_COMPOSE)]
+    # `compose_cmd` looks like "podman compose" / "podman-compose" / "docker
+    # compose" / "nerdctl compose". Pick the override solely off the leading
+    # binary token so any podman variant gets the host-alias fix.
+    leading = compose_cmd.strip().split()[0] if compose_cmd.strip() else ""
+    if leading.startswith("podman") and QS_COMPOSE_PODMAN.exists():
+        files.extend(["-f", str(QS_COMPOSE_PODMAN)])
+    return files
+
+
 def _compose_run(
     compose_cmd: str,
     args: list[str],
@@ -643,7 +750,8 @@ def _compose_run(
     capture: bool = False,
 ) -> subprocess.CompletedProcess:
     parts = compose_cmd.split()
-    cmd = [*parts, "-f", str(QS_COMPOSE), "--project-name", "agentbreeder-qs", *args]
+    file_args = _compose_files_for(compose_cmd)
+    cmd = [*parts, *file_args, "--project-name", "agentbreeder-qs", *args]
     run_env = {**os.environ, **(env or {})}
     return subprocess.run(
         cmd,
@@ -1121,21 +1229,29 @@ def _rebind_ollama_all_interfaces() -> bool:
     )
     # Try to restart the Ollama service. Approach in priority order:
     #  1. brew services restart ollama  (if installed via brew)
-    #  2. quit Ollama.app via osascript + relaunch
+    #  2. pkill Ollama.app and re-`open` it (no GUI dialog — see bug #13)
     #  3. pkill ollama + spawn `ollama serve` with OLLAMA_HOST set
     restarted = False
     if shutil.which("brew"):
         r = subprocess.run(["brew", "services", "restart", "ollama"], capture_output=True)
         restarted = r.returncode == 0
     if not restarted:
-        # Quit Ollama.app gracefully if running
-        subprocess.run(
-            ["osascript", "-e", 'tell application "Ollama" to quit'],
-            capture_output=True,
-        )
-        # Hard-kill the daemon if still around
+        # Bug #13: previously we sent `osascript -e 'tell application "Ollama"
+        # to quit'`, which on macOS pops up a confirm dialog that defaults to
+        # Cancel after a beat — under `--yes` we never click "Quit" and the
+        # rebind silently fails. Use `pkill` directly so no GUI dialog appears
+        # and so the rebind path is reproducible in CI/headless runs.
+        if os.path.isdir("/Applications/Ollama.app"):
+            subprocess.run(["pkill", "-f", "Ollama.app"], capture_output=True)
+        # Hard-kill any remaining daemon (`ollama serve`) — covers brew-installed
+        # users running without the .app bundle.
         subprocess.run(["pkill", "-f", "ollama"], capture_output=True)
-        time.sleep(2)
+
+        # Poll until port 11434 is free (or timeout) so the relaunch doesn't
+        # race against a half-dead listener still holding the bind. 5s is more
+        # than enough for the kernel to reap a SIGTERM'd process.
+        _wait_port_free(11434, timeout=5.0)
+
         # Relaunch the app if available, else fall back to `ollama serve`
         if os.path.isdir("/Applications/Ollama.app"):
             subprocess.run(["open", "-a", "Ollama"], capture_output=True)
@@ -1416,8 +1532,8 @@ def _ensure_ollama(skip: bool, default_model: str) -> bool:
                     "agents will fall back to cloud providers.\n"
                     "  To fix manually:\n"
                     "    [cyan]launchctl setenv OLLAMA_HOST 0.0.0.0:11434[/cyan]\n"
-                    "    [cyan]osascript -e 'tell application \"Ollama\" to quit'[/cyan]"
-                    " && [cyan]open -a Ollama[/cyan]"
+                    "    [cyan]pkill -f Ollama.app[/cyan] && [cyan]open -a Ollama[/cyan]"
+                    "   [dim]# pkill avoids the 'really quit?' GUI dialog[/dim]"
                 )
         else:
             _info(
@@ -1946,12 +2062,13 @@ def quickstart(
         )
         # Detect a runtime so we can route `compose down` to docker OR podman.
         _reset_runtime = _detect_runtime()
-        _reset_compose = (_reset_runtime[1] if _reset_runtime else "docker compose").split()
+        _reset_compose_str = _reset_runtime[1] if _reset_runtime else "docker compose"
+        _reset_compose = _reset_compose_str.split()
+        _reset_file_args = _compose_files_for(_reset_compose_str)
         subprocess.run(
             [
                 *_reset_compose,
-                "-f",
-                str(QS_COMPOSE),
+                *_reset_file_args,
                 "--project-name",
                 "agentbreeder-qs",
                 "down",
@@ -2094,6 +2211,9 @@ def quickstart(
             raise typer.Exit(code=1)
 
     _ok(f"{binary.capitalize()} daemon is running")
+    # Persist runtime so `agentbreeder down` (and any sibling command) can
+    # tear the stack down with the same binary. Failure is non-fatal.
+    _save_runtime_cache(binary, compose_cmd)
     if binary == "docker" and _docker_is_rootless():
         _info(
             "Rootless Docker detected — bind-mounted volumes will be owned by your user. "
@@ -2600,80 +2720,115 @@ def quickstart(
 
     services_ok: dict[str, bool] = {}
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
-        for svc_name, url, blocking in service_checks:
-            task = progress.add_task(f"  {svc_name}...", total=None)
-            if url:
-                ok = _wait_http(url, timeout=120 if blocking else 30)
-            else:
-                time.sleep(5)  # give infra services time
-                ok = True
-            progress.update(task, completed=1, total=1)
-            svc_key = svc_name.lower().replace(" ", "")
-            services_ok[svc_key] = ok
-            if ok:
-                progress.console.print(f"  [green]✓[/green] {svc_name} ready")
-            elif blocking:
-                progress.console.print(f"  [yellow]⚠[/yellow] {svc_name} not ready — continuing")
-            else:
-                progress.console.print(f"  [dim]○[/dim] {svc_name} still starting")
-
-    # ── Studio content smoke check ───────────────────────────────────────────
-    # The Studio HTTP can respond 200 even when the published image ships a
-    # broken Vite bundle (e.g. mismatched react/react-dom versions cause a
-    # runtime crash → blank page). Validate the bundle and offer to rebuild
-    # from source if anything is off and we have a build context available.
-    if services_ok.get("studio"):
-        smoke_ok, smoke_err = _dashboard_smoke_check(DASHBOARD_URL)
-        if not smoke_ok:
-            _warn(f"Studio smoke check failed — {smoke_err}")
-            # If we're running from a source checkout (build context exists),
-            # offer to rebuild the Studio image locally.
-            dashboard_src = REPO_ROOT / "dashboard" / "package.json"
-            if dashboard_src.exists():
-                if _is_assume_yes():
-                    console.print("  [dim]--yes: rebuilding Studio from source[/dim]")
-                    ans = "y"
+    # Bug #9: previously, an unexpected exception from a transient network
+    # error (e.g. httpx.RemoteProtocolError: "Server disconnected without
+    # sending a response") could bubble out of Step 5 while quickstart's
+    # outer flow still returned exit 0. Wrap the entire wait/smoke-check
+    # block so any unhandled error reports clearly and exits non-zero.
+    # Within `_wait_http`, transient errors are still caught and retried —
+    # only an exhausted retry loop yields `ok = False`, in which case we
+    # proceed (Steps 6–8 work best-effort against whatever did come up).
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            for svc_name, url, blocking in service_checks:
+                task = progress.add_task(f"  {svc_name}...", total=None)
+                if url:
+                    ok = _wait_http(url, timeout=120 if blocking else 30)
                 else:
-                    ans = (
-                        console.input(
-                            "  [bold]Rebuild Studio from source now?[/bold] "
-                            "[dim](runs: compose up -d --build dashboard)[/dim] "
-                            "[Y/n]: "
-                        )
-                        .strip()
-                        .lower()
+                    time.sleep(5)  # give infra services time
+                    ok = True
+                progress.update(task, completed=1, total=1)
+                svc_key = svc_name.lower().replace(" ", "")
+                services_ok[svc_key] = ok
+                if ok:
+                    progress.console.print(f"  [green]✓[/green] {svc_name} ready")
+                elif blocking:
+                    progress.console.print(
+                        f"  [yellow]⚠[/yellow] {svc_name} not ready — continuing"
                     )
-                if ans not in ("n", "no", "skip"):
-                    console.print("  [dim]Rebuilding Studio image (~30s)...[/dim]")
-                    rebuild = _compose_run(
-                        compose_cmd,
-                        ["up", "-d", "--build", "dashboard"],
-                        env=compose_env,
-                        capture=True,
-                    )
-                    if rebuild.returncode == 0 and _wait_http(DASHBOARD_URL, timeout=60):
-                        retry_ok, retry_err = _dashboard_smoke_check(DASHBOARD_URL)
-                        if retry_ok:
-                            _ok("Studio rebuilt — bundle now valid")
-                        else:
-                            _warn(f"Studio still failing after rebuild: {retry_err}")
+                else:
+                    progress.console.print(f"  [dim]○[/dim] {svc_name} still starting")
+
+        # ── Studio content smoke check ───────────────────────────────────────
+        # The Studio HTTP can respond 200 even when the published image ships
+        # a broken Vite bundle (e.g. mismatched react/react-dom versions cause
+        # a runtime crash → blank page). Validate the bundle and offer to
+        # rebuild from source if anything is off and we have a build context
+        # available.
+        if services_ok.get("studio"):
+            smoke_ok, smoke_err = _dashboard_smoke_check(DASHBOARD_URL)
+            if not smoke_ok:
+                _warn(f"Studio smoke check failed — {smoke_err}")
+                # If we're running from a source checkout (build context
+                # exists), offer to rebuild the Studio image locally.
+                dashboard_src = REPO_ROOT / "dashboard" / "package.json"
+                if dashboard_src.exists():
+                    if _is_assume_yes():
+                        console.print("  [dim]--yes: rebuilding Studio from source[/dim]")
+                        ans = "y"
                     else:
-                        _warn("Studio rebuild failed — check compose logs")
-            else:
-                _info(
-                    "If Studio appears blank, pull a fresh image:\n"
-                    f"    [cyan]{compose_cmd} -f deploy/docker-compose.quickstart.yml "
-                    "pull dashboard && "
-                    f"{compose_cmd} -f deploy/docker-compose.quickstart.yml "
-                    "up -d dashboard[/cyan]"
-                )
+                        ans = (
+                            console.input(
+                                "  [bold]Rebuild Studio from source now?[/bold] "
+                                "[dim](runs: compose up -d --build dashboard)[/dim] "
+                                "[Y/n]: "
+                            )
+                            .strip()
+                            .lower()
+                        )
+                    if ans not in ("n", "no", "skip"):
+                        console.print("  [dim]Rebuilding Studio image (~30s)...[/dim]")
+                        rebuild = _compose_run(
+                            compose_cmd,
+                            ["up", "-d", "--build", "dashboard"],
+                            env=compose_env,
+                            capture=True,
+                        )
+                        if rebuild.returncode == 0 and _wait_http(DASHBOARD_URL, timeout=60):
+                            retry_ok, retry_err = _dashboard_smoke_check(DASHBOARD_URL)
+                            if retry_ok:
+                                _ok("Studio rebuilt — bundle now valid")
+                            else:
+                                _warn(f"Studio still failing after rebuild: {retry_err}")
+                        else:
+                            _warn("Studio rebuild failed — check compose logs")
+                else:
+                    _info(
+                        "If Studio appears blank, pull a fresh image:\n"
+                        f"    [cyan]{compose_cmd} -f deploy/docker-compose.quickstart.yml "
+                        "pull dashboard && "
+                        f"{compose_cmd} -f deploy/docker-compose.quickstart.yml "
+                        "up -d dashboard[/cyan]"
+                    )
+    except typer.Exit:
+        # Don't swallow an explicit exit from inner code.
+        raise
+    except Exception as exc:  # noqa: BLE001
+        console.print()
+        console.print(
+            Panel(
+                "[red]Step 5/8 (Waiting for Services) failed unexpectedly.[/red]\n\n"
+                f"[bold]{type(exc).__name__}:[/bold] {exc}\n\n"
+                "Quickstart cannot continue — Steps 6–8 (seeding, agent registration, "
+                "cloud deploy) depend on these services being reachable.\n\n"
+                "Common causes:\n"
+                "  • An upstream container crashed mid-startup (check "
+                f"[cyan]{compose_cmd} -f deploy/docker-compose.quickstart.yml "
+                "--project-name agentbreeder-qs logs[/cyan])\n"
+                "  • A flaky network connection while pulling health endpoints\n"
+                "  • A port conflict that surfaced after the stack came up",
+                title="[bold red]Step 5/8 failed[/bold red]",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
+        raise typer.Exit(code=1) from exc
 
     # ── Step 6: Seed data ────────────────────────────────────────────────────
     _step("Seeding Sample Data", 6, total_steps)

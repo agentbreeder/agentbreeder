@@ -105,10 +105,18 @@ class TestExtractCloudRunConfig:
         gcp = _extract_cloudrun_config(config)
         assert gcp.region == DEFAULT_REGION
 
-    def test_raises_without_project_id(self) -> None:
+    def test_raises_without_project_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Clear shell env and stub gcloud so the precedence chain falls all the
+        # way through to the error path (see _resolve_gcp_project_id).
+        monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
         config = _make_config(deploy={"env_vars": {}})
-        with pytest.raises(ValueError, match="GCP project ID is required"):
-            _extract_cloudrun_config(config)
+        with patch(
+            "engine.deployers.gcp_cloudrun.subprocess.run",
+            side_effect=FileNotFoundError(),
+        ):
+            with pytest.raises(ValueError, match="GCP project ID is required"):
+                _extract_cloudrun_config(config)
 
     def test_accepts_google_cloud_project_env_var(self) -> None:
         config = _make_config(deploy={"env_vars": {"GOOGLE_CLOUD_PROJECT": "alt-project"}})
@@ -460,12 +468,22 @@ class TestProvision:
         assert "test-agent" in result.endpoint_url
 
     @pytest.mark.asyncio
-    async def test_provision_raises_without_project_id(self) -> None:
+    async def test_provision_raises_without_project_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Clear shell env + stub gcloud so the precedence chain falls through
+        # to the error path (see _resolve_gcp_project_id).
+        monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
         deployer = GCPCloudRunDeployer()
         config = _make_config(deploy={"env_vars": {}})
 
-        with pytest.raises(ValueError, match="GCP project ID is required"):
-            await deployer.provision(config)
+        with patch(
+            "engine.deployers.gcp_cloudrun.subprocess.run",
+            side_effect=FileNotFoundError(),
+        ):
+            with pytest.raises(ValueError, match="GCP project ID is required"):
+                await deployer.provision(config)
 
 
 # ---------------------------------------------------------------------------
