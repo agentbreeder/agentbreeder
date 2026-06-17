@@ -1,0 +1,45 @@
+# AgentBreeder — Quickstart Stack: Podman override
+#
+# Layered on top of docker-compose.quickstart.yml when the detected runtime
+# is podman. Podman (≥4.x) does NOT understand the `host-gateway` magic
+# string that Docker uses for `extra_hosts` — it errors out with:
+#
+#     host containers internal IP address is empty
+#
+# Podman already provides `host.containers.internal` natively (no
+# `extra_hosts` entry needed). Compose's `extra_hosts` syntax only supports
+# `hostname:ip`, not aliasing one hostname to another, so we cannot point
+# `host.docker.internal` at `host.containers.internal` declaratively.
+#
+# Instead we:
+#   1. Override `extra_hosts` with an empty list so podman doesn't choke
+#      on `host-gateway`. (Compose v2 lists are replaced, not merged, when
+#      overridden.)
+#   2. Override OLLAMA_BASE_URL and any other env var that hardcoded
+#      `host.docker.internal` to use podman's native `host.containers.internal`
+#      so containers can still reach services on the host.
+#
+# Usage (podman runtime is detected automatically by quickstart):
+#   podman compose \
+#     -f deploy/docker-compose.quickstart.yml \
+#     -f deploy/docker-compose.podman.yml \
+#     ...
+#
+# This file ONLY overrides the bits podman needs — compose layers the rest
+# from the base file.
+
+services:
+
+  api:
+    # Replace the docker-only `host.docker.internal:host-gateway` entry
+    # with an empty list so podman doesn't choke on `host-gateway`.
+    # Containers can still reach the host via `host.containers.internal`,
+    # which podman wires up automatically.
+    extra_hosts: []
+    environment:
+      # Override the docker-flavored default so the API reaches Ollama on
+      # the host through podman's native hostname.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.containers.internal:11434}
+
+  litellm:
+    extra_hosts: []

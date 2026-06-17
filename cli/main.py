@@ -303,6 +303,9 @@ from cli.commands import (
     doctor as doctor_cmd,
 )
 from cli.commands import (
+    eject as eject_cmd,
+)
+from cli.commands import (
     eval as eval_cmd,
 )
 
@@ -345,6 +348,7 @@ app.command(name="studio")(studio.studio)
 app.command(name="up")(up.up)
 app.command(name="down")(down.down)
 app.command(name="init")(init_cmd.init)
+app.command(name="eject")(eject_cmd.eject)
 app.command(name="deploy")(deploy.deploy)
 app.command(name="validate")(validate.validate)
 app.command(name="list")(list_cmd.list_entities)

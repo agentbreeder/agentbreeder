@@ -8,6 +8,51 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Fixed
+- **Quickstart + how-to happy-path bundle (issue #560).** Resolves 15 bugs and
+  6 doc errors uncovered by the docs-vs-reality audit:
+  - PyPI wheel now ships `deploy/` (hatchling `force-include`); `Dockerfile`
+    COPYs `deploy/` so in-container wheel builds work (#560 bug #1).
+  - Podman is a real supported runtime — new `deploy/docker-compose.podman.yml`
+    override clears `host-gateway` and rewrites `OLLAMA_BASE_URL` to
+    `host.containers.internal` when podman is the detected runtime (#560 bug #2).
+  - Dev-version pin (`2.7.1.dev3+gHASH`) → PEP-440 base (`2.7.1`) in generated
+    `requirements.txt`; deploy from dev checkout no longer breaks
+    `pip install` inside the agent image (#560 bug #4).
+  - `GET /api/v1/secrets` returns 200 + empty data on backend failure instead
+    of 500 — unblocks `/agents/new` chat-to-build (#560 bug #5).
+  - `agentbreeder list <entity>` calls the real API (agents, deploys,
+    providers, orchestrations, mcp_servers, templates) and reads the local
+    scan registry for tools/models/prompts (#560 bug #6).
+  - `agentbreeder down --clean` honors the runtime quickstart used
+    (cached at `~/.agentbreeder/quickstart-runtime.json`) — docker/podman/nerdctl
+    stacks all tear down cleanly (#560 bug #7).
+  - `agentbreeder eject AGENT --to {yaml,code}` exists, matching the documented
+    tier-mobility flow (#560 bug #8).
+  - Quickstart Step 5/8 transient failures bubble `typer.Exit(1)` instead of
+    silently exiting 0 (#560 bug #9).
+  - `agentbreeder validate` invokes the matching runtime's `validate()` so
+    missing `agent.py` / `requirements.txt` fail at validate, not deploy; new
+    `--schema-only` flag for standalone snippet YAMLs (#560 bug #10).
+  - Cloud Run deploy auto-resolves `GCP_PROJECT_ID` through YAML → shell env
+    (`GCP_PROJECT_ID` / `GOOGLE_CLOUD_PROJECT`) → `gcloud config get-value project`
+    (#560 bug #11).
+  - `--target claude-managed` listed in `deploy --help`; `AsyncAnthropic` +
+    beta-surface fallback handles SDK API drift gracefully (#560 bug #12).
+  - Ollama auto-rebind uses `pkill` (no GUI dialog) and polls the port before
+    relaunching with `OLLAMA_HOST=0.0.0.0` (#560 bug #13).
+- Six doc-vs-reality drifts in `quickstart.mdx` + `how-to.mdx` (A–F): Home vs
+  Agents empty-state, Claude key location (no Settings → Secrets), `with_tools`
+  → `with_tool`, claude-managed beta callout, Test / Try-it tab visibility,
+  GCP project resolution chain.
+
+### Added
+- **CI smoke gate.** `.github/workflows/smoke-quickstart.yml` runs the
+  `pipx install wheel → quickstart → secrets endpoint → local deploy` flow on
+  every PR, protecting against regression of issue #560 bugs #1, #3, #4, #5.
+- `agentbreeder validate --schema-only` for snippet YAML files that aren't full
+  agent bundles.
+
 ---
 
 ## [2.7.0] — 2026-06-16

@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, Field
 
 from engine.config_parser import AgentConfig
@@ -67,7 +68,7 @@ def runtime_support_requirement() -> str | None:
         stripped = override.strip()
         return stripped or None
     try:
-        return f"agentbreeder=={version('agentbreeder')}"
+        raw_version = version("agentbreeder")
     except PackageNotFoundError:
         # Source checkout without the dist installed (e.g. CI unit tests):
         # fall back to an unpinned requirement so images still build.
@@ -77,6 +78,36 @@ def runtime_support_requirement() -> str | None:
             "AGENTBREEDER_RUNTIME_REQUIREMENT to pin it explicitly."
         )
         return "agentbreeder"
+
+    # PEP-440-parse the locally-installed version. Dev builds (".devN") and
+    # local-segment builds ("+gHASH" from setuptools_scm / hatch-vcs against a
+    # dirty checkout) do not exist on PyPI, so pinning to them inside the
+    # generated requirements.txt will hard-fail the agent container build
+    # with `pip install` resolving zero candidates. In those cases fall back
+    # to the PEP-440 base version (e.g. "2.7.1.dev3+g5a41d996c" -> "2.7.1"),
+    # which is the release the dev build is heading toward and which should
+    # exist on PyPI by the time a user runs `pip install` against the
+    # generated image after the release lands.
+    try:
+        parsed = Version(raw_version)
+    except InvalidVersion:
+        # Non-PEP-440 versions (shouldn't happen with hatch-vcs) — trust the
+        # raw string and pin to it; pip will surface the resolution error.
+        return f"agentbreeder=={raw_version}"
+
+    if parsed.is_devrelease or parsed.local is not None:
+        fallback = parsed.base_version
+        logger.info(
+            "agentbreeder is installed as a dev/local build (%s); pinning the "
+            "agent image's requirements.txt to base release %s instead. Set "
+            "AGENTBREEDER_RUNTIME_REQUIREMENT to override (e.g. to a local "
+            "wheel path) if that release is not yet on PyPI.",
+            raw_version,
+            fallback,
+        )
+        return f"agentbreeder=={fallback}"
+
+    return f"agentbreeder=={raw_version}"
 
 
 def inject_wheel_copies(template: str, build_dir: Path) -> str:

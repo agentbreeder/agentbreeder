@@ -161,6 +161,13 @@ fallback-version = "0.0.0"
 [tool.hatch.build.targets.wheel]
 packages = ["engine", "api", "cli", "registry", "connectors"]
 
+# Bundle runtime files the CLI quickstart loads at runtime via
+# Path(__file__).parent.parent.parent / "deploy" (i.e. site-packages root).
+# Without this the wheel only ships Python packages and quickstart fails with
+# FileNotFoundError on docker-compose.quickstart.yml.
+[tool.hatch.build.targets.wheel.force-include]
+"deploy" = "deploy"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

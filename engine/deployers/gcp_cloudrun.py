@@ -12,12 +12,15 @@ Cloud-specific logic stays in this module — never leak GCP details elsewhere.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import subprocess
 from datetime import datetime
 from typing import Any
 
 import httpx
 from pydantic import BaseModel
+from rich.console import Console
 
 from engine.config_parser import AgentConfig
 from engine.deployers._health import HealthCheckTimeout, poll_until_ready
@@ -37,6 +40,7 @@ from engine.secrets.auto_mirror import (
 from engine.sidecar import SidecarConfig, should_inject, validate_sidecar_config
 
 logger = logging.getLogger(__name__)
+console = Console()
 
 # Defaults
 DEFAULT_REGION = "us-central1"
@@ -127,10 +131,62 @@ class CloudRunConfig(BaseModel):
     concurrency: int = DEFAULT_CONCURRENCY
 
 
+def _resolve_gcp_project_id(env: dict[str, str]) -> tuple[str, str]:
+    """Resolve the GCP project ID from a precedence chain.
+
+    Precedence (first non-empty wins):
+        1. ``deploy.env_vars["GCP_PROJECT_ID"]``
+        2. ``deploy.env_vars["GOOGLE_CLOUD_PROJECT"]``
+        3. shell env ``$GCP_PROJECT_ID``
+        4. shell env ``$GOOGLE_CLOUD_PROJECT``
+        5. ``gcloud config get-value project`` (best-effort, swallows failure)
+
+    Returns ``(project_id, source)`` so callers can log where it came from.
+    Raises ``ValueError`` with an informative message listing every path
+    we checked when none yields a value.
+    """
+    # 1 + 2: agent.yaml deploy.env_vars
+    if value := env.get("GCP_PROJECT_ID"):
+        return value, "deploy.env_vars[GCP_PROJECT_ID]"
+    if value := env.get("GOOGLE_CLOUD_PROJECT"):
+        return value, "deploy.env_vars[GOOGLE_CLOUD_PROJECT]"
+
+    # 3 + 4: shell env
+    if value := os.environ.get("GCP_PROJECT_ID"):
+        return value, "$GCP_PROJECT_ID"
+    if value := os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        return value, "$GOOGLE_CLOUD_PROJECT"
+
+    # 5: gcloud config (best-effort)
+    try:
+        result = subprocess.run(
+            ["gcloud", "config", "get-value", "project"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        candidate = (result.stdout or "").strip()
+        if candidate and "(unset)" not in candidate:
+            return candidate, "gcloud config get-value project"
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        logger.debug("gcloud project lookup failed: %s", exc)
+
+    msg = (
+        "GCP project ID is required for Cloud Run deployment. "
+        "agentbreeder checks (in order): deploy.env_vars[GCP_PROJECT_ID], "
+        "deploy.env_vars[GOOGLE_CLOUD_PROJECT], shell $GCP_PROJECT_ID, "
+        "shell $GOOGLE_CLOUD_PROJECT, then `gcloud config get-value project`. "
+        "Set one of these or run `gcloud config set project <id>`."
+    )
+    raise ValueError(msg)
+
+
 def _extract_cloudrun_config(config: AgentConfig) -> CloudRunConfig:
     """Extract GCP Cloud Run config from the agent's deploy section.
 
-    The project_id is required and must be set in env_vars or as a deploy field.
+    The project_id is resolved via :func:`_resolve_gcp_project_id` — agent.yaml
+    env_vars first, then shell env, then ``gcloud config``.
     Region comes from deploy.region, falling back to DEFAULT_REGION.
     Additional GCP-specific settings come from deploy.env_vars with a GCP_ prefix.
     """
@@ -143,18 +199,27 @@ def _extract_cloudrun_config(config: AgentConfig) -> CloudRunConfig:
             "sources": [
                 "deploy.env_vars[GCP_PROJECT_ID]",
                 "deploy.env_vars[GOOGLE_CLOUD_PROJECT]",
+                "$GCP_PROJECT_ID",
+                "$GOOGLE_CLOUD_PROJECT",
+                "gcloud config get-value project",
             ],
         },
     )
-    project_id = env.get("GCP_PROJECT_ID", env.get("GOOGLE_CLOUD_PROJECT", ""))
-    if not project_id:
-        msg = (
-            "GCP project ID is required for Cloud Run deployment. "
-            "Set GCP_PROJECT_ID or GOOGLE_CLOUD_PROJECT in deploy.env_vars."
-        )
-        raise ValueError(msg)
-    project_source = "GCP_PROJECT_ID" if env.get("GCP_PROJECT_ID") else "GOOGLE_CLOUD_PROJECT"
+    project_id, project_source = _resolve_gcp_project_id(env)
     logger.info("credential_resolved", extra={"key": "GCP_PROJECT_ID", "source": project_source})
+
+    # If the project ID came from gcloud, surface that to the user so they know
+    # which project we resolved (mirrors the messaging in the deploy CLI).
+    if project_source == "gcloud config get-value project":
+        console.print(f"[dim]Using GCP project from gcloud config: {project_id}[/dim]")
+        # Propagate through the rest of the pipeline (e.g. _build_service_template's
+        # env injection sees consistent values). Only set if not already present.
+        if "GCP_PROJECT_ID" not in env:
+            env["GCP_PROJECT_ID"] = project_id
+    elif project_source.startswith("$"):
+        # Shell-env hit — also propagate so downstream stages don't re-resolve.
+        if "GCP_PROJECT_ID" not in env:
+            env["GCP_PROJECT_ID"] = project_id
 
     logger.debug(
         "resolving_credential",
