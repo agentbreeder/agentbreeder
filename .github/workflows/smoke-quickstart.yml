@@ -85,18 +85,19 @@ jobs:
 
       - name: pipx install agentbreeder from local wheel
         run: |
-          # Install the SDK first so the CLI wheel can find it (pipx
-          # creates an isolated venv per app, so we inject the SDK).
-          WHEEL=$(ls dist/agentbreeder-*.whl | head -1)
-          SDK_WHEEL=$(ls sdk/python/dist/agentbreeder_sdk-*.whl | head -1)
+          # The CLI wheel declares `agentbreeder-sdk` as a runtime dep, but
+          # the SDK is only available as a local wheel during PR builds (not
+          # on PyPI). Strategy:
+          #   1. Tell pipx to look at sdk/python/dist as an extra index via
+          #      --pip-args, so the CLI install resolves agentbreeder-sdk
+          #      from the local wheel build.
+          #   2. After install, sanity-check that `agentbreeder` is on PATH.
+          WHEEL=$(ls "$PWD"/dist/agentbreeder-*.whl | head -1)
+          SDK_DIST="$PWD/sdk/python/dist"
           echo "Installing CLI wheel: $WHEEL"
-          echo "Injecting SDK wheel: $SDK_WHEEL"
-          pipx install --pip-args="--no-deps" "$WHEEL" || pipx install "$WHEEL"
-          pipx inject agentbreeder "$SDK_WHEEL" --force || true
-          # Make sure runtime deps are present in the pipx venv
-          pipx runpip agentbreeder install -r <(pipx runpip agentbreeder show agentbreeder 2>/dev/null | awk '/Requires:/ {gsub(",",""); for (i=2;i<=NF;i++) print $i}') || true
+          echo "SDK index dir: $SDK_DIST (contents: $(ls "$SDK_DIST"))"
+          pipx install --pip-args="--find-links=$SDK_DIST" "$WHEEL"
           pipx ensurepath
-          # Reload PATH for this step
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Verify agentbreeder CLI is on PATH

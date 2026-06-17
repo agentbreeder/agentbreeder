@@ -75,8 +75,7 @@ def list_entities(
     if path is None:
         valid = sorted(set(_ENDPOINTS) | set(_LOCAL_REGISTRY_FILES))
         err_console.print(
-            f"[red]Unknown entity type:[/red] '{entity_type}'. "
-            f"Valid types: {', '.join(valid)}."
+            f"[red]Unknown entity type:[/red] '{entity_type}'. Valid types: {', '.join(valid)}."
         )
         raise typer.Exit(code=1)
 

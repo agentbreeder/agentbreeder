@@ -111,9 +111,7 @@ class TestResolveGcpProjectIdPrecedence:
             stdout="gcloud-project-id\n",
             stderr="",
         )
-        with patch(
-            "engine.deployers.gcp_cloudrun.subprocess.run", return_value=fake
-        ) as run_mock:
+        with patch("engine.deployers.gcp_cloudrun.subprocess.run", return_value=fake) as run_mock:
             pid, source = _resolve_gcp_project_id({})
         assert pid == "gcloud-project-id"
         assert source == "gcloud config get-value project"
@@ -124,9 +122,7 @@ class TestResolveGcpProjectIdPrecedence:
         assert kwargs["text"] is True
 
     def test_step5_gcloud_returns_unset_is_skipped(self) -> None:
-        fake = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="(unset)\n", stderr=""
-        )
+        fake = subprocess.CompletedProcess(args=[], returncode=0, stdout="(unset)\n", stderr="")
         with patch("engine.deployers.gcp_cloudrun.subprocess.run", return_value=fake):
             with pytest.raises(ValueError, match="GCP project ID is required"):
                 _resolve_gcp_project_id({})
@@ -171,9 +167,7 @@ class TestExtractCloudRunConfigSideEffects:
         # Propagated so downstream stages (e.g. env injection) see a consistent value.
         assert config.deploy.env_vars["GCP_PROJECT_ID"] == "discovered-proj"
 
-    def test_shell_env_propagates_into_env_vars(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_shell_env_propagates_into_env_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GCP_PROJECT_ID", "shell-proj")
         config = _make_config(env_vars={})
         with patch(

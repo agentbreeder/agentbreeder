@@ -52,10 +52,7 @@ def test_env_override_wins_even_against_dev_version(monkeypatch):
         "AGENTBREEDER_RUNTIME_REQUIREMENT",
         "agentbreeder @ file:///wheels/ab.whl",
     )
-    assert (
-        base.runtime_support_requirement()
-        == "agentbreeder @ file:///wheels/ab.whl"
-    )
+    assert base.runtime_support_requirement() == "agentbreeder @ file:///wheels/ab.whl"
 
 
 def test_package_not_found_returns_unpinned(monkeypatch):
