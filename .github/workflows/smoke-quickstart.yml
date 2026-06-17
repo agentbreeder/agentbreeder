@@ -164,7 +164,8 @@ jobs:
           fi
 
       - name: Job 3 — GET /api/v1/secrets returns 200 with data key (Bug #5 guard)
-        # Reuses the stack quickstart just brought up.
+        # Reuses the stack quickstart just brought up. Also promotes the
+        # JWT to $GITHUB_ENV so the deploy smoke (next step) can use it.
         run: |
           set -e
           # Log in as the seeded default admin (see api/main.py
@@ -178,6 +179,10 @@ jobs:
             echo "FAIL: could not obtain JWT for seeded admin"
             exit 1
           fi
+          # Mask + persist for downstream steps. agentbreeder CLI reads
+          # the bearer token from $AGENTBREEDER_API_TOKEN before keychain.
+          echo "::add-mask::$TOKEN"
+          echo "AGENTBREEDER_API_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
           # Now hit the secrets endpoint.
           HTTP_CODE=$(curl -s -o /tmp/secrets-resp.json -w "%{http_code}" \
@@ -202,12 +207,18 @@ jobs:
       - name: Job 4 — agentbreeder deploy --target local (Bug #4 + runtime guard)
         # Drives the deploy pipeline end-to-end against the local docker
         # compose stack. Exit 0 means the runtime builder produced an
-        # image and the deployer accepted it.
+        # image and the deployer accepted it. Uses the JWT seeded in
+        # Job 3 (admin@agentbreeder.local / plant).
         env:
           AGENTBREEDER_API_URL: http://localhost:8000
+          # AGENTBREEDER_API_TOKEN comes from $GITHUB_ENV (set in Job 3).
         run: |
           set -o pipefail
-          agentbreeder deploy examples/langgraph-agent/agent.yaml --target local \
+          if [ -z "${AGENTBREEDER_API_TOKEN:-}" ]; then
+            echo "FAIL: AGENTBREEDER_API_TOKEN not propagated from Job 3"
+            exit 1
+          fi
+          python -m cli.main deploy examples/langgraph-agent/agent.yaml --target local \
             2>&1 | tee /tmp/qs-logs/deploy.log
           DEPLOY_EXIT=${PIPESTATUS[0]}
           if [ "$DEPLOY_EXIT" != "0" ]; then
