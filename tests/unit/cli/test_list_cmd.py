@@ -48,7 +48,7 @@ def _patched_client(response: httpx.Response | Exception) -> Any:
     """
 
     class _FakeClient:
-        def __enter__(self) -> "_FakeClient":
+        def __enter__(self) -> _FakeClient:
             return self
 
         def __exit__(self, *_exc: object) -> None:
@@ -158,7 +158,7 @@ class TestListOtherEntities:
         captured: dict[str, Any] = {}
 
         class _Capture:
-            def __enter__(self) -> "_Capture":
+            def __enter__(self) -> _Capture:
                 return self
 
             def __exit__(self, *_exc: object) -> None:

@@ -213,6 +213,15 @@ def validate(
         "--json",
         help="Output as JSON",
     ),
+    schema_only: bool = typer.Option(
+        False,
+        "--schema-only",
+        help=(
+            "Validate the YAML against the schema only — skip the runtime-file"
+            " prereq check (agent.py / requirements.txt). Use for standalone"
+            " snippet YAMLs that aren't full agent bundles."
+        ),
+    ),
 ) -> None:
     """Validate an agent.yaml or orchestration.yaml configuration file."""
     config_type = _detect_config_type(config_path)
@@ -251,7 +260,8 @@ def validate(
         # Runtime-file prereq check — only when schema parse succeeded and we
         # have a parsed AgentConfig. Catches the "validate passes but deploy
         # fails at step 4/6 with 'Missing agent.py'" class of bug.
-        if result.valid and result.config is not None:
+        # Bypassed via --schema-only for snippet YAMLs that aren't bundles.
+        if not schema_only and result.valid and result.config is not None:
             runtime_errors = _validate_agent_files(result.config, config_path.parent)
             if runtime_errors:
                 result = ValidationResult(

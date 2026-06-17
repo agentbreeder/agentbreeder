@@ -275,7 +275,6 @@ from cli.commands import (
     deploy,
     describe,
     down,
-    eject as eject_cmd,
     init_cmd,
     list_cmd,
     logs,
@@ -302,6 +301,9 @@ from cli.commands import (
 )
 from cli.commands import (
     doctor as doctor_cmd,
+)
+from cli.commands import (
+    eject as eject_cmd,
 )
 from cli.commands import (
     eval as eval_cmd,

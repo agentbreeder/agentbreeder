@@ -124,8 +124,10 @@ jobs:
           mkdir -p /tmp/qs-logs
           # --yes: accept all prompts; --no-browser: headless; --skip-doctor:
           # CI runners don't need a doctor check; --no-ollama: skip ~3 GB
-          # local-model download (this is cloud-only smoke).
-          agentbreeder quickstart --yes --no-browser --skip-doctor --no-ollama \
+          # local-model download (this is cloud-only smoke); --dev: build
+          # the API image from THIS PR's source instead of pulling the
+          # published :latest tag (which may be stale — Bug #3 from #560).
+          agentbreeder quickstart --yes --no-browser --skip-doctor --no-ollama --dev \
             2>&1 | tee /tmp/qs-logs/quickstart.log
 
       - name: Assert "Quickstart Complete" appears in output

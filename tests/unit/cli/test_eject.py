@@ -72,7 +72,7 @@ def _patched_httpx(response: httpx.Response):
     """Patch ``cli.commands.eject.httpx.Client`` to yield a stub client."""
 
     class _Stub:
-        def __enter__(self) -> "_Stub":
+        def __enter__(self) -> _Stub:
             return self
 
         def __exit__(self, *_exc: object) -> None:
