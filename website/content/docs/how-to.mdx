@@ -16,6 +16,28 @@ Recipes for everything that isn't covered by `agentbreeder quickstart`. Each sec
 
 ## Install
 
+### Recommended: pyenv first
+
+Use `pyenv` to manage your Python install. It keeps AgentBreeder isolated from the system Python, makes upgrades a single command, and prevents the most common breakage we see: a stale editable install from a previous source checkout shadowing the PyPI release and breaking the CLI with `ModuleNotFoundError: No module named 'cli'`.
+
+```bash
+# macOS
+brew install pyenv
+echo 'eval "$(pyenv init -)"' >> ~/.zshrc && exec zsh
+
+# Linux
+curl -fsSL https://pyenv.run | bash
+echo 'eval "$(pyenv init -)"' >> ~/.bashrc && exec bash
+
+# Then for both
+pyenv install 3.12.11
+pyenv global 3.12.11
+python --version              # should be Python 3.12.11
+which python                  # should be under ~/.pyenv/shims
+```
+
+### Install AgentBreeder
+
 We recommend `pipx` — it installs `agentbreeder` into an isolated environment and puts the executable on your `PATH` automatically:
 
 ```bash
@@ -621,6 +643,7 @@ Default login: `admin@agentbreeder.local` / `plant`. Studio and `agentbreeder lo
 | Problem | Fix |
 |---|---|
 | `agentbreeder: command not found` | pip's script dir is not on `PATH`. Run `python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"` and add it to your shell rc. Or `pip3 install --user agentbreeder`. |
+| `ModuleNotFoundError: No module named 'cli'` (or `api`, `engine`, `registry`) | A leftover `pip install -e .` editable install from an earlier source checkout is shadowing the PyPI release. `pip install agentbreeder` sees it as already satisfied and won't replace it. Run `pip uninstall -y agentbreeder` then `pip install --force-reinstall agentbreeder`. Use `pyenv` (see Install above) to avoid this across Python versions. |
 | `Validation failed: unknown framework` | Use one of: `langgraph`, `openai_agents`, `claude_sdk`, `crewai`, `google_adk`, `custom`. |
 | `RBAC check failed` | Deployer must belong to `team:` in `agent.yaml`. |
 | `Container build failed` | `docker info` to confirm runtime is up; `agentbreeder deploy --dry-run` to inspect generated Dockerfile. |

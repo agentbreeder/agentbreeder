@@ -25,11 +25,42 @@ agentbreeder quickstart
 <Callout type="info" title="Before you start">
   AgentBreeder needs three things on the machine:
 
-  - **Python 3.11+** (we recommend installing via `pyenv`)
+  - **Python 3.11+** — install via `pyenv` (see below)
   - **One container runtime** — Docker Desktop, OrbStack, Colima, Podman, or nerdctl
   - **macOS 12+ · Linux · or Windows 11 + WSL2** · ~8 GiB free disk · ~4 GiB RAM
 
   Not sure? Run `agentbreeder doctor` after installing — it checks every prerequisite, exits in under two seconds, and prints copy-pasteable fix commands for whatever's missing.
+</Callout>
+
+<Callout type="info" title="Recommended: install Python via pyenv">
+  Using `pyenv` is the simplest way to avoid the most common AgentBreeder install issue: stale editable installs from earlier source checkouts that quietly shadow the PyPI release and break the `agentbreeder` CLI with `ModuleNotFoundError: No module named 'cli'`.
+
+  **macOS:**
+
+  ```bash
+  brew install pyenv
+  echo 'eval "$(pyenv init -)"' >> ~/.zshrc && exec zsh
+  pyenv install 3.12.11
+  pyenv global 3.12.11
+  ```
+
+  **Linux:**
+
+  ```bash
+  curl -fsSL https://pyenv.run | bash
+  echo 'eval "$(pyenv init -)"' >> ~/.bashrc && exec bash
+  pyenv install 3.12.11
+  pyenv global 3.12.11
+  ```
+
+  Verify:
+
+  ```bash
+  python --version   # should print Python 3.12.11
+  which python       # should be under ~/.pyenv/shims
+  ```
+
+  Then `pipx install agentbreeder` (or `python -m pip install agentbreeder`) installs cleanly into the pyenv-managed interpreter. Switching Python versions later is one command (`pyenv global 3.13.x`) and never collides with system Python.
 </Callout>
 
 <Callout type="info" title="What to expect">
@@ -166,6 +197,7 @@ The 8-step deploy pipeline (parse → RBAC → resolve deps → build container 
 | Problem | Fix |
 |---|---|
 | `agentbreeder: command not found` | pip's script directory isn't on `PATH`. Either re-install with `pipx install agentbreeder` (recommended), or find the dir with `python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"` and prepend it to `PATH` in your shell rc. Running `agentbreeder welcome` once it works prints the same hint. |
+| `ModuleNotFoundError: No module named 'cli'` (or `api`, `engine`, `registry`) when running `agentbreeder` | A previous `pip install -e .` from a source checkout left a broken editable install in your Python — and `pip install agentbreeder` from PyPI sees it as already satisfied and won't replace it. Fix: `pip uninstall -y agentbreeder && pip install --force-reinstall agentbreeder`. Use `pyenv` (see prerequisites above) to keep this from happening across Python versions. |
 | Port conflict (`:5432 already in use` etc.) | Quickstart will offer to kill the conflicting process. Accept with `y`, or stop it manually. |
 | Container daemon not running | Quickstart will tell you what to start (Docker Desktop, OrbStack, Colima, Podman, systemd, etc.) and re-detect after you confirm. |
 | Stack already up, ports stuck | `agentbreeder down --clean` then retry. |
