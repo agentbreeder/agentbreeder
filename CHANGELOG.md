@@ -9,6 +9,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Fixed
+- **Packaging follow-up to issue #560.** `examples/quickstart/*.yaml` now ships
+  in the published wheel via hatch `force-include`; `Dockerfile` COPYs
+  `examples/quickstart/` so in-container wheel builds work. Discovered while
+  testing the freshly-published `agentbreeder==2.7.1`: `quickstart` Step 7
+  (Deploying Sample Agents) silently no-op'd on a pipx install because the
+  examples dir didn't exist in site-packages. Also makes `_register_agents()`
+  emit an explicit warning if `EXAMPLES_QS` is empty so the silent no-op can't
+  hide again, and extends the smoke workflow with an
+  `examples/quickstart/*.yaml` guard alongside the existing `deploy/*.yml` one.
+
+### Fixed
 - **Quickstart + how-to happy-path bundle (issue #560).** Resolves 15 bugs and
   6 doc errors uncovered by the docs-vs-reality audit:
   - PyPI wheel now ships `deploy/` (hatchling `force-include`); `Dockerfile`
