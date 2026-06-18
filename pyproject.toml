@@ -167,6 +167,12 @@ packages = ["engine", "api", "cli", "registry", "connectors"]
 # FileNotFoundError on docker-compose.quickstart.yml.
 [tool.hatch.build.targets.wheel.force-include]
 "deploy" = "deploy"
+# examples/quickstart/ ships with the wheel because cli/commands/quickstart.py
+# resolves EXAMPLES_QS = REPO_ROOT / "examples" / "quickstart" at runtime to
+# register + deploy the sample agents (assistant, search-agent, a2a-orchestrator,
+# etc.). Without this, Step 7 of `agentbreeder quickstart` silently no-ops on a
+# pipx install — the dir doesn't exist in site-packages.
+"examples/quickstart" = "examples/quickstart"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
