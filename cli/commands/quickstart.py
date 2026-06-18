@@ -970,6 +970,17 @@ def _register_agents() -> list[dict]:
     """Register sample agents in the platform registry."""
     agents = []
     yamls = sorted(EXAMPLES_QS.glob("*.yaml"))
+    if not yamls:
+        # The wheel ships examples/quickstart/ via hatch force-include; if the
+        # dir is empty here we're on a broken install. Surface explicitly so
+        # the silent no-op doesn't hide the registration miss.
+        _warn(
+            f"No sample agent YAMLs found at {EXAMPLES_QS} — "
+            "the wheel may be missing examples/quickstart/. "
+            "Reinstall agentbreeder or report this at "
+            "https://github.com/agentbreeder/agentbreeder/issues."
+        )
+        return []
     for yaml_path in yamls:
         try:
             content = yaml_path.read_text()

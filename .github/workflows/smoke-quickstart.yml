@@ -112,9 +112,14 @@ jobs:
           import zipfile, sys
           names = zipfile.ZipFile('$WHEEL').namelist()
           deploy_files = [n for n in names if n.startswith('deploy/') and n.endswith('.yml')]
+          example_yamls = [n for n in names if n.startswith('examples/quickstart/') and n.endswith('.yaml')]
           print('deploy/*.yml in wheel:', deploy_files)
+          print('examples/quickstart/*.yaml in wheel:', example_yamls)
           if not deploy_files:
               print('FAIL: no deploy/*.yml files in wheel — Bug #1 has regressed')
+              sys.exit(1)
+          if not example_yamls:
+              print('FAIL: no examples/quickstart/*.yaml files in wheel — quickstart Step 7 would no-op')
               sys.exit(1)
           "
 

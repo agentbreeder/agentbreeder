@@ -18,6 +18,7 @@ COPY sdk/ sdk/
 COPY alembic/ alembic/
 COPY alembic.ini ./
 COPY deploy/ deploy/
+COPY examples/quickstart/ examples/quickstart/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir .
