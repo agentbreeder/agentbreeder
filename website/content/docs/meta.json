@@ -24,6 +24,7 @@
     "full-code",
     "polyglot-agents",
     "go-sdk",
+    "sdks-rag",
     "mcp-authoring",
     "playground",
     "evaluations",
