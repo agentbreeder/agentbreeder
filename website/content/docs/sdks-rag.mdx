@@ -1,0 +1,207 @@
+---
+title: Python SDK — RAG MCP Tools
+description: Async Python wrappers for the 8 universal RAG MCP tools — search, query, upsert, delete, and more.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `agenthub.rag` module exposes thin async wrappers around the [RAG MCP server](/docs/architecture/rag-tools). Each function opens (or reuses) an MCP client to the local sidecar's RAG endpoint and deserializes tool results into typed dataclasses — no search semantics are re-implemented in the SDK.
+
+<Callout type="info" title="Requires the RAG MCP server">
+These wrappers target the RAG MCP server from epic [#270](https://github.com/agentbreeder/agentbreeder/issues/270). In a deployed agent, the sidecar injects the server URL via `AGENTBREEDER_MCP_SERVERS`. For local development, set `AGENTBREEDER_RAG_MCP_URL` to your MCP endpoint.
+</Callout>
+
+Install the optional MCP extra:
+
+```bash
+pip install 'agentbreeder-sdk[mcp]'
+```
+
+---
+
+## Quick start
+
+```python
+import asyncio
+
+from agenthub.rag import search
+
+async def main() -> None:
+    response = await search("kb/support-docs", "How do I refund an order?", k=5)
+    for hit in response.results:
+        print(f"{hit.rank}. {hit.source_path} ({hit.score:.2f})")
+        print(hit.text[:120], "...\n")
+
+asyncio.run(main())
+```
+
+The module-level functions share a single pooled `RagMcpClient`. Call `close_default_client()` on shutdown, or use `RagMcpClient` as an async context manager for a dedicated connection.
+
+---
+
+## `search` — hybrid semantic search
+
+Fuses vector + graph + BM25 via reciprocal-rank fusion (server-side).
+
+```python
+from agenthub.rag import search
+
+response = await search(
+    "kb/support-docs",
+    "How do I refund an order?",
+    k=5,
+    filters={"visibility": "customer-facing", "language": "en"},
+    strategy="hybrid",  # vector | hybrid | graph_expanded
+    rerank=False,
+)
+print(response.trace_id, len(response.results))
+```
+
+---
+
+## `query` — raw vector similarity
+
+Vector-only retrieval when you control fusion in agent code. Pass a string (server embeds) or a pre-computed embedding vector.
+
+```python
+from agenthub.rag import query
+
+response = await query(
+    "kb/support-docs",
+    "refund policy",
+    k=10,
+    filters={"language": "en"},
+)
+for hit in response.results:
+    print(hit.chunk_id, hit.score)
+```
+
+---
+
+## `neighborhood` — graph traversal
+
+Walk N hops from a known entity id.
+
+```python
+from agenthub.rag import neighborhood
+
+subgraph = await neighborhood("kb/support-docs", entity_id="doc-12345", hops=2)
+print(subgraph.trace_id, len(subgraph.nodes), len(subgraph.edges))
+for node in subgraph.nodes:
+    print(node.id, node.labels)
+```
+
+---
+
+## `cypher` — read-only Cypher escape hatch
+
+Server validates queries are read-only before forwarding to Neo4j / Neptune.
+
+```python
+from agenthub.rag import cypher
+
+result = await cypher(
+    "kb/support-docs",
+    "MATCH (d:Document {id: $id})-[:MENTIONS]->(t:Topic) RETURN t.name AS topic",
+    params={"id": "doc-12345"},
+)
+for row in result.rows:
+    print(row["topic"])
+```
+
+---
+
+## `upsert` — insert or update documents
+
+Idempotent: unchanged documents are skipped via `source_signatures`.
+
+```python
+from agenthub.rag import upsert
+
+result = await upsert(
+    "kb/support-docs",
+    [
+        {
+            "id": "manual-faq-001",
+            "content": "To refund an order, navigate to ...",
+            "source_path": "manual://product-faq.md",
+            "metadata": {"visibility": "customer-facing"},
+        }
+    ],
+)
+print(result.inserted, result.updated, result.skipped, result.trace_id)
+```
+
+---
+
+## `delete` — remove documents by id
+
+No-op for ids not present.
+
+```python
+from agenthub.rag import delete
+
+result = await delete("kb/support-docs", ["manual-faq-001", "stale-doc-002"])
+print(result.deleted, result.not_found, result.trace_id)
+```
+
+---
+
+## `list_indexes` — discover accessible indexes
+
+Returns indexes the calling agent has read access to (ACL-filtered).
+
+```python
+from agenthub.rag import list_indexes
+
+catalog = await list_indexes(filter={"team": "customer-success"})
+for idx in catalog.indexes:
+    print(idx.name, idx.version, idx.env, idx.total_documents)
+```
+
+---
+
+## `stats` — index health
+
+Used by AgentOps dashboards and agent-side health checks.
+
+```python
+from agenthub.rag import stats
+
+health = await stats("kb/support-docs")
+print(
+    health.name,
+    health.total_documents,
+    health.index_size_bytes,
+    health.last_indexed_at,
+    health.sources,
+)
+```
+
+---
+
+## Dedicated client lifecycle
+
+```python
+from agenthub.rag import RagMcpClient
+
+async def run() -> None:
+    async with RagMcpClient() as client:
+        hits = await client.search("kb/support-docs", "billing question")
+        await client.upsert("kb/support-docs", [{"id": "x", "content": "...", "source_path": "s://x"}])
+        print(hits.results[0].text)
+```
+
+Endpoint resolution order:
+
+1. `AGENTBREEDER_RAG_MCP_URL` — explicit override
+2. `AGENTBREEDER_MCP_SERVERS["rag"]["url"]` — injected by the deployer
+3. `http://127.0.0.1:9090/mcp/rag` — sidecar MCP passthrough default
+
+---
+
+## Related
+
+- [RAG platform overview](/docs/rag) — index lifecycle, ingestion, hybrid search via the API
+- [Sidecar](/docs/sidecar) — MCP passthrough at `localhost:9090/mcp/<server>`
+- [MCP servers](/docs/mcp-servers) — registering and wiring MCP tools into agents
