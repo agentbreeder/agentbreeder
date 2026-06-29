@@ -80,12 +80,17 @@ for hit in response.results:
 
 ## `neighborhood` — graph traversal
 
-Walk N hops from a known entity id.
+Walk N hops from a known entity id. Optionally restrict traversal to specific edge types.
 
 ```python
 from agenthub.rag import neighborhood
 
-subgraph = await neighborhood("kb/support-docs", entity_id="doc-12345", hops=2)
+subgraph = await neighborhood(
+    "kb/support-docs",
+    entity_id="doc-12345",
+    hops=2,
+    edge_types=["MENTIONS", "CITES"],
+)
 print(subgraph.trace_id, len(subgraph.nodes), len(subgraph.edges))
 for node in subgraph.nodes:
     print(node.id, node.labels)

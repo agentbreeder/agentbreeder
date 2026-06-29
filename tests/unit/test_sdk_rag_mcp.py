@@ -162,10 +162,35 @@ class TestNeighborhood:
         _assert_tool_called(
             mock_session,
             "rag.neighborhood",
-            {"index": "kb/graph", "entity_id": "entity-42", "hops": 2},
+            {
+                "index": "kb/graph",
+                "entity_id": "entity-42",
+                "hops": 2,
+                "edge_types": None,
+            },
         )
         assert isinstance(resp, NeighborhoodResponse)
         assert resp.nodes[0].id == "n1"
+
+    async def test_neighborhood_forwards_edge_types(
+        self, client: RagMcpClient, mock_session: AsyncMock
+    ) -> None:
+        mock_session.call_tool.return_value = _tool_result(
+            {"nodes": [], "edges": [], "trace_id": "n2"}
+        )
+        await client.neighborhood(
+            "kb/graph", "entity-42", hops=1, edge_types=["MENTIONS", "CITES"]
+        )
+        _assert_tool_called(
+            mock_session,
+            "rag.neighborhood",
+            {
+                "index": "kb/graph",
+                "entity_id": "entity-42",
+                "hops": 1,
+                "edge_types": ["MENTIONS", "CITES"],
+            },
+        )
 
 
 class TestCypher:

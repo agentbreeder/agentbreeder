@@ -633,10 +633,16 @@ class RagMcpClient:
         entity_id: str,
         *,
         hops: int = 2,
+        edge_types: list[str] | None = None,
     ) -> NeighborhoodResponse:
         payload = await self.call_tool(
             "rag.neighborhood",
-            {"index": index, "entity_id": entity_id, "hops": hops},
+            {
+                "index": index,
+                "entity_id": entity_id,
+                "hops": hops,
+                "edge_types": edge_types,
+            },
         )
         return NeighborhoodResponse.from_dict(payload)
 
@@ -750,9 +756,12 @@ async def neighborhood(
     entity_id: str,
     *,
     hops: int = 2,
+    edge_types: list[str] | None = None,
 ) -> NeighborhoodResponse:
     """Graph traversal via ``rag.neighborhood`` MCP tool."""
-    return await get_default_client().neighborhood(index, entity_id, hops=hops)
+    return await get_default_client().neighborhood(
+        index, entity_id, hops=hops, edge_types=edge_types
+    )
 
 
 async def cypher(
