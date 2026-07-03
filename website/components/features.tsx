@@ -65,6 +65,26 @@ const FEATURES: Feature[] = [
     title: 'Gateways as First-Class (v2.0)',
     desc: 'LiteLLM and OpenRouter promoted to `type: gateway` providers. Three-segment refs route the request: `model: openrouter/moonshotai/kimi-k2`. Configure once per workspace; switch upstreams without touching code.',
   },
+  {
+    icon: '📟',
+    title: 'AgentOps & Compliance (v2.6)',
+    desc: 'Fleet health heatmap, top-agent rankings, incident management, and a real SOC 2 / HIPAA compliance scanner — all live in Studio, backed by Postgres. Operations visibility without a second observability stack.',
+  },
+  {
+    icon: '🧩',
+    title: 'MCP Co-Deployment (v2.7)',
+    desc: 'Declare `mcp_servers:` in `agent.yaml` and they deploy with the agent — co-located containers or remote HTTP/SSE endpoints — across ECS, Cloud Run, Azure, and Compose. Full Code agents load their tools with one call: `load_mcp_tools()`.',
+  },
+  {
+    icon: '⛵',
+    title: 'Helm Self-Hosting (v2.7)',
+    desc: 'One chart (`deploy/helm/agentbreeder`) deploys the full platform — Studio, API, migrations — on any Kubernetes, with toggleable bundled Postgres/Redis, TLS-capable Ingress, and auto-generated signing keys.',
+  },
+  {
+    icon: '🏗️',
+    title: 'Greenfield Provisioning (v2.7)',
+    desc: '`agentbreeder deploy --provision` stands up the full AWS footprint — VPC, subnets, NAT, ECS cluster, IAM — on an empty account, idempotently. Managed Redis (ElastiCache, Memorystore, Azure Cache) auto-provisions for `memory.backend: redis`. `teardown` reverses it all.',
+  },
 ];
 
 export function Features() {

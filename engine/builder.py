@@ -102,6 +102,74 @@ class PipelineStep:
         )
 
 
+def _aws_greenfield_fields(fields: dict[str, Any], config: AgentConfig, region: str) -> None:
+    fields.setdefault("AWS_AGENT_NAME", config.name)
+    fields.setdefault("AWS_AGENT_VERSION", config.version)
+    fields.setdefault("AWS_DEFAULT_REGION", region)
+    # CLI deploys reach the task at its public IP (assignPublicIp), no ALB.
+    fields.setdefault("AWS_AGENT_PUBLIC_INGRESS", "true")
+
+
+def _gcp_greenfield_fields(fields: dict[str, Any], config: AgentConfig, region: str) -> None:
+    fields.setdefault("GCP_AGENT_NAME", config.name)
+    fields.setdefault("GCP_AGENT_VERSION", config.version)
+    fields.setdefault("GCP_REGION", region)
+    # provision(gcp) requires GOOGLE_CLOUD_PROJECT; recover it from GCP_PROJECT_ID.
+    if not fields.get("GOOGLE_CLOUD_PROJECT") and fields.get("GCP_PROJECT_ID"):
+        fields["GOOGLE_CLOUD_PROJECT"] = fields["GCP_PROJECT_ID"]
+    # Cloud Run is serverless and reaches the public internet without a VPC, so a
+    # greenfield VPC + Serverless connector is only worth building when the agent
+    # has a private managed data tier to reach (Cloud SQL private IP / Memorystore).
+    # For a stateless agent, greenfield stays minimal (Artifact Registry + SA).
+    needs_private_net = (
+        needs_managed_pgvector(config)
+        or needs_managed_memory_postgres(config)
+        or needs_managed_memory_redis(config)
+    )
+    if needs_private_net:
+        fields.setdefault("GCP_PROVISION_VPC", "true")
+        fields.setdefault("GCP_PROVISION_VPC_CONNECTOR", "true")
+
+
+def _azure_greenfield_fields(fields: dict[str, Any], config: AgentConfig, region: str) -> None:
+    fields.setdefault("AZURE_AGENT_NAME", config.name)
+    fields.setdefault("AZURE_AGENT_VERSION", config.version)
+    fields.setdefault("AZURE_LOCATION", region)
+
+
+# Per-cloud greenfield descriptors for ``agentbreeder deploy --provision``
+# (#537, multi-cloud parity #505). Each maps a cloud to the provisioner provider
+# string, the env keys that mean "BYO infra already supplied" (skip greenfield),
+# the InfraState.resources key that confirms a prior greenfield footprint, the
+# default region + region env key, and the field setter applied before provision.
+_GREENFIELD_SPECS: dict[CloudType, dict[str, Any]] = {
+    CloudType.aws: {
+        "provider": "aws",
+        "byo_keys": ("AWS_ECS_CLUSTER", "AWS_VPC_SUBNETS"),
+        "reuse_key": "ecs_cluster",
+        "default_region": "us-east-1",
+        "region_env": "AWS_REGION",
+        "set_fields": _aws_greenfield_fields,
+    },
+    CloudType.gcp: {
+        "provider": "gcp",
+        "byo_keys": ("GCP_ARTIFACT_REGISTRY_REPO", "GCP_SERVICE_ACCOUNT"),
+        "reuse_key": "service_account",
+        "default_region": "us-central1",
+        "region_env": "GCP_REGION",
+        "set_fields": _gcp_greenfield_fields,
+    },
+    CloudType.azure: {
+        "provider": "azure",
+        "byo_keys": ("AZURE_RESOURCE_GROUP", "AZURE_CONTAINER_APPS_ENV", "AZURE_REGISTRY_SERVER"),
+        "reuse_key": "container_apps_environment",
+        "default_region": "eastus",
+        "region_env": "AZURE_LOCATION",
+        "set_fields": _azure_greenfield_fields,
+    },
+}
+
+
 class DeployEngine:
     """Orchestrates the full deploy pipeline."""
 
@@ -329,11 +397,10 @@ class DeployEngine:
         if cloud in (CloudType.local, CloudType.claude_managed):
             return  # nothing to provision
 
-        if cloud != CloudType.aws:
-            raise DeployError(
-                f"--provision currently supports AWS only (got {cloud.value!r}). "
-                "Use the Studio deploy wizard for GCP/Azure greenfield (#537)."
-            )
+        spec = _GREENFIELD_SPECS.get(cloud)
+        if spec is None:
+            raise DeployError(f"--provision does not support cloud {cloud.value!r}.")
+        provider = spec["provider"]
 
         from engine.provisioners.state import InfraState
 
@@ -342,9 +409,10 @@ class DeployEngine:
         env = config.deploy.env_vars
 
         # BYO infra already supplied → respect it, skip greenfield.
-        if env.get("AWS_ECS_CLUSTER") and env.get("AWS_VPC_SUBNETS"):
+        if all(env.get(k) for k in spec["byo_keys"]):
             logger.info(
-                "Existing AWS infra in env_vars for '%s'; skipping greenfield provisioning",
+                "Existing %s infra in env_vars for '%s'; skipping greenfield provisioning",
+                provider,
                 config.name,
             )
             return
@@ -354,31 +422,28 @@ class DeployEngine:
         if (
             existing is not None
             and existing.mode == "provisioned"
-            and "ecs_cluster" in existing.resources
+            and existing.cloud == provider
+            and spec["reuse_key"] in existing.resources
         ):
             logger.info("Reusing greenfield infra recorded at %s", state_path)
             state = existing
         else:
-            region = config.deploy.region or env.get("AWS_REGION") or "us-east-1"
+            region = config.deploy.region or env.get(spec["region_env"]) or spec["default_region"]
             fields = dict(env)  # carries creds + any user overrides
-            fields.setdefault("AWS_AGENT_NAME", config.name)
-            fields.setdefault("AWS_AGENT_VERSION", config.version)
-            fields.setdefault("AWS_DEFAULT_REGION", region)
-            # CLI deploys reach the task at its public IP (assignPublicIp), no ALB.
-            fields.setdefault("AWS_AGENT_PUBLIC_INGRESS", "true")
+            spec["set_fields"](fields, config, region)
 
             async def _emit(msg: str) -> None:
-                logger.info("greenfield(aws): %s", msg)
+                logger.info("greenfield(%s): %s", provider, msg)
 
-            logger.info("Greenfield-provisioning AWS footprint for '%s'", config.name)
+            logger.info("Greenfield-provisioning %s footprint for '%s'", provider, config.name)
             payload = InfraValidationInput(
-                cloud="aws", region=region, mode="simple", fields=fields
+                cloud=provider, region=region, mode="simple", fields=fields
             )
-            state = await provisioner_for("aws").provision(payload, progress=_emit)
-            self._persist_infra_resources(project_dir, "aws", region, state.resources)
+            state = await provisioner_for(provider).provision(payload, progress=_emit)
+            self._persist_infra_resources(project_dir, provider, region, state.resources)
 
         # Inject the provisioned IDs without clobbering anything the user set.
-        for key, value in infra_state_to_env("aws", state).items():
+        for key, value in infra_state_to_env(provider, state).items():
             env.setdefault(key, value)
 
     async def _auto_provision_data_backends(

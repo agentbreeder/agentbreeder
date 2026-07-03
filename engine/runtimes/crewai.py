@@ -18,6 +18,7 @@ from engine.runtimes.base import (
     _get_litellm_requirements,
     _should_add_litellm_sdk,
     build_env_block,
+    inject_wheel_copies,
     runtime_support_requirement,
 )
 
@@ -42,9 +43,11 @@ USER agent
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8080/health').raise_for_status()"
+    CMD python -c "import os,httpx; httpx.get('http://localhost:'+os.environ.get('PORT','8080')+'/health').raise_for_status()"
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+# Honor $PORT: when the observability sidecar is injected the deployer sets
+# PORT=8081 so the agent listens on an internal port and the sidecar owns 8080.
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8080}"]
 """
 
 
@@ -142,7 +145,7 @@ class CrewAIRuntime(RuntimeBuilder):
 
             crewai_env_block = ("\n" + "\n".join(crewai_env_lines)) if crewai_env_lines else ""
             dockerfile_content = (
-                DOCKERFILE_TEMPLATE.rstrip()
+                inject_wheel_copies(DOCKERFILE_TEMPLATE, build_dir).rstrip()
                 + "\n\n# Agent configuration\n"
                 + env_block
                 + crewai_env_block

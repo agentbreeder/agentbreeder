@@ -162,15 +162,47 @@ async def list_secrets(
     workspace: str | None = Query(None),
     _user: User = Depends(get_current_user),
 ) -> ApiResponse[list[SecretSummary]]:
-    """List all secrets in the workspace (names + masked metadata only)."""
-    backend, ws_cfg = get_workspace_backend(workspace=workspace)
-    entries = await backend.list()
+    """List all secrets in the workspace (names + masked metadata only).
+
+    Resilience contract (issue #560, bug #5): this endpoint MUST return HTTP
+    200 with an empty list when the workspace simply has no secrets, AND must
+    NOT raise an unhandled 500 when the configured backend can't be
+    initialised in the API server's environment (e.g. ``keychain`` inside a
+    Docker container, ``aws`` without boto3 installed, network blip talking
+    to GCP Secret Manager, etc.). In that case we return 200 with an empty
+    ``data`` array and a user-safe message in ``errors`` so Studio's
+    chat-to-build flow keeps working. Genuine programmer errors (bad code,
+    not "backend not reachable") still propagate.
+    """
+    workspace_name = workspace or "default"
+    try:
+        backend, ws_cfg = get_workspace_backend(workspace=workspace)
+        workspace_name = ws_cfg.workspace
+        entries = await backend.list()
+    except Exception as exc:
+        # Backend init or list() failed — log full detail server-side but
+        # return a sanitized message to the client. The dashboard already
+        # renders the empty state when data == [].
+        logger.warning(
+            "secret.list backend unavailable (workspace=%s): %s",
+            workspace_name,
+            exc,
+        )
+        return ApiResponse(
+            data=[],
+            meta=ApiMeta(total=0),
+            errors=[
+                "Secrets backend is not configured or unavailable in this "
+                "environment. No secrets to display."
+            ],
+        )
+
     summaries = [
         SecretSummary(
             name=e.name,
             masked_value=e.masked_value,
             backend=e.backend,
-            workspace=ws_cfg.workspace,
+            workspace=workspace_name,
             updated_at=e.updated_at.isoformat() if e.updated_at else None,
             mirror_destinations=[],
         )

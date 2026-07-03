@@ -3,7 +3,8 @@
 Covers ``DeployEngine._maybe_provision_greenfield``: when ``--provision`` is set
 and no BYO infra is supplied, it provisions the cloud footprint, maps the
 returned ``InfraState`` into ``deploy.env_vars`` (so the existing deploy path
-serves the agent into it), and records the footprint for teardown. AWS only.
+serves the agent into it), and records the footprint for teardown. Covers all
+managed clouds (AWS, GCP, Azure) — multi-cloud parity (#505/#537).
 """
 
 from __future__ import annotations
@@ -101,10 +102,88 @@ async def test_skips_when_byo_infra_present(tmp_path: Path) -> None:
     assert cfg.deploy.env_vars["AWS_ECS_CLUSTER"] == "mine"
 
 
+def _gcp_greenfield_state() -> InfraState:
+    return InfraState(
+        cloud="gcp",
+        region="us-central1",
+        provisioned_by="agentbreeder.GCPProvisioner",
+        provisioned_at=datetime.now(UTC),
+        mode="provisioned",
+        resources={
+            "artifact_registry": {"repo": "agentbreeder", "region": "us-central1"},
+            "service_account": {
+                "email": "ab-demo@p.iam.gserviceaccount.com",
+                "project": "p",
+            },
+        },
+    )
+
+
+def _azure_greenfield_state() -> InfraState:
+    return InfraState(
+        cloud="azure",
+        region="eastus",
+        provisioned_by="agentbreeder.AzureProvisioner",
+        provisioned_at=datetime.now(UTC),
+        mode="provisioned",
+        resources={
+            "resource_group": {
+                "id": "/subscriptions/sub-1/resourceGroups/ab-demo-rg",
+                "name": "ab-demo-rg",
+            },
+            "container_apps_environment": {"name": "ab-demo-env"},
+            "acr": {"login_server": "abdemo.azurecr.io"},
+        },
+    )
+
+
 @pytest.mark.asyncio
-async def test_rejects_non_aws_cloud(tmp_path: Path) -> None:
-    cfg = _cfg(cloud=CloudType.gcp)
-    with pytest.raises(DeployError, match="AWS"):
+async def test_greenfield_provisions_gcp(tmp_path: Path) -> None:
+    cfg = _cfg(cloud=CloudType.gcp, env_vars={"GCP_PROJECT_ID": "p"})
+    fake = _fake_provisioner(_gcp_greenfield_state())
+    with patch("engine.builder.provisioner_for", return_value=fake):
+        await DeployEngine()._maybe_provision_greenfield(cfg, tmp_path, provision=True)
+
+    fake.provision.assert_awaited_once()
+    # The provisioner received the required GOOGLE_CLOUD_PROJECT field.
+    payload = fake.provision.await_args.args[0]
+    assert payload.cloud == "gcp"
+    assert payload.fields["GOOGLE_CLOUD_PROJECT"] == "p"
+    env = cfg.deploy.env_vars
+    assert env["GCP_SERVICE_ACCOUNT"] == "ab-demo@p.iam.gserviceaccount.com"
+    assert env["GCP_ARTIFACT_REGISTRY_REPO"] == "agentbreeder"
+    assert (tmp_path / ".agentbreeder" / "infra-state.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_greenfield_provisions_azure(tmp_path: Path) -> None:
+    cfg = _cfg(cloud=CloudType.azure, env_vars={"AZURE_SUBSCRIPTION_ID": "sub-1"})
+    fake = _fake_provisioner(_azure_greenfield_state())
+    with patch("engine.builder.provisioner_for", return_value=fake):
+        await DeployEngine()._maybe_provision_greenfield(cfg, tmp_path, provision=True)
+
+    fake.provision.assert_awaited_once()
+    env = cfg.deploy.env_vars
+    assert env["AZURE_RESOURCE_GROUP"] == "ab-demo-rg"
+    assert env["AZURE_CONTAINER_APPS_ENV"] == "ab-demo-env"
+    assert env["AZURE_REGISTRY_SERVER"] == "abdemo.azurecr.io"
+
+
+@pytest.mark.asyncio
+async def test_skips_when_byo_infra_present_gcp(tmp_path: Path) -> None:
+    cfg = _cfg(
+        cloud=CloudType.gcp,
+        env_vars={"GCP_ARTIFACT_REGISTRY_REPO": "mine", "GCP_SERVICE_ACCOUNT": "me@p"},
+    )
+    with patch("engine.builder.provisioner_for") as pf:
+        await DeployEngine()._maybe_provision_greenfield(cfg, tmp_path, provision=True)
+    pf.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rejects_unsupported_cloud(tmp_path: Path) -> None:
+    cfg = _cfg(cloud=CloudType.kubernetes)
+    with pytest.raises(DeployError, match="does not support"):
         await DeployEngine()._maybe_provision_greenfield(cfg, tmp_path, provision=True)
 
 

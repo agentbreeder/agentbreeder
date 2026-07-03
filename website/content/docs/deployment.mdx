@@ -32,15 +32,17 @@ Container Apps with the per-cloud user-input contract below.
     **Studio** deploy into them. This is the path the two verified walkthroughs
     on this page use.
   - **Greenfield** — a fresh account with no networking. AgentBreeder provisions
-    the whole footprint (VPC, subnets, NAT, security groups, cluster, IAM, and —
-    when declared — RDS) for you. On **AWS** this ships from the **CLI**
-    (`agentbreeder deploy --target ecs-fargate --provision`) **and** the Studio
-    deploy wizard (Step 3 → *Provision for me*). For **GCP/Azure**, greenfield
-    ships through the Studio wizard today; CLI parity is on the
-    [roadmap](https://github.com/agentbreeder/agentbreeder/issues/383).
+    the whole footprint for you. On **all three clouds** this ships from the
+    **CLI** (`agentbreeder deploy --target <cloud> --provision`) **and** the
+    Studio deploy wizard (Step 3 → *Provision for me*). AWS builds the VPC,
+    subnets, NAT, security groups, ECS cluster, IAM, and — when declared — RDS;
+    GCP builds a VPC + subnet + Cloud NAT + a Private Service Access range (for
+    Cloud SQL private IP) + Artifact Registry + service account; Azure builds the
+    resource group, Log Analytics, Container Apps environment, ACR, and managed
+    identity.
 
   Independently of which path you pick, the CLI and Studio both **auto-provision
-  the data tier** (RDS pgvector / ElastiCache Redis) when an agent declares
+  the data tier** (managed Postgres pgvector / managed Redis) when an agent declares
   `memory:` or a knowledge base without a `backend_url`. For the at-a-glance
   matrix, see the
   [deploy-target status table in the CLI reference](cli-reference#agentbreeder-deploy);
@@ -139,11 +141,11 @@ pre-existing cluster, subnets, or roles.
 
 <Callout type="info" title="Studio equivalent + GCP/Azure">
   The Studio deploy wizard (Step 3 → *Provision for me*) runs the same
-  `AWSProvisioner.provision()` path with live SSE progress and partial-rollback;
-  see [Deploying from Studio](#deploying-from-studio). On **GCP/Azure**,
-  greenfield ships via the Studio wizard today — CLI `--provision` for those
-  clouds is on the [roadmap](https://github.com/agentbreeder/agentbreeder/issues/383).
-  `--provision` is **local mode** only for now (use `--local`).
+  provisioner path with live SSE progress and partial-rollback;
+  see [Deploying from Studio](#deploying-from-studio). CLI `--provision` ships for
+  **AWS, GCP, and Azure** — e.g. `agentbreeder deploy --target cloud-run
+  --provision --local` (GCP) or `--target container-apps --provision --local`
+  (Azure). `--provision` is **local mode** only for now (use `--local`).
 </Callout>
 
 | Resource | Notes |
@@ -195,17 +197,18 @@ You still need the four IAM roles documented in [One-time IAM grants](#one-time-
 **Greenfield mode (Studio → "Provision for me"):**
 
 For fresh GCP projects, AgentBreeder can create infrastructure on your behalf
-in place of the "Full mode" inputs above. Like AWS, this runs through the
-**Studio deploy wizard** and the deployments job API today; CLI parity
-(`deploy --target gcp --provision`) is on the
-[roadmap](https://github.com/agentbreeder/agentbreeder/issues/383). Only
-`GOOGLE_CLOUD_PROJECT` and `GCP_REGION` are required; everything else is opt-in
-via environment flags.
+in place of the "Full mode" inputs above. This ships from the **CLI**
+(`agentbreeder deploy --target cloud-run --provision --local`), the **Studio
+deploy wizard**, and the deployments job API. Only `GOOGLE_CLOUD_PROJECT` and
+`GCP_REGION` are required; everything else is opt-in via environment flags. The
+CLI `--provision` path turns on the VPC + connector flags below automatically so
+the agent and data tier share a private network.
 
 | Flag | Effect |
 |---|---|
 | _default_ | Artifact Registry repo `agentbreeder` + per-agent Service Account `ab-<agent-name>` + 4 IAM roles |
-| `GCP_PROVISION_VPC_CONNECTOR=1` | Adds a Serverless VPC Access connector `ab-<agent-name>` (e2-micro, 2–3 instances) on the `default` VPC. Wire it into Cloud Run by setting `GCP_VPC_CONNECTOR` to the connector name from `.agentbreeder/infra-state.json`. |
+| `GCP_PROVISION_VPC=1` | Greenfield-creates a custom-mode VPC `ab-<agent-name>-vpc` + regional subnet (private Google access) + Cloud NAT (egress) + a Private Service Access range (for Cloud SQL private IP). The connector and Cloud SQL then target this network instead of `default`. Set automatically by CLI `--provision`. |
+| `GCP_PROVISION_VPC_CONNECTOR=1` | Adds a Serverless VPC Access connector `ab-<agent-name>` (e2-micro, 2–3 instances) on the provisioned VPC (or `default`). Wire it into Cloud Run by setting `GCP_VPC_CONNECTOR` to the connector name from `.agentbreeder/infra-state.json`. |
 | `GCP_PROVISION_CLOUD_SQL=1` | Adds a private-IP Cloud SQL Postgres 15 instance `{agent_name}-memory` (default `db-f1-micro`), database `agentbreeder_memory`, user `agentbreeder`. Random password is written to Secret Manager — never to disk. Implies the VPC connector unless `GCP_CLOUD_SQL_PRIVATE_IP=0`. |
 
 VPC connector tuning (all optional):

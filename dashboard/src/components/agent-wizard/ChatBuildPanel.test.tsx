@@ -17,6 +17,7 @@ import type { SecretSummary, ApiResponse, ApiMeta } from "@/lib/api";
 // ---------------------------------------------------------------------------
 
 vi.mock("@/lib/api", () => ({
+  ingestAnalytics: vi.fn(),
   api: {
     secrets: {
       list: vi.fn(),

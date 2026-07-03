@@ -157,9 +157,11 @@ class TestActiveTeam:
 
 
 class TestAuthHeaders:
-    def test_require_token_exits_when_missing(self) -> None:
+    def test_require_token_exits_when_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import typer
 
+        monkeypatch.delenv(_http.ENV_TOKEN, raising=False)
+        monkeypatch.setattr(_http, "_try_keyring", lambda: None)
         with pytest.raises(typer.Exit):
             _http.require_token()
 
@@ -377,7 +379,9 @@ class TestWhoamiCommand:
         assert payload["email"] == "alice@example.com"
         assert payload["active_team"] == "ops"
 
-    def test_exits_when_not_logged_in(self) -> None:
+    def test_exits_when_not_logged_in(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(_http.ENV_TOKEN, raising=False)
+        monkeypatch.setattr(_http, "_try_keyring", lambda: None)
         result = runner.invoke(app, ["whoami"])
         assert result.exit_code == 1
         assert "Not logged in" in result.output or "login" in result.output

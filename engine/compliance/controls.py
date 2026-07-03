@@ -140,6 +140,7 @@ async def check_audit_log_retention(db: AsyncSession) -> ControlResult:
         count_q = await db.execute(select(func.count()).select_from(AuditEvent))
         total = int(count_q.scalar_one() or 0)
     except SQLAlchemyError as exc:
+        await db.rollback()  # clear the aborted transaction for later controls
         logger.warning("audit_log_retention: query failed: %s", exc)
         return _result(
             cid,
@@ -224,6 +225,7 @@ async def check_rbac_enforced(db: AsyncSession) -> ControlResult:
         count_q = await db.execute(select(func.count()).select_from(ResourcePermission))
         total = int(count_q.scalar_one() or 0)
     except SQLAlchemyError as exc:
+        await db.rollback()  # clear the aborted transaction for later controls
         return _result(
             cid,
             name,
@@ -322,12 +324,14 @@ async def check_db_ssl_enabled(db: AsyncSession) -> ControlResult:
     except SQLAlchemyError as exc:
         # ``ssl_is_used()`` requires the ``sslinfo`` extension. If absent,
         # fall back to checking pg_stat_ssl which ships in core pg.
+        await db.rollback()  # clear the aborted transaction before the fallback query
         try:
             result = await db.execute(
                 text("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
             )
             ssl_used = bool(result.scalar_one_or_none())
         except SQLAlchemyError as exc2:
+            await db.rollback()  # clear the aborted transaction for later controls
             return _result(
                 cid,
                 name,
@@ -381,6 +385,7 @@ async def check_mfa_enabled(db: AsyncSession) -> ControlResult:
         )
         unhashed = int(unhashed_q.scalar_one() or 0)
     except SQLAlchemyError as exc:
+        await db.rollback()  # clear the aborted transaction for later controls
         return _result(
             cid,
             name,

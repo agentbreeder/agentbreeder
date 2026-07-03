@@ -196,7 +196,10 @@ class TestDeprecate:
 
 
 def test_missing_token_exits(monkeypatch) -> None:
+    from cli import _http
+
     monkeypatch.delenv("AGENTBREEDER_API_TOKEN", raising=False)
+    monkeypatch.setattr(_http, "_try_keyring", lambda: None)
     result = CliRunner().invoke(model_app, ["list"])
     assert result.exit_code == 1
     assert "AGENTBREEDER_API_TOKEN" in result.output

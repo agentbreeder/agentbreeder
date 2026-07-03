@@ -337,6 +337,20 @@ def _load_adk_server_module(module_alias: str) -> types.ModuleType:
     fake_google.genai = fake_genai
     fake_genai.types = fake_genai_types
 
+    # Snapshot the real google.* modules so we can restore them afterwards.
+    # Without this, the fake `google` namespace leaks into sys.modules and
+    # breaks later tests that import the real google.cloud.run_v2 protos
+    # (e.g. the Cloud Run deployer's idempotency tests).
+    stub_keys = (
+        "google",
+        "google.adk",
+        "google.adk.runners",
+        "google.adk.sessions",
+        "google.genai",
+        "google.genai.types",
+    )
+    saved = {key: sys.modules.get(key) for key in stub_keys}
+
     sys.modules["google"] = fake_google
     sys.modules["google.adk"] = fake_adk
     sys.modules["google.adk.runners"] = fake_runners
@@ -344,13 +358,22 @@ def _load_adk_server_module(module_alias: str) -> types.ModuleType:
     sys.modules["google.genai"] = fake_genai
     sys.modules["google.genai.types"] = fake_genai_types
 
-    spec = importlib.util.spec_from_file_location(
-        module_alias,
-        "engine/runtimes/templates/google_adk_server.py",
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    try:
+        spec = importlib.util.spec_from_file_location(
+            module_alias,
+            "engine/runtimes/templates/google_adk_server.py",
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        # The loaded module has already bound the fake Runner/session symbols at
+        # import time, so it keeps working after we restore the real modules.
+        return mod
+    finally:
+        for key, original in saved.items():
+            if original is None:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = original
 
 
 class TestGoogleADKServerRunnerReuse:

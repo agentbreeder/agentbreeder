@@ -18,8 +18,9 @@ const TARGETS = [
 const PIPELINE = [
   { text: '✓  YAML parsed & validated',    color: '#3fb950' },
   { text: '✓  RBAC check passed',          color: '#3fb950' },
-  { text: '✓  Dependencies resolved',      color: '#3fb950' },
+  { text: '✓  Dependencies & MCP resolved', color: '#3fb950' },
   { text: '✓  Container built',            color: '#3fb950' },
+  { text: '✓  Infra provisioned',          color: '#3fb950' },
   { text: '⟳  Deploying to all targets…', color: '#ffa657' },
 ] as const;
 

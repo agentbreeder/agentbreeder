@@ -1,23 +1,37 @@
-"""agentbreeder eject — generate SDK scaffold from an agent.yaml file.
+"""agentbreeder eject — tier mobility between No Code / Low Code / Full Code.
 
-Converts a Low Code YAML definition into a Full Code Python SDK file,
-enabling tier mobility from YAML to programmatic control.
+Two documented invocation modes (per ``website/content/docs/how-to.mdx``):
 
-Usage:
-    agentbreeder eject agent.yaml --sdk python
-    agentbreeder eject agent.yaml --sdk python --output agents/my-agent/agent_sdk.py
+    agentbreeder eject my-agent --to yaml   # fetch from registry, write agent.yaml
+    agentbreeder eject my-agent --to code   # also scaffold agent.py + reqs + README
+
+The first positional argument may also be a path to an existing ``agent.yaml``
+file. In that case the registry lookup is skipped and the YAML is read directly
+from disk — this preserves the legacy SDK-scaffold flow used by the existing
+``_generate_crewai_scaffold`` / ``_generate_google_adk_scaffold`` /
+``_generate_claude_sdk_scaffold`` paths (Track J tests rely on it).
+
+Tier mobility rule (see ``CLAUDE.md``): No Code → Low Code (``--to yaml``)
+→ Full Code (``--to code``). The deploy pipeline does not know which tier
+produced the config — eject just writes files. The deploy command picks
+them up like any other agent directory.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from typing import Any
 
+import httpx
 import typer
 import yaml
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
+
+from cli._http import api_base, auth_headers, get_token
 
 console = Console()
 
@@ -33,8 +47,205 @@ def _to_class_name(slug: str) -> str:
     return "".join(part.capitalize() for part in parts if part)
 
 
+def _looks_like_path(value: str) -> bool:
+    """Return True if *value* is a path to an existing file (legacy mode)."""
+    if not value:
+        return False
+    p = Path(value)
+    return p.exists() and p.is_file()
+
+
+def _fetch_agent_from_registry(agent_name: str) -> dict[str, Any]:
+    """Fetch an agent by name from the API and return its ``config_snapshot``.
+
+    Lists agents (the only public name-keyed endpoint — ``/agents/{id}``
+    requires a UUID) and returns the first match. Exits with code 1 if the
+    agent is not found or the API is unreachable.
+    """
+    base = api_base()
+    # Use auth headers only if a token is configured — local dev allows
+    # anonymous reads and we don't want to force ``agentbreeder login`` for
+    # every eject command.
+    headers: dict[str, str] = {}
+    if get_token():
+        try:
+            headers = auth_headers()
+        except typer.Exit:
+            # No token despite get_token() returning truthy — fall through
+            # anonymously. ``require_token`` inside ``auth_headers`` would
+            # have called ``typer.Exit`` but ``get_token`` already guarded.
+            headers = {}
+
+    url = f"{base}/api/v1/agents"
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(url, headers=headers, params={"per_page": 100})
+    except httpx.HTTPError as exc:
+        console.print(
+            f"[red]Could not reach the AgentBreeder API at {base}.[/red]\n"
+            f"[dim]{type(exc).__name__}: {exc}[/dim]\n"
+            "[dim]Is the server running? Try [bold]agentbreeder up[/bold].[/dim]"
+        )
+        raise typer.Exit(code=1) from exc
+
+    if resp.status_code != 200:
+        console.print(
+            f"[red]API returned {resp.status_code} when listing agents.[/red]\n"
+            f"[dim]{resp.text[:300]}[/dim]"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        payload = resp.json()
+    except (ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]API returned non-JSON response: {exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    agents = payload.get("data") or []
+    match = next((a for a in agents if a.get("name") == agent_name), None)
+    if not match:
+        available = ", ".join(a.get("name", "") for a in agents if a.get("name"))
+        console.print(f"[red]Agent '{agent_name}' not found in the registry.[/red]")
+        if available:
+            console.print(f"[dim]Available agents: {available}[/dim]")
+        else:
+            console.print("[dim]The registry is empty.[/dim]")
+        raise typer.Exit(code=1)
+    return match
+
+
+def _agent_to_yaml_dict(agent_record: dict[str, Any]) -> dict[str, Any]:
+    """Build a clean human-readable agent.yaml dict from an API response."""
+    snapshot = agent_record.get("config_snapshot") or {}
+    if isinstance(snapshot, dict) and snapshot:
+        # Prefer the round-trippable snapshot stored at registration time.
+        return _filter_snapshot(snapshot, agent_record)
+
+    # Fallback: synthesize minimal YAML from the flat columns.
+    out: dict[str, Any] = {
+        "name": agent_record.get("name", "agent"),
+        "version": agent_record.get("version", "0.1.0"),
+    }
+    if agent_record.get("description"):
+        out["description"] = agent_record["description"]
+    if agent_record.get("team"):
+        out["team"] = agent_record["team"]
+    if agent_record.get("owner"):
+        out["owner"] = agent_record["owner"]
+    if agent_record.get("tags"):
+        out["tags"] = agent_record["tags"]
+    if agent_record.get("framework"):
+        out["framework"] = agent_record["framework"]
+    model: dict[str, Any] = {}
+    if agent_record.get("model_primary"):
+        model["primary"] = agent_record["model_primary"]
+    if agent_record.get("model_fallback"):
+        model["fallback"] = agent_record["model_fallback"]
+    if model:
+        out["model"] = model
+    return out
+
+
+def _filter_snapshot(snapshot: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    """Drop fields that should never appear in a human-edited agent.yaml."""
+    drop = {"id", "created_at", "updated_at", "status", "endpoint_url"}
+    cleaned = {k: v for k, v in snapshot.items() if k not in drop}
+    # Ensure name matches the API record (snapshot may pre-date renames).
+    if "name" not in cleaned and record.get("name"):
+        cleaned["name"] = record["name"]
+    return cleaned
+
+
+# Preserve insertion order in dumped YAML.
+class _OrderedDumper(yaml.SafeDumper):
+    pass
+
+
+def _represent_dict_preserve(dumper: yaml.SafeDumper, data: dict) -> Any:
+    return dumper.represent_mapping("tag:yaml.org,2002:map", data.items())
+
+
+_OrderedDumper.add_representer(dict, _represent_dict_preserve)
+
+
+def _dump_yaml(data: dict[str, Any]) -> str:
+    return yaml.dump(
+        data,
+        Dumper=_OrderedDumper,
+        default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
+        width=100,
+    )
+
+
+def _resolve_output_dir(
+    name: str, output_dir: str | None, output: str | None, force: bool
+) -> Path:
+    """Compute the eject target dir and bail if it exists without --force."""
+    if output_dir:
+        target = Path(output_dir)
+    elif output:
+        target = Path(output)
+    else:
+        target = Path.cwd() / name
+    target = target.resolve()
+    if target.exists() and any(target.iterdir()) and not force:
+        console.print(
+            f"[red]Output directory already exists and is not empty:[/red] {target}\n"
+            "[dim]Pass --force to overwrite.[/dim]"
+        )
+        raise typer.Exit(code=1)
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 # ---------------------------------------------------------------------------
-# CrewAI scaffold
+# Full-Code scaffold for `--to code` (delegates to init_cmd templates so we
+# stay framework-agnostic with one source of truth).
+# ---------------------------------------------------------------------------
+
+
+def _scaffold_full_code(yaml_data: dict[str, Any], out_dir: Path) -> list[str]:
+    """Write agent.py + requirements.txt + README.md alongside agent.yaml.
+
+    Returns the list of created filenames. Raises typer.Exit if the agent's
+    framework has no scaffold template.
+    """
+    from cli.commands.init_cmd import (
+        AGENT_PY_GENERATORS,
+        _env_example,
+        _readme,
+        _requirements,
+    )
+
+    framework = yaml_data.get("framework", "custom")
+    if framework not in AGENT_PY_GENERATORS:
+        supported = ", ".join(sorted(AGENT_PY_GENERATORS))
+        console.print(
+            f"[red]Cannot eject to code: framework '{framework}' has no scaffold "
+            f"template.[/red]\n[dim]Supported frameworks: {supported}[/dim]"
+        )
+        raise typer.Exit(code=1)
+
+    name = yaml_data.get("name", "agent")
+    deploy = yaml_data.get("deploy") or {}
+    cloud = deploy.get("cloud", "local") if isinstance(deploy, dict) else "local"
+
+    files = {
+        "agent.py": AGENT_PY_GENERATORS[framework](name),
+        "requirements.txt": _requirements(framework),
+        ".env.example": _env_example(framework),
+        "README.md": _readme(name, framework, cloud),
+    }
+    for filename, content in files.items():
+        (out_dir / filename).write_text(content, encoding="utf-8")
+    return list(files)
+
+
+# ---------------------------------------------------------------------------
+# Legacy framework scaffolds (used by direct-YAML invocations + back-compat
+# tests; kept verbatim from the prior implementation).
 # ---------------------------------------------------------------------------
 
 
@@ -48,7 +259,6 @@ def _generate_crewai_scaffold(yaml_content: str, out_dir: Path) -> None:
     description: str = data.get("description") or "an AgentBreeder agent"
     class_name = _to_class_name(name)
 
-    # crew.py
     crew_py = f'''"""CrewAI agent scaffold generated by AgentBreeder eject."""
 
 from crewai import Agent, Crew, Process, Task
@@ -85,7 +295,6 @@ class {class_name}Crew:
         )
 '''
 
-    # config/agents.yaml — use yaml.dump to safely serialize user-supplied strings
     agents_yaml = yaml.dump(
         {
             "primary_agent": {
@@ -98,7 +307,6 @@ class {class_name}Crew:
         allow_unicode=True,
     )
 
-    # config/tasks.yaml
     tasks_yaml = yaml.dump(
         {
             "primary_task": {
@@ -111,10 +319,8 @@ class {class_name}Crew:
         allow_unicode=True,
     )
 
-    # requirements.txt
     requirements = "crewai>=0.80.0\n"
 
-    # Write files
     out_dir.mkdir(parents=True, exist_ok=True)
     config_dir = out_dir / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -123,11 +329,6 @@ class {class_name}Crew:
     (config_dir / "agents.yaml").write_text(agents_yaml, encoding="utf-8")
     (config_dir / "tasks.yaml").write_text(tasks_yaml, encoding="utf-8")
     (out_dir / "requirements.txt").write_text(requirements, encoding="utf-8")
-
-
-# ---------------------------------------------------------------------------
-# Google ADK scaffold
-# ---------------------------------------------------------------------------
 
 
 def _generate_google_adk_scaffold(yaml_content: str, out_dir: Path) -> None:
@@ -205,11 +406,6 @@ root_agent = LlmAgent(
     (out_dir / "requirements.txt").write_text(requirements, encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
-# Claude SDK scaffold
-# ---------------------------------------------------------------------------
-
-
 def _generate_claude_sdk_scaffold(yaml_content: str, out_dir: Path) -> None:
     """Write a Claude SDK project scaffold from agent YAML into *out_dir*."""
     data = yaml.safe_load(yaml_content)
@@ -272,18 +468,15 @@ async def run_agent(user_input: str) -> str:
         )
 
         if response.stop_reason == "end_turn":
-            # Collect all text blocks
             return "".join(
                 block.text for block in response.content if hasattr(block, "text")
             )
 
         if response.stop_reason == "tool_use":
-            # Process tool calls
             messages.append({{"role": "assistant", "content": response.content}})
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    # TODO: dispatch to your actual tool implementations
                     result = f"Tool {{block.name}} called with {{block.input}}"
                     tool_results.append(
                         {{
@@ -295,7 +488,6 @@ async def run_agent(user_input: str) -> str:
             messages.append({{"role": "user", "content": tool_results}})
             continue
 
-        # Unexpected stop reason
         break
 
     return ""
@@ -306,6 +498,11 @@ async def run_agent(user_input: str) -> str:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "agent.py").write_text(agent_py, encoding="utf-8")
     (out_dir / "requirements.txt").write_text(requirements, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Legacy Python / TypeScript SDK code generation (used by `--sdk python|typescript`)
+# ---------------------------------------------------------------------------
 
 
 def _generate_python_sdk(yaml_content: str) -> str:
@@ -325,15 +522,14 @@ def _generate_python_sdk(yaml_content: str) -> str:
         "",
     ]
 
-    # Start builder chain
     name = data.get("name", "my-agent")
-    version = data.get("version", "1.0.0")
+    version_str = data.get("version", "1.0.0")
     team = data.get("team", "default")
     desc = data.get("description", "")
 
     chain_parts: list[str] = []
 
-    init_args = f'"{name}", version="{version}", team="{team}"'
+    init_args = f'"{name}", version="{version_str}", team="{team}"'
     if desc:
         init_args += f', description="{desc}"'
     owner = data.get("owner", "")
@@ -345,7 +541,6 @@ def _generate_python_sdk(yaml_content: str) -> str:
 
     chain_parts.append(f"    Agent({init_args})")
 
-    # Model
     model = data.get("model")
     if isinstance(model, dict):
         primary = model.get("primary", "")
@@ -361,13 +556,11 @@ def _generate_python_sdk(yaml_content: str) -> str:
             model_args += f", max_tokens={max_tok}"
         chain_parts.append(f"    .with_model({model_args})")
 
-    # Prompts
     prompts = data.get("prompts")
     if isinstance(prompts, dict) and "system" in prompts:
         system = prompts["system"]
         chain_parts.append(f'    .with_prompt(system="{system}")')
 
-    # Tools
     tools = data.get("tools", [])
     for tool in tools:
         if isinstance(tool, dict):
@@ -378,7 +571,6 @@ def _generate_python_sdk(yaml_content: str) -> str:
                 desc_part = f', description="{desc}"' if desc else ""
                 chain_parts.append(f'    .with_tool(Tool(name="{tool["name"]}"{desc_part}))')
 
-    # Memory
     memory = data.get("memory")
     if isinstance(memory, dict):
         backend = memory.get("backend", "in_memory")
@@ -388,12 +580,10 @@ def _generate_python_sdk(yaml_content: str) -> str:
             mem_args += f", max_messages={max_msg}"
         chain_parts.append(f"    .with_memory({mem_args})")
 
-    # Guardrails
     for g in data.get("guardrails", []):
         if isinstance(g, str):
             chain_parts.append(f'    .with_guardrail("{g}")')
 
-    # Deploy
     deploy = data.get("deploy")
     if isinstance(deploy, dict):
         cloud = deploy.get("cloud", "local")
@@ -406,31 +596,17 @@ def _generate_python_sdk(yaml_content: str) -> str:
             deploy_args += f', region="{region}"'
         chain_parts.append(f"    .with_deploy({deploy_args})")
 
-    # Tags
     tags = data.get("tags", [])
     if tags:
         tag_str = ", ".join(f'"{t}"' for t in tags)
         chain_parts.append(f"    .tag({tag_str})")
 
-    # Assemble
     lines.append("agent = (")
     lines.append("\n".join(chain_parts))
     lines.append(")")
     lines.append("")
     lines.append("")
     lines.append("# --- Customize below this line ---")
-    lines.append("")
-    lines.append("# Add middleware (runs on every turn)")
-    lines.append("# @agent.use")
-    lines.append("# def log_turns(message, context, next_fn):")
-    lines.append('#     print(f"Turn: {message}")')
-    lines.append("#     return next_fn(message, context)")
-    lines.append("")
-    lines.append("# Register event hooks")
-    lines.append("# @agent.on('turn_start')")
-    lines.append("# def on_start(context):")
-    lines.append('#     print("Turn started")')
-    lines.append("")
     lines.append("")
     lines.append('if __name__ == "__main__":')
     lines.append("    errors = agent.validate()")
@@ -461,13 +637,13 @@ def _generate_typescript_sdk(yaml_content: str) -> str:
     ]
 
     name = data.get("name", "my-agent")
-    version = data.get("version", "1.0.0")
+    version_str = data.get("version", "1.0.0")
     team = data.get("team", "default")
     desc = data.get("description", "")
     owner = data.get("owner", "")
     framework = data.get("framework", "custom")
 
-    opts_parts: list[str] = [f'  version: "{version}"']
+    opts_parts: list[str] = [f'  version: "{version_str}"']
     opts_parts.append(f'  team: "{team}"')
     if desc:
         opts_parts.append(f'  description: "{desc}"')
@@ -480,7 +656,6 @@ def _generate_typescript_sdk(yaml_content: str) -> str:
     lines.append(",\n".join(opts_parts))
     lines.append("})")
 
-    # Model
     model = data.get("model")
     if isinstance(model, dict):
         primary = model.get("primary", "")
@@ -494,12 +669,10 @@ def _generate_typescript_sdk(yaml_content: str) -> str:
         opts_str = ", { " + ", ".join(opts) + " }" if opts else ""
         lines.append(f'  .withModel("{primary}"{opts_str})')
 
-    # Prompts
     prompts = data.get("prompts")
     if isinstance(prompts, dict) and "system" in prompts:
         lines.append(f'  .withPrompt("{prompts["system"]}")')
 
-    # Tools
     for tool in data.get("tools", []):
         if isinstance(tool, dict):
             if "ref" in tool:
@@ -507,25 +680,21 @@ def _generate_typescript_sdk(yaml_content: str) -> str:
             elif "name" in tool:
                 lines.append(f'  .withTool(new Tool({{ name: "{tool["name"]}" }}))')
 
-    # Subagents
     for sub in data.get("subagents", []):
         if isinstance(sub, dict) and "ref" in sub:
             sub_desc = sub.get("description", "")
             desc_part = f', {{ description: "{sub_desc}" }}' if sub_desc else ""
             lines.append(f'  .withSubagent("{sub["ref"]}"{desc_part})')
 
-    # Guardrails
     for g in data.get("guardrails", []):
         if isinstance(g, str):
             lines.append(f'  .withGuardrail("{g}")')
 
-    # Deploy
     deploy = data.get("deploy")
     if isinstance(deploy, dict):
         cloud = deploy.get("cloud", "local")
         lines.append(f'  .withDeploy("{cloud}")')
 
-    # Tags
     tags = data.get("tags", [])
     if tags:
         tag_str = ", ".join(f'"{t}"' for t in tags)
@@ -546,45 +715,118 @@ def _generate_typescript_sdk(yaml_content: str) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Main command
+# ---------------------------------------------------------------------------
+
+
 def eject(
-    config_path: Path = typer.Argument(
-        ...,
-        help="Path to agent.yaml",
-        exists=True,
-        readable=True,
+    target: str | None = typer.Argument(
+        None,
+        help=(
+            "Agent name to fetch from the registry, OR path to an existing "
+            "agent.yaml file (legacy mode)."
+        ),
+    ),
+    to: str = typer.Option(
+        "yaml",
+        "--to",
+        help="Eject target: 'yaml' (write agent.yaml only) or 'code' (scaffold full project).",
+    ),
+    output_dir: str | None = typer.Option(
+        None,
+        "--output-dir",
+        help="Directory to write to. Defaults to ./<agent-name>/.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite an existing non-empty output directory.",
+    ),
+    # ── Legacy flags (preserved for the prior `eject agent.yaml --sdk ...` flow) ──
+    config_path: Path | None = typer.Option(
+        None,
+        "--config",
+        help="(Legacy) Explicit path to an agent.yaml file.",
     ),
     sdk: str = typer.Option(
         "python",
         "--sdk",
-        help="Target SDK language: 'python' or 'typescript'",
+        help="(Legacy) Target SDK language when ejecting a YAML file directly: python | typescript.",
     ),
     output: str | None = typer.Option(
         None,
         "--output",
         "-o",
-        help="Output file path. Defaults to agents/<name>/agent_sdk.{py,ts}",
+        help="(Legacy) Output file path for --sdk-style invocations.",
     ),
 ) -> None:
-    """Generate SDK scaffold code from an agent.yaml file.
+    """Tier mobility — eject an agent from Low Code to YAML or Full Code.
 
-    Converts a Low Code YAML definition to Full Code SDK for
-    custom routing, middleware, hooks, and state management.
+    Examples:
+
+      agentbreeder eject my-agent --to yaml      # fetch from registry, emit agent.yaml
+      agentbreeder eject my-agent --to code      # also scaffold agent.py + requirements
+      agentbreeder eject ./agent.yaml --sdk python  # legacy: SDK code from a YAML file
     """
-    yaml_content = config_path.read_text(encoding="utf-8")
+    # ── Path 1: legacy YAML-file dispatch ────────────────────────────
+    # Triggered when `config_path` is explicit, or when the positional arg
+    # is a real file on disk. This preserves the pre-existing scaffold
+    # behavior (and its tests) for crewai / google_adk / claude_sdk.
+    yaml_file: Path | None = None
+    if config_path is not None:
+        yaml_file = config_path
+    elif target and _looks_like_path(target):
+        yaml_file = Path(target)
 
-    # Detect framework from YAML to dispatch to the right scaffold generator
-    _parsed: dict | None = None
+    if yaml_file is not None:
+        return _eject_from_yaml_file(yaml_file, output=output, sdk=sdk)
+
+    # ── Path 2: documented mode — fetch agent by name and write files ──
+    if not target:
+        console.print(
+            "[red]Missing argument:[/red] provide an agent name "
+            "([bold]agentbreeder eject my-agent --to yaml[/bold]) "
+            "or a path to an existing agent.yaml file."
+        )
+        raise typer.Exit(code=1)
+
+    if to not in ("yaml", "code"):
+        console.print(f"[red]--to must be 'yaml' or 'code' (got '{to}').[/red]")
+        raise typer.Exit(code=1)
+
+    agent_record = _fetch_agent_from_registry(target)
+    yaml_data = _agent_to_yaml_dict(agent_record)
+    name = yaml_data.get("name") or target
+
+    out_dir = _resolve_output_dir(name, output_dir, output, force)
+
+    # Always write agent.yaml.
+    yaml_text = _dump_yaml(yaml_data)
+    (out_dir / "agent.yaml").write_text(yaml_text, encoding="utf-8")
+    created = ["agent.yaml"]
+
+    if to == "code":
+        created.extend(_scaffold_full_code(yaml_data, out_dir))
+
+    _print_summary(name, to, out_dir, created)
+
+
+def _eject_from_yaml_file(yaml_file: Path, output: str | None, sdk: str) -> None:
+    """Original behavior: read agent.yaml from disk and dispatch by framework."""
+    yaml_content = yaml_file.read_text(encoding="utf-8")
+
+    parsed: dict | None = None
     try:
-        _parsed = yaml.safe_load(yaml_content)
-        framework = _parsed.get("framework", "") if isinstance(_parsed, dict) else ""
+        parsed = yaml.safe_load(yaml_content)
+        framework = parsed.get("framework", "") if isinstance(parsed, dict) else ""
     except Exception:
         framework = ""
 
-    # Determine output directory for framework scaffolds
     if output:
         out_dir = Path(output)
     else:
-        data_for_name = _parsed if isinstance(_parsed, dict) else {}
+        data_for_name = parsed if isinstance(parsed, dict) else {}
         agent_name = data_for_name.get("name", "agent")
         out_dir = Path("agents") / agent_name
 
@@ -595,35 +837,27 @@ def eject(
             console.print(f"[red]Failed to generate CrewAI scaffold: {e}[/red]")
             raise typer.Exit(1) from e
         typer.echo(f"CrewAI scaffold written to {out_dir}")
-        typer.echo("  crew.py          — CrewAI crew definition")
-        typer.echo("  config/agents.yaml  — Agent configs")
-        typer.echo("  config/tasks.yaml   — Task configs")
-        typer.echo("  requirements.txt — Python dependencies")
         return
 
-    elif framework == "google_adk":
+    if framework == "google_adk":
         try:
             _generate_google_adk_scaffold(yaml_content, out_dir)
         except Exception as e:
             console.print(f"[red]Failed to generate Google ADK scaffold: {e}[/red]")
             raise typer.Exit(1) from e
         typer.echo(f"Google ADK scaffold written to {out_dir}")
-        typer.echo("  agent.py         — ADK agent definition")
-        typer.echo("  requirements.txt — Python dependencies")
         return
 
-    elif framework == "claude_sdk":
+    if framework == "claude_sdk":
         try:
             _generate_claude_sdk_scaffold(yaml_content, out_dir)
         except Exception as e:
             console.print(f"[red]Failed to generate Claude SDK scaffold: {e}[/red]")
             raise typer.Exit(1) from e
         typer.echo(f"Claude SDK scaffold written to {out_dir}")
-        typer.echo("  agent.py         — Claude SDK async agent with tool loop")
-        typer.echo("  requirements.txt — Python dependencies")
         return
 
-    # Fall through to legacy python/typescript SDK generation
+    # Fall through to legacy python/typescript SDK generation.
     if sdk not in ("python", "typescript"):
         console.print(f"[red]Unsupported SDK: {sdk}. Use 'python' or 'typescript'.[/red]")
         raise typer.Exit(1)
@@ -641,7 +875,6 @@ def eject(
         console.print(f"[red]Failed to generate SDK code: {e}[/red]")
         raise typer.Exit(1) from e
 
-    # Determine output path
     if output:
         out_path = Path(output)
     else:
@@ -660,4 +893,36 @@ def eject(
         )
     )
     console.print(f"\n[green]SDK scaffold written to[/green] [bold]{out_path}[/bold]")
-    console.print("[dim]Edit the file to add custom routing, middleware, and hooks.[/dim]")
+
+
+def _print_summary(name: str, mode: str, out_dir: Path, created: list[str]) -> None:
+    """Friendly summary + next-steps panel."""
+    files_block = "\n".join(f"  [green]✓[/green] {f}" for f in created)
+    if mode == "yaml":
+        next_steps = (
+            f"  [dim]$[/dim] cd {out_dir.name}\n"
+            "  [dim]$[/dim] agentbreeder validate agent.yaml\n"
+            "  [dim]$[/dim] agentbreeder deploy --target local"
+        )
+        tier_note = "[dim]Tier moved: registry/No Code → Low Code (YAML).[/dim]"
+    else:
+        next_steps = (
+            f"  [dim]$[/dim] cd {out_dir.name}\n"
+            "  [dim]$[/dim] pip install -r requirements.txt\n"
+            "  [dim]$[/dim] python agent.py\n"
+            "  [dim]$[/dim] agentbreeder deploy --target local"
+        )
+        tier_note = "[dim]Tier moved: registry/No Code → Full Code (SDK).[/dim]"
+
+    console.print(
+        Panel(
+            f"[bold green]Ejected '{name}' to {out_dir}[/bold green]\n\n"
+            f"{files_block}\n\n"
+            f"  [bold]Next steps:[/bold]\n\n"
+            f"{next_steps}\n\n"
+            f"{tier_note}",
+            title="[bold]Eject complete[/bold]",
+            border_style="green",
+            padding=(1, 2),
+        )
+    )

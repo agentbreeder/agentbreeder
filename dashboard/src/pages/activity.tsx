@@ -328,7 +328,8 @@ export default function ActivityPage() {
     queryFn: () =>
       api.audit.list({
         resource_type: resourceFilter !== "all" ? resourceFilter : undefined,
-        per_page: 500,
+        // The audit endpoint caps per_page at 100 (422 above that).
+        per_page: 100,
       }),
   });
 

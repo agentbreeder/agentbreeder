@@ -94,10 +94,7 @@ export default function OrchestrationBuilderPage() {
 
   // Load existing orchestration if ?id= provided
   useEffect(() => {
-    if (!orchId) {
-      setLoadedId(null);
-      return;
-    }
+    if (!orchId) return;
     let cancelled = false;
     api.orchestrations
       .get(orchId)

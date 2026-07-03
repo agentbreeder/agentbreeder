@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { authFetch } from "@/lib/api";
 import { ChevronDown, ChevronRight, RefreshCw, RotateCcw, TrendingDown, Power } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -82,7 +83,7 @@ export default function IncidentsPage() {
       const params = new URLSearchParams();
       if (filterStatus !== "all") params.set("status", filterStatus);
       if (filterSeverity !== "all") params.set("severity", filterSeverity);
-      const res = await fetch(`${API}/incidents?${params}`);
+      const res = await authFetch(`${API}/incidents?${params}`);
       const json = await res.json();
       setIncidents(json.data ?? []);
     } catch (err) {
@@ -102,7 +103,7 @@ export default function IncidentsPage() {
   async function executeAction(incidentId: string, action: string) {
     setActionLoading(`${incidentId}-${action}`);
     try {
-      await fetch(`${API}/incidents/${incidentId}/actions`, {
+      await authFetch(`${API}/incidents/${incidentId}/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
@@ -117,7 +118,7 @@ export default function IncidentsPage() {
 
   async function updateStatus(incidentId: string, status: string) {
     try {
-      await fetch(`${API}/incidents/${incidentId}`, {
+      await authFetch(`${API}/incidents/${incidentId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),

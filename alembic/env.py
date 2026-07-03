@@ -8,6 +8,14 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+
+# Import every module that defines tables on Base so autogenerate sees the
+# full metadata — without these, models in audit/costs/teams/tracing are
+# invisible to Alembic and their tables silently never get migrations.
+from api.models import audit as _audit  # noqa: F401
+from api.models import costs as _costs  # noqa: F401
+from api.models import teams as _teams  # noqa: F401
+from api.models import tracing as _tracing  # noqa: F401
 from api.models.database import Base
 
 config = context.config

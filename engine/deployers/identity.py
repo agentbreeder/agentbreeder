@@ -108,17 +108,19 @@ def provision_aws_identity(agent_name: str, config: IdentityConfig) -> Provision
         if config.permissions:
             statements = []
             for perm in config.permissions:
-                # Format: "Action:Resource" where Resource may contain colons
+                # Format: "Service:Action:Resource" where Resource may contain colons
+                # e.g. "s3:GetObject:arn:aws:s3:::my-bucket/*"
                 parts = perm.split(":", 2)
                 if len(parts) == 3:
                     action = f"{parts[0]}:{parts[1]}"
                     resource = parts[2]
-                elif len(parts) == 2:
-                    action = perm
-                    resource = "*"
                 else:
-                    action = perm
-                    resource = "*"
+                    raise ValueError(
+                        f"Invalid permission format {perm!r}. "
+                        "Expected 'Service:Action:ResourceARN', e.g. "
+                        "'s3:GetObject:arn:aws:s3:::my-bucket/*'. "
+                        "Wildcard resources are not permitted — specify an explicit ARN."
+                    )
                 statements.append({"Effect": "Allow", "Action": [action], "Resource": resource})
             policy_doc = {"Version": "2012-10-17", "Statement": statements}
             iam.put_role_policy(

@@ -93,8 +93,16 @@ jobs:
               case "$yaml_file" in examples/templates/*) continue ;; esac
               # Skip Google ADK native root_agent.yaml files — framework-specific format, not agent.yaml
               case "$yaml_file" in */root_agent.yaml) continue ;; esac
-              echo "Validating: $yaml_file"
-              python -m cli.main validate "$yaml_file" 2>&1 || {
+              # Snippet YAMLs (files NOT named agent.yaml AND not next to agent.py)
+              # are docs/illustration only — validate schema, skip the runtime-file check.
+              FLAGS=""
+              base=$(basename "$yaml_file")
+              dir=$(dirname "$yaml_file")
+              if [ "$base" != "agent.yaml" ] && [ ! -f "$dir/agent.py" ]; then
+                FLAGS="--schema-only"
+              fi
+              echo "Validating: $yaml_file $FLAGS"
+              python -m cli.main validate "$yaml_file" $FLAGS 2>&1 || {
                 echo "::error file=$yaml_file::YAML validation failed"
                 FAILED=1
               }

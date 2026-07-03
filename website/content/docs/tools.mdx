@@ -161,15 +161,13 @@ Response:
   </Tab>
   <Tab value="Python SDK">
 ```python
-from agenthub import Agent
+from agenthub import Agent, Tool
 
 agent = (
     Agent("support-agent")
         .with_framework("langgraph")
-        .with_tools([
-            "tools/order-lookup",       # registry reference
-            "tools/zendesk-mcp",
-        ])
+        .with_tool(Tool.from_ref("tools/order-lookup"))     # registry reference
+        .with_tool(Tool.from_ref("tools/zendesk-mcp"))
         .with_deploy(cloud="aws", runtime="app-runner")
 )
 ```

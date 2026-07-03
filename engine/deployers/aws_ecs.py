@@ -103,25 +103,14 @@ AGENT_PUBLIC_PORT = 8080
 
 
 def _docker_client() -> Any:
-    """Return a Docker client that works on multi-user machines.
+    """Return a Docker client that works on multi-user machines / Docker Desktop.
 
-    Honors ``DOCKER_HOST``; otherwise prefers the current user's Docker Desktop
-    socket (``~/.docker/run/docker.sock``) over ``/var/run/docker.sock`` — on a
-    shared host the latter can symlink to another user's root-owned socket,
-    which makes the Python SDK fail with ``PermissionError(13)`` even though the
-    ``docker`` CLI (which uses the Desktop context) works fine.
+    Thin wrapper over the shared :func:`engine.deployers._docker.docker_client`
+    so all three cloud deployers resolve the Docker socket identically.
     """
-    import os
-    from pathlib import Path
+    from engine.deployers._docker import docker_client
 
-    import docker
-
-    if os.environ.get("DOCKER_HOST"):
-        return docker.from_env()
-    user_socket = Path.home() / ".docker" / "run" / "docker.sock"
-    if user_socket.exists():
-        return docker.DockerClient(base_url=f"unix://{user_socket}")
-    return docker.from_env()
+    return docker_client()
 
 
 class AWSECSConfig(BaseModel):

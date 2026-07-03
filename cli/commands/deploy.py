@@ -83,6 +83,7 @@ def deploy(
         help=(
             "Deploy target: local | gcp | cloud-run | aws | ecs-fargate"
             " | azure | container-apps | kubernetes | eks | gke | aks"
+            " | claude-managed"
         ),
     ),
     json_output: bool = typer.Option(
@@ -108,8 +109,9 @@ def deploy(
         "--provision",
         "-p",
         help=(
-            "Greenfield-provision the cloud footprint (VPC, subnets, cluster, IAM) "
-            "for a fresh account before deploying. AWS only; local mode only."
+            "Greenfield-provision the cloud footprint (network, registry, cluster/"
+            "environment, IAM) for a fresh account before deploying. Supports AWS, "
+            "GCP, and Azure; local mode only."
         ),
     ),
 ) -> None:
@@ -141,7 +143,7 @@ def _deploy_local(
     always go through ``--remote``.
 
     When ``provision`` is set, the engine greenfield-provisions the cloud
-    footprint before deploying (AWS only; #537).
+    footprint before deploying (AWS, GCP, or Azure; #537, parity #505).
     """
     if not json_output:
         provision_note = " [yellow](+ greenfield provisioning)[/yellow]" if provision else ""

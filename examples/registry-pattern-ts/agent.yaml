@@ -5,7 +5,14 @@ team: examples
 owner: dev@agentbreeder.com
 tags: [example, typescript, registry-pattern]
 
-framework: custom
+# This is a TypeScript example — use the Node runtime, not the Python
+# 'custom' framework path. The Node runtime expects agent.ts as the entry
+# point (which already exists alongside this agent.yaml).
+runtime:
+  language: node
+  framework: custom
+  version: "20"
+  entrypoint: agent.ts
 
 model:
   primary: gemini-2.5-flash
