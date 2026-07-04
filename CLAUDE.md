@@ -750,6 +750,26 @@ When you add or change a feature, record what must change on **each** side, in b
 > The cloud project uses `agentbreeder` packages as its deploy infrastructure.
 > A silent break in OSS will silently break Cloud. The website going stale misrepresents the product.
 
+### Design system source of truth (#583)
+
+The AgentBreeder visual system lives in **`dashboard/src/styles/brand.css`** — the dark
+palette, the Tailwind v4 `@theme` mapping, brand keyframes (`ab-pulse`,
+`ab-glow-breathe`), and brand utilities (`gradient-text`, `ab-radial-glow`,
+`ab-card-glow`, `ab-status-dot`). `dashboard/src/index.css` `@import`s it after the
+Tailwind/shadcn/font imports; `@custom-variant dark` and `@layer base` stay in
+`index.css` (they are build directives, not portable tokens).
+
+**This file is the single source of truth for the brand, consumed OSS → Cloud → Website:**
+- **Cloud** (`agentbreeder-cloud/dashboard/app/tokens.css`) vendors a snapshot of the
+  portable slice and drift-checks its `.dark` block against `brand.css` on every build
+  (`npm run tokens:check`). Changes flow **OSS → Cloud, never the reverse** — edit
+  `brand.css` here, then re-vendor into Cloud.
+- Keep the palette **oklch-exact** with `agentbreeder.io`. If you change a token, the
+  Cloud drift-guard will fail until Cloud re-vendors — that's intentional.
+- A published npm package can wrap this same file as a follow-up; the file is already
+  the portable, build-agnostic layer, so the physical location is the only thing that
+  changes when it graduates to a package.
+
 ---
 
 ## 🎯 When Adding a New Feature
