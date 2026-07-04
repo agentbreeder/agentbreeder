@@ -720,6 +720,22 @@ async def test_deploy_validates_rbac_before_building():
 
 ---
 
+## 🚦 Standard Delivery Workflow (Definition of Done)
+
+**Every enhancement or fix follows this pipeline end-to-end.** Each step gates the next — don't skip. This is the standard process across the AgentBreeder repos and must stay identical in both `CLAUDE.md` files.
+
+1. **Track it** — create a GitHub **epic + sub-issues** for the change (one epic per enhancement/fix; sub-issues per milestone/slice). No substantial work without an issue.
+2. **Spec it** — write a spec *before* code (problem, goal, scope, acceptance criteria, cross-repo split). Store under `docs/superpowers/specs/`. Use the `brainstorming` → `spec` skills.
+3. **Design-review the spec** through the required lenses, folding findings back in: **`/architect`** (architecture), **`frontend-design`** (visual/UX), **`ui-ux-pro-max`** (UI/UX Pro Max), and **`/security`**. For a user-facing/marketing surface also run **`marketing-ideas` / `seo-audit` / `ai-seo`**.
+4. **Plan it** — write the implementation details (tasks, sequencing, cross-repo split) under `docs/superpowers/plans/`.
+5. **Codex-reviews the plan/implementation** — hand it to **Codex** (`codex review`), apply valid findings, **re-review in a loop until it converges** (see *AI Harnesses & Code Review* below).
+6. **Gate it** — after implementation run the **`/launch` quality gate** (tests ≥ threshold, security 0 critical/high, build, Docker, cloud-security). Enforced by the pre-commit gate hook — a commit/push is blocked until all gates pass for the exact tree.
+7. **Branch + PR** — conventional-named feature branch; open a PR (stack PRs when milestones build on each other).
+8. **Merge gate** — merge **only when CI is green AND Codex has approved.** Both are required.
+9. **Auto-merge** — once (8) holds, enable **auto-merge** (squash) so it lands as soon as required checks pass.
+
+For changes spanning OSS/Cloud/Website, run this pipeline per the **Cross-Repo Sync Policy** below and keep issues, terminology, and PRs aligned across repos.
+
 ## 🤖 AI Harnesses & Code Review (Claude + Codex)
 
 This repo is worked on by **two AI coding harnesses**, and both guidance files must stay in sync:
