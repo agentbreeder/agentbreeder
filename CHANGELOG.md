@@ -8,6 +8,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Changed
+- **Design system extracted into `dashboard/src/styles/brand.css` (#583).** The
+  AgentBreeder brand layer — dark palette, Tailwind v4 `@theme` mapping, brand
+  keyframes (`ab-pulse`, `ab-glow-breathe`), and brand utilities (`gradient-text`,
+  `ab-radial-glow`, `ab-card-glow`, `ab-status-dot`) — moved out of
+  `dashboard/src/index.css` into a dedicated, portable `brand.css` that
+  `index.css` now `@import`s (`@custom-variant`/`@layer base` stay in `index.css`).
+  This is the single source of truth for the brand, consumed OSS → Cloud → Website:
+  the Cloud console vendors a snapshot and drift-checks the `.dark` + `@theme`
+  tokens against it. Pure source-level reorganization — compiled CSS is
+  byte-identical before/after (`npm run build`), zero visual regression.
+
 ### Fixed
 - **Packaging follow-up to issue #560.** `examples/quickstart/*.yaml` now ships
   in the published wheel via hatch `force-include`; `Dockerfile` COPYs
