@@ -730,6 +730,8 @@ async def test_deploy_validates_rbac_before_building():
 4. **Plan it** — write the implementation details (tasks, sequencing, cross-repo split) under `docs/superpowers/plans/`.
 5. **Codex-reviews the plan/implementation** — hand it to **Codex** (`codex review`), apply valid findings, **re-review in a loop until it converges** (see *AI Harnesses & Code Review* below).
 6. **Gate it** — after implementation run the **`/launch` quality gate** (tests ≥ threshold, security 0 critical/high, build, Docker, cloud-security). Enforced by the pre-commit gate hook — a commit/push is blocked until all gates pass for the exact tree.
+   - **Exception — internal docs/inert-tooling changes only** (`CLAUDE.md`/`AGENTS.md`/plan/spec markdown, `.gitignore`): skip the full multi-gate suite and instead get a `codex review --uncommitted` pass, then run `python3 ~/100xprism/hooks/gate-pass.py` to unblock the commit hook. **Never extend this exception to CI workflows (`.github/workflows/*.yml`), `Dockerfile`, `docker-compose.yml`, or anything else that controls build/test/deploy behavior** — those go through the full gate like application code, since a broken pipeline config is exactly what the gate exists to catch.
+   - **`.gitignore` specifically:** a bad ignore rule can hide secrets or drop tracked source, so treat any `.gitignore` edit as security-sensitive even under this exception — the Codex review must explicitly verify (a) no previously-committed pattern that protected a real secret was weakened, and (b) no newly-untracked file exposes one. A generic "looks fine" Codex pass is not enough; ask Codex (or the security workflow) to check both directions before recording the gate pass.
 7. **Branch + PR** — conventional-named feature branch; open a PR (stack PRs when milestones build on each other).
 8. **Merge gate** — merge **only when CI is green AND Codex has approved.** Both are required.
 9. **Auto-merge** — once (8) holds, enable **auto-merge** (squash) so it lands as soon as required checks pass.
@@ -746,6 +748,7 @@ This repo is worked on by **two AI coding harnesses**, and both guidance files m
 
 ```bash
 codex review --base main        # review current branch vs main
+codex review --uncommitted      # review staged/unstaged/untracked changes (use before the first commit of a docs/config-only fix — see gate exception above)
 # NOTE: do NOT pass a custom prompt string together with --base (they conflict).
 ```
 
