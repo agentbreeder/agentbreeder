@@ -91,7 +91,9 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          pip install -e ".[dev]"
+          pip install -e "./sdk/python[mcp]"
 
       - name: Configure git identity for tests
         run: |

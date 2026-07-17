@@ -1,27 +1,42 @@
-"""RAG index client for the AgentBreeder SDK.
+"""RAG clients for the AgentBreeder SDK.
 
-Provides a thin wrapper over the ``/api/v1/rag/*`` HTTP API for ingesting
-files into a registered RAG index and running semantic search against it.
+Two surfaces:
 
-Usage::
+* **``RagIndex``** — synchronous HTTP client for ``/api/v1/rag/*`` (ingest + search).
+* **MCP tools** — async wrappers around the RAG MCP server (``rag.search``, etc.)
+  that delegate to the local sidecar's MCP endpoint. See ``docs/architecture/rag-tools.md``.
+
+Usage (HTTP index client)::
 
     from agenthub import RagIndex
 
     index = RagIndex("agentbreeder-knowledge", token=token)
     job = index.ingest(["./docs/intro.md", "./docs/quickstart.pdf"])
     hits = index.search("how do I deploy an agent?", top_k=5)
-    for h in hits:
-        print(h["score"], h["source"], h["text"][:120])
+
+Usage (MCP tools — deployed agents)::
+
+    from agenthub.rag_mcp import search, upsert
+
+    response = await search("kb/support-docs", "How do I refund?", k=5)
+    for hit in response.results:
+        print(hit.source_path, hit.text[:100])
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
+
+if TYPE_CHECKING:
+    pass
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_EXTS = {".pdf", ".txt", ".md", ".csv", ".json"}
 _CONTENT_TYPES = {

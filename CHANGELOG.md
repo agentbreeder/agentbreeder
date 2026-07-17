@@ -8,6 +8,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+
+### Added
+- **Python SDK**: async `RagMcpClient` wrapping the 8 RAG MCP tools (experimental). (#574)
+
 ### Changed
 - **Design system extracted into `dashboard/src/styles/brand.css` (#583).** The
   AgentBreeder brand layer — dark palette, Tailwind v4 `@theme` mapping, brand
@@ -19,6 +23,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
   the Cloud console vendors a snapshot and drift-checks the `.dark` + `@theme`
   tokens against it. Pure source-level reorganization — compiled CSS is
   byte-identical before/after (`npm run build`), zero visual regression.
+
 
 ### Fixed
 - **Packaging follow-up to issue #560.** `examples/quickstart/*.yaml` now ships

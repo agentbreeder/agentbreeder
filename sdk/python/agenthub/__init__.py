@@ -1,20 +1,15 @@
 """AgentBreeder Python SDK — Full Code tier.
-
 Define, validate, serialize, and deploy agents and orchestrations programmatically.
-
 Usage::
-
     from agenthub import Agent, Tool, Model, Memory
     from agenthub import Orchestration, Pipeline, FanOut, Supervisor
     from agenthub import KeywordRouter, IntentRouter, RoundRobinRouter, ClassifierRouter
-
     agent = (
         Agent("my-agent", version="1.0.0", team="eng")
         .with_model(primary="claude-sonnet-4")
         .with_prompt(system="You are helpful.")
         .with_deploy(cloud="aws")
     )
-
     pipeline = (
         Orchestration("support", strategy="router", team="eng")
         .add_agent("triage", ref="agents/triage")
@@ -44,11 +39,37 @@ from .orchestration import (
     Supervisor,
     SupervisorConfig,
 )
-from .rag import IngestResult, RagIndex, RagIndexError
+from .rag import (
+    IngestResult,
+    RagIndex,
+    RagIndexError,
+)
+from .rag_mcp import (
+    CypherResponse,
+    DeleteResponse,
+    ListIndexesResponse,
+    NeighborhoodResponse,
+    RagChunk,
+    RagIndexInfo,
+    RagMcpError,
+    RagMcpToolError,
+    RagMcpTransportError,
+    SearchResponse,
+    StatsResponse,
+    UpsertResponse,
+    close_default_client,
+    cypher,
+    delete,
+    list_indexes,
+    neighborhood,
+    query,
+    search,
+    stats,
+    upsert,
+)
 from .tool import Tool, ToolConfig
 
 __version__ = "0.1.0"
-
 __all__ = [
     # Agent
     "Agent",
@@ -61,10 +82,32 @@ __all__ = [
     "PromptConfig",
     "Tool",
     "ToolConfig",
-    # RAG
+    # RAG — HTTP index client
     "RagIndex",
     "RagIndexError",
     "IngestResult",
+    # RAG — MCP tools (#279)
+    "RagMcpError",
+    "RagMcpTransportError",
+    "RagMcpToolError",
+    "RagChunk",
+    "SearchResponse",
+    "NeighborhoodResponse",
+    "CypherResponse",
+    "UpsertResponse",
+    "DeleteResponse",
+    "RagIndexInfo",
+    "ListIndexesResponse",
+    "StatsResponse",
+    "search",
+    "query",
+    "neighborhood",
+    "cypher",
+    "upsert",
+    "delete",
+    "list_indexes",
+    "stats",
+    "close_default_client",
     # Orchestration — builders
     "Orchestration",
     "Pipeline",
