@@ -115,10 +115,13 @@ AgentBreeder ships across **three repositories** that must stay in sync at all t
 
 ## Resume & live state (read FIRST when resuming)
 
-- **`RESOLVE.md`** — the live loop cursor (current epic / stage / NEXT ACTION).
-  Read it INSTEAD of scanning `ROADMAP.md` (3.4k lines / ~50k tok) to find
-  what's live. Update its `## LIVE` block at every stage boundary, then
-  `/clear` (free) rather than `/compact` (paid). `ROADMAP.md` is history only.
+- **`RESOLVE.md`** (gitignored working state) — the live loop cursor (current
+  epic / stage / NEXT ACTION). **If present**, read it INSTEAD of scanning
+  `ROADMAP.md` (3.4k lines / ~50k tok) to find what's live; update its
+  `## LIVE` block at every stage boundary, then `/clear` (free) rather than
+  `/compact` (paid). **If absent** (fresh clone / new contributor), fall back
+  to `ROADMAP.md` + the normal onboarding flow, and create RESOLVE.md when you
+  start a loop. `ROADMAP.md` is long-form history only.
 
 ## Reference router — read the doc before working in its area
 
