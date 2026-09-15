@@ -1,313 +1,34 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentbreeder"
-dynamic = ["version"]
-description = "Define Once. Deploy Anywhere. Govern Automatically."
+version = "0.0.0.dev0"
+description = "Development foundation for deploying existing agents in customer infrastructure"
 readme = "README.md"
-license = "Apache-2.0"
 requires-python = ">=3.11"
-authors = [{ name = "AgentBreeder Contributors" }]
-keywords = ["ai", "agents", "deployment", "governance", "mlops"]
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Libraries",
-]
-dependencies = [
-    "agentbreeder-sdk>=0.1.0",
-    "fastapi>=0.110.0",
-    "uvicorn[standard]>=0.27.0",
-    "sqlalchemy[asyncio]>=2.0.0",
-    "asyncpg>=0.29.0",
-    "alembic>=1.13.0",
-    "pydantic[email]>=2.0.0",
-    "pydantic-settings>=2.0.0",
-    "typer[all]>=0.9.0",
-    "rich>=13.0.0",
-    "ruamel.yaml>=0.18.0",
-    "jsonschema>=4.20.0",
-    "docker>=7.0.0",
-    "httpx>=0.27.0",
-    "redis>=5.0.0",
-    "PyJWT[crypto]>=2.13.0",   # GHSA-* — algorithm-confusion + key-confusion fixes
-    "bcrypt>=4.0.0",
-    "python-multipart>=0.0.31", # CVE-2026-53538/53539/53540 — DoS / boundary parsing fixes
-    "keyring>=24.0.0",
-    "chromadb>=0.5.0",
-    "slowapi>=0.1.9",
-    "sse-starlette>=2.0.0",
-    # Transitive pins for HIGH-severity CVE fixes (v2.5.0).
-    # These ship through alembic / httpx / starlette / boto3 — pin floors here
-    # so `pip install agentbreeder` always picks up the patched releases.
-    "Mako>=1.3.12",            # GHSA-2h4p-vjrc-8xpq (path traversal)
-    "urllib3>=2.7.0",          # GHSA-mf9v-mfxr-j63j + GHSA-qccp-gfcp-xxvc
-    "starlette>=1.3.1",        # CVE-2026-48817/48818 — DoS, plus GHSA-86qp-5c8j-p5mr
-    "idna>=3.15",              # GHSA-65pc-fj4g-8rjx
-    "cryptography>=48.0.1",    # GHSA-537c-gmf6-5ccf — bleichenbacher-style timing
-]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = ["pydantic>=2.13.4,<3", "PyYAML>=6.0.3,<7"]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=9.0.3",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=4.1.0",
-    "ruff>=0.3.0",
-    "mypy>=1.8.0",
-    "types-redis>=4.6.0",
-    "types-PyYAML>=6.0.0",
-    "aiosqlite>=0.20.0",
-    "fakeredis>=2.20.0",
-]
-docs = [
-    "mkdocs-material>=9.5.0",
-    "mike>=2.0.0",
-]
-aws = [
-    "boto3>=1.34.0",
-]
-azure = [
-    "azure-identity>=1.16.0",
-    "azure-keyvault-secrets>=4.8.0",
-    "azure-mgmt-appcontainers>=3.0.0",
-    "azure-mgmt-authorization>=4.0.0",
-    "azure-mgmt-containerregistry>=10.3.0",
-    "azure-mgmt-keyvault>=10.3.0",
-    "azure-mgmt-loganalytics>=13.0.0",
-    "azure-mgmt-msi>=7.0.0",
-    "azure-mgmt-network>=27.0.0",
-    "azure-mgmt-rdbms>=10.1.0",
-    "azure-mgmt-redis>=14.3.0",
-    "azure-mgmt-resource>=23.0.0",
-    "azure-monitor-query>=1.3.0",
-]
-gcp = [
-    "google-auth>=2.27.0",
-    "google-cloud-artifact-registry>=1.11.0",
-    "google-cloud-iam>=2.15.0",
-    "google-cloud-redis>=2.15.0",
-    "google-cloud-resource-manager>=1.12.0",
-    "google-cloud-run>=0.10.0",
-    "google-cloud-secret-manager>=2.20.0",
-    "google-cloud-sql>=1.6.0",
-    "google-cloud-vpc-access>=1.10.0",
-]
-kubernetes = [
-    "kubernetes>=29.0.0",
-]
-schedule = [
-    "apscheduler>=3.10.0",
-]
-news = [
-    "feedparser>=6.0.0",
-]
-rag = [
-    "neo4j>=5.0",
-    "pgvector>=0.2.5",
-]
-pdf = [
-    # W5-R9: PyPDF2 enables high-fidelity PDF extraction in RAG ingestion.
-    # Without it the service falls back to a regex BT/ET parser.
-    "PyPDF2>=3.0.0",
-]
-cloud = [
-    # W4: e2b managed microVM backend for CloudSandbox (multi-tenant builder).
-    "e2b>=1.0,<2.0",
-]
-all-clouds = [
-    "boto3>=1.34.0",
-    "azure-identity>=1.16.0",
-    "azure-keyvault-secrets>=4.8.0",
-    "azure-mgmt-appcontainers>=3.0.0",
-    "azure-mgmt-authorization>=4.0.0",
-    "azure-mgmt-containerregistry>=10.3.0",
-    "azure-mgmt-keyvault>=10.3.0",
-    "azure-mgmt-loganalytics>=13.0.0",
-    "azure-mgmt-msi>=7.0.0",
-    "azure-mgmt-network>=27.0.0",
-    "azure-mgmt-rdbms>=10.1.0",
-    "azure-mgmt-redis>=14.3.0",
-    "azure-mgmt-resource>=23.0.0",
-    "azure-monitor-query>=1.3.0",
-    "google-auth>=2.27.0",
-    "google-cloud-artifact-registry>=1.11.0",
-    "google-cloud-iam>=2.15.0",
-    "google-cloud-redis>=2.15.0",
-    "google-cloud-resource-manager>=1.12.0",
-    "google-cloud-run>=0.10.0",
-    "google-cloud-secret-manager>=2.20.0",
-    "google-cloud-sql>=1.6.0",
-    "google-cloud-vpc-access>=1.10.0",
-    "kubernetes>=29.0.0",
-]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "build>=1,<2"]
 
 [project.scripts]
-agentbreeder = "cli.main:app"
+agentbreeder = "agentbreeder.cli:main"
 
-[project.urls]
-Homepage = "https://www.agentbreeder.io"
-Repository = "https://github.com/agentbreeder/agentbreeder"
-Documentation = "https://www.agentbreeder.io"
-
-[tool.hatch.version]
-source = "vcs"
-fallback-version = "0.0.0"
-
-[tool.hatch.build.targets.wheel]
-packages = ["engine", "api", "cli", "registry", "connectors"]
-
-# Bundle runtime files the CLI quickstart loads at runtime via
-# Path(__file__).parent.parent.parent / "deploy" (i.e. site-packages root).
-# Without this the wheel only ships Python packages and quickstart fails with
-# FileNotFoundError on docker-compose.quickstart.yml.
-[tool.hatch.build.targets.wheel.force-include]
-"deploy" = "deploy"
-# examples/quickstart/ ships with the wheel because cli/commands/quickstart.py
-# resolves EXAMPLES_QS = REPO_ROOT / "examples" / "quickstart" at runtime to
-# register + deploy the sample agents (assistant, search-agent, a2a-orchestrator,
-# etc.). Without this, Step 7 of `agentbreeder quickstart` silently no-ops on a
-# pipx install — the dir doesn't exist in site-packages.
-"examples/quickstart" = "examples/quickstart"
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
-addopts = "--strict-markers -v"
-markers = [
-    "no_auto_auth: disable the autouse _auto_auth fixture for tests that explicitly verify 401/403 behavior",
-]
-
-[tool.mypy]
-python_version = "3.11"
-strict = true
-warn_return_any = true
-warn_unused_configs = true
-ignore_missing_imports = true
-plugins = ["pydantic.mypy"]
-
-[[tool.mypy.overrides]]
-module = [
-    "engine.deployers.gcp_cloudrun",
-    "engine.runtimes.templates.google_adk_server",
-]
-disallow_untyped_calls = false
-
-# Pydantic plugin settings
-[tool.pydantic-mypy]
-init_forbid_extra = false
-init_typed = false
-warn_required_dynamic_aliases = false
-
-# Disable error codes that are endemic with FastAPI decorator patterns
-# and SQLAlchemy ORM return types across the entire codebase
-[[tool.mypy.overrides]]
-module = [
-    "api.routes.*",
-    "api.routes.v2.*",
-    "api.services.*",
-    "api.tasks.*",
-    "api.main",
-    "api.middleware.*",
-    "api.versioning",
-]
-disable_error_code = ["no-any-return", "type-arg", "arg-type", "attr-defined", "no-untyped-def", "index"]
-allow_untyped_decorators = true
-
-[[tool.mypy.overrides]]
-module = ["api.models.*", "api.database"]
-disable_error_code = ["unused-ignore", "type-arg"]
-
-[[tool.mypy.overrides]]
-module = ["cli.commands.*"]
-disable_error_code = ["no-any-return", "type-arg", "arg-type", "no-untyped-call", "no-untyped-def", "misc", "attr-defined"]
-allow_untyped_decorators = true
-
-[[tool.mypy.overrides]]
-module = ["registry.*"]
-disable_error_code = ["no-any-return", "type-arg", "valid-type", "attr-defined"]
-
-[[tool.mypy.overrides]]
-module = ["connectors.*"]
-disable_error_code = ["no-any-return", "type-arg"]
-
-[[tool.mypy.overrides]]
-module = ["engine.runtimes.templates.*"]
-disable_error_code = ["no-any-return", "union-attr", "arg-type", "call-overload", "attr-defined"]
-allow_untyped_decorators = true
-
-[[tool.mypy.overrides]]
-module = ["engine.deployers.*"]
-disable_error_code = ["no-any-return", "type-arg"]
-
-[[tool.mypy.overrides]]
-module = ["engine.provisioners.*"]
-disable_error_code = [
-    "no-any-return",
-    "type-arg",
-    "no-untyped-def",
-    "attr-defined",
-    "return-value",
-    "call-overload",
-    "call-arg",
-    "assignment",
-    "union-attr",
-]
-
-[[tool.mypy.overrides]]
-module = ["engine.providers.*"]
-disable_error_code = ["no-any-return", "unused-ignore"]
-
-[[tool.mypy.overrides]]
-module = ["engine.builder"]
-disable_error_code = ["assignment", "attr-defined"]
-
-[[tool.mypy.overrides]]
-module = ["engine.config_parser", "engine.orchestration_parser"]
-disable_error_code = ["no-any-return"]
-
-[[tool.mypy.overrides]]
-module = ["engine.orchestrator"]
-disable_error_code = ["no-any-return"]
-
-[[tool.mypy.overrides]]
-module = ["engine.a2a.*"]
-disable_error_code = ["no-any-return"]
-allow_untyped_decorators = true
-
-[[tool.mypy.overrides]]
-module = ["registry.templates"]
-disable_error_code = ["no-any-return"]
+pythonpath = ["src"]
+addopts = "-ra"
 
 [tool.ruff]
 target-version = "py311"
 line-length = 99
-extend-exclude = [".claude/worktrees"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "PT"]
-ignore = [
-    "S101",   # allow assert in tests
-    "B008",   # allow Depends() in FastAPI function defaults
-    "S105",   # allow hardcoded passwords in test fixtures
-    "S106",   # allow hardcoded passwords in function args (tests)
-    "S108",   # allow /tmp paths in tests
-    "S110",   # allow bare except pass (used in fallback logic)
-    "S311",   # allow random for non-crypto use
-    "S607",   # allow partial executable paths
-    "S608",   # allow SQL in string literals (used in benchmark/test data)
-    "S603",   # allow subprocess with literal args in deployers/CLI
-    "B905",   # allow zip() without strict= (not needed for deploy logic)
-    "E501",   # line length — formatter handles wrapping where possible
-]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["N803", "N806", "PT006", "PT011", "PT019", "PT028"]
-"api/**" = ["PT028", "PT019", "S112"]
-"templates/**" = ["N999"]
-"examples/**" = ["E501", "S314"]  # examples are educational code, not production
-"cli/main.py" = ["E402"]  # deferred imports after version callback are intentional
+select = ["E", "F", "I", "UP", "B"]

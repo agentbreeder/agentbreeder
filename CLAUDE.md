@@ -1,3 +1,5 @@
+> **Focused rebuild branch (2026-09-15):** the legacy implementation below is historical context. Active source is `src/agentbreeder/`; manifest validation, doctor and the local deploy/status/remove lifecycle are implemented; the real local Docker lifecycle and fresh-install sample demo have passed on macOS. Read `ARCHITECTURE.md` and `docs/manifest.md` for the current contract. Do not restore removed product surfaces or claim production deployment/governance is shipped. Existing privacy and delivery/review rules remain in force. Engineering tracking: #648.
+
 # CLAUDE.md — AgentBreeder
 
 > **This file is a thin router.** Only always-on invariants + standing
@@ -39,6 +41,7 @@ AgentBreeder is an **open-source platform** for building, deploying, and governi
 6. **Never use synchronous I/O in async FastAPI handlers** — always `await` or use `run_in_executor`
 7. **Never break the `agentbreeder deploy` happy path** — it is the product; protect it like an API contract
 8. **Never merge without tests** — CI blocks PRs with < 80% coverage on changed files
+9. **Never commit marketing/strategy content** — this is a public OSS repo. Positioning docs, growth/GTM plans, competitive strategy, website-audit artifacts, and similar internal material go in `docs/superpowers/private/` (gitignored) or outside the repo — never into tracked paths like `docs/superpowers/specs/`. Engineering specs/plans remain tracked as usual.
 
 ---
 

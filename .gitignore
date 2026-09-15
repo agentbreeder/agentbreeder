@@ -97,3 +97,17 @@ linkedin-content.docx
 
 # live loop resume cursor (working state)
 RESOLVE.md
+
+# Internal marketing/strategy content — never committed to the OSS repo.
+# Positioning docs, growth plans, competitive strategy, website-audit artifacts
+# live in docs/superpowers/private/ (or outside the repo entirely).
+docs/superpowers/private/
+/website-audit/
+
+# Legacy local artifacts retained during the focused rebuild. These paths no
+# longer contain supported source. Preserve the protection formerly supplied
+# by their removed nested .gitignore files, including credentials/build output.
+/dashboard/
+/website/
+/sidecar/
+/examples/go-agent/

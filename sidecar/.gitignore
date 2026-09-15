@@ -1,6 +1,0 @@
-# Local build outputs
-/sidecar
-/bin/
-*.test
-*.out
-coverage.html

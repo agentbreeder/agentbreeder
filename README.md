@@ -1,116 +1,71 @@
-<div align="center">
+# AgentBreeder
 
-# AgentBreeder™ — v2.0
+**Focused rebuild — development baseline, not a production release.**
 
-### The only agent platform that doesn't pick a winner.
+AgentBreeder is being rebuilt around deploying existing agents into customer-controlled infrastructure. This branch provides manifest validation, Docker diagnostics, a local deployment lifecycle with SQLite history, and a real HTTP sample service.
 
-**Build with anyone's framework. Deploy to anyone's cloud. Govern automatically.**
-One YAML, one command — Apache 2.0, no vendor lock-in.
+Production deployment, identity/approval enforcement and the operational UI are **not implemented yet**. The local sample lifecycle and fresh-install demo have been verified against Docker Desktop on macOS. There are no simulated deployments or placeholder production endpoints.
 
-[![PyPI](https://img.shields.io/pypi/v/agentbreeder?color=blue&label=PyPI)](https://pypi.org/project/agentbreeder/)
-[![PyPI Downloads](https://img.shields.io/pypi/dm/agentbreeder?color=green&label=Downloads)](https://pypi.org/project/agentbreeder/)
-[![npm](https://img.shields.io/npm/v/@agentbreeder/sdk?color=red&label=npm)](https://www.npmjs.com/package/@agentbreeder/sdk)
-[![Python](https://img.shields.io/pypi/pyversions/agentbreeder?color=blue)](https://pypi.org/project/agentbreeder/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![CI](https://github.com/agentbreeder/agentbreeder/actions/workflows/ci.yml/badge.svg)](https://github.com/agentbreeder/agentbreeder/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen)](https://github.com/agentbreeder/agentbreeder/actions)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+## Try the complete local demo
 
-<br/>
+Requires macOS or Linux, Python 3.11+, and a running Docker engine with a local context. From this checkout:
 
-[![LangGraph](https://img.shields.io/badge/LangGraph-supported-purple)](https://github.com/langchain-ai/langgraph)
-[![OpenAI Agents](https://img.shields.io/badge/OpenAI_Agents-supported-teal)](https://github.com/openai/openai-agents-python)
-[![Claude SDK](https://img.shields.io/badge/Claude_SDK-supported-orange)](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/sdk)
-[![CrewAI](https://img.shields.io/badge/CrewAI-supported-red)](https://github.com/crewAIInc/crewAI)
-[![Google ADK](https://img.shields.io/badge/Google_ADK-supported-4285F4)](https://github.com/google/adk-python)
-[![MCP](https://img.shields.io/badge/MCP-native-green)](https://modelcontextprotocol.io/)
-
-<br/>
-
-[Quick Start](#quick-start) · [Install](#install) · [Docs](https://www.agentbreeder.io/docs) · [Contributing](#contributing)
-
-</div>
-
----
-
-Your company has 47 AI agents. Nobody knows what they cost, who approved them, or which ones are still running. Three teams built the same summarizer. The security team hasn't audited any of them.
-
-**AgentBreeder fixes this.**
-
-Write one `agent.yaml`. Run `agentbreeder deploy`. Your agent is live — with RBAC, cost tracking, audit trail, and org-wide discoverability. Automatic. Not optional.
-
----
-
-## The Problem
-
-AI coding tools make it easy to **build** agents. Nobody has made it easy to **ship** them responsibly.
-
-| What happens today | What happens with AgentBreeder |
-|---|---|
-| Every framework has its own deploy story | One YAML, any framework, any cloud |
-| No RBAC — anyone deploys anything | RBAC validated before the first container builds |
-| No cost tracking — $40k surprise cloud bills | Cost attributed per team, per agent, per model |
-| No audit trail — "who deployed that?" | Every deploy logged with who, what, when, where |
-| No discoverability — duplicate agents everywhere | Org-wide registry — search before you build |
-| Governance is bolted on after the fact | Governance is a **structural side effect** of deploying |
-
-**Governance is not configuration. It is a side effect of the pipeline. There is no way to skip it.**
-
----
-
-## How It Works
-
-Eight atomic steps run in sequence: 
-```
-parse → RBAC check → *(approval gate if required)* → resolve deps → build container → provision infra → deploy → health check → register. If any step fails, the entire deploy rolls back.
-```
----
-
-## Three Ways to Build
-
-All three tiers compile to the same internal format. Same deploy pipeline. Same governance. No lock-in.
-
-| Tier | Who | How | Eject to |
-|------|-----|-----|----------|
-| **No Code** | PMs, analysts, citizen builders | Visual drag-and-drop canvas — pick model, tools, prompts from the registry | Low Code |
-| **Low Code** | ML engineers, DevOps | Write `agent.yaml` in any IDE | Full Code (`agentbreeder eject`) |
-| **Full Code** | Senior engineers, researchers | Python/TS SDK with full programmatic control | — |
-
-
----
-## Use with Claude Code
-
-Install the `/agent-build` architect as a Claude Code plugin:
-
-```bash
-claude plugin marketplace add agentbreeder/agentbreeder
-claude plugin install agent-build@agentbreeder
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/python examples/http-agent/quickstart.py
 ```
 
-Then run `/agent-build` in Claude Code to scaffold an agent (it recommends framework, model, memory, RAG, and deploy target, then generates `agent.yaml` + code).
+The demo builds a real sample image, deploys it, invokes its HTTP endpoint, retries the same deployment, verifies saved history, and removes its container and temporary image tag. It prints progress and the private directory containing its history and recovery files. No model account or API key is needed. Initial image downloads need internet access.
 
----
-## Documentation
+A successful run ends with:
 
-**User docs** (guides, references, examples) — [agentbreeder.io/docs](https://www.agentbreeder.io/docs)
+```text
+3/5 Invocation succeeded: http://127.0.0.1:…
+4/5 Retry reused …; history persisted.
+5/5 Sample container removed. History retained.
+```
 
-| | |
+This sample echoes JSON; it is not an AI agent. Use a fresh environment: an older editable installation may expose the previous CLI, and PyPI does not install this branch.
+
+## If the demo stops
+
+Run `.venv/bin/agentbreeder doctor` first. Start Docker Desktop or your local Docker Engine if it cannot connect. The demo never installs or restarts Docker automatically.
+
+| Problem | Next step |
 |---|---|
-| [How-To guides](https://www.agentbreeder.io/docs/how-to) | Install, deploy, orchestrate, evaluate |
-| [Quickstart](https://www.agentbreeder.io/docs/quickstart) | Full local platform in one command |
-| [Self-hosting](https://www.agentbreeder.io/docs/self-hosting) | Run the platform on your own Kubernetes via Helm (`deploy/helm/agentbreeder`) |
-| [CLI reference](https://www.agentbreeder.io/docs/cli-reference) | All commands and flags |
-| [SDK reference](https://www.agentbreeder.io/docs/full-code) | Python + TypeScript full-code SDK |
+| Docker cannot connect | Start the engine, check `docker context show`, then rerun doctor. |
+| Remote Docker context or `DOCKER_HOST` override | Choose a local Unix-socket context and unset the override. |
+| Image build fails | Run `docker build examples/http-agent` to see the build error; check registry access. |
+| Deployment or cleanup fails | Keep the printed state directory. Follow the printed removal command, or use the recovery commands below. |
 
+```sh
+.venv/bin/agentbreeder status DEPLOYMENT_ID --state-dir STATE_DIRECTORY --json
+.venv/bin/agentbreeder remove DEPLOYMENT_ID --state-dir STATE_DIRECTORY --local
+```
 
-**For contributors** — internal engineering references in this repo:
+If no ID was printed, retry `deploy DEMO_DIRECTORY/agent.yaml --state-dir DEMO_DIRECTORY/state --local` to reconcile the saved request, then remove its returned ID. Do not delete state while a workload remains. Demo history is stored in a temporary directory and may be cleared by the OS; copy it privately if needed.
 
-| | |
-|---|---|
-| [Contributing](CONTRIBUTING.md) | How to contribute — setup, standards, PR process |
-| [Architecture](ARCHITECTURE.md) | Platform architecture — deploy pipeline, abstractions, data model |
-| [Design](docs/design/) | Feature design docs — RBAC, LiteLLM gateway, polyglot agents |
+## Bring your own agent
 
+Follow [the local image guide](docs/first-deployment.md). Supply a trusted stateless HTTP container, a real immutable image ID/digest, and a health path returning HTTP 200. Containers run as UID 65532 with a read-only filesystem and publish only to loopback. Images declaring volumes and secret injection are currently unsupported.
 
+Local OS/Docker permissions are the control boundary. Production permissions, approvals and authenticated invocation are later work. Status shows the last recorded observation, not a live health guarantee.
 
-[Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/agentbreeder/agentbreeder/issues) · [Discussions](https://github.com/agentbreeder/agentbreeder/discussions) · [Discord](https://discord.gg/QT9j3Uj4s5) · [Apache 2.0](LICENSE) · [Trademark](TRADEMARK.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [CLA](CLA.md) · [Security](SECURITY.md) · [Governance](GOVERNANCE.md)
+## Develop
+
+```sh
+.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pytest
+.venv/bin/ruff check src tests examples/http-agent
+.venv/bin/ruff format --check src tests examples/http-agent
+.venv/bin/python -m build
+```
+
+Read [the manifest contract](docs/manifest.md), [architecture](ARCHITECTURE.md), [contributing guide](CONTRIBUTING.md), and [security policy](SECURITY.md).
+
+## Compatibility
+
+This is a clean, incompatible development baseline. Do not use it to upgrade an existing AgentBreeder installation. No data migration or production deployment path exists yet. The legacy implementation remains in Git history at `7b086d9`; existing deployments and published packages are unaffected by changes to this branch.
+
+Engineering tracking: [#648](https://github.com/agentbreeder/agentbreeder/issues/648). Apache 2.0; see LICENSE and TRADEMARK.md.
