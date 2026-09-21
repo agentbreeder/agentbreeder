@@ -1,0 +1,35 @@
+{
+  "name": "rag.delete",
+  "description": "Delete documents from an index by their IDs.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "index": {
+        "type": "string",
+        "description": "The target index name or ID."
+      },
+      "doc_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "List of document IDs to delete."
+      }
+    },
+    "required": ["index", "doc_ids"]
+  },
+  "returns": {
+    "type": "object",
+    "properties": {
+      "deleted": {
+        "type": "integer"
+      },
+      "not_found": {
+        "type": "integer"
+      },
+      "trace_id": {
+        "type": "string"
+      }
+    }
+  }
+}
