@@ -13,15 +13,15 @@ const IS_ITEMS = [
   },
   {
     title: 'An org-wide shared registry',
-    body: 'Agents, prompts, tools, RAG indexes, and MCP servers are versioned, discoverable, and reusable across every team.',
+    body: 'Agents, prompts, tools, and MCP servers are versioned, discoverable, and reusable across every team.',
   },
   {
     title: 'Governance as a side effect',
-    body: 'RBAC, cost attribution, audit log, and observability inject automatically at deploy time — never bolt-on, never skippable.',
+    body: 'RBAC checks and registry registration happen automatically at deploy time — never bolt-on, never skippable.',
   },
   {
     title: 'A builder for every skill level',
-    body: 'No-code (visual canvas), low-code (YAML), and full-code (SDK) — all compiling to the same internal format.',
+    body: 'No-code (chat builder), low-code (YAML), and full-code (SDK) — all producing the same agent.yaml.',
   },
 ];
 

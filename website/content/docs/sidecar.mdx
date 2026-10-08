@@ -1,12 +1,12 @@
 ---
 title: Sidecar — Cross-Cutting Concerns Layer
-description: Auto-injected Go binary that handles tracing, cost attribution, guardrails, A2A, and MCP for every deployed agent.
+description: Auto-injected Go binary that handles tracing, guardrails, A2A forwarding, and MCP for every deployed agent.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-The sidecar is a single Go binary auto-injected next to every AgentBreeder agent. The agent talks to it over `localhost`; the sidecar handles **all** of the boring-but-mandatory infrastructure work — tracing, cost attribution, guardrails, A2A, MCP, and bearer-token auth — so language SDKs stay thin.
+The sidecar is a single Go binary auto-injected next to every AgentBreeder agent. The agent talks to it over `localhost`; the sidecar handles the boring-but-mandatory infrastructure work — tracing, guardrails, A2A forwarding, MCP, and bearer-token auth — so language SDKs stay thin.
 
 One binary, every language, every wired-up deployer.
 
@@ -66,8 +66,8 @@ tools:
 │  │  (any lang) │   :8080 in    │  (Go binary) │  │
 │  │             │   :9090 a2a   │              │  │
 │  │             │   :9091 mcp   │  → OTel      │  │
-│  └─────────────┘   :9092 cost  │  → cost svc  │  │
-│       ▲                        │  → guardrail │  │
+│  └─────────────┘               │  → guardrail │  │
+│       ▲                        │              │  │
 │       │ inbound :8080          └──────────────┘  │
 └───────┼──────────────────────────────────────────┘
         │
@@ -80,7 +80,7 @@ External traffic hits the sidecar on `:8080`. The sidecar:
 2. Runs egress guardrails on the request body
 3. Forwards the (possibly redacted) request to the agent on `:8081`
 
-The agent uses localhost helper endpoints to send A2A calls, talk to MCP servers, and emit cost events without re-implementing any of that logic per language.
+The agent uses localhost helper endpoints to send A2A calls and talk to MCP servers without re-implementing any of that logic per language.
 
 ---
 
@@ -100,7 +100,6 @@ The agent uses localhost helper endpoints to send A2A calls, talk to MCP servers
 |---|---|---|
 | `/a2a/{peer}` | POST | JSON-RPC 2.0 send to a configured A2A peer |
 | `/mcp/{server}` | POST | JSON-RPC passthrough to a configured MCP server (HTTP / SSE) |
-| `/cost` | POST | Record a cost/token event in the AgentBreeder API (writes both `costs` + `audit_log` tables) |
 | `/health` | GET | Liveness for the local helpers |
 
 ---
@@ -192,26 +191,6 @@ stdio* server is skipped.
 
 ---
 
-## Cost events
-
-Every LLM call should emit a cost event so the registry stays attribution-accurate. Either call the local sidecar helper:
-
-```python
-httpx.post("http://127.0.0.1:9090/cost", json={
-    "model": "claude-sonnet-4",
-    "input_tokens": 1024,
-    "output_tokens": 256,
-    "cost_usd": 0.0038,
-    "trace_id": current_trace_id(),
-})
-```
-
-…or rely on language-SDK middleware to emit it for you (Python / TS SDK ship this; Go / Kotlin / Rust SDKs ship in Track I).
-
-The sidecar writes one row to the `costs` table and a corresponding `cost.recorded` entry to the audit log per event.
-
----
-
 ## Environment variables
 
 | Var | Required | Default | Notes |
@@ -223,8 +202,6 @@ The sidecar writes one row to the `costs` table and a corresponding `cost.record
 | `AGENTBREEDER_SIDECAR_AGENT_URL` |  | `http://127.0.0.1:8081` | Where to forward inbound traffic |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` |  | — | OTLP/HTTP base URL. When unset, span export is a no-op |
 | `OTEL_EXPORTER_OTLP_HEADERS` |  | — | Comma-separated `k=v` pairs |
-| `AGENTBREEDER_API_URL` |  | — | API base for cost emission |
-| `AGENTBREEDER_API_TOKEN` |  | — | Bearer token used when calling the AgentBreeder API |
 
 ---
 

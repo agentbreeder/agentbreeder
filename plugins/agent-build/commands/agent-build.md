@@ -284,7 +284,7 @@ claude_sdk:
     type: adaptive
   prompt_caching: true
 ```
-If RAG recommended: add knowledge_bases section with a placeholder registry ref.
+If RAG recommended: do NOT add a `knowledge_bases` section (agent.yaml has no such field and the schema rejects it). Retrieval lives in `rag/` agent code; pass its connection settings via `deploy.env_vars` / `deploy.secrets`.
 
 System prompt (`prompts.system`) must be a **registry reference**, not inline text:
 
@@ -410,9 +410,6 @@ For google_adk: `CMD ["adk", "api_server", "--host", "0.0.0.0", "--port", "8080"
 Base: agent service with ports 8080:8080, env_file .env, restart unless-stopped, healthcheck.
 If Redis: add `redis: {image: redis:7-alpine, ports: ["6379:6379"]}` service.
 If Vector RAG: add `postgres: {image: pgvector/pgvector:pg16, environment: {POSTGRES_DB: agentdb, ...}, ports: ["5432:5432"]}` service.
-
-### 2g. `.agentbreeder/layout.json`
-Always generate. Agent at (400,300), model at (400,100), prompt at (150,300). Tools fan right at (650, 200+i×100). RAG node at (150,500) if applicable. Memory node at (650,500) if applicable.
 
 ### 2h. `memory/config.py` — ONLY if memory recommended
 
@@ -584,9 +581,6 @@ def test_agent_yaml_exists():
 
 def test_env_example_exists():
     assert Path(".env.example").exists()
-
-def test_layout_json_exists():
-    assert Path(".agentbreeder/layout.json").exists()
 ```
 
 ### 2m. `tests/evals/eval_runner.py`
@@ -752,7 +746,6 @@ Generate framework-specific content:
 - Every new node needs a unit test (`@pytest.mark.asyncio`)
 - Never hardcode API keys — `os.getenv("OPENAI_API_KEY")`
 - Never skip `agentbreeder validate` before deploy
-- Never edit `.agentbreeder/layout.json` manually
 ```
 
 **CrewAI:**
@@ -931,7 +924,6 @@ Files generated:
   pyproject.toml              — pytest config (pythonpath, testpaths)
   Dockerfile + docker-compose — Container build & local run
   .env.example                — Environment template
-  .agentbreeder/layout.json   — Visual builder metadata
   tools/                      — Tool stubs
   memory/config.py            — Memory setup          [if applicable]
   rag/index.py + ingest.py    — RAG index + ingestion [if applicable]
@@ -964,8 +956,6 @@ Tier mobility:
 
 ## Rules
 
-- NEVER skip `.agentbreeder/layout.json` — required for No Code tier interop
-- NEVER put layout metadata in `agent.yaml`
 - NEVER use generic tool stubs (like `get_weather`) if the user described specific tools
 - ALWAYS generate a tailored system prompt based on stated purpose — never a placeholder
 - ALWAYS validate agent name format before proceeding

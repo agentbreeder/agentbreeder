@@ -91,8 +91,8 @@ agentbreeder quickstart
    it restarts Ollama. Skipping is fine if you're using cloud or gateway models.
 5. Frees any conflicting ports for you on confirmation
 6. Starts the full stack — API · Studio · Postgres · Redis · ChromaDB · Neo4j · MCP servers · LiteLLM
-7. Seeds RAG docs, the knowledge graph, MCP servers, and prompts
-8. Deploys 5 sample agents (`assistant`, `rag-agent`, `graph-agent`, `search-agent`, `a2a-orchestrator`)
+7. Seeds sample documents (ChromaDB), a sample graph (Neo4j), MCP servers, and prompts
+8. Registers the sample agents (`assistant`, `search-agent`) and prints the `agentbreeder deploy` command for each
 9. Opens Studio at [http://localhost:3001](http://localhost:3001)
 
 <Callout type="info" title="Already have a cloud API key?">
@@ -222,8 +222,7 @@ The 8-step deploy pipeline (parse → RBAC → resolve deps → build container 
 | See every CLI command | [CLI reference →](cli-reference) |
 | See every `agent.yaml` field | [agent.yaml reference →](agent-yaml) |
 | Deploy to AWS / GCP / Azure / Kubernetes | [How-To: Deploy →](how-to#deploy-to-different-targets) |
-| Add knowledge bases (RAG / GraphRAG) | [RAG →](rag) · [GraphRAG →](graphrag) |
 | Add tools / MCP servers | [MCP servers →](mcp-servers) |
 | Chat to build (conversational) | [How-To: Chat to build →](how-to#chat-to-build-byo-claude-key) |
-| Visual builder | [No Code →](no-code) |
+| No-code builder | [No Code →](no-code) |
 | Python / TypeScript SDK | [Full Code →](full-code) |

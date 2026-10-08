@@ -22,10 +22,9 @@ Agent SDKs help you *build* an agent. AgentBreeder helps you *ship, govern, and 
 | Tool use, memory, multi-step reasoning | ✅ | — |
 | Deploy to any cloud | ❌ Framework-specific | ✅ AWS, GCP, Azure, K8s, local |
 | RBAC — control who can deploy | ❌ | ✅ Validated before build starts |
-| Cost tracking per team / agent / model | ❌ | ✅ Automatic |
-| Audit trail | ❌ | ✅ Every deploy logged |
+| Spend tracking per team / agent / model | ❌ | ⚠️ Via LiteLLM gateway spend logs |
+| Audit trail | ❌ | ⚠️ Structured `audit_event` log lines (no audit UI) |
 | Org-wide agent registry | ❌ | ✅ Auto-registered on deploy |
-| Multi-agent orchestration (cross-framework) | ⚠️ Framework-specific | ✅ 6 strategies, any framework |
 | MCP server hub | ⚠️ Varies | ✅ Native |
 
 **These are complementary, not competing.** Your LangGraph or CrewAI agent is the application code. AgentBreeder is the platform that deploys and governs it — the same relationship as your app code vs Docker + Kubernetes.
@@ -66,7 +65,7 @@ In 2025–2026, every major AI company shipped an enterprise agent platform. All
 | **Org-wide registry** | ✅ GCP only | ❌ | ❌ | ✅ Azure only | ✅ cross-cloud |
 | **Open source** | ADK only | ❌ | SDK only | Toolkit only | ✅ fully OSS |
 | **Self-hostable** | ADK SDK only | ❌ | SDK only | ❌ | ✅ full stack |
-| **No-code visual builder** | Agent Studio | ❌ None | ChatGPT only | ✅ visual portal | Studio |
+| **No-code builder** | Agent Studio | ❌ None | ChatGPT only | ✅ visual portal | Studio chat builder |
 | **Portable across clouds** | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 ---
@@ -143,7 +142,7 @@ Kubernetes is a general-purpose container orchestrator. AgentBreeder is a purpos
 | Deploy any container | ✅ | ✅ (generates the manifests) |
 | Agent-aware config (`agent.yaml`) | ❌ Generic YAML | ✅ |
 | RBAC tied to agents and teams | ❌ Custom work | ✅ Built in |
-| Cost attribution per agent/team | ❌ Custom work | ✅ Built in |
+| Cost attribution per agent/team | ❌ Custom work | ⚠️ Via LiteLLM gateway spend logs |
 | Prompt, tool, model registry | ❌ | ✅ |
 | Kubernetes as a deploy target | ✅ | ✅ (`deploy.cloud: kubernetes`) |
 

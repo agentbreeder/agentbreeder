@@ -1,13 +1,13 @@
 ---
 title: No Code — AgentBreeder Studio
-description: Build and deploy agents with drag-and-drop. No YAML or code required.
+description: Describe an agent in the Studio chat builder and get a ready-to-deploy agent.yaml. No YAML or code required.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-Build, configure, and deploy production agents entirely from AgentBreeder Studio (formerly the Dashboard).
-No YAML. No code. No DevOps knowledge required.
+Describe the agent you want in AgentBreeder Studio and the chat builder writes a schema-valid
+`agent.yaml` for you. No YAML or code required to define the agent; deploying it is one CLI command.
 
 **Who this is for:** Product managers, analysts, business users, executives, and anyone who wants to ship agents without touching a terminal.
 
@@ -15,7 +15,7 @@ No YAML. No code. No DevOps knowledge required.
 
 ## Supported Frameworks
 
-Every framework works in Studio. Pick the one that fits your use case from a dropdown — AgentBreeder handles the runtime scaffolding automatically.
+Every framework works with the chat builder. Tell it which one fits your use case (or let it recommend one) — AgentBreeder handles the runtime scaffolding automatically.
 
 | Framework | Best for |
 |-----------|----------|
@@ -30,7 +30,7 @@ Every framework works in Studio. Pick the one that fits your use case from a dro
 
 ## Supported Deployment Targets
 
-All deployment targets are available from the **Deploy to** dropdown. Connect your cloud account once in Settings — then deploy anywhere without manual credential configuration.
+Agents built in Studio deploy with `agentbreeder deploy` to any of these targets.
 
 > **Status:** Deploy-target availability (which targets ship full governance, greenfield provisioning, and secret auto-mirror) is maintained in one canonical place — see the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
@@ -63,60 +63,43 @@ Default local credentials:
 | Email | `admin@agentbreeder.local` |
 | Password | `plant` (Studio forces a rotation on first sign-in) |
 
-### 2. Create a new agent
+### 2. Describe your agent
 
-Click **New Agent** in the top-right corner. The visual builder opens.
+Go to **Agents → Create Agent** (`/agents/new`). The chat builder interviews you about the agent's goal,
+framework, model, tools, prompts, and guardrails, then emits a schema-validated `agent.yaml`.
 
-### 3. Configure in the form
+### 3. Create or eject
 
-The builder asks you for:
+From the spec card you can:
 
-| Field | What to set |
-|-------|-------------|
-| **Name** | Slug-friendly name (e.g. `support-agent`) |
-| **Framework** | Choose from the 6 supported frameworks |
-| **Model** | Primary model + optional fallback |
-| **Tools / MCP Servers** | Search and add MCP servers or built-in tools from the registry |
-| **Knowledge Bases** | Optional — attach RAG indexes for semantic or hybrid search |
-| **Prompts** | Select a versioned system prompt from the registry, or write inline |
-| **Guardrails** | Optional — PII detection, hallucination check, content filter |
-| **Deploy to** | Target cloud and region |
-| **Team** | Assigns RBAC and cost attribution automatically |
+| Action | What it does |
+|--------|--------------|
+| **Create agent** | Registers the agent in the org registry |
+| **Eject to code** | Generates the agent's code alongside the `agent.yaml` |
 
 ### 4. Deploy
 
-Click **Deploy Agent**. Studio runs the 8-step pipeline and shows live progress:
+Save the spec as `agent.yaml` next to your agent code and run:
 
-```
-✅  YAML parsed & validated
-✅  RBAC check passed
-✅  Dependencies resolved
-✅  Container built
-✅  Deployed
-✅  Health check passed
-✅  Registered in org registry
-✅  Endpoint returned
+```bash
+agentbreeder deploy agent.yaml --target local
 ```
 
-If any step fails, the deploy rolls back automatically.
+The CLI runs the deploy pipeline — parse → RBAC check → resolve → build → provision → deploy → health check → register. A failed health check tears the new deployment down.
 
 ### 5. Your agent is live
 
-The endpoint URL appears in Studio. You can immediately:
-- **Chat** with the agent from the playground tab
-- **View logs** in real time
-- **Monitor costs** per token, per day, per team
+The agent appears in the Studio registry. You can immediately:
+- **Chat** with the agent from the Playground
 - **Share** the endpoint URL with your team
 
 ---
 
 ## MCP Servers
 
-Studio has a built-in MCP server registry. From the agent builder:
-
-1. Click **Add Tool → Search MCP Servers**
-2. Browse your org's registered MCP servers or auto-discover from your connected cloud
-3. Click **Add** — the server is wired in as a sidecar automatically on deploy
+Studio has a built-in MCP server registry. Register servers on the **MCP Servers** page, then ask the
+chat builder to attach them — they are listed under `mcp_servers:` in the generated `agent.yaml` and wired in
+as a sidecar automatically on deploy.
 
 You can also run `agentbreeder scan` from the CLI to discover locally running MCP servers and publish them to the registry for Studio to find.
 
@@ -197,52 +180,17 @@ You get back the agent's `output`, the `session_id` (auto-filled into the form f
 
 ---
 
-## Multi-Agent Orchestration (Visual Canvas)
-
-Studio includes a ReactFlow-based drag-and-drop canvas for building multi-agent pipelines — no code required.
-
-To open the canvas:
-1. Click **New Orchestration** in the top-right corner
-2. Drag agents from the registry onto the canvas
-3. Draw connections between them to define the flow
-4. Set the orchestration strategy (router, sequential, parallel, supervisor)
-5. Click **Deploy Orchestration**
-
-The canvas generates an `orchestration.yaml` behind the scenes. At any point, click **View YAML** to see it.
-
----
-
-## Human-in-the-Loop Approvals
-
-For sensitive workflows, you can require a human to approve before an agent proceeds:
-
-1. Open the agent builder → **Advanced → Approvals**
-2. Enable **Require HITL approval**
-3. Set the approvers (team or individuals)
-
-When the agent hits an approval step, it pauses and sends a notification. The approver sees the pending action in Studio and can approve or reject.
-
----
-
 ## Editing an Agent
 
-Open an agent from the registry → click **Edit** → change any field → **Redeploy**.
-
-Every redeploy is versioned. You can roll back to any previous version from the **History** tab.
+Edit the agent's `agent.yaml` and re-run `agentbreeder deploy`. The agent's version history is listed on its
+**Configuration** tab in Studio.
 
 ---
 
 ## Eject to Low Code (View the YAML)
 
-At any point, click **View YAML** to see the `agent.yaml` that Studio generated. This is human-readable and version-controllable.
-
-To take full ownership of the YAML:
-
-1. Click **Export agent.yaml**
-2. Run `agentbreeder deploy agent.yaml` from your terminal
-3. You are now in Low Code mode — see [Low Code →](low-code)
-
-The exported YAML is identical to what Studio used. Nothing is hidden.
+The chat builder shows the generated `agent.yaml` on the **Spec** tab. It is human-readable and
+version-controllable. Copy it into your repo and you are in Low Code mode — see [Low Code →](low-code).
 
 ---
 
@@ -250,7 +198,7 @@ The exported YAML is identical to what Studio used. Nothing is hidden.
 
 ```
 No Code (Studio)
-  └─▶  View YAML            → copy into your IDE    → Low Code
+  └─▶  Spec tab (agent.yaml) → copy into your IDE   → Low Code
   └─▶  agentbreeder eject   → full SDK scaffold      → Full Code
 ```
 
@@ -273,4 +221,3 @@ Every framework compiles to every deployment target. The full matrix — and the
 | All `agent.yaml` fields | [agent.yaml Reference →](agent-yaml) |
 | Deploy from the CLI | [Quickstart →](quickstart) |
 | All CLI commands | [CLI Reference →](cli-reference) |
-| Multi-agent orchestration | [Orchestration SDK →](orchestration-sdk) |

@@ -310,43 +310,6 @@ async function runPrompts(
   await wait(3500); if (signal.cancelled) return;
 }
 
-// ─── Phase 4: RAG ────────────────────────────────────────────────────────────
-
-async function runRAG(
-  screenEl: HTMLDivElement,
-  signal: { cancelled: boolean },
-): Promise<void> {
-  screenEl.textContent = '';
-  const hdr = document.createElement('div');
-  hdr.style.cssText =
-    'opacity:0;transition:opacity 0.2s ease;font-size:11px;font-weight:600;color:#484f58;' +
-    'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;' +
-    'padding-bottom:8px;border-bottom:1px solid #21262d;';
-  hdr.textContent = 'RAG — Knowledge Base Search';
-  screenEl.appendChild(hdr);
-  reveal(hdr);
-  await wait(200); if (signal.cancelled) return;
-
-  append(screenEl, makeLine('# knowledge_bases in agent.yaml', '#484f58'));
-  await wait(150); if (signal.cancelled) return;
-  append(screenEl, makeLine('  - ref: kb/product-docs', '#3fb950'));
-  await wait(150); if (signal.cancelled) return;
-  append(screenEl, makeLine('  - ref: kb/return-policy', '#3fb950'));
-  await wait(500); if (signal.cancelled) return;
-  append(screenEl, makeLine('', '#484f58'));
-  append(screenEl, makeLine('> query: "return policy for electronics"', '#58a6ff'));
-  await wait(700); if (signal.cancelled) return;
-  append(screenEl, makeLine('', '#484f58'));
-  append(screenEl, makeLine('✓ kb/product-docs  (similarity: 0.94)', '#3fb950'));
-  await wait(250); if (signal.cancelled) return;
-  append(screenEl, makeLine('  → Electronics return window: 30 days', '#e6edf3'));
-  await wait(400); if (signal.cancelled) return;
-  append(screenEl, makeLine('✓ kb/return-policy  (similarity: 0.89)', '#3fb950'));
-  await wait(250); if (signal.cancelled) return;
-  append(screenEl, makeLine('  → Extended returns: holiday season', '#e6edf3'));
-  await wait(3500); if (signal.cancelled) return;
-}
-
 // ─── Phase 5: MCP ────────────────────────────────────────────────────────────
 
 async function runMCP(
@@ -437,7 +400,6 @@ const PHASES = [
   { label: 'Low Code',  role: 'ML Engineers · DevOps · Architects',        color: '#3fb950', run: runLowCode  },
   { label: 'Full Code', role: 'Senior Engineers · Researchers',            color: '#a78bfa', run: runFullCode },
   { label: 'Prompts',   role: 'Versioned prompts · Prompt caching · Vars', color: '#f472b6', run: runPrompts  },
-  { label: 'RAG',       role: 'Knowledge bases · Semantic search',          color: '#fb923c', run: runRAG      },
   { label: 'MCP',       role: 'MCP server discovery · Tool registry',       color: '#34d399', run: runMCP      },
   { label: 'A2A',       role: 'Agent-to-agent calls · JSON-RPC protocol',  color: '#e879f9', run: runA2A      },
 ];
@@ -538,7 +500,7 @@ export function AgentForAll() {
           No matter your role, you ship faster.
         </h2>
         <p className="mb-2 max-w-[560px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
-          Business users drag and drop. Engineers write YAML. Researchers use the full SDK.
+          Business users describe the agent in chat. Engineers write YAML. Researchers use the full SDK.
           All three compile to the same pipeline, with the same governance, to every cloud.
         </p>
         <p className="mb-10 text-sm font-mono">

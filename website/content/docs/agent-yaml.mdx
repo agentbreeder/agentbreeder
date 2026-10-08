@@ -70,10 +70,6 @@ tools:
     description: "Search knowledge base"
     schema: {}
 
-knowledge_bases:
-  - ref: kb/product-docs
-  - ref: kb/return-policy
-
 prompts:
   system: prompts/support-system-v3
 
@@ -83,11 +79,6 @@ guardrails:
   - content_filter
   - name: custom_check
     endpoint: https://guardrails.company.com/check
-
-subagents:
-  - ref: agents/billing-agent
-    name: billing
-    description: "Handles billing queries"
 
 mcp_servers:
   - ref: mcp/zendesk
@@ -424,26 +415,6 @@ tools:
 
 ---
 
-### `subagents`
-
-List of subagent references for A2A (agent-to-agent) communication. Each reference auto-generates a `call_{name}` tool during dependency resolution.
-
-```yaml
-subagents:
-  - ref: agents/billing-agent
-    name: billing
-    description: "Handles billing queries"
-  - ref: agents/tech-support
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `ref` | string | **Yes** | Registry reference path to the subagent. |
-| `name` | string | No | Display name (defaults to slug from ref). |
-| `description` | string | No | Description of the subagent's purpose. |
-
----
-
 ### `mcp_servers`
 
 List of MCP server references the agent can call. At deploy time each entry is
@@ -476,24 +447,6 @@ multi-container targets (AWS ECS, GCP Cloud Run, Azure Container Apps,
 docker-compose); single-container targets (App Runner) can only use remote `url`
 servers. A **remote** `stdio` server cannot be forwarded — use `sse`/`http`, or
 co-deploy an `image`.
-
----
-
-### `knowledge_bases`
-
-List of knowledge base references.
-
-```yaml
-knowledge_bases:
-  - ref: kb/product-docs
-  - ref: kb/return-policy
-    backend_url: postgresql://pgvector-host:5432/rag_db   # optional explicit DSN
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `ref` | string | **Yes** | Registry reference path. |
-| `backend_url` | string | No | Explicit cloud-reachable vector-store DSN (pgvector) or graph URL for this knowledge base. Overrides the registry-resolved default at deploy time. |
 
 ---
 
@@ -648,7 +601,7 @@ deploy:
 
 #### `deploy.sidecar`
 
-Configure the observability sidecar injected alongside every agent container. The sidecar provides OTel traces, cost attribution, and guardrail enforcement.
+Configure the observability sidecar injected alongside every agent container. The sidecar provides OTel trace export (to your own OTLP collector) and guardrail enforcement.
 
 ```yaml
 deploy:
@@ -658,7 +611,6 @@ deploy:
       - pii_detection
       - content_filter
     otel_endpoint: "http://otel-collector:4317"
-    cost_tracking: true
 ```
 
 | Field | Type | Default | Description |
@@ -666,7 +618,7 @@ deploy:
 | `enabled` | boolean | `true` | Inject the AgentBreeder observability sidecar alongside the agent container. |
 | `guardrails` | string[] | — | Guardrails to enforce in the sidecar (runs independently of the agent process). |
 | `otel_endpoint` | string | — | Override the OpenTelemetry collector endpoint. Defaults to `OPENTELEMETRY_ENDPOINT` env var. |
-| `cost_tracking` | boolean | `true` | Enable token-level cost attribution in the sidecar. |
+| `cost_tracking` | boolean | `true` | Accepted for backwards compatibility; has no effect. The sidecar does not emit cost events — use the LiteLLM gateway's spend logs instead. |
 
 ---
 
@@ -678,7 +630,7 @@ Access control configuration. Optional — defaults to team's policy.
 |-------|------|---------|-------------|
 | `visibility` | string | `team` | One of: `public`, `team`, `private`. |
 | `allowed_callers` | string[] | — | Restrict who can call this agent (e.g., `team:engineering`). |
-| `require_approval` | boolean | `false` | If true, deploys require admin approval. |
+| `require_approval` | boolean | `false` | Accepted by the schema but not enforced — there is no deploy approval gate. |
 
 ---
 

@@ -129,7 +129,7 @@ agentbreeder quickstart [--cloud TARGET] [--no-browser] [--skip-seed] [--dev] [-
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--cloud` | — | Also deploy to cloud after local setup. `aws` (ECS Fargate), `gcp` (Cloud Run), and `azure` (Container Apps) all ship with full governance parity. This CLI path deploys into **existing** infra (plus auto-provisioned managed Postgres/Redis data backends); greenfield provisioning ships via `agentbreeder deploy --provision` (AWS, GCP, Azure) or the [Studio deploy wizard](deployment#deploying-from-studio). Secret auto-mirror ships for GCP + Azure; on AWS, pre-create secrets in Secrets Manager. See the [deploy-target status table](#agentbreeder-deploy). |
+| `--cloud` | — | After local setup, run cloud pre-flight checks for `aws`, `gcp`, or `azure` and print the prerequisites and the `agentbreeder deploy` command to run. Quickstart does not deploy to the cloud itself — run `agentbreeder deploy` (optionally with `--provision`) yourself. See the [deploy-target status table](#agentbreeder-deploy). |
 | `--no-browser` | Off | Don't open Studio at `http://localhost:3001` |
 | `--skip-seed` | Off | Skip ChromaDB + Neo4j seeding (fast restart) |
 | `--dev` | Off | Build API and Studio from local source instead of pulling images |
@@ -159,8 +159,8 @@ What it does:
 3. Creates `.env` with secure random secrets if not present
 4. Starts the full stack via `docker-compose.quickstart.yml`: API · Studio · PostgreSQL · Redis · ChromaDB · Neo4j · MCP servers · LiteLLM
 5. Waits for all services with a live progress bar
-6. Seeds ChromaDB (vector store) and Neo4j (knowledge graph) with sample data
-7. Deploys 5 sample agents: `assistant`, `rag-agent`, `graph-agent`, `search-agent`, `a2a-orchestrator`
+6. Seeds ChromaDB (vector store) and Neo4j (graph) with sample data used by the sample agents
+7. Registers the sample agents (`assistant`, `search-agent`) in the registry and prints the `agentbreeder deploy` command for each
 8. Opens Studio at `http://localhost:3001`
 
 **Examples:**
@@ -168,9 +168,9 @@ What it does:
 agentbreeder quickstart                                  # Local only, interactive
 agentbreeder quickstart --no-ollama                      # Cloud-only (skip ~3 GB download)
 agentbreeder quickstart --yes --no-ollama --no-browser   # Fully scripted (CI)
-agentbreeder quickstart --cloud gcp                      # Local + deploy to GCP Cloud Run (full governance + secret auto-mirror)
-agentbreeder quickstart --cloud aws                      # Local + deploy to AWS ECS Fargate (full governance; pre-create secrets)
-agentbreeder quickstart --cloud azure                    # Local + deploy to Azure Container Apps (full governance + secret auto-mirror)
+agentbreeder quickstart --cloud gcp                      # Local + GCP pre-flight checks and deploy command
+agentbreeder quickstart --cloud aws                      # Local + AWS pre-flight checks and deploy command
+agentbreeder quickstart --cloud azure                    # Local + Azure pre-flight checks and deploy command
 agentbreeder quickstart --skip-seed                      # Restart stack without re-seeding data
 agentbreeder quickstart --dev                            # Build from source
 ```
@@ -298,64 +298,47 @@ agentbreeder init --type mcp-server --lang python tools    # Python MCP server
 Deploy an agent from an `agent.yaml` configuration file.
 
 ```
-agentbreeder deploy CONFIG_PATH [--target TARGET] [--json] [--remote | --local]
+agentbreeder deploy CONFIG_PATH [--target TARGET] [--provision] [--json]
 ```
 
 | Argument / Option | Required | Default | Description |
 |-------------------|----------|---------|-------------|
 | `CONFIG_PATH` | Yes | — | Path to `agent.yaml` |
 | `--target`, `-t` | No | `local` | Deploy target. See supported values below. |
-| `--remote` | No | Auto | POST to the API server (RBAC + audit enforced). Auto-enabled when `$AGENTBREEDER_URL` is set. |
-| `--local` | No | Auto | Run the deploy engine in-process. Use for dev / offline work; bypasses RBAC + audit. |
-| `--provision`, `-p` | No | Off | Greenfield-provision the cloud footprint (network, registry, cluster/environment, IAM) for a fresh account before deploying, then inject the IDs into the deploy. **Supports AWS, GCP, and Azure; local mode only** (`--local --provision`). The footprint is recorded in `.agentbreeder/infra-state.json` and removed by `agentbreeder teardown`. |
+| `--provision`, `-p` | No | Off | Greenfield-provision the cloud footprint (network, registry, cluster/environment, IAM) for a fresh account before deploying, then inject the IDs into the deploy. **Supports AWS, GCP, and Azure.** The footprint is recorded in `.agentbreeder/infra-state.json` and removed by `agentbreeder teardown`. |
 | `--json` | No | Off | Emit JSON to stdout (for CI/scripting). |
 
-**Remote vs. local mode**
-
-`agentbreeder deploy` has two execution paths:
-
-* **Remote** (recommended for production) — POSTs `/api/v1/deploys` against the API server identified by `$AGENTBREEDER_URL`, then polls the job until it terminates. The bearer token comes from `agentbreeder login` (OS keychain) or `$AGENTBREEDER_API_TOKEN`. Team-scoped RBAC, audit logging, and team-scoped cloud credentials all fire on this path.
-* **Local** — runs the deploy engine in the CLI process. Useful for offline development and for the `local` Docker Compose target. It explicitly bypasses every server-side gate, so it should never be used to deploy production agents from a developer laptop.
-
-Mode is picked by these rules, in order:
-
-1. `--local` → local mode regardless of env
-2. `--remote` → remote mode regardless of env
-3. otherwise: remote when `$AGENTBREEDER_URL` is set, else local
+The deploy engine runs in the CLI process: parse → RBAC check → resolve → build → provision → deploy → health check → register. (`--local` is still accepted for backwards compatibility and has no effect.)
 
 **Supported `--target` values:**
 
-This is the **canonical deploy-target status table** for AgentBreeder — other docs link here rather than repeating it. As of **v2.6.0**, the same `agent.yaml` deploys with **full governance parity** — the sidecar (guardrails, cost, tracing) plus secret mirroring — to **Local**, **AWS ECS Fargate**, **GCP Cloud Run**, and **Azure Container Apps**. **AWS App Runner** is single-container: it deploys *without* a sidecar and **rejects** `guardrails:` / `secrets:` at `validate-infra`. **Kubernetes** and **Claude-managed** are in flight.
+This is the **canonical deploy-target status table** for AgentBreeder — other docs link here rather than repeating it. As of **v2.6.0**, the same `agent.yaml` deploys with **full governance parity** — the sidecar (guardrails, tracing) plus secret mirroring — to **Local**, **AWS ECS Fargate**, **GCP Cloud Run**, and **Azure Container Apps**. **AWS App Runner** is single-container: it deploys *without* a sidecar and **rejects** `guardrails:` / `secrets:` at `validate-infra`. **Kubernetes** and **Claude-managed** are in flight.
 
 **Greenfield vs. existing account.** The **CLI** (`agentbreeder deploy`) deploys
 into **existing infrastructure** — a network, cluster/environment, registry, and
 execution identity you already have (the per-cloud BYO contract) — **or**
 greenfield-provisions that footprint from scratch with `--provision` on **AWS,
-GCP, and Azure**. The Studio deploy wizard (Step 3 → *Provision for me*) offers
-the same greenfield path. Independently, **both surfaces auto-provision the data
-tier** (managed Postgres pgvector / managed Redis) when an agent declares
-`memory:` or a knowledge base without a `backend_url`.
+GCP, and Azure**. Independently, it **auto-provisions the data tier** (managed
+Postgres / managed Redis) when an agent declares `memory:` without a
+`backend_url`.
 
 | Target | Status | Greenfield provisioning | Sidecar (governance) | Secret auto-mirror |
 |--------|--------|--------------------------|----------------------|--------------------|
 | `local` (Docker Compose) | ✅ Shipped | ✅ (nothing to provision) | ✅ | n/a (local `.env`) |
-| `ecs-fargate` (AWS) | ✅ Shipped | ✅ **CLI `--provision`** + Studio wizard¹ | ✅ | 🟡 Roadmap — pre-create in Secrets Manager |
-| `cloud-run` (GCP) | ✅ Shipped | ✅ **CLI `--provision`** + Studio wizard¹ | ✅ | ✅ |
-| `container-apps` (Azure) | ✅ Shipped | ✅ **CLI `--provision`** + Studio wizard¹ | ✅ | ✅ |
-| `app-runner` (AWS) | ✅ Shipped (single-container) | CLI BYO only — `--provision`/wizard provision ECS Fargate, not App Runner | ❌ — rejects `guardrails:`/`secrets:` | ❌ — not supported |
+| `ecs-fargate` (AWS) | ✅ Shipped | ✅ **CLI `--provision`**¹ | ✅ | 🟡 Roadmap — pre-create in Secrets Manager |
+| `cloud-run` (GCP) | ✅ Shipped | ✅ **CLI `--provision`**¹ | ✅ | ✅ |
+| `container-apps` (Azure) | ✅ Shipped | ✅ **CLI `--provision`**¹ | ✅ | ✅ |
+| `app-runner` (AWS) | ✅ Shipped (single-container) | CLI BYO only — `--provision` provisions ECS Fargate, not App Runner | ❌ — rejects `guardrails:`/`secrets:` | ❌ — not supported |
 | `kubernetes` (EKS/GKE/AKS/self-hosted) | 🟡 In flight | ❌ — needs existing cluster + kubeconfig | ✅ (when usable) | 🟡 Roadmap |
 | `claude-managed` (Anthropic) | 🟡 In flight | n/a — runtime is Anthropic-managed | n/a | n/a |
 
-¹ Greenfield ships from the CLI on all three clouds today — e.g. `agentbreeder
-deploy --target ecs-fargate --provision --local` (AWS), `--target cloud-run
---provision --local` (GCP), `--target container-apps --provision --local`
-(Azure) — and from **Studio → Deploys → New deploy** (the `/deploy-wizard` flow)
-+ the deployments job API (`POST /api/v1/deployments` with `infra_mode:
-"provision"`). GCP greenfield builds a dedicated VPC + subnet + Cloud NAT + a
-Private Service Access range (for Cloud SQL private IP); Azure greenfield builds
-the resource group, Log Analytics, Container Apps environment, ACR, and managed
-identity. See [Deployment → Greenfield mode](deployment#user-input-contract-per-cloud-byo-existing-infra)
-and [Deploying from Studio](deployment#deploying-from-studio).
+¹ Greenfield ships from the CLI on all three clouds — e.g. `agentbreeder
+deploy --target ecs-fargate --provision` (AWS), `--target cloud-run --provision`
+(GCP), `--target container-apps --provision` (Azure). GCP greenfield builds a
+dedicated VPC + subnet + Cloud NAT + a Private Service Access range (for Cloud SQL
+private IP); Azure greenfield builds the resource group, Log Analytics, Container
+Apps environment, ACR, and managed identity. See
+[Deployment → Greenfield mode](deployment#user-input-contract-per-cloud-byo-existing-infra).
 
 Each `--target` value maps to one cloud + runtime combination:
 
@@ -397,7 +380,7 @@ agentbreeder deploy ./agent.yaml --json                       # JSON output
 
 ### `agentbreeder validate`
 
-Validate an `agent.yaml`, `orchestration.yaml`, or `memory.yaml` without deploying.
+Validate an `agent.yaml` or `memory.yaml` without deploying.
 
 ```
 agentbreeder validate CONFIG_PATH [--json]
@@ -408,13 +391,11 @@ agentbreeder validate CONFIG_PATH [--json]
 | `CONFIG_PATH` | Yes | Path to a config file |
 
 File-type detection (in order):
-1. Filename starts with `orchestration` → orchestration schema
-2. Filename is `agent.yaml`/`agent.yml` → agent schema
-3. Filename is `memory.yaml`/`memory.yml` or starts with `memory.` → memory schema
-4. Content has `strategy` + `agents` keys → orchestration schema
-5. Content has `backend` + `memory_type` (and no `framework`/`runtime`) → memory schema
-6. Content has `transport`/`command` (and no `framework`/`runtime`) → MCP (skipped)
-7. Otherwise → agent schema
+1. Filename is `agent.yaml`/`agent.yml` → agent schema
+2. Filename is `memory.yaml`/`memory.yml` or starts with `memory.` → memory schema
+3. Content has `backend` + `memory_type` (and no `framework`/`runtime`) → memory schema
+4. Content has `transport`/`command` (and no `framework`/`runtime`) → MCP (skipped)
+5. Otherwise → agent schema
 
 Checks:
 - YAML syntax
@@ -813,115 +794,6 @@ agentbreeder registry memory list
 
 ---
 
-#### `agentbreeder registry rag push`
-
-Register a RAG (knowledge base) index in the registry from a `rag.yaml` file. Calls `POST /api/v1/rag/indexes`.
-
-```
-agentbreeder registry rag push FILE [--json]
-```
-
-| Argument / Option | Type | Default | Description |
-|-------------------|------|---------|-------------|
-| `FILE` | path | — | Path to the `rag.yaml` file |
-| `--json` | flag | off | Print the raw API response as JSON |
-
-**`rag.yaml` fields used:**
-
-| YAML field | Maps to API | Notes |
-|------------|-------------|-------|
-| `name` | `name` | Required, kebab-case |
-| `description` | `description` | Optional |
-| `backend` | `backend` | `in_memory`, `pgvector`, or `neo4j` |
-| `embedding_model.provider` + `.name` | `embedding_model` | Joined as `"<provider>/<name>"` |
-| `chunking.strategy` | `chunk_strategy` | Defaults to `fixed_size` |
-| `chunking.chunk_size` | `chunk_size` | Defaults to `512` |
-| `chunking.chunk_overlap` | `chunk_overlap` | Defaults to `64` |
-| `config` | `config` | Backend-specific config block |
-| `source` | `source` | Optional source identifier |
-| `index_type` | `index_type` | Defaults to `vector` |
-
-**Example:**
-```bash
-agentbreeder registry rag push ./rag.yaml
-# ✔ RAG index registered: agentbreeder-knowledge  (id=8439cd66-…)
-```
-
----
-
-#### `agentbreeder registry rag list`
-
-List RAG indexes from the registry. Calls `GET /api/v1/rag/indexes`.
-
-```
-agentbreeder registry rag list [--json]
-```
-
-**Example:**
-```bash
-agentbreeder registry rag list
-# NAME                       BACKEND     EMBEDDING                       CHUNKS
-# agentbreeder-knowledge     in_memory   openai/text-embedding-3-small   512/64
-```
-
----
-
-#### `agentbreeder registry rag ingest`
-
-Upload and ingest one or more files into a registered RAG index. Resolves the index name (or UUID) and POSTs `multipart/form-data` to `/api/v1/rag/indexes/{id}/ingest`. Files are chunked, embedded, and indexed by the API.
-
-```
-agentbreeder registry rag ingest NAME_OR_ID FILE [FILE...] [--replace] [--json]
-```
-
-| Argument / Option | Type | Default | Description |
-|-------------------|------|---------|-------------|
-| `NAME_OR_ID` | str | — | Registered RAG index name (e.g. `agentbreeder-knowledge`) or its UUID |
-| `FILE...` | path | — | One or more files to ingest |
-| `--replace` | flag | off | Delete any existing chunks whose source matches one of the incoming filenames before ingest. Without this flag, ingest is idempotent: chunks whose SHA-256 content hash already exists in the index are skipped. |
-| `--json` | flag | off | Print the raw API response as JSON |
-
-**Allowed file types:** `.pdf`, `.txt`, `.md`, `.csv`, `.json` (matches the API allow-list — unsupported extensions are rejected client-side before any upload).
-
-**Idempotency:** by default, re-ingesting the same file is a no-op — the API hashes every chunk (SHA-256) and skips any chunk whose hash already exists in the index. Use `--replace` when you've edited the file and want the old chunks to be dropped first.
-
-**Example:**
-```bash
-agentbreeder registry rag ingest agentbreeder-knowledge ./docs/intro.md ./docs/quickstart.pdf
-# ✓ Ingested 14 chunks from 2 file(s) into agentbreeder-knowledge  (job=ca2e0c7a  status=completed)
-
-# After editing intro.md, drop the old chunks and re-ingest:
-agentbreeder registry rag ingest agentbreeder-knowledge ./docs/intro.md --replace
-```
-
----
-
-#### `agentbreeder registry rag search`
-
-Run a hybrid vector + text search against a RAG index. Calls `POST /api/v1/rag/search`.
-
-```
-agentbreeder registry rag search NAME_OR_ID --query TEXT [--top-k N] [--json]
-```
-
-| Argument / Option | Type | Default | Description |
-|-------------------|------|---------|-------------|
-| `NAME_OR_ID` | str | — | Registered RAG index name or UUID |
-| `--query`, `-q` | str | — | Search query text |
-| `--top-k`, `-k` | int | `5` | Number of results to return |
-| `--json` | flag | off | Print the raw API response as JSON |
-
-**Example:**
-```bash
-agentbreeder registry rag search agentbreeder-knowledge -q "how do I deploy an agent?" -k 3
-#  # | Score | Source            | Snippet
-# ---+-------+-------------------+-----------------------------------------------
-#  1 | 0.913 | docs/intro.md     | AgentBreeder compiles an agent.yaml file to…
-#  2 | 0.812 | docs/quickstart.pdf | Run `agentbreeder deploy --target gcp` to…
-```
-
----
-
 ### `agentbreeder logs`
 
 Show logs from a deployed agent.
@@ -1087,7 +959,7 @@ agentbreeder model [SUBCOMMAND] [OPTIONS]
 | `sync-now` | Run the daily sync sweep immediately, in-process (bypasses the API server). Talks directly to the database; useful for testing the cron and for self-hosted environments without the daily loop. Supports `--json`. |
 | `deprecate NAME` | Manually mark a model deprecated. Supports `--replacement NAME`. Deployer role required. |
 
-The `sync` and `deprecate` subcommands talk to `POST /api/v1/models/sync` and `POST /api/v1/models/{name}/deprecate` respectively. Status flips emit audit events: `model.added`, `model.deprecated`, `model.retired`. See [Providers → Model lifecycle](providers) for the full state machine.
+The `sync` and `deprecate` subcommands talk to `POST /api/v1/models/sync` and `POST /api/v1/models/{name}/deprecate` respectively. Status flips emit audit events (structured `audit_event` log lines; there is no audit API or UI): `model.added`, `model.deprecated`, `model.retired`. See [Providers → Model lifecycle](providers) for the full state machine.
 
 **Examples:**
 ```bash
@@ -1150,7 +1022,7 @@ echo "hello" | agentbreeder chat my-agent --json    # JSON stdin/stdout
 
 ### `agentbreeder eject`
 
-Generate a Full Code SDK scaffold from an existing `agent.yaml` or `orchestration.yaml` file. Enables tier mobility from Low Code (YAML) to Full Code (Python/TypeScript SDK) without losing any configuration.
+Generate a Full Code SDK scaffold from an existing `agent.yaml` file. Enables tier mobility from Low Code (YAML) to Full Code (Python/TypeScript SDK) without losing any configuration.
 
 ```
 agentbreeder eject CONFIG_PATH [--sdk SDK] [--output PATH]
@@ -1158,24 +1030,17 @@ agentbreeder eject CONFIG_PATH [--sdk SDK] [--output PATH]
 
 | Argument / Option | Required | Default | Description |
 |-------------------|----------|---------|-------------|
-| `CONFIG_PATH` | Yes | — | Path to `agent.yaml` or `orchestration.yaml` |
+| `CONFIG_PATH` | Yes | — | Path to `agent.yaml` |
 | `--sdk` | No | `python` | Target SDK language: `python` or `typescript` |
 | `--output`, `-o` | No | auto | Output file path |
 
 **Agent ejection** recreates the YAML as a builder-pattern `Agent(...)` chain using `Agent`, `Tool`, `Model`, and `Memory` from `agenthub`. Includes commented scaffolding for middleware, event hooks, and custom routing.
-
-**Orchestration ejection** recreates `orchestration.yaml` as the appropriate SDK class (`Orchestration`, `Pipeline`, `FanOut`, or `Supervisor`) with all agents, routes, shared state, and deploy config preserved.
 
 **What it generates (agents):**
 - `Agent(...)` builder chain matching every field in the YAML
 - Model, prompt, tools, memory, guardrails, deploy, and tags
 - Commented middleware and hook examples
 - `__main__` block that validates and prints YAML round-trip
-
-**What it generates (orchestrations):**
-- Correct subclass (`Pipeline`, `FanOut`, `Supervisor`, or `Orchestration`)
-- All agents, routing rules, fallbacks, shared state, supervisor config
-- Commented custom `Router` subclass scaffold for advanced routing logic
 
 **Examples:**
 ```bash
@@ -1184,177 +1049,6 @@ agentbreeder eject agent.yaml                          # Default: agents/<name>/
 agentbreeder eject agent.yaml --sdk python             # Explicit Python SDK
 agentbreeder eject agent.yaml --sdk typescript         # TypeScript SDK
 agentbreeder eject agent.yaml -o src/my_agent.py       # Custom output path
-
-# Orchestration ejection
-agentbreeder eject orchestration.yaml                  # Default: orchestration_sdk.py
-agentbreeder eject orchestration.yaml --sdk typescript # TypeScript SDK
-```
-
----
-
-### `agentbreeder orchestration`
-
-Manage multi-agent orchestration pipelines defined in `orchestration.yaml` or built with the Full Code Orchestration SDK.
-
-```
-agentbreeder orchestration SUBCOMMAND [OPTIONS]
-```
-
-#### `agentbreeder orchestration validate`
-
-Validate an `orchestration.yaml` file against the JSON Schema.
-
-```
-agentbreeder orchestration validate PATH [--json]
-```
-
-```bash
-agentbreeder orchestration validate orchestration.yaml
-agentbreeder orchestration validate pipelines/support.yaml --json
-```
-
-#### `agentbreeder orchestration deploy`
-
-Validate, register, and deploy an orchestration.
-
-```
-agentbreeder orchestration deploy PATH [--json]
-```
-
-```bash
-agentbreeder orchestration deploy orchestration.yaml
-agentbreeder orchestration deploy pipelines/research.yaml --json
-```
-
-#### `agentbreeder orchestration list`
-
-List registered orchestrations.
-
-```
-agentbreeder orchestration list [--team TEAM] [--status STATUS] [--json]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--team` | Filter by team name |
-| `--status` | Filter by status: `deployed`, `draft`, `error` |
-
-```bash
-agentbreeder orchestration list
-agentbreeder orchestration list --team eng --json
-```
-
-#### `agentbreeder orchestration status`
-
-Show orchestration detail and agent graph.
-
-```
-agentbreeder orchestration status NAME [--json]
-```
-
-```bash
-agentbreeder orchestration status support-pipeline
-```
-
-#### `agentbreeder orchestration chat`
-
-Send messages interactively to a deployed orchestration.
-
-```
-agentbreeder orchestration chat NAME [--verbose] [--json]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--verbose` | Show per-agent trace, token counts, latency |
-| `--json` | Read from stdin, write JSON per line (for CI) |
-
-```bash
-agentbreeder orchestration chat support-pipeline
-agentbreeder orchestration chat support-pipeline --verbose
-echo '{"message": "billing question"}' | agentbreeder orchestration chat support-pipeline --json
-```
-
----
-
-### `agentbreeder submit`
-
-Submit a resource for review by creating a pull request.
-
-```
-agentbreeder submit RESOURCE_TYPE NAME [--message MSG] [--json]
-```
-
-| Argument / Option | Required | Description |
-|-------------------|----------|-------------|
-| `RESOURCE_TYPE` | Yes | One of: `agent`, `prompt`, `tool`, `rag`, `memory` |
-| `NAME` | Yes | Resource name |
-| `--message`, `-m` | No | PR description |
-
-Creates a PR from the draft branch to main. Shows PR ID, status, and diff summary.
-
-**Examples:**
-```bash
-agentbreeder submit agent my-agent
-agentbreeder submit agent my-agent -m "Added Zendesk tool integration"
-agentbreeder submit prompt support-v3 --json
-```
-
----
-
-### `agentbreeder review`
-
-Review pull requests for resources.
-
-```
-agentbreeder review [SUBCOMMAND] [OPTIONS]
-```
-
-#### Subcommands
-
-| Subcommand | Description |
-|------------|-------------|
-| `list` | List pending reviews (filterable by `--status`, `--type`) |
-| `show PR_ID` | Show PR detail: diff, commits, comments |
-| `approve PR_ID` | Approve a PR |
-| `reject PR_ID -m "reason"` | Reject a PR (message required) |
-| `comment PR_ID -m "text"` | Add a comment to a PR |
-
-**Examples:**
-```bash
-agentbreeder review list                           # Pending reviews
-agentbreeder review list --status approved         # Filter by status
-agentbreeder review list --type agent              # Filter by resource type
-agentbreeder review show pr-abc123                 # Show PR detail
-agentbreeder review approve pr-abc123              # Approve
-agentbreeder review reject pr-abc123 -m "Needs error handling"
-agentbreeder review comment pr-abc123 -m "LGTM"
-agentbreeder review list --json                    # JSON output
-```
-
----
-
-### `agentbreeder publish`
-
-Merge an approved PR and publish the resource to the registry.
-
-```
-agentbreeder publish RESOURCE_TYPE NAME [--version VERSION] [--json]
-```
-
-| Argument / Option | Required | Description |
-|-------------------|----------|-------------|
-| `RESOURCE_TYPE` | Yes | One of: `agent`, `prompt`, `tool`, `rag`, `memory` |
-| `NAME` | Yes | Resource name |
-| `--version`, `-v` | No | Explicit semver tag (e.g., `2.0.0`) |
-
-Finds the approved PR for the resource, merges to main, tags with semver, and publishes to the registry.
-
-**Examples:**
-```bash
-agentbreeder publish agent my-agent                    # Auto-version
-agentbreeder publish agent my-agent --version 2.0.0    # Explicit version
-agentbreeder publish prompt support-v3 --json
 ```
 
 ---
@@ -1482,102 +1176,6 @@ agentbreeder secret migrate --from env --to gcp --exclude DEBUG --exclude LOG_LE
 
 ---
 
-### `agentbreeder schedule`
-
-Run an agent on a cron schedule (requires `pip install 'agentbreeder[schedule]'`).
-
-```
-agentbreeder schedule [AGENT_DIR] [--cron EXPR] [--once] [--dry-run]
-```
-
-| Argument / Option | Required | Default | Description |
-|-------------------|----------|---------|-------------|
-| `AGENT_DIR` | No | `.` | Path to agent directory containing `agent.yaml` |
-| `--cron` | Conditional | — | Standard cron expression, e.g. `"0 8 * * *"`. Required unless `--once`. |
-| `--once` | No | `false` | Run immediately once and exit (ignores `--cron`). |
-| `--dry-run` | No | `false` | Print next 5 fire times and exit without running. |
-
-**Examples:**
-```bash
-agentbreeder schedule                          # Run cron schedule from current dir
-agentbreeder schedule ./support-agent --cron "0 9 * * 1-5"  # Weekdays at 9am
-agentbreeder schedule --once                   # Run once immediately
-agentbreeder schedule --dry-run --cron "0 * * * *"  # Preview hourly fire times
-```
-
----
-
-### `agentbreeder eval`
-
-Run agent evaluations, inspect datasets, and gate deployments on score thresholds.
-
-```
-agentbreeder eval [SUBCOMMAND] [OPTIONS]
-```
-
-#### `agentbreeder eval run`
-
-```
-agentbreeder eval run AGENT_NAME --dataset DATASET_ID [OPTIONS]
-```
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--dataset`, `-d` | **Yes** | Dataset ID to run against |
-| `--model`, `-m` | No | Model override for the run |
-| `--temperature`, `-T` | No | Temperature override |
-| `--judge` | No | LLM judge model (`claude-*`, `gpt-*`, `gemini-*`) |
-| `--scorer` | No | Scoring strategy: `exact`, `semantic`, or `judge` |
-| `--json` | No | JSON output |
-
-#### `agentbreeder eval datasets`
-
-List available evaluation datasets.
-
-```
-agentbreeder eval datasets [--team TEAM] [--json]
-```
-
-#### `agentbreeder eval results`
-
-Show results for a specific eval run.
-
-```
-agentbreeder eval results RUN_ID [--json]
-```
-
-#### `agentbreeder eval gate`
-
-Assert a minimum score — useful in CI pipelines before promoting a deployment.
-
-```
-agentbreeder eval gate RUN_ID [--threshold 0.7] [--metrics METRICS] [--json]
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--threshold`, `-t` | `0.7` | Minimum acceptable score (0.0–1.0). Exits non-zero if below. |
-| `--metrics` | — | Comma-separated list of metrics to check |
-
-#### `agentbreeder eval compare`
-
-Compare two eval runs and flag regressions.
-
-```
-agentbreeder eval compare RUN_A RUN_B [--regression-threshold 0.05] [--json]
-```
-
-**Examples:**
-```bash
-agentbreeder eval run support-agent --dataset support-qa-v2 --scorer judge
-agentbreeder eval datasets --team customer-success
-agentbreeder eval results run-abc123 --json
-agentbreeder eval gate run-abc123 --threshold 0.85        # Fail CI if score < 85%
-agentbreeder eval compare run-baseline run-candidate
-```
-
----
-
 ### `agentbreeder template`
 
 Manage agent templates — browse the community catalog and scaffold agents from templates.
@@ -1614,38 +1212,6 @@ agentbreeder template list                              # All templates
 agentbreeder template list --framework langgraph        # Filter by framework
 agentbreeder template list --category support           # Filter by category
 agentbreeder template use customer-support-starter      # Scaffold from template
-```
-
----
-
-### `agentbreeder compliance`
-
-Generate compliance evidence report packs for SOC 2 Type II, HIPAA, GDPR, and ISO 27001.
-
-```
-agentbreeder compliance [SUBCOMMAND] [OPTIONS]
-```
-
-#### `agentbreeder compliance generate`
-
-Export a compliance report pack from the audit log and registry.
-
-```
-agentbreeder compliance generate [--standard STANDARD] [--since SINCE] [--format FORMAT] [--output PATH]
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--standard`, `-s` | all | Standards to include: `soc2`, `hipaa`, `gdpr`, `iso27001` |
-| `--since` | `90d` | Lookback window (e.g., `90d`, `1y`) |
-| `--format` | `json` | Output format: `json` or `pdf` |
-| `--output`, `-o` | `./compliance-report` | Output path |
-
-**Examples:**
-```bash
-agentbreeder compliance generate                          # All standards, last 90 days
-agentbreeder compliance generate --standard soc2          # SOC 2 only
-agentbreeder compliance generate --since 1y --format pdf  # 1-year PDF report
 ```
 
 ---

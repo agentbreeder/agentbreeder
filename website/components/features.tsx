@@ -18,7 +18,7 @@ const FEATURES: Feature[] = [
   {
     icon: '🔒',
     title: 'Auto Governance',
-    desc: 'RBAC, cost attribution, audit trail, and org registry registration happen automatically on every deploy.',
+    desc: 'RBAC checks and org registry registration happen automatically on every deploy.',
   },
   {
     icon: '🗂️',
@@ -28,17 +28,7 @@ const FEATURES: Feature[] = [
   {
     icon: '🎯',
     title: 'Three Builder Tiers',
-    desc: 'No Code → Low Code → Full Code. Start visual, eject to YAML, eject to SDK. No lock-in at any level.',
-  },
-  {
-    icon: '🔗',
-    title: 'Multi-Agent Orchestration',
-    desc: '6 orchestration strategies — router, sequential, parallel, supervisor, hierarchical, fan-out — via YAML or SDK.',
-  },
-  {
-    icon: '🏆',
-    title: 'LLM-as-Judge Eval Hub',
-    desc: 'Multi-criteria scoring (accuracy, helpfulness, safety, groundedness) via Claude, GPT-4o, or Gemini. Public leaderboard, regression detection, CSV export.',
+    desc: 'No Code → Low Code → Full Code. Describe your agent in chat, eject to YAML, eject to code. No lock-in at any level.',
   },
   {
     icon: '🛒',
@@ -48,7 +38,7 @@ const FEATURES: Feature[] = [
   {
     icon: '🛡️',
     title: 'Sidecar Pattern (v2.0)',
-    desc: 'Single Go binary auto-injected next to every agent. Bearer auth, OTel tracing, cost attribution, PII guardrails, A2A JSON-RPC, MCP passthrough — zero per-language re-implementation.',
+    desc: 'Single Go binary auto-injected next to every agent. Bearer auth, OTLP trace export, PII guardrails, A2A forwarding, MCP passthrough — zero per-language re-implementation.',
   },
   {
     icon: '🔐',
@@ -68,7 +58,7 @@ const FEATURES: Feature[] = [
   {
     icon: '📟',
     title: 'AgentOps & Compliance (v2.6)',
-    desc: 'Fleet health heatmap, top-agent rankings, incident management, and a real SOC 2 / HIPAA compliance scanner — all live in Studio, backed by Postgres. Operations visibility without a second observability stack.',
+    desc: 'Fleet health heatmap, incident management, and a SOC 2 / HIPAA compliance scanner — all live in Studio, backed by Postgres.',
   },
   {
     icon: '🧩',
@@ -104,7 +94,7 @@ export function Features() {
           Everything you need to ship agents
         </h2>
         <p className="mb-12 max-w-[500px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
-          Stop reinventing deployment, governance, and observability for every agent.
+          Stop reinventing deployment and governance for every agent.
           AgentBreeder handles it automatically.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

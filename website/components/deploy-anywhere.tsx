@@ -394,8 +394,6 @@ export function DeployAnywhere() {
           {[
             { val: '✓', label: 'Registered in org registry' },
             { val: '✓', label: 'RBAC enforced'              },
-            { val: '✓', label: 'Cost attributed to team'    },
-            { val: '✓', label: 'Audit log written'          },
           ].map(({ val, label }) => (
             <div
               key={label}

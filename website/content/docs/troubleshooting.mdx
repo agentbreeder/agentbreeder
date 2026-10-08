@@ -34,11 +34,9 @@ targets carry the sidecar.
 
 ### Deploy fails at the RBAC step with `403 / RBACDeniedError`
 
-You are deploying in **remote** mode and your token lacks the **deployer** role on the
-agent's `team`. Confirm the team on your `agent.yaml`, then have a team admin grant the
-role. RBAC is never skippable — the local-mode bypass (`--local`) is for laptop dev
-only and must not be used for production deploys. See
-[Deployment → `--remote` vs `--local`](deployment#cli---remote-vs---local).
+The deploy's RBAC check found that your user lacks the **deployer** role on the agent's
+`team`. Confirm the team on your `agent.yaml`, then have a team admin grant the role.
+RBAC is never skippable.
 
 ### `403: ... does not have storage.objects.get access` during `gcloud builds submit`
 
@@ -135,7 +133,7 @@ See [Gateways → 3-segment model refs](gateways#3-segment-model-refs).
 ### `agentbreeder validate` picks the wrong schema
 
 File-type detection runs in a fixed order (filename first, then content keys). Name the
-file `agent.yaml`, `orchestration.yaml`, or `memory.yaml` so it resolves
+file `agent.yaml` or `memory.yaml` so it resolves
 unambiguously. The full detection order is in
 [CLI Reference → `agentbreeder validate`](cli-reference#agentbreeder-validate).
 

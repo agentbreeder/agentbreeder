@@ -1,321 +1,122 @@
 ---
-title: A2A Protocol — Agent-to-Agent Communication
-description: Expose your agents as callable services and invoke other agents via the A2A JSON-RPC protocol.
+title: A2A — Agent-to-Agent Calls
+description: Register agents in the A2A registry, invoke them through the API, and forward JSON-RPC calls to external A2A servers through the sidecar.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
-import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-AgentBreeder implements the [Google A2A specification](https://github.com/google/a2a) — a JSON-RPC 2.0 protocol for agents to discover and call each other. Every deployed agent can expose an A2A endpoint, be discovered by other agents, and call remote agents without knowing their internal implementation.
+AgentBreeder gives agents two ways to call each other:
 
----
+1. **The A2A registry + invoke API** — register any agent endpoint, then call it by name through the
+   AgentBreeder API.
+2. **The sidecar A2A forwarder** — an agent posts a JSON-RPC 2.0 request to its local sidecar, which
+   forwards it to a configured peer that speaks the [A2A protocol](https://github.com/google/a2a).
 
-## Core Concepts
-
-| Concept | Meaning |
-|---------|---------|
-| **Agent Card** | A JSON document at `/.well-known/agent.json` that describes the agent — name, capabilities, endpoint, and auth requirements |
-| **A2A endpoint** | The JSON-RPC endpoint at `/a2a` that accepts `tasks/send` and `tasks/get` calls |
-| **Service token** | A short-lived JWT issued by one agent to authenticate its calls to another |
-| **A2A client** | `AgentInvocationClient` — the async HTTP client for calling remote agents |
-| **A2A server** | `create_a2a_app()` — the FastAPI sub-app that serves the protocol |
+<Callout type="warn" title="What is not provided">
+  AgentBreeder agents do not serve an A2A JSON-RPC endpoint themselves, and `agent.yaml` has no
+  `subagents:` field. Agent runtimes expose the HTTP `/invoke` contract described in the
+  [runtime contract](runtime-contract).
+</Callout>
 
 ---
 
-## Exposing Your Agent via A2A
+## The A2A registry
 
-When you deploy an agent with AgentBreeder, the A2A endpoint is mounted automatically. To customise the Agent Card, set metadata in `agent.yaml`:
-
-```yaml
-name: summarizer
-version: 1.0.0
-team: engineering
-owner: alice@company.com
-description: "Summarises long documents into bullet-point reports."
-tags: [summarization, documents]
-
-model:
-  primary: claude-sonnet-4
-
-framework: claude_sdk
-
-deploy:
-  cloud: gcp
-  runtime: cloud-run
-```
-
-The Agent Card served at `https://your-agent.run.app/.well-known/agent.json`:
-
-```json
-{
-  "name": "summarizer",
-  "version": "1.0.0",
-  "description": "Summarises long documents into bullet-point reports.",
-  "tags": ["summarization", "documents"],
-  "endpoint": "https://your-agent.run.app/a2a",
-  "auth": {
-    "type": "bearer",
-    "scheme": "a2a_service"
-  },
-  "capabilities": ["tasks/send", "tasks/get"]
-}
-```
-
-### Mounting the A2A server manually (Full Code tier)
-
-```python
-from engine.a2a.server import create_a2a_app
-from engine.a2a.protocol import AgentCardInfo
-
-agent_card = AgentCardInfo(
-    name="summarizer",
-    version="1.0.0",
-    description="Summarises long documents.",
-    endpoint="https://summarizer.run.app/a2a",
-    tags=["summarization"],
-)
-
-async def handle_task(message: str, context: dict) -> dict:
-    result = await your_llm_call(message)
-    return {"output": result, "tokens": 420}
-
-a2a_app = create_a2a_app(agent_card=agent_card, invoke_handler=handle_task)
-
-# Mount onto your main FastAPI app
-from fastapi import FastAPI
-app = FastAPI()
-app.mount("/", a2a_app)
-```
-
----
-
-## Calling Another Agent
-
-### Via `agent.yaml` (Low Code)
-
-Reference another agent as a tool in `agent.yaml`:
-
-```yaml
-tools:
-  - name: summarizer
-    type: agent
-    ref: agent://summarizer@v1.0
-    endpoint: https://summarizer.run.app/a2a
-```
-
-The AgentBreeder runtime issues a service token and calls the remote agent on behalf of your agent.
-
-### Via Python SDK (Full Code)
-
-```python
-from engine.a2a.client import AgentInvocationClient
-from engine.a2a.auth import create_service_token
-
-# Create a service token for agent-to-agent auth
-token = create_service_token(agent_name="triage-agent", team="engineering")
-
-client = AgentInvocationClient(auth_token=token, timeout=30.0)
-
-result = await client.invoke(
-    endpoint_url="https://summarizer.run.app",
-    input_message="Summarise this contract: ...",
-    context={"session_id": "sess-abc123", "user": "alice"},
-)
-
-print(result.output)      # "Key points: ..."
-print(result.tokens)      # 312
-print(result.latency_ms)  # 1840
-```
-
-### Via JSON-RPC directly
+The registry stores named agent endpoints so other agents and services can find and call them.
 
 ```bash
-curl -X POST https://summarizer.run.app/a2a \
-  -H "Authorization: Bearer $SERVICE_TOKEN" \
+# Register an agent endpoint
+curl -X POST https://your-agentbreeder/api/v1/a2a/agents \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "jsonrpc": "2.0",
-    "id": "req-001",
-    "method": "tasks/send",
-    "params": {
-      "message": "Summarise this contract: ...",
-      "context": {"session_id": "sess-abc123"}
-    }
+    "name": "summarizer",
+    "endpoint_url": "https://summarizer.run.app",
+    "capabilities": ["summarize"],
+    "team": "engineering"
   }'
-```
 
-**Response:**
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-001",
-  "result": {
-    "task_id": "task-xyz789",
-    "status": "completed",
-    "output": "Key points:\n- Payment: net-30\n- Term: 24 months\n- Auto-renews unless cancelled 60 days prior",
-    "tokens": 312,
-    "latency_ms": 1840
-  }
-}
-```
-
----
-
-## Authentication
-
-All A2A calls use JWT service tokens. Tokens are scoped to agent identity and expire after 1 hour.
-
-### Issuing a service token
-
-```python
-from engine.a2a.auth import create_service_token
-
-token = create_service_token(
-    agent_name="triage-agent",
-    team="engineering",
-    extra_claims={"env": "production"},
-)
-```
-
-### Validating an incoming token
-
-```python
-from engine.a2a.auth import validate_service_token
-from jwt.exceptions import InvalidTokenError
-
-try:
-    claims = validate_service_token(token)
-    # claims → {"sub": "agent:triage-agent", "team": "engineering", ...}
-except InvalidTokenError:
-    # Reject the request
-    ...
-```
-
-Token validation happens automatically inside `create_a2a_app()` — you don't need to add it manually.
-
-**Environment variable:**
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `A2A_JWT_SECRET` | `$SECRET_KEY` | Secret used to sign and verify service tokens |
-
----
-
-## Agent Discovery
-
-### Look up an agent by name
-
-```bash
-agentbreeder describe agent summarizer
-```
-
-```
-Name:        summarizer
-Version:     1.0.0
-Team:        engineering
-Framework:   claude_sdk
-Endpoint:    https://summarizer.run.app
-A2A:         https://summarizer.run.app/.well-known/agent.json
-Status:      running
-```
-
-### Registry API
-
-```bash
-# List all A2A-enabled agents
+# List registered agents
 curl https://your-agentbreeder/api/v1/a2a/agents \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/v1/a2a/agents` | List registered agents |
+| `GET /api/v1/a2a/agents/{id}` | Get one agent |
+| `POST /api/v1/a2a/agents` | Register an agent |
+| `PUT /api/v1/a2a/agents/{id}` | Update an agent |
+| `DELETE /api/v1/a2a/agents/{id}` | Remove an agent |
+
+The **A2A Agents** page in Studio lists the same registry.
+
+---
+
+## Invoking a registered agent
+
+`POST /api/v1/a2a/invoke?agent_name=<name>` looks the agent up in the registry and POSTs the message to
+its `/invoke` endpoint. The caller needs the `deployer` role.
+
+```bash
+curl -X POST "https://your-agentbreeder/api/v1/a2a/invoke?agent_name=summarizer" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input_message": "Summarise this contract: ...",
+    "context": {"session_id": "sess-abc123"}
+  }'
+```
+
 ```json
 {
-  "data": [
-    {
-      "name": "summarizer",
-      "endpoint": "https://summarizer.run.app/a2a",
-      "agent_card_url": "https://summarizer.run.app/.well-known/agent.json",
-      "capabilities": ["tasks/send", "tasks/get"],
-      "team": "engineering"
-    }
-  ]
+  "data": {
+    "output": "Key points: ...",
+    "tokens": 312,
+    "latency_ms": 1840,
+    "status": "success",
+    "error": null
+  }
 }
 ```
 
----
-
-## Long-Running Tasks
-
-For tasks that take more than a few seconds, poll via `tasks/get`:
+From Python, the same call is available through `engine.a2a.AgentInvocationClient`:
 
 ```python
-# Send the task
-result = await client.invoke(endpoint_url=url, input_message="Analyse this 200-page report...")
+from engine.a2a import AgentInvocationClient
 
-# If status is "in_progress", poll
-if result.status == "in_progress":
-    import asyncio
-    task_id = result.task_id  # returned when status is in_progress
-    for _ in range(30):       # poll up to 30 times
-        await asyncio.sleep(5)
-        poll = await client.poll(endpoint_url=url, task_id=task_id)
-        if poll.status == "completed":
-            break
-```
-
----
-
-## Building a Multi-Agent Pipeline
-
-A common pattern: a triage agent routes to specialised agents.
-
-```yaml
-# triage-agent/agent.yaml
-name: triage-agent
-framework: langgraph
-model:
-  primary: claude-haiku-4-5
-tools:
-  - name: summarizer
-    type: agent
-    ref: agent://summarizer@v1.0
-    endpoint: https://summarizer.run.app/a2a
-  - name: sentiment-analyzer
-    type: agent
-    ref: agent://sentiment@v2.1
-    endpoint: https://sentiment.run.app/a2a
-```
-
-Or via the orchestration SDK:
-
-```python
-from sdk.python.agenthub.orchestration import Orchestration
-
-pipeline = (
-    Orchestration("support-pipeline", strategy="router", team="engineering")
-    .add_agent("triage",    ref="agents/triage")
-    .add_agent("billing",   ref="agents/billing")
-    .add_agent("technical", ref="agents/technical")
-    .with_route("triage", condition="billing",   target="billing")
-    .with_route("triage", condition="technical", target="technical")
-    .with_route("triage", condition="default",   target="billing")
+client = AgentInvocationClient(timeout=30.0)
+result = await client.invoke(
+    endpoint_url="https://summarizer.run.app",
+    input_message="Summarise this contract: ...",
 )
+print(result.output, result.tokens, result.latency_ms)
+await client.close()
 ```
-
-See [Orchestration SDK →](orchestration-sdk) for full multi-agent pipeline docs.
 
 ---
 
-## A2A vs Direct Invocation
+## Forwarding to external A2A servers (sidecar)
 
-| | A2A | Direct `/invoke` |
-|--|-----|-----------------|
-| **Discovery** | Via Agent Card (`/.well-known/agent.json`) | Manual — you must know the URL |
-| **Auth** | JWT service tokens, auto-issued | Bring your own |
-| **Protocol** | JSON-RPC 2.0 (standard) | Custom per-agent |
-| **Async tasks** | `tasks/get` polling built in | Not standardised |
-| **Use when** | Calling agents you don't control | Internal service mesh |
+Agents deployed with the [sidecar](sidecar) can reach external A2A servers through a localhost helper.
+Configure peers in the sidecar's `a2a_peers` map (name → base URL); the sidecar posts JSON-RPC requests
+to `<peer URL>/a2a`.
 
-<Callout type="info">
-  Use A2A when calling agents across team boundaries or from agents you didn't write. For agents within your own stack on the same deploy, direct HTTP is fine.
-</Callout>
+```bash
+curl -X POST http://127.0.0.1:9090/a2a/research-agent \
+  -H "Content-Type: application/json" \
+  -d '{"method": "tasks/send", "params": {"message": "Find recent papers on ..."}}'
+```
+
+The peer must implement the A2A JSON-RPC protocol — for example an agent built on a framework that
+ships an A2A server.
+
+---
+
+## A2A vs direct `/invoke`
+
+| | A2A registry + invoke API | Direct `/invoke` |
+|--|---------------------------|------------------|
+| **Discovery** | By name from the registry | You must know the URL |
+| **Auth** | Your AgentBreeder token + `deployer` role | Whatever the agent requires |
+| **Use when** | Calling agents registered by other teams | Calling an agent you own |

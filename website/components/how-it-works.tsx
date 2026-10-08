@@ -43,7 +43,7 @@ const STEPS: Step[] = [
   {
     num: '03',
     title: 'Governance is automatic',
-    desc: 'Your agent is live, registered in the org registry, RBAC enforced, costs attributed, audit trail written. Nothing extra to configure.',
+    desc: 'Your agent is live, RBAC-checked, and registered in the org registry. Nothing extra to configure.',
   },
 ];
 

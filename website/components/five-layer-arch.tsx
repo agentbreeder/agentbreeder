@@ -10,7 +10,7 @@ const LAYERS = [
     subtitle: 'Three builder tiers — all compile to the same format',
     color: '#a78bfa',
     items: [
-      { icon: '🖱️', name: 'No Code', desc: 'Visual canvas, drag-and-drop', badge: 'ReactFlow' },
+      { icon: '💬', name: 'No Code', desc: 'Describe the agent in chat', badge: 'Studio' },
       { icon: '📄', name: 'Low Code', desc: 'YAML in any IDE', badge: 'agent.yaml' },
       { icon: '🧑‍💻', name: 'Full Code', desc: 'Python / TypeScript SDK', badge: 'SDK' },
     ],
@@ -75,8 +75,6 @@ const LAYERS = [
     items: [
       { icon: '🔒', name: 'RBAC', desc: 'Validated before build starts', badge: 'automatic' },
       { icon: '🗂️', name: 'Org Registry', desc: 'Auto-registered after deploy', badge: 'automatic' },
-      { icon: '💰', name: 'Cost Attribution', desc: 'Attributed to team at deploy time', badge: 'automatic' },
-      { icon: '📋', name: 'Audit Trail', desc: 'Every deploy logged immutably', badge: 'automatic' },
     ],
     output: 'Governed agent fleet',
   },

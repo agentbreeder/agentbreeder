@@ -1,12 +1,12 @@
 ---
 title: Polyglot Agents — TypeScript, Go, Python
-description: Build and deploy AgentBreeder agents in TypeScript, Go, or Python. Full RAG, memory, tools, and A2A parity — wired by the platform, not written by you.
+description: Build and deploy AgentBreeder agents in TypeScript, Go, or Python. Memory and tools parity — wired by the platform, not written by you.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-AgentBreeder agents can be written in **Python, TypeScript, or Go** today. Every language gets the same first-class experience: automatic RAG injection, conversation memory, tool execution, A2A communication, tracing, and cost attribution — all wired by the platform, none of it written by you.
+AgentBreeder agents can be written in **Python, TypeScript, or Go** today. Every language gets the same first-class experience: conversation memory, tool execution, and OpenTelemetry tracing — all wired by the platform, none of it written by you.
 
 <Callout type="info" title="Language status (v2.0)">
   - **Python** — Tier 1, shipped (LangGraph, CrewAI, Claude SDK, OpenAI Agents, Google ADK, Custom).
@@ -27,16 +27,16 @@ When you run `agentbreeder deploy`, the engine:
 4. Injects an **AgentBreeder Platform Sidecar (APS)** next to your container
 5. Deploys both containers together — same pod, same task, same compose network
 
-The APS sidecar handles everything the platform needs to do: RAG retrieval, memory persistence, tool execution, A2A proxying, and OpenTelemetry tracing. LLM cost is tracked automatically by the LiteLLM gateway using the per-agent virtual key — no explicit cost recording call needed. Your agent code calls the sidecar over a local HTTP connection on port 9001. **You write zero infrastructure code.**
+The APS sidecar handles everything the platform needs to do: memory persistence, tool execution, and OpenTelemetry tracing. When agents route through the LiteLLM gateway, LiteLLM records LLM spend in its own spend logs. Your agent code calls the sidecar over a local HTTP connection on port 9001. **You write zero infrastructure code.**
 
 <Callout type="info" title="APS vs. Track J sidecar">
-  This page describes the **Polyglot APS sidecar** (TypeScript-runtime concept from PR #136), which lives in the agent container's pod and exposes `:9001`. AgentBreeder v2.0 also ships a separate, broader **[Track J sidecar](sidecar)** — a Go binary that fronts the agent on `:8080` and handles bearer auth, OTel, cost emission, A2A, MCP passthrough, and guardrails for **all** languages and frameworks. The two are complementary: APS is opinionated polyglot scaffolding; Track J is the cross-cutting concerns layer auto-injected based on `agent.yaml` (`guardrails:` / MCP `tools:` / `a2a:`). Plan: the APS responsibilities collapse into the Track J sidecar over the v2.x line.
+  This page describes the **Polyglot APS sidecar** (TypeScript-runtime concept from PR #136), which lives in the agent container's pod and exposes `:9001`. AgentBreeder v2.0 also ships a separate, broader **[Track J sidecar](sidecar)** — a Go binary that fronts the agent on `:8080` and handles bearer auth, OTel, A2A forwarding, MCP passthrough, and guardrails for **all** languages and frameworks. The two are complementary: APS is opinionated polyglot scaffolding; Track J is the cross-cutting concerns layer auto-injected based on `agent.yaml` (`guardrails:` / MCP `tools:`). Plan: the APS responsibilities collapse into the Track J sidecar over the v2.x line.
 </Callout>
 
 ```
 Your agent.ts / main.rs / main.go
         ↓ (imported by server template)
-Agent container  ←→  APS sidecar  ←→  Platform (RAG, memory, tools, registry)
+Agent container  ←→  APS sidecar  ←→  Platform (memory, tools, registry)
     :8080                :9001
 ```
 
@@ -208,10 +208,6 @@ runtime:
 model:
   primary: gpt-4o
 
-# Optional: wire a knowledge base
-knowledge_bases:
-  - ref: kb/product-docs
-
 # Optional: wire MCP tools
 tools:
   - ref: tools/my-mcp-server
@@ -244,37 +240,6 @@ runtime:
 <Callout type="info">
   **Python agents don't need to migrate.** `framework: langgraph` continues to work unchanged. The `runtime:` block is only needed for non-Python agents or when you want to explicitly pin the Python version.
 </Callout>
-
----
-
-## RAG (Knowledge Bases)
-
-RAG works identically across all languages. Define knowledge bases in `agent.yaml` — the platform wires retrieval automatically via the APS sidecar. You don't write any retrieval code.
-
-```yaml
-# agent.yaml
-knowledge_bases:
-  - ref: kb/product-docs
-  - ref: kb/support-history
-```
-
-At runtime, the server template:
-1. Calls `GET aps/rag/search?query={userMessage}&index_ids={kbIds}&top_k=5`
-2. Receives ranked chunks from ChromaDB or Neo4j
-3. Prepends the context to the system prompt before calling the LLM
-
-**Context injection pattern per framework:**
-
-| Framework | How context is injected |
-|---|---|
-| Vercel AI SDK | Prepended to `system` in `generateText()` / `streamText()` |
-| Mastra | Added to agent's context window |
-| LangChain.js | Passed as retrieval result to chain |
-| OpenAI Agents TS | Prepended to system instructions |
-| Rig (Rust) | Added to agent preamble |
-| Go custom | Prepended to system message |
-
-**No code needed in your `agent.ts`.** If a knowledge base is wired in `agent.yaml`, context is injected automatically on every `/invoke`.
 
 ---
 
@@ -376,23 +341,9 @@ func ExtraTools() []agentbreeder.Tool {
 
 ## Agent-to-Agent (A2A) Calls
 
-Agents written in different languages can call each other. The APS sidecar handles routing and auth — language is transparent.
+Agents written in different languages can call each other through the A2A registry and invoke API (`POST /api/v1/a2a/invoke?agent_name=<name>`), or through the sidecar A2A forwarder for external A2A servers. Language is transparent — the call goes to the target agent's HTTP endpoint.
 
-```yaml
-# agent.yaml — wire a sub-agent as a tool
-tools:
-  - name: call_data_analyst
-    type: a2a
-    target: data-analysis-agent   # can be Python, TypeScript, Rust, Go
-```
-
-The sub-agent call routes through the APS:
-```typescript
-// Happens automatically — your agent.ts doesn't need this
-const result = await aps.a2a.call('data-analysis-agent', { input: userQuery })
-```
-
-See [A2A Protocol](/docs/a2a-protocol) for multi-agent orchestration patterns.
+See [A2A Protocol](/docs/a2a-protocol) for the registry API and sidecar forwarder.
 
 ---
 
@@ -481,7 +432,6 @@ These are injected automatically by the deploy pipeline — you don't set them m
 | `AGENT_SYSTEM_PROMPT` | Resolved system prompt |
 | `APS_URL` | APS sidecar URL (`http://localhost:9001`) |
 | `APS_TOKEN` | Shared secret for APS auth |
-| `KB_INDEX_IDS` | Comma-separated knowledge base IDs |
 | `AGENT_TOOLS_JSON` | JSON array of registered tools |
 
 Variables from `deploy.env_vars` and `deploy.secrets` in `agent.yaml` are also injected.
@@ -546,12 +496,12 @@ The APS sidecar is injected into the ECS task definition, Cloud Run job, or Kube
 If you have an existing Python agent and want to rewrite it in TypeScript:
 
 1. Run `agentbreeder init --language node --framework vercel-ai --name my-agent`
-2. Copy your `knowledge_bases`, `tools`, `model`, and `deploy` blocks from the old `agent.yaml`
+2. Copy your `tools`, `model`, and `deploy` blocks from the old `agent.yaml`
 3. Change `framework: langgraph` to `runtime: {language: node, framework: vercel-ai}`
 4. Rewrite your agent logic in `agent.ts`
 5. `agentbreeder deploy` — same governance, same registry entry, same endpoint pattern
 
-Your RAG indexes, MCP servers, and memory stores are shared — they don't need to be recreated.
+Your MCP servers and memory stores are shared — they don't need to be recreated.
 
 ---
 
@@ -561,10 +511,10 @@ Your RAG indexes, MCP servers, and memory stores are shared — they don't need 
 No. The deploy pipeline injects it automatically based on your `runtime.language`. You never configure or deploy the sidecar directly.
 
 **Can I use a TypeScript framework not in the supported list?**  
-Yes — use `framework: custom` and the `CustomNodeTemplate` wraps your server. You get basic `/health` and `/invoke` scaffolding; APS wiring for RAG, memory, and tools is available via `@agentbreeder/aps-client`. Open a GitHub issue to request an official template for your framework.
+Yes — use `framework: custom` and the `CustomNodeTemplate` wraps your server. You get basic `/health` and `/invoke` scaffolding; APS wiring for memory and tools is available via `@agentbreeder/aps-client`. Open a GitHub issue to request an official template for your framework.
 
 **Can a TypeScript agent call a Python agent?**  
-Yes — via A2A. Wire the Python agent as a tool with `type: a2a`. The APS handles the cross-language call. See [A2A Protocol](/docs/a2a-protocol).
+Yes — via A2A. Register the Python agent in the A2A registry and call it by name with `POST /api/v1/a2a/invoke`. See [A2A Protocol](/docs/a2a-protocol).
 
 **Does streaming work for all languages?**  
 Yes. All templates implement `POST /stream` returning SSE. Framework-specific streaming (Vercel AI's `streamText`, Rig's stream iterator, Go's `http.Flusher`) is handled inside the template.

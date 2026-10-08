@@ -18,13 +18,12 @@ Mode is persisted per browser in `localStorage` (`agentbreeder.playground.mode`)
 
 ## Model mode
 
-Model mode is the original Playground experience. It runs the agent's system prompt + your input through the **LiteLLM gateway**, returning the raw model completion plus token counts, costs, latency, and any tool calls the playground was able to elicit.
+Model mode is the original Playground experience. It runs the agent's system prompt + your input through the **LiteLLM gateway**, returning the raw model completion plus token counts, an estimated cost, and latency. Tools are not executed in Model mode.
 
 Use Model mode when you want to:
 
 - Iterate on prompts without redeploying
 - Compare models for the same prompt (use the **Default model** dropdown to override the agent's configured `model.primary`)
-- Save a turn as an eval case via the **Save** button on any assistant message
 
 ---
 

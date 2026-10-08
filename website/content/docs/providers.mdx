@@ -235,7 +235,7 @@ A discovery failure (network down, bad api-key) is **isolated per provider** —
 
 ### Audit events
 
-Every state transition writes to the audit log under `resource_type="model"`:
+Every state transition emits a structured `audit_event` log line (the action is in `audit_action`):
 
 | Action | Triggered by |
 |---|---|

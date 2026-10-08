@@ -166,8 +166,8 @@ export function Hero() {
               Govern automatically.
             </h1>
             <p className="mb-8 text-base sm:text-lg leading-[1.75] max-w-[480px]" style={{ color: 'var(--text-muted)' }}>
-              One YAML file. Any framework. Any cloud. Governance, RBAC, cost tracking and
-              audit trail — automatic on every deploy.
+              One YAML file. Any framework. Any cloud. RBAC checks and registry
+              registration — automatic on every deploy.
             </p>
             <div
               className="mb-7 inline-flex items-center gap-3 rounded-xl border px-4 py-3 font-mono w-full sm:w-auto"
@@ -249,7 +249,7 @@ export function Hero() {
               </pre>
             </div>
 
-            {/* Capability grid: MCP · A2A · Prompts · RAG */}
+            {/* Capability grid: MCP · A2A · Prompts · Memory */}
             <div className="mt-3 grid grid-cols-2 gap-2">
               {[
                 {
@@ -259,10 +259,10 @@ export function Hero() {
                   lines: ['versioned · cached', 'variables · v3'],
                 },
                 {
-                  label: 'RAG',
+                  label: 'Memory',
                   color: '#fb923c',
                   icon: '◈',
-                  lines: ['vector · graph', 'hybrid search'],
+                  lines: ['redis · postgresql', 'auto-provisioned'],
                 },
                 {
                   label: 'MCP',
@@ -317,7 +317,7 @@ export function Hero() {
                 <span style={{ color: 'var(--accent)' }}>$ </span>
                 <span className="text-white">agentbreeder deploy</span>{'\n'}
                 <span style={{ color: 'var(--text-dim)' }}>✓ Validating · Building · Deploying{'\n'}</span>
-                <span style={{ color: 'var(--text-dim)' }}>✓ Prompts cached · RAG indexed · MCP wired{'\n'}</span>
+                <span style={{ color: 'var(--text-dim)' }}>✓ Prompts resolved · Memory wired · MCP wired{'\n'}</span>
                 <span style={{ color: '#60a5fa' }}>→ http://localhost:8080/support-v1</span>
               </pre>
             </div>

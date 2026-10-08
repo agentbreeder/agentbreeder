@@ -46,7 +46,7 @@ const ROWS: Row[] = [
     note: 'Bedrock = AWS only · ADK = GCP preferred · OpenAI = OpenAI cloud · Mastra = runs anywhere',
   },
   {
-    feature: 'No-code visual builder',
+    feature: 'No-code builder',
     agentbreeder: 'yes', langgraph: 'no', crewai: 'no', openai: 'partial', googleadk: 'no', claudesdk: 'no', mastra: 'no', bedrock: 'partial',
   },
   {
@@ -63,17 +63,9 @@ const ROWS: Row[] = [
     note: 'Governance is a side effect of deploying, not a separate project',
   },
   {
-    feature: 'Cost attribution per team',
-    agentbreeder: 'yes', langgraph: 'no', crewai: 'no', openai: 'partial', googleadk: 'no', claudesdk: 'no', mastra: 'no', bedrock: 'partial',
-  },
-  {
-    feature: 'Immutable audit log',
-    agentbreeder: 'yes', langgraph: 'no', crewai: 'no', openai: 'no', googleadk: 'no', claudesdk: 'no', mastra: 'no', bedrock: 'partial',
-  },
-  {
     feature: 'Shared org-wide registry',
     agentbreeder: 'yes', langgraph: 'no', crewai: 'no', openai: 'no', googleadk: 'no', claudesdk: 'no', mastra: 'no', bedrock: 'no',
-    note: 'Agents, prompts, tools, RAGs, MCPs — discoverable across all teams',
+    note: 'Agents, prompts, tools, MCPs — discoverable across all teams',
   },
   {
     feature: 'Multi-language (Python + TypeScript)',

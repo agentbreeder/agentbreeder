@@ -6,7 +6,7 @@ const LINKS = {
     { label: 'Getting Started', href: '/docs' },
     { label: 'agent.yaml', href: '/docs/agent-yaml' },
     { label: 'CLI Reference', href: '/docs/cli-reference' },
-    { label: 'SDK', href: '/docs/orchestration-sdk' },
+    { label: 'SDK', href: '/docs/full-code' },
     { label: 'Migrations', href: '/docs/migrations/overview' },
   ],
   'Open Source': [

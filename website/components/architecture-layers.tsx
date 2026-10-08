@@ -6,7 +6,7 @@ const LAYERS = [
     accentDim: 'rgba(34,197,94,0.10)',
     accentBorder: 'rgba(34,197,94,0.22)',
     description: 'Central registry — every artifact versioned, governed, and discoverable',
-    items: ['Agents', 'Prompts', 'Tools', 'RAG Indexes', 'MCP Servers', 'Models'],
+    items: ['Agents', 'Prompts', 'Tools', 'MCP Servers', 'Models'],
   },
   {
     number: 2,
@@ -15,7 +15,7 @@ const LAYERS = [
     accentDim: 'rgba(167,139,250,0.10)',
     accentBorder: 'rgba(167,139,250,0.22)',
     description: 'Three paths, one pipeline — all compile to the same agent.yaml',
-    items: ['No-Code (Visual)', 'Low-Code (YAML)', 'Full-Code (SDK)'],
+    items: ['No-Code (Chat)', 'Low-Code (YAML)', 'Full-Code (SDK)'],
   },
   {
     number: 3,
