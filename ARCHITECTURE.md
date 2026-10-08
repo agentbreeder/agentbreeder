@@ -16,17 +16,15 @@
 6. [AgentBreeder Platform Sidecar (APS)](#agentbreeder-platform-sidecar-aps)
 7. [Model Gateway & LiteLLM](#model-gateway--litellm)
 8. [Key Abstractions](#key-abstractions)
-9. [Multi-Agent Orchestration](#multi-agent-orchestration)
-10. [Agent-to-Agent (A2A) Protocol](#agent-to-agent-a2a-protocol)
-11. [Observability](#observability)
-12. [Memory & RAG](#memory--rag)
-13. [Evaluation Framework](#evaluation-framework)
-14. [Governance](#governance)
-15. [Data Model](#data-model)
-16. [API Layer](#api-layer)
-17. [Full Code SDK](#full-code-sdk)
-18. [Design Principles](#design-principles)
-19. [Authentication Model](#authentication-model)
+9. [Agent-to-Agent (A2A) Protocol](#agent-to-agent-a2a-protocol)
+10. [Observability](#observability)
+11. [Memory](#memory)
+12. [Governance](#governance)
+13. [Data Model](#data-model)
+14. [API Layer](#api-layer)
+15. [Full Code SDK](#full-code-sdk)
+16. [Design Principles](#design-principles)
+17. [Authentication Model](#authentication-model)
 
 ---
 
@@ -69,7 +67,7 @@ v2 is structured around six tracks (F–K) that share one rule: every new framew
 | **G — Model lifecycle** | Per-provider `/models` discovery + curated overlay + status enum (`active`/`beta`/`deprecated`/`retired`). Daily diff produces `model.added`/`model.deprecated` audit events. | `engine/providers/discovery.py` (lands with #163) |
 | **H — Gateways first-class** | `type: gateway` distinction in catalog. LiteLLM + OpenRouter promoted from connectors to catalog presets. Workspace `gateways:` block with fallback policy. | `connectors/litellm/`, `connectors/openrouter/`, catalog.yaml |
 | **I — Polyglot runtime contract** | `engine/schema/runtime-contract-v1.md` (markdown + OpenAPI). New `language:` field in `agent.yaml`. Tier 1 SDKs (Python/TS) + thin Tier 2 SDKs (Go/Kotlin/Rust/.NET) generated from the OpenAPI. | `engine/schema/runtime-contract-v1.{md,openapi.yaml}` |
-| **J — Sidecar** | Single Go binary auto-injected next to every agent that declares `guardrails:`/MCP `tools:`/`a2a:`. Inbound bearer auth + guardrails on `:8080`; localhost helpers on `:9090` for A2A, MCP, and cost emission. | `sidecar/` (top-level Go module), `engine/deployers/mcp_sidecar.py` |
+| **J — Sidecar** | Single Go binary auto-injected next to every agent that declares `guardrails:`/MCP `tools:`/`a2a:`. Inbound bearer auth + guardrails on `:8080`; localhost helpers on `:9090` for A2A and MCP forwarding. | `sidecar/` (top-level Go module), `engine/deployers/mcp_sidecar.py` |
 | **K — Workspace secrets** | Per-workspace backend selection (keychain default; Vault on team; AWS/GCP on cloud). New `agentbreeder secret set/list/rotate/sync`. Auto-mirror to cloud secrets store at deploy under `agentbreeder/<agent>/<secret>`. | `engine/secrets/{keychain_backend,workspace,auto_mirror}.py` |
 
 **Backward compatibility.** v1 `agent.yaml` files run unmodified through v2. New fields (`language:`, `runtime:`) are optional; v1 hand-written providers are unchanged; secrets backends gain a workspace selector but keep the same interface.
@@ -80,7 +78,7 @@ The full v2 spec lives at [`docs/architecture/platform-v2.md`](docs/architecture
 
 ## Three-Tier Builder Model
 
-AgentBreeder supports three ways to build agents and orchestrations. All three tiers compile to the same internal format and share the same deploy pipeline, governance, and observability.
+AgentBreeder supports three ways to build agents. All three tiers compile to the same internal format and share the same deploy pipeline, governance, and observability.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -88,9 +86,9 @@ AgentBreeder supports three ways to build agents and orchestrations. All three t
 │                                                                         │
 │  No Code (UI)          Low Code (YAML)         Full Code (SDK)          │
 │  ─────────────         ───────────────          ──────────────          │
-│  Visual drag-and-drop  agent.yaml in any IDE    Python/TS SDK           │
-│  Registry pickers      YAML orchestration       Programmatic control    │
-│  ReactFlow canvas      Any editor works         Custom routing logic    │
+│  Studio chat builder   agent.yaml in any IDE    Python/TS SDK           │
+│  at /agents/new        or the Studio editor     Programmatic control    │
+│  Writes agent.yaml     Any editor works         Writes agent.yaml       │
 │                                                                         │
 │         │                     │                        │                │
 │         └─────────────────────┼────────────────────────┘                │
@@ -109,15 +107,17 @@ AgentBreeder supports three ways to build agents and orchestrations. All three t
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-| Tier | Agent Development | Orchestration | Eject Path |
-|---|---|---|---|
-| **No Code** | Visual builder: pick model, tools, prompt, guardrails. Generates `agent.yaml`. | Visual canvas: wire agents as nodes. Generates `orchestration.yaml`. | "View YAML" → Low Code editor |
-| **Low Code** | Write `agent.yaml` in any IDE or Studio | Write `orchestration.yaml` | `agentbreeder eject` → Python/TS scaffold |
-| **Full Code** | Python/TS SDK with programmatic control | SDK orchestration graphs, custom routing | N/A |
+| Tier | Agent Development | Eject Path |
+|---|---|---|
+| **No Code** | Conversational chat builder in Studio (`/agents/new`): describe the agent, and the builder writes `agent.yaml`. | Take the generated `agent.yaml` → Low Code |
+| **Low Code** | Write `agent.yaml` in any IDE or Studio | `agentbreeder eject` → Python/TS scaffold |
+| **Full Code** | Python/TS SDK with programmatic control | N/A |
+
+Every tier deploys through the CLI (`agentbreeder deploy`); Studio does not deploy agents.
 
 **Tier mobility:**
 ```
-No Code ──"View YAML"──→ Low Code ──agentbreeder eject──→ Full Code
+No Code ──agent.yaml──→ Low Code ──agentbreeder eject──→ Full Code
 ```
 
 ---
@@ -134,7 +134,7 @@ agent.yaml ──→ [ CLI ] ──→ [ API Server ] ──→ [ Engine ] ─�
                               (Registry)            │
                                   │                 ▼
                               [ Redis ]      ┌──────────────────────┐
-                              (Queue)        │   Agent Container    │
+                                             │   Agent Container    │
                                              │   APS Sidecar        │ ← cross-cutting concerns
                                              │   MCP Sidecar(s)     │ ← tool servers
                                              └──────────────────────┘
@@ -148,12 +148,12 @@ agent.yaml ──→ [ CLI ] ──→ [ API Server ] ──→ [ Engine ] ─�
 
 | Component | Technology | Purpose |
 |---|---|---|
-| CLI | Python, Typer, Rich | `agentbreeder init`, `deploy`, `eval`, `eject`, `chat` |
-| API Server | Python 3.11+, FastAPI | 201 REST endpoints, OpenAPI auto-docs |
+| CLI | Python, Typer, Rich | `agentbreeder init`, `deploy`, `eject`, `chat` |
+| API Server | Python 3.11+, FastAPI | REST endpoints, OpenAPI auto-docs |
 | Engine | Python | Deploy pipeline — config parsing, container building, cloud provisioning |
 | Registry | PostgreSQL, SQLAlchemy | Catalog: agents, tools, models, prompts, MCP servers, templates |
-| Queue | Redis | Async deploy jobs, shared state for multi-agent orchestrations |
-| Studio | React 18, TypeScript, Tailwind, Vite | 46-page web UI — builders, analytics, fleet |
+| Redis | Redis | HITL approvals queue, memory backend |
+| Studio | React 18, TypeScript, Tailwind, Vite | Web UI — chat builder, registry, gateway, fleet |
 | Python SDK | Python 3.11+ | `pip install agentbreeder-sdk` |
 | TypeScript SDK | TypeScript 5.0+ | `npm install @agentbreeder/sdk` |
 | LiteLLM Proxy | LiteLLM (self-hosted) | Model gateway — routing, fallbacks, budget enforcement, guardrails |
@@ -162,16 +162,13 @@ agent.yaml ──→ [ CLI ] ──→ [ API Server ] ──→ [ Engine ] ─�
 
 ## The Deploy Pipeline
 
-Every `agentbreeder deploy` executes these 8 steps atomically. If any step fails, the entire deploy rolls back.
+Every `agentbreeder deploy` executes these 8 steps atomically, in-process in the CLI (`engine/builder.py`). If any step fails, the entire deploy rolls back. If the health check fails, the new deployment is torn down before the error is reported.
 
 ```
 1. Parse & Validate YAML         engine/config_parser.py
         │
 2. RBAC Check                    engine/governance.py         (fail fast — never skip)
         │
-2.5 Approval Gate                engine/governance.py         (if require_approval: true —
-        │                          check asset_approval_requests for status=approved;
-        │                          admin bypasses; blocks before any cloud resource is touched)
 3. Dependency Resolution         engine/resolver.py           (all registry refs → artifacts)
         │
 4. Container Build               engine/builder.py
@@ -192,7 +189,7 @@ Every `agentbreeder deploy` executes these 8 steps atomically. If any step fails
 **Step 6 detail — sidecar injection:**
 At deploy time, every agent receives two companion containers injected automatically:
 
-1. **APS sidecar** — provides RAG, memory, tools, A2A, tracing, and cost over a local HTTP API. Holds the per-agent LiteLLM virtual key. The agent connects to it via `APS_URL` + `APS_TOKEN`.
+1. **APS sidecar** — provides memory, tools, and A2A over a local HTTP API. Holds the per-agent LiteLLM virtual key. The agent connects to it via `APS_URL` + `APS_TOKEN`.
 2. **MCP sidecar(s)** — one container per MCP server referenced in `tools:`. The agent connects to them via local socket.
 
 The agent container holds no raw LLM credentials — only `APS_URL` and `APS_TOKEN`.
@@ -274,7 +271,7 @@ The developer writes one file (`agent.ts`, `main.rs`, `main.go`). The platform o
 
 ## AgentBreeder Platform Sidecar (APS)
 
-The APS is a companion container injected alongside every deployed agent. It exposes all cross-cutting concerns — RAG, memory, tools, A2A, tracing, and LiteLLM gateway access — over a simple local HTTP API. This eliminates the need to implement these concerns in every language.
+The APS is a companion container injected alongside every deployed agent. It exposes cross-cutting concerns — memory, tools, A2A, and LiteLLM gateway access — over a simple local HTTP API. This eliminates the need to implement these concerns in every language.
 
 ```
 ┌────────────────────────────────────────────┐
@@ -284,11 +281,9 @@ The APS is a companion container injected alongside every deployed agent. It exp
 │  │  Agent Container│  │   APS Sidecar   │  │
 │  │  (any language) │  │                 │  │
 │  │                 │◄─┤ POST /tools/execute
-│  │  APS_URL        │  │ GET  /rag/search │  │
-│  │  APS_TOKEN      │  │ GET  /memory/load│  │
-│  │                 │  │ POST /memory/save│  │
-│  │                 │  │ POST /a2a/call   │  │
-│  │                 │  │ POST /trace/span │  │
+│  │  APS_URL        │  │ GET  /memory/load│  │
+│  │  APS_TOKEN      │  │ POST /memory/save│  │
+│  │                 │  │ POST /a2a/{peer} │  │
 │  │                 │  │ GET  /config     │  │
 │  └─────────────────┘  │ GET  /health     │  │
 │                       └────────┬────────┘  │
@@ -307,11 +302,9 @@ The APS is a companion container injected alongside every deployed agent. It exp
 |---|---|---|
 | `/config` | GET | Agent config + `litellm_base_url` + `litellm_api_key` |
 | `/tools/execute` | POST | Execute a registered tool by name |
-| `/rag/search` | GET | Semantic search over knowledge bases |
 | `/memory/load` | GET | Load conversation history for a thread |
 | `/memory/save` | POST | Persist conversation messages |
-| `/a2a/call` | POST | Call a remote agent by name |
-| `/trace/span` | POST | Record an observability span |
+| `/a2a/{peer}` | POST | Forward a JSON-RPC call to a configured A2A peer |
 | `/health` | GET | Sidecar liveness check |
 
 Auth: `Authorization: Bearer $APS_TOKEN` — shared secret between agent and APS, injected at deploy time.
@@ -322,7 +315,6 @@ Auth: `Authorization: Bearer $APS_TOKEN` — shared secret between agent and APS
 {
   "agent_name": "customer-support-agent",
   "model": "claude-sonnet-4",
-  "kb_index_ids": ["kb/product-docs"],
   "tools": [{"name": "zendesk-lookup", "description": "..."}],
   "litellm_base_url": "http://litellm:4000",
   "litellm_api_key": "sk-agent-customer-support-agent"
@@ -408,8 +400,8 @@ LiteLLM proxy (:4000)
   ├── Runs PII guardrail (Presidio)
   ├── Checks Redis cache
   ├── Routes with fallback (primary → fallback on error)
-  ├── Emits OTEL span → AgentBreeder tracing API
-  └── Records spend → AgentBreeder Studio (Costs view)
+  ├── Emits OTEL span → OTLP collector
+  └── Records spend (read live by Studio's Gateway view)
         │
         ▼
 Provider (Anthropic / OpenAI / Google / Ollama / OpenRouter / ...)
@@ -428,7 +420,7 @@ Provider (Anthropic / OpenAI / Google / Ollama / OpenRouter / ...)
 | Health-driven routing | OSS | Proactive reroute on degradation |
 | Presidio PII guardrail | OSS | `mode: pre_call`, redacts output |
 | Lakera prompt injection detection | OSS | `mode: pre_call` |
-| OTEL callback → tracing API | OSS | `x-litellm-call-id` bridges to audit log |
+| OTEL callback → OTLP collector | OSS | Spans go to your collector; AgentBreeder has no trace store |
 | Prometheus `/metrics` | OSS | Fleet view in Studio, spend per team |
 | Tag-based routing (team pools) | OSS | Phase 4 |
 | Semantic caching (Redis vectors) | OSS | Phase 4 |
@@ -438,7 +430,7 @@ Provider (Anthropic / OpenAI / Google / Ollama / OpenRouter / ...)
 | Concern | Reason |
 |---|---|
 | RBAC | AgentBreeder's RBAC knows about agents, deploys, and teams; LiteLLM's is key/team only |
-| Audit trail | `api/routes/audit.py` links entries to `agent_id` + `deploy_id` |
+| Audit events | Emitted as structured `audit_event` log lines |
 | Secret management | `engine/secrets/` supports AWS KMS, GCP Secret Manager, Vault |
 | Prompt registry | `registry/prompts.py` is the source of truth |
 
@@ -447,14 +439,12 @@ Provider (Anthropic / OpenAI / Google / Ollama / OpenRouter / ...)
 Every agent gets a scoped virtual key automatically minted at deploy time (`api/services/litellm_key_service.py::get_or_create_agent_key()`). The key:
 - Is injected into the **APS sidecar** (not the agent container)
 - Is scoped to the agent's allowed models
-- Is attributed to the agent's team for cost tracking
+- Is attributed to the agent's team for LiteLLM spend tracking
 - Can be revoked from Studio without redeploying the agent
 
-### Cost Tracking
+### Spend
 
-- Agents calling LiteLLM via the proxy → cost tracked automatically per virtual key
-- Agents calling local Ollama → APS estimates cost from model pricing tables and posts to LiteLLM `/global/spend`
-- No client-side cost recording endpoint — it would cause double-counting
+Spend is tracked by LiteLLM itself, per virtual key, for calls routed through the proxy. AgentBreeder does not store cost data; the gateway API (`/api/v1/gateway/spend`, `/api/v1/gateway/logs`) reads spend and request logs live from LiteLLM.
 
 ---
 
@@ -521,7 +511,7 @@ Central catalog for all organizational AI assets. Entries are only created or up
 2. Connectors (passive ingestion)
 3. `agentbreeder registry [prompt|tool|agent] push` (operator override)
 
-**Tracked entity types:** Agents, A2A Agents, Tools, Models, Prompts, Providers, MCP Servers, Templates, Deploys, Marketplace listings.
+**Tracked entity types:** Agents, A2A Agents, Tools, Models, Prompts, Providers, MCP Servers, Templates, Marketplace listings.
 
 #### Registry-ref pattern (prompts + tools)
 
@@ -590,82 +580,46 @@ class BaseConnector(ABC):
 
 ---
 
-## Multi-Agent Orchestration
-
-The orchestration engine (`engine/orchestrator.py`) coordinates multiple agents per a strategy defined in `orchestration.yaml` or the SDK.
-
-**6 execution strategies:** `sequential`, `parallel`, `router`, `hierarchical`, `supervisor`, `fan_out_fan_in`
-
-Shared state between agents in an orchestration is backed by Redis, scoped to the orchestration session. Orchestrations appear in the registry and share the same deploy pipeline as individual agents.
-
----
-
 ## Agent-to-Agent (A2A) Protocol
 
-JSON-RPC 2.0 inter-agent communication (`engine/a2a/`).
+Inter-agent calls go through the A2A registry and the sidecar forwarder.
 
 | Component | Purpose |
 |---|---|
-| `protocol.py` | JSON-RPC 2.0 message format and routing |
-| `client.py` | Call remote agents from within an agent |
-| `server.py` | Expose an agent as a callable A2A service |
-| `auth.py` | Agent cards and mutual authentication |
+| `registry/a2a_agents.py` + `api/routes/a2a.py` | A2A agent registry (`/api/v1/a2a/agents`) |
+| `POST /api/v1/a2a/invoke` | Invoke a registered A2A agent through the API |
+| `engine/a2a/client.py` | HTTP client that invokes a remote agent's endpoint |
+| `sidecar/internal/a2a/` | Sidecar forwarder: `POST /a2a/{peer}` sends a JSON-RPC 2.0 request to a configured peer |
 
-From any language, A2A calls route through the APS sidecar's `POST /a2a/call` endpoint — no language-specific A2A SDK required.
+From any language, A2A calls route through the sidecar's `POST /a2a/{peer}` endpoint — no language-specific A2A SDK required. Agents do not run their own A2A JSON-RPC server.
 
 ---
 
 ## Observability
 
-### Tracing (`api/routes/tracing.py`)
+### Tracing (OpenTelemetry)
 
-Every LLM call, tool invocation, and agent step is captured as a trace containing spans. The APS sidecar's `POST /trace/span` endpoint provides language-agnostic trace ingestion.
+Agents export OpenTelemetry spans to an OTLP collector you run. Python runtime templates (for example LangGraph and OpenAI Agents) initialise tracing through `engine/runtimes/templates/_tracing.py` when `OPENTELEMETRY_ENDPOINT` is set (a no-op otherwise), and the Go sidecar exports its own spans over OTLP/HTTP (`sidecar/internal/otelx/`). AgentBreeder has no trace store or trace viewer.
 
-LiteLLM OTEL spans are correlated with AgentBreeder audit log entries via the `x-litellm-call-id` header — every inference call is linked to the `agent_id` and `deploy_id` that made it.
+### Gateway spend and logs (`api/routes/gateway.py`)
 
-### Cost Tracking (`api/routes/costs.py`)
+When the LiteLLM gateway is active, `/api/v1/gateway/spend`, `/teams`, and `/logs` read spend and request logs live from LiteLLM. AgentBreeder does not store cost data.
 
-Spend data is sourced from LiteLLM's `/global/spend` endpoint when the gateway is active:
-- Per agent, team, model, and provider
-- Daily trend, ML-based forecasting, anomaly detection
-- Per-team monthly budgets with alert thresholds (default 80%)
-- Chargeback / cost allocation to departments
+### Audit events
 
-### Audit Trail (`api/routes/audit.py`)
-
-Immutable log of every deploy, config change, access change, and key lifecycle event — with actor, action, resource, team, and timestamp. Supports dependency lineage and impact analysis ("if I change this prompt, which agents are affected?").
+Audit events (for example secret auto-mirroring and model-sync summaries) are written as structured `audit_event` log lines. There is no audit API or UI; ship the logs to your log pipeline.
 
 ### AgentOps Fleet view (`api/routes/agentops.py`)
 
-Fleet-wide visibility: heatmap, top-agent leaderboard, real-time telemetry, canary tracking, incident management, compliance status.
+Fleet-wide visibility: fleet overview, heatmap, incident management (create, list, update), and compliance scan, status, and report.
 
 ---
 
-## Memory & RAG
+## Memory
 
 ### Memory (`api/routes/memory.py`)
 
-Four pluggable backends: in-memory, SQLite, PostgreSQL, Vector DB. Accessible from any language via APS `GET /memory/load` and `POST /memory/save`.
-
-### RAG (`api/routes/rag.py`)
-
-Knowledge base indexing with fixed-size, recursive, and token-aware chunkers. Hybrid vector + full-text search. Accessible from any language via APS `GET /rag/search`. Supported backends: ChromaDB (default), Neo4j (Graph RAG), pgvector.
-
----
-
-## Evaluation Framework
-
-| Concept | Description |
-|---|---|
-| Datasets | Versioned `(input, expected_output)` collections |
-| Runs | Dataset execution against a specific agent version |
-| Scorers | Correctness, Relevance, Latency, Cost, LLM-as-judge |
-| Promotion Gates | CI/CD gate: blocks deploy if eval scores drop below threshold |
-
-```bash
-agentbreeder eval run --dataset golden-v2 --agent customer-support
-agentbreeder eval gate --min-score 0.85
-```
+Two backends: PostgreSQL and Redis. When `memory` is declared in `agent.yaml` without a `backend_url`, the deploy provisions a managed backend. Accessible from any language via APS `GET /memory/load` and `POST /memory/save`.
 
 ---
 
@@ -689,39 +643,30 @@ Every principal that joins a team is automatically issued a scoped LiteLLM virtu
 |---|:---:|:---:|:---:|:---:|
 | `admin` | yes | yes | yes | yes |
 | `deployer` | yes | no | no | no |
-| `contributor` | submit only | no | no | no |
+| `contributor` | no | no | no | no |
 | `viewer` | no | no | no | no |
 
-Enforced by `api/middleware/rbac.py::require_role()` and `api/services/rbac_service.py::check_permission()`. All 27 route files require authentication — no unauthenticated routes except `/health`, `/auth/login`, `/auth/register`, and SSO callbacks.
+Enforced by `api/middleware/rbac.py::require_role()` and `api/services/rbac_service.py::check_permission()`. All route modules require authentication — no unauthenticated routes except `/health`, `/auth/login`, `/auth/register`, and SSO callbacks.
 
 ### Per-Asset ACL
 
-Eight asset types have fine-grained ACLs stored in `resource_permissions`: `agent`, `prompt`, `tool`, `memory`, `rag`, `knowledge_base`, `model`, `mcp_server`.
+Asset types with fine-grained ACLs stored in `resource_permissions`: `agent`, `prompt`, `tool`, `memory`, `model`, `mcp_server`.
 
 | Principal | read | use | write | deploy | publish | admin |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Owner (creator) | yes | yes | yes | requires approval | yes | yes |
+| Owner (creator) | yes | yes | yes | yes | yes | yes |
 | Owner's team | yes | yes | no | no | no | no |
 | Other teams | yes | no | no | no | no | no |
 | Unauthenticated | no | no | no | no | no | no |
 
-ACL is enforced at the API route layer (`check_permission()`) and at the APS sidecar layer (before any tool execution or RAG search).
+ACL is enforced at the API route layer (`check_permission()`) and at the APS sidecar layer (before any tool execution).
 
-### Approval Workflow
+### Approvals
 
-```
-contributor submits agent
-       │
-       ▼
-asset_approval_requests (status: pending)  →  admin group notified
-       │
-       ├── Admin approves  →  status: approved  →  deploy may proceed
-       └── Admin rejects   →  status: rejected  →  contributor sees reason
-```
+There is no approval gate on deploy: `agentbreeder deploy` checks RBAC (Step 2) and proceeds.
 
-The deploy gate in `engine/governance.py::check_deploy_approved()` checks `asset_approval_requests` between Step 2 (RBAC) and Step 5 (Provision). If `agent.yaml::access.require_approval: true` and no approved request exists, the deploy fails before any cloud resources are provisioned — meaning no LiteLLM key is ever minted for an unapproved agent.
-
-Admin users bypass the gate. Every decision is written to the immutable audit log.
+- **HITL approvals queue** (`api/routes/approvals.py`, `/api/v1/approvals`, Redis-backed) — an agent pauses and requests human sign-off before executing a high-risk tool call; an admin approves or rejects it to unblock the agent.
+- **Asset approval requests** (`/api/v1/rbac/approvals`) — persisted in `asset_approval_requests` (status: pending/approved/rejected) as a record of sign-off. They are not checked by the deploy pipeline.
 
 ### Credential Types
 
@@ -756,7 +701,7 @@ Per-team monthly budget caps are enforced at the LiteLLM proxy — once the budg
 |---|---|
 | `team_memberships` | User ↔ team associations with role |
 | `resource_permissions` | Fine-grained ACL per asset (type, id, principal, actions) |
-| `asset_approval_requests` | Persisted approval queue (status: pending/approved/rejected) |
+| `asset_approval_requests` | Persisted asset approval records (status: pending/approved/rejected) |
 | `service_principals` | Non-human identities for CI/CD |
 | `principal_groups` | Named sets of users for bulk ACL assignment |
 | `litellm_key_refs` | All scoped virtual keys (user, SP, agent, APS) |
@@ -765,18 +710,9 @@ Per-team monthly budget caps are enforced at the LiteLLM proxy — once the budg
 
 Pluggable auth providers: `local | okta | azure_ad | aws_iam | google | saml`. OIDC/OAuth2 with PKCE, SAML 2.0 SP, AWS IAM OIDC workload identity, Azure MSAL + Graph groups. Groups claim maps to AgentBreeder teams automatically. Tracked in follow-up issue.
 
-### Git Workflow (`api/routes/git.py`)
-
-PR-based change management for agent configuration:
-```bash
-agentbreeder submit   # create PR for config change
-agentbreeder review   # review pending PRs
-agentbreeder publish  # merge approved PR and deploy
-```
-
 ### Marketplace (`api/routes/marketplace.py`)
 
-Community catalog for sharing agents, tools, and orchestrations. Browse, install, rate, and publish. One-click install pulls a marketplace template into the registry.
+Community catalog for sharing agents and tools. Browse, install, rate, and publish. One-click install pulls a marketplace template into the registry.
 
 ---
 
@@ -793,12 +729,10 @@ Org
 Agent ──references──> Tool           (many-to-many)         │
   │                   Model          (many-to-one)           │
   │                   Prompt         (many-to-many)          │
-  │                   KnowledgeBase  (many-to-many)          │
   │                   MCP Server     (many-to-many)          │
   │                                                          │
   ├── belongs to ──────────────────────────────────────────> Team
-  ├── deployed as ──> Deploy (job history)
-  ├── approval via ──> AssetApprovalRequest (status: pending/approved/rejected)
+  ├── approval via ──> AssetApprovalRequest (record only; not a deploy gate)
   ├── ACL via ──────> ResourcePermission (per-asset, per-principal)
   ├── key (agent) ──> LiteLLMKeyRef (scope_type=agent, held by APS sidecar)
   ├── key (APS) ───> LiteLLMKeyRef (scope_type=aps_sidecar, agent↔APS auth)
@@ -806,9 +740,6 @@ Agent ──references──> Tool           (many-to-many)         │
 
 User ──> LiteLLMKeyRef (scope_type=user, auto-minted on team join)
 ServicePrincipal ──> LiteLLMKeyRef (scope_type=service_principal)
-
-Orchestration ──references──> Agent (many-to-many)
-  └── belongs to ──> Team
 ```
 
 Storage: PostgreSQL with SQLAlchemy ORM. Migrations via Alembic (`alembic/versions/`).
@@ -827,7 +758,7 @@ FastAPI with async handlers throughout. Consistent response envelope:
 }
 ```
 
-25 route modules across: agents, A2A, orchestrations, deploys, evals, providers, gateway, costs, agentops, tracing, audit, teams, prompts, RAG, memory, MCP servers, templates, marketplace, git, builders, sandbox, playground, registry, auth, v2/agents.
+23 route modules across: agents, A2A, analytics, approvals, auth, builders, builder sessions, deployments (`cloud-requirements`, `validate-infra`), providers, models, gateway, agentops, teams, RBAC, secrets, memory, MCP servers, templates, marketplace, sandbox, playground, registry, v2/agents.
 
 API versioning (`api/versioning.py`): v1 is stable. v2 routes are preview. Deprecation headers added automatically when a v1 endpoint has a v2 equivalent.
 
@@ -848,16 +779,16 @@ agent = (
     .with_guardrail("pii_detection")
     .with_deploy(cloud="aws", runtime="ecs-fargate")
 )
-result = agent.deploy()
+agent.save("agent.yaml")   # then: agentbreeder deploy agent.yaml
 ```
 
-Full YAML round-trip: `agent.to_yaml()` → valid `agent.yaml`; `Agent.from_yaml()` → SDK objects.
+Full YAML round-trip: `agent.to_yaml()` → valid `agent.yaml`; `Agent.from_yaml()` → SDK objects. The SDK does not deploy; deploys always go through `agentbreeder deploy`.
 
 ---
 
 ## Design Principles
 
-1. **Governance is a side effect** — deploying through AgentBreeder automatically creates RBAC records, cost attribution, audit entries, and registry listings. No separate governance setup.
+1. **Governance is a side effect** — deploying through AgentBreeder automatically runs RBAC checks, emits audit events, and creates registry listings. No separate governance setup.
 
 2. **Framework-agnostic** — no framework-specific logic outside `engine/runtimes/`. The rest of the system treats all frameworks identically.
 
@@ -885,8 +816,8 @@ AgentBreeder enforces auth at two distinct layers:
 
 ### Layer 1 — Management API (`/api/v1/*`)
 
-JWT-based, gated at the route level via FastAPI dependencies. **247 of 247
-routes** require authentication; only `auth/login` and `auth/register` are open
+JWT-based, gated at the route level via FastAPI dependencies. **Every route**
+requires authentication; only `auth/login` and `auth/register` are open
 by design (needed to bootstrap a session).
 
 ```python
