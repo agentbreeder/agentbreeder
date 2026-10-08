@@ -37,6 +37,11 @@ from api.models.schemas import (
 
 logger = logging.getLogger(__name__)
 
+
+class KeyIssuanceError(RuntimeError):
+    """Raised when the LiteLLM gateway cannot issue a service-principal key."""
+
+
 # ---------------------------------------------------------------------------
 # Permission checking
 # ---------------------------------------------------------------------------
@@ -500,14 +505,8 @@ async def rotate_service_principal_key(
             "key_value": created.key_value,
         }
     except Exception as exc:
-        # LiteLLM unavailable — return a local placeholder key
         logger.warning("LiteLLM unavailable for SP key rotation: %s", exc)
-        placeholder_key = f"sk-sp-{uuid.uuid4().hex}"
-        return {
-            "service_principal_id": sp_id,
-            "key_alias": f"sp-{sp.name}-local",
-            "key_value": placeholder_key,
-        }
+        raise KeyIssuanceError(f"Could not issue a key: LiteLLM unavailable ({exc})") from exc
 
 
 # ---------------------------------------------------------------------------

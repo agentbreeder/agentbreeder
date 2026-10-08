@@ -6,8 +6,8 @@ Strategy:
   :func:`api.routes.models._build_discoveries` so the test can hand the
   service a deterministic dict of stub adapters, and we route the
   service's commit through an in-memory SQLite session factory.
-* The audit-event side-effect is verified via the existing
-  :class:`api.services.audit_service.AuditService` (in-memory store).
+* The audit-event side-effect is verified as a structured ``audit_event``
+  log record via pytest's ``caplog``.
 * The ``daily_sync_enabled()`` resolver is pure env-var logic and is
   unit-tested directly without I/O.
 * The CLI ``sync-now`` command is exercised through Typer's ``CliRunner``
@@ -17,6 +17,7 @@ Strategy:
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
@@ -25,7 +26,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from typer.testing import CliRunner
 
 from api.models.database import Base
-from api.services.audit_service import AuditService
 from api.tasks.models_sync_cron import (
     SYNC_AUDIT_ACTION,
     daily_sync_enabled,
@@ -37,17 +37,26 @@ from engine.providers.discovery import DiscoveredModel, DiscoveryError
 # ─── Test helpers ──────────────────────────────────────────────────────────
 
 
+def _audit_events(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """Structured ``audit_event`` log records emitted by the sync cron."""
+    return [
+        r
+        for r in caplog.records
+        if r.getMessage() == "audit_event"
+        and getattr(r, "audit_action", None) == SYNC_AUDIT_ACTION
+    ]
+
+
 _engine = create_async_engine("sqlite+aiosqlite:///:memory:")
 _SessionFactory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @pytest.fixture
 async def _fresh_db():
-    """Reset schema + audit before each test, drop after."""
+    """Reset schema before each test, drop after."""
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-    AuditService.reset()
     yield
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -110,7 +119,8 @@ class TestDailySyncEnabled:
 
 class TestRunSyncOnce:
     @pytest.mark.asyncio
-    async def test_happy_path_reconciles_and_emits_audit(self, _fresh_db) -> None:
+    async def test_happy_path_reconciles_and_emits_audit(self, _fresh_db, caplog) -> None:
+        caplog.set_level(logging.INFO, logger="api.tasks.models_sync_cron")
         discoveries = {
             "openai": _StaticDiscovery("openai", [_model("gpt-4o"), _model("gpt-4o-mini")]),
         }
@@ -133,16 +143,16 @@ class TestRunSyncOnce:
         assert {p["provider"] for p in summary["providers"]} == {"openai"}
 
         # Audit event fired with the cron action.
-        events, _ = await AuditService.list_events(action=SYNC_AUDIT_ACTION)
+        events = _audit_events(caplog)
         assert len(events) == 1
         evt = events[0]
         assert evt.actor == "system:cron"
-        assert evt.resource_type == "model"
         assert evt.details["added"] == 2
         assert evt.details["providers"] == ["openai"]
 
     @pytest.mark.asyncio
-    async def test_empty_providers_short_circuits(self, _fresh_db) -> None:
+    async def test_empty_providers_short_circuits(self, _fresh_db, caplog) -> None:
+        caplog.set_level(logging.INFO, logger="api.tasks.models_sync_cron")
         with (
             patch("api.database.async_session", _session_cm),
             patch(
@@ -157,8 +167,7 @@ class TestRunSyncOnce:
         assert summary["totals"] == {"added": 0, "deprecated": 0, "retired": 0}
 
         # No audit event emitted on an empty sweep.
-        events, _ = await AuditService.list_events(action=SYNC_AUDIT_ACTION)
-        assert events == []
+        assert _audit_events(caplog) == []
 
     @pytest.mark.asyncio
     async def test_single_provider_failure_does_not_kill_sweep(self, _fresh_db) -> None:
@@ -185,27 +194,6 @@ class TestRunSyncOnce:
         assert per_provider["openai"]["added"] == ["gpt-4o"]
 
         # Totals reflect only the successful provider.
-        assert summary["totals"]["added"] == 1
-
-    @pytest.mark.asyncio
-    async def test_audit_failure_does_not_break_sync(self, _fresh_db) -> None:
-        discoveries = {
-            "openai": _StaticDiscovery("openai", [_model("gpt-4o")]),
-        }
-        with (
-            patch("api.database.async_session", _session_cm),
-            patch(
-                "api.routes.models._build_discoveries",
-                AsyncMock(return_value=discoveries),
-            ),
-            patch(
-                "api.services.audit_service.AuditService.log_event",
-                AsyncMock(side_effect=RuntimeError("audit store unavailable")),
-            ),
-        ):
-            # Should NOT raise — audit emission is best-effort.
-            summary = await run_sync_once()
-
         assert summary["totals"]["added"] == 1
 
 

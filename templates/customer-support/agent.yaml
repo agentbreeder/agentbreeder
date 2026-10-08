@@ -1,6 +1,6 @@
 name: customer-support-agent
 version: 1.0.0
-description: "Tier-1 customer support agent with Zendesk integration and product knowledge base"
+description: "Tier-1 customer support agent with Zendesk integration"
 team: customer-success
 owner: support-lead@company.com
 tags: [support, zendesk, rag, production, tier-1]
@@ -25,17 +25,12 @@ mcp_servers:
   - ref: mcp/zendesk
     transport: stdio
 
-knowledge_bases:
-  - ref: kb/product-docs
-  - ref: kb/return-policy
-  - ref: kb/faq
-
 prompts:
   system: |
     You are a professional customer support agent for {{COMPANY_NAME}}.
 
     GUIDELINES:
-    - Always search the knowledge base before answering product questions
+    - Look up order and ticket details with your tools before answering
     - Be empathetic, concise, and solution-oriented
     - If you cannot resolve the issue in 3 exchanges, offer to escalate to a human agent
     - Never make up information about products, pricing, or policies

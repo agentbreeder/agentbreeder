@@ -44,16 +44,13 @@ describe("Agent", () => {
     expect(yaml).toContain("cloud: aws");
   });
 
-  it("supports subagents and mcp servers", () => {
+  it("supports mcp servers", () => {
     const agent = new Agent("coordinator", { team: "eng", owner: "a@b.com" })
       .withModel("claude-sonnet-4")
-      .withSubagent("agents/summarizer", { description: "Summarize docs" })
       .withMcpServer("mcp/zendesk", "sse")
       .withDeploy("local");
 
     const config = agent.toConfig();
-    expect(config.subagents).toHaveLength(1);
-    expect(config.subagents![0].ref).toBe("agents/summarizer");
     expect(config.mcp_servers).toHaveLength(1);
     expect(config.mcp_servers![0].transport).toBe("sse");
   });

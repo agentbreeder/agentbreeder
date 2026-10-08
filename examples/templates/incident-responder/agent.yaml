@@ -85,11 +85,6 @@ tools:
             type: string
       required: [incident_id, status, customer_message, affected_components]
 
-knowledge_bases:
-  - ref: kb/runbooks
-  - ref: kb/service-catalog
-  - ref: kb/incident-playbooks
-
 prompts:
   system: prompts/incident-responder-v1
 

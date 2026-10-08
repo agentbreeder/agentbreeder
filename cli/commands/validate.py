@@ -1,4 +1,4 @@
-"""agentbreeder validate — validate an agent.yaml or orchestration.yaml without deploying."""
+"""agentbreeder validate — validate an agent.yaml or memory.yaml without deploying."""
 
 from __future__ import annotations
 
@@ -128,10 +128,8 @@ def _validate_agent_files(config: AgentConfig, agent_dir: Path) -> list[ConfigVa
 
 
 def _detect_config_type(path: Path) -> str:
-    """Detect whether a YAML file is an agent, orchestration, memory, or other config type."""
+    """Detect whether a YAML file is an agent, memory, or other config type."""
     name = path.name.lower()
-    if name.startswith("orchestration"):
-        return "orchestration"
     if name in ("agent.yaml", "agent.yml"):
         return "agent"
     if name in ("memory.yaml", "memory.yml") or name.startswith("memory."):
@@ -142,8 +140,6 @@ def _detect_config_type(path: Path) -> str:
         with open(path) as f:
             data = yaml.load(f)
         if isinstance(data, dict):
-            if "strategy" in data and "agents" in data:
-                return "orchestration"
             # Memory configs have backend + memory_type but no framework/runtime
             has_memory_fields = "memory_type" in data and "backend" in data
             has_agent_fields = "framework" in data or "runtime" in data or "model" in data
@@ -204,7 +200,7 @@ def _validate_memory_config(path: Path):
 def validate(
     config_path: Path = typer.Argument(
         ...,
-        help="Path to agent.yaml or orchestration.yaml",
+        help="Path to agent.yaml or memory.yaml",
         exists=True,
         readable=True,
     ),
@@ -223,17 +219,13 @@ def validate(
         ),
     ),
 ) -> None:
-    """Validate an agent.yaml or orchestration.yaml configuration file."""
+    """Validate an agent.yaml or memory.yaml configuration file."""
     config_type = _detect_config_type(config_path)
 
-    if config_type == "orchestration":
-        from engine.orchestration_parser import validate_orchestration
-
-        result = validate_orchestration(config_path)
-    elif config_type == "memory":
+    if config_type == "memory":
         result = _validate_memory_config(config_path)
     elif config_type in ("mcp", "unknown"):
-        # Not an agent or orchestration config — skip with success
+        # Not an agent config — skip with success
         if json_output:
             import json
 
@@ -247,8 +239,7 @@ def validate(
         console.print()
         console.print(
             Panel(
-                f"[bold yellow]Skipped[/bold yellow] {config_path.name}"
-                " — not an agent or orchestration config.",
+                f"[bold yellow]Skipped[/bold yellow] {config_path.name} — not an agent config.",
                 title="Validation",
                 border_style="yellow",
             )

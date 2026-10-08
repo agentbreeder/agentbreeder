@@ -270,7 +270,6 @@ def _welcome_cmd() -> None:
 from cli.commands import (
     auth,
     chat,
-    compliance,
     context,
     deploy,
     describe,
@@ -279,21 +278,16 @@ from cli.commands import (
     list_cmd,
     logs,
     model,
-    orchestration,
     provider,
-    publish,
     quickstart,
     registry_cmd,
-    review,
     scan,
-    schedule,
     search,
     secret,
     seed,
     setup,
     status,
     studio,
-    submit,
     teardown,
     template,
     up,
@@ -304,9 +298,6 @@ from cli.commands import (
 )
 from cli.commands import (
     eject as eject_cmd,
-)
-from cli.commands import (
-    eval as eval_cmd,
 )
 
 
@@ -355,21 +346,14 @@ app.command(name="list")(list_cmd.list_entities)
 app.command(name="describe")(describe.describe)
 app.command(name="search")(search.search)
 app.command(name="scan")(scan.scan)
-app.command(name="schedule")(schedule.schedule)
 app.command(name="logs")(logs.logs)
 app.command(name="status")(status.status)
 app.command(name="teardown")(teardown.teardown)
-app.command(name="submit")(submit.submit)
-app.command(name="publish")(publish.publish)
 app.command(name="chat")(chat.chat)
 app.add_typer(provider.provider_app, name="provider")
 app.add_typer(model.model_app, name="model")
-app.add_typer(review.review_app, name="review")
-app.add_typer(eval_cmd.eval_app, name="eval")
-app.add_typer(orchestration.orchestration_app, name="orchestration")
 app.add_typer(template.template_app, name="template")
 app.add_typer(secret.secret_app, name="secret")
-app.add_typer(compliance.compliance_app, name="compliance")
 app.add_typer(registry_cmd.registry_app, name="registry")
 app.add_typer(auth.auth_app, name="auth")
 app.add_typer(context.context_app, name="context")

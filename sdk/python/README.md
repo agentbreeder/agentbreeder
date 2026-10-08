@@ -34,23 +34,6 @@ agent.validate()
 agent.to_yaml("agent.yaml")
 ```
 
-## Multi-Agent Orchestration
-
-```python
-from agenthub import Orchestration, KeywordRouter
-
-pipeline = (
-    Orchestration("support-router", strategy="router", team="customer-success")
-    .add_agent("triage",  ref="agents/triage-agent")
-    .add_agent("billing", ref="agents/billing-agent")
-    .add_agent("returns", ref="agents/returns-agent")
-    .with_route("triage", condition="billing",  target="billing")
-    .with_route("triage", condition="return",   target="returns")
-)
-
-pipeline.to_yaml("orchestration.yaml")
-```
-
 ## Key Classes
 
 | Class | Description |
@@ -59,12 +42,8 @@ pipeline.to_yaml("orchestration.yaml")
 | `Tool` | Define or reference a tool |
 | `Model` | Configure a model (primary + fallback) |
 | `Memory` | Configure agent memory |
-| `Orchestration` | Define multi-agent orchestration |
-| `Pipeline` | Sequential agent pipeline |
-| `FanOut` | Parallel fan-out orchestration |
-| `Supervisor` | Supervisor + worker orchestration |
 
-All classes serialize to the same `agent.yaml` / `orchestration.yaml` format consumed by `agentbreeder deploy`.
+All classes serialize to the same `agent.yaml` format consumed by `agentbreeder deploy`.
 
 ## Tier Mobility
 

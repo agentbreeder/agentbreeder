@@ -146,11 +146,7 @@ def _emit_audit(
     workspace: str,
     extra: dict[str, Any] | None = None,
 ) -> None:
-    """Best-effort audit event emit — non-fatal in offline use.
-
-    Tries the in-process AuditService first (when the CLI is invoked inside
-    the API process), then falls back to a structured logger.warning.
-    """
+    """Emit a secret operation as a structured ``audit_event`` log line."""
     actor = os.environ.get("AGENTBREEDER_USER") or os.environ.get("USER") or "cli"
     details = {
         "secret_name": secret_name,
@@ -158,27 +154,14 @@ def _emit_audit(
         "workspace": workspace,
         **(extra or {}),
     }
-    try:
-        from api.services.audit_service import AuditService
-
-        asyncio.run(
-            AuditService.log_event(
-                actor=actor,
-                action=action,
-                resource_type="secret",
-                resource_name=secret_name,
-                details=details,
-            )
-        )
-    except Exception:  # pragma: no cover - api package may be unavailable in CLI
-        logger.warning(
-            "audit_event",
-            extra={
-                "audit_action": action,
-                "actor": actor,
-                "details": details,
-            },
-        )
+    logger.warning(
+        "audit_event",
+        extra={
+            "audit_action": action,
+            "actor": actor,
+            "details": details,
+        },
+    )
 
 
 # ── list ────────────────────────────────────────────────────────────────────

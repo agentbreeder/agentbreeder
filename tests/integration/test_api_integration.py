@@ -16,7 +16,6 @@ from api.auth import get_current_user
 from api.main import app
 from api.models.enums import (
     AgentStatus,
-    DeployJobStatus,
     TemplateCategory,
     TemplateStatus,
     UserRole,
@@ -104,26 +103,6 @@ def _make_agent_mock(name: str = "test-agent", **kwargs) -> MagicMock:
     for k, v in defaults.items():
         setattr(mock, k, v)
     return mock
-
-
-def _make_deploy_job_mock(
-    agent_name: str = "test-agent", status: DeployJobStatus = DeployJobStatus.pending
-) -> MagicMock:
-    """Create a mock DeployJob-like object."""
-    job = MagicMock()
-    job.id = uuid.uuid4()
-    job.agent_id = uuid.uuid4()
-    job.status = status
-    job.target = "local"
-    job.error_message = None
-    job.agent_name = None
-    job.started_at = _NOW
-    job.completed_at = None
-    job.logs = {}
-    agent = MagicMock()
-    agent.name = agent_name
-    job.agent = agent
-    return job
 
 
 def _make_template_mock(name: str = "support-template", **kwargs) -> MagicMock:
@@ -381,90 +360,6 @@ deploy:
 
 
 # ===========================================================================
-# 2. Cost event recording -> summary retrieval
-# ===========================================================================
-
-
-class TestCostEventFlow:
-    """Tests for the cost tracking API."""
-
-    def test_record_cost_event(self) -> None:
-        """POST /api/v1/costs/events should record a cost event."""
-        resp = client.post(
-            "/api/v1/costs/events",
-            json={
-                "agent_name": "support-agent",
-                "team": "customer-success",
-                "model_name": "gpt-4o",
-                "provider": "openai",
-                "input_tokens": 1000,
-                "output_tokens": 500,
-                "cost_usd": 0.015,
-            },
-        )
-        assert resp.status_code == 201
-        data = resp.json()["data"]
-        assert data["agent_name"] == "support-agent"
-        assert data["input_tokens"] == 1000
-
-    def test_record_cost_event_missing_fields(self) -> None:
-        """POST /api/v1/costs/events should reject incomplete events."""
-        resp = client.post(
-            "/api/v1/costs/events",
-            json={"agent_name": "test"},
-        )
-        assert resp.status_code == 400
-
-    def test_record_and_retrieve_summary(self) -> None:
-        """Recording events then getting summary should reflect the recorded data."""
-        unique_team = f"cost-team-{uuid.uuid4().hex[:8]}"
-        for i in range(3):
-            client.post(
-                "/api/v1/costs/events",
-                json={
-                    "agent_name": f"cost-agent-{i}",
-                    "team": unique_team,
-                    "model_name": "gpt-4o",
-                    "provider": "openai",
-                    "input_tokens": 1000,
-                    "output_tokens": 500,
-                    "cost_usd": 0.01,
-                },
-            )
-
-        resp = client.get(f"/api/v1/costs/summary?team={unique_team}")
-        assert resp.status_code == 200
-
-    def test_get_cost_breakdown(self) -> None:
-        """GET /api/v1/costs/breakdown should return costs grouped by agent."""
-        resp = client.get("/api/v1/costs/breakdown?group_by=agent")
-        assert resp.status_code == 200
-
-    def test_get_cost_trend(self) -> None:
-        """GET /api/v1/costs/trend should return daily cost data."""
-        resp = client.get("/api/v1/costs/trend?days=7")
-        assert resp.status_code == 200
-
-    def test_get_top_spenders(self) -> None:
-        """GET /api/v1/costs/top-spenders should return top agents by cost."""
-        resp = client.get("/api/v1/costs/top-spenders?limit=5")
-        assert resp.status_code == 200
-
-    def test_compare_models(self) -> None:
-        """POST /api/v1/costs/compare should compare two models."""
-        resp = client.post(
-            "/api/v1/costs/compare",
-            json={"model_a": "gpt-4o", "model_b": "claude-sonnet-4.6"},
-        )
-        assert resp.status_code == 200
-
-    def test_compare_models_missing_fields(self) -> None:
-        """POST /api/v1/costs/compare should reject incomplete requests."""
-        resp = client.post("/api/v1/costs/compare", json={"model_a": "gpt-4o"})
-        assert resp.status_code == 400
-
-
-# ===========================================================================
 # 3. Team creation -> member management
 # ===========================================================================
 
@@ -711,134 +606,6 @@ class TestTemplateCRUDFlow:
 # ===========================================================================
 
 
-def _override_deploys_db(agent=None, job=None):
-    """Override ``get_db`` so the team-scope checks on ``/deploys`` resolve.
-
-    Since #414, ``DELETE /api/v1/deploys/{id}`` and
-    ``POST /api/v1/deploys/{id}/rollback`` look up the job's agent to find
-    the team before the role gate. These integration tests mock the
-    ``DeployService.*`` methods but the route still expects ``db.get`` to
-    return real ORM rows; without this override the route hits live Postgres
-    against a random UUID and crashes the asyncpg connection.
-    """
-    from contextlib import contextmanager
-    from unittest.mock import AsyncMock
-
-    from api.database import get_db
-
-    mock_db = AsyncMock()
-
-    async def fake_get(model, pk):
-        return job if model.__name__ == "DeployJob" else agent
-
-    mock_db.get = fake_get
-
-    async def _override():
-        return mock_db
-
-    @contextmanager
-    def _ctx():
-        app.dependency_overrides[get_db] = _override
-        try:
-            yield
-        finally:
-            app.dependency_overrides.pop(get_db, None)
-
-    return _ctx()
-
-
-class TestDeployAPIFlow:
-    """Tests for the deploy API endpoints."""
-
-    @patch("api.routes.deploys.DeployRegistry.list", new_callable=AsyncMock)
-    def test_list_deploys(self, mock_list: AsyncMock) -> None:
-        """GET /api/v1/deploys should return deploy jobs."""
-        jobs = [_make_deploy_job_mock()]
-        mock_list.return_value = (jobs, 1)
-
-        resp = client.get("/api/v1/deploys")
-        assert resp.status_code == 200
-        assert len(resp.json()["data"]) == 1
-
-    @patch("api.routes.deploys.DeployService.get_deploy_status", new_callable=AsyncMock)
-    def test_get_deploy_status(self, mock_status: AsyncMock) -> None:
-        """GET /api/v1/deploys/{id} should return job details with logs."""
-        job_id = uuid.uuid4()
-        mock_status.return_value = {
-            "id": str(job_id),
-            "agent_id": str(uuid.uuid4()),
-            "agent_name": "test-agent",
-            "status": "building",
-            "target": "local",
-            "error_message": None,
-            "started_at": _NOW.isoformat(),
-            "completed_at": None,
-            "logs": [
-                {
-                    "timestamp": _NOW.isoformat(),
-                    "level": "info",
-                    "message": "Building container...",
-                    "step": "building",
-                }
-            ],
-        }
-
-        resp = client.get(f"/api/v1/deploys/{job_id}")
-        assert resp.status_code == 200
-        data = resp.json()["data"]
-        assert data["status"] == "building"
-        assert len(data["logs"]) == 1
-
-    @patch("api.routes.deploys.DeployService.get_deploy_status", new_callable=AsyncMock)
-    def test_get_deploy_not_found(self, mock_status: AsyncMock) -> None:
-        """GET /api/v1/deploys/{id} should return 404 for unknown jobs."""
-        mock_status.return_value = None
-        resp = client.get(f"/api/v1/deploys/{uuid.uuid4()}")
-        assert resp.status_code == 404
-
-    @patch("api.routes.deploys.DeployService.cancel_deploy", new_callable=AsyncMock)
-    def test_cancel_deploy(self, mock_cancel: AsyncMock) -> None:
-        """DELETE /api/v1/deploys/{id} should cancel the deployment."""
-        job_id = uuid.uuid4()
-        mock_cancel.return_value = True
-        agent = _make_agent_mock()
-        job = _make_deploy_job_mock()
-        job.id = job_id
-        job.agent_id = agent.id
-
-        with _override_deploys_db(agent=agent, job=job):
-            resp = client.delete(f"/api/v1/deploys/{job_id}")
-        assert resp.status_code == 200
-        assert resp.json()["data"]["cancelled"] is True
-
-    @patch("api.routes.deploys.DeployService.rollback_deploy", new_callable=AsyncMock)
-    def test_rollback_deploy(self, mock_rollback: AsyncMock) -> None:
-        """POST /api/v1/deploys/{id}/rollback should rollback a failed deploy."""
-        job_id = uuid.uuid4()
-        mock_rollback.return_value = True
-        agent = _make_agent_mock()
-        job = _make_deploy_job_mock()
-        job.id = job_id
-        job.agent_id = agent.id
-
-        with _override_deploys_db(agent=agent, job=job):
-            resp = client.post(f"/api/v1/deploys/{job_id}/rollback")
-        assert resp.status_code == 200
-        assert resp.json()["data"]["rolled_back"] is True
-
-    @patch("api.routes.deploys.DeployService.rollback_deploy", new_callable=AsyncMock)
-    def test_rollback_non_failed_deploy(self, mock_rollback: AsyncMock) -> None:
-        """POST /api/v1/deploys/{id}/rollback should reject non-failed jobs."""
-        mock_rollback.return_value = False
-        agent = _make_agent_mock()
-        job = _make_deploy_job_mock()
-        job.agent_id = agent.id
-
-        with _override_deploys_db(agent=agent, job=job):
-            resp = client.post(f"/api/v1/deploys/{uuid.uuid4()}/rollback")
-        assert resp.status_code == 400
-
-
 # ===========================================================================
 # Health check and cross-cutting concerns
 # ===========================================================================
@@ -883,56 +650,3 @@ class TestHealthAndMeta:
             assert "data" in body
             assert "meta" in body
             assert "errors" in body
-
-
-# ===========================================================================
-# Budget management
-# ===========================================================================
-
-
-class TestBudgetFlow:
-    """Tests for team budget management."""
-
-    def test_create_budget(self) -> None:
-        """POST /api/v1/budgets should create a team budget."""
-        team_name = f"budget-team-{uuid.uuid4().hex[:8]}"
-        resp = client.post(
-            "/api/v1/budgets",
-            json={
-                "team": team_name,
-                "monthly_limit_usd": 500.0,
-                "alert_threshold_pct": 80.0,
-            },
-        )
-        assert resp.status_code == 201
-        data = resp.json()["data"]
-        assert data["team"] == team_name
-        assert data["monthly_limit_usd"] == 500.0
-
-    def test_get_budget(self) -> None:
-        """GET /api/v1/budgets/{team} should return the team's budget."""
-        team_name = f"get-budget-team-{uuid.uuid4().hex[:8]}"
-        client.post(
-            "/api/v1/budgets",
-            json={"team": team_name, "monthly_limit_usd": 1000.0},
-        )
-
-        resp = client.get(f"/api/v1/budgets/{team_name}")
-        assert resp.status_code == 200
-        assert resp.json()["data"]["monthly_limit_usd"] == 1000.0
-
-    def test_get_nonexistent_budget(self) -> None:
-        """GET /api/v1/budgets/{team} should return 404 for unknown teams."""
-        resp = client.get(f"/api/v1/budgets/nonexistent-team-{uuid.uuid4().hex[:8]}")
-        assert resp.status_code == 404
-
-    def test_create_budget_missing_fields(self) -> None:
-        """POST /api/v1/budgets should reject incomplete requests."""
-        resp = client.post("/api/v1/budgets", json={"team": "only-team"})
-        assert resp.status_code == 400
-
-    def test_list_budgets(self) -> None:
-        """GET /api/v1/budgets should list all budgets."""
-        resp = client.get("/api/v1/budgets")
-        assert resp.status_code == 200
-        assert "data" in resp.json()

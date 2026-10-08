@@ -117,11 +117,6 @@ a2a:
       capabilities: [lint, style-check, type-check]
 
 # ── Knowledge Bases ───────────────────────────────────────────────────────────
-knowledge_bases:
-  - ref: kb/coding-standards        # Org coding style guides per language
-  - ref: kb/security-checklist      # OWASP Top 10 + internal security patterns
-
-# ── Prompts ───────────────────────────────────────────────────────────────────
 prompts:
   system: prompts/code-reviewer-system-v2
 

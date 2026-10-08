@@ -191,14 +191,14 @@ _MOCK_DOCS = [
     {
         "title": "RBAC and Governance",
         "snippet": "Every deployment is governed by role-based access control. "
-        "Teams, cost attribution, and audit trails are automatic.",
+        "Team ownership and registry entries are automatic.",
         "url": "https://docs.agentbreeder.dev/governance",
     },
     {
-        "title": "Multi-Agent Orchestration",
-        "snippet": "Define orchestration.yaml to wire multiple agents together. "
-        "Supports sequential, parallel, and router patterns.",
-        "url": "https://docs.agentbreeder.dev/orchestration",
+        "title": "Agent-to-Agent Calls",
+        "snippet": "Register agents in the A2A registry and invoke them by name "
+        "through the AgentBreeder API.",
+        "url": "https://docs.agentbreeder.dev/a2a-protocol",
     },
 ]
 

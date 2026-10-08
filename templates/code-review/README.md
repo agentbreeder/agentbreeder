@@ -21,9 +21,10 @@ Automated PR review agent that integrates with GitHub to provide thorough, actio
    agentbreeder validate && agentbreeder deploy --target local
    ```
 
-3. **Trigger a review:**
+3. **Ask for a review:**
    ```bash
-   agentbreeder review --repo your-org/your-repo --pr 123
+   agentbreeder chat code-review-agent
+   # > Review PR #123 in your-org/your-repo
    ```
 
 ## Architecture
@@ -51,11 +52,15 @@ Each review categorizes findings as:
 
 ### Integrate with CI/CD
 
-Set up a GitHub webhook pointing to your deployed agent, or add to your CI pipeline:
+Set up a GitHub webhook pointing to your deployed agent, or call its `/invoke` endpoint from your CI pipeline:
 ```yaml
 # .github/workflows/review.yml
 - name: AI Code Review
-  run: agentbreeder review --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }}
+  run: |
+    curl -sf -X POST "$AGENT_URL/invoke" \
+      -H "Authorization: Bearer $AGENT_AUTH_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"input": {"message": "Review PR #${{ github.event.pull_request.number }} in ${{ github.repository }}"}}'
 ```
 
 ### Adjust review strictness

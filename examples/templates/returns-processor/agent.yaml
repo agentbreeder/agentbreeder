@@ -76,10 +76,6 @@ tools:
           default: ups
       required: [order_id, customer_email]
 
-knowledge_bases:
-  - ref: kb/return-policy
-  - ref: kb/shipping-carriers
-
 prompts:
   system: prompts/returns-processor-v1
 

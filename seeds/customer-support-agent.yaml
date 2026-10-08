@@ -68,12 +68,6 @@ tools:
       required: [ticket_id, reason, priority]
 
 # ── Knowledge Bases ───────────────────────────────────────────────────────────
-knowledge_bases:
-  - ref: kb/return-policy           # Return & refund policy documents
-  - ref: kb/product-docs            # Product documentation and FAQs
-  - ref: kb/shipping-info           # Shipping carriers, timelines, and regions
-
-# ── Prompts ───────────────────────────────────────────────────────────────────
 prompts:
   system: prompts/support-system-v3  # Versioned system prompt from registry
 

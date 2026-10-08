@@ -38,8 +38,6 @@ class AgentConfig:
     guardrails: list[str] = field(default_factory=list)
     deploy: DeployConfig | None = None
     tags: list[str] = field(default_factory=list)
-    knowledge_bases: list[str] = field(default_factory=list)
-    subagents: list[dict[str, str]] = field(default_factory=list)
     mcp_servers: list[dict[str, str]] = field(default_factory=list)
 
 
@@ -96,21 +94,6 @@ class Agent:
     def with_guardrail(self, name: str) -> Agent:
         """Add a guardrail by name."""
         self.config.guardrails.append(name)
-        return self
-
-    def with_subagent(
-        self,
-        ref: str,
-        name: str | None = None,
-        description: str | None = None,
-    ) -> Agent:
-        """Add a subagent reference for A2A communication."""
-        entry: dict[str, str] = {"ref": ref}
-        if name:
-            entry["name"] = name
-        if description:
-            entry["description"] = description
-        self.config.subagents.append(entry)
         return self
 
     def with_mcp_server(self, ref: str, transport: str = "stdio") -> Agent:
@@ -182,25 +165,6 @@ class Agent:
         """Save agent.yaml to disk."""
         Path(path).write_text(self.to_yaml(), encoding="utf-8")
         logger.info("Saved agent config to %s", path)
-
-    # -----------------------------------------------------------------
-    # Deployment
-    # -----------------------------------------------------------------
-
-    def deploy(self, target: str = "local") -> dict[str, Any]:
-        """Deploy this agent (wraps agentbreeder deploy).
-
-        Returns deploy info dict. Currently a placeholder that saves the
-        YAML and returns metadata; the real implementation delegates to
-        the engine.DeployEngine pipeline.
-        """
-        logger.info("Deploying agent '%s' to target '%s'", self.config.name, target)
-        return {
-            "agent": self.config.name,
-            "version": self.config.version,
-            "target": target,
-            "status": "pending",
-        }
 
     def validate(self) -> list[str]:
         """Validate the agent config. Returns list of error messages (empty = valid)."""

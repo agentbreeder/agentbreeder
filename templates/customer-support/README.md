@@ -1,13 +1,12 @@
 # Customer Support Agent
 
-Production-ready tier-1 customer support agent with Zendesk integration, RAG-powered product knowledge, and automatic escalation to human agents.
+Production-ready tier-1 customer support agent with Zendesk integration and automatic escalation to human agents.
 
 ## Prerequisites
 
 - AgentBreeder CLI installed (`pip install agentbreeder`)
 - Zendesk account with API access
 - Anthropic API key (primary model) and OpenAI API key (fallback)
-- Product documentation indexed in AgentBreeder knowledge base
 
 ## Quick Start
 
@@ -35,7 +34,6 @@ User Message
     v
 [Customer Support Agent] -- Claude Sonnet (primary) / GPT-4o (fallback)
     |
-    +---> Knowledge Base Search (product docs, FAQ, return policy)
     +---> Zendesk MCP (ticket create/update/search)
     +---> Order Lookup (status, tracking)
     +---> Escalate to Human (when triggers are met)
@@ -73,15 +71,6 @@ deploy:
   cloud: aws
   runtime: ecs-fargate
   region: us-east-1
-```
-
-### Add more knowledge bases
-
-```yaml
-knowledge_bases:
-  - ref: kb/product-docs
-  - ref: kb/return-policy
-  - ref: kb/troubleshooting-guides   # Add new KB
 ```
 
 ### Adjust escalation policy

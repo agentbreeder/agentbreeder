@@ -63,7 +63,6 @@ def _fake_session(sid="11111111-1111-1111-1111-111111111111", team="engineering"
             "history": [],
             "agent_yaml": None,
             "files": {},
-            "deploy_job_id": None,
             "satisfied": [],
         },
     )
@@ -283,71 +282,7 @@ def test_eject_requires_key(client, _override_db, monkeypatch):
     assert r.status_code == 400
 
 
-# --- C6: /deploy (governed) + /stream (aggregate SSE) route tests ----------
-
-
-def test_deploy_from_session_uses_governed_path(client, _override_db, monkeypatch):
-    from types import SimpleNamespace
-
-    sess = _fake_session()
-    sess.state = {
-        "history": [],
-        "agent_yaml": "name: x\nteam: engineering\n",
-        "files": {},
-        "deploy_job_id": None,
-        "satisfied": [],
-    }
-    fake_job = SimpleNamespace(id="job-123", agent_id="agent-1")
-
-    monkeypatch.setattr(
-        "api.routes.builder_sessions._resolve_deploy_team",
-        AsyncMock(return_value=("engineering", None)),
-    )
-    monkeypatch.setattr(
-        "api.routes.builder_sessions.enforce_team_role", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        "api.routes.builder_sessions.DeployService.create_agent_and_deploy",
-        AsyncMock(return_value=(SimpleNamespace(id="agent-1"), fake_job)),
-    )
-    monkeypatch.setattr(
-        "api.routes.builder_sessions.AuditService.log_event", AsyncMock(return_value=None)
-    )
-
-    saved = {}
-
-    async def _fake_save_state(self, s, state):
-        s.state = state
-        saved.update(state)
-
-    monkeypatch.setattr(
-        "api.services.builder_session_service.BuilderSessionService.save_state", _fake_save_state
-    )
-    # commit is on the AsyncMock db already (no-op)
-
-    with patch(
-        "api.routes.builder_sessions.BuilderSessionService.get", new=AsyncMock(return_value=sess)
-    ):
-        r = client.post("/api/v1/builder/sessions/11111111-1111-1111-1111-111111111111/deploy")
-    assert r.status_code == 200
-    assert r.json()["data"]["deploy_job_id"] == "job-123"
-    assert saved.get("deploy_job_id") == "job-123"
-
-
-def test_deploy_without_spec_returns_400(client, _override_db, monkeypatch):
-    sess = _fake_session()
-    sess.state = {
-        "history": [],
-        "agent_yaml": None,
-        "files": {},
-        "deploy_job_id": None,
-        "satisfied": [],
-    }
-    with patch(
-        "api.routes.builder_sessions.BuilderSessionService.get", new=AsyncMock(return_value=sess)
-    ):
-        r = client.post("/api/v1/builder/sessions/11111111-1111-1111-1111-111111111111/deploy")
-    assert r.status_code == 400
+# --- C6: /stream (aggregate SSE) route tests ----------
 
 
 @pytest.mark.asyncio
@@ -389,35 +324,6 @@ async def test_stream_subscribes_and_relays_published_events(monkeypatch):
     relayed = await gen.__anext__()
     assert relayed["event"] == "deploy.progress"
     await gen.aclose()
-
-
-def test_deploy_invalid_yaml_returns_404(client, _override_db, monkeypatch):
-    from unittest.mock import AsyncMock
-
-    sess = _fake_session()
-    sess.state = {
-        "history": [],
-        "agent_yaml": "name: x\nteam: engineering\n",
-        "files": {},
-        "deploy_job_id": None,
-        "satisfied": [],
-    }
-    monkeypatch.setattr(
-        "api.routes.builder_sessions._resolve_deploy_team",
-        AsyncMock(return_value=("engineering", None)),
-    )
-    monkeypatch.setattr(
-        "api.routes.builder_sessions.enforce_team_role", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        "api.routes.builder_sessions.DeployService.create_agent_and_deploy",
-        AsyncMock(side_effect=ValueError("bad config")),
-    )
-    with patch(
-        "api.routes.builder_sessions.BuilderSessionService.get", new=AsyncMock(return_value=sess)
-    ):
-        r = client.post("/api/v1/builder/sessions/11111111-1111-1111-1111-111111111111/deploy")
-    assert r.status_code == 404
 
 
 def test_stream_not_found_returns_404(client, _override_db):

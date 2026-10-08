@@ -11,7 +11,6 @@ import type {
   FrameworkType,
   McpServerRef,
   PromptConfig,
-  SubagentRef,
   ToolConfig,
 } from "./types";
 import { agentToYaml } from "./yaml";
@@ -35,12 +34,10 @@ export class Agent {
   private _tags: string[];
   private _model: Model | null = null;
   private _tools: ToolConfig[] = [];
-  private _subagents: SubagentRef[] = [];
   private _mcpServers: McpServerRef[] = [];
   private _prompts: PromptConfig = {};
   private _guardrails: string[] = [];
   private _deploy: DeployConfig | null = null;
-  private _knowledgeBases: Array<{ ref: string }> = [];
   private _memory: Memory | null = null;
   private _middlewares: Array<(msg: string, ctx: Record<string, unknown>) => Record<string, unknown>> = [];
   private _handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
@@ -67,11 +64,6 @@ export class Agent {
 
   withTool(tool: Tool): this {
     this._tools.push(tool.toConfig());
-    return this;
-  }
-
-  withSubagent(ref: string, opts?: { name?: string; description?: string }): this {
-    this._subagents.push({ ref, ...opts });
     return this;
   }
 
@@ -145,9 +137,7 @@ export class Agent {
       tags: this._tags,
       model: this._model.toConfig(),
       tools: this._tools,
-      subagents: this._subagents.length > 0 ? this._subagents : undefined,
       mcp_servers: this._mcpServers.length > 0 ? this._mcpServers : undefined,
-      knowledge_bases: this._knowledgeBases.length > 0 ? this._knowledgeBases : undefined,
       prompts: this._prompts,
       guardrails: this._guardrails,
       deploy: this._deploy,
@@ -225,10 +215,5 @@ export class Agent {
   async save(path: string): Promise<void> {
     const { writeFile } = await import("fs/promises");
     await writeFile(path, this.toYaml(), "utf-8");
-  }
-
-  async deploy(target?: string): Promise<import("./deploy").DeployResult> {
-    const { deploy: deployFn } = await import("./deploy");
-    return deployFn(this.toConfig(), target);
   }
 }

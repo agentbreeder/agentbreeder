@@ -232,13 +232,13 @@ class TestRegisterMcpServers:
 
 
 class TestRegisterPrompts:
-    def test_registers_both_prompts(self):
+    def test_registers_sample_prompt(self):
         from cli.commands.quickstart import _register_prompts
 
         with patch("cli.commands.quickstart._api_post", return_value={"id": "p1"}) as mock_post:
             count = _register_prompts()
-        assert count == 2
-        assert mock_post.call_count == 2
+        assert count == 1
+        assert mock_post.call_count == 1
 
     def test_all_fail(self):
         from cli.commands.quickstart import _register_prompts
@@ -280,37 +280,6 @@ class TestRegisterAgents:
             with patch("cli.commands.quickstart._api_post", return_value=None):
                 result = _register_agents()
         assert result == []
-
-
-class TestDeployAgentsLocal:
-    def test_no_yaml_files(self, tmp_path):
-        from cli.commands.quickstart import _deploy_agents_local
-
-        with patch("cli.commands.quickstart.EXAMPLES_QS", tmp_path):
-            result = _deploy_agents_local("docker compose", {})
-        assert result is True  # 0 == 0 (empty)
-
-    def test_all_succeed(self, tmp_path):
-        from cli.commands.quickstart import _deploy_agents_local
-
-        yaml_file = tmp_path / "agent.yaml"
-        yaml_file.write_text("name: test\n")
-
-        with patch("cli.commands.quickstart.EXAMPLES_QS", tmp_path):
-            with patch("cli.commands.quickstart._api_post", return_value={"status": "ok"}):
-                result = _deploy_agents_local("docker compose", {})
-        assert result is True
-
-    def test_partial_fail_returns_false(self, tmp_path):
-        from cli.commands.quickstart import _deploy_agents_local
-
-        for name in ("a.yaml", "b.yaml"):
-            (tmp_path / name).write_text("name: test\n")
-
-        with patch("cli.commands.quickstart.EXAMPLES_QS", tmp_path):
-            with patch("cli.commands.quickstart._api_post", side_effect=[{"ok": True}, None]):
-                result = _deploy_agents_local("docker compose", {})
-        assert result is False
 
 
 class TestWriteEnvKeyQuickstart:

@@ -62,11 +62,6 @@ tools:
           description: "Internal note summarizing triage decision"
       required: [ticket_id, tags, assignee_group]
 
-knowledge_bases:
-  - ref: kb/product-docs
-  - ref: kb/support-playbooks
-  - ref: kb/billing-faq
-
 prompts:
   system: prompts/support-triage-v1
 

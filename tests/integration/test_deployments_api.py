@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -45,16 +46,22 @@ def test_cloud_requirements_unknown_cloud_returns_422_or_404(client: TestClient)
 
 
 @pytest.fixture
-def mock_audit_log():
-    with patch(
-        "api.routes.deployments.AuditService.log_event",
-        new=AsyncMock(return_value=MagicMock()),
-    ) as m:
-        yield m
+def audit_records(caplog):
+    """Audit events are structured ``audit_event`` log lines on the route logger."""
+    caplog.set_level(logging.INFO, logger="api.routes.deployments")
+
+    def _records(message: str = "audit_event"):
+        return [
+            r
+            for r in caplog.records
+            if r.name == "api.routes.deployments" and r.getMessage() == message
+        ]
+
+    return _records
 
 
 def test_validate_infra_returns_200_when_provisioner_reports_valid(
-    client: TestClient, mock_audit_log
+    client: TestClient, audit_records
 ) -> None:
     from engine.provisioners.base import ValidationResult
 
@@ -74,11 +81,14 @@ def test_validate_infra_returns_200_when_provisioner_reports_valid(
             },
         )
     assert resp.status_code == 200
-    mock_audit_log.assert_called_once()
+    events = audit_records()
+    assert len(events) == 1
+    assert events[0].audit_action == "deployment.validate_infra"
+    assert events[0].details["valid"] is True
 
 
 def test_validate_infra_returns_with_errors_when_invalid(
-    client: TestClient, mock_audit_log
+    client: TestClient, audit_records
 ) -> None:
     from engine.provisioners.base import ValidationCheck, ValidationResult
 
@@ -110,7 +120,7 @@ def test_validate_infra_returns_with_errors_when_invalid(
     assert body["errors"], "invalid checks must surface in the errors envelope"
 
 
-def test_validate_infra_returns_502_on_cloud_sdk_error(client: TestClient, mock_audit_log) -> None:
+def test_validate_infra_returns_502_on_cloud_sdk_error(client: TestClient, audit_records) -> None:
     mock_provisioner = MagicMock()
     mock_provisioner.validate_existing = AsyncMock(side_effect=RuntimeError("SDK down"))
 
@@ -125,4 +135,4 @@ def test_validate_infra_returns_502_on_cloud_sdk_error(client: TestClient, mock_
             },
         )
     assert resp.status_code == 502
-    mock_audit_log.assert_called_once()
+    assert len(audit_records("Cloud SDK error during validate-infra")) == 1

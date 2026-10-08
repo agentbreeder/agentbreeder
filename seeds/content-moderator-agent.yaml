@@ -103,11 +103,6 @@ tools:
       required: [content_id, priority]
 
 # ── Knowledge Bases ───────────────────────────────────────────────────────────
-knowledge_bases:
-  - ref: kb/content-policy          # Full community guidelines and policy spec
-  - ref: kb/moderation-examples     # Labeled examples for policy boundary cases
-
-# ── Prompts ───────────────────────────────────────────────────────────────────
 prompts:
   system: prompts/content-moderation-system-v4
 

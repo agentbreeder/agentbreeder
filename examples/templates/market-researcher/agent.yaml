@@ -128,10 +128,6 @@ tools:
           default: true
       required: [report_title, date, synthesis]
 
-knowledge_bases:
-  - ref: kb/market-context
-  - ref: kb/previous-research
-
 prompts:
   system: prompts/market-researcher-v1
 

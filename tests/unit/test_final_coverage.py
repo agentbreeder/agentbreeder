@@ -6,11 +6,10 @@ Covers uncovered lines in:
   2. api/routes/marketplace.py    (listing detail, publish, update, review)
   3. registry/mcp_servers.py      (update, delete, execute_tool HTTP)
   4. cli/commands/provider.py     (add, test, remove, config)
-  5. cli/commands/orchestration.py (run interactive, json mode, visual)
   6. api/services/auth.py         (decode token, authenticate_user)
   7. api/main.py                  (lifespan, CORS)
   8. api/auth.py                  (get_current_user dependency)
-  9. engine/resolver.py           (subagent + MCP refs)
+  9. engine/resolver.py           (MCP refs)
   10. cli/commands/teardown.py    (_teardown_container internals)
 """
 
@@ -973,7 +972,7 @@ class TestProviderAdd:
                 )
             assert result.exit_code == 0
             out = json.loads(result.output)
-            assert out["provider"]["status"] == "active"
+            assert out["provider"]["status"] == "configured"
 
     def test_add_openai_rich_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -996,7 +995,7 @@ class TestProviderAdd:
                     ],
                 )
             assert result.exit_code == 0
-            assert "connected" in result.output
+            assert "configured (connection not tested)" in result.output
 
 
 class TestProviderTest:
@@ -1009,59 +1008,6 @@ class TestProviderTest:
             with patch("cli.commands.provider.PROVIDERS_FILE", pf):
                 result = runner.invoke(cli_app, ["provider", "test", "openai"])
             assert result.exit_code == 1
-
-    def test_provider_test_json(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            pf = Path(tmpdir) / "providers.json"
-            pf.write_text(
-                json.dumps(
-                    {
-                        "openai": {
-                            "name": "OpenAI",
-                            "provider_type": "openai",
-                            "base_url": "https://api.openai.com/v1",
-                            "status": "active",
-                            "model_count": 7,
-                            "latency_ms": 50,
-                            "masked_key": "••••1234",
-                        },
-                    }
-                )
-            )
-            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
-                result = runner.invoke(
-                    cli_app,
-                    ["provider", "test", "openai", "--json"],
-                )
-            assert result.exit_code == 0
-            out = json.loads(result.output)
-            assert out["success"] is True
-
-    def test_provider_test_rich(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            pf = Path(tmpdir) / "providers.json"
-            pf.write_text(
-                json.dumps(
-                    {
-                        "openai": {
-                            "name": "OpenAI",
-                            "provider_type": "openai",
-                            "base_url": "https://api.openai.com/v1",
-                            "status": "active",
-                            "model_count": 7,
-                            "latency_ms": 50,
-                            "masked_key": "••••1234",
-                        },
-                    }
-                )
-            )
-            with patch("cli.commands.provider.PROVIDERS_FILE", pf):
-                result = runner.invoke(
-                    cli_app,
-                    ["provider", "test", "openai"],
-                )
-            assert result.exit_code == 0
-            assert "healthy" in result.output
 
 
 class TestProviderRemove:
@@ -1241,277 +1187,6 @@ class TestProviderEnableDisable:
 # ===================================================================
 # 5. ORCHESTRATION CLI — uncovered lines
 # ===================================================================
-
-VALID_ORCH_YAML = """\
-name: test-orch
-version: 1.0.0
-strategy: sequential
-team: engineering
-owner: test@example.com
-description: test orchestration
-agents:
-  summarizer:
-    ref: agents/summarizer
-  reviewer:
-    ref: agents/reviewer
-"""
-
-
-def _mock_httpx_client(
-    get_json=None,
-    post_json=None,
-    get_side_effect=None,
-    post_side_effect=None,
-):
-    mock_client = MagicMock()
-    mock_client.__enter__ = MagicMock(return_value=mock_client)
-    mock_client.__exit__ = MagicMock(return_value=False)
-
-    if get_json is not None:
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.json.return_value = get_json
-        resp.raise_for_status = MagicMock()
-        mock_client.get.return_value = resp
-    if get_side_effect is not None:
-        mock_client.get.side_effect = get_side_effect
-
-    if post_json is not None:
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.json.return_value = post_json
-        resp.raise_for_status = MagicMock()
-        mock_client.post.return_value = resp
-    if post_side_effect is not None:
-        mock_client.post.side_effect = post_side_effect
-
-    return mock_client
-
-
-class TestOrchestrationRun:
-    """Lines 401-507: orchestration chat interactive loop."""
-
-    def test_chat_not_found(self):
-
-        mock_client = _mock_httpx_client(get_json={"data": []})
-        with patch(
-            "cli.commands.orchestration._get_client",
-            return_value=mock_client,
-        ):
-            result = runner.invoke(
-                cli_app,
-                ["orchestration", "chat", "nonexistent"],
-            )
-        assert result.exit_code == 1
-        assert "not found" in result.output
-
-    def test_chat_connect_error(self):
-        import httpx as _httpx
-
-        mock_client = _mock_httpx_client(
-            get_side_effect=_httpx.ConnectError("fail"),
-        )
-        with patch(
-            "cli.commands.orchestration._get_client",
-            return_value=mock_client,
-        ):
-            result = runner.invoke(
-                cli_app,
-                ["orchestration", "chat", "myorch"],
-            )
-        assert result.exit_code == 1
-
-    def test_chat_interactive_quit(self):
-        orch_data = {
-            "id": "orch-1",
-            "name": "myorch",
-            "strategy": "sequential",
-            "agents_config": {"a": {"ref": "agents/a"}},
-            "status": "deployed",
-        }
-        mock_client = _mock_httpx_client(
-            get_json={"data": [orch_data]},
-            post_json={
-                "data": {
-                    "output": "hello",
-                    "agent_trace": [],
-                    "total_tokens": 10,
-                    "total_cost": 0.001,
-                    "total_latency_ms": 50,
-                    "strategy": "sequential",
-                },
-            },
-        )
-        with patch(
-            "cli.commands.orchestration._get_client",
-            return_value=mock_client,
-        ):
-            result = runner.invoke(
-                cli_app,
-                ["orchestration", "chat", "myorch"],
-                input="hello\n/quit\n",
-            )
-        assert result.exit_code == 0
-        assert "hello" in result.output
-
-    def test_chat_interactive_verbose(self):
-        orch_data = {
-            "id": "orch-1",
-            "name": "myorch",
-            "strategy": "sequential",
-            "agents_config": {"a": {"ref": "agents/a"}},
-            "status": "deployed",
-        }
-        trace = [
-            {
-                "agent_name": "a",
-                "status": "success",
-                "latency_ms": 30,
-                "tokens": 5,
-                "output": "trace output",
-            },
-        ]
-        mock_client = _mock_httpx_client(
-            get_json={"data": [orch_data]},
-            post_json={
-                "data": {
-                    "output": "response",
-                    "agent_trace": trace,
-                    "total_tokens": 5,
-                    "total_cost": 0.0001,
-                    "total_latency_ms": 30,
-                    "strategy": "sequential",
-                },
-            },
-        )
-        with patch(
-            "cli.commands.orchestration._get_client",
-            return_value=mock_client,
-        ):
-            result = runner.invoke(
-                cli_app,
-                [
-                    "orchestration",
-                    "chat",
-                    "myorch",
-                    "--verbose",
-                ],
-                input="test\n/quit\n",
-            )
-        assert result.exit_code == 0
-        assert "Agent Trace" in result.output
-
-    def test_chat_interactive_help(self):
-        orch_data = {
-            "id": "orch-1",
-            "name": "myorch",
-            "strategy": "sequential",
-            "agents_config": {},
-            "status": "deployed",
-        }
-        mock_client = _mock_httpx_client(
-            get_json={"data": [orch_data]},
-        )
-        with patch(
-            "cli.commands.orchestration._get_client",
-            return_value=mock_client,
-        ):
-            result = runner.invoke(
-                cli_app,
-                ["orchestration", "chat", "myorch"],
-                input="/help\n/exit\n",
-            )
-        assert result.exit_code == 0
-        assert "Chat Commands" in result.output
-
-
-class TestOrchestrationJsonMode:
-    """Lines 510-547: _run_json_mode."""
-
-    def test_json_mode_not_found(self):
-
-        mock_client = _mock_httpx_client(get_json={"data": []})
-        with patch(
-            "cli.commands.orchestration._get_client",
-            return_value=mock_client,
-        ):
-            result = runner.invoke(
-                cli_app,
-                [
-                    "orchestration",
-                    "chat",
-                    "missing",
-                    "--json",
-                ],
-                input="hello\n",
-            )
-        assert result.exit_code == 0
-        assert "not found" in result.output
-
-    def test_json_mode_success(self):
-        orch_data = {
-            "id": "orch-1",
-            "name": "myorch",
-            "strategy": "sequential",
-            "agents_config": {},
-            "status": "deployed",
-        }
-        mock_client = _mock_httpx_client(
-            get_json={"data": [orch_data]},
-            post_json={
-                "data": {
-                    "output": "result",
-                    "total_tokens": 10,
-                },
-            },
-        )
-        with patch(
-            "cli.commands.orchestration._get_client",
-            return_value=mock_client,
-        ):
-            result = runner.invoke(
-                cli_app,
-                [
-                    "orchestration",
-                    "chat",
-                    "myorch",
-                    "--json",
-                ],
-                input="question\n",
-            )
-        assert result.exit_code == 0
-        assert "result" in result.output
-
-    def test_json_mode_error(self):
-        import httpx as _httpx
-
-        orch_data = {
-            "id": "orch-1",
-            "name": "myorch",
-            "strategy": "sequential",
-            "agents_config": {},
-            "status": "deployed",
-        }
-        # First call for find succeeds, second for execute fails
-        mock_client = _mock_httpx_client(
-            get_json={"data": [orch_data]},
-            post_side_effect=_httpx.ConnectError("down"),
-        )
-        with patch(
-            "cli.commands.orchestration._get_client",
-            return_value=mock_client,
-        ):
-            result = runner.invoke(
-                cli_app,
-                [
-                    "orchestration",
-                    "chat",
-                    "myorch",
-                    "--json",
-                ],
-                input="hello\n",
-            )
-        assert "error" in result.output
 
 
 # ===================================================================
@@ -1753,36 +1428,8 @@ class TestApiAuthDependency:
 # ===================================================================
 
 
-class TestResolverSubagents:
-    """Lines 38-57: subagent + MCP ref resolution."""
-
-    def test_resolve_with_subagents(self):
-        from engine.config_parser import (
-            AgentConfig,
-            FrameworkType,
-        )
-        from engine.resolver import resolve_dependencies
-
-        config = AgentConfig(
-            name="parent",
-            version="1.0.0",
-            team="eng",
-            owner="a@b.com",
-            framework=FrameworkType.langgraph,
-            model={"primary": "gpt-4o"},
-            deploy={"cloud": "local"},
-            subagents=[
-                {
-                    "name": "helper",
-                    "ref": "agents/helper",
-                    "description": "A helper agent",
-                }
-            ],
-        )
-        resolved = resolve_dependencies(config)
-        # Should have generated subagent tools
-        tool_names = [t.name for t in resolved.tools if t.name]
-        assert any("helper" in n for n in tool_names)
+class TestResolverMcpRefs:
+    """MCP ref resolution."""
 
     def test_resolve_with_mcp_servers(self):
         from engine.config_parser import (

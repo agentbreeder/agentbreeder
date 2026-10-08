@@ -8,22 +8,12 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
-from api.models._validators import (
-    HopsField,
-    SeedEntityLimitField,
-    TopKField,
-    WeightField,
-    make_weights_sum_validator,
-)
 from api.models.enums import (
     A2AStatus,
     AgentStatus,
     BudgetDuration,
-    DeployJobStatus,
-    EvalRunStatus,
     KeyScopeType,
     ListingStatus,
-    OrchestrationStatus,
     ProviderStatus,
     ProviderType,
     TemplateCategory,
@@ -391,51 +381,7 @@ class PromptVersionDiffResponse(BaseModel):
     diff: list[str]
 
 
-class PromptTestRequest(BaseModel):
-    """Request body for testing a prompt against an LLM."""
-
-    prompt_text: str
-    model_id: str | None = None
-    model_name: str | None = None
-    variables: dict[str, str] = Field(default_factory=dict)
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=1024, ge=1, le=100000)
-
-
-class PromptTestResponse(BaseModel):
-    """Response from a prompt test execution."""
-
-    response_text: str
-    rendered_prompt: str
-    model_name: str
-    input_tokens: int
-    output_tokens: int
-    total_tokens: int
-    latency_ms: int
-    temperature: float
-
-
-# --- Deploy Schemas ---
-
-
-class DeployRequest(BaseModel):
-    agent_id: uuid.UUID | None = None
-    config_path: str | None = None
-    config_yaml: str | None = None
-    target: str = "local"
-
-
-class DeployJobResponse(BaseModel):
-    id: uuid.UUID
-    agent_id: uuid.UUID
-    agent_name: str | None = None
-    status: DeployJobStatus
-    target: str
-    error_message: str | None
-    started_at: datetime
-    completed_at: datetime | None
-
-    model_config = {"from_attributes": True}
+# --- Builder Session Schemas ---
 
 
 class BuilderSessionResponse(BaseModel):
@@ -444,7 +390,6 @@ class BuilderSessionResponse(BaseModel):
     engine: str
     agent_yaml: str | None = None
     files: dict[str, str] = Field(default_factory=dict)
-    deploy_job_id: str | None = None
     history: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -459,27 +404,6 @@ class BuilderMessageRequest(BaseModel):
 class BuilderEjectRequest(BaseModel):
     instruction: str = Field(..., min_length=1, max_length=4000)
     engine: str | None = None  # override session engine for this run
-
-
-class DeployLogEntry(BaseModel):
-    timestamp: str
-    level: str
-    message: str
-    step: str | None = None
-
-
-class DeployJobDetailResponse(BaseModel):
-    """Deploy job with logs -- returned by the detail endpoint."""
-
-    id: str
-    agent_id: str
-    agent_name: str | None = None
-    status: str
-    target: str
-    error_message: str | None = None
-    started_at: str | None = None
-    completed_at: str | None = None
-    logs: list[DeployLogEntry] = Field(default_factory=list)
 
 
 # --- Provider Schemas ---
@@ -517,13 +441,6 @@ class ProviderResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ProviderTestResult(BaseModel):
-    success: bool
-    latency_ms: int | None = None
-    models_found: int | None = None
-    error: str | None = None
-
-
 class DiscoveredModel(BaseModel):
     id: str
     name: str
@@ -534,46 +451,12 @@ class DiscoveredModel(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
 
 
-class ModelDiscoveryResult(BaseModel):
-    provider_id: uuid.UUID
-    provider_type: ProviderType
-    models: list[DiscoveredModel]
-    total: int
-
-
-class ProviderDiscoverResult(BaseModel):
-    """Legacy alias — prefer ModelDiscoveryResult."""
-
-    models: list[DiscoveredModel]
-    total: int
-
-
 class ProviderStatusSummary(BaseModel):
     """First-run detection: tells the dashboard if any providers exist."""
 
     has_providers: bool
     provider_count: int
     total_models: int
-
-
-class ProviderHealthCheckResult(BaseModel):
-    """Result of a single provider's health check."""
-
-    provider_id: str
-    name: str
-    status: str
-    checked: bool
-    latency_ms: int | None = None
-    success: bool | None = None
-    reason: str | None = None
-
-
-class OllamaDetectResult(BaseModel):
-    """Result of Ollama auto-detection."""
-
-    provider: ProviderResponse
-    models: list[DiscoveredModel]
-    created: bool
 
 
 # --- MCP Server Schemas ---
@@ -689,113 +572,6 @@ class SandboxExecuteResponse(BaseModel):
     error: str | None = None
 
 
-# --- Git / Pull Request Schemas ---
-
-
-class GitBranchCreateRequest(BaseModel):
-    """Request to create a draft branch."""
-
-    user: str
-    resource_type: str
-    resource_name: str
-
-
-class GitBranchResponse(BaseModel):
-    branch: str
-
-
-class GitBranchListResponse(BaseModel):
-    branches: list[str]
-
-
-class GitCommitRequest(BaseModel):
-    """Request to commit a file change on a branch."""
-
-    branch: str
-    file_path: str
-    content: str
-    message: str
-    author: str
-
-
-class GitCommitResponse(BaseModel):
-    sha: str
-    author: str
-    date: str
-    message: str
-
-
-class GitDiffEntry(BaseModel):
-    file_path: str
-    status: str
-    diff_text: str = ""
-
-
-class GitDiffResponse(BaseModel):
-    base: str
-    head: str
-    files: list[GitDiffEntry] = Field(default_factory=list)
-    stats: str = ""
-
-
-class GitPRCreateRequest(BaseModel):
-    """Request to create a pull request."""
-
-    branch: str
-    title: str
-    description: str = ""
-    submitter: str
-
-
-class GitPRCommentRequest(BaseModel):
-    author: str
-    text: str
-
-
-class GitPRCommentResponse(BaseModel):
-    id: uuid.UUID
-    pr_id: uuid.UUID
-    author: str
-    text: str
-    created_at: datetime
-
-
-class GitPRRejectRequest(BaseModel):
-    reviewer: str
-    reason: str
-
-
-class GitPRApproveRequest(BaseModel):
-    reviewer: str
-
-
-class GitPRMergeRequest(BaseModel):
-    tag_version: str | None = None
-
-
-class GitPRResponse(BaseModel):
-    id: uuid.UUID
-    branch: str
-    title: str
-    description: str
-    submitter: str
-    resource_type: str
-    resource_name: str
-    status: str
-    reviewer: str | None = None
-    reject_reason: str | None = None
-    tag: str | None = None
-    comments: list[GitPRCommentResponse] = Field(default_factory=list)
-    commits: list[GitCommitResponse] = Field(default_factory=list)
-    diff: GitDiffResponse | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class GitPRListResponse(BaseModel):
-    prs: list[GitPRResponse]
-
-
 # --- Memory Schemas ---
 
 
@@ -887,287 +663,6 @@ class MemorySearchResultResponse(BaseModel):
     message: MemoryMessageResponse
     score: float
     highlight: str
-
-
-# --- RAG / Vector Index Schemas ---
-
-
-class CreateIndexRequest(BaseModel):
-    name: str
-    description: str = ""
-    embedding_model: str = "openai/text-embedding-3-small"
-    chunk_strategy: str = "fixed_size"
-    chunk_size: int = 512
-    chunk_overlap: int = 64
-    source: str = "manual"
-
-
-class VectorIndexResponse(BaseModel):
-    id: str
-    name: str
-    description: str
-    embedding_model: str
-    chunk_strategy: str
-    chunk_size: int
-    chunk_overlap: int
-    dimensions: int
-    source: str
-    doc_count: int
-    chunk_count: int
-    created_at: str
-    updated_at: str
-    index_type: str = "vector"
-    entity_model: str = "claude-haiku-4-5-20251001"
-    max_hops: int = 2
-    relationship_types: list[str] = []
-    node_count: int = 0
-    edge_count: int = 0
-
-
-class IngestJobResponse(BaseModel):
-    id: str
-    index_id: str
-    status: str
-    total_files: int
-    processed_files: int
-    total_chunks: int
-    embedded_chunks: int
-    progress_pct: float
-    error: str | None = None
-    started_at: str
-    completed_at: str | None = None
-
-
-class RagSearchRequest(BaseModel):
-    """Validated payload for POST /api/v1/rag/search.
-
-    Replaces the legacy unvalidated ``RAGSearchRequest`` (uppercase) — deleted
-    in W1-02 cleanup since it was never referenced outside this module.
-    Backwards-compatible with the previous dict-based body: the endpoint still
-    accepts any dict shape, but invalid values now produce 422 Validation Error
-    instead of undefined behavior. Legitimate callers see no change.
-    """
-
-    index_id: str = Field(..., min_length=1, description="UUID of the target index")
-    query: str = Field(..., min_length=1, max_length=10_000)
-    top_k: TopKField = 10
-    vector_weight: WeightField = 0.7
-    text_weight: WeightField = 0.3
-    hops: HopsField = None
-    seed_entity_limit: SeedEntityLimitField = 5
-    # W5-R12: optional metadata post-filter — dict of {key: expected_value}.
-    # Applied as a strict-equality predicate on each chunk's metadata after
-    # retrieval. Empty / null means "no filter".
-    filters: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "Optional metadata post-filter: dict of {key: expected_value}. "
-            "Each hit's chunk.metadata must contain every key with the "
-            "given value. Strict equality only."
-        ),
-    )
-
-    _check_weights = make_weights_sum_validator("vector_weight", "text_weight")
-
-
-class RAGSearchHit(BaseModel):
-    chunk_id: str
-    text: str
-    source: str
-    score: float
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class RAGSearchResponse(BaseModel):
-    index_id: str
-    query: str
-    top_k: int
-    results: list[RAGSearchHit]
-    total: int
-
-
-# --- Evaluation Framework (M18) ---
-
-
-class EvalDatasetCreate(BaseModel):
-    name: str
-    description: str = ""
-    agent_id: uuid.UUID | None = None
-    version: str = "1.0.0"
-    format: str = "jsonl"
-    team: str = "default"
-    tags: list[str] = Field(default_factory=list)
-
-
-class EvalDatasetResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    description: str
-    agent_id: uuid.UUID | None
-    version: str
-    format: str
-    row_count: int
-    team: str
-    tags: list[str]
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class EvalDatasetRowCreate(BaseModel):
-    input: dict[str, Any]
-    expected_output: str
-    expected_tool_calls: list[dict[str, Any]] | None = None
-    tags: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class EvalDatasetRowResponse(BaseModel):
-    id: uuid.UUID
-    dataset_id: uuid.UUID
-    input: dict[str, Any]
-    expected_output: str
-    expected_tool_calls: list[dict[str, Any]] | None
-    tags: list[str]
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class EvalRunCreate(BaseModel):
-    agent_name: str
-    dataset_id: uuid.UUID
-    agent_id: uuid.UUID | None = None
-    config: dict[str, Any] = Field(default_factory=dict)
-
-
-class EvalRunResponse(BaseModel):
-    id: uuid.UUID
-    agent_id: uuid.UUID | None
-    agent_name: str
-    dataset_id: uuid.UUID
-    status: EvalRunStatus
-    config: dict[str, Any]
-    summary: dict[str, Any]
-    started_at: datetime | None
-    completed_at: datetime | None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class EvalResultResponse(BaseModel):
-    id: uuid.UUID
-    run_id: uuid.UUID
-    row_id: uuid.UUID
-    actual_output: str
-    scores: dict[str, Any]
-    latency_ms: int
-    token_count: int
-    cost_usd: float
-    error: str | None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class EvalRunDetailResponse(BaseModel):
-    """Eval run with all results included."""
-
-    id: uuid.UUID
-    agent_id: uuid.UUID | None
-    agent_name: str
-    dataset_id: uuid.UUID
-    status: EvalRunStatus
-    config: dict[str, Any]
-    summary: dict[str, Any]
-    started_at: datetime | None
-    completed_at: datetime | None
-    created_at: datetime
-    results: list[EvalResultResponse] = Field(default_factory=list)
-
-    model_config = {"from_attributes": True}
-
-
-class EvalScoreSummary(BaseModel):
-    """Per-metric aggregation for a run."""
-
-    metric: str
-    mean: float
-    median: float
-    p95: float
-    min: float
-    max: float
-    count: int
-
-
-# --- Orchestration Schemas ---
-
-
-class OrchestrationCreate(BaseModel):
-    name: str
-    version: str
-    description: str = ""
-    team: str | None = None
-    owner: str | None = None
-    strategy: str
-    agents: dict[str, Any]
-    shared_state: dict[str, Any] = Field(default_factory=dict)
-    deploy: dict[str, Any] = Field(default_factory=dict)
-    tags: list[str] = Field(default_factory=list)
-
-
-class OrchestrationUpdate(BaseModel):
-    version: str | None = None
-    description: str | None = None
-    strategy: str | None = None
-    agents_config: dict[str, Any] | None = None
-    status: OrchestrationStatus | None = None
-    tags: list[str] | None = None
-
-
-class OrchestrationResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    version: str
-    description: str
-    team: str | None
-    owner: str | None
-    strategy: str
-    agents_config: dict[str, Any]
-    shared_state_config: dict[str, Any] | None
-    deploy_config: dict[str, Any] | None
-    status: str
-    endpoint_url: str | None
-    config_snapshot: dict[str, Any] | None
-    tags: list[str] | None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class OrchestrationExecuteRequest(BaseModel):
-    input_message: str
-    context: dict[str, Any] = Field(default_factory=dict)
-
-
-class OrchestrationExecuteResponse(BaseModel):
-    orchestration_name: str
-    strategy: str
-    input_message: str
-    output: str
-    agent_trace: list[dict[str, Any]] = Field(default_factory=list)
-    total_latency_ms: int = 0
-    total_tokens: int = 0
-    total_cost: float = 0.0
-
-
-class OrchestrationValidateResponse(BaseModel):
-    valid: bool
-    errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # --- A2A Agent Schemas ---

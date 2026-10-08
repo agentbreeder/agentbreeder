@@ -88,10 +88,6 @@ tools:
           description: "Any anomalies or metrics significantly off from expected range"
       required: [report_title, sections]
 
-knowledge_bases:
-  - ref: kb/metrics-definitions
-  - ref: kb/reporting-config
-
 prompts:
   system: prompts/report-generator-v1
 

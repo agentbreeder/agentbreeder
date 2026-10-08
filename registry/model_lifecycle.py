@@ -115,20 +115,20 @@ async def _emit_audit(
     model: Model,
     details: dict[str, Any] | None = None,
 ) -> None:
-    """Best-effort audit emission — failures must never break the sync."""
-    try:
-        from api.services.audit_service import AuditService
-
-        await AuditService.log_event(
-            actor=actor,
-            action=action,
-            resource_type="model",
-            resource_id=str(model.id),
-            resource_name=model.name,
-            details={"provider": model.provider, **(details or {})},
-        )
-    except Exception:  # pragma: no cover — audit is best-effort
-        logger.exception("Failed to emit audit event %s for model %s", action, model.name)
+    """Emit a model lifecycle change as a structured ``audit_event`` log line."""
+    logger.info(
+        "audit_event",
+        extra={
+            "audit_action": action,
+            "actor": actor,
+            "details": {
+                "model_id": str(model.id),
+                "model": model.name,
+                "provider": model.provider,
+                **(details or {}),
+            },
+        },
+    )
 
 
 # ─── Core service ──────────────────────────────────────────────────────────

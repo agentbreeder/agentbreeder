@@ -147,8 +147,7 @@ class TestResolverMemoryRefs:
         path = _write_yaml(MINIMAL_YAML)
         config = parse_config(path)
 
-        with patch("engine.resolver.generate_subagent_tools", return_value=[]):
-            resolved = resolve_dependencies(config)
+        resolved = resolve_dependencies(config)
 
         assert resolved.memory is None
 
@@ -161,9 +160,8 @@ class TestResolverMemoryRefs:
         path = _write_yaml(MEMORY_YAML)
         config = parse_config(path)
 
-        with patch("engine.resolver.generate_subagent_tools", return_value=[]):
-            with caplog.at_level(logging.DEBUG, logger="engine.resolver"):
-                resolved = resolve_dependencies(config)
+        with caplog.at_level(logging.DEBUG, logger="engine.resolver"):
+            resolved = resolve_dependencies(config)
 
         assert resolved.memory is not None
         assert resolved.memory.stores == ["session-buffer", "entity-store"]

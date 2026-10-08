@@ -95,10 +95,6 @@ tools:
           description: "Slack channel to post to"
       required: [week_ending, competitors_covered, digest_markdown, channel]
 
-knowledge_bases:
-  - ref: kb/competitors
-  - ref: kb/our-positioning
-
 prompts:
   system: prompts/competitor-monitor-v1
 

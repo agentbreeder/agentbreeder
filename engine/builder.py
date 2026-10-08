@@ -33,10 +33,7 @@ from engine.deployers._autoprovision import (
     resolve_redis_url,
 )
 from engine.deployers._greenfield import infra_state_to_env
-from engine.deployers._pgvector_dsn import (
-    needs_managed_memory_postgres,
-    needs_managed_pgvector,
-)
+from engine.deployers._pgvector_dsn import needs_managed_memory_postgres
 from engine.deployers.base import DeployResult
 from engine.governance import check_rbac
 from engine.provisioners import InfraValidationInput, provisioner_for
@@ -121,11 +118,7 @@ def _gcp_greenfield_fields(fields: dict[str, Any], config: AgentConfig, region: 
     # greenfield VPC + Serverless connector is only worth building when the agent
     # has a private managed data tier to reach (Cloud SQL private IP / Memorystore).
     # For a stateless agent, greenfield stays minimal (Artifact Registry + SA).
-    needs_private_net = (
-        needs_managed_pgvector(config)
-        or needs_managed_memory_postgres(config)
-        or needs_managed_memory_redis(config)
-    )
+    needs_private_net = needs_managed_memory_postgres(config) or needs_managed_memory_redis(config)
     if needs_private_net:
         fields.setdefault("GCP_PROVISION_VPC", "true")
         fields.setdefault("GCP_PROVISION_VPC_CONNECTOR", "true")
@@ -295,7 +288,7 @@ class DeployEngine:
             await self._maybe_provision_greenfield(config, config_path.parent, provision)
             deployer = get_deployer(config.deploy.cloud, config.deploy.runtime)
             await deployer.provision(config)
-            # Auto-provision managed data backends (pgvector for a KB declared
+            # Auto-provision managed data backends (memory Postgres/Redis declared
             # without an explicit backend_url) INTO the agent's BYO network, and
             # inject the connection env so step 6 (which reads env_vars fresh)
             # passes it to the container. Part of "Provision infrastructure".
@@ -453,9 +446,8 @@ class DeployEngine:
 
         Covers, per managed cloud and into the agent's BYO network:
 
-        * knowledge base → managed Postgres (pgvector) → ``KB_PGVECTOR_DSN``
         * ``memory.backend: postgresql`` → managed Postgres → ``DATABASE_URL`` +
-          ``MEMORY_BACKEND=postgresql`` (shares the KB instance when both apply)
+          ``MEMORY_BACKEND=postgresql``
         * ``memory.backend: redis`` → managed Redis → ``REDIS_URL`` +
           ``MEMORY_BACKEND=redis``
 
@@ -464,10 +456,9 @@ class DeployEngine:
         local/kubernetes/claude-managed and for artifacts that already pin a
         ``backend_url``.
         """
-        wants_kb = needs_managed_pgvector(config)
         wants_memory_pg = needs_managed_memory_postgres(config)
         wants_memory_redis = needs_managed_memory_redis(config)
-        if not (wants_kb or wants_memory_pg or wants_memory_redis):
+        if not (wants_memory_pg or wants_memory_redis):
             return
 
         if config.deploy.env_vars is None:
@@ -477,30 +468,20 @@ class DeployEngine:
         cloud: str | None = None
         region: str | None = None
 
-        if wants_kb or wants_memory_pg:
+        if wants_memory_pg:
             request = build_data_backend_request(config, engine="postgres")
             if request is not None:
                 logger.info(
-                    "Auto-provisioning managed Postgres for '%s' on %s (kb=%s, memory=%s)",
-                    config.name,
-                    request.cloud,
-                    wants_kb,
-                    wants_memory_pg,
+                    "Auto-provisioning managed Postgres for '%s' on %s", config.name, request.cloud
                 )
                 state = await provisioner_for(request.cloud).provision_data_backend(request)
                 cloud, region = request.cloud, request.region
                 _merge_infra_resources(merged_resources, state.resources)
                 dsn = await resolve_pgvector_dsn(request.cloud, state.resources, request.region)
                 if dsn:
-                    if wants_kb:
-                        env["KB_PGVECTOR_DSN"] = dsn
-                        logger.info("Injected KB_PGVECTOR_DSN for '%s'", config.name)
-                    if wants_memory_pg:
-                        env["DATABASE_URL"] = dsn
-                        env.setdefault("MEMORY_BACKEND", "postgresql")
-                        logger.info(
-                            "Injected DATABASE_URL (memory=postgresql) for '%s'", config.name
-                        )
+                    env["DATABASE_URL"] = dsn
+                    env.setdefault("MEMORY_BACKEND", "postgresql")
+                    logger.info("Injected DATABASE_URL (memory=postgresql) for '%s'", config.name)
                 else:
                     logger.warning(
                         "Provisioned Postgres for '%s' but could not assemble its DSN", config.name

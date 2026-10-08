@@ -55,13 +55,6 @@ const server = createServer(async (req, res) => {
       ])
     }
 
-    aps.cost.record({
-      agentName: '{{AGENT_NAME}}',
-      model: '{{AGENT_NAME}}',
-      inputTokens: 0,
-      outputTokens: 0,
-    })
-
     return jsonResponse(res, 200, { output: text })
   }
 

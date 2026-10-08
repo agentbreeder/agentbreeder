@@ -171,12 +171,10 @@ def test_validate_passes_claude_managed_without_agent_py(tmp_path: Path) -> None
         # Previously broken (issue #560 bug #10) — should now PASS after the
         # examples cleanup in this commit.
         "ollama-agent",
-        "a2a-subagent",
         "aws-app-runner-agent",
         "claude-managed-agent",
         "crewai-agent",
         "go-agent",
-        "graphrag-ollama-agent",
         "openrouter-agent",
         "registry-pattern-ts",
         # Sanity — never broken.

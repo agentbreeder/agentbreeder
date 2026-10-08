@@ -1,12 +1,11 @@
-"""Assemble a ``KB_PGVECTOR_DSN`` from a provisioned managed-Postgres resources dict.
+"""Assemble a Postgres DSN from a provisioned managed-Postgres resources dict.
 
 P2 of the cloud-agnostic deployment epic (#523). The infra provisioners
 (``engine/provisioners/{aws,gcp,azure}.py``) return a cloud-specific resources
 dict describing the Postgres they created. This module turns that — plus the
 password resolved from the cloud secret store at deploy time — into a uniform
-``postgresql://`` DSN that the agent container reads as ``KB_PGVECTOR_DSN``
-(consumed by the runtime in ``engine/runtimes/templates/langgraph_server.py``
-and the pgvector backend in ``api/services/pgvector_rag_backend.py``).
+``postgresql://`` DSN that the agent container reads as ``DATABASE_URL`` (the
+``memory.backend: postgresql`` conversation store).
 
 Pure string assembly — no cloud SDK calls — so it is fully unit-testable. The
 host fields differ per cloud:
@@ -25,7 +24,7 @@ DEFAULT_PG_PORT = 5432
 DEFAULT_DB_NAME = "agentbreeder"
 DEFAULT_DB_USER = "agentbreeder"
 
-# Clouds for which we provision a managed Postgres for pgvector.
+# Clouds for which we provision a managed Postgres.
 _MANAGED_PG_CLOUDS = {"aws", "gcp", "azure"}
 
 # Where each provisioner stores the DB-password secret reference.
@@ -36,28 +35,12 @@ _SECRET_REF_KEYS = {
 }
 
 
-def needs_managed_pgvector(config: Any) -> bool:
-    """Whether the deploy should provision a managed pgvector store.
-
-    True when the agent declares ``knowledge_bases``, none pins an explicit
-    ``backend_url`` (P1 contract: an explicit DSN always wins), and the target
-    is a managed cloud. Local / claude-managed / kubernetes are out of scope.
-    """
-    kbs = getattr(config, "knowledge_bases", None) or []
-    if not kbs:
-        return False
-    if any(getattr(kb, "backend_url", None) for kb in kbs):
-        return False
-    return _targets_managed_pg_cloud(config)
-
-
 def needs_managed_memory_postgres(config: Any) -> bool:
     """Whether the deploy should provision a managed Postgres for memory.
 
     True when the agent declares ``memory`` with ``backend: postgresql`` and no
     explicit ``backend_url`` (an explicit DSN always wins), and the target is a
-    managed cloud. The same managed instance also backs pgvector when both are
-    declared — the deploy hook provisions Postgres at most once.
+    managed cloud.
     """
     memory = getattr(config, "memory", None)
     if memory is None:

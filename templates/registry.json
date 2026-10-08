@@ -68,32 +68,6 @@
       "features": ["mcp-integration", "guardrails", "fallback-model", "slack-formatting"]
     },
     {
-      "name": "document-qa",
-      "display_name": "Document QA Agent",
-      "description": "RAG-based document QA with citation support and semantic search",
-      "framework": "langgraph",
-      "category": "research",
-      "tags": ["rag", "documents", "qa", "knowledge-base", "search", "citations"],
-      "difficulty": "beginner",
-      "estimated_setup_minutes": 10,
-      "files": ["agent.yaml", "README.md", ".env.example", "test_agent.py"],
-      "requires_secrets": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
-      "features": ["rag", "guardrails", "fallback-model", "hallucination-check", "citations"]
-    },
-    {
-      "name": "multi-agent-pipeline",
-      "display_name": "Multi-Agent Pipeline",
-      "description": "Triage, specialist routing, and QA verification in a supervisor orchestration pattern",
-      "framework": "langgraph",
-      "category": "customer_support",
-      "tags": ["multi-agent", "orchestration", "pipeline", "triage", "qa", "supervisor"],
-      "difficulty": "advanced",
-      "estimated_setup_minutes": 30,
-      "files": ["agent.yaml", "orchestration.yaml", "README.md", ".env.example", "test_agent.py"],
-      "requires_secrets": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
-      "features": ["orchestration", "subagents", "guardrails", "shared-state", "qa-loop"]
-    },
-    {
       "name": "email-triage",
       "display_name": "Email Triage Agent",
       "description": "Email parsing, classification, priority scoring, and automated routing",

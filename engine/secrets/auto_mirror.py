@@ -520,15 +520,7 @@ async def _emit_mirror_audit(
         "cloud": target_cloud,
         "workspace": workspace,
     }
-    try:
-        from api.services.audit_service import AuditService
-
-        await AuditService.log_event(
-            actor=actor,
-            action="secret.mirrored",
-            resource_type="secret",
-            resource_name=logical,
-            details=details,
-        )
-    except Exception:  # pragma: no cover - api package may be unavailable
-        logger.info("audit_event secret.mirrored %s", details)
+    logger.info(
+        "audit_event",
+        extra={"audit_action": "secret.mirrored", "actor": actor, "details": details},
+    )

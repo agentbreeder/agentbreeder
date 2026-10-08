@@ -6,13 +6,6 @@ _BASE_YAML = (
     "model:\n  primary: gemini-2.0-flash\ndeploy:\n  cloud: gcp\n"
 )
 
-_MULTI_YAML = (
-    "name: multi-agent\nversion: 1.0.0\nframework: google_adk\n"
-    "description: Multi-step agent\nteam: eng\nowner: a@b.com\n"
-    "model:\n  primary: gemini-2.0-flash\nsubagents:\n  - name: step1\n"
-    "deploy:\n  cloud: gcp\n"
-)
-
 _DESC_YAML = (
     "name: test-agent\nversion: 1.0.0\nframework: google_adk\n"
     "description: Handles customer queries\nteam: eng\nowner: a@b.com\n"
@@ -42,14 +35,6 @@ def test_generate_adk_writes_requirements(tmp_path):
     _generate_google_adk_scaffold(_BASE_YAML, tmp_path)
     reqs = (tmp_path / "requirements.txt").read_text()
     assert "google-adk" in reqs
-
-
-def test_generate_adk_sequential_when_subagents(tmp_path):
-    from cli.commands.eject import _generate_google_adk_scaffold
-
-    _generate_google_adk_scaffold(_MULTI_YAML, tmp_path)
-    agent_py = (tmp_path / "agent.py").read_text()
-    assert "SequentialAgent" in agent_py
 
 
 def test_generate_adk_llm_agent_when_no_subagents(tmp_path):

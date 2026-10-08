@@ -67,68 +67,47 @@ def test_dsn_from_resources_unknown_cloud():
 
 
 # ---------------------------------------------------------------------------
-# needs_managed_pgvector / pgvector_secret_ref
+# needs_managed_memory_postgres / pgvector_secret_ref
 # ---------------------------------------------------------------------------
 
 from types import SimpleNamespace  # noqa: E402
 
 from engine.deployers._pgvector_dsn import (  # noqa: E402
     needs_managed_memory_postgres,
-    needs_managed_pgvector,
     pgvector_secret_ref,
 )
 
 
-def _config(kbs, cloud, memory=None):
+def _config(cloud, memory=None):
     return SimpleNamespace(
-        knowledge_bases=kbs,
         memory=memory,
         deploy=SimpleNamespace(cloud=SimpleNamespace(value=cloud)),
     )
 
 
-def test_needs_managed_pgvector_true_for_kb_without_backend_url_on_cloud():
-    cfg = _config([SimpleNamespace(ref="kb/docs", backend_url=None)], "aws")
-    assert needs_managed_pgvector(cfg) is True
-
-
-def test_needs_managed_pgvector_false_when_backend_url_pinned():
-    cfg = _config([SimpleNamespace(ref="kb/docs", backend_url="postgresql://x")], "gcp")
-    assert needs_managed_pgvector(cfg) is False
-
-
-def test_needs_managed_pgvector_false_without_kbs():
-    assert needs_managed_pgvector(_config([], "azure")) is False
-
-
-def test_needs_managed_pgvector_false_for_local():
-    cfg = _config([SimpleNamespace(ref="kb/docs", backend_url=None)], "local")
-    assert needs_managed_pgvector(cfg) is False
-
-
 def test_needs_managed_memory_postgres_true_for_pg_backend_without_url():
-    cfg = _config([], "aws", memory=SimpleNamespace(backend="postgresql", backend_url=None))
+    cfg = _config("aws", memory=SimpleNamespace(backend="postgresql", backend_url=None))
     assert needs_managed_memory_postgres(cfg) is True
 
 
 def test_needs_managed_memory_postgres_false_for_redis_backend():
-    cfg = _config([], "aws", memory=SimpleNamespace(backend="redis", backend_url=None))
+    cfg = _config("aws", memory=SimpleNamespace(backend="redis", backend_url=None))
     assert needs_managed_memory_postgres(cfg) is False
 
 
 def test_needs_managed_memory_postgres_false_when_backend_url_pinned():
     cfg = _config(
-        [], "gcp", memory=SimpleNamespace(backend="postgresql", backend_url="postgresql://x")
+        "gcp", memory=SimpleNamespace(backend="postgresql", backend_url="postgresql://x")
     )
     assert needs_managed_memory_postgres(cfg) is False
 
 
 def test_needs_managed_memory_postgres_false_without_memory():
-    assert needs_managed_memory_postgres(_config([], "azure", memory=None)) is False
+    assert needs_managed_memory_postgres(_config("azure", memory=None)) is False
 
 
 def test_needs_managed_memory_postgres_false_for_local():
-    cfg = _config([], "local", memory=SimpleNamespace(backend="postgresql", backend_url=None))
+    cfg = _config("local", memory=SimpleNamespace(backend="postgresql", backend_url=None))
     assert needs_managed_memory_postgres(cfg) is False
 
 

@@ -1,7 +1,7 @@
 // mastra_server.ts — Mastra server template
 // Platform-managed. Do not edit — regenerated on each deploy.
 import { createServer } from 'node:http'
-import { aps, buildAgentCard, buildHealthResponse, verifyAuth } from './_shared_loader.js'
+import { buildAgentCard, buildHealthResponse, verifyAuth } from './_shared_loader.js'
 import { agent } from './agent.js'
 
 const PORT = parseInt(process.env.PORT ?? '{{PORT}}', 10)
@@ -31,7 +31,6 @@ const server = createServer(async (req, res) => {
     const messages = body.messages ?? [{ role: 'user', content: body.input ?? '' }]
 
     const result = await agent.generate(messages)
-    aps.cost.record({ agentName: '{{AGENT_NAME}}', model: '{{AGENT_FRAMEWORK}}', inputTokens: 0, outputTokens: 0 })
     return jsonResponse(res, 200, { output: result.text ?? result })
   }
 

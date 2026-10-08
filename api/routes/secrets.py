@@ -135,18 +135,14 @@ async def set_workspace_backend(
         workspace=workspace,
     )
 
-    try:
-        from api.services.audit_service import AuditService
-
-        await AuditService.log_event(
-            actor=user.email,
-            action="secret.backend_changed",
-            resource_type="workspace",
-            resource_name=saved.workspace,
-            details={"backend": saved.backend, "options": saved.options},
-        )
-    except Exception as exc:  # pragma: no cover - audit is best-effort
-        logger.debug("audit emit failed for secret.backend_changed: %s", exc)
+    logger.info(
+        "audit_event",
+        extra={
+            "audit_action": "secret.backend_changed",
+            "actor": user.email,
+            "details": {"workspace": saved.workspace, "backend": saved.backend},
+        },
+    )
 
     return ApiResponse(
         data=WorkspaceBackendInfo(
@@ -251,18 +247,18 @@ async def create_secret(
         raise HTTPException(status_code=500, detail=f"Failed to write secret: {exc}") from exc
 
     # Audit
-    try:
-        from api.services.audit_service import AuditService
-
-        await AuditService.log_event(
-            actor=user.email,
-            action="secret.created",
-            resource_type="secret",
-            resource_name=body.name,
-            details={"workspace": ws_cfg.workspace, "backend": backend.backend_name},
-        )
-    except Exception as exc:  # pragma: no cover - audit is best-effort
-        logger.debug("audit emit failed for secret.created: %s", exc)
+    logger.info(
+        "audit_event",
+        extra={
+            "audit_action": "secret.created",
+            "actor": user.email,
+            "details": {
+                "secret_name": body.name,
+                "workspace": ws_cfg.workspace,
+                "backend": backend.backend_name,
+            },
+        },
+    )
 
     entries = {e.name: e for e in await backend.list()}
     entry = entries.get(body.name)
@@ -291,18 +287,18 @@ async def rotate_secret(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     # Audit
-    try:
-        from api.services.audit_service import AuditService
-
-        await AuditService.log_event(
-            actor=_user.email,
-            action="secret.rotated",
-            resource_type="secret",
-            resource_name=name,
-            details={"workspace": ws_cfg.workspace, "backend": backend.backend_name},
-        )
-    except Exception as exc:  # pragma: no cover - audit is best-effort
-        logger.debug("audit emit failed for secret.rotated: %s", exc)
+    logger.info(
+        "audit_event",
+        extra={
+            "audit_action": "secret.rotated",
+            "actor": _user.email,
+            "details": {
+                "secret_name": name,
+                "workspace": ws_cfg.workspace,
+                "backend": backend.backend_name,
+            },
+        },
+    )
 
     entries = {e.name: e for e in await backend.list()}
     entry = entries.get(name)

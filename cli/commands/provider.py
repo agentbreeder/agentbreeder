@@ -27,7 +27,6 @@ import json
 import os
 import platform
 import sys
-import time
 from pathlib import Path
 
 import typer
@@ -184,24 +183,6 @@ def _mask_key(key: str) -> str:
     if len(key) <= 8:
         return "••••"
     return f"••••{key[-4:]}"
-
-
-def _simulate_connection_test(provider_type: str, base_url: str) -> dict:
-    """Simulate a connection test. Returns {success, latency_ms, model_count, error}."""
-    import random
-
-    start = time.monotonic()
-    # Simulate network latency
-    meta = PROVIDER_TYPES.get(provider_type, {})
-    models = meta.get("models", [])
-    elapsed_ms = int((time.monotonic() - start) * 1000) + random.randint(30, 180)  # noqa: S311
-
-    return {
-        "success": True,
-        "latency_ms": elapsed_ms,
-        "model_count": len(models),
-        "models": models,
-    }
 
 
 # ─── Typer sub-app ─────────────────────────────────────────────────
@@ -430,7 +411,8 @@ def provider_add(
             console.print()
             wait = (
                 console.input(
-                    "  [bold]Press Enter once Ollama is running, or type [cyan]skip[/cyan]: [/bold]"
+                    "  [bold]Press Enter once Ollama is running, "
+                    "or type [cyan]skip[/cyan]: [/bold]"
                 )
                 .strip()
                 .lower()
@@ -466,17 +448,7 @@ def provider_add(
         if custom_url:
             resolved_url = custom_url
 
-    # Test connection
-    if not json_output:
-        console.print()
-        console.print("  [dim]Testing connection...[/dim]")
-
-    test_result = _simulate_connection_test(provider_type, resolved_url)
-
-    if not test_result["success"]:
-        err = test_result.get("error", "Unknown error")
-        console.print(f"  [red]Connection failed: {err}[/red]")
-        raise typer.Exit(code=1)
+    known_models: list[str] = [str(m) for m in meta.get("models", [])]
 
     # Save API key to .env
     env_path = None
@@ -492,9 +464,8 @@ def provider_add(
         "name": meta["name"],
         "provider_type": provider_type,
         "base_url": resolved_url,
-        "status": "active",
-        "model_count": test_result["model_count"],
-        "latency_ms": test_result["latency_ms"],
+        "status": "configured",
+        "model_count": len(known_models),
         "masked_key": _mask_key(resolved_key) if resolved_key else None,
     }
     providers[provider_type] = provider_entry
@@ -503,34 +474,33 @@ def provider_add(
     if json_output:
         output = {
             "provider": provider_entry,
-            "models": test_result["models"],
+            "models": known_models,
             "env_file": str(env_path) if env_path else None,
         }
         sys.stdout.write(json.dumps(output, indent=2) + "\n")
         return
 
     # Success output
-    console.print(f"  [green]✓[/green] Connection successful ({test_result['latency_ms']}ms)")
-    console.print(f"  [green]✓[/green] {test_result['model_count']} models discovered")
+    console.print(f"  [green]✓[/green] {meta['name']} configured (connection not tested)")
 
     if env_path:
         console.print(f"  [green]✓[/green] Key saved to: [dim]{env_path}[/dim]")
 
-    # Show discovered models
-    if test_result.get("models"):
+    # Show commonly used models for this provider
+    if known_models:
         console.print()
-        console.print("  [bold]Available models:[/bold]")
-        for model in test_result["models"]:
+        console.print("  [bold]Common models:[/bold]")
+        for model in known_models:
             console.print(f"    [cyan]{model}[/cyan]")
 
     console.print()
     console.print(
         Panel(
-            f"[bold green]{meta['name']} connected![/bold green]\n\n"
+            f"[bold green]{meta['name']} configured.[/bold green]\n\n"
             f"  Use in agent.yaml:\n"
             f"  [dim]model:\n"
             f"    primary: "
-            f"{test_result['models'][0] if test_result.get('models') else 'model-name'}"
+            f"{known_models[0] if known_models else 'model-name'}"
             "[/dim]",
             border_style="green",
             padding=(1, 2),
@@ -548,8 +518,7 @@ def provider_test(
 
     For catalog providers (Nvidia, Groq, …) this hits ``GET /models`` against
     the configured ``base_url`` using the API key from the entry's
-    ``api_key_env``. For legacy interactive providers it falls back to the
-    simulated check.
+    ``api_key_env``. Other providers are not testable from the CLI yet.
     """
     from engine.providers.catalog import get_entry
 
@@ -568,39 +537,11 @@ def provider_test(
         console.print()
         return
 
-    name = name.lower()
-    providers = _load_providers()
-
-    if name not in providers:
-        console.print(f"[red]Provider '{name}' is not configured.[/red]")
-        console.print(f"[dim]Add it with: agentbreeder provider add {name}[/dim]")
-        raise typer.Exit(code=1)
-
-    provider = providers[name]
-    base_url = provider.get("base_url", "")
-
-    if not json_output:
-        console.print(f"\n  [dim]Testing {provider['name']}...[/dim]")
-
-    result = _simulate_connection_test(name, base_url)
-
-    # Update stored provider info
-    provider["latency_ms"] = result["latency_ms"]
-    provider["model_count"] = result["model_count"]
-    provider["status"] = "active" if result["success"] else "error"
-    _save_providers(providers)
-
-    if json_output:
-        sys.stdout.write(json.dumps(result, indent=2) + "\n")
-        return
-
-    if result["success"]:
-        console.print(f"  [green]✓[/green] {provider['name']} is healthy")
-        console.print(f"    Latency: {result['latency_ms']}ms")
-        console.print(f"    Models:  {result['model_count']}")
-    else:
-        console.print("  [red]✗[/red] Connection failed")
-    console.print()
+    console.print(
+        f"[red]Connection tests are only supported for catalog providers; "
+        f"'{name}' is not in the catalog.[/red]"
+    )
+    raise typer.Exit(code=1)
 
 
 @provider_app.command(name="models")

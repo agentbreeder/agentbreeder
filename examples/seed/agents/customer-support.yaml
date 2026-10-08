@@ -20,9 +20,6 @@ tools:
   - ref: tools/web-search
   - ref: tools/order-lookup
 
-knowledge_bases:
-  - ref: kb/product-docs
-
 prompts:
   system: prompts/support-system-v1
 

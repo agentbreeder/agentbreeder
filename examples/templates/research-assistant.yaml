@@ -66,8 +66,6 @@ config_template:
     - name: document_reader
       type: function
       description: "Read and extract content from documents"
-  knowledge_bases:
-    - ref: kb/research-docs
   prompts:
     system: |
       You are an expert research assistant. Your job is to help users find,

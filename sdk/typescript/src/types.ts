@@ -30,12 +30,6 @@ export interface ToolConfig {
   schema?: Record<string, unknown>;
 }
 
-export interface SubagentRef {
-  ref: string;
-  name?: string;
-  description?: string;
-}
-
 export interface McpServerRef {
   ref: string;
   transport?: "stdio" | "sse" | "streamable_http";
@@ -82,9 +76,7 @@ export interface AgentConfig {
   tags?: string[];
   model: ModelConfig;
   tools?: ToolConfig[];
-  subagents?: SubagentRef[];
   mcp_servers?: McpServerRef[];
-  knowledge_bases?: Array<{ ref: string }>;
   prompts?: PromptConfig;
   guardrails?: string[];
   deploy: DeployConfig;
@@ -93,7 +85,3 @@ export interface AgentConfig {
 }
 
 export type { MemoryConfig };
-
-export interface OrchestrationStrategy {
-  type: "router" | "sequential" | "parallel" | "hierarchical" | "supervisor" | "fan_out_fan_in";
-}

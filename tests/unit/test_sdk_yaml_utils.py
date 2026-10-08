@@ -83,12 +83,6 @@ class TestAgentToYaml:
         data = yaml.safe_load(result)
         assert "tools" not in data
 
-    def test_knowledge_bases_serialized(self):
-        agent = _make_agent(knowledge_bases=["kb/docs", "kb/faq"])
-        result = agent_to_yaml(agent)
-        data = yaml.safe_load(result)
-        assert data["knowledge_bases"] == [{"ref": "kb/docs"}, {"ref": "kb/faq"}]
-
     def test_guardrails_serialized(self):
         agent = _make_agent(guardrails=["pii_detection", "content_filter"])
         result = agent_to_yaml(agent)
@@ -201,32 +195,6 @@ deploy:
         assert agent.config.deploy is not None
         assert agent.config.deploy.cloud == "gcp"
         assert agent.config.deploy.runtime == "cloud-run"
-
-    def test_knowledge_bases_ref_format(self):
-        yaml_str = """
-name: a
-version: 1.0.0
-team: t
-framework: langgraph
-knowledge_bases:
-  - ref: kb/docs
-  - ref: kb/faq
-"""
-        agent = yaml_to_agent(yaml_str)
-        assert agent.config.knowledge_bases == ["kb/docs", "kb/faq"]
-
-    def test_knowledge_bases_string_format(self):
-        yaml_str = """
-name: a
-version: 1.0.0
-team: t
-framework: langgraph
-knowledge_bases:
-  - kb/docs
-  - kb/faq
-"""
-        agent = yaml_to_agent(yaml_str)
-        assert agent.config.knowledge_bases == ["kb/docs", "kb/faq"]
 
     def test_tools_ref_parsed(self):
         yaml_str = """

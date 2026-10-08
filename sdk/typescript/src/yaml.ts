@@ -36,16 +36,6 @@ export function agentToYaml(config: AgentConfig): string {
     }
   }
 
-  if (config.subagents && config.subagents.length > 0) {
-    lines.push("");
-    lines.push("subagents:");
-    for (const sub of config.subagents) {
-      lines.push(`  - ref: ${sub.ref}`);
-      if (sub.name) lines.push(`    name: ${sub.name}`);
-      if (sub.description) lines.push(`    description: "${sub.description}"`);
-    }
-  }
-
   if (config.mcp_servers && config.mcp_servers.length > 0) {
     lines.push("");
     lines.push("mcp_servers:");

@@ -19,21 +19,15 @@ from api.models.enums import KeyScopeType, ProviderStatus, ProviderType
 from api.models.schemas import (
     ApiMeta,
     ApiResponse,
-    DiscoveredModel,
     LiteLLMKeyCreate,
     LiteLLMKeyCreateResponse,
     LiteLLMKeyResponse,
-    ModelDiscoveryResult,
-    OllamaDetectResult,
     ProviderCreate,
-    ProviderHealthCheckResult,
     ProviderResponse,
     ProviderStatusSummary,
-    ProviderTestResult,
     ProviderUpdate,
 )
 from api.services import litellm_key_service
-from api.tasks.provider_health import check_all_providers
 from registry.providers import ProviderRegistry
 
 logger = logging.getLogger(__name__)
@@ -66,51 +60,6 @@ async def provider_status(
             has_providers=total_providers > 0,
             provider_count=total_providers,
             total_models=total_models,
-        )
-    )
-
-
-@router.post("/health-check", response_model=ApiResponse[list[ProviderHealthCheckResult]])
-async def health_check(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> ApiResponse[list[ProviderHealthCheckResult]]:
-    """Trigger health check for all providers and return updated statuses."""
-    results = await check_all_providers(db)
-    return ApiResponse(
-        data=[ProviderHealthCheckResult(**r) for r in results],
-    )
-
-
-@router.post("/detect-ollama", response_model=ApiResponse[OllamaDetectResult])
-async def detect_ollama(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> ApiResponse[OllamaDetectResult]:
-    """Auto-detect local Ollama instance and register it as a provider."""
-    existing = await ProviderRegistry.get_by_type(db, ProviderType.ollama)
-    created = False
-
-    if existing:
-        provider = existing
-    else:
-        provider = await ProviderRegistry.create(
-            db,
-            name="Ollama (local)",
-            provider_type=ProviderType.ollama,
-            base_url="http://localhost:11434",
-        )
-        created = True
-
-    raw_models = await ProviderRegistry.discover_models(db, provider)
-    await ProviderRegistry.auto_register_models(db, provider, raw_models)
-    discovered = [DiscoveredModel(**m) for m in raw_models]
-
-    return ApiResponse(
-        data=OllamaDetectResult(
-            provider=ProviderResponse.model_validate(provider),
-            models=discovered,
-            created=created,
         )
     )
 
@@ -275,45 +224,6 @@ async def delete_provider(
     name = provider.name
     await ProviderRegistry.delete(db, provider)
     return ApiResponse(data={"message": f"Provider '{name}' deleted"})
-
-
-@router.post("/{provider_id}/test", response_model=ApiResponse[ProviderTestResult])
-async def test_provider(
-    provider_id: uuid.UUID,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> ApiResponse[ProviderTestResult]:
-    """Test a provider connection."""
-    provider = await ProviderRegistry.get(db, provider_id)
-    if not provider:
-        raise HTTPException(status_code=404, detail="Provider not found")
-
-    result = await ProviderRegistry.test_connection(db, provider)
-    return ApiResponse(data=ProviderTestResult(**result))
-
-
-@router.post("/{provider_id}/discover", response_model=ApiResponse[ModelDiscoveryResult])
-async def discover_models(
-    provider_id: uuid.UUID,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> ApiResponse[ModelDiscoveryResult]:
-    """Discover available models from a provider."""
-    provider = await ProviderRegistry.get(db, provider_id)
-    if not provider:
-        raise HTTPException(status_code=404, detail="Provider not found")
-
-    raw_models = await ProviderRegistry.discover_models(db, provider)
-    await ProviderRegistry.auto_register_models(db, provider, raw_models)
-    discovered = [DiscoveredModel(**m) for m in raw_models]
-    return ApiResponse(
-        data=ModelDiscoveryResult(
-            provider_id=provider.id,
-            provider_type=provider.provider_type,
-            models=discovered,
-            total=len(discovered),
-        )
-    )
 
 
 @router.post("/{provider_id}/pull-model")

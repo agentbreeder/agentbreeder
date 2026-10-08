@@ -18,6 +18,7 @@ Tests run against SQLite in-memory; the audit service is reset per test.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -25,7 +26,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from api.models.database import Base, Model
-from api.services.audit_service import AuditService
 from engine.providers.discovery import DiscoveredModel, DiscoveryError, ProviderDiscovery
 from registry.model_lifecycle import (
     ACTIVE,
@@ -43,6 +43,15 @@ def _eq_dt(a, b) -> bool:
     return a.replace(tzinfo=None) == b.replace(tzinfo=None)
 
 
+def _audit_events(caplog: pytest.LogCaptureFixture, action: str) -> list[logging.LogRecord]:
+    """Structured ``audit_event`` log records emitted for ``action``."""
+    return [
+        r
+        for r in caplog.records
+        if r.getMessage() == "audit_event" and getattr(r, "audit_action", None) == action
+    ]
+
+
 _engine = create_async_engine("sqlite+aiosqlite:///:memory:")
 _SessionFactory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -51,7 +60,6 @@ _SessionFactory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_com
 async def session():
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    AuditService.reset()
     async with _SessionFactory() as s:
         yield s
     async with _engine.begin() as conn:
@@ -114,17 +122,19 @@ class TestFirstSync:
             assert row.source == "discovery"
 
     @pytest.mark.asyncio
-    async def test_emits_model_added_audit(self, session: AsyncSession) -> None:
+    async def test_emits_model_added_audit(
+        self, session: AsyncSession, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO, logger="registry.model_lifecycle")
         svc = ModelLifecycleService()
         d = _StaticDiscovery("openai", [_model("gpt-4o")])
         await svc.sync_provider(session, provider_name="openai", discovery=d)
         await session.commit()
 
-        events, _ = await AuditService.list_events(action="model.added")
+        events = _audit_events(caplog, "model.added")
         assert len(events) == 1
-        assert events[0].resource_type == "model"
-        assert events[0].resource_name == "gpt-4o"
-        assert events[0].details.get("provider") == "openai"
+        assert events[0].details["model"] == "gpt-4o"
+        assert events[0].details["provider"] == "openai"
 
 
 # ─── Sync — second run (existing models still present) ────────────────────
@@ -155,7 +165,10 @@ class TestStableSync:
 
 class TestDeprecationLifecycle:
     @pytest.mark.asyncio
-    async def test_absent_model_becomes_deprecated(self, session: AsyncSession) -> None:
+    async def test_absent_model_becomes_deprecated(
+        self, session: AsyncSession, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO, logger="registry.model_lifecycle")
         svc = ModelLifecycleService()
         first = _StaticDiscovery("openai", [_model("gpt-3.5"), _model("gpt-4o")])
         ts1 = datetime(2026, 4, 1, tzinfo=UTC)
@@ -176,13 +189,16 @@ class TestDeprecationLifecycle:
         assert _eq_dt(rows["gpt-3.5"].deprecated_at, ts2)
         assert rows["gpt-4o"].status == ACTIVE
 
-        events, _ = await AuditService.list_events(action="model.deprecated")
+        events = _audit_events(caplog, "model.deprecated")
         assert len(events) == 1
-        assert events[0].resource_name == "gpt-3.5"
+        assert events[0].details["model"] == "gpt-3.5"
         assert events[0].details.get("reason") == "absent_from_discovery"
 
     @pytest.mark.asyncio
-    async def test_retires_after_grace_window(self, session: AsyncSession) -> None:
+    async def test_retires_after_grace_window(
+        self, session: AsyncSession, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO, logger="registry.model_lifecycle")
         svc = ModelLifecycleService()
         first = _StaticDiscovery("openai", [_model("gpt-3.5")])
         t0 = datetime(2026, 4, 1, tzinfo=UTC)
@@ -215,9 +231,9 @@ class TestDeprecationLifecycle:
         rows = {r.name: r for r in (await session.execute(select(Model))).scalars()}
         assert rows["gpt-3.5"].status == RETIRED
 
-        events, _ = await AuditService.list_events(action="model.retired")
+        events = _audit_events(caplog, "model.retired")
         assert len(events) == 1
-        assert events[0].resource_name == "gpt-3.5"
+        assert events[0].details["model"] == "gpt-3.5"
 
     @pytest.mark.asyncio
     async def test_un_retire_brings_back_to_active(self, session: AsyncSession) -> None:
@@ -284,7 +300,10 @@ class TestDiscoveryFailure:
 
 class TestManualDeprecate:
     @pytest.mark.asyncio
-    async def test_deprecate_with_replacement(self, session: AsyncSession) -> None:
+    async def test_deprecate_with_replacement(
+        self, session: AsyncSession, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO, logger="registry.model_lifecycle")
         svc = ModelLifecycleService()
         first = _StaticDiscovery("openai", [_model("old"), _model("new")])
         await svc.sync_provider(session, provider_name="openai", discovery=first)
@@ -303,9 +322,9 @@ class TestManualDeprecate:
         assert old.deprecated_at is not None
         assert old.deprecation_replacement_id == new.id
 
-        events, _ = await AuditService.list_events(action="model.deprecated")
+        events = _audit_events(caplog, "model.deprecated")
         assert any(
-            e.resource_name == "old" and e.details.get("reason") == "manual" for e in events
+            e.details["model"] == "old" and e.details.get("reason") == "manual" for e in events
         )
 
     @pytest.mark.asyncio

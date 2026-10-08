@@ -1,5 +1,5 @@
-"""Extended tests for API routes: deploys, costs, teams, templates,
-orchestrations, playground, gateway, and additional agent endpoints.
+"""Extended tests for API routes: teams, templates, playground, gateway,
+and additional agent endpoints.
 
 Uses the same TestClient + mock pattern as test_api_routes.py.
 """
@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 from api.main import app
 from api.models.enums import (
     AgentStatus,
-    DeployJobStatus,
     TemplateCategory,
     TemplateStatus,
     UserRole,
@@ -25,7 +24,6 @@ from api.services.auth import create_access_token
 client = TestClient(app)
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
-_NOW_ISO = _NOW.isoformat()
 
 
 # ── Helpers ──────────────────────────────────────────────────────
@@ -72,25 +70,6 @@ def _make_agent(name: str = "test-agent", **kwargs):
         "config_snapshot": {},
         "created_at": _NOW,
         "updated_at": _NOW,
-    }
-    defaults.update(kwargs)
-    mock = MagicMock()
-    for k, v in defaults.items():
-        setattr(mock, k, v)
-    return mock
-
-
-def _make_deploy_job(**kwargs):
-    defaults = {
-        "id": kwargs.pop("id", uuid.uuid4()),
-        "agent_id": uuid.uuid4(),
-        "agent_name": None,
-        "status": DeployJobStatus.pending,
-        "target": "local",
-        "error_message": None,
-        "started_at": _NOW,
-        "completed_at": None,
-        "agent": None,
     }
     defaults.update(kwargs)
     mock = MagicMock()
@@ -298,475 +277,7 @@ class TestCloneAgent:
 # ── Deploy Routes ────────────────────────────────────────────────
 
 
-class TestListDeploys:
-    @patch(
-        "api.routes.deploys.DeployRegistry.list",
-        new_callable=AsyncMock,
-    )
-    def test_list_empty(self, mock_list) -> None:
-        mock_list.return_value = ([], 0)
-        resp = client.get("/api/v1/deploys")
-        assert resp.status_code == 200
-        assert resp.json()["data"] == []
-        assert resp.json()["meta"]["total"] == 0
-
-    @patch(
-        "api.routes.deploys.DeployRegistry.list",
-        new_callable=AsyncMock,
-    )
-    def test_list_returns_jobs(self, mock_list) -> None:
-        jobs = [_make_deploy_job(), _make_deploy_job()]
-        mock_list.return_value = (jobs, 2)
-        resp = client.get("/api/v1/deploys")
-        assert resp.status_code == 200
-        assert len(resp.json()["data"]) == 2
-
-    @patch(
-        "api.routes.deploys.DeployRegistry.list",
-        new_callable=AsyncMock,
-    )
-    def test_list_with_pagination(self, mock_list) -> None:
-        mock_list.return_value = ([_make_deploy_job()], 5)
-        resp = client.get(
-            "/api/v1/deploys",
-            params={"page": 2, "per_page": 3},
-        )
-        assert resp.status_code == 200
-        meta = resp.json()["meta"]
-        assert meta["total"] == 5
-        assert meta["page"] == 2
-
-    @patch(
-        "api.routes.deploys.DeployRegistry.list",
-        new_callable=AsyncMock,
-    )
-    def test_list_with_status_filter(self, mock_list) -> None:
-        mock_list.return_value = ([], 0)
-        client.get(
-            "/api/v1/deploys",
-            params={"status": "pending"},
-        )
-        kw = mock_list.call_args[1]
-        assert kw["status"] == DeployJobStatus.pending
-
-
-class TestGetDeploy:
-    @patch(
-        "api.routes.deploys.DeployService.get_deploy_status",
-        new_callable=AsyncMock,
-    )
-    def test_get_existing(self, mock_get) -> None:
-        job_id = uuid.uuid4()
-        mock_get.return_value = {
-            "id": str(job_id),
-            "agent_id": str(uuid.uuid4()),
-            "agent_name": "test",
-            "status": "pending",
-            "target": "local",
-            "error_message": None,
-            "started_at": _NOW_ISO,
-            "completed_at": None,
-            "logs": [],
-        }
-        resp = client.get(f"/api/v1/deploys/{job_id}")
-        assert resp.status_code == 200
-        assert resp.json()["data"]["id"] == str(job_id)
-
-    @patch(
-        "api.routes.deploys.DeployService.get_deploy_status",
-        new_callable=AsyncMock,
-    )
-    def test_get_not_found(self, mock_get) -> None:
-        mock_get.return_value = None
-        resp = client.get(f"/api/v1/deploys/{uuid.uuid4()}")
-        assert resp.status_code == 404
-
-
-def _override_deploys_db(agent=None, job=None):
-    """Override ``get_db`` so the team-scope checks on ``deploys`` routes resolve.
-
-    Since #414 each deploys route does its own ``db.get(Agent, ...)`` and/or
-    ``db.get(DeployJob, ...)`` to read the team before the role gate. The
-    existing tests in this module didn't need a session mock — they do now.
-    The returned object should be used as a context manager.
-    """
-    from contextlib import contextmanager
-
-    from api.database import get_db
-
-    mock_db = AsyncMock()
-
-    async def fake_get(model, pk):
-        if model.__name__ == "DeployJob":
-            return job
-        return agent
-
-    mock_db.get = fake_get
-
-    async def _override():
-        return mock_db
-
-    @contextmanager
-    def _ctx():
-        app.dependency_overrides[get_db] = _override
-        try:
-            yield
-        finally:
-            app.dependency_overrides.pop(get_db, None)
-
-    return _ctx()
-
-
-class TestCancelDeploy:
-    @patch(
-        "api.routes.deploys.DeployService.cancel_deploy",
-        new_callable=AsyncMock,
-    )
-    def test_cancel_success(self, mock_cancel) -> None:
-        mock_cancel.return_value = True
-        job_id = uuid.uuid4()
-        agent = _make_agent()
-        job = _make_deploy_job(id=job_id, agent_id=agent.id)
-        with _override_deploys_db(agent=agent, job=job):
-            resp = client.delete(f"/api/v1/deploys/{job_id}")
-        assert resp.status_code == 200
-        assert resp.json()["data"]["cancelled"] is True
-
-    @patch(
-        "api.routes.deploys.DeployService.cancel_deploy",
-        new_callable=AsyncMock,
-    )
-    def test_cancel_not_found(self, mock_cancel) -> None:
-        mock_cancel.return_value = False
-        job_id = uuid.uuid4()
-        agent = _make_agent()
-        job = _make_deploy_job(id=job_id, agent_id=agent.id)
-        with _override_deploys_db(agent=agent, job=job):
-            resp = client.delete(f"/api/v1/deploys/{job_id}")
-        assert resp.status_code == 404
-
-
-class TestRollbackDeploy:
-    @patch(
-        "api.routes.deploys.DeployService.rollback_deploy",
-        new_callable=AsyncMock,
-    )
-    def test_rollback_success(self, mock_rb) -> None:
-        mock_rb.return_value = True
-        job_id = uuid.uuid4()
-        agent = _make_agent()
-        job = _make_deploy_job(id=job_id, agent_id=agent.id)
-        with _override_deploys_db(agent=agent, job=job):
-            resp = client.post(f"/api/v1/deploys/{job_id}/rollback")
-        assert resp.status_code == 200
-        assert resp.json()["data"]["rolled_back"] is True
-
-    @patch(
-        "api.routes.deploys.DeployService.rollback_deploy",
-        new_callable=AsyncMock,
-    )
-    def test_rollback_not_failed(self, mock_rb) -> None:
-        mock_rb.return_value = False
-        job_id = uuid.uuid4()
-        agent = _make_agent()
-        job = _make_deploy_job(id=job_id, agent_id=agent.id)
-        with _override_deploys_db(agent=agent, job=job):
-            resp = client.post(f"/api/v1/deploys/{job_id}/rollback")
-        assert resp.status_code == 400
-
-
-class TestCreateDeploy:
-    @patch(
-        "api.routes.deploys.DeployService.create_deploy",
-        new_callable=AsyncMock,
-    )
-    def test_create_with_agent_id(self, mock_create) -> None:
-        agent_id = uuid.uuid4()
-        agent = _make_agent(id=agent_id)
-        job = _make_deploy_job(agent_id=agent_id)
-        mock_create.return_value = job
-        with _override_deploys_db(agent=agent):
-            resp = client.post(
-                "/api/v1/deploys",
-                json={
-                    "agent_id": str(agent_id),
-                    "target": "local",
-                },
-            )
-        assert resp.status_code == 200
-
-    def test_create_missing_both(self) -> None:
-        resp = client.post(
-            "/api/v1/deploys",
-            json={"target": "local"},
-        )
-        assert resp.status_code == 400
-
-    @patch(
-        "api.routes.deploys.DeployService.create_deploy",
-        new_callable=AsyncMock,
-    )
-    def test_create_agent_not_found(self, mock_create) -> None:
-        mock_create.side_effect = ValueError("Agent not found")
-        with _override_deploys_db(agent=None):
-            resp = client.post(
-                "/api/v1/deploys",
-                json={
-                    "agent_id": str(uuid.uuid4()),
-                    "target": "local",
-                },
-            )
-        assert resp.status_code == 404
-
-
 # ── Cost Routes ──────────────────────────────────────────────────
-
-
-class TestCostEvents:
-    @patch("api.routes.costs.get_cost_store")
-    def test_record_event_success(self, mock_store_fn) -> None:
-        store = MagicMock()
-        event = MagicMock()
-        event.to_dict.return_value = {
-            "id": "evt-1",
-            "agent_name": "bot",
-        }
-        store.record_cost_event.return_value = event
-        mock_store_fn.return_value = store
-        resp = client.post(
-            "/api/v1/costs/events",
-            json={
-                "agent_name": "bot",
-                "team": "eng",
-                "model_name": "gpt-4o",
-                "provider": "openai",
-                "input_tokens": 100,
-                "output_tokens": 50,
-                "cost_usd": 0.001,
-            },
-        )
-        assert resp.status_code == 201
-        store.record_cost_event.assert_called_once()
-
-    @patch("api.routes.costs.get_cost_store")
-    def test_record_event_missing_fields(self, mock_store_fn) -> None:
-        mock_store_fn.return_value = MagicMock()
-        resp = client.post(
-            "/api/v1/costs/events",
-            json={"agent_name": "bot"},
-        )
-        assert resp.status_code == 400
-
-    @patch("api.routes.costs.get_cost_store")
-    def test_record_event_missing_tokens(self, mock_store_fn) -> None:
-        mock_store_fn.return_value = MagicMock()
-        resp = client.post(
-            "/api/v1/costs/events",
-            json={
-                "agent_name": "bot",
-                "team": "eng",
-                "model_name": "gpt-4o",
-                "provider": "openai",
-            },
-        )
-        assert resp.status_code == 400
-
-
-class TestCostSummary:
-    @patch("api.routes.costs.get_cost_store")
-    def test_summary_default(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.get_cost_summary.return_value = {
-            "total_cost": 1.23,
-            "total_tokens": 5000,
-            "request_count": 10,
-            "period": "30d",
-        }
-        mock_store_fn.return_value = store
-        resp = client.get("/api/v1/costs/summary")
-        assert resp.status_code == 200
-        data = resp.json()["data"]
-        assert data["total_cost"] == 1.23
-
-    @patch("api.routes.costs.get_cost_store")
-    def test_summary_with_filters(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.get_cost_summary.return_value = {
-            "total_cost": 0,
-            "total_tokens": 0,
-            "request_count": 0,
-            "period": "7d",
-        }
-        mock_store_fn.return_value = store
-        resp = client.get(
-            "/api/v1/costs/summary",
-            params={"team": "eng", "days": 7},
-        )
-        assert resp.status_code == 200
-        store.get_cost_summary.assert_called_once_with(team="eng", agent_name=None, days=7)
-
-
-class TestCostBreakdown:
-    @patch("api.routes.costs.get_cost_store")
-    def test_breakdown(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.get_cost_breakdown.return_value = {
-            "by_agent": [],
-            "by_model": [],
-            "by_team": [],
-        }
-        mock_store_fn.return_value = store
-        resp = client.get("/api/v1/costs/breakdown")
-        assert resp.status_code == 200
-        assert "by_agent" in resp.json()["data"]
-
-
-class TestCostTrend:
-    @patch("api.routes.costs.get_cost_store")
-    def test_trend(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.get_cost_trend.return_value = {
-            "points": [],
-            "total_cost": 0,
-            "period": "30d",
-        }
-        mock_store_fn.return_value = store
-        resp = client.get("/api/v1/costs/trend")
-        assert resp.status_code == 200
-
-
-class TestTopSpenders:
-    @patch("api.routes.costs.get_cost_store")
-    def test_top_spenders(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.get_top_spenders.return_value = [
-            {"agent_name": "bot", "cost": 5.0},
-        ]
-        mock_store_fn.return_value = store
-        resp = client.get("/api/v1/costs/top-spenders")
-        assert resp.status_code == 200
-        assert len(resp.json()["data"]) == 1
-
-
-class TestCompareModels:
-    @patch("api.routes.costs.get_cost_store")
-    def test_compare_success(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.compare_models.return_value = {
-            "model_a": "gpt-4o",
-            "model_b": "claude-sonnet-4",
-            "model_a_cost": 6.25,
-            "model_b_cost": 9.0,
-            "savings_pct": -44.0,
-            "sample_tokens": 1000000,
-        }
-        mock_store_fn.return_value = store
-        resp = client.post(
-            "/api/v1/costs/compare",
-            json={"model_a": "gpt-4o", "model_b": "claude-sonnet-4"},
-        )
-        assert resp.status_code == 200
-        assert "savings_pct" in resp.json()["data"]
-
-    @patch("api.routes.costs.get_cost_store")
-    def test_compare_missing_models(self, mock_store_fn) -> None:
-        mock_store_fn.return_value = MagicMock()
-        resp = client.post(
-            "/api/v1/costs/compare",
-            json={"model_a": "gpt-4o"},
-        )
-        assert resp.status_code == 400
-
-
-class TestBudgets:
-    @patch("api.routes.costs.get_cost_store")
-    def test_list_budgets(self, mock_store_fn) -> None:
-        store = MagicMock()
-        budget = MagicMock()
-        budget.to_dict.return_value = {
-            "id": "b1",
-            "team": "eng",
-            "monthly_limit_usd": 500,
-        }
-        store.list_budgets.return_value = [budget]
-        mock_store_fn.return_value = store
-        resp = client.get("/api/v1/budgets")
-        assert resp.status_code == 200
-        assert len(resp.json()["data"]) == 1
-
-    @patch("api.routes.costs.get_cost_store")
-    def test_create_budget(self, mock_store_fn) -> None:
-        store = MagicMock()
-        budget = MagicMock()
-        budget.to_dict.return_value = {
-            "id": "b2",
-            "team": "eng",
-            "monthly_limit_usd": 1000,
-        }
-        store.create_budget.return_value = budget
-        mock_store_fn.return_value = store
-        resp = client.post(
-            "/api/v1/budgets",
-            json={"team": "eng", "monthly_limit_usd": 1000},
-        )
-        assert resp.status_code == 201
-
-    @patch("api.routes.costs.get_cost_store")
-    def test_create_budget_missing_fields(self, mock_store_fn) -> None:
-        mock_store_fn.return_value = MagicMock()
-        resp = client.post(
-            "/api/v1/budgets",
-            json={"team": "eng"},
-        )
-        assert resp.status_code == 400
-
-    @patch("api.routes.costs.get_cost_store")
-    def test_get_budget_found(self, mock_store_fn) -> None:
-        store = MagicMock()
-        budget = MagicMock()
-        budget.to_dict.return_value = {
-            "team": "eng",
-            "monthly_limit_usd": 500,
-        }
-        store.get_budget.return_value = budget
-        mock_store_fn.return_value = store
-        resp = client.get("/api/v1/budgets/eng")
-        assert resp.status_code == 200
-
-    @patch("api.routes.costs.get_cost_store")
-    def test_get_budget_not_found(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.get_budget.return_value = None
-        mock_store_fn.return_value = store
-        resp = client.get("/api/v1/budgets/nope")
-        assert resp.status_code == 404
-
-    @patch("api.routes.costs.get_cost_store")
-    def test_update_budget_found(self, mock_store_fn) -> None:
-        store = MagicMock()
-        budget = MagicMock()
-        budget.to_dict.return_value = {
-            "team": "eng",
-            "monthly_limit_usd": 2000,
-        }
-        store.update_budget.return_value = budget
-        mock_store_fn.return_value = store
-        resp = client.put(
-            "/api/v1/budgets/eng",
-            json={"monthly_limit_usd": 2000},
-        )
-        assert resp.status_code == 200
-
-    @patch("api.routes.costs.get_cost_store")
-    def test_update_budget_not_found(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.update_budget.return_value = None
-        mock_store_fn.return_value = store
-        resp = client.put(
-            "/api/v1/budgets/nope",
-            json={"monthly_limit_usd": 500},
-        )
-        assert resp.status_code == 404
 
 
 # ── Team Routes ──────────────────────────────────────────────────
@@ -1272,209 +783,6 @@ class TestInstantiateTemplate:
 # ── Orchestration Routes ─────────────────────────────────────────
 
 
-class TestListOrchestrations:
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_list_all(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.list.return_value = [
-            {"id": "o1", "name": "pipeline-1"},
-        ]
-        mock_store_fn.return_value = store
-        resp = client.get("/api/v1/orchestrations")
-        assert resp.status_code == 200
-        assert len(resp.json()["data"]) == 1
-
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_list_with_filter(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.list.return_value = []
-        mock_store_fn.return_value = store
-        client.get(
-            "/api/v1/orchestrations",
-            params={"team": "eng", "status": "deployed"},
-        )
-        store.list.assert_called_once_with(team="eng", status="deployed")
-
-
-class TestCreateOrchestration:
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_create_success(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.create.return_value = {
-            "id": "o2",
-            "name": "new-orch",
-        }
-        mock_store_fn.return_value = store
-        resp = client.post(
-            "/api/v1/orchestrations",
-            json={
-                "name": "new-orch",
-                "version": "1.0.0",
-                "strategy": "router",
-                "agents": {"a": {"ref": "agents/a"}},
-            },
-        )
-        assert resp.status_code == 201
-
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_create_missing_fields(self, mock_store_fn) -> None:
-        mock_store_fn.return_value = MagicMock()
-        resp = client.post(
-            "/api/v1/orchestrations",
-            json={"name": "incomplete"},
-        )
-        assert resp.status_code == 400
-
-
-class TestGetOrchestration:
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_get_found(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.get.return_value = {
-            "id": "o1",
-            "name": "orch-1",
-        }
-        mock_store_fn.return_value = store
-        resp = client.get("/api/v1/orchestrations/o1")
-        assert resp.status_code == 200
-        assert resp.json()["data"]["name"] == "orch-1"
-
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_get_not_found(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.get.return_value = None
-        mock_store_fn.return_value = store
-        resp = client.get("/api/v1/orchestrations/nope")
-        assert resp.status_code == 404
-
-
-class TestUpdateOrchestration:
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_update_success(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.update.return_value = {
-            "id": "o1",
-            "description": "Updated",
-        }
-        mock_store_fn.return_value = store
-        resp = client.put(
-            "/api/v1/orchestrations/o1",
-            json={"description": "Updated"},
-        )
-        assert resp.status_code == 200
-
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_update_not_found(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.update.return_value = None
-        mock_store_fn.return_value = store
-        resp = client.put(
-            "/api/v1/orchestrations/nope",
-            json={"description": "X"},
-        )
-        assert resp.status_code == 404
-
-
-class TestDeleteOrchestration:
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_delete_success(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.delete.return_value = True
-        mock_store_fn.return_value = store
-        resp = client.delete("/api/v1/orchestrations/o1")
-        assert resp.status_code == 200
-        assert resp.json()["data"]["deleted"] == "o1"
-
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_delete_not_found(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.delete.return_value = False
-        mock_store_fn.return_value = store
-        resp = client.delete("/api/v1/orchestrations/nope")
-        assert resp.status_code == 404
-
-
-class TestValidateOrchestration:
-    @patch("api.routes.orchestrations.validate_orchestration")
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_validate_valid(self, mock_store_fn, mock_validate) -> None:
-        result = MagicMock()
-        result.valid = True
-        result.errors = []
-        mock_validate.return_value = result
-        mock_store_fn.return_value = MagicMock()
-        resp = client.post(
-            "/api/v1/orchestrations/validate",
-            json={"yaml_content": "name: test\nversion: 1.0.0"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["data"]["valid"] is True
-
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_validate_empty_yaml(self, mock_store_fn) -> None:
-        mock_store_fn.return_value = MagicMock()
-        resp = client.post(
-            "/api/v1/orchestrations/validate",
-            json={"yaml_content": ""},
-        )
-        assert resp.status_code == 400
-
-
-class TestDeployOrchestration:
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_deploy_success(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.deploy.return_value = {
-            "id": "o1",
-            "status": "deployed",
-        }
-        mock_store_fn.return_value = store
-        resp = client.post("/api/v1/orchestrations/o1/deploy")
-        assert resp.status_code == 200
-        assert resp.json()["data"]["status"] == "deployed"
-
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_deploy_not_found(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.deploy.return_value = None
-        mock_store_fn.return_value = store
-        resp = client.post("/api/v1/orchestrations/nope/deploy")
-        assert resp.status_code == 404
-
-
-class TestExecuteOrchestration:
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_execute_success(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.execute = AsyncMock(return_value={"output": "done"})
-        mock_store_fn.return_value = store
-        resp = client.post(
-            "/api/v1/orchestrations/o1/execute",
-            json={"input_message": "hello"},
-        )
-        assert resp.status_code == 200
-
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_execute_missing_message(self, mock_store_fn) -> None:
-        mock_store_fn.return_value = MagicMock()
-        resp = client.post(
-            "/api/v1/orchestrations/o1/execute",
-            json={},
-        )
-        assert resp.status_code == 400
-
-    @patch("api.routes.orchestrations.get_orchestration_store")
-    def test_execute_not_found(self, mock_store_fn) -> None:
-        store = MagicMock()
-        store.execute = AsyncMock(side_effect=ValueError("not found"))
-        mock_store_fn.return_value = store
-        resp = client.post(
-            "/api/v1/orchestrations/o1/execute",
-            json={"input_message": "hi"},
-        )
-        assert resp.status_code == 404
-
-
 # ── Playground Routes ────────────────────────────────────────────
 
 
@@ -1533,25 +841,6 @@ class TestPlaygroundChat:
         assert resp.status_code == 200
 
 
-class TestPlaygroundEvalCase:
-    def test_save_eval_case(self) -> None:
-        resp = client.post(
-            "/api/v1/playground/eval-case",
-            json={
-                "agent_id": "agent-1",
-                "conversation_history": [
-                    {"role": "user", "content": "Hello"},
-                ],
-                "assistant_message": "Hi there!",
-                "model_used": "gpt-4o",
-            },
-        )
-        assert resp.status_code == 200
-        data = resp.json()["data"]
-        assert data["saved"] is True
-        assert "eval_case_id" in data
-
-
 # ── Gateway Routes ───────────────────────────────────────────────
 
 
@@ -1566,14 +855,36 @@ class TestGatewayStatus:
         assert "litellm" in tiers
 
 
+_LITELLM_MODELS = {
+    "data": [
+        {"id": "gpt-4o", "owned_by": "openai"},
+        {"id": "claude-sonnet-4-6", "owned_by": "anthropic"},
+        {"id": "gemini-2.0-flash", "owned_by": "google"},
+    ]
+}
+
+
 class TestGatewayModels:
-    def test_list_all_models(self) -> None:
+    @patch("api.routes.gateway._fetch_litellm", new_callable=AsyncMock)
+    def test_list_all_models(self, mock_fetch) -> None:
+        mock_fetch.return_value = _LITELLM_MODELS
         resp = client.get("/api/v1/gateway/models")
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert len(data) >= 1
+        assert [m["id"] for m in data] == ["gpt-4o", "claude-sonnet-4-6", "gemini-2.0-flash"]
+        # Prices/context are not reported by LiteLLM /models — never invented.
+        assert all(m["input_price_per_million"] is None for m in data)
 
-    def test_filter_by_tier(self) -> None:
+    @patch("api.routes.gateway._fetch_litellm", new_callable=AsyncMock)
+    def test_unreachable_litellm_returns_empty(self, mock_fetch) -> None:
+        mock_fetch.return_value = {"data": []}
+        resp = client.get("/api/v1/gateway/models")
+        assert resp.status_code == 200
+        assert resp.json()["data"] == []
+
+    @patch("api.routes.gateway._fetch_litellm", new_callable=AsyncMock)
+    def test_filter_by_tier(self, mock_fetch) -> None:
+        mock_fetch.return_value = _LITELLM_MODELS
         resp = client.get(
             "/api/v1/gateway/models",
             params={"tier": "litellm"},
@@ -1582,33 +893,40 @@ class TestGatewayModels:
         for m in resp.json()["data"]:
             assert m["gateway_tier"] == "litellm"
 
-    def test_filter_by_provider(self) -> None:
+    @patch("api.routes.gateway._fetch_litellm", new_callable=AsyncMock)
+    def test_filter_by_provider(self, mock_fetch) -> None:
+        mock_fetch.return_value = _LITELLM_MODELS
         resp = client.get(
             "/api/v1/gateway/models",
             params={"provider": "anthropic"},
         )
         assert resp.status_code == 200
-        for m in resp.json()["data"]:
-            assert m["provider"] == "anthropic"
+        data = resp.json()["data"]
+        assert [m["id"] for m in data] == ["claude-sonnet-4-6"]
 
-    def test_pagination(self) -> None:
+    @patch("api.routes.gateway._fetch_litellm", new_callable=AsyncMock)
+    def test_pagination(self, mock_fetch) -> None:
+        mock_fetch.return_value = _LITELLM_MODELS
         resp = client.get(
             "/api/v1/gateway/models",
             params={"page": 1, "per_page": 2},
         )
         assert resp.status_code == 200
-        assert len(resp.json()["data"]) <= 2
+        assert len(resp.json()["data"]) == 2
+        assert resp.json()["meta"]["total"] == 3
 
 
 class TestGatewayProviders:
-    def test_list_providers(self) -> None:
+    @patch("api.routes.gateway._fetch_litellm", new_callable=AsyncMock)
+    def test_list_providers(self, mock_fetch) -> None:
+        mock_fetch.return_value = {
+            "healthy_endpoints": [{"model": "anthropic/claude-sonnet-4-6"}],
+            "unhealthy_endpoints": [{"model": "openai/gpt-4o"}],
+        }
         resp = client.get("/api/v1/gateway/providers")
         assert resp.status_code == 200
-        data = resp.json()["data"]
-        assert isinstance(data, list)
-        ids = {p["id"] for p in data}
-        assert "anthropic" in ids
-        assert "openai" in ids
+        data = {p["id"]: p["status"] for p in resp.json()["data"]}
+        assert data == {"anthropic": "healthy", "openai": "unhealthy"}
 
 
 def _fake_spend_logs() -> list[dict]:
@@ -1698,72 +1016,3 @@ class TestGatewayLogs:
         body = resp.json()
         assert body["data"] == []
         assert any("LiteLLM" in e for e in body["errors"])
-
-
-class TestGatewayCostComparison:
-    """Verify /api/v1/gateway/costs/comparison aggregates real cost_events."""
-
-    def test_cost_comparison_empty_when_no_events(self) -> None:
-        # The conftest's auto-auth doesn't populate cost_events, so the
-        # endpoint should return an empty list (not the old hardcoded fixture).
-        resp = client.get("/api/v1/gateway/costs/comparison")
-        assert resp.status_code == 200
-        data = resp.json()["data"]
-        assert isinstance(data, list)
-        # No cost_events in the test DB → empty list (not hardcoded fixture rows).
-        assert data == []
-
-    def test_cost_comparison_aggregates_cost_events(self) -> None:
-        # Build a fake AsyncSession.execute() result containing two grouped rows.
-        row_openai = MagicMock()
-        row_openai.provider = "openai"
-        row_openai.model_name = "gpt-4o"
-        row_openai.input_tokens = 1_000_000
-        row_openai.output_tokens = 500_000
-        row_openai.cost_usd = 7.50
-        row_openai.requests = 42
-
-        row_anthropic = MagicMock()
-        row_anthropic.provider = "anthropic"
-        row_anthropic.model_name = "claude-sonnet-4-6"
-        row_anthropic.input_tokens = 2_000_000
-        row_anthropic.output_tokens = 1_000_000
-        row_anthropic.cost_usd = 21.00
-        row_anthropic.requests = 17
-
-        mock_result = MagicMock()
-        mock_result.all.return_value = [row_openai, row_anthropic]
-
-        mock_session = MagicMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-
-        from api.database import get_db
-        from api.main import app
-
-        async def _override_db():
-            yield mock_session
-
-        app.dependency_overrides[get_db] = _override_db
-        try:
-            resp = client.get("/api/v1/gateway/costs/comparison")
-        finally:
-            app.dependency_overrides.pop(get_db, None)
-
-        assert resp.status_code == 200
-        data = resp.json()["data"]
-        assert len(data) == 2
-
-        # Sorted by input_per_million ascending
-        prices = [d["input_per_million"] for d in data]
-        assert prices == sorted(prices)
-
-        # OpenAI: tier inferred from provider == "openai" → "direct"
-        # Anthropic: same → "direct"
-        # Verify required fields are present + provider/model populated from DB.
-        for row in data:
-            assert row["provider"] in {"openai", "anthropic"}
-            assert row["model"] in {"gpt-4o", "claude-sonnet-4-6"}
-            assert row["gateway_tier"] in {"litellm", "direct"}
-            assert "input_per_million" in row
-            assert "output_per_million" in row
-            assert row["requests"] >= 1

@@ -32,15 +32,13 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-# Subcommands → API path. agents/deploys/providers/orchestrations/mcp_servers/
+# Subcommands → API path. agents/providers/mcp_servers/
 # templates are stored in the AgentBreeder API; tools/models/prompts are
 # populated locally by `agentbreeder scan` into ~/.agentbreeder/registry/.
 _ENDPOINTS: dict[str, str] = {
     "agents": "/api/v1/agents",
-    "deploys": "/api/v1/deploys",
     "providers": "/api/v1/providers",
-    "orchestrations": "/api/v1/orchestrations",
-    "mcp_servers": "/api/v1/mcp_servers",
+    "mcp_servers": "/api/v1/mcp-servers",
     "templates": "/api/v1/templates",
 }
 
@@ -57,7 +55,7 @@ _LOCAL_REGISTRY_FILES: dict[str, str] = {
 def list_entities(
     entity_type: str = typer.Argument(
         "agents",
-        help="Entity type to list: agents, deploys, providers, orchestrations, mcp_servers, templates",
+        help="Entity type to list: agents, providers, mcp_servers, templates",
     ),
     team: str | None = typer.Option(None, "--team", help="Filter by team (where supported)"),
     page: int = typer.Option(1, "--page", help="Page number (1-indexed)", min=1),
@@ -80,19 +78,15 @@ def list_entities(
         raise typer.Exit(code=1)
 
     params: dict[str, Any] = {"page": page, "per_page": per_page}
-    if team and entity_type in {"agents", "orchestrations"}:
+    if team and entity_type == "agents":
         params["team"] = team
 
     items = _fetch(path, params=params)
 
     if entity_type == "agents":
         _render_agents(items, json_output=json_output, team_filter=team)
-    elif entity_type == "deploys":
-        _render_deploys(items, json_output=json_output)
     elif entity_type == "providers":
         _render_providers(items, json_output=json_output)
-    elif entity_type == "orchestrations":
-        _render_orchestrations(items, json_output=json_output)
     elif entity_type == "mcp_servers":
         _render_mcp_servers(items, json_output=json_output)
     elif entity_type == "templates":
@@ -200,33 +194,6 @@ def _render_agents(
     console.print()
 
 
-def _render_deploys(deploys: list[dict[str, Any]], *, json_output: bool) -> None:
-    if json_output:
-        sys.stdout.write(json.dumps(deploys, indent=2, default=str))
-        sys.stdout.write("\n")
-        return
-    if not deploys:
-        console.print("[dim]No deploys found.[/dim]")
-        return
-    table = Table(title="Deploy Jobs")
-    table.add_column("ID", style="cyan")
-    table.add_column("Agent", style="dim")
-    table.add_column("Target", style="yellow")
-    table.add_column("Status", style="green")
-    table.add_column("Created", style="dim")
-    for d in deploys:
-        table.add_row(
-            str(d.get("id", ""))[:8],
-            str(d.get("agent_id", ""))[:8],
-            str(d.get("target", "")),
-            str(d.get("status", "")),
-            str(d.get("created_at", "")),
-        )
-    console.print()
-    console.print(table)
-    console.print()
-
-
 def _render_providers(providers: list[dict[str, Any]], *, json_output: bool) -> None:
     if json_output:
         sys.stdout.write(json.dumps(providers, indent=2, default=str))
@@ -244,33 +211,6 @@ def _render_providers(providers: list[dict[str, Any]], *, json_output: bool) -> 
             str(p.get("name", "")),
             str(p.get("provider_type", "")),
             str(p.get("status", "")),
-        )
-    console.print()
-    console.print(table)
-    console.print()
-
-
-def _render_orchestrations(items: list[dict[str, Any]], *, json_output: bool) -> None:
-    if json_output:
-        sys.stdout.write(json.dumps(items, indent=2, default=str))
-        sys.stdout.write("\n")
-        return
-    if not items:
-        console.print("[dim]No orchestrations found.[/dim]")
-        return
-    table = Table(title="Orchestrations")
-    table.add_column("Name", style="cyan")
-    table.add_column("Version", style="dim")
-    table.add_column("Team", style="yellow")
-    table.add_column("Strategy")
-    table.add_column("Status", style="green")
-    for o in items:
-        table.add_row(
-            str(o.get("name", "")),
-            str(o.get("version", "")),
-            str(o.get("team", "")),
-            str(o.get("strategy", "")),
-            str(o.get("status", "")),
         )
     console.print()
     console.print(table)

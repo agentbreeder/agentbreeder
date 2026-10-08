@@ -79,10 +79,6 @@ tools:
           description: "Note to add to the contact activity timeline"
       required: [lead_id, properties]
 
-knowledge_bases:
-  - ref: kb/ideal-customer-profile
-  - ref: kb/qualification-criteria
-
 prompts:
   system: prompts/lead-qualifier-v1
 

@@ -24,7 +24,6 @@ from sqlalchemy.orm import sessionmaker
 from api.models.database import (
     Agent,
     Base,
-    KnowledgeBase,
     McpServer,
     Prompt,
     Provider,
@@ -81,7 +80,6 @@ async def test_seed_populates_empty_registries(async_session: AsyncSession) -> N
     assert report.seeded.get("tools", 0) >= 2  # web-search + order-lookup
     assert report.seeded.get("mcp_servers", 0) >= 1
     assert report.seeded.get("providers", 0) >= 1
-    assert report.seeded.get("knowledge_bases", 0) >= 1
     assert report.seeded.get("agents", 0) >= 1
 
 
@@ -99,7 +97,6 @@ async def test_seed_is_idempotent(async_session: AsyncSession) -> None:
         ("tools", Tool),
         ("mcp_servers", McpServer),
         ("providers", Provider),
-        ("knowledge_bases", KnowledgeBase),
         ("agents", Agent),
     ):
         rows = (await async_session.execute(select(model))).scalars().all()
@@ -117,7 +114,6 @@ async def test_seed_is_idempotent(async_session: AsyncSession) -> None:
         ("tools", Tool),
         ("mcp_servers", McpServer),
         ("providers", Provider),
-        ("knowledge_bases", KnowledgeBase),
         ("agents", Agent),
     ):
         rows = (await async_session.execute(select(model))).scalars().all()

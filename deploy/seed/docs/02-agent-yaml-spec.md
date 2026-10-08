@@ -36,22 +36,10 @@ tools:
       properties:
         query: {type: string}
       required: [query]
-  - name: call-specialist          # A2A tool (calls another agent)
-    type: a2a
-    agent: specialist-agent
-    protocol: a2a
 ```
 
-## Knowledge bases (RAG)
-
-```yaml
-knowledge_bases:
-  - ref: kb/product-docs           # registry reference
-  - name: my-kb
-    type: chromadb
-    collection: my_collection
-    url: http://chromadb:8000
-```
+Retrieval (RAG) is not an `agent.yaml` field. Implement it in your agent code
+or expose it as a tool or MCP server.
 
 ## Prompts
 

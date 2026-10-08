@@ -58,10 +58,6 @@ class TestAgentConfig:
         tools = agent_config.get("tools", [])
         assert len(tools) >= 2, "Support agent needs at least Zendesk and escalation tools"
 
-    def test_knowledge_bases_configured(self, agent_config: dict) -> None:
-        kbs = agent_config.get("knowledge_bases", [])
-        assert len(kbs) >= 1, "Support agent needs at least one knowledge base"
-
     def test_system_prompt_defined(self, agent_config: dict) -> None:
         prompts = agent_config.get("prompts", {})
         assert "system" in prompts, "System prompt must be defined"

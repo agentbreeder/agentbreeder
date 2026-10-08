@@ -16,31 +16,21 @@ from api.routes import (
     agents,
     analytics,
     approvals,
-    audit,
     auth,
     builder_sessions,
     builders,
-    compliance,
-    costs,
     deployments,
-    deploys,
-    evals,
     gateway,
-    git,
     marketplace,
     mcp_servers,
     memory,
-    orchestrations,
     playground,
-    prompts,
     providers,
-    rag,
     rbac,
     registry,
     sandbox,
     teams,
     templates,
-    tracing,
 )
 from api.routes import (
     models as models_route,
@@ -132,36 +122,12 @@ async def _run_first_boot_seed() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
-    from api.database import _get_redis_pool
-    from api.services.deploy_event_bus import DeployEventBus
-    from api.services.deploy_jobs import DeployJobService
-    from api.services.deploy_orchestrator import DeployOrchestrator
-    from api.services.deploy_stores import RedisIdempotencyStore, RedisJobStore
     from api.tasks.models_sync_cron import start_background_task as _start_models_sync_cron
 
     logger.info("AgentBreeder API starting up")
     await _seed_default_admin()
     await _run_first_boot_seed()
     models_sync_task = _start_models_sync_cron()
-
-    # Wire deployment services for the wizard (epic #378, #387). Idempotency
-    # + job records live in Redis so a multi-replica API behind a load
-    # balancer doesn't fragment its state per process. TTLs (24h idempotency
-    # / 30d job records) are enforced by Redis EXPIRE.
-    redis = _get_redis_pool()
-    redis_job_store = RedisJobStore(redis)
-    app.state.deploy_event_bus = DeployEventBus()
-    app.state.deploy_orchestrator = DeployOrchestrator(
-        event_bus=app.state.deploy_event_bus,
-        job_store=redis_job_store,
-    )
-    app.state.deploy_job_service = DeployJobService(
-        event_bus=app.state.deploy_event_bus,
-        orchestrator=app.state.deploy_orchestrator,
-        idempotency_store=RedisIdempotencyStore(redis),
-        job_store=redis_job_store,
-        agent_repo=None,  # TODO: wire to AgentService/AgentRepository
-    )
 
     try:
         yield
@@ -217,30 +183,20 @@ app.include_router(auth.router)
 app.include_router(agents.router)
 app.include_router(builders.router)
 app.include_router(builder_sessions.router)
-app.include_router(deploys.router)
 app.include_router(deployments.router)
-app.include_router(prompts.router)
 app.include_router(providers.router)
 app.include_router(mcp_servers.router)
 app.include_router(models_route.router)
 app.include_router(registry.router)
 app.include_router(sandbox.router)
-app.include_router(git.router)
 app.include_router(memory.router)
-app.include_router(rag.router)
 app.include_router(playground.router)
-app.include_router(tracing.router)
 app.include_router(teams.router)
-app.include_router(costs.router)
-app.include_router(audit.router)
-app.include_router(evals.router)
-app.include_router(orchestrations.router)
 app.include_router(a2a.router)
 app.include_router(templates.router)
 app.include_router(marketplace.router)
 app.include_router(agentops.router)
 app.include_router(gateway.router)
-app.include_router(compliance.router)
 app.include_router(approvals.router)
 app.include_router(rbac.router)
 app.include_router(secrets_route.router)

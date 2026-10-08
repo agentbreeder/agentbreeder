@@ -1,7 +1,7 @@
 """Coverage boost tests — targets 0% and low-coverage modules.
 
 Covers:
-  - api/models/tracing.py, teams.py, costs.py, cost_schemas.py, audit.py  (0%)
+  - api/models/tracing.py, teams.py, costs.py, audit.py  (0%)
   - api/middleware/rbac.py  (0%)
   - api/auth.py  (72% → get_optional_user)
   - engine/runtimes/__init__.py  (79% → KeyError path)
@@ -69,105 +69,6 @@ class TestModelImports:
 
         assert AuditEvent.__tablename__ == "audit_events"
         assert ResourceDependency.__tablename__ == "resource_dependencies"
-
-
-# ─────────────────────────────────────────────────────────────
-# api/models/cost_schemas.py — Pydantic schema instantiation
-# ─────────────────────────────────────────────────────────────
-
-
-class TestCostSchemas:
-    def test_cost_event_create(self):
-        from api.models.cost_schemas import CostEventCreate
-
-        obj = CostEventCreate(
-            agent_name="my-agent",
-            team="eng",
-            model_name="claude-3",
-            provider="anthropic",
-            input_tokens=100,
-            output_tokens=200,
-            total_tokens=300,
-            cost_usd=0.05,
-            request_type="chat",
-        )
-        assert obj.agent_name == "my-agent"
-
-    def test_cost_event_response(self):
-        from api.models.cost_schemas import CostEventResponse
-
-        obj = CostEventResponse(
-            id=str(uuid.uuid4()),
-            agent_name="a",
-            team="t",
-            model_name="m",
-            provider="p",
-            input_tokens=1,
-            output_tokens=2,
-            total_tokens=3,
-            cost_usd=0.01,
-            request_type="chat",
-            created_at="2026-04-11T00:00:00Z",
-        )
-        assert obj.total_tokens == 3
-
-    def test_cost_summary(self):
-        from api.models.cost_schemas import CostSummary
-
-        obj = CostSummary(total_cost=1.23, request_count=10, total_tokens=5000, period="30d")
-        assert obj.total_cost == 1.23
-
-    def test_cost_breakdown(self):
-        from api.models.cost_schemas import CostBreakdown, CostBreakdownItem
-
-        item = CostBreakdownItem(name="gpt-4", cost=0.5, tokens=1000, requests=3)
-        breakdown = CostBreakdown(by_model=[item])
-        assert len(breakdown.by_model) == 1
-
-    def test_cost_trend(self):
-        from api.models.cost_schemas import CostTrendResponse, DailyCostPoint
-
-        pt = DailyCostPoint(date="2026-04-01", cost=0.1, tokens=500, requests=2)
-        trend = CostTrendResponse(points=[pt], total_cost=0.1)
-        assert len(trend.points) == 1
-
-    def test_budget_schemas(self):
-        from api.models.cost_schemas import BudgetCreate, BudgetResponse, BudgetUpdate
-
-        create = BudgetCreate(team="eng", monthly_limit_usd=100.0)
-        assert create.team == "eng"
-
-        update = BudgetUpdate(monthly_limit_usd=200.0)
-        assert update.monthly_limit_usd == 200.0
-
-        resp = BudgetResponse(
-            id=str(uuid.uuid4()),
-            team="eng",
-            monthly_limit_usd=100.0,
-            alert_threshold_pct=80.0,
-            current_month_spend=12.0,
-            pct_used=12.0,
-            is_exceeded=False,
-            created_at="2026-04-11T00:00:00Z",
-            updated_at="2026-04-11T00:00:00Z",
-        )
-        assert resp.is_exceeded is False
-
-    def test_cost_comparison_schemas(self):
-        from api.models.cost_schemas import CostComparisonRequest, CostComparisonResponse
-
-        req = CostComparisonRequest(model_a="gpt-4", model_b="claude-3")
-        assert req.model_a == "gpt-4"
-
-        resp = CostComparisonResponse(
-            model_a="gpt-4",
-            model_b="claude-3",
-            model_a_cost=0.02,
-            model_b_cost=0.01,
-            savings_pct=50.0,
-            sample_tokens=1_000_000,
-        )
-        assert resp.savings_pct == 50.0
 
 
 # ─────────────────────────────────────────────────────────────
@@ -667,7 +568,7 @@ class TestMcpServerSSEDiscoverTools:
         assert result["tools"][1]["name"] == "fetch"
 
     @pytest.mark.asyncio
-    async def test_discover_sse_http_error_falls_back(self, session: AsyncSession) -> None:
+    async def test_discover_sse_http_error_returns_no_tools(self, session: AsyncSession) -> None:
         from registry.mcp_servers import McpServerRegistry
 
         server = await McpServerRegistry.create(
@@ -686,12 +587,11 @@ class TestMcpServerSSEDiscoverTools:
 
             result = await McpServerRegistry.discover_tools(session, str(server.id))
 
-        # Falls back to placeholder tools
-        assert result["total"] == 2
-        assert "disc-fb-search" in result["tools"][0]["name"]
+        # No placeholder tools on failure
+        assert result == {"tools": [], "total": 0}
 
     @pytest.mark.asyncio
-    async def test_discover_sse_exception_falls_back(self, session: AsyncSession) -> None:
+    async def test_discover_sse_exception_returns_no_tools(self, session: AsyncSession) -> None:
         from registry.mcp_servers import McpServerRegistry
 
         server = await McpServerRegistry.create(
@@ -707,8 +607,8 @@ class TestMcpServerSSEDiscoverTools:
 
             result = await McpServerRegistry.discover_tools(session, str(server.id))
 
-        # Falls back to placeholder tools
-        assert result["total"] == 2
+        # No placeholder tools on failure
+        assert result == {"tools": [], "total": 0}
 
     @pytest.mark.asyncio
     async def test_discover_streamable_http_transport(self, session: AsyncSession) -> None:

@@ -4,11 +4,12 @@ Covers the :http:post:`/api/v1/secrets` endpoint added for issue #175 plus
 the existing ``GET /workspace`` / ``GET /`` / ``POST /{name}/rotate`` paths
 where they overlap with the new request flow.
 
-All external services (workspace backend, audit service) are mocked.
+All external services (workspace backend) are mocked.
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -245,23 +246,22 @@ class TestCreateSecret:
             for p in patches:
                 p.stop()
 
-    def test_audit_event_emitted(self) -> None:
+    def test_audit_event_emitted(self, caplog) -> None:
         backend = _FakeBackend()
         patches, uid = _patch_auth(UserRole.deployer, backend)
-        log_event = AsyncMock()
-        patches.append(patch("api.services.audit_service.AuditService.log_event", log_event))
         for p in patches:
             p.start()
         try:
-            client.post(
-                "/api/v1/secrets",
-                json={"name": "kimi/api-key", "value": "ms-abcdef12"},
-                headers=_deployer_headers(uid),
-            )
-            assert log_event.await_count == 1
-            kwargs = log_event.await_args.kwargs
-            assert kwargs["action"] == "secret.created"
-            assert kwargs["resource_name"] == "kimi/api-key"
+            with caplog.at_level(logging.INFO, logger="api.routes.secrets"):
+                client.post(
+                    "/api/v1/secrets",
+                    json={"name": "kimi/api-key", "value": "ms-abcdef12"},
+                    headers=_deployer_headers(uid),
+                )
+            events = [r for r in caplog.records if r.getMessage() == "audit_event"]
+            assert len(events) == 1
+            assert events[0].audit_action == "secret.created"
+            assert events[0].details["secret_name"] == "kimi/api-key"
         finally:
             for p in patches:
                 p.stop()
@@ -373,7 +373,7 @@ class TestSetWorkspaceBackend:
             for p in patches:
                 p.stop()
 
-    def test_audit_event_emitted_on_swap(self) -> None:
+    def test_audit_event_emitted_on_swap(self, caplog) -> None:
         backend = _FakeBackend()
         patches, uid = _patch_auth(UserRole.admin, backend)
         saved_cfg = MagicMock()
@@ -386,21 +386,20 @@ class TestSetWorkspaceBackend:
                 MagicMock(return_value=saved_cfg),
             )
         )
-        log_event = AsyncMock()
-        patches.append(patch("api.services.audit_service.AuditService.log_event", log_event))
         for p in patches:
             p.start()
         try:
-            resp = client.put(
-                "/api/v1/secrets/workspace",
-                json={"backend": "env"},
-                headers=_admin_headers(uid),
-            )
+            with caplog.at_level(logging.INFO, logger="api.routes.secrets"):
+                resp = client.put(
+                    "/api/v1/secrets/workspace",
+                    json={"backend": "env"},
+                    headers=_admin_headers(uid),
+                )
             assert resp.status_code == 200
-            assert log_event.await_count == 1
-            kwargs = log_event.await_args.kwargs
-            assert kwargs["action"] == "secret.backend_changed"
-            assert kwargs["resource_type"] == "workspace"
+            events = [r for r in caplog.records if r.getMessage() == "audit_event"]
+            assert len(events) == 1
+            assert events[0].audit_action == "secret.backend_changed"
+            assert events[0].details["workspace"] == "default"
         finally:
             for p in patches:
                 p.stop()

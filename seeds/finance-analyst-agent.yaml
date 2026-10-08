@@ -84,12 +84,6 @@ tools:
       required: []
 
 # ── Knowledge Bases ───────────────────────────────────────────────────────────
-knowledge_bases:
-  - ref: kb/sec-filings             # Indexed 10-K and 10-Q filings
-  - ref: kb/earnings-transcripts    # Earnings call transcripts
-  - ref: kb/internal-board-decks    # Board presentation decks (access-controlled)
-
-# ── Prompts ───────────────────────────────────────────────────────────────────
 prompts:
   system: prompts/finance-analyst-system-v2
 

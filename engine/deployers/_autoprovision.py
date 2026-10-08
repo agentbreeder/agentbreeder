@@ -8,7 +8,7 @@ This module is the thin, cloud-aware seam that:
    :class:`~engine.provisioners.base.DataBackendRequest`
    (:func:`build_data_backend_request`), and
 2. turns the provisioner's returned resources dict back into a
-   ``KB_PGVECTOR_DSN`` (:func:`resolve_pgvector_dsn`), resolving the DB password
+   Postgres DSN (:func:`resolve_pgvector_dsn`), resolving the DB password
    from the cloud secret store — the password is written ONLY to the secret
    store by the provisioner and never persisted in :class:`InfraState`.
 
@@ -156,7 +156,7 @@ async def _resolve_db_password(cloud: str, secret_ref: str, region: str) -> str 
 
 
 async def resolve_pgvector_dsn(cloud: str, resources: dict[str, Any], region: str) -> str | None:
-    """Assemble ``KB_PGVECTOR_DSN`` from a provisioned resources dict.
+    """Assemble a Postgres DSN from a provisioned resources dict.
 
     Returns ``None`` (so the caller can fall back / skip) when the Postgres
     resource, its secret reference, or the password cannot be resolved.

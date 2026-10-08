@@ -1,9 +1,8 @@
-"""BuilderSession persistence, the per-session SSE event bus, and (in later
-C-tasks) orchestration of interview / eject / deploy turns. Mirrors the
-deploy event-bus pattern.
+"""BuilderSession persistence, the per-session SSE event bus, and
+orchestration of interview / eject turns. Mirrors the deploy event-bus pattern.
 
 Governance: the coding agent writes into a sandbox; nothing is auto-deployed.
-Deploy still flows through the existing /deploys pipeline (Parse -> RBAC ->
+Deploying the result is done with ``agentbreeder deploy`` (Parse -> RBAC ->
 Resolve -> Build -> Provision -> Deploy -> Health -> Register)."""
 
 from __future__ import annotations
@@ -80,7 +79,6 @@ class BuilderSessionService:
                 "history": [],
                 "agent_yaml": None,
                 "files": {},
-                "deploy_job_id": None,
                 "satisfied": [],
             },
         )

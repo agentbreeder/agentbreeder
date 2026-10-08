@@ -536,13 +536,6 @@ class TestDeployConfig:
         assert d["env_vars"] == {"LOG_LEVEL": "info"}
         assert d["secrets"] == ["API_KEY"]
 
-    def test_deploy_returns_info(self) -> None:
-        agent = Agent("deploy-test", team="eng").with_model(primary="test")
-        result = agent.deploy(target="local")
-        assert result["agent"] == "deploy-test"
-        assert result["target"] == "local"
-        assert result["status"] == "pending"
-
 
 # ---------------------------------------------------------------
 # PromptConfig

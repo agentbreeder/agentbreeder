@@ -107,40 +107,6 @@ class ToolRef(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-class CustomEntityType(BaseModel):
-    """One user-defined entity category for domain-specific GraphRAG extraction."""
-
-    name: str
-    description: str = ""
-
-
-class EntityExtractionConfig(BaseModel):
-    """Per-knowledge-base overrides for the LLM-backed entity extractor."""
-
-    custom_types: list[CustomEntityType] = Field(default_factory=list)
-
-
-class KnowledgeBaseRef(BaseModel):
-    ref: str
-    entity_extraction: EntityExtractionConfig | None = None
-    backend_url: str | None = (
-        None  # explicit cloud-reachable vector-store DSN (pgvector) or graph URL
-    )
-
-
-class SubagentRef(BaseModel):
-    """Reference to a subagent for A2A communication."""
-
-    ref: str
-    name: str | None = None
-    description: str | None = None
-
-    @property
-    def slug(self) -> str:
-        """Agent name derived from ref (e.g., 'agents/summarizer' -> 'summarizer')."""
-        return self.name or self.ref.split("/")[-1]
-
-
 class McpServerRef(BaseModel):
     """Reference to an MCP server to attach to an agent.
 
@@ -326,10 +292,8 @@ class AgentConfig(BaseModel):
     runtime: RuntimeConfig | None = None
     model: ModelConfig
     tools: list[ToolRef] = Field(default_factory=list)
-    knowledge_bases: list[KnowledgeBaseRef] = Field(default_factory=list)
     prompts: PromptsConfig = Field(default_factory=PromptsConfig)
     guardrails: list[str | GuardrailConfig] = Field(default_factory=list)
-    subagents: list[SubagentRef] = Field(default_factory=list)
     mcp_servers: list[McpServerRef] = Field(default_factory=list)
     memory: MemoryConfig | None = None
     deploy: DeployConfig

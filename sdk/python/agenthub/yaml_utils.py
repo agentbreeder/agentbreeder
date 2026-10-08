@@ -23,7 +23,7 @@ def agent_to_yaml(agent: Agent) -> str:
     """Serialize an Agent to valid agent.yaml content.
 
     Output field ordering matches the canonical agent.yaml spec:
-    identity -> model -> framework -> tools -> knowledge_bases ->
+    identity -> model -> framework -> tools ->
     prompts -> guardrails -> deploy
     """
     d: dict[str, Any] = {}
@@ -49,10 +49,6 @@ def agent_to_yaml(agent: Agent) -> str:
     # Tools
     if agent._tools:
         d["tools"] = [t.to_dict() for t in agent._tools]
-
-    # Knowledge bases
-    if agent.config.knowledge_bases:
-        d["knowledge_bases"] = [{"ref": kb} for kb in agent.config.knowledge_bases]
 
     # Prompts
     if agent.config.prompts is not None:
@@ -132,15 +128,6 @@ def yaml_to_agent(yaml_str: str) -> Agent:
                 secrets=dep.get("secrets", []),
             )
 
-    # Parse knowledge bases
-    knowledge_bases: list[str] = []
-    if "knowledge_bases" in data:
-        for kb in data["knowledge_bases"]:
-            if isinstance(kb, dict) and "ref" in kb:
-                knowledge_bases.append(kb["ref"])
-            elif isinstance(kb, str):
-                knowledge_bases.append(kb)
-
     # Build the agent config
     config = AgentConfig(
         name=data.get("name", ""),
@@ -155,7 +142,6 @@ def yaml_to_agent(yaml_str: str) -> Agent:
         guardrails=data.get("guardrails", []),
         deploy=deploy_config,
         tags=data.get("tags", []),
-        knowledge_bases=knowledge_bases,
     )
 
     agent = Agent.__new__(Agent)

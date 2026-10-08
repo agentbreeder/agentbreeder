@@ -8,7 +8,7 @@ What it does:
   4. Seed ChromaDB with sample documents (RAG ready)
   5. Seed Neo4j with a knowledge graph (GraphRAG ready)
   6. Register sample MCP servers, prompts, and tools
-  7. Deploy 5 sample agents (RAG, Graph, Search, A2A, Assistant)
+  7. Register 4 sample agents (RAG, Graph, Search, Assistant) in the registry
   8. Open Studio and show how to use everything
 
 Usage:
@@ -141,7 +141,7 @@ _PLACEHOLDER = [
         "text": (
             "The agent.yaml file is the canonical configuration format. Required fields: name "
             "(slug-friendly), version (SemVer), team, owner (email), framework, model.primary. "
-            "Optional fields: description, tags, tools, knowledge_bases, prompts, guardrails, "
+            "Optional fields: description, tags, tools, prompts, guardrails, "
             "deploy configuration, access control settings. The schema is validated by a JSON "
             "Schema at engine/schema/agent.schema.json."
         ),
@@ -150,17 +150,16 @@ _PLACEHOLDER = [
     {
         "id": "rag-support",
         "text": (
-            "AgentBreeder has first-class RAG (Retrieval-Augmented Generation) support. "
-            "Knowledge bases are defined in agent.yaml under knowledge_bases. Supported backends "
-            "include ChromaDB for vector search. The quickstart stack includes a ChromaDB instance "
-            "at http://localhost:8001 pre-seeded with AgentBreeder documentation."
+            "The quickstart rag-agent performs retrieval in its own agent code against a "
+            "ChromaDB instance at http://localhost:8001 pre-seeded with AgentBreeder "
+            "documentation."
         ),
         "metadata": {"source": "quickstart", "topic": "rag"},
     },
     {
         "id": "graphrag-support",
         "text": (
-            "AgentBreeder supports GraphRAG via Neo4j. The quickstart stack includes a Neo4j "
+            "The quickstart graph-agent queries Neo4j from its own agent code. The stack includes a Neo4j "
             "Community instance at http://localhost:7474 (browser) and bolt://localhost:7687. "
             "The graph is pre-seeded with nodes for agents, tools, frameworks, and providers, "
             "along with their relationships. Login: neo4j / agentbreeder."
@@ -176,17 +175,6 @@ _PLACEHOLDER = [
             "package and deploy their own MCP servers as sidecars."
         ),
         "metadata": {"source": "quickstart", "topic": "mcp"},
-    },
-    {
-        "id": "a2a-support",
-        "text": (
-            "Agent-to-Agent (A2A) communication allows agents to call each other over a JSON-RPC "
-            "protocol. In agent.yaml, define tools with type: a2a and the target agent name. "
-            "The a2a-orchestrator in the quickstart routes questions to rag-agent, graph-agent, "
-            "and search-agent automatically based on question type. Access the A2A API at "
-            "/api/v1/a2a/ endpoints."
-        ),
-        "metadata": {"source": "quickstart", "topic": "a2a"},
     },
 ]  # _PLACEHOLDER — real docs are in deploy/seed/docs/*.md
 
@@ -214,15 +202,11 @@ CREATE (:Tool:QuickstartNode {name:'graph_query', label:'Graph Query', type:'fun
 CREATE (:Tool:QuickstartNode {name:'web_search', label:'Web Search', type:'function', backend:'http'})
 CREATE (:Tool:QuickstartNode {name:'mcp_filesystem', label:'MCP Filesystem', type:'mcp', backend:'filesystem'})
 CREATE (:Tool:QuickstartNode {name:'mcp_memory', label:'MCP Memory', type:'mcp', backend:'memory'})
-CREATE (:Tool:QuickstartNode {name:'call_rag_agent', label:'Call RAG Agent', type:'a2a', backend:'a2a'})
-CREATE (:Tool:QuickstartNode {name:'call_graph_agent', label:'Call Graph Agent', type:'a2a', backend:'a2a'})
-CREATE (:Tool:QuickstartNode {name:'call_search_agent', label:'Call Search Agent', type:'a2a', backend:'a2a'})
 
 // Agents
 CREATE (:Agent:QuickstartNode {name:'rag-agent', label:'RAG Agent', team:'quickstart', status:'running'})
 CREATE (:Agent:QuickstartNode {name:'graph-agent', label:'Graph Agent', team:'quickstart', status:'running'})
 CREATE (:Agent:QuickstartNode {name:'search-agent', label:'Search Agent', team:'quickstart', status:'running'})
-CREATE (:Agent:QuickstartNode {name:'a2a-orchestrator', label:'A2A Orchestrator', team:'quickstart', status:'running'})
 CREATE (:Agent:QuickstartNode {name:'assistant', label:'Assistant', team:'quickstart', status:'running'})
 
 // Deploy Targets
@@ -236,7 +220,6 @@ CREATE (:DeployTarget:QuickstartNode {name:'kubernetes', label:'Kubernetes'})
 MATCH (a:Agent {name:'rag-agent'}), (f:Framework {name:'langgraph'}) CREATE (a)-[:RUNS_ON]->(f)
 MATCH (a:Agent {name:'graph-agent'}), (f:Framework {name:'langgraph'}) CREATE (a)-[:RUNS_ON]->(f)
 MATCH (a:Agent {name:'search-agent'}), (f:Framework {name:'langgraph'}) CREATE (a)-[:RUNS_ON]->(f)
-MATCH (a:Agent {name:'a2a-orchestrator'}), (f:Framework {name:'langgraph'}) CREATE (a)-[:RUNS_ON]->(f)
 MATCH (a:Agent {name:'assistant'}), (f:Framework {name:'langgraph'}) CREATE (a)-[:RUNS_ON]->(f)
 
 // Agent-Tool relationships
@@ -245,19 +228,12 @@ MATCH (a:Agent {name:'graph-agent'}), (t:Tool {name:'graph_query'}) CREATE (a)-[
 MATCH (a:Agent {name:'search-agent'}), (t:Tool {name:'web_search'}) CREATE (a)-[:USES_TOOL]->(t)
 MATCH (a:Agent {name:'search-agent'}), (t:Tool {name:'mcp_filesystem'}) CREATE (a)-[:USES_TOOL]->(t)
 MATCH (a:Agent {name:'search-agent'}), (t:Tool {name:'mcp_memory'}) CREATE (a)-[:USES_TOOL]->(t)
-MATCH (a:Agent {name:'a2a-orchestrator'}), (t:Tool {name:'call_rag_agent'}) CREATE (a)-[:USES_TOOL]->(t)
-MATCH (a:Agent {name:'a2a-orchestrator'}), (t:Tool {name:'call_graph_agent'}) CREATE (a)-[:USES_TOOL]->(t)
-MATCH (a:Agent {name:'a2a-orchestrator'}), (t:Tool {name:'call_search_agent'}) CREATE (a)-[:USES_TOOL]->(t)
 
 // Agent-Provider relationships (via LiteLLM)
 MATCH (a:Agent), (p:Provider {name:'ollama'}) CREATE (a)-[:CALLS_PROVIDER {role:'primary'}]->(p)
 MATCH (a:Agent {name:'rag-agent'}), (p:Provider {name:'anthropic'}) CREATE (a)-[:CALLS_PROVIDER {role:'fallback'}]->(p)
 MATCH (a:Agent {name:'graph-agent'}), (p:Provider {name:'anthropic'}) CREATE (a)-[:CALLS_PROVIDER {role:'fallback'}]->(p)
 
-// A2A relationships
-MATCH (o:Agent {name:'a2a-orchestrator'}), (r:Agent {name:'rag-agent'}) CREATE (o)-[:CALLS_AGENT]->(r)
-MATCH (o:Agent {name:'a2a-orchestrator'}), (g:Agent {name:'graph-agent'}) CREATE (o)-[:CALLS_AGENT]->(g)
-MATCH (o:Agent {name:'a2a-orchestrator'}), (s:Agent {name:'search-agent'}) CREATE (o)-[:CALLS_AGENT]->(s)
 
 // All agents deploy to local
 MATCH (a:Agent), (d:DeployTarget {name:'local'}) CREATE (a)-[:DEPLOYED_ON]->(d)
@@ -943,20 +919,6 @@ def _register_prompts() -> int:
             "tags": ["rag", "system", "quickstart"],
             "team": "quickstart",
         },
-        {
-            "name": "a2a-orchestrator-prompt",
-            "version": "1.0.0",
-            "description": "System prompt for A2A orchestrators — explains routing logic",
-            "content": (
-                "You are an intelligent orchestrator. Route questions to the right specialist:\n"
-                "- rag-agent: factual/documentation questions\n"
-                "- graph-agent: relationship/connection questions\n"
-                "- search-agent: current events or file access\n"
-                "For complex questions, consult multiple agents and synthesize results."
-            ),
-            "tags": ["a2a", "orchestration", "system", "quickstart"],
-            "team": "quickstart",
-        },
     ]
     count = 0
     for p in prompts:
@@ -990,24 +952,6 @@ def _register_agents() -> list[dict]:
         except Exception:
             pass
     return agents
-
-
-def _deploy_agents_local(compose_cmd: str, env: dict[str, str]) -> bool:
-    """Trigger local deployment for each quickstart agent via the API."""
-    yaml_files = sorted(EXAMPLES_QS.glob("*.yaml"))
-    ok = 0
-    for yaml_path in yaml_files:
-        result = _api_post(
-            "/api/v1/deploys",
-            {
-                "agent_yaml": yaml_path.read_text(),
-                "target": "local",
-                "dry_run": False,
-            },
-        )
-        if result:
-            ok += 1
-    return ok == len(yaml_files)
 
 
 # ── Cloud deployment helper ─────────────────────────────────────────────────
@@ -1904,31 +1848,25 @@ def _print_final_summary(services_ok: dict[str, bool], agents: list[str]) -> Non
             "assistant",
             "General conversation",
             "agentbreeder chat assistant --local",
-            f"{DASHBOARD_URL}/chat/assistant",
+            f"{DASHBOARD_URL}/playground",
         ),
         (
             "rag-agent",
             "Searches knowledge base (ChromaDB)",
             "agentbreeder chat rag-agent --local",
-            f"{DASHBOARD_URL}/chat/rag-agent",
+            f"{DASHBOARD_URL}/playground",
         ),
         (
             "graph-agent",
             "Queries knowledge graph (Neo4j)",
             "agentbreeder chat graph-agent --local",
-            f"{DASHBOARD_URL}/chat/graph-agent",
+            f"{DASHBOARD_URL}/playground",
         ),
         (
             "search-agent",
             "Web search + filesystem (MCP)",
             "agentbreeder chat search-agent --local",
-            f"{DASHBOARD_URL}/chat/search-agent",
-        ),
-        (
-            "a2a-orchestrator",
-            "Routes to all above agents (A2A)",
-            "agentbreeder chat a2a-orchestrator --local",
-            f"{DASHBOARD_URL}/chat/a2a-orchestrator",
+            f"{DASHBOARD_URL}/playground",
         ),
     ]
     for name, power, cli_cmd, ui_url in agent_rows:
@@ -1950,8 +1888,6 @@ def _print_final_summary(services_ok: dict[str, bool], agents: list[str]) -> Non
             "                 Chat with the assistant agent\n"
             "  [bold cyan]agentbreeder chat rag-agent[/bold cyan]"
             "                 Ask questions about AgentBreeder docs\n"
-            "  [bold cyan]agentbreeder chat a2a-orchestrator[/bold cyan]"
-            "         Let the orchestrator route your question\n"
             "  [bold cyan]agentbreeder list agents[/bold cyan]"
             "                   See all registered agents\n"
             "  [bold cyan]agentbreeder init[/bold cyan]"
@@ -2891,7 +2827,7 @@ def quickstart(
             _ok(f"Registered {n_prompts} sample prompt(s)")
 
     # ── Step 7: Register & deploy agents ─────────────────────────────────────
-    _step("Deploying Sample Agents", 7, total_steps)
+    _step("Registering Sample Agents", 7, total_steps)
 
     if services_ok.get("api"):
         console.print("  [dim]Registering agents in the platform...[/dim]")
@@ -2901,19 +2837,9 @@ def quickstart(
         else:
             _warn("Agent registration via API failed — agents listed in examples/quickstart/")
 
-        console.print("  [dim]Deploying agents locally...[/dim]")
+        console.print("  [dim]Deploy each sample agent with:[/dim]")
         for yaml_path in sorted(EXAMPLES_QS.glob("*.yaml")):
-            name = yaml_path.stem
-            deploy_result = _api_post(
-                "/api/v1/deploys",
-                {"agent_yaml": yaml_path.read_text(), "target": "local", "dry_run": False},
-            )
-            if deploy_result:
-                _ok(f"Deployed: {name}")
-            else:
-                _info(
-                    f"Queued: {name}  (deploy: agentbreeder deploy {yaml_path.name} --target local)"
-                )
+            _info(f"  agentbreeder deploy {yaml_path} --target local")
     else:
         _warn("API not ready — deploy agents manually:")
         for yaml_path in sorted(EXAMPLES_QS.glob("*.yaml")):

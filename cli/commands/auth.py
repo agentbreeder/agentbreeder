@@ -6,8 +6,6 @@ the env var still wins when set, so CI configurations keep working.
 
 Designed to compose with sibling work:
 
-* ``agentbreeder deploy --remote`` (#416) reads ``get_token()`` from
-  :mod:`cli._http` to authenticate POSTs to ``/api/v1/deploys``.
 * ``agentbreeder context use <team>`` (this module) sets the active team
   that's surfaced by ``whoami`` and sent on every API call as the
   ``X-AgentBreeder-Team`` header.

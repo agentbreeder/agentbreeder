@@ -152,8 +152,8 @@ class TestMcpServerRegistryAsync:
             return_value=mock_server,
         ):
             result = await McpServerRegistry.test_connection(mock_session, "server-1")
-            assert result["success"] is True
-            assert result["latency_ms"] == 0
+            assert result["success"] is False
+            assert "sse/streamable_http" in result["error"]
 
     @pytest.mark.asyncio
     async def test_connection_not_found(self) -> None:
@@ -204,8 +204,8 @@ class TestMcpServerRegistryAsync:
             return_value=mock_server,
         ):
             result = await McpServerRegistry.discover_tools(mock_session, "server-1")
-            # Falls back to placeholder tools
-            assert result["total"] > 0
+            # stdio servers cannot be introspected — no placeholder tools
+            assert result == {"tools": [], "total": 0}
 
 
 # ── api/main.py — seed_admin ─────────────────────────────────────
@@ -306,21 +306,6 @@ class TestEngineResolver:
             MagicMock(ref="tools/search", name=None),
             MagicMock(ref=None, name="inline-tool"),
         ]
-        config.knowledge_bases = []
-        config.prompts = MagicMock()
-        config.prompts.system = "You are helpful."
-
-        result = resolve_dependencies(config)
-        assert result is not None
-
-    def test_resolve_kb_refs(self) -> None:
-        from engine.resolver import resolve_dependencies
-
-        config = MagicMock()
-        config.tools = []
-        config.knowledge_bases = [
-            MagicMock(ref="kb/product-docs"),
-        ]
         config.prompts = MagicMock()
         config.prompts.system = "You are helpful."
 
@@ -332,7 +317,6 @@ class TestEngineResolver:
 
         config = MagicMock()
         config.tools = []
-        config.knowledge_bases = []
         config.prompts = MagicMock()
         config.prompts.system = "prompts/support-v3"
 

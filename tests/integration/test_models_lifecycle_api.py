@@ -12,6 +12,7 @@ viewer-role test, then restoring the override.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from unittest.mock import patch
 
@@ -23,9 +24,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from api.database import get_db
 from api.main import app
 from api.models.database import Base, Model
-from api.services.audit_service import AuditService
 from engine.providers.discovery import DiscoveredModel, DiscoveryError, ProviderDiscovery
 from registry.model_lifecycle import RETIREMENT_GRACE_DAYS
+
+
+def _audit_events(caplog: pytest.LogCaptureFixture, action: str) -> list[logging.LogRecord]:
+    """Structured ``audit_event`` log records emitted for ``action``."""
+    return [
+        r
+        for r in caplog.records
+        if r.getMessage() == "audit_event" and getattr(r, "audit_action", None) == action
+    ]
+
 
 # ─── Async sqlite test DB ──────────────────────────────────────────────────
 
@@ -36,7 +46,6 @@ async def async_session():
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    AuditService.reset()
 
     sessions: list[AsyncSession] = []
 
@@ -89,7 +98,8 @@ client = TestClient(app)
 
 class TestSync:
     @pytest.mark.asyncio
-    async def test_sync_creates_models_and_audit(self, async_session) -> None:
+    async def test_sync_creates_models_and_audit(self, async_session, caplog) -> None:
+        caplog.set_level(logging.INFO, logger="registry.model_lifecycle")
         adapters = {
             "openai": _StaticDiscovery(
                 "openai",
@@ -114,8 +124,7 @@ class TestSync:
             assert rows[0].source == "discovery"
             assert rows[0].discovered_at is not None
 
-        events, _ = await AuditService.list_events(action="model.added")
-        assert len(events) == 1
+        assert len(_audit_events(caplog, "model.added")) == 1
 
     @pytest.mark.asyncio
     async def test_sync_with_no_adapters_returns_400(self, async_session) -> None:
@@ -179,7 +188,8 @@ class TestSync:
 
 class TestDeprecate:
     @pytest.mark.asyncio
-    async def test_deprecate_existing_model(self, async_session) -> None:
+    async def test_deprecate_existing_model(self, async_session, caplog) -> None:
+        caplog.set_level(logging.INFO, logger="registry.model_lifecycle")
         adapters = {
             "openai": _StaticDiscovery(
                 "openai",
@@ -204,8 +214,7 @@ class TestDeprecate:
             assert row.status == "deprecated"
             assert row.deprecation_replacement_id is not None
 
-        events, _ = await AuditService.list_events(action="model.deprecated")
-        names = {e.resource_name for e in events}
+        names = {e.details["model"] for e in _audit_events(caplog, "model.deprecated")}
         assert "old" in names
 
     @pytest.mark.asyncio

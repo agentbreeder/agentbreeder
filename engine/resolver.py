@@ -1,10 +1,8 @@
 """Dependency resolver.
 
 Resolves registry references (ref: tools/zendesk-mcp) into concrete artifacts.
-For v0.1 tool/MCP refs are passed through unchanged; knowledge_base refs are
-resolved to RAG index IDs so server templates can perform vector search at
-invoke time.
-Subagent refs are resolved into auto-generated tool definitions.
+Tool/MCP refs are passed through unchanged; memory store refs are resolved
+into backend env vars.
 """
 
 from __future__ import annotations
@@ -13,88 +11,9 @@ import logging
 import os
 from pathlib import Path
 
-from engine.a2a.tool_generator import generate_subagent_tools
-from engine.config_parser import AgentConfig, KnowledgeBaseRef, ToolRef
+from engine.config_parser import AgentConfig
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_kb_index_ids(kb_refs: list[KnowledgeBaseRef]) -> list[str]:
-    """Return RAG store index IDs for the given knowledge-base refs.
-
-    Resolution order:
-      1. Try to match against the RAGStore by index name (slug of the ref, e.g.
-         "kb/product-docs" → name "product-docs").
-      2. If no match is found the ref itself is kept so the server template can
-         retry at invoke time (graceful degradation).
-
-    Returns a list of opaque ID strings that the server template stores in
-    ``_KB_INDEX_IDS`` and passes to ``_inject_kb_context``.
-    """
-    if not kb_refs:
-        return []
-
-    try:
-        from api.services.rag_service import get_rag_store
-
-        store = get_rag_store()
-        all_indexes, _ = store.list_indexes(page=1, per_page=1000)
-        name_to_id: dict[str, str] = {idx.name: idx.id for idx in all_indexes}
-    except Exception:  # RAGStore unavailable (e.g. engine running standalone)
-        logger.debug("RAGStore not available; KB refs will be resolved at invoke time")
-        name_to_id = {}
-
-    resolved: list[str] = []
-    for kb in kb_refs:
-        ref: str = kb.ref
-        # Derive the slug: "kb/product-docs" → "product-docs"
-        slug = ref.split("/")[-1]
-        if slug in name_to_id:
-            index_id = name_to_id[slug]
-            logger.debug("Resolved KB ref %r → index %s", ref, index_id)
-            resolved.append(index_id)
-        elif ref in name_to_id:
-            # Full ref matches index name directly
-            resolved.append(name_to_id[ref])
-        else:
-            # Fallback: pass the slug through; server template will retry
-            logger.warning(
-                "KB ref %r not found in RAGStore; passing slug %r through for runtime resolution",
-                ref,
-                slug,
-            )
-            resolved.append(slug)
-
-    return resolved
-
-
-def _resolve_kb_embedding_model(kb_refs: list[KnowledgeBaseRef]) -> str | None:
-    """Return the embedding model of the first resolvable KB index.
-
-    The deployed runtime must embed queries with the SAME model used at
-    ingest time, otherwise vector similarity is meaningless. We pin it via
-    ``KB_EMBEDDING_MODEL``. Returns ``None`` when no index is resolvable (the
-    runtime then falls back to its built-in default).
-    """
-    if not kb_refs:
-        return None
-    try:
-        from api.services.rag_service import get_rag_store
-
-        store = get_rag_store()
-        all_indexes, _ = store.list_indexes(page=1, per_page=1000)
-        name_to_model: dict[str, str | None] = {
-            idx.name: getattr(idx, "embedding_model", None) for idx in all_indexes
-        }
-    except Exception:  # RAGStore unavailable (engine running standalone)
-        return None
-
-    for kb in kb_refs:
-        slug = kb.ref.split("/")[-1]
-        model = name_to_model.get(slug) or name_to_model.get(kb.ref)
-        if model:
-            return str(model)
-    return None
 
 
 def _resolve_memory_config(store_refs: list[str]) -> tuple[str, int]:
@@ -230,7 +149,7 @@ def _warn_unreachable_local_urls(config: AgentConfig) -> None:
     if cloud in ("local", "claude-managed"):
         return
     env_vars = config.deploy.env_vars or {}
-    for key in ("REDIS_URL", "DATABASE_URL", "NEO4J_URL", "KB_PGVECTOR_DSN"):
+    for key in ("REDIS_URL", "DATABASE_URL"):
         val = env_vars.get(key, "")
         if "localhost" in val or "127.0.0.1" in val:
             logger.warning(
@@ -246,40 +165,17 @@ def _warn_unreachable_local_urls(config: AgentConfig) -> None:
 def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) -> AgentConfig:
     """Resolve all registry references in the config.
 
-    - Tool and knowledge base refs are passed through (stub for v0.1).
-    - Subagent refs are resolved into auto-generated call_{name} tools.
+    - Tool refs are passed through.
     - MCP server refs are passed through for sidecar deployment.
     - System prompt refs are baked into the config at deploy time.
     """
     _bake_prompt_ref(config, project_root)
     _check_tool_refs(config, project_root)
-    # Read once; referenced in both memory and KB blocks below.
     allow_local = os.environ.get("AGENTBREEDER_ALLOW_LOCAL_BACKENDS") == "1"
     refs = []
     for tool in config.tools:
         if tool.ref:
             refs.append(tool.ref)
-    for kb in config.knowledge_bases:
-        refs.append(kb.ref)
-
-    # Resolve subagent refs into auto-generated tools
-    if config.subagents:
-        subagent_tools = generate_subagent_tools(config.subagents)
-        for tool_def in subagent_tools:
-            config.tools.append(
-                ToolRef(
-                    name=tool_def["name"],
-                    type=tool_def["type"],
-                    description=tool_def["description"],
-                    schema=tool_def["schema"],
-                )
-            )
-            refs.append(f"subagent:{tool_def.get('_subagent_ref', '')}")
-        logger.info(
-            "Generated %d subagent tools: %s",
-            len(subagent_tools),
-            [t["name"] for t in subagent_tools],
-        )
 
     # MCP server refs (pass through for sidecar deployment)
     for mcp in config.mcp_servers:
@@ -314,46 +210,6 @@ def resolve_dependencies(config: AgentConfig, project_root: Path | None = None) 
         for store_ref in config.memory.stores:
             refs.append(f"memory:{store_ref}")
         logger.debug("Resolved memory stores: backend=%s ttl=%s", backend, ttl_seconds)
-
-    # Resolve knowledge base refs → RAG index IDs and inject into env vars so
-    # that server templates can perform vector search at invoke time.
-    if config.knowledge_bases:
-        if config.deploy.env_vars is None:
-            config.deploy.env_vars = {}
-
-        kb_index_ids = _resolve_kb_index_ids(config.knowledge_bases)
-        if kb_index_ids:
-            config.deploy.env_vars["KB_INDEX_IDS"] = ",".join(kb_index_ids)
-            logger.info(
-                "Resolved %d knowledge base(s) → KB_INDEX_IDS=%s",
-                len(kb_index_ids),
-                config.deploy.env_vars["KB_INDEX_IDS"],
-            )
-
-        # Pin the embedding model so the runtime embeds queries the same way
-        # the documents were embedded at ingest (required for the pgvector
-        # retrieval path). Falls back to the runtime default when unknown.
-        embedding_model = _resolve_kb_embedding_model(config.knowledge_bases)
-        if embedding_model:
-            config.deploy.env_vars.setdefault("KB_EMBEDDING_MODEL", embedding_model)
-
-        # D2 contract: explicit per-KB backend_url becomes the vector-store DSN seam
-        # that managed provisioning fills when no explicit URL is given.
-        dsns = [kb.backend_url for kb in config.knowledge_bases if kb.backend_url]
-        if dsns:
-            if len(dsns) > 1:
-                logger.warning(
-                    "Multiple KB backend_url values found (%d); only the first is "
-                    "set as KB_PGVECTOR_DSN. Multi-DSN support is planned for a "
-                    "later task.",
-                    len(dsns),
-                )
-            config.deploy.env_vars.setdefault("KB_PGVECTOR_DSN", dsns[0])
-
-        neo4j_url = os.environ.get("NEO4J_URL")
-        if neo4j_url and allow_local:
-            config.deploy.env_vars.setdefault("NEO4J_URL", neo4j_url)
-            logger.debug("Injected local NEO4J_URL (AGENTBREEDER_ALLOW_LOCAL_BACKENDS=1)")
 
     if refs:
         logger.debug("Dependency resolution — refs: %s", refs)

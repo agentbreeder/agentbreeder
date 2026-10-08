@@ -118,27 +118,23 @@ async def run_sync_once(
 
 
 async def _emit_summary_audit(*, actor: str, summary: dict[str, Any]) -> None:
-    """Best-effort audit emission — never let audit failures break the cron."""
-    try:
-        from api.services.audit_service import AuditService
-
-        totals = summary.get("totals", {})
-        provider_names = [p.get("provider", "?") for p in summary.get("providers", [])]
-        await AuditService.log_event(
-            actor=actor,
-            action=SYNC_AUDIT_ACTION,
-            resource_type="model",
-            resource_name="*",
-            details={
+    """Emit the sync summary as a structured ``audit_event`` log line."""
+    totals = summary.get("totals", {})
+    provider_names = [p.get("provider", "?") for p in summary.get("providers", [])]
+    logger.info(
+        "audit_event",
+        extra={
+            "audit_action": SYNC_AUDIT_ACTION,
+            "actor": actor,
+            "details": {
                 "providers": provider_names,
                 "added": totals.get("added", 0),
                 "deprecated": totals.get("deprecated", 0),
                 "retired": totals.get("retired", 0),
                 "duration_seconds": summary.get("duration_seconds"),
             },
-        )
-    except Exception:  # pragma: no cover — defensive
-        logger.exception("models-sync-cron: failed to emit audit event")
+        },
+    )
 
 
 def _empty_summary(started: datetime, *, reason: str) -> dict[str, Any]:

@@ -14,7 +14,6 @@ from sse_starlette.sse import EventSourceResponse
 
 from api.auth import get_current_user
 from api.database import get_db
-from api.middleware.rbac import enforce_team_role
 from api.models.database import User
 from api.models.schemas import (
     ApiResponse,
@@ -22,17 +21,13 @@ from api.models.schemas import (
     BuilderMessageRequest,
     BuilderSessionCreateRequest,
     BuilderSessionResponse,
-    DeployRequest,
 )
 from api.routes.builders import _builder_key_name, _no_key_detail
-from api.routes.deploys import _resolve_deploy_team
-from api.services.audit_service import AuditService
 from api.services.builder_session_service import (
     BuilderSessionService,
     CloudSandboxUnavailable,
     SessionEventBus,
 )
-from api.services.deploy_service import DeployService
 from engine.providers.anthropic_provider import AnthropicProvider
 from engine.providers.base import AuthenticationError, ProviderError
 from engine.providers.models import ProviderConfig, ProviderType
@@ -75,7 +70,6 @@ def _to_response(sess: object) -> BuilderSessionResponse:
         engine=sess.engine,
         agent_yaml=st.get("agent_yaml"),
         files=st.get("files", {}),
-        deploy_job_id=st.get("deploy_job_id"),
         history=st.get("history", []),
     )
 
@@ -169,62 +163,6 @@ async def post_message(
     return EventSourceResponse(generator())
 
 
-@router.post("/{session_id}/deploy", response_model=ApiResponse[BuilderSessionResponse])
-async def deploy_from_session(
-    session_id: uuid.UUID,
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> ApiResponse[BuilderSessionResponse]:
-    """Deploy the session's validated agent.yaml via the governed deploy path.
-
-    This does NOT introduce a parallel deploy pipeline (CLAUDE.md §2 —
-    governance is non-negotiable). It reuses the exact primitives the
-    ``POST /api/v1/deploys`` route uses: ``_resolve_deploy_team`` →
-    ``enforce_team_role`` (the substantive team-scoped RBAC check) →
-    ``DeployService.create_agent_and_deploy`` (the 8-step pipeline that also
-    auto-registers the agent) → ``AuditService.log_event``. The resulting
-    ``deploy_job_id`` is persisted onto the session state so the Studio chat
-    can poll / stream deploy status.
-    """
-    svc = BuilderSessionService(db, _bus(request))
-    sess = await svc.get(session_id, team=user.team)
-    if sess is None:
-        raise HTTPException(status_code=404, detail="Builder session not found")
-    agent_yaml = (sess.state or {}).get("agent_yaml")
-    if not agent_yaml:
-        raise HTTPException(
-            status_code=400, detail="Session has no validated agent.yaml to deploy yet."
-        )
-
-    # Reuse the EXACT governed deploy path (RBAC + pipeline + audit). No bypass.
-    body = DeployRequest(config_yaml=agent_yaml, target="local")
-    team_id, _agent = await _resolve_deploy_team(body, db)
-    await enforce_team_role(user, team_id, "deployer")
-    try:
-        _new_agent, job = await DeployService.create_agent_and_deploy(
-            db, yaml_content=agent_yaml, target="local"
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    await AuditService.log_event(
-        actor=user.email,
-        action="deploy.create",
-        resource_type="deploy_job",
-        resource_name=str(job.id),
-        resource_id=str(job.id),
-        team=team_id,
-        details={"agent_id": str(job.agent_id), "target": "local"},
-        ip_address=request.client.host if request.client else None,
-    )
-
-    state = dict(sess.state or {})
-    state["deploy_job_id"] = str(job.id)
-    await svc.save_state(sess, state)
-    await db.commit()
-    return ApiResponse(data=_to_response(sess))
-
-
 @router.get("/{session_id}/stream")
 async def stream_session(
     session_id: uuid.UUID,
@@ -235,7 +173,7 @@ async def stream_session(
     """Aggregate SSE feed for a session over the in-memory event bus.
 
     Subscribes to the session's bus topic and relays every published frame
-    (interview tokens, eject file-changes, deploy progress) to the client.
+    (interview tokens, eject file-changes) to the client.
     Emits a ``ping`` every 15s of idle to keep the connection alive and to
     notice client disconnects.
     """

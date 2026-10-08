@@ -54,48 +54,20 @@ The deployer automatically packages the MCP server as a sidecar container inject
 
 ## Agent-to-Agent (A2A) Communication
 
-A2A lets agents call each other over a JSON-RPC protocol. This enables hierarchical multi-agent systems.
+AgentBreeder keeps an A2A registry of agent endpoints so agents and services can call each other by name.
 
-### How A2A works
+### Registering and invoking agents
 
-1. Agent A defines an A2A tool pointing to Agent B
-2. When the LLM calls that tool, the A2A client sends a JSON-RPC request to Agent B's endpoint
-3. Agent B processes the message and returns a response
-4. Agent A incorporates the response in its context
+- `GET /api/v1/a2a/agents` — list registered agents
+- `POST /api/v1/a2a/agents` — register an agent endpoint
+- `POST /api/v1/a2a/invoke?agent_name=<name>` — look the agent up and POST the message to its `/invoke` endpoint
 
-### The a2a-orchestrator example
+### Calling external A2A servers
 
-```bash
-agentbreeder chat a2a-orchestrator
-# Ask: "What is the agent.yaml format?"
-#   → Routes to rag-agent (knowledge base question)
-# Ask: "Which agents use Neo4j?"
-#   → Routes to graph-agent (relationship question)
-# Ask: "Find the latest files in the workspace"
-#   → Routes to search-agent (filesystem question)
-```
+Agents deployed with the sidecar can forward JSON-RPC 2.0 requests to configured A2A peers through
+`http://127.0.0.1:9090/a2a/<peer>`.
 
-### Defining A2A tools in agent.yaml
+### Multi-agent systems
 
-```yaml
-tools:
-  - name: call_specialist
-    type: a2a
-    description: "Call the specialist agent for domain questions"
-    agent: specialist-agent          # registered agent name
-    protocol: a2a
-```
-
-### A2A endpoints
-
-The A2A API is available at `/api/v1/a2a/`:
-- `GET /api/v1/a2a/agents` — list A2A-enabled agents
-- `POST /api/v1/a2a/agents/{name}/message` — send a message
-- `GET /api/v1/a2a/agents/{name}/card` — get agent capabilities card
-
-### Multi-level orchestration
-
-You can build hierarchies:
-- Orchestrator → Department agents → Specialist agents
-- Each level is a separate agent.yaml
-- A2A handles the routing automatically
+Routing between agents (supervisor, router, pipeline) lives in your agent code — for example a LangGraph
+graph or a CrewAI crew that calls other agents through the invoke API.

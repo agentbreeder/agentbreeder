@@ -1,7 +1,7 @@
 // custom_node_server.ts — Custom Node.js server template
 // Platform-managed. Do not edit — regenerated on each deploy.
 import { createServer } from 'node:http'
-import { aps, buildAgentCard, buildHealthResponse, verifyAuth } from './_shared_loader.js'
+import { buildAgentCard, buildHealthResponse, verifyAuth } from './_shared_loader.js'
 import { handler } from './agent.js'
 
 const PORT = parseInt(process.env.PORT ?? '{{PORT}}', 10)
@@ -31,7 +31,6 @@ const server = createServer(async (req, res) => {
     const input: string = body.input ?? (body.messages?.[body.messages.length - 1]?.content ?? '')
 
     const output = await handler(input)
-    aps.cost.record({ agentName: '{{AGENT_NAME}}', model: '{{AGENT_FRAMEWORK}}', inputTokens: 0, outputTokens: 0 })
     return jsonResponse(res, 200, { output })
   }
 

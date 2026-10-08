@@ -106,40 +106,13 @@ class TestUnauthenticated401:
     def test_agentops_incidents_list(self):
         assert client.get("/api/v1/agentops/incidents").status_code == 401
 
-    # ── audit ──
-    def test_audit_list(self):
-        assert client.get("/api/v1/audit").status_code == 401
-
     # ── builders ──
     def test_builders_get_yaml(self):
         assert client.get("/api/v1/builders/agent/test/yaml").status_code == 401
 
-    # ── compliance ──
-    def test_compliance_standards(self):
-        assert client.get("/api/v1/compliance/standards").status_code == 401
-
-    # ── costs ──
-    def test_costs_summary(self):
-        assert client.get("/api/v1/costs/summary").status_code == 401
-
-    # ── deploys ──
-    def test_deploys_list(self):
-        assert client.get("/api/v1/deploys").status_code == 401
-
-    def test_deploys_create(self):
-        assert client.post("/api/v1/deploys", json={}).status_code == 401
-
-    # ── evals ──
-    def test_evals_datasets_list(self):
-        assert client.get("/api/v1/eval/datasets").status_code == 401
-
     # ── gateway ──
     def test_gateway_status(self):
         assert client.get("/api/v1/gateway/status").status_code == 401
-
-    # ── git ──
-    def test_git_branches_list(self):
-        assert client.get("/api/v1/git/branches").status_code == 401
 
     # ── mcp_servers ──
     def test_mcp_servers_list(self):
@@ -149,21 +122,9 @@ class TestUnauthenticated401:
     def test_memory_configs_list(self):
         assert client.get("/api/v1/memory/configs").status_code == 401
 
-    # ── orchestrations ──
-    def test_orchestrations_list(self):
-        assert client.get("/api/v1/orchestrations").status_code == 401
-
     # ── playground ──
     def test_playground_chat(self):
         assert client.post("/api/v1/playground/chat", json={}).status_code == 401
-
-    # ── prompts ──
-    def test_prompts_test(self):
-        assert client.post("/api/v1/prompts/test", json={}).status_code == 401
-
-    # ── rag ──
-    def test_rag_indexes_list(self):
-        assert client.get("/api/v1/rag/indexes").status_code == 401
 
     # ── registry ──
     def test_registry_tools_list(self):
@@ -175,10 +136,6 @@ class TestUnauthenticated401:
     # ── sandbox ──
     def test_sandbox_execute(self):
         assert client.post("/api/v1/tools/sandbox/execute", json={}).status_code == 401
-
-    # ── tracing ──
-    def test_tracing_list(self):
-        assert client.get("/api/v1/traces").status_code == 401
 
     # ── teams ──
     def test_teams_list(self):
@@ -302,22 +259,6 @@ class TestViewerForbiddenOnDeployerEndpoints:
                 return_value=[],
             ),
         ]
-
-    def test_deploys_create_requires_deployer(self):
-        patches = self._auth_patches()
-        for p in patches:
-            p.start()
-        try:
-            headers = _viewer_headers()
-            resp = client.post(
-                "/api/v1/deploys",
-                json={"config_yaml": "name: x\nversion: 1.0.0", "target": "local"},
-                headers=headers,
-            )
-            assert resp.status_code == 403
-        finally:
-            for p in patches:
-                p.stop()
 
     def test_sandbox_execute_requires_deployer(self):
         patches = self._auth_patches()

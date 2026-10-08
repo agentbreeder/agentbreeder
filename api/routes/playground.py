@@ -61,84 +61,6 @@ class PlaygroundChatResponse(BaseModel):
     conversation_id: str = ""
 
 
-class SaveEvalCaseRequest(BaseModel):
-    agent_id: str
-    conversation_history: list[ConversationMessage]
-    assistant_message: str
-    model_used: str
-    tags: list[str] = Field(default_factory=list)
-
-
-class SaveEvalCaseResponse(BaseModel):
-    eval_case_id: str
-    saved: bool
-
-
-# ---------------------------------------------------------------------------
-# Simulated agent responses for playground testing
-# ---------------------------------------------------------------------------
-
-_SIMULATED_AGENT_RESPONSES: list[str] = [
-    (
-        "I've analyzed your request and here's what I found:\n\n"
-        "Based on the context of our conversation, I can help with that. "
-        "Let me break this down step by step:\n\n"
-        "1. I've reviewed the relevant information available to me.\n"
-        "2. The key factors to consider are the scope and timeline.\n"
-        "3. My recommendation is to proceed with the approach outlined above.\n\n"
-        "Would you like me to go deeper into any of these points?"
-    ),
-    (
-        "Great question! Let me think through this carefully.\n\n"
-        "After considering the available data and context:\n\n"
-        "- The primary concern has been addressed in the analysis above.\n"
-        "- I've cross-referenced this with the knowledge base entries.\n"
-        "- The suggested next steps should resolve the issue effectively.\n\n"
-        "Let me know if you need any clarification or want to explore "
-        "alternative approaches."
-    ),
-    (
-        "I understand what you're looking for. Here's my response:\n\n"
-        "## Summary\n\n"
-        "Based on my analysis, the situation can be addressed as follows:\n\n"
-        "**Key Findings:**\n"
-        "- The data supports moving forward with option A.\n"
-        "- Risk factors have been evaluated and are within acceptable bounds.\n"
-        "- Implementation can begin immediately with the outlined steps.\n\n"
-        "**Next Steps:**\n"
-        "1. Confirm the parameters with the relevant stakeholders.\n"
-        "2. Execute the plan in the recommended order.\n"
-        "3. Monitor results and adjust as needed.\n\n"
-        "Shall I elaborate on any of these points?"
-    ),
-]
-
-_SIMULATED_TOOL_CALLS: list[PlaygroundToolCall] = [
-    PlaygroundToolCall(
-        tool_name="search_knowledge_base",
-        tool_input={"query": "relevant documentation", "top_k": 5},
-        tool_output={
-            "results": [
-                {"title": "Product FAQ", "score": 0.92, "snippet": "...relevant content..."},
-                {"title": "User Guide", "score": 0.87, "snippet": "...related content..."},
-            ],
-            "total": 2,
-        },
-        duration_ms=145,
-    ),
-    PlaygroundToolCall(
-        tool_name="lookup_order",
-        tool_input={"order_id": "ORD-12345"},
-        tool_output={
-            "status": "shipped",
-            "tracking": "1Z999AA10123456784",
-            "estimated_delivery": "2026-03-15",
-        },
-        duration_ms=89,
-    ),
-]
-
-
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate (~4 chars per token)."""
     return max(1, len(text) // 4)
@@ -339,34 +261,6 @@ async def playground_chat(
         latency_ms=elapsed_ms,
         model_used=model_used,
         conversation_id=str(uuid.uuid4()),
-    )
-
-    return ApiResponse(data=result)
-
-
-# ---------------------------------------------------------------------------
-# POST /api/v1/playground/eval-case
-# ---------------------------------------------------------------------------
-
-
-@router.post("/eval-case", response_model=ApiResponse[SaveEvalCaseResponse])
-async def save_eval_case(
-    body: SaveEvalCaseRequest,
-    _user: User = Depends(get_current_user),
-) -> ApiResponse[SaveEvalCaseResponse]:
-    """Save an assistant message as an eval test case.
-
-    NOTE: Simulated — in production this persists to the eval store.
-    """
-    logger.info(
-        "Saving eval case for agent %s with %d history messages",
-        body.agent_id,
-        len(body.conversation_history),
-    )
-
-    result = SaveEvalCaseResponse(
-        eval_case_id=str(uuid.uuid4()),
-        saved=True,
     )
 
     return ApiResponse(data=result)

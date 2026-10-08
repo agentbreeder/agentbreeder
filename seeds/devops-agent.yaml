@@ -82,11 +82,6 @@ tools:
       required: [incident_id, severity, hypothesis, recommended_action, auto_resolved]
 
 # ── Knowledge Bases ───────────────────────────────────────────────────────────
-knowledge_bases:
-  - ref: kb/runbooks                # Indexed runbooks for known failure modes
-  - ref: kb/architecture-diagrams   # System dependency maps for blast radius
-
-# ── Prompts ───────────────────────────────────────────────────────────────────
 prompts:
   system: prompts/devops-triage-system-v1
 

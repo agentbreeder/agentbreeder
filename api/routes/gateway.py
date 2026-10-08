@@ -23,12 +23,8 @@ import time
 
 import httpx
 from fastapi import APIRouter, Depends, Query, Response
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import get_current_user
-from api.database import get_db
-from api.models.costs import CostEvent
 from api.models.database import User
 from api.models.schemas import ApiMeta, ApiResponse
 from api.services.gateway_logs_service import (
@@ -65,250 +61,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/gateway", tags=["gateway"])
 
 
-# ---------------------------------------------------------------------------
-# Simulated data helpers
-# ---------------------------------------------------------------------------
-
-_GATEWAY_TIERS = [
-    {
-        "tier": "litellm",
-        "label": "LiteLLM Gateway",
-        "description": "Self-hosted LiteLLM proxy — routes to all configured providers",
-        "status": "connected",
-        "latency_ms": 12,
-        "model_count": 3,
-        "base_url": "http://litellm:4000",
-    },
-    {
-        "tier": "openrouter",
-        "label": "OpenRouter",
-        "description": "OpenRouter multi-provider gateway (300+ models)",
-        "status": "disconnected",
-        "latency_ms": None,
-        "model_count": 0,
-        "base_url": "https://openrouter.ai/api/v1",
-    },
-    {
-        "tier": "direct",
-        "label": "Direct API",
-        "description": "Direct calls to Anthropic, OpenAI, and Google AI APIs",
-        "status": "partial",
-        "latency_ms": 45,
-        "model_count": 12,
-        "base_url": None,
-    },
-]
-
-_GATEWAY_MODELS = [
-    # LiteLLM tier
-    {
-        "id": "gpt-4o",
-        "name": "GPT-4o",
-        "provider": "openai",
-        "gateway_tier": "litellm",
-        "context_window": 128000,
-        "input_price_per_million": 2.50,
-        "output_price_per_million": 10.00,
-        "status": "active",
-    },
-    {
-        "id": "claude-sonnet-4-6",
-        "name": "Claude Sonnet 4.6",
-        "provider": "anthropic",
-        "gateway_tier": "litellm",
-        "context_window": 200000,
-        "input_price_per_million": 3.00,
-        "output_price_per_million": 15.00,
-        "status": "active",
-    },
-    {
-        "id": "gemini-2.5-pro",
-        "name": "Gemini 2.5 Pro",
-        "provider": "google",
-        "gateway_tier": "litellm",
-        "context_window": 1000000,
-        "input_price_per_million": 1.25,
-        "output_price_per_million": 5.00,
-        "status": "active",
-    },
-    # Direct tier
-    {
-        "id": "claude-opus-4",
-        "name": "Claude Opus 4",
-        "provider": "anthropic",
-        "gateway_tier": "direct",
-        "context_window": 200000,
-        "input_price_per_million": 15.00,
-        "output_price_per_million": 75.00,
-        "status": "active",
-    },
-    {
-        "id": "claude-haiku-3-5",
-        "name": "Claude Haiku 3.5",
-        "provider": "anthropic",
-        "gateway_tier": "direct",
-        "context_window": 200000,
-        "input_price_per_million": 0.80,
-        "output_price_per_million": 4.00,
-        "status": "active",
-    },
-    {
-        "id": "gpt-4o-mini",
-        "name": "GPT-4o Mini",
-        "provider": "openai",
-        "gateway_tier": "direct",
-        "context_window": 128000,
-        "input_price_per_million": 0.15,
-        "output_price_per_million": 0.60,
-        "status": "active",
-    },
-    {
-        "id": "o3-mini",
-        "name": "o3 Mini",
-        "provider": "openai",
-        "gateway_tier": "direct",
-        "context_window": 128000,
-        "input_price_per_million": 1.10,
-        "output_price_per_million": 4.40,
-        "status": "active",
-    },
-    {
-        "id": "gemini-2.0-flash",
-        "name": "Gemini 2.0 Flash",
-        "provider": "google",
-        "gateway_tier": "direct",
-        "context_window": 1000000,
-        "input_price_per_million": 0.10,
-        "output_price_per_million": 0.40,
-        "status": "active",
-    },
-    {
-        "id": "gemini-1.5-pro",
-        "name": "Gemini 1.5 Pro",
-        "provider": "google",
-        "gateway_tier": "direct",
-        "context_window": 2000000,
-        "input_price_per_million": 1.25,
-        "output_price_per_million": 5.00,
-        "status": "active",
-    },
-    {
-        "id": "llama-3.3-70b",
-        "name": "Llama 3.3 70B",
-        "provider": "meta",
-        "gateway_tier": "direct",
-        "context_window": 128000,
-        "input_price_per_million": 0.23,
-        "output_price_per_million": 0.40,
-        "status": "active",
-    },
-    {
-        "id": "mistral-large-2",
-        "name": "Mistral Large 2",
-        "provider": "mistral",
-        "gateway_tier": "direct",
-        "context_window": 128000,
-        "input_price_per_million": 2.00,
-        "output_price_per_million": 6.00,
-        "status": "active",
-    },
-    {
-        "id": "mistral-small-3",
-        "name": "Mistral Small 3",
-        "provider": "mistral",
-        "gateway_tier": "direct",
-        "context_window": 32000,
-        "input_price_per_million": 0.10,
-        "output_price_per_million": 0.30,
-        "status": "active",
-    },
-]
-
-_GATEWAY_PROVIDERS = [
-    {
-        "id": "anthropic",
-        "name": "Anthropic",
-        "tier": "direct",
-        "status": "healthy",
-        "latency_ms": 38,
-        "model_count": 3,
-        "last_checked": "2026-03-13T10:00:00Z",
-    },
-    {
-        "id": "openai",
-        "name": "OpenAI",
-        "tier": "direct",
-        "status": "healthy",
-        "latency_ms": 52,
-        "model_count": 4,
-        "last_checked": "2026-03-13T10:00:00Z",
-    },
-    {
-        "id": "google",
-        "name": "Google AI",
-        "tier": "direct",
-        "status": "healthy",
-        "latency_ms": 61,
-        "model_count": 3,
-        "last_checked": "2026-03-13T10:00:00Z",
-    },
-    {
-        "id": "meta",
-        "name": "Meta (via Together)",
-        "tier": "direct",
-        "status": "healthy",
-        "latency_ms": 85,
-        "model_count": 1,
-        "last_checked": "2026-03-13T10:00:00Z",
-    },
-    {
-        "id": "mistral",
-        "name": "Mistral AI",
-        "tier": "direct",
-        "status": "healthy",
-        "latency_ms": 43,
-        "model_count": 2,
-        "last_checked": "2026-03-13T10:00:00Z",
-    },
-    {
-        "id": "litellm",
-        "name": "LiteLLM Proxy",
-        "tier": "litellm",
-        "status": "healthy",
-        "latency_ms": 12,
-        "model_count": 3,
-        "last_checked": "2026-03-13T10:00:00Z",
-    },
-]
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _infer_tier_from_provider(provider: str, model_name: str = "") -> str:
-    """Infer gateway tier from a CostEvent row's provider/model fields.
-
-    Matches the convention used by the live LiteLLM logs path: anything
-    that came through LiteLLM is labeled ``litellm``; anything else is a
-    direct provider call.
-    """
-    p = (provider or "").lower()
-    if p in {"litellm", "openai_proxy", "litellm_proxy"}:
-        return "litellm"
-    if "/" in (model_name or ""):
-        return "litellm"
-    return "direct"
-
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
-
 @router.get("/status", response_model=ApiResponse[list[dict]])
 async def gateway_status(_user: User = Depends(get_current_user)) -> ApiResponse[list[dict]]:
-    """Return status of each gateway tier (LiteLLM, OpenRouter, Direct API)."""
+    """Return live status of the LiteLLM gateway tier."""
     _fallback_health = {
         "status": "unknown",
         "healthy_endpoints": [],
@@ -332,9 +87,7 @@ async def gateway_status(_user: User = Depends(get_current_user)) -> ApiResponse
         "unhealthy_endpoints": unhealthy,
     }
 
-    # Merge live litellm tier with static non-litellm tiers
-    non_litellm = [t for t in _GATEWAY_TIERS if t["tier"] != "litellm"]
-    tiers = [live_litellm_tier, *non_litellm]
+    tiers = [live_litellm_tier]
 
     return ApiResponse(
         data=tiers,
@@ -350,36 +103,22 @@ async def list_gateway_models(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
 ) -> ApiResponse[list[dict]]:
-    """List all models across all connected gateway providers."""
+    """List the models the LiteLLM proxy reports."""
     raw = await _fetch_litellm("/models", {"data": []})
-    litellm_model_ids = {m.get("id") for m in raw.get("data", []) if m.get("id")}
-
-    # Annotate the static model list with live availability from LiteLLM
     models = [
         {
-            **m,
-            "status": "active" if m["id"] in litellm_model_ids else m.get("status", "active"),
+            "id": raw_model["id"],
+            "name": raw_model["id"],
+            "provider": raw_model.get("owned_by", "unknown"),
+            "gateway_tier": "litellm",
+            "context_window": None,
+            "input_price_per_million": None,
+            "output_price_per_million": None,
+            "status": "active",
         }
-        for m in _GATEWAY_MODELS
+        for raw_model in raw.get("data", [])
+        if raw_model.get("id")
     ]
-
-    # Also surface any LiteLLM models not in the static list
-    static_ids = {m["id"] for m in _GATEWAY_MODELS}
-    for raw_model in raw.get("data", []):
-        mid = raw_model.get("id", "")
-        if mid and mid not in static_ids:
-            models.append(
-                {
-                    "id": mid,
-                    "name": mid,
-                    "provider": raw_model.get("owned_by", "unknown"),
-                    "gateway_tier": "litellm",
-                    "context_window": None,
-                    "input_price_per_million": None,
-                    "output_price_per_million": None,
-                    "status": "active",
-                }
-            )
 
     if tier:
         models = [m for m in models if m["gateway_tier"] == tier]
@@ -401,7 +140,7 @@ async def list_gateway_models(
 async def list_gateway_providers(
     _user: User = Depends(get_current_user),
 ) -> ApiResponse[list[dict]]:
-    """List configured gateway providers with health status."""
+    """List providers seen in LiteLLM /health, with their health status."""
     _fallback_health = {
         "status": "unknown",
         "healthy_endpoints": [],
@@ -409,21 +148,17 @@ async def list_gateway_providers(
     }
     health = await _fetch_litellm("/health", _fallback_health)
 
-    # Build a set of healthy provider names from LiteLLM /health
-    healthy_providers: set[str] = set()
-    for ep in health.get("healthy_endpoints", []):
-        pname = ep.get("model", "").split("/")[0].lower() if ep.get("model") else ""
-        if pname:
-            healthy_providers.add(pname)
-
+    # Derive providers from the endpoints LiteLLM reports in /health.
     now_str = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    statuses: dict[str, str] = {}
+    for key, status in (("unhealthy_endpoints", "unhealthy"), ("healthy_endpoints", "healthy")):
+        for ep in health.get(key, []):
+            pname = ep.get("model", "").split("/")[0].lower() if ep.get("model") else ""
+            if pname:
+                statuses[pname] = status
     providers = [
-        {
-            **p,
-            "status": "healthy" if p["id"] in healthy_providers else p.get("status", "unknown"),
-            "last_checked": now_str,
-        }
-        for p in _GATEWAY_PROVIDERS
+        {"id": name, "name": name, "status": status, "last_checked": now_str}
+        for name, status in sorted(statuses.items())
     ]
 
     return ApiResponse(
@@ -501,90 +236,4 @@ async def gateway_logs(
     return ApiResponse(
         data=page_entries,
         meta=ApiMeta(page=page, per_page=per_page, total=total),
-    )
-
-
-@router.get("/costs/comparison", response_model=ApiResponse[list[dict]])
-async def cost_comparison(
-    _user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> ApiResponse[list[dict]]:
-    """Return cost comparison aggregated from real ``cost_events`` rows.
-
-    Groups recorded usage by ``(provider, model_name)`` and computes the
-    average input/output price per million tokens for each combination.
-    The gateway tier is inferred from the provider (or a ``provider/model``
-    prefix in the model name).
-
-    If ``cost_events`` has no rows, returns an empty list — never the
-    hardcoded fixture.
-    """
-    # Aggregate over the cost_events table:
-    #   sum(input_tokens), sum(output_tokens), sum(cost_usd) per (provider, model)
-    stmt = (
-        select(
-            CostEvent.provider.label("provider"),
-            CostEvent.model_name.label("model_name"),
-            func.sum(CostEvent.input_tokens).label("input_tokens"),
-            func.sum(CostEvent.output_tokens).label("output_tokens"),
-            func.sum(CostEvent.cost_usd).label("cost_usd"),
-            func.count(CostEvent.id).label("requests"),
-        )
-        .group_by(CostEvent.provider, CostEvent.model_name)
-        .order_by(CostEvent.model_name)
-    )
-
-    try:
-        result = await db.execute(stmt)
-        rows = result.all()
-    except Exception as exc:  # noqa: BLE001 — DB transient failures shouldn't 500 the page
-        logger.warning("cost_events aggregation failed: %s", exc)
-        rows = []
-
-    comparison: list[dict] = []
-    for row in rows:
-        input_tok = int(row.input_tokens or 0)
-        output_tok = int(row.output_tokens or 0)
-        total_cost = float(row.cost_usd or 0.0)
-        requests = int(row.requests or 0)
-
-        # Cost is recorded as a single number per event. Without a per-call
-        # input/output breakdown we cannot recover the exact per-million
-        # input vs output price, so we approximate using the empirical
-        # token mix on the row group: split total_cost proportional to the
-        # token volume, then divide by tokens to get $/1M.
-        total_tok = input_tok + output_tok
-        if total_tok > 0 and total_cost > 0:
-            input_share = total_cost * (input_tok / total_tok) if input_tok else 0.0
-            output_share = total_cost * (output_tok / total_tok) if output_tok else 0.0
-            input_per_million = round(input_share / input_tok * 1_000_000, 6) if input_tok else 0.0
-            output_per_million = (
-                round(output_share / output_tok * 1_000_000, 6) if output_tok else 0.0
-            )
-        else:
-            input_per_million = 0.0
-            output_per_million = 0.0
-
-        comparison.append(
-            {
-                "model": row.model_name,
-                "name": row.model_name,
-                "provider": row.provider,
-                "gateway_tier": _infer_tier_from_provider(row.provider, row.model_name),
-                "input_per_million": input_per_million,
-                "output_per_million": output_per_million,
-                "context_window": None,
-                "requests": requests,
-                "total_cost_usd": round(total_cost, 6),
-            }
-        )
-
-    # Sort by input price ascending (free / unknown rows last).
-    comparison.sort(
-        key=lambda x: float(x["input_per_million"]) if x["input_per_million"] else float("inf")
-    )
-
-    return ApiResponse(
-        data=comparison,
-        meta=ApiMeta(page=1, per_page=len(comparison), total=len(comparison)),
     )

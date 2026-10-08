@@ -1,10 +1,9 @@
-// Package server wires the auth, guardrail, A2A, MCP, OTel, and cost components
+// Package server wires the auth, guardrail, A2A, MCP, and OTel components
 // into a small HTTP server set:
 //
 //   - inbound (default :8080) — public ingress, fronts the agent;
 //   - localhost A2A (:9090) — /a2a/<peer> JSON-RPC client;
-//   - localhost MCP (:9091) — /mcp/<server> JSON-RPC passthrough;
-//   - localhost cost (:9092) — /cost POST endpoint for in-process emission.
+//   - localhost MCP (:9091) — /mcp/<server> JSON-RPC passthrough.
 package server
 
 import (
@@ -23,7 +22,6 @@ import (
 	"github.com/agentbreeder/agentbreeder/sidecar/internal/a2a"
 	"github.com/agentbreeder/agentbreeder/sidecar/internal/auth"
 	"github.com/agentbreeder/agentbreeder/sidecar/internal/config"
-	"github.com/agentbreeder/agentbreeder/sidecar/internal/cost"
 	"github.com/agentbreeder/agentbreeder/sidecar/internal/guardrails"
 	"github.com/agentbreeder/agentbreeder/sidecar/internal/mcp"
 	"github.com/agentbreeder/agentbreeder/sidecar/internal/otelx"
@@ -36,7 +34,6 @@ type Server struct {
 	Logger *slog.Logger
 	Rules  *guardrails.Evaluator
 	OTel   *otelx.Exporter
-	Cost   *cost.Client
 	A2A    *a2a.Client
 	MCP    *mcp.Client
 	Proxy  *proxy.Proxy
@@ -63,14 +60,12 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	a2aClient := a2a.NewClient(buildA2APeers(cfg.A2APeers, cfg.AuthToken), 30*time.Second)
 	mcpClient := mcp.NewClient(cfg.MCPServers, 30*time.Second)
 	otelExp := otelx.New(cfg.OTLPEndpoint, cfg.OTLPHeaders, cfg.AgentName)
-	costClient := cost.NewClient(cfg.APIBaseURL, cfg.APIToken, 5*time.Second)
 
 	return &Server{
 		Cfg:    cfg,
 		Logger: logger,
 		Rules:  rules,
 		OTel:   otelExp,
-		Cost:   costClient,
 		A2A:    a2aClient,
 		MCP:    mcpClient,
 		Proxy:  prx,
@@ -108,15 +103,14 @@ func (s *Server) InboundRouter() http.Handler {
 }
 
 // LocalRouter builds the chi router for localhost-only helper endpoints.
-// Mounts /a2a, /mcp, and /cost on a single port (defaults to 9090) and the
-// caller can split per-port if desired by calling InternalA2A/MCP/Cost handlers
+// Mounts /a2a and /mcp on a single port (defaults to 9090) and the
+// caller can split per-port if desired by calling InternalA2A/MCP handlers
 // separately.
 func (s *Server) LocalRouter() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/health", s.handleHealth)
 	r.Post("/a2a/{peer}", s.handleA2A)
 	r.Post("/mcp/{server}", s.handleMCP)
-	r.Post("/cost", s.handleCost)
 	return r
 }
 
@@ -131,7 +125,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"agent_url":     s.Proxy.Target(),
 		"guardrails":    s.Rules.Rules(),
 		"otel_enabled":  s.OTel.Enabled(),
-		"cost_enabled":  s.Cost.Enabled(),
 		"a2a_peers":     keys(s.A2A.Peers),
 		"mcp_servers":   keys(s.MCP.Servers),
 	}
@@ -190,37 +183,6 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", ct)
 	_, _ = w.Write(respBody)
-}
-
-func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
-	var ev cost.Event
-	if err := json.NewDecoder(r.Body).Decode(&ev); err != nil {
-		s.writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if ev.Agent == "" {
-		ev.Agent = s.Cfg.AgentName
-	}
-	if ev.AgentVersion == "" {
-		ev.AgentVersion = s.Cfg.AgentVersion
-	}
-	if err := s.Cost.Send(r.Context(), ev); err != nil {
-		s.Logger.Warn("cost emission failed", "err", err.Error())
-		s.writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	// Emit a span best-effort so OTel sees cost events alongside latency spans.
-	span := s.OTel.StartSpan("agent.cost")
-	span.Attributes["model"] = ev.Model
-	span.Attributes["input_tokens"] = ev.InputTokens
-	span.Attributes["output_tokens"] = ev.OutputTokens
-	span.Attributes["cost_usd"] = ev.CostUSD
-	span.EndTime = time.Now()
-	if err := s.OTel.Export(r.Context(), span); err != nil {
-		s.Logger.Debug("otel export skipped", "err", err.Error())
-	}
-	w.WriteHeader(http.StatusAccepted)
-	_, _ = w.Write([]byte(`{"status":"recorded"}`))
 }
 
 func (s *Server) writeError(w http.ResponseWriter, code int, err error) {
@@ -283,13 +245,12 @@ const openAPIDoc = `{
   "info": {
     "title": "AgentBreeder Sidecar",
     "version": "0.1.0",
-    "description": "Sidecar exposes /health, /openapi.json, and proxies the agent. Localhost helpers: /a2a/{peer}, /mcp/{server}, /cost."
+    "description": "Sidecar exposes /health, /openapi.json, and proxies the agent. Localhost helpers: /a2a/{peer}, /mcp/{server}."
   },
   "paths": {
     "/health": { "get": { "summary": "Liveness probe" } },
     "/openapi.json": { "get": { "summary": "Self-describing schema" } },
     "/a2a/{peer}": { "post": { "summary": "Forward a JSON-RPC tasks/send to a remote A2A peer" } },
-    "/mcp/{server}": { "post": { "summary": "Forward a JSON-RPC payload to a configured MCP server" } },
-    "/cost": { "post": { "summary": "Record a cost/token event in costs + audit_log" } }
+    "/mcp/{server}": { "post": { "summary": "Forward a JSON-RPC payload to a configured MCP server" } }
   }
 }`

@@ -28,9 +28,6 @@ tools:
           default: 3
       required: [query]
 
-knowledge_bases:
-  - ref: kb/agentbreeder-knowledge
-
 prompts:
   system: |
     You are a helpful AI assistant with access to the AgentBreeder knowledge base.

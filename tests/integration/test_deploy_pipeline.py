@@ -56,8 +56,6 @@ model:
 tools:
   - ref: tools/zendesk-mcp
   - ref: tools/order-lookup
-knowledge_bases:
-  - ref: kb/product-docs
 deploy:
   cloud: local
 """
@@ -74,20 +72,6 @@ deploy:
   cloud: gcp
   runtime: cloud-run
   region: us-central1
-"""
-
-ORCHESTRATION_YAML = """\
-name: support-pipeline
-version: 1.0.0
-strategy: sequential
-agents:
-  - ref: agents/classifier
-  - ref: agents/responder
-shared_state:
-  type: dict
-  backend: in_memory
-deploy:
-  target: local
 """
 
 INVALID_YAML_MISSING_FIELDS = """\
@@ -463,14 +447,6 @@ class TestDependencyResolution:
         assert "tools/zendesk-mcp" in refs
         assert "tools/order-lookup" in refs
 
-    def test_resolve_passes_through_kb_refs(self) -> None:
-        """Knowledge base refs should be preserved after resolution."""
-        agent_dir = _make_agent_dir(VALID_YAML_WITH_TOOLS)
-        config = parse_config(agent_dir / "agent.yaml")
-        resolved = resolve_dependencies(config)
-        kb_refs = [kb.ref for kb in resolved.knowledge_bases]
-        assert "kb/product-docs" in kb_refs
-
     def test_resolve_with_no_refs(self) -> None:
         """An agent with no tool/kb refs should resolve without error."""
         agent_dir = _make_agent_dir(VALID_YAML)
@@ -808,93 +784,7 @@ access:
 
 
 # ===========================================================================
-# 9. Orchestration deploy: multi-agent orchestration
-# ===========================================================================
-
-
-class TestOrchestrationDeploy:
-    """Tests for orchestration YAML parsing and validation."""
-
-    def test_orchestration_yaml_parses(self) -> None:
-        """Orchestration YAML should parse into OrchestrationConfig."""
-        from engine.orchestration_parser import parse_orchestration
-
-        yaml_content = """\
-name: support-pipeline
-version: 1.0.0
-strategy: sequential
-agents:
-  classifier:
-    ref: agents/classifier
-  responder:
-    ref: agents/responder
-"""
-        d = Path(tempfile.mkdtemp())
-        (d / "orchestration.yaml").write_text(yaml_content)
-        config = parse_orchestration(d / "orchestration.yaml")
-        assert config.name == "support-pipeline"
-        assert config.strategy.value == "sequential"
-        assert len(config.agents) == 2
-
-    def test_orchestration_invalid_strategy(self) -> None:
-        """Invalid strategy should fail validation."""
-        from engine.orchestration_parser import validate_orchestration
-
-        bad_yaml = """\
-name: bad-pipeline
-version: 1.0.0
-strategy: invalid_strategy
-agents:
-  test-agent:
-    ref: agents/test
-"""
-        d = Path(tempfile.mkdtemp())
-        (d / "orchestration.yaml").write_text(bad_yaml)
-        result = validate_orchestration(d / "orchestration.yaml")
-        assert not result.valid
-
-    def test_orchestration_missing_agents(self) -> None:
-        """Orchestration without agents should fail validation."""
-        from engine.orchestration_parser import validate_orchestration
-
-        bad_yaml = """\
-name: empty-pipeline
-version: 1.0.0
-strategy: sequential
-"""
-        d = Path(tempfile.mkdtemp())
-        (d / "orchestration.yaml").write_text(bad_yaml)
-        result = validate_orchestration(d / "orchestration.yaml")
-        assert not result.valid
-
-    def test_orchestration_with_shared_state(self) -> None:
-        """Orchestration with shared state config should parse correctly."""
-        from engine.orchestration_parser import parse_orchestration
-
-        yaml_content = """\
-name: stateful-pipeline
-version: 1.0.0
-strategy: parallel
-agents:
-  analyzer:
-    ref: agents/analyzer
-  summarizer:
-    ref: agents/summarizer
-shared_state:
-  type: dict
-  backend: in_memory
-deploy:
-  target: local
-"""
-        d = Path(tempfile.mkdtemp())
-        (d / "orchestration.yaml").write_text(yaml_content)
-        config = parse_orchestration(d / "orchestration.yaml")
-        assert config.shared_state is not None
-        assert config.shared_state.type == "dict"
-
-
-# ===========================================================================
-# 10. Secret resolution during deploy
+# 9. Secret resolution during deploy
 # ===========================================================================
 
 

@@ -3,7 +3,7 @@
 These pure-ish helpers sit between the deploy pipeline and the cloud
 provisioners: they translate an agent's BYO-network ``deploy.env_vars`` into a
 :class:`DataBackendRequest`, and turn a provisioned resources dict back into a
-``KB_PGVECTOR_DSN`` (resolving the DB password from the cloud secret store).
+Postgres DSN (resolving the DB password from the cloud secret store).
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from engine.config_parser import (
     AgentConfig,
     CloudType,
     DeployConfig,
-    KnowledgeBaseRef,
     MemoryConfig,
     ModelConfig,
 )
@@ -30,7 +29,6 @@ def _cfg(
     *,
     cloud: CloudType = CloudType.aws,
     env_vars: dict[str, str] | None = None,
-    kbs: list[KnowledgeBaseRef] | None = None,
     region: str | None = None,
 ) -> AgentConfig:
     return AgentConfig(
@@ -40,7 +38,6 @@ def _cfg(
         owner="a@b.com",
         framework="langgraph",
         model=ModelConfig(primary="gpt-4o"),
-        knowledge_bases=kbs if kbs is not None else [KnowledgeBaseRef(ref="kb/docs")],
         deploy=DeployConfig(cloud=cloud, region=region, env_vars=env_vars or {}),
     )
 
@@ -175,25 +172,25 @@ async def test_resolve_dsn_for_azure_parses_kv_uri() -> None:
 
 
 def test_needs_managed_memory_redis_true_for_redis_backend() -> None:
-    cfg = _cfg(cloud=CloudType.aws, kbs=[])
+    cfg = _cfg(cloud=CloudType.aws)
     cfg.memory = MemoryConfig(backend="redis")
     assert needs_managed_memory_redis(cfg) is True
 
 
 def test_needs_managed_memory_redis_false_for_postgresql() -> None:
-    cfg = _cfg(cloud=CloudType.aws, kbs=[])
+    cfg = _cfg(cloud=CloudType.aws)
     cfg.memory = MemoryConfig(backend="postgresql")
     assert needs_managed_memory_redis(cfg) is False
 
 
 def test_needs_managed_memory_redis_false_when_backend_url_pinned() -> None:
-    cfg = _cfg(cloud=CloudType.gcp, kbs=[])
+    cfg = _cfg(cloud=CloudType.gcp)
     cfg.memory = MemoryConfig(backend="redis", backend_url="rediss://byo")
     assert needs_managed_memory_redis(cfg) is False
 
 
 def test_needs_managed_memory_redis_false_for_local() -> None:
-    cfg = _cfg(cloud=CloudType.local, kbs=[])
+    cfg = _cfg(cloud=CloudType.local)
     cfg.memory = MemoryConfig(backend="redis")
     assert needs_managed_memory_redis(cfg) is False
 

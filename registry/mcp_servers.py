@@ -140,8 +140,8 @@ class McpServerRegistry:
     async def test_connection(session: AsyncSession, server_id: str) -> dict[str, object]:
         """Test connectivity to an MCP server.
 
-        Attempts a real HTTP health check for SSE/HTTP transports,
-        falls back to a simulated ping for stdio transports.
+        Performs an HTTP health check for SSE/HTTP transports. stdio servers
+        have no network endpoint to probe, so they are reported as untestable.
         """
         import time
 
@@ -175,18 +175,17 @@ class McpServerRegistry:
                 await session.flush()
                 return {"success": False, "error": str(e)}
 
-        # stdio transport — simulate ping (no HTTP endpoint)
-        server.last_ping_at = datetime.now(UTC)
-        server.status = "active"
-        await session.flush()
-        return {"success": True, "latency_ms": 0}
+        return {
+            "success": False,
+            "error": "Connection test is only supported for sse/streamable_http transports",
+        }
 
     @staticmethod
     async def discover_tools(session: AsyncSession, server_id: str) -> dict[str, object]:
         """Discover tools exposed by an MCP server.
 
-        For SSE/HTTP transports, attempts a real protocol call to list tools.
-        Falls back to a mock response if the server is unreachable.
+        For SSE/HTTP transports, issues a ``tools/list`` protocol call. Returns
+        an empty list when the server is unreachable or uses stdio transport.
         """
         import httpx
 
@@ -253,37 +252,7 @@ class McpServerRegistry:
             except Exception as e:
                 logger.warning("MCP discover_tools failed for %s: %s", server.name, e)
 
-        # Fallback: return placeholder tools based on server name
-        fallback_tools = [
-            {
-                "name": f"{server.name}-search",
-                "description": f"Search tool provided by {server.name}",
-                "schema_definition": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query"},
-                        "limit": {"type": "integer", "description": "Max results", "default": 10},
-                    },
-                    "required": ["query"],
-                },
-            },
-            {
-                "name": f"{server.name}-execute",
-                "description": f"Execute action via {server.name}",
-                "schema_definition": {
-                    "type": "object",
-                    "properties": {
-                        "action": {"type": "string", "description": "Action name"},
-                        "params": {"type": "object", "description": "Action parameters"},
-                    },
-                    "required": ["action"],
-                },
-            },
-        ]
-
-        server.tool_count = len(fallback_tools)
-        await session.flush()
-        return {"tools": fallback_tools, "total": len(fallback_tools)}
+        return {"tools": [], "total": 0}
 
     @staticmethod
     async def execute_tool(

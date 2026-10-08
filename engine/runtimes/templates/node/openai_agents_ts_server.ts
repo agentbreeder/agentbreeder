@@ -2,7 +2,7 @@
 // Platform-managed. Do not edit — regenerated on each deploy.
 import { Runner } from '@openai/agents'
 import { createServer } from 'node:http'
-import { aps, buildAgentCard, buildHealthResponse, verifyAuth } from './_shared_loader.js'
+import { buildAgentCard, buildHealthResponse, verifyAuth } from './_shared_loader.js'
 import { agent } from './agent.js'
 
 const PORT = parseInt(process.env.PORT ?? '{{PORT}}', 10)
@@ -89,7 +89,6 @@ const server = createServer(async (req, res) => {
     const input: string = body.input ?? (body.messages?.[body.messages.length - 1]?.content ?? '')
 
     const result = await Runner.run(agent, input)
-    aps.cost.record({ agentName: '{{AGENT_NAME}}', model: '{{AGENT_FRAMEWORK}}', inputTokens: 0, outputTokens: 0 })
     // Structured tool-call timeline (#215). The OpenAI Agents JS SDK emits
     // newItems with raw_item.type of "function_call" / "function_call_output";
     // pair them up by call_id so the dashboard playground can render a tool-

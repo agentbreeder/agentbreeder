@@ -499,42 +499,6 @@ class TestProviderRegistryDelete:
         assert await ProviderRegistry.get(session, pid) is None
 
 
-class TestProviderRegistryTestConnection:
-    @pytest.mark.asyncio
-    async def test_test_connection(self, session: AsyncSession) -> None:
-        p = await ProviderRegistry.create(session, name="p1", provider_type=ProviderType.openai)
-        result = await ProviderRegistry.test_connection(session, p)
-        assert result["success"] is True
-        assert result["latency_ms"] > 0
-        assert result["models_found"] == 6  # openai has 6 simulated models
-        assert p.status == ProviderStatus.active
-        assert p.last_verified is not None
-
-
-class TestProviderRegistryDiscoverModels:
-    @pytest.mark.asyncio
-    async def test_discover_openai(self, session: AsyncSession) -> None:
-        p = await ProviderRegistry.create(session, name="p1", provider_type=ProviderType.openai)
-        models = await ProviderRegistry.discover_models(session, p)
-        assert len(models) == 6
-        assert any(m["id"] == "gpt-4o" for m in models)
-
-    @pytest.mark.asyncio
-    async def test_discover_anthropic(self, session: AsyncSession) -> None:
-        p = await ProviderRegistry.create(session, name="p1", provider_type=ProviderType.anthropic)
-        models = await ProviderRegistry.discover_models(session, p)
-        assert len(models) == 3
-        assert any("claude" in m["id"] for m in models)
-
-    @pytest.mark.asyncio
-    async def test_discover_unknown_type(self, session: AsyncSession) -> None:
-        """Provider with type not in simulated map returns empty list."""
-        p = await ProviderRegistry.create(session, name="p1", provider_type=ProviderType.ollama)
-        # ollama is in the map, so test with a provider whose type we force
-        models = await ProviderRegistry.discover_models(session, p)
-        assert isinstance(models, list)
-
-
 # ─── DeployRegistry ──────────────────────────────────────────────────────────
 
 

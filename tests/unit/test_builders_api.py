@@ -234,25 +234,3 @@ class TestPlaygroundChat:
             },
         )
         assert resp.status_code == 422
-
-
-class TestPlaygroundSaveEvalCase:
-    def test_save_eval_case(self) -> None:
-        """POST /playground/eval-case saves and returns eval_case_id."""
-        resp = client.post(
-            "/api/v1/playground/eval-case",
-            json={
-                "agent_id": "agent-123",
-                "conversation_history": [
-                    {"role": "user", "content": "Hello"},
-                    {"role": "assistant", "content": "Hi there!"},
-                ],
-                "assistant_message": "Hi there!",
-                "model_used": "claude-sonnet-4",
-                "tags": ["smoke-test"],
-            },
-        )
-        assert resp.status_code == 200
-        data = resp.json()["data"]
-        assert data["saved"] is True
-        assert data["eval_case_id"]

@@ -22,7 +22,7 @@ const DefaultConfigPath = "/etc/agentbreeder/sidecar.yaml"
 
 // Config is the fully-resolved sidecar runtime configuration.
 type Config struct {
-	// AgentName is the canonical agent identifier emitted in cost / trace events.
+	// AgentName is the canonical agent identifier emitted in trace events.
 	AgentName string `yaml:"agent_name"`
 	// AgentVersion is the agent semantic version. Optional.
 	AgentVersion string `yaml:"agent_version"`
@@ -31,7 +31,6 @@ type Config struct {
 	InboundAddr string `yaml:"inbound_addr"` // public ingress, default :8080
 	A2AAddr     string `yaml:"a2a_addr"`     // localhost-only, default 127.0.0.1:9090
 	MCPAddr     string `yaml:"mcp_addr"`     // localhost-only, default 127.0.0.1:9091
-	CostAddr    string `yaml:"cost_addr"`    // localhost-only, default 127.0.0.1:9092
 
 	// Upstream agent target — sidecar proxies inbound requests here.
 	AgentURL string `yaml:"agent_url"` // default http://127.0.0.1:8081
@@ -42,10 +41,6 @@ type Config struct {
 	// OpenTelemetry.
 	OTLPEndpoint string            `yaml:"otlp_endpoint"`
 	OTLPHeaders  map[string]string `yaml:"otlp_headers"`
-
-	// Cost / audit emission target (the AgentBreeder API).
-	APIBaseURL string `yaml:"api_base_url"`
-	APIToken   string `yaml:"-"` // sourced from env only
 
 	// Guardrails: ordered list of rules to apply on egress payloads.
 	Guardrails []GuardrailRule `yaml:"guardrails"`
@@ -84,9 +79,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.MCPAddr == "" {
 		c.MCPAddr = "127.0.0.1:9091"
-	}
-	if c.CostAddr == "" {
-		c.CostAddr = "127.0.0.1:9092"
 	}
 	if c.AgentURL == "" {
 		c.AgentURL = "http://127.0.0.1:8081"
@@ -166,14 +158,11 @@ func (c *Config) overlayEnv() {
 	setIfEnv(&c.InboundAddr, "AGENTBREEDER_SIDECAR_INBOUND_ADDR")
 	setIfEnv(&c.A2AAddr, "AGENTBREEDER_SIDECAR_A2A_ADDR")
 	setIfEnv(&c.MCPAddr, "AGENTBREEDER_SIDECAR_MCP_ADDR")
-	setIfEnv(&c.CostAddr, "AGENTBREEDER_SIDECAR_COST_ADDR")
 	setIfEnv(&c.AgentURL, "AGENTBREEDER_SIDECAR_AGENT_URL")
 	setIfEnv(&c.OTLPEndpoint, "OTEL_EXPORTER_OTLP_ENDPOINT")
-	setIfEnv(&c.APIBaseURL, "AGENTBREEDER_API_URL")
 
 	// Secrets always come from env, never the YAML on disk.
 	c.AuthToken = os.Getenv("AGENT_AUTH_TOKEN")
-	c.APIToken = os.Getenv("AGENTBREEDER_API_TOKEN")
 
 	// OTLP headers list: "k1=v1,k2=v2"
 	if h := os.Getenv("OTEL_EXPORTER_OTLP_HEADERS"); h != "" {

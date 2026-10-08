@@ -29,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.database import (
     Agent,
-    KnowledgeBase,
     McpServer,
     Prompt,
     Provider,
@@ -236,38 +235,6 @@ async def _seed_providers(session: AsyncSession, base: Path, report: SeedReport)
     report.seeded["providers"] = inserted
 
 
-async def _seed_knowledge_bases(session: AsyncSession, base: Path, report: SeedReport) -> None:
-    if await _table_count(session, KnowledgeBase) > 0:
-        report.skipped["knowledge_bases"] = "already populated"
-        return
-
-    files = _list_yaml_files(base / "knowledge_bases")
-    if not files:
-        report.skipped["knowledge_bases"] = "no seed files"
-        return
-
-    inserted = 0
-    for path in files:
-        try:
-            doc = _load_yaml(path)
-            kb = KnowledgeBase(
-                name=doc["name"],
-                description=doc.get("description", ""),
-                kb_type=doc.get("kb_type", "document"),
-                source_url=doc.get("source_url"),
-                config=doc.get("config") or {},
-            )
-            session.add(kb)
-            await session.flush()
-            inserted += 1
-        except Exception as exc:
-            msg = f"knowledge_bases/{path.name}: {exc}"
-            logger.warning("Seed knowledge_base failed: %s", msg)
-            report.errors.append(msg)
-
-    report.seeded["knowledge_bases"] = inserted
-
-
 async def _seed_agents(session: AsyncSession, base: Path, report: SeedReport) -> None:
     if await _table_count(session, Agent) > 0:
         report.skipped["agents"] = "already populated"
@@ -321,7 +288,7 @@ async def seed_registries(
     """Idempotently seed empty registry tables from canonical seed YAMLs.
 
     For each registry table (prompts, tools, mcp_servers, providers,
-    knowledge_bases, agents) this function:
+    agents) this function:
 
     1. Counts existing rows. If non-zero, the table is left untouched.
     2. Otherwise loads every ``.yaml`` / ``.yml`` file under the matching
@@ -342,7 +309,7 @@ async def seed_registries(
         :class:`SeedReport` summarising what was seeded, skipped, or
         errored.
 
-    Order matters: prompts/tools/mcp_servers/providers/knowledge_bases
+    Order matters: prompts/tools/mcp_servers/providers
     are seeded before agents, because the seed agent references them.
     """
     base = Path(examples_dir) if examples_dir else DEFAULT_EXAMPLES_DIR
@@ -360,7 +327,6 @@ async def seed_registries(
         await _seed_tools(session, base, report)
         await _seed_mcp_servers(session, base, report)
         await _seed_providers(session, base, report)
-        await _seed_knowledge_bases(session, base, report)
         await _seed_agents(session, base, report)
         await session.commit()
     except Exception as exc:

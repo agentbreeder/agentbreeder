@@ -191,43 +191,6 @@ func TestMCPHandlerForwards(t *testing.T) {
 	}
 }
 
-func TestCostHandlerWritesEvent(t *testing.T) {
-	hits := 0
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits++
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer api.Close()
-
-	cfg := &config.Config{
-		AgentName: "demo", AuthToken: "tok", AgentURL: "http://127.0.0.1:1",
-		APIBaseURL: api.URL,
-	}
-	cfg.Validate()
-	s, _ := New(cfg, nil)
-
-	req := httptest.NewRequest(http.MethodPost, "/cost",
-		strings.NewReader(`{"model":"gpt","input_tokens":5,"output_tokens":3,"cost_usd":0.001}`))
-	w := httptest.NewRecorder()
-	s.LocalRouter().ServeHTTP(w, req)
-	if w.Code != http.StatusAccepted {
-		t.Errorf("expected 202, got %d, body=%s", w.Code, w.Body.String())
-	}
-	if hits != 2 {
-		t.Errorf("expected 2 API calls (costs+audit), got %d", hits)
-	}
-}
-
-func TestCostHandlerRejectsBadJSON(t *testing.T) {
-	s := newTestServer(t, "http://127.0.0.1:1")
-	req := httptest.NewRequest(http.MethodPost, "/cost", strings.NewReader("bad"))
-	w := httptest.NewRecorder()
-	s.LocalRouter().ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
 func TestOpenAPIHandler(t *testing.T) {
 	s := newTestServer(t, "http://127.0.0.1:1")
 	req := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)

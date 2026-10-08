@@ -89,7 +89,7 @@ class TestProviderAdd:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["provider"]["provider_type"] == "ollama"
-        assert data["provider"]["status"] == "active"
+        assert data["provider"]["status"] == "configured"
         assert data["models"]
 
     def test_add_openai_with_key(self, providers_file, tmp_path):
@@ -102,7 +102,7 @@ class TestProviderAdd:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["provider"]["provider_type"] == "openai"
-        assert data["provider"]["status"] == "active"
+        assert data["provider"]["status"] == "configured"
         assert data["provider"]["model_count"] == 7
         # Key should be saved to .env
         assert env_file.exists()
@@ -124,47 +124,6 @@ class TestProviderAdd:
         data = json.loads(result.output)
         assert data["provider"]["provider_type"] == "anthropic"
         assert "ANTHROPIC_API_KEY=sk-ant-test" in env_file.read_text()
-
-
-class TestProviderTest:
-    def test_test_not_configured(self, providers_file):
-        result = runner.invoke(app, ["provider", "test", "openai"])
-        assert result.exit_code == 1
-        assert "not configured" in result.output
-
-    def test_test_success(self, providers_file):
-        providers = {
-            "openai": {
-                "name": "OpenAI",
-                "provider_type": "openai",
-                "status": "active",
-                "model_count": 7,
-                "base_url": "https://api.openai.com/v1",
-            }
-        }
-        providers_file.write_text(json.dumps(providers))
-
-        result = runner.invoke(app, ["provider", "test", "openai"])
-        assert result.exit_code == 0
-        assert "healthy" in result.output
-
-    def test_test_json(self, providers_file):
-        providers = {
-            "openai": {
-                "name": "OpenAI",
-                "provider_type": "openai",
-                "status": "active",
-                "model_count": 7,
-                "base_url": "https://api.openai.com/v1",
-            }
-        }
-        providers_file.write_text(json.dumps(providers))
-
-        result = runner.invoke(app, ["provider", "test", "openai", "--json"])
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert data["success"] is True
-        assert "latency_ms" in data
 
 
 class TestProviderModels:

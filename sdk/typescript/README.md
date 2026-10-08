@@ -2,7 +2,7 @@
 
 TypeScript SDK for [AgentBreeder](https://www.agentbreeder.io) — Define Once. Deploy Anywhere.
 
-Build, configure, and deploy AI agents to AWS, GCP, or any supported cloud with a fluent TypeScript API.
+Define and validate AgentBreeder agents with a fluent TypeScript API, then deploy them with the `agentbreeder` CLI.
 
 ## Installation
 
@@ -41,9 +41,8 @@ if (errors.length > 0) {
 // Serialize to agent.yaml
 console.log(agent.toYaml());
 
-// Deploy
-const result = await agent.deploy("aws");
-console.log("Deployed:", result);
+// Write agent.yaml, then deploy with the CLI: agentbreeder deploy --target aws
+await agent.save("agent.yaml");
 ```
 
 ## API Reference
@@ -73,7 +72,6 @@ const agent = new Agent(name: string, opts?: AgentOptions)
 |--------|-------------|
 | `.withModel(primary, opts?)` | Set primary model and optional fallback/temperature/maxTokens |
 | `.withTool(tool)` | Add a Tool to the agent |
-| `.withSubagent(ref, opts?)` | Reference another agent as a subagent |
 | `.withMcpServer(ref, transport?)` | Add an MCP server reference |
 | `.withPrompt(system)` | Set the system prompt |
 | `.withGuardrail(name)` | Add a guardrail (e.g. `"pii_detection"`) |
@@ -93,7 +91,6 @@ const agent = new Agent(name: string, opts?: AgentOptions)
 | `.route(message, context)` | Custom routing logic (returns `null` by default — override in subclass) |
 | `.selectTools(message)` | Select tools for a message (returns `[]` by default — override in subclass) |
 | `.save(path)` | Write `agent.yaml` to disk |
-| `.deploy(target?)` | Deploy the agent via the AgentBreeder CLI/API |
 | `Agent.fromYaml(yaml)` | Parse an agent from a YAML string |
 | `Agent.fromFile(path)` | Load an agent from a YAML file (async) |
 

@@ -25,9 +25,6 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MCPAddr != "127.0.0.1:9091" {
 		t.Errorf("default mcp addr: got %q", cfg.MCPAddr)
 	}
-	if cfg.CostAddr != "127.0.0.1:9092" {
-		t.Errorf("default cost addr: got %q", cfg.CostAddr)
-	}
 }
 
 func TestLoadEnvOverridesFile(t *testing.T) {

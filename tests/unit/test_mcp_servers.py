@@ -140,16 +140,11 @@ class TestMcpServerDelete:
 
 class TestMcpServerTestConnection:
     @pytest.mark.asyncio
-    async def test_successful_ping(self, session: AsyncSession) -> None:
+    async def test_stdio_transport_is_not_tested(self, session: AsyncSession) -> None:
         server = await McpServerRegistry.create(session, name="ping", endpoint="http://ping")
         result = await McpServerRegistry.test_connection(session, str(server.id))
-        assert result["success"] is True
-        assert isinstance(result["latency_ms"], int)
-        # Verify server was updated
-        refreshed = await McpServerRegistry.get_by_id(session, str(server.id))
-        assert refreshed is not None
-        assert refreshed.last_ping_at is not None
-        assert refreshed.status == "active"
+        assert result["success"] is False
+        assert "sse/streamable_http" in result["error"]
 
     @pytest.mark.asyncio
     async def test_ping_nonexistent(self, session: AsyncSession) -> None:
@@ -162,17 +157,10 @@ class TestMcpServerTestConnection:
 
 class TestMcpServerDiscoverTools:
     @pytest.mark.asyncio
-    async def test_discover(self, session: AsyncSession) -> None:
+    async def test_discover_stdio_returns_no_tools(self, session: AsyncSession) -> None:
         server = await McpServerRegistry.create(session, name="disc", endpoint="http://disc")
         result = await McpServerRegistry.discover_tools(session, str(server.id))
-        assert result["total"] == 2
-        assert len(result["tools"]) == 2
-        assert result["tools"][0]["name"] == "disc-search"
-        assert result["tools"][1]["name"] == "disc-execute"
-        # Verify tool_count updated
-        refreshed = await McpServerRegistry.get_by_id(session, str(server.id))
-        assert refreshed is not None
-        assert refreshed.tool_count == 2
+        assert result == {"tools": [], "total": 0}
 
     @pytest.mark.asyncio
     async def test_discover_nonexistent(self, session: AsyncSession) -> None:

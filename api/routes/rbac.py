@@ -307,6 +307,8 @@ async def rotate_service_principal_key(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except rbac_service.KeyIssuanceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     await db.commit()
     return ApiResponse(
         data=ServicePrincipalKeyResponse(

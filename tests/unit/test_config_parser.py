@@ -57,8 +57,6 @@ model:
 tools:
   - ref: tools/zendesk-mcp
   - ref: tools/order-lookup
-knowledge_bases:
-  - ref: kb/product-docs
 prompts:
   system: "You are a helpful assistant"
 guardrails:
@@ -112,7 +110,6 @@ class TestParseConfig:
         assert config.model.max_tokens == 4096
         assert len(config.tools) == 2
         assert config.tools[0].ref == "tools/zendesk-mcp"
-        assert len(config.knowledge_bases) == 1
         assert config.deploy.cloud == CloudType.aws
         assert config.deploy.scaling.min == 1
         assert config.deploy.scaling.max == 10

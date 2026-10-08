@@ -267,11 +267,7 @@ module = ["engine.builder"]
 disable_error_code = ["assignment", "attr-defined"]
 
 [[tool.mypy.overrides]]
-module = ["engine.config_parser", "engine.orchestration_parser"]
-disable_error_code = ["no-any-return"]
-
-[[tool.mypy.overrides]]
-module = ["engine.orchestrator"]
+module = ["engine.config_parser"]
 disable_error_code = ["no-any-return"]
 
 [[tool.mypy.overrides]]
