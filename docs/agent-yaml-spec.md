@@ -34,11 +34,6 @@ tools:
     description: "Search knowledge base"
     schema: { ... }                   # OpenAPI-compatible schema
 
-# Knowledge Bases
-knowledge_bases:
-  - ref: kb/product-docs              # Registry reference
-  - ref: kb/return-policy
-
 # Prompts
 prompts:
   system: prompts/support-system-v3   # Registry reference (versioned)

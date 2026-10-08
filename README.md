@@ -33,11 +33,11 @@ One YAML, one command — Apache 2.0, no vendor lock-in.
 
 ---
 
-Your company has 47 AI agents. Nobody knows what they cost, who approved them, or which ones are still running. Three teams built the same summarizer. The security team hasn't audited any of them.
+Your company has 47 AI agents. Nobody knows who can deploy them, where they run, or which ones are still alive. Three teams built the same summarizer.
 
 **AgentBreeder fixes this.**
 
-Write one `agent.yaml`. Run `agentbreeder deploy`. Your agent is live — with RBAC, cost tracking, audit trail, and org-wide discoverability. Automatic. Not optional.
+Write one `agent.yaml`. Run `agentbreeder deploy`. Your agent is live — RBAC-checked and registered for org-wide discoverability. Automatic. Not optional.
 
 ---
 
@@ -49,8 +49,6 @@ AI coding tools make it easy to **build** agents. Nobody has made it easy to **s
 |---|---|
 | Every framework has its own deploy story | One YAML, any framework, any cloud |
 | No RBAC — anyone deploys anything | RBAC validated before the first container builds |
-| No cost tracking — $40k surprise cloud bills | Cost attributed per team, per agent, per model |
-| No audit trail — "who deployed that?" | Every deploy logged with who, what, when, where |
 | No discoverability — duplicate agents everywhere | Org-wide registry — search before you build |
 | Governance is bolted on after the fact | Governance is a **structural side effect** of deploying |
 
@@ -60,19 +58,20 @@ AI coding tools make it easy to **build** agents. Nobody has made it easy to **s
 
 ## How It Works
 
-Eight atomic steps run in sequence: 
+Eight steps run in sequence:
 ```
-parse → RBAC check → *(approval gate if required)* → resolve deps → build container → provision infra → deploy → health check → register. If any step fails, the entire deploy rolls back.
+parse → RBAC check → resolve deps → build container → provision infra → deploy → health check → register
 ```
+Any failing step stops the deploy; a failed health check tears the new deployment down.
 ---
 
 ## Three Ways to Build
 
-All three tiers compile to the same internal format. Same deploy pipeline. Same governance. No lock-in.
+All three tiers produce the same `agent.yaml`. Same deploy pipeline. Same governance. No lock-in.
 
 | Tier | Who | How | Eject to |
 |------|-----|-----|----------|
-| **No Code** | PMs, analysts, citizen builders | Visual drag-and-drop canvas — pick model, tools, prompts from the registry | Low Code |
+| **No Code** | PMs, analysts, citizen builders | Describe the agent in the Studio chat builder — it writes the `agent.yaml` | Low Code |
 | **Low Code** | ML engineers, DevOps | Write `agent.yaml` in any IDE | Full Code (`agentbreeder eject`) |
 | **Full Code** | Senior engineers, researchers | Python/TS SDK with full programmatic control | — |
 
@@ -96,7 +95,7 @@ Then run `/agent-build` in Claude Code to scaffold an agent (it recommends frame
 
 | | |
 |---|---|
-| [How-To guides](https://www.agentbreeder.io/docs/how-to) | Install, deploy, orchestrate, evaluate |
+| [How-To guides](https://www.agentbreeder.io/docs/how-to) | Install, configure, deploy |
 | [Quickstart](https://www.agentbreeder.io/docs/quickstart) | Full local platform in one command |
 | [Self-hosting](https://www.agentbreeder.io/docs/self-hosting) | Run the platform on your own Kubernetes via Helm (`deploy/helm/agentbreeder`) |
 | [CLI reference](https://www.agentbreeder.io/docs/cli-reference) | All commands and flags |

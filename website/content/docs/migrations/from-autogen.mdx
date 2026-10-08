@@ -221,19 +221,19 @@ curl -X POST http://localhost:8080/invoke \
 |----------------|------------------------|-------|
 | `AssistantAgent` | Individual agent in `agent.yaml` | Wrapped in a custom callable |
 | `UserProxyAgent` | Server wrapper handles the "user" role | AG server sends messages as the user |
-| `GroupChat` | `orchestration.yaml` with `strategy: supervisor` or `parallel` | AG can orchestrate at platform level |
-| `GroupChatManager` | Supervisor agent in `orchestration.yaml` | AG supervisor handles delegation |
+| `GroupChat` | Your code (unchanged) | Runs inside the container; AG has no separate orchestration layer |
+| `GroupChatManager` | Your code (unchanged) | Delegation stays in AutoGen |
 | `ConversableAgent` | Base agent class in your code (unchanged) | AG wraps it |
 | `config_list` | `model.primary` + `deploy.secrets` | Declarative model config + secret refs |
 | `code_execution_config` | `deploy.env_vars` + custom Dockerfile | Sandboxed execution in container |
-| `human_input_mode` | `access.require_approval` | Deploy-level human-in-the-loop |
-| AutoGen Studio | AgentBreeder Studio | Visual builder for agents |
+| `human_input_mode` | Your code + HITL approvals queue | Agents can pause on a tool call and wait for sign-off via `/api/v1/approvals` |
+| AutoGen Studio | AgentBreeder Studio chat builder | Writes `agent.yaml`; deploy runs through the CLI |
 
 ---
 
-## Mapping GroupChat to AG Orchestration
+## Deploying a GroupChat
 
-AutoGen's `GroupChat` is its multi-agent coordination primitive. Here is how to map it to AgentBreeder orchestration:
+AutoGen's `GroupChat` is its multi-agent coordination primitive. AgentBreeder does not provide its own orchestration layer, so the GroupChat stays in your AutoGen code and is deployed as one agent:
 
 ### AutoGen GroupChat (Before)
 
@@ -277,11 +277,9 @@ manager = autogen.GroupChatManager(
 )
 ```
 
-### AgentBreeder Orchestration (After)
+### AgentBreeder (After)
 
-**Option A: Keep GroupChat inside one agent (simple)**
-
-Deploy the entire GroupChat as a single AG agent with `framework: custom`. This is the fastest migration:
+Deploy the entire GroupChat as a single AG agent with `framework: custom`:
 
 ```yaml
 # agent.yaml
@@ -295,49 +293,7 @@ deploy:
     - OPENAI_API_KEY
 ```
 
-**Option B: Split into AG orchestration (advanced)**
-
-Deploy each AutoGen agent independently and use AG to coordinate:
-
-```yaml
-# orchestration.yaml
-name: research-team
-version: 1.0.0
-team: research
-owner: you@company.com
-strategy: supervisor
-
-supervisor_config:
-  supervisor_agent: manager
-  max_iterations: 4
-
-agents:
-  manager:
-    ref: agents/research-manager
-  researcher:
-    ref: agents/researcher
-    fallback: general-researcher
-  critic:
-    ref: agents/critic
-  writer:
-    ref: agents/writer
-
-deploy:
-  target: local
-  resources:
-    cpu: "2"
-    memory: "4Gi"
-```
-
-### GroupChat pattern to AG strategy mapping
-
-| AutoGen Pattern | AG Strategy | When to use |
-|----------------|-------------|-------------|
-| `GroupChat` with `GroupChatManager` | `strategy: supervisor` | Manager decides who speaks next |
-| Sequential agent calls | `strategy: sequential` | Fixed chain: A then B then C |
-| All agents answer, pick best | `strategy: parallel` + custom merge | Competitive evaluation |
-| Nested chats | `strategy: hierarchical` | Multi-level delegation |
-| Two-agent chat | `strategy: sequential` (2 agents) | Simple back-and-forth |
+If you deploy agents separately instead, each gets its own registry entry. You can register them in the A2A registry (`POST /api/v1/a2a/agents`) and call them through the invoke API (`/api/v1/a2a/invoke`). The coordination logic still lives in your code.
 
 ---
 
@@ -393,12 +349,9 @@ deploy:
 
 ### Teachable Agents
 
-AutoGen's `TeachableAgent` stores learnings in a local database. For persistence in AG:
+AutoGen's `TeachableAgent` stores learnings in a local database, which is lost when the container restarts. For persistence, point it at storage outside the container and pass the connection details as env vars or secrets:
 
 ```yaml
-knowledge_bases:
-  - ref: kb/agent-learnings
-
 deploy:
   resources:
     memory: "4Gi"  # teachable agents need more memory
@@ -410,12 +363,12 @@ deploy:
 
 | Feature | AutoGen Only | AutoGen + AgentBreeder |
 |---------|-------------|----------------------|
-| Multi-agent chat | GroupChat | GroupChat + AG orchestration |
+| Multi-agent chat | GroupChat | GroupChat (unchanged) |
 | Deploy | Manual (`python agent.py`) | `agentbreeder deploy agent.yaml` |
 | Multi-cloud | Not available | One-line change |
 | Code execution | Local Python | Sandboxed in container |
 | RBAC | Not available | Automatic |
-| Cost tracking | Not built-in | Per-agent, per-model |
+| LLM spend | Not built-in | Spend logs via the LiteLLM gateway |
 | Agent registry | AutoGen Studio | Org-wide registry |
 | Health checks | Not available | Automatic |
 | Model fallback | Manual config_list | Declarative + automatic |

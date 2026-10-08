@@ -93,7 +93,7 @@ Do **not** re-export functions from `engine/tools/standard/__init__.py`. Re-expo
 
 ## `SCHEMA` Format
 
-`SCHEMA` is a JSON-Schema dict (OpenAPI subset). It is stored in the registry so the dashboard, visual builders, and agent eval framework can render a typed editor for the tool's inputs.
+`SCHEMA` is a JSON-Schema dict (OpenAPI subset). It is stored in the registry so the dashboard and tool builder can render a typed editor for the tool's inputs.
 
 Minimal requirements:
 

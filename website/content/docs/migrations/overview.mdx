@@ -17,8 +17,8 @@ You already built an agent. It works. But now you need:
 | **Deploy to production** | Write Dockerfiles, Terraform, CI/CD pipelines | `agentbreeder deploy agent.yaml` |
 | **Multi-cloud** | Rewrite infra per cloud provider | Change one line: `cloud: aws` or `cloud: gcp` |
 | **RBAC & access control** | Build from scratch or skip it | Automatic -- every deploy checks permissions |
-| **Cost tracking** | Manual token counting, spreadsheets | Per-agent, per-team, per-model cost attribution |
-| **Audit trail** | Hope someone wrote it down | Every deploy, invocation, and config change logged |
+| **LLM spend visibility** | Manual token counting, spreadsheets | Spend and request logs via the LiteLLM gateway |
+| **Audit events** | Hope someone wrote it down | Secret and platform operations emit structured `audit_event` log lines (no audit UI) |
 | **Agent discovery** | Slack messages asking "who built that agent?" | Org-wide searchable registry |
 | **Guardrails** | Roll your own PII detection, content filters | Declarative: `guardrails: [pii_detection]` |
 | **Model fallbacks** | Try/catch with hardcoded alternatives | `model: { primary: claude-sonnet-4, fallback: gpt-4o }` |
@@ -76,7 +76,7 @@ pipx install agentbreeder    # or: python3 -m pip install agentbreeder
 agentbreeder deploy agent.yaml
 ```
 
-That is the entire migration. Everything else -- RBAC, registry, cost tracking, health checks -- happens automatically.
+That is the entire migration. Everything else -- RBAC, registry entry, health checks -- happens automatically.
 
 ---
 
@@ -89,16 +89,16 @@ That is the entire migration. Everything else -- RBAC, registry, cost tracking, 
 | Multi-cloud deploy | Manual | Manual | Manual | Manual | Manual | `cloud: aws\|gcp\|local` |
 | Autoscaling | Manual | Manual | Manual | Manual | Manual | Declarative YAML |
 | RBAC | -- | -- | -- | -- | -- | Automatic |
-| Cost tracking | -- | LangSmith | -- | -- | -- | Automatic |
-| Audit trail | -- | -- | -- | -- | -- | Automatic |
+| LLM spend logs | -- | -- | -- | -- | -- | Via LiteLLM gateway |
+| Audit events | -- | -- | -- | -- | -- | Structured log lines |
 | Agent registry | -- | -- | -- | -- | -- | Automatic |
 | Model fallbacks | Manual | Manual | Manual | Manual | Manual | Declarative YAML |
 | Guardrails | Manual | Manual | Manual | Manual | Manual | Declarative YAML |
 | Health checks | Manual | Manual | Manual | Manual | Manual | Automatic |
 | MCP server support | Manual | -- | -- | -- | Manual | Sidecar injection |
-| Multi-agent orchestration | LangGraph-native | CrewAI-native | Handoffs | GroupChat | Manual | `orchestration.yaml` (framework-agnostic) |
-| A2A protocol | -- | -- | -- | -- | -- | Built-in |
-| Visual builder (No Code) | -- | -- | -- | -- | -- | Studio |
+| Multi-agent orchestration | LangGraph-native | CrewAI-native | Handoffs | GroupChat | Manual | Stays in your framework code |
+| A2A registry + invoke API | -- | -- | -- | -- | -- | Built-in |
+| Chat builder (No Code) | -- | -- | -- | -- | -- | Studio (writes `agent.yaml`) |
 | CLI workflow | -- | -- | -- | -- | -- | `agentbreeder deploy/status/logs/teardown` |
 
 ---
@@ -139,7 +139,7 @@ What AG adds is a server wrapper (`server.py`) that exposes your agent as an HTT
                                     |                   |
                               +-----+-------------------+-----+
                               |         Registry              |
-                              |   RBAC | Audit | Cost Track   |
+                              |   RBAC | Discovery | A2A      |
                               +-------------------------------+
 ```
 
@@ -160,7 +160,7 @@ Use `framework: custom`. See the [Custom migration guide](/docs/migrations/from-
 No. Your agent code has zero AgentBreeder imports. The `agent.yaml` is a declarative config file. You can stop using AG at any time and deploy your container manually.
 
 **Q: What about multi-agent systems?**
-AgentBreeder has `orchestration.yaml` for defining multi-agent workflows (sequential, parallel, router, supervisor, fan-out/fan-in). Your framework's native orchestration (LangGraph subgraphs, CrewAI processes, OpenAI handoffs) also works as-is inside the container.
+Multi-agent orchestration stays in your framework code: LangGraph subgraphs, CrewAI processes, OpenAI handoffs and AutoGen group chats work as-is inside the container. AgentBreeder does not provide its own orchestration layer. To call one deployed agent from another, register it in the A2A registry (`POST /api/v1/a2a/agents`) and call it through the invoke API (`/api/v1/a2a/invoke`).
 
 ---
 

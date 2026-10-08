@@ -2,22 +2,22 @@
 
 import { type ReactNode, useEffect, useRef } from 'react';
 
-type TabId = 'prompts' | 'tools' | 'kb' | 'mcp';
+type TabId = 'prompts' | 'tools' | 'memory' | 'mcp';
 
 const TABS: Array<{ id: TabId; label: string; color: string }> = [
   { id: 'prompts', label: 'Prompts', color: '#58a6ff' },
   { id: 'tools', label: 'Tools', color: '#3fb950' },
-  { id: 'kb', label: 'Knowledge Bases', color: '#a78bfa' },
+  { id: 'memory', label: 'Memory', color: '#a78bfa' },
   { id: 'mcp', label: 'MCP Servers', color: '#ff9900' },
 ];
 
-const TAB_IDS: TabId[] = ['prompts', 'tools', 'kb', 'mcp'];
+const TAB_IDS: TabId[] = ['prompts', 'tools', 'memory', 'mcp'];
 
 const STEP_DATA: Record<TabId, Array<{ label: string; detail: string; api: string }>> = {
   prompts: [
     { label: 'Author', detail: 'Write text with {{variable}} placeholders', api: '' },
     { label: 'Register', detail: 'Store name, version, content, team in the registry', api: 'POST /registry/prompts' },
-    { label: 'Test', detail: 'Render variables · token estimate · response preview', api: 'POST /prompts/test' },
+    { label: 'Render', detail: 'Run the prompt against a real model · response preview', api: 'POST /registry/prompts/{id}/render' },
     { label: 'Version', detail: 'Auto-snapshot + unified diff on every content update', api: 'PUT .../content → snapshot' },
     { label: 'Use in Agent', detail: 'Resolves the latest version from registry at deploy time', api: 'prompts.system: prompts/name' },
   ],
@@ -28,12 +28,12 @@ const STEP_DATA: Record<TabId, Array<{ label: string; detail: string; api: strin
     { label: 'Discover Usage', detail: 'See every agent that references this tool org-wide', api: 'GET /registry/tools/{id}/usage' },
     { label: 'Use in Agent', detail: 'Reference by registry path — injected at deploy time', api: 'tools: - ref: tools/name' },
   ],
-  kb: [
-    { label: 'Create Index', detail: 'Configure embedding model, chunk size, and strategy', api: 'POST /rag/indexes' },
-    { label: 'Ingest', detail: 'Upload PDF, MD, CSV, JSON — auto-chunked and embedded', api: 'POST /rag/indexes/{id}/ingest' },
-    { label: 'Embed & Store', detail: 'text-embedding-3-small vectors stored per chunk', api: '' },
-    { label: 'Search', detail: 'Hybrid vector + full-text (70/30 weight) · top-k retrieval', api: 'POST /rag/search' },
-    { label: 'Use in Agent', detail: 'Auto-queried on relevant messages at runtime', api: 'knowledge_bases: - ref: kb/name' },
+  memory: [
+    { label: 'Declare', detail: 'Pick a Redis or PostgreSQL backend in agent.yaml', api: 'memory: backend: redis' },
+    { label: 'Provision', detail: 'Managed store created on AWS, GCP, or Azure when backend_url is omitted', api: '' },
+    { label: 'Connect', detail: 'Backend type and connection URL injected into the container at deploy', api: 'MEMORY_BACKEND · REDIS_URL / DATABASE_URL' },
+    { label: 'Persist', detail: 'Conversation history saved per agent and session', api: '' },
+    { label: 'Use in Agent', detail: 'Server wrapper loads and saves turns on every invoke', api: 'POST /invoke' },
   ],
   mcp: [
     { label: 'Build', detail: 'Decorate Python functions with @mcp.tool() via FastMCP', api: '' },
@@ -47,7 +47,7 @@ const STEP_DATA: Record<TabId, Array<{ label: string; detail: string; api: strin
 const TITLES: Record<TabId, string> = {
   prompts: 'Prompt Lifecycle',
   tools: 'Tool Lifecycle',
-  kb: 'Knowledge Base Lifecycle',
+  memory: 'Memory Lifecycle',
   mcp: 'MCP Server Lifecycle',
 };
 
@@ -262,7 +262,7 @@ export function RegistryLifecycle() {
             Build once. Reference everywhere.
           </h2>
           <p style={{ color: '#8b949e', fontSize: 15, maxWidth: 580, margin: '0 auto', lineHeight: 1.6 }}>
-            Prompts, tools, knowledge bases, and MCP servers live in a shared org registry.
+            Prompts, tools, and MCP servers live in a shared org registry, and memory is one line of agent.yaml.
             Define once — wire into any agent, any framework, any cloud.
           </p>
         </div>
@@ -438,18 +438,18 @@ export function RegistryLifecycle() {
                 <ApiNote>POST /tools/sandbox/execute — test before wiring to agent</ApiNote>
               </div>
 
-              {/* KB */}
+              {/* Memory */}
               <div ref={el => { yamlPanelRefs.current[2] = el; }} style={{ display: 'none' }}>
                 <YamlBlock lines={[
                   { text: 'name: research-agent', type: 'normal' },
                   { text: 'framework: claude_sdk', type: 'normal' },
                   { text: '', type: 'normal' },
-                  { text: 'knowledge_bases:', type: 'key' },
-                  { text: '  - ref: kb/product-docs', type: 'highlight' },
-                  { text: '  - ref: kb/return-policy', type: 'highlight' },
-                  { text: '# queried automatically at runtime', type: 'comment' },
+                  { text: 'memory:', type: 'key' },
+                  { text: '  backend: postgresql', type: 'normal' },
+                  { text: '  # or backend_url: postgresql://...', type: 'comment' },
+                  { text: '# managed store provisioned if omitted', type: 'comment' },
                 ]} />
-                <ApiNote>POST /rag/search — hybrid vector + text, configurable weights</ApiNote>
+                <ApiNote>MEMORY_BACKEND=postgresql — conversation history persisted per session</ApiNote>
               </div>
 
               {/* MCP */}
@@ -485,9 +485,9 @@ export function RegistryLifecycle() {
           marginTop: 28,
         }}>
           {[
-            { label: 'Prompts', detail: 'Versioned · diffable · testable', color: '#58a6ff' },
+            { label: 'Prompts', detail: 'Versioned · diffable · renderable', color: '#58a6ff' },
             { label: 'Tools', detail: 'Sandboxed · schema-validated', color: '#3fb950' },
-            { label: 'Knowledge Bases', detail: 'Hybrid search · auto-chunked', color: '#a78bfa' },
+            { label: 'Memory', detail: 'Redis or PostgreSQL · managed provisioning', color: '#a78bfa' },
             { label: 'MCP Servers', detail: 'Auto-discovered · sidecar-deployed', color: '#ff9900' },
           ].map(item => (
             <div

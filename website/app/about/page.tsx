@@ -48,8 +48,8 @@ export default function AboutPage() {
         >
           AgentBreeder is an open-source platform for building, deploying, and governing
           enterprise AI agents. It exists so a developer can write one config file, run one
-          command, and ship an agent to AWS, GCP, Azure, or Kubernetes — with RBAC, cost
-          tracking, audit trail, and observability automatic.
+          command, and ship an agent to AWS, GCP, Azure, or Kubernetes — with RBAC, registry
+          discoverability, and health-checked deploys automatic.
         </p>
 
         {/* Mission */}
@@ -62,7 +62,7 @@ export default function AboutPage() {
           </h2>
           <p className="mb-4 text-[16px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
             Every team building production AI agents reinvents the same plumbing: a deploy
-            pipeline, a registry, RBAC, cost attribution, an audit log, observability.
+            pipeline, a registry, RBAC, secrets handling, observability.
             And every framework (LangGraph, CrewAI, OpenAI Agents, Claude SDK, Google ADK)
             asks you to learn a new container shape, a new entrypoint, a new way to wire
             secrets.

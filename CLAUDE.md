@@ -13,17 +13,17 @@ AgentBreeder is an **open-source platform** for building, deploying, and governi
 
 **Core tagline:** Define Once. Deploy Anywhere. Govern Automatically.
 
-**The one-sentence pitch:** A developer writes one `agent.yaml` file, runs `agentbreeder deploy`, and their agent is live on AWS or GCP — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and zero extra work.
+**The one-sentence pitch:** A developer writes one `agent.yaml` file, runs `agentbreeder deploy`, and their agent is live on AWS or GCP — with RBAC checks and org-wide registry discoverability automatic and zero extra work.
 
 **What makes it unique:**
 - Framework-agnostic (LangGraph, CrewAI, Claude SDK, OpenAI Agents, Google ADK, Custom)
 - Multi-cloud first (AWS ECS Fargate/App Runner/EKS, GCP Cloud Run/GKE, Azure Container Apps, and Kubernetes as equal first-class targets)
 - Governance is a **side effect** of deploying, not extra configuration
-- Shared org-wide registry for agents, prompts, tools/MCP servers, models, knowledge bases
-- **Three builder tiers** for both agent development AND agent orchestration:
-  - **No Code** — Visual drag-and-drop UI, registry pickers, ReactFlow canvas (for PMs, analysts, citizen builders)
-  - **Low Code** — YAML config (`agent.yaml`, `orchestration.yaml`) in any IDE or the dashboard editor (for ML engineers, DevOps)
-  - **Full Code** — Python/TS SDK with full programmatic control, custom routing, state machines (for senior engineers, researchers)
+- Shared org-wide registry for agents, prompts, tools/MCP servers, models
+- **Three builder tiers** for agent development:
+  - **No Code** — Studio chat builder that writes the `agent.yaml` (for PMs, analysts, citizen builders)
+  - **Low Code** — YAML config (`agent.yaml`) in any IDE or the dashboard editor (for ML engineers, DevOps)
+  - **Full Code** — Python/TS SDK with full programmatic control (for senior engineers, researchers)
 - All three tiers compile to the same internal format and share the same deploy pipeline, governance, and observability
 - **Tier mobility** — start No Code, eject to YAML, eject to Full Code. No vendor lock-in at any level.
 

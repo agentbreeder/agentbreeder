@@ -21,7 +21,7 @@ description: Migrate an existing OpenAI Agents project to AgentBreeder.
 
 ## The Big Picture
 
-The OpenAI Agents SDK gives you a clean API for building agents with `Agent`, `Runner`, `function_tool`, and `Handoff`. AgentBreeder does not replace any of that. It wraps your agent in a production container and adds everything you need for enterprise deployment: RBAC, cost tracking, health checks, model fallbacks, and org-wide discoverability.
+The OpenAI Agents SDK gives you a clean API for building agents with `Agent`, `Runner`, `function_tool`, and `Handoff`. AgentBreeder does not replace any of that. It wraps your agent in a production container and adds everything you need for enterprise deployment: RBAC, health checks, model fallbacks, and org-wide discoverability.
 
 **Key insight:** Your agent's simplicity is preserved. AgentBreeder adds zero imports to your code.
 
@@ -157,21 +157,21 @@ agentbreeder deploy agent.yaml --target aws
 | `Agent(name, instructions, tools)` | Export as `agent` in `agent.py` | AG wraps it; does not replace it |
 | `Runner.run(agent, input)` | `POST /invoke` on deployed container | AG server wrapper calls Runner |
 | `function_tool` | `tools:` in `agent.yaml` | Declare for documentation; implementation stays in your code |
-| `Handoff` | `subagents:` in `agent.yaml` or `orchestration.yaml` | AG can also orchestrate handoffs at platform level |
+| `Handoff` | Your code (unchanged) | Handoffs run inside your agent; AG has no separate orchestration layer |
 | `Agent.model` | `model.primary` in `agent.yaml` | AG adds fallback, gateway, temperature |
 | `Agent.instructions` | `prompts.system` in `agent.yaml` (optional) | Can reference versioned prompts from registry |
 | `guardrail` decorator | `guardrails:` in `agent.yaml` | AG adds PII detection, content filter, hallucination check |
 | `RunResult` | JSON response from `/invoke` | Same data, wrapped in AG response format |
 | Streaming (`Runner.run_streamed`) | Streaming supported via AG server | SSE endpoint at `/stream` |
-| `trace` / OpenAI tracing | AG tracing (OpenTelemetry) | Automatic, framework-agnostic |
+| `trace` / OpenAI tracing | OpenTelemetry export (OTLP) | Sidecar exports spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; you bring the collector/viewer |
 
 ---
 
 ## Handling Handoffs
 
-The OpenAI Agents SDK has a `Handoff` mechanism for transferring control between agents. There are two ways to handle this with AgentBreeder:
+The OpenAI Agents SDK has a `Handoff` mechanism for transferring control between agents. Handoffs stay in your code:
 
-### Option A: Keep Handoffs in Your Code (Simple)
+### Keep Handoffs in Your Code
 
 If your handoff agents are all defined in the same `agent.py`, they work as-is. AgentBreeder deploys the entire file as one unit:
 
@@ -216,40 +216,7 @@ deploy:
     - OPENAI_API_KEY
 ```
 
-### Option B: Separate Agents + AG Orchestration (Advanced)
-
-Deploy each agent independently and use AG orchestration for cross-agent routing:
-
-```yaml
-# orchestration.yaml
-name: support-router
-version: 1.0.0
-team: support
-owner: you@company.com
-strategy: router
-
-agents:
-  triage:
-    ref: agents/triage-agent
-    routes:
-      - condition: "billing"
-        target: billing
-      - condition: "technical"
-        target: tech-support
-  billing:
-    ref: agents/billing-agent
-  tech-support:
-    ref: agents/tech-support-agent
-
-deploy:
-  target: local
-```
-
-Benefits of Option B:
-- Independent scaling (tech support might need more capacity than billing)
-- Different teams can own different agents
-- Per-agent cost tracking
-- Mix frameworks (triage could be OpenAI Agents, billing could be LangGraph)
+If you deploy specialists as separate agents instead, each gets its own registry entry. You can register them in the A2A registry (`POST /api/v1/a2a/agents`) and call them through the invoke API (`/api/v1/a2a/invoke`). The routing logic still lives in your code.
 
 ---
 
@@ -333,14 +300,6 @@ mcp_servers:
   - ref: mcp/order-management
 ```
 
-### Knowledge bases
-
-```yaml
-knowledge_bases:
-  - ref: kb/product-docs
-  - ref: kb/faq-database
-```
-
 ---
 
 ## What You Gain
@@ -354,13 +313,13 @@ knowledge_bases:
 | Multi-cloud | Manual | One-line change |
 | Model fallback | Not built-in | Declarative, cross-provider |
 | RBAC | Not available | Automatic |
-| Cost tracking | Not available | Per-agent, per-model |
+| LLM spend | Not available | Spend logs via the LiteLLM gateway |
 | Guardrails | `@guardrail` decorator | Declarative + your custom guardrails |
 | Agent discovery | Not available | Org-wide registry |
 | Health checks | Not available | Automatic |
 | Autoscaling | Manual | Declarative |
-| Audit trail | Not available | Every invocation logged |
-| Multi-agent orchestration | Handoffs (in-process) | Handoffs + cross-service orchestration |
+| Tracing | OpenAI tracing | OTLP span export to your own collector |
+| Multi-agent orchestration | Handoffs (in-process) | Handoffs (in-process), unchanged |
 
 ## What Stays the Same
 

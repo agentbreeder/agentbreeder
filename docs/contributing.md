@@ -19,15 +19,12 @@ Every time a feature or CLI command changes, update the matching doc page(s) bef
 | Changed CLI command flags | `website/content/docs/cli-reference.mdx` (update the relevant section) |
 | New quickstart / bootstrap flow | `website/content/docs/quickstart.mdx` |
 | New install method | `website/content/docs/quickstart.mdx` → Install table; `website/content/docs/how-to.mdx` → Install section |
-| New or changed RAG / ChromaDB behavior | `website/content/docs/rag.mdx` |
-| New or changed GraphRAG / Neo4j behavior | `website/content/docs/graphrag.mdx` |
 | New or changed MCP server support | `website/content/docs/mcp-servers.mdx` |
 | New or changed A2A protocol behavior | `website/content/docs/a2a-protocol.mdx` |
 | New `agent.yaml` field | `website/content/docs/agent-yaml.mdx` |
 | New LLM provider | `website/content/docs/how-to.mdx` (local models section) |
 | New framework support | `website/content/docs/how-to.mdx` + README supported stack matrix |
 | New cloud deploy target | `website/content/docs/how-to.mdx` + README supported stack matrix |
-| New evaluation feature | `website/content/docs/evaluations.mdx` |
 | README Install section | Keep in sync with `website/content/docs/quickstart.mdx` → Install table |
 
 **Rule:** The doc update goes in the **same commit** as the code change — never as a follow-up. If the doc page does not exist yet, create it under `website/content/docs/`.

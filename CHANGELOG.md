@@ -9,8 +9,37 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 
-### Added
-- **Python SDK**: async `RagMcpClient` wrapping the 8 RAG MCP tools (experimental). (#574)
+### Removed
+- **Unfinished and simulated features.** Removed every surface that returned fake
+  results, kept state only in process memory, read tables nothing writes, or had a
+  UI wired to no working backend. Full inventory and rationale:
+  `docs/superpowers/specs/2026-10-08-remove-unfinished-features.md`.
+  - **CLI:** `eval`, `submit`, `review`, `publish`, `orchestration`, `schedule`,
+    `compliance`, `registry rag`, `list deploys`/`orchestrations`, and
+    `deploy --remote`. Deploys always run in-process; `--local` is accepted as a
+    hidden no-op. `quickstart` no longer pretends to deploy the sample agents.
+    `provider add` no longer fakes a connection test.
+  - **`agent.yaml`:** the `knowledge_bases` and `subagents` fields and the `a2a`
+    tool type are gone, and the schema now rejects them. **Breaking.**
+  - **API:** the `/evals`, `/audit`, `/costs`, `/tracing`, `/orchestrations`,
+    `/git`, `/rag`, `/deploys` and `/compliance` routers. Also gone: the
+    deploy-job endpoints under `/deployments` and builder-session deploy; the
+    provider test/discover/health-check/detect-ollama routes; prompt
+    `/test`; and gateway `/costs/comparison`. AgentOps lost
+    events/teams/costs/top-agents and its incident actions. Playground lost
+    eval-case. The RBAC key issuer now returns 503 when it fails instead of
+    handing out a fake key. **Breaking.**
+  - **Dashboard:** the Deploys, Deploy Wizard, RAG Builder, Approvals (PR review),
+    Traces, Costs, Budgets, Audit, Lineage, Activity, Evals and Orchestrations
+    pages, the visual agent builder, and the dashboard Deploy button. The
+    No Code tier is now the chat builder at `/agents/new`.
+  - **SDKs:** Python `Agent.deploy()`, `with_subagent`, knowledge bases, the
+    orchestration classes and the RAG clients, including `RagMcpClient` (#574).
+    TypeScript `deploy`, `withSubagent` and orchestration.
+  - **Engine/sidecar:** the orchestration engine, the A2A JSON-RPC server, RAG/KB
+    injection, and the sidecar `/cost` endpoint.
+  - **Audit:** audit events are now emitted as structured `audit_event` log
+    lines.
 
 ### Changed
 - **Design system extracted into `dashboard/src/styles/brand.css` (#583).** The

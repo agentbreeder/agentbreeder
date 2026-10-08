@@ -13,7 +13,7 @@ encryption-at-rest is configured for every data store AgentBreeder touches.
 | Redis (cache, rate limit) | Ephemeral | At rest if replicated to disk; otherwise ephemeral | ElastiCache encryption, Memorystore CMEK, or Azure Cache for Redis SSE. |
 | Container images | Code, runtimes | Encrypted registries | ECR, Artifact Registry, ACR — all encrypt at rest by default. |
 | Secrets | API keys, DB credentials | Provider-managed envelope encryption | AWS Secrets Manager / GCP Secret Manager / HashiCorp Vault — never the ``env`` backend in production. The ``secrets_backend_not_env`` control enforces this. |
-| Object storage (RAG, evidence reports) | User content | SSE-S3 / GCS-managed / Azure SSE | Set in the bucket policy at deploy time. |
+| Object storage (evidence reports) | User content | SSE-S3 / GCS-managed / Azure SSE | Set in the bucket policy at deploy time. |
 
 ## Required configuration
 
@@ -25,8 +25,8 @@ encryption-at-rest is configured for every data store AgentBreeder touches.
 3. Enable encryption at rest on the underlying database engine (RDS,
    Cloud SQL, Azure DB) before pointing AgentBreeder at it. There is no
    in-process option to encrypt-at-rest after the fact.
-4. Enable bucket-level SSE on any object store used for RAG indices or
-   evidence-report exports.
+4. Enable bucket-level SSE on any object store used for evidence-report
+   exports.
 
 ## Audit retention
 

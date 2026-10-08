@@ -13,20 +13,11 @@ agentbreeder/
 │   ├── middleware/              # RBAC middleware
 │   ├── routes/                 # REST endpoints
 │   │   ├── agents.py           # Agent CRUD
-│   │   ├── deploys.py          # Deploy from dashboard
-│   │   ├── prompts.py          # Prompts + test panel
 │   │   ├── providers.py        # Provider config
-│   │   ├── rag.py              # RAG indexes, search
 │   │   ├── memory.py           # Memory configs
-│   │   ├── git.py              # Git workflow + PR review
 │   │   ├── sandbox.py          # Tool sandbox execution
 │   │   ├── teams.py            # Team management
-│   │   ├── costs.py            # Cost tracking
-│   │   ├── audit.py            # Audit log
-│   │   ├── tracing.py          # Distributed tracing
-│   │   ├── builders.py         # Visual builder endpoints
-│   │   ├── orchestrations.py   # Orchestration management
-│   │   ├── evals.py            # Agent evaluation
+│   │   ├── builders.py         # YAML builder endpoints (import/export)
 │   │   ├── playground.py       # Chat playground
 │   │   ├── registry.py         # Cross-entity registry search
 │   │   ├── a2a.py              # Agent-to-agent (A2A) communication endpoints
@@ -39,7 +30,7 @@ agentbreeder/
 │   │       └── agents.py       # API v2 agents endpoints
 │   ├── services/               # Business logic layer
 │   ├── models/                 # SQLAlchemy DB models + Pydantic schemas
-│   └── tasks/                  # Background tasks (provider health)
+│   └── tasks/                  # Background tasks (model sync cron)
 ├── cli/                        # CLI tool (built with Typer)
 │   ├── main.py                 # Command registration
 │   └── commands/
@@ -50,30 +41,22 @@ agentbreeder/
 │       ├── list_cmd.py         # agentbreeder list
 │       ├── describe.py         # agentbreeder describe
 │       ├── scan.py             # agentbreeder scan (MCP/LiteLLM/Ollama/OpenRouter discovery)
-│       ├── schedule.py         # agentbreeder schedule (cron-based agent runs)
 │       ├── logs.py             # agentbreeder logs
 │       ├── status.py           # agentbreeder status
 │       ├── teardown.py         # agentbreeder teardown
-│       ├── submit.py           # agentbreeder submit (create PR)
-│       ├── review.py           # agentbreeder review (PR review)
-│       ├── publish.py          # agentbreeder publish (merge PR)
 │       ├── chat.py             # agentbreeder chat
-│       ├── eval.py             # agentbreeder eval
 │       ├── eject.py            # agentbreeder eject (tier mobility)
-│       ├── orchestration.py    # agentbreeder orchestration
 │       ├── provider.py         # agentbreeder provider (subcommand)
 │       ├── secret.py           # agentbreeder secret (manage secrets across backends)
 │       └── template.py         # agentbreeder template (manage agent templates)
 ├── sdk/
 │   └── python/                 # pip install agentbreeder-sdk
-│       └── agenthub/           # SDK package (agent, deploy, model, tool, memory, mcp)
+│       └── agenthub/           # SDK package (agent, model, tool, memory, mcp)
 ├── engine/                     # Core deployment pipeline
 │   ├── config_parser.py        # YAML parsing + JSON Schema validation
 │   ├── resolver.py             # Dependency resolution from registry
 │   ├── builder.py              # Container image builder (per framework)
 │   ├── governance.py           # RBAC validation at deploy time
-│   ├── orchestrator.py         # Multi-agent orchestration engine
-│   ├── orchestration_parser.py # Orchestration YAML parser
 │   ├── providers/              # LLM provider abstraction
 │   │   ├── base.py             # Provider interface
 │   │   ├── openai_provider.py  # OpenAI provider
@@ -108,19 +91,14 @@ agentbreeder/
 │   │   ├── aws_backend.py      # AWS Secrets Manager backend
 │   │   ├── gcp_backend.py      # GCP Secret Manager backend
 │   │   └── vault_backend.py    # HashiCorp Vault backend
-│   ├── a2a/                    # Agent-to-agent (A2A) communication protocol
-│   │   ├── protocol.py         # JSON-RPC A2A protocol implementation
-│   │   ├── client.py           # A2A client for calling remote agents
-│   │   ├── server.py           # A2A server for exposing agents
-│   │   └── auth.py             # A2A authentication + agent cards
+│   ├── a2a/                    # Agent-to-agent (A2A) invocation
+│   │   └── client.py           # HTTP client for invoking registered agents
 │   ├── mcp/                    # MCP packaging utilities
 │   │   └── packager.py         # Package MCP servers for deployment
 │   └── schema/                 # JSON Schemas
 │       ├── agent.schema.json
-│       ├── orchestration.schema.json
 │       ├── prompt.schema.json
 │       ├── tool.schema.json
-│       ├── rag.schema.json
 │       ├── memory.schema.json
 │       └── template.schema.json
 ├── connectors/                 # Integration plugins (pluggable)
@@ -160,7 +138,6 @@ agentbreeder/
 │   │   ├── a2a/                # JSON-RPC 2.0 A2A client
 │   │   ├── mcp/                # MCP HTTP/SSE passthrough
 │   │   ├── otelx/              # OTLP/HTTP span exporter
-│   │   ├── cost/               # /api/v1/costs + /api/v1/audit emitter
 │   │   ├── proxy/              # reverse-proxy w/ guardrail egress
 │   │   ├── server/             # chi router assembly
 │   │   └── config/             # env + YAML loader
@@ -177,7 +154,6 @@ agentbreeder/
     ├── langgraph-agent/
     ├── openai-agents-agent/
     ├── mcp-server/
-    ├── orchestration/          # Multi-agent orchestration examples
     ├── sdk-basic/
     └── sdk-advanced/
 ```

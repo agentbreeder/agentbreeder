@@ -373,7 +373,7 @@ agentbreeder logs my-custom-agent
 
 ## Adding OpenTelemetry Tracing
 
-For distributed tracing integration with AgentBreeder's observability:
+To export spans to your own OpenTelemetry collector (AgentBreeder has no built-in trace viewer; set `OTEL_EXPORTER_OTLP_ENDPOINT` to point the exporter at your collector):
 
 ```python
 # Add to server.py
@@ -469,7 +469,9 @@ RUN python -c "from transformers import AutoModel; AutoModel.from_pretrained('be
 
 ## Common Agent Patterns
 
-### RAG Agent
+### Retrieval Agent
+
+Retrieval stays in your code (or behind a tool or MCP server). AgentBreeder does not inject knowledge bases.
 
 ```python
 # agent.py
@@ -499,8 +501,6 @@ name: rag-agent
 framework: custom
 model:
   primary: gpt-4o
-knowledge_bases:
-  - ref: kb/product-docs
 deploy:
   cloud: local
   secrets:
@@ -602,13 +602,13 @@ async def invoke(request: InvokeRequest):
 | Deploy | Manual | `agentbreeder deploy agent.yaml` |
 | Multi-cloud | Rewrite per cloud | One-line change |
 | RBAC | Not available | Automatic |
-| Cost tracking | Not available | Per-agent, per-model |
+| LLM spend | Not available | Spend logs via the LiteLLM gateway |
 | Agent registry | Not available | Org-wide discovery |
 | Health checks | Manual | Automatic |
 | Autoscaling | Manual | Declarative |
 | Guardrails | Build your own | Declarative + custom |
 | Logging | stdout | Structured, collected by AG |
-| Tracing | Manual | OpenTelemetry integration |
+| Tracing | Manual | OTLP span export to your own collector |
 
 ---
 

@@ -39,15 +39,12 @@ Every step is atomic. If any step fails, the entire deploy rolls back. Never ski
 Every `agentbreeder deploy` MUST:
 - Validate RBAC before doing anything
 - Register the agent in the registry after success
-- Attribute cost to the deploying team
-- Write an audit log entry
 
 There is no "quick deploy" mode that skips governance. This is intentional.
 
 ### 3. The Sidecar Pattern (Track J — shipped)
 Every deployed agent that declares `guardrails:`, MCP `tools:`, or `a2a:` gets the AgentBreeder sidecar container auto-injected. The sidecar — a single Go binary at `sidecar/` — provides:
-- OpenTelemetry traces for every LLM call, tool use, and agent step
-- Token counting and cost attribution (writes to `costs` + `audit_log`)
+- OpenTelemetry span export to an OTLP collector (no-op when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset)
 - Guardrail enforcement (PII detection, content filtering, custom rules)
 - A2A JSON-RPC client at `localhost:9090/a2a/<peer>`
 - MCP passthrough at `localhost:9090/mcp/<server>`
@@ -78,7 +75,7 @@ Registry entries are created/updated only by:
 Never write directly to registry tables from application code. Always go through `registry/` services.
 
 ### 6. Three-Tier Builder Model (No Code / Low Code / Full Code)
-AgentBreeder supports three builder tiers for both individual agent development and multi-agent orchestration. All three compile to the same internal representation (`agent.yaml` + optional code) and share the same deploy pipeline.
+AgentBreeder supports three builder tiers for agent development. All three compile to the same internal representation (`agent.yaml` + optional code) and share the same deploy pipeline.
 
 ```
 No Code (UI)    ──→ generates agent.yaml      ──→ deploy pipeline
@@ -91,8 +88,7 @@ Full Code (SDK) ──→ agent.yaml + custom code  ──→ deploy pipeline
 - No Code always generates valid, human-readable YAML. Never generate YAML that a human couldn't maintain.
 - The Full Code SDK generates `agent.yaml` + bundles code — it does NOT bypass the config parser.
 - Tier mobility is a first-class feature: No Code → Low Code (view YAML), Low Code → Full Code (`agentbreeder eject`).
-- Visual builder layout metadata (node positions, etc.) lives in `.agentbreeder/layout.json`, never in `agent.yaml`.
-- Orchestration follows the same pattern: visual canvas → `orchestration.yaml` → SDK orchestration code.
+- The No Code tier is the conversational chat builder in Studio (`/agents/new`); it produces `agent.yaml`, which is deployed with the CLI.
 
 ---
 
@@ -114,10 +110,10 @@ AgentBreeder ships one product. Its surfaces have stable user-facing names — a
 
 > **"Studio" is a top-level surface name only. It is never a suffix on a feature, page, or view.**
 
-- ✅ "AgentBreeder Studio", "Studio › Agents", "Studio › Costs", "the Costs view in Studio".
-- ❌ "Cost Studio", "Sessions Studio", "Eval Studio", "Studio Dashboard", "AgentOps Studio".
-- Inner pages take **functional nouns**: Agents, Deploys, Costs, Sessions, Evals, Registry, Audit, Fleet, Playground.
-- The lowercase word "dashboard" survives only as a generic UX pattern noun ("the overview dashboard inside Costs") — never branded, never capitalized.
+- ✅ "AgentBreeder Studio", "Studio › Agents", "Studio › Gateway", "the Gateway view in Studio".
+- ❌ "Gateway Studio", "Sessions Studio", "Registry Studio", "Studio Dashboard", "AgentOps Studio".
+- Inner pages take **functional nouns**: Agents, Registry, Gateway, Fleet, Incidents, Playground.
+- The lowercase word "dashboard" survives only as a generic UX pattern noun ("the overview dashboard inside Gateway") — never branded, never capitalized.
 
 ### Third-party "dashboard" references stay as-is
 
