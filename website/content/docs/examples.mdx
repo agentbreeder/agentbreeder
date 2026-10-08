@@ -86,7 +86,7 @@ Use these to see how the same agent deploys to a specific cloud.
 
 Deploys to AWS App Runner — serverless containers with no VPC, no ALB, and no load balancer configuration required. Ideal for simple HTTP-accessible agents.
 
-*Prereq:* AWS ECS Fargate ships full governance; greenfield provisioning is available via the [Studio deploy wizard](deployment#deploying-from-studio) (CLI `--provision` is on the roadmap), so CLI deploys use existing infra plus auto-provisioned data backends. On AWS, pre-create secrets in Secrets Manager (auto-mirror is on the roadmap). See the [deploy-target status table](cli-reference#agentbreeder-deploy).
+*Prereq:* AWS ECS Fargate ships full governance; greenfield provisioning is available via `agentbreeder deploy --provision`, otherwise deploys use existing infra plus auto-provisioned data backends. On AWS, pre-create secrets in Secrets Manager (auto-mirror is on the roadmap). See the [deploy-target status table](cli-reference#agentbreeder-deploy).
 
 ```yaml
 # agent.yaml
@@ -180,71 +180,17 @@ cd examples/openrouter-agent && agentbreeder deploy --target local
 
 ---
 
-## Multi-Agent Examples
-
-### A2A Subagent (Agent-to-Agent)
-**`examples/a2a-subagent/`**
-
-Coordinator + specialist subagent pattern using the A2A protocol. A `research-coordinator` agent dynamically delegates tasks to a `web-search` subagent and a `summarizer` subagent at runtime.
-
-Shows how to:
-- Configure `a2a:` in `agent.yaml`
-- Register subagents in the org registry
-- Route tasks between agents over JSON-RPC
-
-```bash
-cd examples/a2a-subagent
-agentbreeder deploy --target local   # deploys all agents
-```
-
----
-
-### Orchestration Patterns
-**`examples/orchestration/`**
-
-Four production-ready orchestration patterns as `orchestration.yaml` files:
-
-| Pattern | Directory | Description |
-|---|---|---|
-| Customer support pipeline | `customer-support/` | Router → Tier-1 agent → Tier-2 escalation |
-| Data pipeline | `data-pipeline/` | Sequential ingestion → processing → output |
-| Fan-out / fan-in | `fan-out-fan-in/` | Parallel search agents → aggregator |
-| Supervisor | `supervisor/` | LLM-driven routing to specialist agents |
-
-```bash
-cd examples/orchestration/fan-out-fan-in
-agentbreeder orchestration deploy orchestration.yaml
-agentbreeder orchestration chat research-pipeline
-```
-
----
-
-## RAG and Knowledge Base Examples
-
-### GraphRAG with Ollama
-**`examples/graphrag-ollama-agent/`**
-
-Knowledge base + Neo4j graph RAG hybrid search, powered by local Ollama. No cloud API keys required. Includes an `ingest.py` script to populate the knowledge graph.
-
-```bash
-cd examples/graphrag-ollama-agent
-python ingest.py                             # populate Neo4j knowledge graph
-agentbreeder deploy --target local
-```
-
----
-
 ## Real-World Agent Examples
 
 ### AI News Digest
 **`examples/ai-news-digest/`**
 
-Production-quality agent that runs on a daily cron schedule:
+Production-quality agent that runs as a daily digest:
 1. Fetches top stories from Hacker News, ArXiv (cs.AI + cs.LG), and RSS feeds
 2. Synthesises a grouped digest using Google ADK + Ollama Gemma3:27b
 3. Emails the digest to configured recipients via Gmail
 
-Demonstrates: `agentbreeder schedule`, MCP tool server, SMTP connector, Google ADK framework, Ollama local model.
+Demonstrates: MCP tool server, SMTP connector, Google ADK framework, Ollama local model.
 
 ```bash
 cd examples/ai-news-digest
@@ -255,8 +201,8 @@ agentbreeder setup
 # Run now
 agentbreeder chat --agent ai-news-digest
 
-# Schedule daily at 7am
-agentbreeder schedule create --cron "0 7 * * *" --agent ai-news-digest
+# Run as a daily daemon (fires at DIGEST_HOUR, default 8am)
+python agent.py --schedule
 ```
 
 ---
@@ -294,7 +240,7 @@ npm install && npm start
 ### Advanced TypeScript SDK
 **`examples/sdk-ts-advanced/`**
 
-Multi-agent orchestration, memory configuration, MCP server wiring, and cloud deploy — all from TypeScript code.
+Memory configuration, middleware, event hooks, validation, and cloud deploy config — all from TypeScript code.
 
 ```bash
 cd examples/sdk-ts-advanced
@@ -308,14 +254,14 @@ npm install && npm start
 ### Basic Python SDK
 **`examples/sdk-basic/`**
 
-Minimal Python SDK example — define an agent programmatically, deploy to local Docker.
+Minimal Python SDK example — define an agent programmatically and generate its `agent.yaml`.
 
 ---
 
 ### Advanced Python SDK
 **`examples/sdk-advanced/`**
 
-Full SDK usage: memory, knowledge bases, prompt registry references, MCP servers, and configurable deploy targets — all from Python code. (Greenfield provisioning availability varies by target — see the [deploy-target status table](cli-reference#agentbreeder-deploy).)
+Full SDK usage: memory, prompt registry references, MCP servers, and configurable deploy targets — all from Python code. (Greenfield provisioning availability varies by target — see the [deploy-target status table](cli-reference#agentbreeder-deploy).)
 
 ---
 
@@ -327,23 +273,24 @@ Full SDK usage: memory, knowledge bases, prompt registry references, MCP servers
 
 | Template | Use case |
 |---|---|
-| `customer-support` | Tier-1 support with Zendesk + order lookup |
-| `code-review` | PR review agent with GitHub MCP |
-| `data-analyst` | SQL + chart generation from natural language |
-| `document-processor` | Extract, classify, and route documents |
-| `research-assistant` | Web search + summarization + citations |
-| `sales-outreach` | CRM-grounded personalized outreach |
-| `incident-responder` | On-call runbook execution |
-| `content-moderator` | Multi-criteria content safety classifier |
-| `knowledge-base-qa` | RAG Q&A over internal docs |
-| `scheduler` | Calendar-aware meeting and task scheduling |
-| `data-pipeline` | ETL orchestration agent |
-| `compliance-checker` | Policy validation against internal rulebooks |
+| `support-triage` | Classify and route tier-1 support tickets (Zendesk + knowledge base) |
+| `escalation-classifier` | Decide whether a support ticket needs immediate human escalation |
+| `returns-processor` | End-to-end return and refund handling with PII protection |
+| `github-pr-reviewer` | PR review for bugs, security, performance, and style with inline comments |
+| `sql-analyst` | Natural-language questions to SQL, with plain-language explanations |
+| `report-generator` | Daily BI digests from BigQuery / Snowflake posted to Slack |
+| `market-researcher` | Market research reports from web, ArXiv, and news sources with citations |
+| `competitor-monitor` | Weekly competitive-intelligence digest from competitor sites and news |
+| `lead-qualifier` | Enrich and score inbound HubSpot leads |
+| `invoice-processor` | Extract, validate, and route vendor invoices for approval |
+| `incident-responder` | On-call runbooks, Slack war room, PagerDuty, and status-page drafts |
+| `meeting-summarizer` | Meeting summaries with action items, Notion tasks, and Slack recaps |
+
+Each template is a directory with an `agent.yaml` and a `README.md`. The folder also contains four single-file starters: `code-reviewer.yaml`, `customer-support-bot.yaml`, `data-analyzer.yaml`, and `research-assistant.yaml`.
 
 ```bash
-agentbreeder template list
-agentbreeder template use customer-support --name my-support-agent
-agentbreeder deploy --target local
+cp -r examples/templates/support-triage my-support-agent
+agentbreeder deploy my-support-agent/agent.yaml --target local
 ```
 
 ---
@@ -361,9 +308,6 @@ agentbreeder deploy --target local
 | `claude-managed-agent` | Claude Managed | Anthropic | Anthropic |
 | `ollama-agent` | LangGraph | local | None |
 | `openrouter-agent` | LangGraph | local / any | OpenRouter |
-| `a2a-subagent` | LangGraph | local / any | Optional |
-| `orchestration/` | Any | local / any | Optional |
-| `graphrag-ollama-agent` | LangGraph | local | None |
 | `ai-news-digest` | Google ADK | local / any | Gmail (SMTP) |
 | `sdk-ts-basic` | Claude SDK | any | Anthropic |
 | `sdk-ts-advanced` | Claude SDK | any | Anthropic |

@@ -70,7 +70,7 @@ Never put framework-specific logic outside of `engine/runtimes/`. Never hard-cod
 Registry entries are created/updated only by:
 1. `agentbreeder deploy` (primary path)
 2. Connectors (secondary, passive ingestion)
-3. Manual `agentbreeder register` (operator override)
+3. Manual registration via the registry API (`/api/v1/registry/*`, `/api/v1/mcp-servers`) or `agentbreeder registry {prompt,tool,agent,memory} push` (operator override)
 
 Never write directly to registry tables from application code. Always go through `registry/` services.
 

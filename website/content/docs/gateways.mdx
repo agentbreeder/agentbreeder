@@ -32,7 +32,7 @@ Both kinds use the same `OpenAICompatibleProvider` under the hood — the only d
 
 ## When to pick which
 
-**LiteLLM** — choose when you want to **self-host**, enforce per-agent **virtual keys** + **budgets**, run **caching** locally, or unify cost tracking across your own pool of provider keys. AgentBreeder's docker-compose stack ships a LiteLLM proxy on `:4000`. See [Self-hosted LiteLLM](#self-hosted-litellm) below for the full setup.
+**LiteLLM** — choose when you want to **self-host**, enforce per-agent **virtual keys** + LiteLLM **budgets**, run **caching** locally, or unify spend logging across your own pool of provider keys. AgentBreeder's docker-compose stack ships a LiteLLM proxy on `:4000`. See [Self-hosted LiteLLM](#self-hosted-litellm) below for the full setup.
 
 **OpenRouter** — choose when you want **zero infrastructure**, **per-token pay-as-you-go pricing across 100+ models**, or rapid model evaluation. One key, every model. The catalog ships `default_headers` for `HTTP-Referer` and `X-Title` so OpenRouter attributes calls to your AgentBreeder workspace.
 
@@ -187,7 +187,7 @@ model:
 ```
 
 <Callout type="info">
-The gateway is optional. Omit `model.gateway` to call providers directly. The gateway adds ~12ms overhead and enables cost tracking, guardrails, caching, and team budget enforcement.
+The gateway is optional. Omit `model.gateway` to call providers directly. The gateway adds ~12ms overhead and enables LiteLLM spend logging, guardrails, caching, and LiteLLM budget enforcement.
 </Callout>
 
 ### Why route through LiteLLM
@@ -197,7 +197,7 @@ Without the gateway, each deployed agent holds its own API keys and calls provid
 | Without gateway | With gateway |
 |---|---|
 | API keys in each container | One master key; agents get scoped virtual keys |
-| No cost visibility | Live spend per agent, per team, per model |
+| No spend visibility | LiteLLM spend logs per key, per team, per model |
 | No guardrails | PII detection + prompt injection blocking on every call |
 | No caching | Repeated prompts return cached responses |
 | Manual fallbacks | Automatic provider failover on errors |
@@ -210,23 +210,23 @@ agent.yaml (model.gateway: litellm)
         ▼
 AgentBreeder engine
   ├── RBAC check
-  ├── Mints per-agent virtual key (sk-agent-<name>)
-  └── Injects LITELLM_API_KEY + LITELLM_BASE_URL into container
+  └── Agent container calls the proxy using LITELLM_BASE_URL
+      + LITELLM_VIRTUAL_KEY from its environment
         │
         ▼
 LiteLLM proxy (:4000)
   ├── Validates virtual key
-  ├── Enforces team budget
+  ├── Enforces key / team budget (if set in LiteLLM)
   ├── Runs PII guardrail
   ├── Checks Redis cache
   ├── Routes to provider (with retries + fallback)
-  └── Logs OTEL span → AgentBreeder tracing
+  └── Writes spend log (+ optional OTEL span to your collector)
         │
         ▼
 Provider (Anthropic / OpenAI / Google / Ollama / ...)
 ```
 
-AgentBreeder owns **governance** (RBAC, audit, team budgets). LiteLLM handles **routing** (fallbacks, retries, caching, provider translation). Neither owns the other's domain.
+AgentBreeder owns **governance** (RBAC, structured audit-event logs). LiteLLM handles **routing** (fallbacks, retries, caching, provider translation) and spend/budget accounting. Neither owns the other's domain.
 
 ### Supported providers
 
@@ -254,38 +254,59 @@ model_list:
 
 ### Virtual keys
 
-Every agent gets a scoped virtual key (`sk-agent-<name>`) automatically minted at deploy time. The key:
-
-- Is injected into the deployed container as `LITELLM_API_KEY`
-- Is scoped to the agent's allowed models (from `agent.yaml`)
-- Is attributed to the agent's team for cost tracking
-- Can be revoked from Studio without redeploying the agent
-
-View and manage keys from Studio under **Settings → API Keys**, or via the CLI:
+AgentBreeder does **not** mint keys automatically at deploy time. Virtual keys are minted on request through the API, which calls LiteLLM's `/key/generate` and records the key (the plaintext value is returned once, in the create response):
 
 ```bash
-agentbreeder describe my-agent --keys
+curl -X POST http://localhost:8000/api/v1/providers/litellm/keys \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_alias": "agent-my-agent",
+    "scope_type": "agent",
+    "scope_id": "my-agent",
+    "agent_name": "my-agent",
+    "team_id": "engineering",
+    "allowed_models": ["claude-sonnet-4"]
+  }'
 ```
 
-### Cost tracking
+A key:
 
-Every LLM call through the gateway is tracked and attributed to the calling agent and its team. View spend in Studio under **Costs**, or via the API:
+- Is scoped to the models in `allowed_models` (null = all models)
+- Is attributed to its team / tags in LiteLLM spend logs
+- Is read by the agent at runtime from `LITELLM_VIRTUAL_KEY` (with `LITELLM_BASE_URL` pointing at the proxy) — supply it to the container yourself, e.g. via `deploy.secrets`
+- Can be revoked without redeploying the agent
+
+List and revoke keys via the API:
 
 ```bash
-# Spend for a specific team
-GET /api/v1/costs?team=engineering
+# List keys (no secret values); filter with ?agent_name=my-agent, ?team_id=..., ?scope_type=...
+curl "http://localhost:8000/api/v1/providers/litellm/keys?agent_name=my-agent" \
+  -H "Authorization: Bearer $TOKEN"
 
-# Spend by model
-GET /api/v1/costs?group_by=model
+# Revoke a key by alias
+curl -X DELETE http://localhost:8000/api/v1/providers/litellm/keys/agent-my-agent \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-Set team budgets when creating a team:
+The same operations are also exposed under `/api/v1/rbac/keys`.
+
+### Spend and budgets
+
+LiteLLM records every call through the gateway in its spend logs. AgentBreeder reads them live from the proxy:
 
 ```bash
-agentbreeder team create engineering --budget 500 --budget-period 30d
+# Global spend summary (total + per team)
+GET /api/v1/gateway/spend
+
+# Recent request log with model, latency, tokens, and cost per call
+GET /api/v1/gateway/logs?per_page=20
+
+# LiteLLM teams (budget groups)
+GET /api/v1/gateway/teams
 ```
 
-The gateway sends alerts at 85% and 95% of the budget before enforcing the hard limit.
+Budgets are a LiteLLM feature. Set `max_budget` / `budget_duration` when creating a virtual key (`POST /api/v1/providers/litellm/keys`), or configure team budgets in the LiteLLM admin UI. LiteLLM enforces them on each call.
 
 ### Guardrails
 
@@ -382,18 +403,17 @@ Every gateway call emits an OpenTelemetry span with:
 - Token counts (input / output / total)
 - Cost in USD
 - Virtual key alias (agent attribution)
-- `x-litellm-call-id` — correlated to AgentBreeder audit log entries
+- `x-litellm-call-id` — the LiteLLM request id
 
-View traces in Studio under **Tracing**, or connect your own OTEL collector by updating the endpoint in `litellm_config.yaml`.
+AgentBreeder does not store or display traces. Send them to your own OTEL collector by updating the endpoint in `litellm_config.yaml`.
 
 ### The Gateway view in Studio
 
 The **Gateway** view in AgentBreeder Studio shows:
 
 - Live status of each configured provider
-- Model catalog with pricing
-- Request log with latency, token counts, and cost per call
-- Cost comparison table across providers
+- Models and providers available through LiteLLM
+- Request log with latency, token counts, and cost per call (from LiteLLM spend logs)
 
 ### Skipping the gateway
 
@@ -405,7 +425,7 @@ model:
   # no gateway field — calls Ollama directly
 ```
 
-Direct calls skip virtual key minting, budget enforcement, guardrails, and caching. Use only for local development.
+Direct calls skip virtual key minting, LiteLLM budget enforcement, guardrails, and caching. Use only for local development.
 
 ---
 

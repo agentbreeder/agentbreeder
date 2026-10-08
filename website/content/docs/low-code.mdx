@@ -98,11 +98,6 @@ tools:
   - ref: tools/web-search       # resolves engine.tools.standard.web_search
   - ref: tools/markdown-writer  # resolves engine.tools.standard.markdown_writer
 
-# Knowledge Bases (RAG)
-knowledge_bases:
-  - ref: kb/product-docs
-  - ref: kb/return-policy
-
 # Versioned Prompts — always reference by registry ref. Never inline.
 # The actual prompt body lives at prompts/<name>.md in the project.
 prompts:
@@ -282,7 +277,7 @@ claude_managed:
 
 ### Push your agent to the registry
 
-Before (or instead of) deploying, push the agent and its dependent entities to your org's registry so they can be re-used, versioned, and deployed from Studio.
+Before (or instead of) deploying, push the agent and its dependent entities to your org's registry so they can be re-used, versioned, and discovered across your org.
 
 ```bash
 # Push the prompt — versioned. Auto-bumps semver patch on update.
@@ -365,20 +360,11 @@ agentbreeder describe my-agent         # detailed info about one agent
 
 ### Roll back
 
-```bash
-agentbreeder deploy agent.yaml --version 1.0.0
-```
-
-### Schedule a recurring run
+There is no `--version` flag on `deploy` — roll back by restoring the previous `agent.yaml` from version control and re-deploying it:
 
 ```bash
-agentbreeder schedule my-agent --cron "0 9 * * 1-5"    # weekdays at 9am
-```
-
-### Run evaluations
-
-```bash
-agentbreeder eval my-agent --suite evals/support.yaml
+git checkout <previous-commit> -- agent.yaml
+agentbreeder deploy agent.yaml
 ```
 
 ### Manage secrets
@@ -433,8 +419,7 @@ Every framework compiles to every deployment target. The full matrix — and the
 | All `agent.yaml` fields | [agent.yaml Reference →](agent-yaml) |
 | All CLI commands | [CLI Reference →](cli-reference) |
 | MCP server setup | [MCP Servers →](mcp-servers) |
-| RAG & knowledge bases | [RAG →](rag) |
 | Versioned prompts | [Prompts →](prompts) |
-| Multi-agent orchestration | [Orchestration SDK →](orchestration-sdk) |
+| Agent-to-agent calls | [A2A →](a2a-protocol) |
 | Full Python/TypeScript SDK | [Full Code →](full-code) |
 | No-code Studio UI | [No Code →](no-code) |

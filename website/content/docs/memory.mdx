@@ -14,8 +14,8 @@ AgentBreeder's memory system gives agents access to conversation history, sessio
 
 | Backend | Value | Best for |
 |---------|-------|----------|
-| In-memory (default) | `in_memory` | Development and single-instance deployments |
-| PostgreSQL | `postgresql` | Production — durable across restarts and replicas |
+| PostgreSQL (default) | `postgresql` | Production — durable across restarts and replicas |
+| Redis | `redis` | Low-latency session buffers |
 
 ## Memory Types
 
@@ -30,16 +30,7 @@ AgentBreeder's memory system gives agents access to conversation history, sessio
 
 ### 1 — Create a memory config
 
-```bash
-agentbreeder config memory create \
-  --name support-memory \
-  --backend postgresql \
-  --type buffer_window \
-  --max-messages 50 \
-  --scope agent
-```
-
-Or via the API:
+Create a config through the API (`POST /api/v1/memory/configs`). Alternatively, describe it in a `memory.yaml` (`name`, `backend`, `memory_type`, `config.window_size`) and run `agentbreeder registry memory push memory.yaml`, which posts to the same endpoint.
 
 ```bash
 curl -X POST https://your-agentbreeder/api/v1/memory/configs \
@@ -74,7 +65,7 @@ That's it. The agent now has a sliding window of the last 50 messages per sessio
 | Field | Default | Description |
 |-------|---------|-------------|
 | `name` | — | Registry name for this config — referenced in `agent.yaml` |
-| `backend_type` | `in_memory` | Storage backend: `in_memory` or `postgresql` |
+| `backend_type` | `postgresql` | Storage backend: `postgresql` or `redis` |
 | `memory_type` | `buffer_window` | Eviction strategy: `buffer_window` or `buffer` |
 | `max_messages` | `100` | Max messages to retain per session (buffer_window only) |
 | `namespace_pattern` | `{agent_id}:{session_id}` | Key template — controls memory isolation |
@@ -126,20 +117,15 @@ memory:
 | `postgresql` | AWS RDS · GCP Cloud SQL · Azure Flexible Server | `DATABASE_URL` + `MEMORY_BACKEND=postgresql` |
 | `redis` | AWS ElastiCache · GCP Memorystore · Azure Cache for Redis | `REDIS_URL` + `MEMORY_BACKEND=redis` |
 
-**Postgres** sharing: if the same agent also declares a knowledge base
-(pgvector), the KB and `postgresql` memory **share a single provisioned
-instance** — Postgres is created at most once per deploy.
-
 **Redis** auth: AWS/GCP caches are network-isolated and unauthenticated
 (`redis://…`); Azure Cache for Redis is TLS + access-key authenticated
-(`rediss://…`), the key stored in Key Vault. (A KB pgvector Postgres and `redis`
-memory in the same agent provision two stores.)
+(`rediss://…`), the key stored in Key Vault.
 
 Secrets (DB passwords / Redis keys) live only in the cloud secret manager. The
 provisioned footprint is recorded in `.agentbreeder/infra-state.json`, and
-`agentbreeder teardown <agent>` destroys everything it created. See
-[RAG → Automatic provisioning](/docs/rag) for the per-cloud networking
-requirements (BYO subnets / Private Service Access / delegated subnet).
+`agentbreeder teardown <agent>` destroys everything it created. Provisioning
+needs the agent's BYO network settings in `deploy.env_vars` (subnets / Private
+Service Access / delegated subnet) — see [Deployment](/docs/deployment).
 
 <Callout type="info" title="backend_url always wins">
 An explicit `backend_url` short-circuits auto-provisioning — point it at a store
@@ -163,12 +149,16 @@ memory_config: my-agent-memory
 ```
 
 ```bash
-agentbreeder config memory create \
-  --name my-agent-memory \
-  --backend postgresql \
-  --type buffer_window \
-  --max-messages 100 \
-  --scope agent
+curl -X POST https://your-agentbreeder/api/v1/memory/configs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-agent-memory",
+    "backend_type": "postgresql",
+    "memory_type": "buffer_window",
+    "max_messages": 100,
+    "scope": "agent"
+  }'
 ```
 
 History is namespaced to `{agent_id}:{session_id}` by default — each session is isolated.
@@ -194,13 +184,17 @@ History is namespaced to `{agent_id}:{session_id}` by default — each session i
 Multiple agents on a team share the same context (e.g., a triage agent and a billing agent both need to see conversation history).
 
 ```bash
-agentbreeder config memory create \
-  --name team-shared-memory \
-  --backend postgresql \
-  --type buffer_window \
-  --max-messages 200 \
-  --scope team \
-  --linked-agents triage-agent,billing-agent,technical-agent
+curl -X POST https://your-agentbreeder/api/v1/memory/configs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "team-shared-memory",
+    "backend_type": "postgresql",
+    "memory_type": "buffer_window",
+    "max_messages": 200,
+    "scope": "team",
+    "linked_agents": ["triage-agent", "billing-agent", "technical-agent"]
+  }'
 ```
 
 ```yaml
@@ -222,34 +216,19 @@ memory_config: team-shared-memory
 For agents that need to remember everything — research assistants, long-running workflows.
 
 ```bash
-agentbreeder config memory create \
-  --name research-full-memory \
-  --backend postgresql \
-  --type buffer \
-  --scope agent
+curl -X POST https://your-agentbreeder/api/v1/memory/configs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "research-full-memory",
+    "backend_type": "postgresql",
+    "memory_type": "buffer",
+    "scope": "agent"
+  }'
 ```
 
 <Callout type="warn">
   `buffer` type keeps all messages indefinitely. Monitor storage growth for long-running sessions. Use `buffer_window` for customer-facing agents.
-</Callout>
-
----
-
-### Development (in-memory, no persistence)
-
-For local development where you don't want to set up PostgreSQL:
-
-```bash
-agentbreeder config memory create \
-  --name dev-memory \
-  --backend in_memory \
-  --type buffer_window \
-  --max-messages 20 \
-  --scope agent
-```
-
-<Callout type="warn">
-  In-memory backend loses all history on agent restart. Never use in production.
 </Callout>
 
 ---
@@ -317,12 +296,16 @@ The default namespace `{agent_id}:{session_id}` keeps each agent's memory isolat
 | `{agent_id}` | Per-agent, global (one context for all sessions) |
 
 ```bash
-agentbreeder config memory create \
-  --name user-history \
-  --backend postgresql \
-  --type buffer_window \
-  --namespace-pattern "{agent_id}:{user_id}" \
-  --scope agent
+curl -X POST https://your-agentbreeder/api/v1/memory/configs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "user-history",
+    "backend_type": "postgresql",
+    "memory_type": "buffer_window",
+    "namespace_pattern": "{agent_id}:{user_id}",
+    "scope": "agent"
+  }'
 ```
 
 ---

@@ -294,8 +294,7 @@ At deploy time, AgentBreeder:
 from agenthub import Agent, Tool
 
 agent = (
-    Agent("support-agent")
-        .with_framework("langgraph")
+    Agent("support-agent", framework="langgraph")
         .with_tool(Tool.from_ref("mcp-servers/zendesk"))   # MCP server
         .with_tool(Tool.from_ref("mcp-servers/slack"))
         .with_tool(Tool.from_ref("tools/order-lookup"))    # regular function tool
@@ -305,12 +304,13 @@ agent = (
   </Tab>
   <Tab value="TypeScript">
 ```typescript
-import { Agent } from "@agentbreeder/sdk";
+import { Agent, Tool } from "@agentbreeder/sdk";
 
-const agent = new Agent("support-agent")
-  .withFramework("langgraph")
-  .withTools(["mcp-servers/zendesk", "mcp-servers/slack", "tools/order-lookup"])
-  .withDeploy({ cloud: "aws", runtime: "app-runner" });
+const agent = new Agent("support-agent", { framework: "langgraph" })
+  .withTool(Tool.fromRef("mcp-servers/zendesk"))
+  .withTool(Tool.fromRef("mcp-servers/slack"))
+  .withTool(Tool.fromRef("tools/order-lookup"))
+  .withDeploy("aws", { runtime: "app-runner" });
 ```
   </Tab>
 </Tabs>
@@ -346,17 +346,18 @@ curl -X DELETE http://localhost:8000/api/v1/mcp-servers/{id}
 
 ## Deploy MCP Servers as Docker Images
 
-For production, package your MCP server as a container:
+For production, package your MCP server as a container. There is no CLI command for this — the packager is a Python API in `engine.mcp.packager`:
 
-```bash
-# AgentBreeder generates a Dockerfile for you
-agentbreeder mcp package --name zendesk --transport sse
+```python
+from engine.mcp.packager import build_image_tag, generate_dockerfile
 
-# Produces:
+dockerfile = generate_dockerfile(transport="sse")
 # FROM node:20-slim
-# ENV MCP_TRANSPORT=sse
 # ...
-# Image tag: agentbreeder/mcp-zendesk:1.0.0
+# ENV MCP_TRANSPORT=sse
+
+tag = build_image_tag("zendesk", "1.0.0")
+# "agentbreeder/mcp-zendesk:1.0.0"
 ```
 
 The generated sidecar config:
@@ -448,6 +449,5 @@ and returns the tools ready to bind — the LLM decides when to call them. No-Co
 | What | Where |
 |------|-------|
 | Register custom function tools | [Tools →](tools) |
-| Build a knowledge base | [Knowledge Bases →](rag) |
 | Register system prompts | [Prompts →](prompts) |
 | Full agent.yaml fields | [agent.yaml Reference →](agent-yaml) |

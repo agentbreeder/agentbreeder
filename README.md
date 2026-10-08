@@ -86,7 +86,7 @@ claude plugin marketplace add agentbreeder/agentbreeder
 claude plugin install agent-build@agentbreeder
 ```
 
-Then run `/agent-build` in Claude Code to scaffold an agent (it recommends framework, model, memory, RAG, and deploy target, then generates `agent.yaml` + code).
+Then run `/agent-build` in Claude Code to scaffold an agent (it recommends framework, model, memory, RAG, and deploy target, then generates `agent.yaml` + code — retrieval and eval scaffolding is plain code in your project).
 
 ---
 ## Documentation

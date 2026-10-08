@@ -1,13 +1,13 @@
 ---
 title: Authentication & Authorization
-description: How AgentBreeder handles identity, roles, asset permissions, approval workflows, and enterprise SSO integration.
+description: How AgentBreeder handles identity, roles, asset permissions, and enterprise SSO integration.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-AgentBreeder uses a layered security model: every user, team, and service principal gets a scoped identity, every asset has per-principal ACLs, and every deployment requires an approved state. Enterprise customers can plug in Okta, Azure AD, AWS IAM, or any SAML 2.0 provider.
+AgentBreeder uses a layered security model: every user, team, and service principal gets a scoped identity, and every asset has per-principal ACLs. Enterprise customers can plug in Okta, Azure AD, AWS IAM, or any SAML 2.0 provider.
 
 ---
 
@@ -33,24 +33,24 @@ Roles exist at two scopes: **platform** (org-wide) and **team** (scoped to one t
 |------|:---:|:---:|:---:|:---:|
 | `admin` | ✅ | ✅ | ✅ | ✅ |
 | `deployer` | ✅ | ❌ | ❌ | ❌ |
-| `contributor` | submit only | ❌ | ❌ | ❌ |
+| `contributor` | ❌ | ❌ | ❌ | ❌ |
 | `viewer` | ❌ | ❌ | ❌ | ❌ |
 
 <Callout type="info" title="Least privilege by default">
-  New users join as `viewer`. Admins promote them. Contributors can build and submit assets for approval but cannot deploy until an admin approves.
+  New users join as `viewer`. Admins promote them. Contributors can build and register assets but cannot deploy.
 </Callout>
 
 ---
 
 ## Asset permissions
 
-Every asset (agent, prompt, tool, memory config, RAG index, knowledge base, model) carries its own access control list.
+Every asset (agent, prompt, tool, memory config, model) carries its own access control list.
 
 ### Default ACL on creation
 
 | Principal | read | use | write | deploy | publish | admin |
 |-----------|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Owner** (creator) | ✅ | ✅ | ✅ | requires approval | ✅ | ✅ |
+| **Owner** (creator) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Owner's team** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Other teams** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **External / unauthenticated** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -60,76 +60,39 @@ Every asset (agent, prompt, tool, memory config, RAG index, knowledge base, mode
 | Action | What it allows |
 |--------|----------------|
 | `read` | View the asset's config, YAML, and metadata |
-| `use` | Invoke the asset (call an agent, search a RAG index, run a tool) |
+| `use` | Invoke the asset (call an agent, run a tool) |
 | `write` | Edit config, update YAML, create new versions |
-| `deploy` | Push to a cloud target — **requires approved state** |
+| `deploy` | Push to a cloud target |
 | `publish` | Share to the org-wide registry for others to discover |
 | `admin` | Change the asset's ACL, transfer ownership |
 
-### Granting access from Studio
+### Granting access
 
-```
-Assets → [select asset] → Permissions → Add principal
-```
-
-Or via CLI:
+There is no CLI command for ACLs yet. Grant access through the RBAC REST API (`POST /api/v1/rbac/permissions`). `resource_id` is the UUID of the asset in the registry:
 
 ```bash
-agentbreeder acl grant \
-  --asset agents/customer-support \
-  --principal team:data-science \
-  --actions read,use
+curl -X POST http://localhost:8000/api/v1/rbac/permissions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resource_type": "agent",
+    "resource_id": "<agent-uuid>",
+    "principal_type": "team",
+    "principal_id": "data-science",
+    "actions": ["read", "use"]
+  }'
 
-agentbreeder acl grant \
-  --asset prompts/support-system-v3 \
-  --principal user:bob@company.com \
-  --actions read,write
+curl -X POST http://localhost:8000/api/v1/rbac/permissions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resource_type": "prompt",
+    "resource_id": "<prompt-uuid>",
+    "principal_type": "user",
+    "principal_id": "bob@company.com",
+    "actions": ["read", "write"]
+  }'
 ```
-
----
-
-## Approval workflow
-
-Any contributor can build and submit assets. Deployment is gated by an admin approval.
-
-```
-Contributor creates / edits asset
-         │
-         ▼
-  agentbreeder submit        (or Studio → "Submit for Review")
-         │
-         ▼
-  ApprovalRequest created    status: pending
-  Admin group notified       (email + Studio badge)
-         │
-         ├── Admin approves  → status: approved  → deployer can run agentbreeder deploy
-         └── Admin rejects   → status: rejected  → contributor sees rejection reason
-```
-
-Every approval decision is written to the immutable audit log with: approver identity, timestamp, asset version, and free-text reason.
-
-### Submitting an asset
-
-```bash
-agentbreeder submit --asset agents/my-agent --message "Ready for prod review"
-```
-
-### Approving from Studio
-
-```
-Governance → Approval Queue → [select request] → Review → Approve / Reject
-```
-
-### Approving from the CLI (admin only)
-
-```bash
-agentbreeder review approve <request-id> --reason "LGTM, tested in staging"
-agentbreeder review reject  <request-id> --reason "System prompt needs PII guardrail"
-```
-
-<Callout type="warn" title="Admins bypass approval">
-  Users with the `admin` platform role can deploy without submitting for approval. For regulated environments, disable this with `require_approval_for_admins: true` in your org settings.
-</Callout>
 
 ---
 
@@ -147,20 +110,24 @@ Every team member and service principal gets a **scoped virtual key** that route
 | Event | Key action |
 |-------|-----------|
 | User joins team | Key auto-minted with team defaults |
-| Agent deployed | Agent-scoped key auto-minted during `registering` step |
 | User removed from team | Key revoked |
-| Key expires | Auto-revoked; new key issued on next login |
+| Key expires | LiteLLM rejects it; mint a new one with `POST /api/v1/rbac/keys` |
 
 ### Creating a custom key (admin)
 
 ```bash
-agentbreeder key create \
-  --scope team \
-  --scope-id engineering \
-  --models "claude-sonnet-4,gpt-4o" \
-  --max-budget 50.00 \
-  --budget-duration monthly \
-  --tags production,rag
+curl -X POST http://localhost:8000/api/v1/rbac/keys \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_alias": "team-engineering-prod",
+    "scope_type": "team",
+    "scope_id": "engineering",
+    "allowed_models": ["claude-sonnet-4", "gpt-4o"],
+    "max_budget": 50.00,
+    "budget_duration": "monthly",
+    "tags": ["production"]
+  }'
 ```
 
 ---
@@ -367,12 +334,20 @@ Service principals are non-human identities for CI/CD pipelines, automated scrip
 ### Creating a service principal
 
 ```bash
-# Creates a principal and prints the key once
-agentbreeder principal create \
-  --name "github-actions-deploy" \
-  --team engineering \
-  --role deployer \
-  --allowed-assets "agents/*,prompts/*"
+# Creates the principal and mints its initial key
+curl -X POST http://localhost:8000/api/v1/rbac/service-principals \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "github-actions-deploy",
+    "team_id": "engineering",
+    "role": "deployer",
+    "allowed_assets": ["agent:<agent-uuid>", "prompt:<prompt-uuid>"]
+  }'
+
+# Issue a new key (returned once in the response; revokes the old one)
+curl -X POST http://localhost:8000/api/v1/rbac/service-principals/<sp-id>/rotate-key \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Using in CI/CD
@@ -382,7 +357,7 @@ agentbreeder principal create \
 - name: Deploy agent
   env:
     AGENTBREEDER_API_KEY: ${{ secrets.AGENTBREEDER_DEPLOY_KEY }}
-  run: agentbreeder deploy --target aws
+  run: agentbreeder deploy agent.yaml --target aws
 ```
 
 The `AGENTBREEDER_API_KEY` is a long-lived service principal token. It is scoped to the team and role defined at creation — it cannot access assets outside its ACL.
@@ -420,15 +395,17 @@ GET /api/v1/rbac/permissions/check?resource_type=agent&resource_id=<uuid>&action
 → { "allowed": true, "reason": "Direct user permission" }
 ```
 
-### Approval queue
+### Approval requests
 
 ```
 GET    /api/v1/rbac/approvals                    # list pending/decided approvals
-POST   /api/v1/rbac/approvals                    # submit an asset for approval
+POST   /api/v1/rbac/approvals                    # create an approval request for an asset
 GET    /api/v1/rbac/approvals/{id}               # get approval detail
 POST   /api/v1/rbac/approvals/{id}/approve       # approve (admin only)
 POST   /api/v1/rbac/approvals/{id}/reject        # reject (admin only)
 ```
+
+These endpoints only record approval requests and decisions. `agentbreeder deploy` and the registry do not check them — there is no submit/review/publish gate. (The HITL approvals queue at `/api/v1/approvals`, where agents pause for human sign-off on a tool call, is a separate feature.)
 
 ### Service principals
 
@@ -464,23 +441,17 @@ GET    /api/v1/rbac/keys/{id}/reveal             # reveal full key value (admin 
 
 ---
 
-## Audit log
+## Audit events
 
-Every auth and authorization event is written to the immutable audit log:
+AgentBreeder has no audit log API, UI, or `agentbreeder audit` command. Instead, selected sensitive operations emit a structured `audit_event` log line (with `audit_action`, `actor`, and `details` fields), for example:
 
-| Event | Logged fields |
+| `audit_action` | Emitted when |
 |-------|--------------|
-| Login (success/failure) | user, IP, provider, timestamp |
-| Token issued | user, scope, expiry |
-| Asset permission change | actor, asset, before, after |
-| Approval decision | approver, asset, version, reason |
-| Deploy | actor, asset, target, approval_id |
-| Key created/revoked | actor, key_alias, scope |
+| `secret.created` / `secret.rotated` / `secret.backend_changed` | A workspace secret is created, rotated, or its backend changes |
+| `secret.mirrored` | A deploy mirrors a secret into the target cloud's secret store |
+| `deployment.validate_infra` | `POST /api/v1/deployments/validate-infra` completes |
 
-```bash
-agentbreeder audit --asset agents/customer-support --since 7d
-agentbreeder audit --user bob@company.com --action deploy
-```
+To retain these, ship the API's logs to your log pipeline or SIEM and filter on `audit_event`.
 
 ---
 
@@ -490,10 +461,9 @@ Before going to production with a multi-user deployment:
 
 - [ ] Set `auth_provider` to your enterprise IdP (not `local`)
 - [ ] Set `SECRET_KEY` to a random 256-bit value (never the default)
-- [ ] Enable `require_approval_for_admins: true` for regulated environments
 - [ ] Configure team default spending budgets
 - [ ] Place the API behind your VPN or zero-trust proxy
-- [ ] Enable audit log export to your SIEM (Splunk, Datadog, CloudTrail)
+- [ ] Ship API logs (including `audit_event` lines) to your SIEM (Splunk, Datadog, CloudTrail)
 - [ ] Rotate service principal keys on a schedule (recommend 90 days)
 
 ---
@@ -501,6 +471,4 @@ Before going to production with a multi-user deployment:
 ## Related
 
 - [Teams & Registry Guide](registry-guide) — how teams own registry assets
-- [CLI Reference: `agentbreeder acl`](cli-reference#acl) — full ACL command reference
-- [CLI Reference: `agentbreeder audit`](cli-reference#audit) — querying the audit log
 - [Agent YAML: `access` block](agent-yaml#access) — per-agent visibility and caller restrictions

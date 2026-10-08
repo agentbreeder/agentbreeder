@@ -116,7 +116,7 @@ claude plugin install agent-build@agentbreeder
 
 Then run `/agent-build` in Claude Code. No AgentBreeder install needed — the skill generates a complete project you can deploy with `agentbreeder deploy`.
 
-Both produce the same artifacts: `agent.yaml`, `agent.py`, `tools/`, `requirements.txt`, `.env.example`, `Dockerfile`, `deploy/`, `criteria.md`, `README.md`. Advisory adds `memory/`, `rag/`, `mcp/servers.yaml`, `tests/evals/`, `ARCHITECT_NOTES.md`, plus IDE context files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `.antigravity.md`).
+Both produce the same artifacts: `agent.yaml`, `agent.py`, `tools/`, `requirements.txt`, `.env.example`, `Dockerfile`, `deploy/`, `criteria.md`, `README.md`. Advisory adds `memory/`, `rag/`, `mcp/servers.yaml`, `tests/evals/`, `ARCHITECT_NOTES.md`, plus IDE context files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `.antigravity.md`). The `rag/` and `tests/evals/` files are code in your own project (pgvector/Neo4j retrieval, LangSmith/Inspect/PromptFoo evals) — not AgentBreeder platform features.
 
 ```bash
 cd my-agent/
@@ -147,9 +147,9 @@ Either path writes to the workspace secrets backend under `AGENTBREEDER_CLAUDE_B
 1. Land on Studio's **Home** page (`/`) — the chat input is focused and ready — or go to **Agents → New agent** (`/agents/new`) and select the **Chat to build** tab. Just start typing.
 2. Describe what you want your agent to do. The builder's responses stream back token-by-token as Claude writes them — no waiting for the full reply.
 3. Claude asks 3–5 focused follow-up questions (framework, model, deploy target, any tools or integrations you need) and then emits a structured spec.
-4. The backend validates the spec against the `agent.yaml` JSON schema before surfacing it to you. A **Deploy now** button appears only when the spec is valid.
-5. Click **Deploy now**. Live deploy logs stream directly in the conversation thread — you can watch each of the 8 pipeline steps (parse → RBAC → resolve → build → provision → health check → register → endpoint) as they run.
-6. When the pipeline finishes, the endpoint URL is posted in the thread. Click it to open the agent, or copy it into `agentbreeder chat` or your app.
+4. The backend validates the spec against the `agent.yaml` JSON schema before surfacing it to you. A **Create agent** button appears only when the spec is valid.
+5. Click **Create agent** to register the spec in the registry (via `POST /api/v1/agents/from-yaml`) and open its detail page.
+6. To deploy, save the spec as `agent.yaml` next to your agent code and run `agentbreeder deploy agent.yaml --target <target>` from the CLI — the **Deploy** tab in the thread shows the exact command. Studio does not deploy agents itself.
 
 **Inline setup — credentials, providers, and MCP servers without leaving the thread:**
 
@@ -167,7 +167,7 @@ Once you connect (or **Skip**) the card, the conversation continues automaticall
 - If the key is absent or invalid, the endpoint returns HTTP 400 with a clear "add your key" message — the provider is never constructed.
 - The conversation is bounded: maximum 40 turns and 100 000 total characters.
 - Claude's output (the agent spec) is always re-validated by `validate_config_yaml()` on the backend before `valid: true` is returned. Untrusted model output cannot bypass the schema.
-- Clicking **Deploy now** runs the spec through the same `POST /api/v1/agents/from-yaml` path used by the form wizard — no shortcuts or schema bypasses.
+- Clicking **Create agent** runs the spec through the same `POST /api/v1/agents/from-yaml` path used by the form wizard — no shortcuts or schema bypasses.
 
 **On AgentBreeder cloud:** The chat builder works identically at [console.agentbreeder.io](https://console.agentbreeder.io). The cloud control plane proxies requests to the OSS builder and meters each conversational turn against your plan's daily quota.
 
@@ -177,7 +177,7 @@ Once the chat has produced a validated `agent.yaml`, an **Eject to code** button
 
 - **Pick your engine.** Choose **Claude** (a Claude Agent SDK-style agentic loop) or **Codex** (OpenAI), selectable per session. Claude uses the same BYO key the chat builder already reads from your workspace secrets backend; Codex uses a separate OpenAI key stored alongside it.
 - **Watch the code stream in.** The coding agent writes files into a sandbox workspace and you see live file diffs land in a new **Code** tab in the chat. It can run the generated tests in the sandbox and iterate on failures before handing back.
-- **Deploy from the same thread.** When the code is ready, deploy it straight from the conversation. This is the same governed deploy as everywhere else — RBAC, audit trail, and registry registration all apply.
+- **Deploy from the CLI.** When the code is ready, deploy it with `agentbreeder deploy agent.yaml --target <target>` — the same governed deploy as everywhere else, with RBAC and registry registration.
 
 <Callout type="info" title="Where code generation runs">
   Eject-to-code runs in a sandbox selected by `AGENTBREEDER_SANDBOX`:
@@ -200,12 +200,14 @@ Once the chat has produced a validated `agent.yaml`, an **Eject to code** button
 | Target | Command | `cloud:` |
 |---|---|---|
 | Local Docker Compose | `agentbreeder deploy agent.yaml --target local` | `local` |
-| GCP Cloud Run | `agentbreeder deploy agent.yaml --target cloud-run --region us-central1` | `gcp` |
-| AWS ECS Fargate | `agentbreeder deploy agent.yaml --target ecs-fargate --region us-east-1` | `aws` |
-| AWS App Runner | `agentbreeder deploy agent.yaml --target app-runner --region us-east-1` | `aws` |
+| GCP Cloud Run | `agentbreeder deploy agent.yaml --target cloud-run` | `gcp` |
+| AWS ECS Fargate | `agentbreeder deploy agent.yaml --target ecs-fargate` | `aws` |
+| AWS App Runner | `agentbreeder deploy agent.yaml --target app-runner` | `aws` |
 | Azure Container Apps | `agentbreeder deploy agent.yaml --target container-apps` | `azure` |
 | Kubernetes (EKS / GKE / AKS) | `agentbreeder deploy agent.yaml --target kubernetes` | `kubernetes` |
 | Anthropic Claude Managed | `agentbreeder deploy agent.yaml --target claude-managed` | `claude-managed` |
+
+The region is not a CLI flag — set it in `agent.yaml` under `deploy.region` (e.g. `region: us-east-1`).
 
 <Callout type="warning" title="claude-managed is in beta">
   The `claude-managed` deployer calls Anthropic's Managed Agents API behind the `anthropic-beta: managed-agents-2026-04-01` header. It is marked **In flight** in the [deploy-target status table](cli-reference#agentbreeder-deploy) — the CLI surface and `claude_managed:` schema may shift while the upstream beta evolves. Expect rough edges around environment provisioning and teardown. No container is built; the runtime is fully managed by Anthropic, so `guardrails:`, `secrets:` mirroring, and the AgentBreeder sidecar do **not** apply to this target.
@@ -214,7 +216,7 @@ Once the chat has produced a validated `agent.yaml`, an **Eject to code** button
 Cloud auth is the standard CLI for each provider (`gcloud auth login`, `aws configure`, `az login`, `kubectl` context). For GCP specifically, agentbreeder auto-detects your project ID in this order: (1) `deploy.env_vars.GCP_PROJECT_ID`, (2) `deploy.env_vars.GOOGLE_CLOUD_PROJECT`, (3) shell `$GCP_PROJECT_ID`, (4) shell `$GOOGLE_CLOUD_PROJECT`, then (5) `gcloud config get-value project` — so once you've run `gcloud config set project <id>`, you usually don't need to set anything in `agent.yaml`. Secrets named in `deploy.secrets:` must already exist in the target cloud's secret store — or use `agentbreeder secret sync --target <cloud>`.
 
 <Callout type="info" title="Local backends in Docker Compose">
-  When you deploy an agent locally, AgentBreeder no longer forwards your machine's `REDIS_URL`/`DATABASE_URL`/`NEO4J_URL` to the agent container. The bundled `deploy/docker-compose.yml` sets `AGENTBREEDER_ALLOW_LOCAL_BACKENDS=1` on the `api` service so local dev works out of the box. For cloud deploys, set an explicit `backend_url` on each `knowledge_bases` entry or `memory` block in your `agent.yaml` instead — see the [agent.yaml reference](agent-yaml#knowledge_bases) for the RAG/memory fields.
+  When you deploy an agent locally, AgentBreeder no longer forwards your machine's `REDIS_URL`/`DATABASE_URL`/`NEO4J_URL` to the agent container. The bundled `deploy/docker-compose.yml` sets `AGENTBREEDER_ALLOW_LOCAL_BACKENDS=1` on the `api` service so local dev works out of the box. For cloud deploys, set an explicit `backend_url` on the `memory` block in your `agent.yaml` instead — see the [agent.yaml reference](agent-yaml#memory) for the memory fields.
 </Callout>
 
 ### Reference: GCP Cloud Run end-to-end
@@ -409,7 +411,7 @@ No data leaves the machine.
 
 ## Route through the model gateway
 
-AgentBreeder ships a self-hosted [LiteLLM proxy](/docs/gateways#self-hosted-litellm) at `:4000` that adds budget enforcement, PII guardrails, Redis caching, and live spend tracking.
+AgentBreeder ships a self-hosted [LiteLLM proxy](/docs/gateways#self-hosted-litellm) at `:4000` that adds PII guardrails, Redis caching, and live spend tracking.
 
 ```yaml
 model:
@@ -418,7 +420,7 @@ model:
   gateway: litellm
 ```
 
-When active: every LLM call routes through the proxy with the agent's scoped virtual key; cost is tracked per agent and per team in the **Costs** page of Studio.
+When active: every LLM call routes through the proxy with the agent's scoped virtual key; LiteLLM's spend and logs are visible on Studio's **Gateway** page (`/gateway`).
 
 ---
 
@@ -455,45 +457,6 @@ agentbreeder secret set OPENAI_API_KEY --backend vault --value sk-...
 
 ---
 
-## Orchestrate multiple agents
-
-| Strategy | Use case |
-|---|---|
-| `router` | Classify request, route to the right agent |
-| `sequential` | Agents run in order, passing state |
-| `parallel` | All agents run simultaneously |
-| `hierarchical` | Manager delegates to workers |
-| `supervisor` | Supervisor reviews and corrects |
-| `fan_out_fan_in` | Fan out to workers, aggregate results |
-
-```yaml
-# orchestration.yaml
-name: support-pipeline
-strategy: router
-team: customer-success
-agents:
-  triage:
-    ref: agents/triage-agent
-    routes:
-      - { condition: billing,   target: billing }
-      - { condition: technical, target: technical }
-      - { condition: default,   target: general }
-  billing:   { ref: agents/billing-agent }
-  technical: { ref: agents/technical-agent }
-  general:   { ref: agents/general-agent }
-shared_state: { type: session_context, backend: redis }
-deploy: { target: local }
-```
-
-```bash
-agentbreeder orchestration deploy orchestration.yaml
-agentbreeder orchestration chat support-pipeline
-```
-
-Programmatic equivalent: see [Full Code →](full-code).
-
----
-
 ## Use the Python SDK
 
 ```python
@@ -507,8 +470,7 @@ agent = (
     .with_prompt(system="prompts/support-system-v3")
     .with_deploy(cloud="gcp", min_scale=1, max_scale=10)
 )
-agent.to_yaml("agent.yaml")
-agent.deploy()
+agent.save("agent.yaml")   # then: agentbreeder deploy agent.yaml --target <target>
 ```
 
 `.with_tool(...)` is singular and takes a single `Tool` instance — chain it once per tool, or loop:
@@ -547,24 +509,12 @@ agentbreeder eject my-agent --to yaml    # Visual builder → YAML
 
 ---
 
-## MCP, RBAC, costs, git, evals, templates, teardown
+## MCP, RBAC, templates, teardown
 
 ```bash
 # MCP
 agentbreeder scan                        # discover servers
 agentbreeder list tools
-
-# Costs
-agentbreeder list costs --group-by team  # also: --group-by agent | model
-
-# Git workflow
-agentbreeder submit agent.yaml --title "..."
-agentbreeder review approve 42
-agentbreeder publish 42
-
-# Evals
-agentbreeder eval run --agent support-agent --dataset tests.json
-agentbreeder eval results --agent support-agent
 
 # Templates
 agentbreeder template use customer-support --name my-agent
@@ -585,7 +535,7 @@ access:
   require_approval: false
 ```
 
-Full lifecycle for each: [MCP Servers](mcp-servers) · [Evaluations](evaluations).
+Full lifecycle: [MCP Servers](mcp-servers).
 
 ---
 
@@ -663,7 +613,7 @@ Default login: `admin@agentbreeder.local` / `plant`. Studio and `agentbreeder lo
 | `ModuleNotFoundError: No module named 'cli'` (or `api`, `engine`, `registry`) | A leftover `pip install -e .` editable install from an earlier source checkout is shadowing the PyPI release. `pip install agentbreeder` sees it as already satisfied and won't replace it. Run `pip uninstall -y agentbreeder` then `pip install --force-reinstall agentbreeder`. Use `pyenv` (see Install above) to avoid this across Python versions. |
 | `Validation failed: unknown framework` | Use one of: `langgraph`, `openai_agents`, `claude_sdk`, `crewai`, `google_adk`, `custom`. |
 | `RBAC check failed` | Deployer must belong to `team:` in `agent.yaml`. |
-| `Container build failed` | `docker info` to confirm runtime is up; `agentbreeder deploy --dry-run` to inspect generated Dockerfile. |
+| `Container build failed` | `docker info` to confirm runtime is up; `agentbreeder validate agent.yaml` to rule out config errors, then re-run `agentbreeder deploy agent.yaml` and read the build output. |
 | `Deploy rolled back` | The 8-step pipeline is atomic. `agentbreeder status <agent>` and `agentbreeder logs <agent>` to find the failed step. |
 | Studio won't start | Needs the API up first. `agentbreeder studio` or `docker compose -f deploy/docker-compose.yml up`. See [Quickstart](quickstart). |
 | Studio at `:3001` renders blank | Stale `rajits/agentbreeder-dashboard:latest` cached locally — `docker rmi` it then re-run with `agentbreeder quickstart --dev` to rebuild from source. See [FAQ](faq#studio-at-httplocalhost3001-shows-a-blank-page). |

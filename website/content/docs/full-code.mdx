@@ -1,14 +1,14 @@
 ---
 title: Full Code — Python & TypeScript SDK
-description: Full programmatic control over agent definition, deployment, and orchestration.
+description: Full programmatic control over agent definition in Python and TypeScript.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-Build agents entirely in code with the AgentBreeder SDK. Full type safety, custom routing logic, state machines, and programmatic deploy pipelines.
+Build agents entirely in code with the AgentBreeder SDK. Full type safety, custom routing logic, and state machines. The SDK generates `agent.yaml`; you deploy it with `agentbreeder deploy`.
 
-**Who this is for:** Senior engineers, AI researchers, ML scientists, and teams building production systems that need custom orchestration, complex evals, or CI/CD-driven deploys.
+**Who this is for:** Senior engineers, AI researchers, ML scientists, and teams building production systems that need custom routing logic or CI/CD-driven deploys.
 
 ---
 
@@ -67,13 +67,15 @@ All 7 deployment targets available via `.with_deploy()`:
 from agenthub import Agent, Tool
 
 agent = (
-    Agent("support-agent")
-        .with_version("1.0.0")
-        .with_description("Handles tier-1 customer support")
-        .with_team("customer-success")
-        .with_owner("alice@company.com")
-        .with_tags(["support", "zendesk", "production"])
-        .with_framework("langgraph")
+    Agent(
+        "support-agent",
+        version="1.0.0",
+        description="Handles tier-1 customer support",
+        team="customer-success",
+        owner="alice@company.com",
+        framework="langgraph",
+    )
+        .tag("support", "zendesk", "production")
         .with_model(
             primary="claude-sonnet-4",
             fallback="gpt-4o",
@@ -81,17 +83,10 @@ agent = (
         )
         .with_tool(Tool.from_ref("tools/zendesk-mcp"))
         .with_tool(Tool.from_ref("tools/order-lookup"))
-        .with_knowledge_bases([
-            "kb/product-docs",
-            "kb/return-policy",
-        ])
-        .with_prompts(system="prompts/support-system-v3")
-        .with_guardrails(["pii_detection", "hallucination_check", "content_filter"])
-        .with_access(
-            visibility="team",
-            allowed_callers=["team:engineering", "team:customer-success"],
-            require_approval=False,
-        )
+        .with_prompt(system="prompts/support-system-v3")
+        .with_guardrail("pii_detection")
+        .with_guardrail("hallucination_check")
+        .with_guardrail("content_filter")
         .with_deploy(
             cloud="aws",
             runtime="app-runner",
@@ -101,8 +96,15 @@ agent = (
         )
 )
 
-result = agent.deploy()
-print(result.endpoint)
+agent.save("agent.yaml")
+```
+
+The SDK has no builder for the `access:` block — add `visibility` / `allowed_callers` to the saved `agent.yaml` if you need them.
+
+Then deploy the generated file with the CLI:
+
+```bash
+agentbreeder deploy agent.yaml --target aws
 ```
 
 ### Framework-specific config
@@ -113,8 +115,7 @@ print(result.endpoint)
 from agenthub import Agent, Tool
 
 agent = (
-    Agent("research-agent")
-        .with_framework("langgraph")
+    Agent("research-agent", framework="langgraph")
         .with_model(primary="claude-sonnet-4")
         .with_tool(Tool.from_ref("tools/web-search"))
         .with_tool(Tool.from_ref("tools/arxiv"))
@@ -125,18 +126,14 @@ agent = (
   <Tab value="Claude SDK">
 ```python
 from agenthub import Agent
-from agenthub.config import ClaudeSDKConfig
 
 agent = (
-    Agent("reasoning-agent")
-        .with_framework("claude_sdk")
+    Agent("reasoning-agent", framework="claude_sdk")
         .with_model(primary="claude-opus-4")
-        .with_framework_config(ClaudeSDKConfig(
-            thinking={"type": "adaptive", "effort": "high"},
-            prompt_caching=True,
-        ))
         .with_deploy(cloud="aws", runtime="app-runner")
 )
+# The SDK does not set framework-specific blocks. After agent.save(),
+# add a `claude_sdk:` block (thinking, prompt_caching) to agent.yaml.
 ```
   </Tab>
   <Tab value="CrewAI">
@@ -144,8 +141,7 @@ agent = (
 from agenthub import Agent, Tool
 
 agent = (
-    Agent("research-crew")
-        .with_framework("crewai")
+    Agent("research-crew", framework="crewai")
         .with_model(primary="gpt-4o")
         .with_tool(Tool.from_ref("tools/web-search"))
         .with_tool(Tool.from_ref("tools/wikipedia"))
@@ -156,20 +152,14 @@ agent = (
   <Tab value="Google ADK">
 ```python
 from agenthub import Agent
-from agenthub.config import GoogleADKConfig
 
 agent = (
-    Agent("workspace-agent")
-        .with_framework("google_adk")
+    Agent("workspace-agent", framework="google_adk")
         .with_model(primary="gemini-2.0-flash")
-        .with_framework_config(GoogleADKConfig(
-            session_backend="database",
-            memory_service="vertex_ai_bank",
-            artifact_service="gcs",
-            gcs_bucket="my-agent-artifacts",
-        ))
         .with_deploy(cloud="gcp", runtime="cloud-run")
 )
+# The SDK does not set framework-specific blocks. After agent.save(),
+# add a `google_adk:` block (session_backend, memory_service, ...) to agent.yaml.
 ```
   </Tab>
   <Tab value="OpenAI Agents">
@@ -177,8 +167,7 @@ agent = (
 from agenthub import Agent, Tool
 
 agent = (
-    Agent("triage-agent")
-        .with_framework("openai_agents")
+    Agent("triage-agent", framework="openai_agents")
         .with_model(primary="gpt-4o-mini", fallback="gpt-4o")
         .with_tool(Tool.from_ref("tools/zendesk-mcp"))
         .with_deploy(cloud="azure", runtime="container-apps")
@@ -190,10 +179,8 @@ agent = (
 from agenthub import Agent
 
 agent = (
-    Agent("legacy-wrapper")
-        .with_framework("custom")
+    Agent("legacy-wrapper", framework="custom")
         .with_model(primary="claude-sonnet-4")
-        .with_entrypoint("server:app")          # your ASGI/WSGI app
         .with_deploy(cloud="kubernetes")
 )
 ```
@@ -204,32 +191,31 @@ agent = (
 
 ```python
 from agenthub import Agent
-from agenthub.config import ClaudeManagedConfig
 
 agent = (
-    Agent("managed-support")
-        .with_framework("claude_sdk")
+    Agent("managed-support", framework="claude_sdk")
         .with_model(primary="claude-sonnet-4")
         .with_deploy(
             cloud="claude-managed",
             secrets=["ANTHROPIC_API_KEY"],
         )
-        .with_claude_managed(ClaudeManagedConfig(
-            environment={"networking": "unrestricted"},
-            tools=[{"type": "agent_toolset_20260401"}],
-        ))
 )
 
-result = agent.deploy()
-# result.endpoint = "anthropic://agents/agt_01...?env=env_01..."
-print(result.endpoint)
+agent.save("agent.yaml")
+# The SDK has no builder for the `claude_managed:` block — add
+# environment / tools settings to the saved agent.yaml by hand.
+```
+
+```bash
+agentbreeder deploy agent.yaml --target claude-managed
 ```
 
 ### Generate and validate agent.yaml
 
 ```python
-agent.to_yaml("agent.yaml")       # export for YAML-based workflows
-agent.validate()                   # validate without deploying
+agent.save("agent.yaml")          # write agent.yaml for YAML-based workflows
+yaml_text = agent.to_yaml()        # or get the YAML as a string
+errors = agent.validate()          # validate without deploying; [] means valid
 ```
 
 ---
@@ -237,101 +223,54 @@ agent.validate()                   # validate without deploying
 ## TypeScript SDK
 
 ```typescript
-import { Agent } from "@agentbreeder/sdk";
+import { Agent, Tool } from "@agentbreeder/sdk";
 
 const agent = new Agent("support-agent", {
   version: "1.0.0",
   description: "Handles tier-1 customer support",
   team: "customer-success",
   owner: "alice@company.com",
+  framework: "langgraph",
   tags: ["support", "zendesk", "production"],
 })
-  .withFramework("langgraph")
-  .withModel({
-    primary: "claude-sonnet-4",
+  .withModel("claude-sonnet-4", {
     fallback: "gpt-4o",
     temperature: 0.7,
   })
-  .withTools(["tools/zendesk-mcp", "tools/order-lookup"])
-  .withKnowledgeBases(["kb/product-docs", "kb/return-policy"])
-  .withPrompts({ system: "prompts/support-system-v3" })
-  .withGuardrails(["pii_detection", "hallucination_check"])
-  .withAccess({ visibility: "team", allowedCallers: ["team:engineering"] })
-  .withDeploy({
-    cloud: "aws",
+  .withTool(Tool.fromRef("tools/zendesk-mcp"))
+  .withTool(Tool.fromRef("tools/order-lookup"))
+  .withPrompt("prompts/support-system-v3")
+  .withGuardrail("pii_detection")
+  .withGuardrail("hallucination_check")
+  .withDeploy("aws", {
     runtime: "app-runner",
     region: "us-east-1",
     secrets: ["ZENDESK_API_KEY"],
   });
 
-const result = await agent.deploy();
-console.log(result.endpoint);
+await agent.save("agent.yaml");
 ```
 
-Export as YAML:
+Then deploy it with `agentbreeder deploy agent.yaml`. To get the YAML as a string instead:
 
 ```typescript
-agent.toYaml("agent.yaml");
+const yaml = agent.toYaml();
 ```
-
----
-
-## Multi-Agent Orchestration (Full Code)
-
-The Full Code tier unlocks the Orchestration SDK — define pipelines of agents with custom routing, state, and execution strategies.
-
-```python
-from agenthub.orchestration import Pipeline, Agent
-
-pipeline = (
-    Pipeline("support-pipeline")
-        .add_agent("triage",     Agent("triage-agent").with_model("claude-haiku-4-5"))
-        .add_agent("specialist", Agent("specialist-agent").with_model("claude-sonnet-4"))
-        .add_agent("escalation", Agent("escalation-agent").with_model("claude-opus-4"))
-        .with_strategy("router")          # router | sequential | parallel | supervisor | hierarchical | fan-out
-        .with_routing(lambda ctx: (
-            "specialist" if ctx.intent in ("billing", "technical")
-            else "escalation" if ctx.priority == "urgent"
-            else "triage"
-        ))
-        .with_deploy(cloud="aws", runtime="app-runner")
-)
-
-result = pipeline.deploy()
-```
-
-Supported strategies:
-
-| Strategy | Description |
-|----------|-------------|
-| `router` | Classifies the request and routes to the right agent |
-| `sequential` | Runs agents in order, passing output as input |
-| `parallel` | Runs all agents simultaneously, merges results |
-| `supervisor` | One agent manages sub-agents dynamically |
-| `hierarchical` | Tree of supervisors and workers |
-| `fan-out` | One input split across N agents, results aggregated |
 
 ---
 
 ## Agent-to-Agent (A2A) Calls
 
-Agents deployed with AgentBreeder automatically expose an A2A endpoint. Call other agents directly:
+Register agents in the A2A registry, then call them by name through the AgentBreeder API:
 
-```python
-from agenthub.a2a import A2AClient
-
-# Discover agents in your org registry
-client = A2AClient()
-agents = client.list()   # returns all A2A-enabled agents
-
-# Call another agent
-response = client.call(
-    agent="specialist-agent",
-    message="Customer is asking about order #12345",
-    context={"team": "customer-success"},
-)
-print(response.text)
+```bash
+curl -X POST "https://your-agentbreeder/api/v1/a2a/invoke?agent_name=specialist-agent" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"input_message": "Customer is asking about order #12345"}'
 ```
+
+From Python, `engine.a2a.AgentInvocationClient` makes the same call. See the [A2A guide](a2a-protocol) for the registry API and the sidecar forwarder.
 
 Restrict which agents can call yours via `access.allowed_callers` in agent.yaml:
 
@@ -346,34 +285,11 @@ access:
 
 ## CI/CD Integration
 
-```python
-# deploy.py — run in GitHub Actions / GitLab CI
-import os
-from agenthub import Agent
-
-agent = (
-    Agent("support-agent")
-        .with_version(os.environ["AGENT_VERSION"])
-        .with_framework("langgraph")
-        .with_model(primary="claude-sonnet-4")
-        .with_deploy(
-            cloud="aws",
-            runtime="app-runner",
-            region=os.environ["AWS_REGION"],
-        )
-)
-
-result = agent.deploy()
-print(f"Deployed: {result.endpoint}")
-```
-
-Or use the CLI in CI:
+Generate `agent.yaml` from code (or commit it directly), then deploy it with the CLI in GitHub Actions / GitLab CI:
 
 ```bash
-agentbreeder deploy agent.yaml \
-  --target app-runner \
-  --region us-east-1 \
-  --version ${{ github.sha }}
+agentbreeder validate agent.yaml
+agentbreeder deploy agent.yaml --target aws --json
 ```
 
 ---
@@ -392,12 +308,10 @@ Every framework compiles to every deployment target. The full matrix — and the
 
 | What | Where |
 |------|-------|
-| Orchestration strategies | [Orchestration SDK →](orchestration-sdk) |
-| Agent-to-agent protocol | [A2A Guide →](how-to#a2a) |
+| Agent-to-agent protocol | [A2A Guide →](a2a-protocol) |
 | All `agent.yaml` fields | [agent.yaml Reference →](agent-yaml) |
 | All CLI commands | [CLI Reference →](cli-reference) |
 | MCP server setup | [MCP Servers →](mcp-servers) |
-| RAG & knowledge bases | [RAG →](rag) |
 | Versioned prompts | [Prompts →](prompts) |
 | Start with Studio | [No Code →](no-code) |
 | Write plain YAML | [Low Code →](low-code) |

@@ -192,7 +192,7 @@ access:
 ### 4. Deploy and register
 
 ```bash
-agentbreeder deploy
+agentbreeder deploy agent.yaml
 
 # → MCP server built and started
 # → Registered in registry as tools/my-search-tools
@@ -336,7 +336,7 @@ New tools, new optional params → bump minor version.
 
 ```bash
 # Start the MCP server
-agentbreeder deploy --target local
+agentbreeder deploy agent.yaml --target local
 
 # Call a tool directly
 curl -X POST http://localhost:8080/mcp \
@@ -351,9 +351,12 @@ curl -X POST http://localhost:8080/mcp \
     "id": 1
   }'
 
-# Or use the AgentBreeder sandbox
-agentbreeder tool sandbox --ref tools/my-search-tools --tool search_web \
-  --input '{"query": "test query"}'
+# Or, once the server is registered, call a tool through the AgentBreeder API
+# (<server-id> is the id returned by POST /api/v1/mcp-servers)
+curl -X POST "http://localhost:8000/api/v1/mcp-servers/<server-id>/execute?tool_name=search_web" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "test query"}'
 ```
 
 ---
@@ -374,7 +377,7 @@ deploy:
 ```
 
 ```bash
-agentbreeder deploy --target aws
+agentbreeder deploy agent.yaml --target aws
 # → Container built, pushed to ECR, deployed to ECS
 # → Registry entry updated with production endpoint
 # → All agents referencing tools/my-search-tools now use the production URL
@@ -388,11 +391,16 @@ agentbreeder deploy --target aws
 Yes. The APS sidecar proxies MCP protocol calls — language is transparent. The agent's `agent.yaml` just references `tools/my-go-tools` and the sidecar handles the rest.
 
 **Can I use an existing MCP server (not built with AgentBreeder)?**  
-Yes — register it manually:
+Yes — register it through the MCP server registry API:
 ```bash
-agentbreeder register --type mcp-server \
-  --name existing-server \
-  --url https://my-mcp-server.example.com
+curl -X POST http://localhost:8000/api/v1/mcp-servers \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "existing-server",
+    "endpoint": "https://my-mcp-server.example.com",
+    "transport": "sse"
+  }'
 ```
 
 **How are secrets (API keys) passed to MCP servers?**  

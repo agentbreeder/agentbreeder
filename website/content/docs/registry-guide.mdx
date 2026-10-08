@@ -15,7 +15,6 @@ AgentBreeder's **registry** is a shared catalog of reusable resources. Instead o
 |----------|-----------|------------------|
 | **Prompt** | System/user prompt template with variables | `prompts/support-system-v3` |
 | **Tool** | Function, API, or MCP server an agent can call | `tools/zendesk-lookup` |
-| **Knowledge Base** | Vector-indexed documents for RAG retrieval | `kb/product-docs` |
 | **Memory** | Conversation history / state storage config | `memory/session-buffer` |
 | **MCP Server** | Model Context Protocol server with discoverable tools | `mcp/slack-server` |
 | **Model** | Registered LLM with provider, pricing, and capabilities | `models/claude-sonnet-4` |
@@ -111,21 +110,19 @@ Expected output:
 
 ### Step 3: Register the Prompt in the Registry
 
-=== "CLI (Git workflow)"
+=== "CLI"
 
     ```bash
-    # Submit creates a review branch and opens a PR
-    agentbreeder submit prompt support-system-v3 \
-      --message "Initial system prompt for support agents"
+    # Push a prompt markdown file straight to the registry
+    agentbreeder registry prompt push prompts/support-system-v3.md \
+      --version 1.0.0 --team customer-success \
+      --description "Initial system prompt for support agents"
     ```
 
     Output:
 
     ```
-    ✅ Created branch: draft/alice/prompt/support-system-v3
-    ✅ PR opened: #42 — Update prompt/support-system-v3
-       Files changed: 1 added
-       Reviewers: auto-assigned from team customer-success
+    ✓ support-system-v3 v1.0.0  id=...
     ```
 
 === "API (direct registration)"
@@ -150,20 +147,16 @@ Expected output:
 
 ### Step 4: Test the Prompt
 
-Test how your prompt renders with variables and how the model responds:
+Send a registered prompt to a real model as the system instruction and see how it responds:
 
 === "API"
 
     ```bash
-    curl -X POST http://localhost:8000/api/v1/prompts/test \
+    curl -X POST http://localhost:8000/api/v1/registry/prompts/{prompt_id}/render \
       -H "Content-Type: application/json" \
       -d '{
-        "prompt_text": "You are a helpful support agent for {{company_name}}. Product: {{product_name}}.",
-        "variables": {
-          "company_name": "Acme Corp",
-          "product_name": "AcmeBot"
-        },
-        "model_name": "claude-sonnet-4",
+        "user_message": "Hi, where is my order?",
+        "model": "claude-sonnet-4",
         "temperature": 0.7
       }'
     ```
@@ -173,13 +166,10 @@ Test how your prompt renders with variables and how the model responds:
     ```json
     {
       "data": {
-        "rendered_prompt": "You are a helpful support agent for Acme Corp. Product: AcmeBot.",
-        "response_text": "Hello! I'm here to help you with AcmeBot...",
-        "model_name": "claude-sonnet-4",
-        "input_tokens": 42,
-        "output_tokens": 128,
-        "total_tokens": 170,
-        "latency_ms": 850
+        "output": "Hello! I'm here to help you with AcmeBot...",
+        "model": "claude-sonnet-4",
+        "duration_ms": 850,
+        "error": null
       }
     }
     ```
@@ -188,7 +178,7 @@ Test how your prompt renders with variables and how the model responds:
 
     1. Go to **Registry → Prompts → your prompt**
     2. Click the **Test** tab
-    3. Fill in variables and click **Run Test**
+    3. Enter a test message and click **Send Test**
     4. See the rendered prompt and model response side-by-side
 
 ### Step 5: Reference the Prompt in an Agent
@@ -278,22 +268,6 @@ Response (diff):
 ```bash
 # Create a copy as a new version (useful for A/B testing)
 curl -X POST http://localhost:8000/api/v1/registry/prompts/{prompt_id}/duplicate
-```
-
-### Review and Publish (Git Workflow)
-
-```bash
-# List pending reviews
-agentbreeder review list --status submitted --type prompt
-
-# Show PR details
-agentbreeder review show {pr_id}
-
-# Approve
-agentbreeder review approve {pr_id}
-
-# Publish to registry (merges the PR)
-agentbreeder publish prompt support-system-v3 --version 1.0.0
 ```
 
 ---
@@ -433,8 +407,10 @@ Response:
 === "CLI"
 
     ```bash
-    agentbreeder submit tool order-lookup \
-      --message "Order lookup tool for support agents"
+    # The module must expose a SCHEMA dict
+    agentbreeder registry tool push tools/order_lookup.py \
+      --name order-lookup \
+      --description "Order lookup tool for support agents"
     ```
 
 === "API"
@@ -626,222 +602,6 @@ curl -X DELETE http://localhost:8000/api/v1/mcp-servers/{server_id}
 
 ---
 
-## Knowledge Bases (RAG / Vector DB)
-
-### What is a Knowledge Base?
-
-A knowledge base is a collection of documents indexed in a vector database for retrieval-augmented generation (RAG). When an agent needs to answer a question, it searches the knowledge base for relevant context before generating a response.
-
-### Step 1: Create a Knowledge Base YAML
-
-Create `rag.yaml`:
-
-```yaml
-spec_version: v1
-name: product-docs
-version: 1.0.0
-description: "Product documentation and FAQ for support agents"
-team: customer-success
-owner: alice@company.com
-tags: [docs, support, rag]
-
-backend: pgvector                # pgvector or in_memory
-
-embedding_model:
-  provider: openai
-  name: text-embedding-3-small
-  dimensions: 1536
-
-chunking:
-  strategy: recursive            # recursive or fixed_size
-  chunk_size: 512                # tokens per chunk
-  chunk_overlap: 50              # overlap between chunks
-
-sources:
-  - type: file
-    path: ./docs/product-guide.pdf
-  - type: file
-    path: ./docs/faq.md
-  - type: url
-    url: https://docs.company.com/api-reference
-
-search:
-  hybrid: true                   # Combine vector + keyword search
-  vector_weight: 0.7             # Weight for vector similarity
-  text_weight: 0.3               # Weight for keyword matching
-  default_top_k: 5               # Number of results to return
-```
-
-### Step 2: Create a Vector Index
-
-```bash
-curl -X POST http://localhost:8000/api/v1/rag/indexes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "product-docs",
-    "description": "Product documentation for support agents",
-    "embedding_model": "text-embedding-3-small",
-    "chunk_strategy": "recursive",
-    "chunk_size": 512,
-    "chunk_overlap": 50,
-    "source": "manual"
-  }'
-```
-
-Response:
-
-```json
-{
-  "data": {
-    "id": "idx-abc123",
-    "name": "product-docs",
-    "description": "Product documentation for support agents",
-    "embedding_model": "text-embedding-3-small",
-    "chunk_strategy": "recursive",
-    "chunk_size": 512,
-    "chunk_overlap": 50,
-    "dimensions": 1536,
-    "doc_count": 0,
-    "chunk_count": 0,
-    "created_at": "2026-04-10T12:00:00Z"
-  }
-}
-```
-
-### Step 3: Ingest Documents
-
-Upload files into your index:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/rag/indexes/{index_id}/ingest \
-  -F "files=@docs/product-guide.pdf" \
-  -F "files=@docs/faq.md" \
-  -F "files=@docs/return-policy.txt"
-```
-
-Supported file formats: **PDF, TXT, MD, CSV, JSON**
-
-Response:
-
-```json
-{
-  "data": {
-    "id": "job-xyz789",
-    "index_id": "idx-abc123",
-    "status": "processing",
-    "total_files": 3,
-    "processed_files": 0,
-    "total_chunks": 0,
-    "embedded_chunks": 0,
-    "progress_pct": 0
-  }
-}
-```
-
-### Step 4: Monitor Ingestion Progress
-
-```bash
-curl http://localhost:8000/api/v1/rag/indexes/{index_id}/ingest/{job_id}
-```
-
-```json
-{
-  "data": {
-    "id": "job-xyz789",
-    "status": "completed",
-    "total_files": 3,
-    "processed_files": 3,
-    "total_chunks": 247,
-    "embedded_chunks": 247,
-    "progress_pct": 100
-  }
-}
-```
-
-### Step 5: Test Search
-
-Run a hybrid search to verify your index returns relevant results:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/rag/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "index_id": "idx-abc123",
-    "query": "What is the return policy for electronics?",
-    "top_k": 5,
-    "vector_weight": 0.7,
-    "text_weight": 0.3
-  }'
-```
-
-Response:
-
-```json
-{
-  "data": {
-    "index_id": "idx-abc123",
-    "query": "What is the return policy for electronics?",
-    "top_k": 5,
-    "results": [
-      {
-        "chunk_id": "chunk-001",
-        "text": "Electronics can be returned within 30 days of purchase with original packaging...",
-        "source": "return-policy.txt",
-        "score": 0.92,
-        "metadata": {"page": 3, "section": "Electronics"}
-      },
-      {
-        "chunk_id": "chunk-042",
-        "text": "All returns require a receipt or order confirmation email...",
-        "source": "faq.md",
-        "score": 0.85,
-        "metadata": {}
-      }
-    ],
-    "total": 2
-  }
-}
-```
-
-### Step 6: Reference in an Agent
-
-```yaml
-# agent.yaml
-name: support-agent
-framework: langgraph
-model:
-  primary: claude-sonnet-4
-
-knowledge_bases:
-  - ref: kb/product-docs           # ← registry reference
-  - ref: kb/return-policy
-```
-
-### Manage Indexes
-
-```bash
-# List all indexes
-curl http://localhost:8000/api/v1/rag/indexes
-
-# Get index details (doc count, chunk count)
-curl http://localhost:8000/api/v1/rag/indexes/{index_id}
-
-# Delete an index
-curl -X DELETE http://localhost:8000/api/v1/rag/indexes/{index_id}
-```
-
-### Tuning Tips
-
-| Parameter | Default | When to change |
-|-----------|---------|---------------|
-| `chunk_size` | 512 | Increase for long documents, decrease for Q&A-style content |
-| `chunk_overlap` | 50 | Increase if search misses context at chunk boundaries |
-| `vector_weight` | 0.7 | Increase for semantic/conceptual queries |
-| `text_weight` | 0.3 | Increase for keyword-heavy/exact-match queries |
-| `top_k` | 5 | Increase if agent needs more context, decrease for speed |
-
----
-
 ## Memory
 
 ### What is Memory?
@@ -1020,9 +780,6 @@ curl http://localhost:8000/api/v1/memory/configs/{config_id}/stats
       - ref: tools/order-lookup
       - ref: tools/zendesk-mcp
 
-    knowledge_bases:
-      - ref: kb/product-docs
-
     mcp_servers:
       - ref: mcp/slack-server
         transport: sse
@@ -1095,7 +852,6 @@ agentbreeder validate agent.yaml
 ✅  Team "customer-success" exists in registry
 ✅  All tool references resolve
 ✅  All prompt references resolve
-✅  All knowledge base references resolve
 ```
 
 You can also validate via API:
@@ -1122,11 +878,11 @@ curl -X POST http://localhost:8000/api/v1/agents/validate \
 # Deploy locally
 agentbreeder deploy agent.yaml --target local
 
-# Deploy to GCP Cloud Run
-agentbreeder deploy agent.yaml --target cloud-run --region us-central1
+# Deploy to GCP Cloud Run (region comes from deploy.region in agent.yaml)
+agentbreeder deploy agent.yaml --target cloud-run
 
-# Deploy to AWS ECS Fargate
-agentbreeder deploy agent.yaml --target ecs-fargate --region us-east-1
+# Deploy to AWS ECS Fargate (region comes from deploy.region in agent.yaml)
+agentbreeder deploy agent.yaml --target ecs-fargate
 ```
 
 The 8-step atomic pipeline runs:
@@ -1134,7 +890,7 @@ The 8-step atomic pipeline runs:
 ```
 ✅  YAML parsed & validated
 ✅  RBAC check passed
-✅  Dependencies resolved (tools, prompts, KBs from registry)
+✅  Dependencies resolved (tools, prompts from registry)
 ✅  Container built (langgraph runtime)
 ✅  Deployed to Cloud Run
 ✅  Health check passed
@@ -1223,62 +979,6 @@ curl "http://localhost:8000/api/v1/registry/models?provider=anthropic"
 
 ---
 
-## The Git Review Workflow
-
-For teams that want change control over registry resources:
-
-```
-Create resource  →  Submit (opens PR)  →  Review  →  Approve  →  Publish (merges PR)
-```
-
-### Submit a Change
-
-```bash
-agentbreeder submit <type> <name> --message "description"
-```
-
-Where `<type>` is one of: `agent`, `prompt`, `tool`, `model`, `knowledge-base`
-
-### Review Pending Changes
-
-```bash
-# List all pending reviews
-agentbreeder review list --status submitted
-
-# Filter by type
-agentbreeder review list --type prompt
-
-# View details
-agentbreeder review show {pr_id}
-
-# Add a comment
-agentbreeder review comment {pr_id} --message "Looks good, but add error handling"
-
-# Approve
-agentbreeder review approve {pr_id}
-
-# Reject with reason
-agentbreeder review reject {pr_id} --message "Missing test coverage"
-```
-
-### Publish an Approved Change
-
-```bash
-# Merge the PR and register in the catalog
-agentbreeder publish prompt support-system-v3 --version 1.0.0
-```
-
-Output:
-
-```
-✅ Merged PR #42
-✅ Tagged: prompt/support-system-v3@1.0.0
-✅ Registered in registry
-   Usage: prompts/support-system-v3
-```
-
----
-
 ## LLM Models in the Registry
 
 ### Register a Model
@@ -1327,7 +1027,6 @@ curl http://localhost:8000/api/v1/registry/models/{model_id}/usage
 |----------|----------------|-----------|
 | **Prompt** | `name`, `version` | `prompt.yaml` |
 | **Tool** | `name`, `version`, `description`, `type` | `tool.yaml` |
-| **Knowledge Base** | `name`, `version` | `rag.yaml` |
 | **Memory** | `name`, `version` | `memory.yaml` |
 | **Agent** | `name`, `version`, `team`, `owner`, `framework`, `model.primary`, `deploy.cloud` | `agent.yaml` |
 
@@ -1351,6 +1050,5 @@ tags: [tag1, tag2]                  # For discovery
 |------|-------|
 | All CLI commands | [CLI Reference](cli-reference.md) |
 | Every agent.yaml field | [agent.yaml Reference](agent-yaml.md) |
-| Multi-agent orchestration | [How-To Guide](how-to.md#orchestrate-multiple-agents) |
 | Common workflows | [How-To Guide](how-to.md) |
 | API versioning | [API Stability](api-stability.md) |
