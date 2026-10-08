@@ -39,14 +39,6 @@ async function setupHomeRoutes(page: import("@playwright/test").Page) {
       body: apiOk([], 0),
     }),
   );
-  // Deploys — empty
-  await page.route("**/api/v1/deploys**", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: apiOk([], 0),
-    }),
-  );
   // Tools — empty (home stats)
   await page.route("**/api/v1/tools**", (route) =>
     route.fulfill({
@@ -89,13 +81,6 @@ test("'Create your first agent' step is active and CTA links to /agents/new when
     }),
   );
   await page.route("**/api/v1/agents**", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: apiOk([], 0),
-    }),
-  );
-  await page.route("**/api/v1/deploys**", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",

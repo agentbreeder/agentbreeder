@@ -11,7 +11,7 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Send, User, Key, Loader2, CheckCircle, AlertCircle, Plus } from "lucide-react";
 import {
@@ -231,17 +231,12 @@ function SpecReadyCard({
   ejecting: boolean;
   /**
    * Which controls to render. "full" (default) shows the YAML spec preview plus
-   * Create / Deploy / Eject. "deploy" hides the spec YAML and the Create/Eject
-   * controls, leaving only the deploy button + logs + endpoint link — this backs
-   * the Deploy tab while sharing the same mounted instance (deploy state preserved).
+   * Create / Eject and the CLI deploy instructions. "deploy" shows only the
+   * deploy instructions — this backs the Deploy tab.
    */
   view?: "full" | "deploy";
 }) {
   const navigate = useNavigate();
-  const [logs, setLogs] = useState<string[]>([]);
-  const [endpoint, setEndpoint] = useState<string | null>(null);
-  const [deploying, setDeploying] = useState(false);
-  const [deployError, setDeployError] = useState<string | null>(null);
 
   const createMutation = useMutation({
     mutationFn: () => api.agents.fromYaml(agentYaml),
@@ -250,44 +245,6 @@ function SpecReadyCard({
       navigate(`/agents/${agent.id}`);
     },
   });
-
-  async function handleDeploy() {
-    setDeploying(true);
-    setLogs([]);
-    setEndpoint(null);
-    setDeployError(null);
-    try {
-      // TODO(Wave 2): expose deploy target selector (currently local-only)
-      const job = await api.deploys.create({ config_yaml: agentYaml, target: "local" });
-      const jobId = job.data.id;
-      const seen = new Set<string>();
-      const terminal = new Set(["completed", "failed"]);
-      // Poll up to ~5 min (250 * 1.2s) — guard against an unbounded loop.
-      for (let i = 0; i < 250; i++) {
-        const detail = (await api.deploys.getDetail(jobId)).data;
-        for (const entry of detail.logs) {
-          const key = `${entry.timestamp}:${entry.message}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            setLogs((prev) => [...prev, entry.message]);
-          }
-        }
-        if (terminal.has(detail.status)) {
-          if (detail.status === "completed") {
-            setEndpoint(`/agents/${detail.agent_id}`);
-          } else {
-            setDeployError(detail.error_message ?? "Deploy failed.");
-          }
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 1200));
-      }
-    } catch (err) {
-      setDeployError((err as Error).message || "Deploy failed.");
-    } finally {
-      setDeploying(false);
-    }
-  }
 
   if (!valid) {
     return (
@@ -350,28 +307,15 @@ function SpecReadyCard({
           )}
         </>
       )}
-      <Button
-        data-testid="deploy-agent-btn"
-        variant="secondary"
-        onClick={() => void handleDeploy()}
-        disabled={deploying}
-        className="w-full"
-      >
-        {deploying ? (
-          <>
-            <Loader2 className="mr-2 size-4 animate-spin" />
-            Deploying…
-          </>
-        ) : (
-          "Deploy now"
-        )}
-      </Button>
-      {deployError && (
-        <p className="text-xs text-destructive flex items-center gap-1">
-          <AlertCircle className="size-3" />
-          {deployError}
+      <div data-testid="deploy-instructions" className="space-y-1">
+        <p className="text-xs text-muted-foreground">
+          Save this spec as <code>agent.yaml</code> next to your agent code, then deploy it with
+          the CLI:
         </p>
-      )}
+        <pre className="rounded-lg bg-background border border-border px-3 py-2 text-[11px] overflow-x-auto">
+          agentbreeder deploy agent.yaml --target local
+        </pre>
+      </div>
       {view === "full" && (
         <Button
           data-testid="eject-code-btn"
@@ -389,19 +333,6 @@ function SpecReadyCard({
             "Eject to code"
           )}
         </Button>
-      )}
-      {logs.length > 0 && (
-        <pre className="rounded-lg bg-background border border-border px-3 py-2 text-[11px] max-h-40 overflow-y-auto">
-          {logs.join("\n")}
-        </pre>
-      )}
-      {endpoint && (
-        <Link
-          to={endpoint}
-          className="text-xs underline text-green-600"
-        >
-          Agent deployed — view it
-        </Link>
       )}
     </div>
   );

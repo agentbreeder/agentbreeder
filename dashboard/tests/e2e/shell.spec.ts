@@ -10,7 +10,7 @@ test.describe("Dashboard Shell", () => {
     await expect(page.locator('aside a[href="/tools"]')).toBeVisible();
     await expect(page.locator('aside a[href="/models"]')).toBeVisible();
     await expect(page.locator('aside a[href="/prompts"]')).toBeVisible();
-    await expect(page.locator('aside a[href="/deploys"]')).toBeVisible();
+    await expect(page.locator('aside a[href="/playground"]')).toBeVisible();
   });
 
   test("navigates to agents page on click", async ({ authedPage: page }) => {

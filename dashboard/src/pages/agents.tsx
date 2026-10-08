@@ -198,7 +198,7 @@ export default function AgentsPage() {
               Register from YAML
             </Button>
           </Link>
-          <Link to="/agents/builder">
+          <Link to="/agents/new">
             <Button size="sm" className="h-8 gap-1.5 text-xs">
               <Plus className="size-3.5" />
               Create Agent
@@ -367,18 +367,18 @@ function NoAgentsHero() {
       <div className="max-w-md space-y-2">
         <h3 className="text-base font-semibold tracking-tight">No agents deployed yet</h3>
         <p className="text-sm text-muted-foreground">
-          Pick a path to ship your first agent. Both routes go through the same 8-step deploy pipeline — RBAC, registry, cost tracking, and audit log are all wired automatically.
+          Pick a path to define your first agent, then ship it with <code className="font-mono">agentbreeder deploy</code> — the 8-step pipeline checks RBAC and registers the agent automatically.
         </p>
       </div>
       <div className="grid w-full max-w-xl grid-cols-1 gap-3 sm:grid-cols-2">
         <Link
-          to="/agents/builder"
+          to="/agents/new"
           className="group flex flex-col items-start gap-2 rounded-xl border border-border bg-card p-4 text-left transition hover:border-primary/40 hover:bg-card/80"
         >
           <Hammer className="size-4 text-muted-foreground group-hover:text-primary" />
           <span className="text-sm font-medium">Open the builder</span>
           <span className="text-xs text-muted-foreground">
-            Drag-and-drop canvas with 8 node types. No YAML.
+            Describe your agent; the builder writes the agent.yaml.
           </span>
         </Link>
         <div className="flex flex-col items-start gap-2 rounded-xl border border-border bg-card p-4 text-left">

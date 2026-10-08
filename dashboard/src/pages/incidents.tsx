@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { authFetch } from "@/lib/api";
-import { ChevronDown, ChevronRight, RefreshCw, RotateCcw, TrendingDown, Power } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const API = "/api/v1/agentops";
@@ -37,13 +37,6 @@ const STATUS_COLORS: Record<string, string> = {
   resolved: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
 };
 
-const ACTIONS = [
-  { id: "restart", label: "Restart", icon: RefreshCw, color: "text-blue-600 dark:text-blue-400 hover:bg-blue-500/10" },
-  { id: "rollback", label: "Rollback", icon: RotateCcw, color: "text-orange-600 dark:text-orange-400 hover:bg-orange-500/10" },
-  { id: "scale", label: "Scale Up", icon: TrendingDown, color: "text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10" },
-  { id: "disable", label: "Disable", icon: Power, color: "text-red-600 dark:text-red-400 hover:bg-red-500/10" },
-];
-
 function SeverityBadge({ severity }: { severity: string }) {
   return (
     <span
@@ -76,7 +69,6 @@ export default function IncidentsPage() {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   async function fetchIncidents() {
     try {
@@ -99,22 +91,6 @@ export default function IncidentsPage() {
     fetchIncidents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterStatus, filterSeverity]);
-
-  async function executeAction(incidentId: string, action: string) {
-    setActionLoading(`${incidentId}-${action}`);
-    try {
-      await authFetch(`${API}/incidents/${incidentId}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-      await fetchIncidents();
-    } catch (err) {
-      console.error("Action failed:", err);
-    } finally {
-      setActionLoading(null);
-    }
-  }
 
   async function updateStatus(incidentId: string, status: string) {
     try {
@@ -229,28 +205,8 @@ export default function IncidentsPage() {
                   <div className="border-t border-border px-4 pb-5 pt-4">
                     <p className="text-sm text-muted-foreground">{inc.description}</p>
 
-                    {/* Action Buttons */}
+                    {/* Status transitions */}
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {ACTIONS.map((action) => {
-                        const Icon = action.icon;
-                        const isLoading = actionLoading === `${inc.id}-${action.id}`;
-                        return (
-                          <button
-                            key={action.id}
-                            onClick={() => executeAction(inc.id, action.id)}
-                            disabled={isLoading}
-                            className={cn(
-                              "flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
-                              action.color
-                            )}
-                          >
-                            <Icon className={cn("size-3.5", isLoading && "animate-spin")} />
-                            {action.label}
-                          </button>
-                        );
-                      })}
-
-                      {/* Status transitions */}
                       {inc.status !== "resolved" && (
                         <div className="ml-auto flex items-center gap-2">
                           <span className="text-xs text-muted-foreground">Move to:</span>

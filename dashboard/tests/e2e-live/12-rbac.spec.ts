@@ -45,24 +45,6 @@ test.describe('RBAC — Tools', () => {
   });
 });
 
-test.describe('RBAC — RAG', () => {
-  test('viewer cannot upload documents to e2e-kb-docs', async ({ viewerPage }) => {
-    await viewerPage.goto('/rag');
-    await viewerPage.getByText('e2e-kb-docs').click();
-    await viewerPage.waitForURL(/rag/);
-    const uploadBtn = viewerPage.getByRole('button', { name: /upload|ingest/i });
-    await expect(uploadBtn).not.toBeVisible();
-  });
-
-  test('member can upload documents to e2e-kb-docs', async ({ memberPage }) => {
-    await memberPage.goto('/rag');
-    await memberPage.getByText('e2e-kb-docs').click();
-    await memberPage.waitForURL(/rag/);
-    const uploadBtn = memberPage.getByRole('button', { name: /upload|ingest/i });
-    await expect(uploadBtn).toBeVisible({ timeout: 10_000 });
-  });
-});
-
 test.describe('RBAC — MCP Servers', () => {
   test('viewer sees MCP detail as read-only (no deregister)', async ({ viewerPage }) => {
     await viewerPage.goto('/mcp-servers');
@@ -78,81 +60,6 @@ test.describe('RBAC — MCP Servers', () => {
     await adminPage.waitForURL(/mcp-server/);
     const deregBtn = adminPage.getByRole('button', { name: /deregister|delete|remove/i });
     await expect(deregBtn).toBeVisible({ timeout: 10_000 });
-  });
-});
-
-test.describe('RBAC — Agents', () => {
-  test('viewer cannot see Register/Deploy button in agent builder', async ({ viewerPage }) => {
-    await viewerPage.goto('/agent-builder');
-    await viewerPage.waitForLoadState('networkidle');
-    const registerBtn = viewerPage.getByRole('button', { name: /register|deploy/i });
-    await expect(registerBtn).not.toBeVisible();
-  });
-
-  test('member can register agent to e2e-team-alpha', async ({ memberPage }) => {
-    await memberPage.goto('/agent-builder');
-    await memberPage.waitForLoadState('networkidle');
-    const registerBtn = memberPage.getByRole('button', { name: /register|deploy/i });
-    await expect(registerBtn).toBeVisible({ timeout: 10_000 });
-  });
-
-  test('member team picker excludes e2e-team-beta', async ({ memberPage }) => {
-    await memberPage.goto('/agent-builder');
-    await memberPage.waitForLoadState('networkidle');
-    const teamSelect = memberPage.getByRole('combobox', { name: /team/i });
-    if (await teamSelect.isVisible()) {
-      await teamSelect.click();
-      await expect(memberPage.getByRole('option', { name: 'e2e-team-beta' })).not.toBeVisible();
-      await memberPage.keyboard.press('Escape');
-    }
-  });
-});
-
-test.describe('RBAC — Costs', () => {
-  test('viewer costs page shows only their team data', async ({ viewerPage }) => {
-    await viewerPage.goto('/costs');
-    await viewerPage.waitForLoadState('networkidle');
-    // e2e-team-beta should not be selectable in team filter
-    const teamFilter = viewerPage.getByRole('combobox', { name: /team/i });
-    if (await teamFilter.isVisible()) {
-      await teamFilter.click();
-      await expect(viewerPage.getByRole('option', { name: 'e2e-team-beta' })).not.toBeVisible();
-      await viewerPage.keyboard.press('Escape');
-    }
-  });
-
-  test('admin costs page shows all teams including e2e-team-beta', async ({ adminPage }) => {
-    await adminPage.goto('/costs');
-    const teamFilter = adminPage.getByRole('combobox', { name: /team/i });
-    if (await teamFilter.isVisible()) {
-      await teamFilter.click();
-      await expect(adminPage.getByRole('option', { name: 'e2e-team-beta' })).toBeVisible({ timeout: 10_000 });
-      await adminPage.keyboard.press('Escape');
-    }
-  });
-});
-
-test.describe('RBAC — Audit Log', () => {
-  test('member is redirected from /audit', async ({ memberPage }) => {
-    await memberPage.goto('/audit');
-    await memberPage.waitForLoadState('networkidle');
-    // Should redirect to 403, login, or dashboard — not show the audit table
-    const url = memberPage.url();
-    const isAuditPage = url.includes('/audit') && !url.includes('403');
-    if (isAuditPage) {
-      // If still on /audit, the audit table should not be visible to member
-      const auditTable = memberPage.getByRole('table');
-      await expect(auditTable).not.toBeVisible();
-    }
-  });
-
-  test('admin can access /audit and see events', async ({ adminPage }) => {
-    await adminPage.goto('/audit');
-    await adminPage.waitForLoadState('networkidle');
-    const auditTable = adminPage.getByRole('table').or(
-      adminPage.getByRole('row').first()
-    );
-    await expect(auditTable).toBeVisible({ timeout: 15_000 });
   });
 });
 

@@ -322,39 +322,6 @@ export interface PromptDiff {
 
 // --- Deploy types ---
 
-export type DeployJobStatus =
-  | "pending"
-  | "parsing"
-  | "building"
-  | "provisioning"
-  | "deploying"
-  | "health_checking"
-  | "registering"
-  | "completed"
-  | "failed";
-
-export interface DeployJob {
-  id: string;
-  agent_id: string;
-  agent_name: string | null;
-  status: DeployJobStatus;
-  target: string;
-  error_message: string | null;
-  started_at: string;
-  completed_at: string | null;
-}
-
-export interface DeployLogEntry {
-  timestamp: string;
-  level: string;
-  message: string;
-  step: string | null;
-}
-
-export interface DeployJobDetail extends DeployJob {
-  logs: DeployLogEntry[];
-}
-
 // --- Provider types ---
 
 export type ProviderType =
@@ -398,45 +365,6 @@ export interface CatalogProvider {
   discovery: string | null;
   notable_models: string[];
   source: "builtin" | "user-local" | "workspace";
-}
-
-export interface ProviderTestResult {
-  success: boolean;
-  latency_ms: number | null;
-  model_count: number | null;
-  error: string | null;
-}
-
-export interface ProviderDiscoverResult {
-  models: string[];
-  total: number;
-}
-
-/**
- * A model discovered by the Ollama auto-detection endpoint.
- * Mirrors `DiscoveredModel` in `api/models/schemas.py`.
- */
-export interface OllamaDiscoveredModel {
-  id: string;
-  name: string;
-  context_window: number | null;
-  max_output_tokens: number | null;
-  input_price_per_million: number | null;
-  output_price_per_million: number | null;
-  capabilities: string[];
-}
-
-/**
- * Result of `POST /api/v1/providers/detect-ollama`.
- * Mirrors `OllamaDetectResult` in `api/models/schemas.py`.
- */
-export interface OllamaDetectResult {
-  /** The provider record — created or existing. */
-  provider: Provider;
-  /** Models discovered from the running Ollama instance. */
-  models: OllamaDiscoveredModel[];
-  /** True if a new provider record was created; false if one already existed. */
-  created: boolean;
 }
 
 // --- MCP Server types ---
@@ -622,52 +550,7 @@ export interface Orchestration {
   updated_at: string;
 }
 
-export interface OrchestrationCreate {
-  name: string;
-  version: string;
-  description?: string;
-  team?: string;
-  owner?: string;
-  strategy: OrchestrationStrategy;
-  agents: Record<string, OrchestrationAgentRef>;
-  shared_state?: Record<string, unknown>;
-  deploy?: Record<string, unknown>;
-  tags?: string[];
-  layout?: Record<string, { x: number; y: number }>;
-}
-
-export interface OrchestrationValidationError {
-  path: string;
-  message: string;
-  suggestion?: string;
-}
-
-export interface OrchestrationValidationResult {
-  valid: boolean;
-  errors: OrchestrationValidationError[];
-}
-
 // --- Prompt Test types ---
-
-export interface PromptTestRequest {
-  prompt_text: string;
-  model_id?: string;
-  model_name?: string;
-  variables: Record<string, string>;
-  temperature: number;
-  max_tokens: number;
-}
-
-export interface PromptTestResponse {
-  response_text: string;
-  rendered_prompt: string;
-  model_name: string;
-  input_tokens: number;
-  output_tokens: number;
-  total_tokens: number;
-  latency_ms: number;
-  temperature: number;
-}
 
 // --- Sandbox types ---
 
@@ -691,82 +574,6 @@ export interface SandboxExecuteResponse {
 }
 
 // --- RAG types ---
-
-export interface VectorIndex {
-  id: string;
-  name: string;
-  description: string;
-  embedding_model: string;
-  entity_model: string;
-  chunk_strategy: string;
-  chunk_size: number;
-  chunk_overlap: number;
-  dimensions: number;
-  source: string;
-  index_type: "vector" | "graph" | "hybrid";
-  doc_count: number;
-  chunk_count: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface IngestJob {
-  id: string;
-  index_id: string;
-  status: string;
-  total_files: number;
-  processed_files: number;
-  total_chunks: number;
-  embedded_chunks: number;
-  progress_pct: number;
-  error: string | null;
-  started_at: string;
-  completed_at: string | null;
-}
-
-export interface RAGSearchHit {
-  chunk_id: string;
-  text: string;
-  source: string;
-  score: number;
-  metadata: Record<string, unknown>;
-}
-
-export interface GraphEntity {
-  id: string;
-  entity: string;
-  entity_type: string;
-  description: string;
-  chunk_ids: string[];
-}
-
-export interface GraphRelationship {
-  id: string;
-  subject_id: string;
-  predicate: string;
-  object_id: string;
-  subject_entity: string;
-  object_entity: string;
-  chunk_ids: string[];
-  weight: number;
-}
-
-export interface GraphMetadata {
-  index_id: string;
-  index_type: string;
-  node_count: number;
-  edge_count: number;
-  entity_types: { type: string; count: number }[];
-  top_entities: { entity: string; type: string; chunk_count: number }[];
-}
-
-export interface RAGSearchResponse {
-  index_id: string;
-  query: string;
-  top_k: number;
-  results: RAGSearchHit[];
-  total: number;
-}
 
 // --- Memory types ---
 
@@ -821,62 +628,6 @@ export interface MemorySearchHit {
 
 // --- Git / PR types ---
 
-export type PRStatus =
-  | "draft"
-  | "submitted"
-  | "in_review"
-  | "approved"
-  | "changes_requested"
-  | "rejected"
-  | "published";
-
-export interface GitDiffEntry {
-  file_path: string;
-  status: string;
-  diff_text: string;
-}
-
-export interface GitDiffResponse {
-  base: string;
-  head: string;
-  files: GitDiffEntry[];
-  stats: string;
-}
-
-export interface GitCommitInfo {
-  sha: string;
-  author: string;
-  date: string;
-  message: string;
-}
-
-export interface GitPRComment {
-  id: string;
-  pr_id: string;
-  author: string;
-  text: string;
-  created_at: string;
-}
-
-export interface GitPR {
-  id: string;
-  branch: string;
-  title: string;
-  description: string;
-  submitter: string;
-  resource_type: string;
-  resource_name: string;
-  status: PRStatus;
-  reviewer: string | null;
-  reject_reason: string | null;
-  tag: string | null;
-  comments: GitPRComment[];
-  commits: GitCommitInfo[];
-  diff: GitDiffResponse | null;
-  created_at: string;
-  updated_at: string;
-}
-
 // --- Playground types ---
 
 export interface ConversationMessage {
@@ -907,19 +658,6 @@ export interface PlaygroundChatResponse {
   latency_ms: number;
   model_used: string;
   conversation_id: string;
-}
-
-export interface SaveEvalCaseRequest {
-  agent_id: string;
-  conversation_history: ConversationMessage[];
-  assistant_message: string;
-  model_used: string;
-  tags: string[];
-}
-
-export interface SaveEvalCaseResponse {
-  eval_case_id: string;
-  saved: boolean;
 }
 
 // --- Trace types ---
@@ -967,24 +705,6 @@ export interface Span {
   children: Span[];
 }
 
-export interface TraceDetail {
-  trace: Trace;
-  spans: Span[];
-}
-
-export interface TraceMetrics {
-  agent_name: string;
-  request_count: number;
-  error_count: number;
-  avg_duration_ms: number;
-  p50_duration_ms: number;
-  p95_duration_ms: number;
-  p99_duration_ms: number;
-  total_tokens: number;
-  total_cost_usd: number;
-  period_days: number;
-}
-
 // --- Team types ---
 
 export interface TeamResponse {
@@ -1026,222 +746,11 @@ export interface TeamApiKeyResponse {
 
 // --- Cost types ---
 
-export interface CostEvent {
-  id: string;
-  trace_id: string | null;
-  agent_id: string | null;
-  agent_name: string;
-  team: string;
-  model_name: string;
-  provider: string;
-  input_tokens: number;
-  output_tokens: number;
-  total_tokens: number;
-  cost_usd: number;
-  request_type: string;
-  created_at: string;
-}
-
-export interface CostSummary {
-  total_cost: number;
-  total_tokens: number;
-  request_count: number;
-  period: string;
-}
-
-export interface CostBreakdownItem {
-  name: string;
-  cost: number;
-  tokens: number;
-  requests: number;
-}
-
-export interface CostBreakdown {
-  by_agent: CostBreakdownItem[];
-  by_model: CostBreakdownItem[];
-  by_team: CostBreakdownItem[];
-}
-
-export interface DailyCostPoint {
-  date: string;
-  cost: number;
-  tokens: number;
-  requests: number;
-}
-
-export interface CostTrendResponse {
-  points: DailyCostPoint[];
-  total_cost: number;
-  period: string;
-}
-
-export interface TopSpender {
-  agent_name: string;
-  cost: number;
-  tokens: number;
-  requests: number;
-  team: string;
-}
-
-export interface CostComparisonResponse {
-  model_a: string;
-  model_b: string;
-  model_a_cost: number;
-  model_b_cost: number;
-  savings_pct: number;
-  sample_tokens: number;
-}
-
-export interface Budget {
-  id: string;
-  team: string;
-  monthly_limit_usd: number;
-  alert_threshold_pct: number;
-  current_month_spend: number;
-  pct_used: number;
-  is_exceeded: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
 // --- Audit types ---
-
-export interface AuditEvent {
-  id: string;
-  actor: string;
-  actor_id: string | null;
-  action: string;
-  resource_type: string;
-  resource_id: string | null;
-  resource_name: string;
-  team: string | null;
-  details: Record<string, unknown>;
-  ip_address: string | null;
-  created_at: string;
-}
 
 // --- Lineage types ---
 
-export interface LineageNode {
-  id: string;
-  name: string;
-  type: string;
-  status: string;
-}
-
-export interface LineageEdge {
-  source_id: string;
-  target_id: string;
-  dependency_type: string;
-}
-
-export interface LineageGraphResponse {
-  nodes: LineageNode[];
-  edges: LineageEdge[];
-}
-
-export interface AffectedAgent {
-  name: string;
-  dependency_type: string;
-}
-
-export interface ImpactAnalysisResponse {
-  resource_name: string;
-  resource_type: string;
-  affected_agents: AffectedAgent[];
-}
-
-export interface ResourceDependency {
-  id: string;
-  source_type: string;
-  source_id: string;
-  source_name: string;
-  target_type: string;
-  target_id: string;
-  target_name: string;
-  dependency_type: string;
-  created_at: string;
-}
-
 // --- Eval types ---
-
-export type EvalRunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
-
-export interface EvalDataset {
-  id: string;
-  name: string;
-  description: string;
-  agent_name: string;
-  team: string;
-  tags: string[];
-  row_count: number;
-  version: number;
-  format: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface EvalDatasetRow {
-  id: string;
-  dataset_id: string;
-  input: Record<string, unknown>;
-  expected_output: string;
-  tags: string[];
-  created_at: string;
-}
-
-export interface EvalRun {
-  id: string;
-  agent_name: string;
-  dataset_id: string;
-  status: EvalRunStatus;
-  config: Record<string, unknown>;
-  summary: EvalRunSummary | null;
-  started_at: string;
-  completed_at: string | null;
-  created_at: string;
-}
-
-export interface EvalRunSummary {
-  overall_score: number;
-  metrics: Record<string, EvalMetricSummary>;
-  total_rows: number;
-  passed_rows: number;
-  failed_rows: number;
-}
-
-export interface EvalMetricSummary {
-  mean: number;
-  p95: number;
-  min: number;
-  max: number;
-}
-
-export interface EvalRunResult {
-  id: string;
-  run_id: string;
-  row_id: string;
-  input: Record<string, unknown>;
-  expected_output: string;
-  actual_output: string;
-  scores: Record<string, number>;
-  latency_ms: number;
-  status: string;
-  error: string | null;
-}
-
-export interface EvalScoreTrend {
-  run_id: string;
-  overall_score: number;
-  metrics: Record<string, number>;
-  completed_at: string;
-}
-
-export interface EvalComparison {
-  run_a: EvalRun;
-  run_b: EvalRun;
-  deltas: Record<string, number>;
-}
 
 // --- Search types ---
 
@@ -1337,7 +846,6 @@ export interface BuilderSession {
   engine: "claude" | "codex";
   agent_yaml: string | null;
   files: Record<string, string>;
-  deploy_job_id: string | null;
   history: { role: string; content: string }[];
 }
 
@@ -1631,11 +1139,6 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(data),
       }),
-    test: (data: PromptTestRequest) =>
-      request<PromptTestResponse>("/prompts/test", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
     render: (
       id: string,
       data: { user_message: string; model: string; temperature?: number }
@@ -1643,39 +1146,6 @@ export const api = {
       request<PromptRenderResponse>(`/registry/prompts/${id}/render`, {
         method: "POST",
         body: JSON.stringify(data),
-      }),
-  },
-  deploys: {
-    list: (params?: {
-      agent_id?: string;
-      status?: DeployJobStatus;
-      page?: number;
-      per_page?: number;
-    }) => {
-      const sp = new URLSearchParams();
-      if (params?.agent_id) sp.set("agent_id", params.agent_id);
-      if (params?.status) sp.set("status", params.status);
-      if (params?.page) sp.set("page", String(params.page));
-      if (params?.per_page) sp.set("per_page", String(params.per_page));
-      const qs = sp.toString();
-      return request<DeployJob[]>(`/deploys${qs ? `?${qs}` : ""}`);
-    },
-    get: (id: string) => request<DeployJob>(`/deploys/${id}`),
-    getDetail: (id: string) => request<DeployJobDetail>(`/deploys/${id}`),
-    create: (body: {
-      agent_id?: string;
-      config_yaml?: string;
-      target?: string;
-    }) =>
-      request<DeployJob>("/deploys", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    cancel: (id: string) =>
-      request<{ cancelled: boolean }>(`/deploys/${id}`, { method: "DELETE" }),
-    rollback: (id: string) =>
-      request<{ rolled_back: boolean }>(`/deploys/${id}/rollback`, {
-        method: "POST",
       }),
   },
   providers: {
@@ -1717,18 +1187,6 @@ export const api = {
       }),
     delete: (id: string) =>
       request<{ message: string }>(`/providers/${id}`, { method: "DELETE" }),
-    test: (id: string) =>
-      request<ProviderTestResult>(`/providers/${id}/test`, { method: "POST" }),
-    discover: (id: string) =>
-      request<ProviderDiscoverResult>(`/providers/${id}/discover`, {
-        method: "POST",
-      }),
-    /**
-     * Pull an Ollama model. Returns the raw Response so callers can stream
-     * SSE events. The body is a stream of JSON events from Ollama's
-     * /api/pull (status / digest / total / completed), terminated by
-     * `{"status":"success"}` or `{"status":"error","message":"..."}`.
-     */
     pullModel: (id: string, model: string) =>
       fetch(`${BASE}/providers/${id}/pull-model`, {
         method: "POST",
@@ -1740,8 +1198,6 @@ export const api = {
      * discover + register all locally-available models.
      * Maps to `POST /api/v1/providers/detect-ollama`.
      */
-    detectOllama: () =>
-      request<OllamaDetectResult>("/providers/detect-ollama", { method: "POST" }),
     catalog: () => request<CatalogProvider[]>("/providers/catalog"),
     catalogStatus: (workspace?: string) =>
       request<Record<string, boolean>>(
@@ -1792,86 +1248,6 @@ export const api = {
   sandbox: {
     execute: (body: SandboxExecuteRequest) =>
       request<SandboxExecuteResponse>("/tools/sandbox/execute", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  },
-  rag: {
-    listIndexes: (params?: { page?: number; per_page?: number }) => {
-      const sp = new URLSearchParams();
-      if (params?.page) sp.set("page", String(params.page));
-      if (params?.per_page) sp.set("per_page", String(params.per_page));
-      const qs = sp.toString();
-      return request<VectorIndex[]>(`/rag/indexes${qs ? `?${qs}` : ""}`);
-    },
-    getIndex: (id: string) => request<VectorIndex>(`/rag/indexes/${id}`),
-    createIndex: (body: {
-      name: string;
-      description?: string;
-      embedding_model?: string;
-      chunk_strategy?: string;
-      chunk_size?: number;
-      chunk_overlap?: number;
-    }) =>
-      request<VectorIndex>("/rag/indexes", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    deleteIndex: (id: string) =>
-      request<{ deleted: boolean }>(`/rag/indexes/${id}`, { method: "DELETE" }),
-    getGraphMeta: (indexId: string) =>
-      request<GraphMetadata>(`/rag/indexes/${indexId}/graph`),
-    listEntities: (
-      indexId: string,
-      params?: { page?: number; per_page?: number; entity_type?: string },
-    ) => {
-      const qs = new URLSearchParams();
-      if (params?.page) qs.set("page", String(params.page));
-      if (params?.per_page) qs.set("per_page", String(params.per_page));
-      if (params?.entity_type) qs.set("entity_type", params.entity_type);
-      const q = qs.toString();
-      return request<GraphEntity[]>(`/rag/indexes/${indexId}/entities${q ? `?${q}` : ""}`);
-    },
-    listRelationships: (
-      indexId: string,
-      params?: { page?: number; per_page?: number; predicate?: string },
-    ) => {
-      const qs = new URLSearchParams();
-      if (params?.page) qs.set("page", String(params.page));
-      if (params?.per_page) qs.set("per_page", String(params.per_page));
-      if (params?.predicate) qs.set("predicate", params.predicate);
-      const q = qs.toString();
-      return request<GraphRelationship[]>(`/rag/indexes/${indexId}/relationships${q ? `?${q}` : ""}`);
-    },
-    ingest: async (indexId: string, files: File[]) => {
-      const formData = new FormData();
-      for (const file of files) {
-        formData.append("files", file);
-      }
-      const headers: Record<string, string> = {};
-      const token = localStorage.getItem("ag-token");
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(`${BASE}/rag/indexes/${indexId}/ingest`, {
-        method: "POST",
-        headers,
-        body: formData,
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail ?? `API error ${res.status}`);
-      }
-      return res.json() as Promise<ApiResponse<IngestJob>>;
-    },
-    getIngestJob: (indexId: string, jobId: string) =>
-      request<IngestJob>(`/rag/indexes/${indexId}/ingest/${jobId}`),
-    search: (body: {
-      index_id: string;
-      query: string;
-      top_k?: number;
-      vector_weight?: number;
-      text_weight?: number;
-    }) =>
-      request<RAGSearchResponse>("/rag/search", {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -1948,165 +1324,11 @@ export const api = {
       );
     },
   },
-  git: {
-    listBranches: (user?: string) => {
-      const sp = new URLSearchParams();
-      if (user) sp.set("user", user);
-      const qs = sp.toString();
-      return request<{ branches: string[] }>(`/git/branches${qs ? `?${qs}` : ""}`);
-    },
-    createBranch: (body: { user: string; resource_type: string; resource_name: string }) =>
-      request<{ branch: string }>("/git/branches", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    getDiff: (branch: string, base = "main") =>
-      request<GitDiffResponse>(`/git/diff/${encodeURIComponent(branch)}?base=${encodeURIComponent(base)}`),
-    commit: (body: {
-      branch: string;
-      file_path: string;
-      content: string;
-      message: string;
-      author: string;
-    }) =>
-      request<GitCommitInfo>("/git/commits", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    prs: {
-      list: (params?: { status?: PRStatus; resource_type?: string }) => {
-        const sp = new URLSearchParams();
-        if (params?.status) sp.set("status", params.status);
-        if (params?.resource_type) sp.set("resource_type", params.resource_type);
-        const qs = sp.toString();
-        return request<{ prs: GitPR[] }>(`/git/prs${qs ? `?${qs}` : ""}`);
-      },
-      get: (id: string) => request<GitPR>(`/git/prs/${id}`),
-      create: (body: {
-        branch: string;
-        title: string;
-        description?: string;
-        submitter: string;
-      }) =>
-        request<GitPR>("/git/prs", {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      approve: (id: string, reviewer: string) =>
-        request<GitPR>(`/git/prs/${id}/approve`, {
-          method: "POST",
-          body: JSON.stringify({ reviewer }),
-        }),
-      reject: (id: string, reviewer: string, reason: string) =>
-        request<GitPR>(`/git/prs/${id}/reject`, {
-          method: "POST",
-          body: JSON.stringify({ reviewer, reason }),
-        }),
-      merge: (id: string, tagVersion?: string) =>
-        request<GitPR>(`/git/prs/${id}/merge`, {
-          method: "POST",
-          body: JSON.stringify({ tag_version: tagVersion ?? null }),
-        }),
-      addComment: (id: string, author: string, text: string) =>
-        request<GitPRComment>(`/git/prs/${id}/comments`, {
-          method: "POST",
-          body: JSON.stringify({ author, text }),
-        }),
-    },
-  },
   playground: {
     chat: (body: PlaygroundChatRequest) =>
       request<PlaygroundChatResponse>("/playground/chat", {
         method: "POST",
         body: JSON.stringify(body),
-      }),
-    saveEvalCase: (body: SaveEvalCaseRequest) =>
-      request<SaveEvalCaseResponse>("/playground/eval-case", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  },
-  traces: {
-    list: (params?: {
-      agent_name?: string;
-      status?: TraceStatus;
-      date_from?: string;
-      date_to?: string;
-      min_duration?: number;
-      min_cost?: number;
-      q?: string;
-      page?: number;
-      per_page?: number;
-    }) => {
-      const sp = new URLSearchParams();
-      if (params?.agent_name) sp.set("agent_name", params.agent_name);
-      if (params?.status) sp.set("status", params.status);
-      if (params?.date_from) sp.set("date_from", params.date_from);
-      if (params?.date_to) sp.set("date_to", params.date_to);
-      if (params?.min_duration != null) sp.set("min_duration", String(params.min_duration));
-      if (params?.min_cost != null) sp.set("min_cost", String(params.min_cost));
-      if (params?.q) sp.set("q", params.q);
-      if (params?.page) sp.set("page", String(params.page));
-      if (params?.per_page) sp.set("per_page", String(params.per_page));
-      const qs = sp.toString();
-      return request<Trace[]>(`/traces${qs ? `?${qs}` : ""}`);
-    },
-    get: (traceId: string) =>
-      request<TraceDetail>(`/traces/${encodeURIComponent(traceId)}`),
-    create: (body: {
-      trace_id: string;
-      agent_name: string;
-      status?: string;
-      duration_ms?: number;
-      total_tokens?: number;
-      input_tokens?: number;
-      output_tokens?: number;
-      cost_usd?: number;
-      model_name?: string;
-      input_preview?: string;
-      output_preview?: string;
-      error_message?: string;
-      metadata?: Record<string, unknown>;
-    }) =>
-      request<Trace>("/traces", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    createSpan: (
-      traceId: string,
-      body: {
-        span_id: string;
-        name: string;
-        span_type?: string;
-        parent_span_id?: string;
-        status?: string;
-        duration_ms?: number;
-        input_data?: Record<string, unknown>;
-        output_data?: Record<string, unknown>;
-        model_name?: string;
-        input_tokens?: number;
-        output_tokens?: number;
-        cost_usd?: number;
-        metadata?: Record<string, unknown>;
-        started_at?: string;
-        ended_at?: string;
-      }
-    ) =>
-      request<Span>(`/traces/${encodeURIComponent(traceId)}/spans`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    metrics: (agentName: string, days?: number) => {
-      const sp = new URLSearchParams();
-      if (days) sp.set("days", String(days));
-      const qs = sp.toString();
-      return request<TraceMetrics>(
-        `/traces/metrics/${encodeURIComponent(agentName)}${qs ? `?${qs}` : ""}`
-      );
-    },
-    delete: (before: string) =>
-      request<{ deleted_count: number }>(`/traces?before=${encodeURIComponent(before)}`, {
-        method: "DELETE",
       }),
   },
   teams: {
@@ -2159,226 +1381,6 @@ export const api = {
       request<{ success: boolean; error?: string }>(`/teams/${teamId}/api-keys/${keyId}/test`, {
         method: "POST",
       }),
-  },
-  costs: {
-    recordEvent: (body: {
-      agent_name: string;
-      team: string;
-      model_name: string;
-      provider: string;
-      input_tokens: number;
-      output_tokens: number;
-      cost_usd: number;
-      request_type?: string;
-      trace_id?: string;
-    }) =>
-      request<CostEvent>("/costs/events", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    summary: (params?: { team?: string; agent_name?: string; days?: number }) => {
-      const sp = new URLSearchParams();
-      if (params?.team) sp.set("team", params.team);
-      if (params?.agent_name) sp.set("agent_name", params.agent_name);
-      if (params?.days) sp.set("days", String(params.days));
-      const qs = sp.toString();
-      return request<CostSummary>(`/costs/summary${qs ? `?${qs}` : ""}`);
-    },
-    breakdown: (params?: { days?: number; group_by?: string }) => {
-      const sp = new URLSearchParams();
-      if (params?.days) sp.set("days", String(params.days));
-      if (params?.group_by) sp.set("group_by", params.group_by);
-      const qs = sp.toString();
-      return request<CostBreakdown>(`/costs/breakdown${qs ? `?${qs}` : ""}`);
-    },
-    trend: (params?: { days?: number; team?: string; agent_name?: string }) => {
-      const sp = new URLSearchParams();
-      if (params?.days) sp.set("days", String(params.days));
-      if (params?.team) sp.set("team", params.team);
-      if (params?.agent_name) sp.set("agent_name", params.agent_name);
-      const qs = sp.toString();
-      return request<CostTrendResponse>(`/costs/trend${qs ? `?${qs}` : ""}`);
-    },
-    topSpenders: (params?: { days?: number; limit?: number }) => {
-      const sp = new URLSearchParams();
-      if (params?.days) sp.set("days", String(params.days));
-      if (params?.limit) sp.set("limit", String(params.limit));
-      const qs = sp.toString();
-      return request<TopSpender[]>(`/costs/top-spenders${qs ? `?${qs}` : ""}`);
-    },
-    compare: (body: { model_a: string; model_b: string; sample_tokens?: number }) =>
-      request<CostComparisonResponse>("/costs/compare", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  },
-  budgets: {
-    list: () => request<Budget[]>("/budgets"),
-    create: (body: { team: string; monthly_limit_usd: number; alert_threshold_pct?: number }) =>
-      request<Budget>("/budgets", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    get: (team: string) => request<Budget>(`/budgets/${encodeURIComponent(team)}`),
-    update: (team: string, body: { monthly_limit_usd?: number; alert_threshold_pct?: number }) =>
-      request<Budget>(`/budgets/${encodeURIComponent(team)}`, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      }),
-  },
-  audit: {
-    list: (params?: {
-      actor?: string;
-      action?: string;
-      resource_type?: string;
-      resource_name?: string;
-      team?: string;
-      date_from?: string;
-      date_to?: string;
-      page?: number;
-      per_page?: number;
-    }) => {
-      const sp = new URLSearchParams();
-      if (params?.actor) sp.set("actor", params.actor);
-      if (params?.action) sp.set("action", params.action);
-      if (params?.resource_type) sp.set("resource_type", params.resource_type);
-      if (params?.resource_name) sp.set("resource_name", params.resource_name);
-      if (params?.team) sp.set("team", params.team);
-      if (params?.date_from) sp.set("date_from", params.date_from);
-      if (params?.date_to) sp.set("date_to", params.date_to);
-      if (params?.page) sp.set("page", String(params.page));
-      if (params?.per_page) sp.set("per_page", String(params.per_page));
-      const qs = sp.toString();
-      return request<AuditEvent[]>(`/audit${qs ? `?${qs}` : ""}`);
-    },
-    forResource: (resourceType: string, resourceId: string) =>
-      request<AuditEvent[]>(`/audit/resource/${resourceType}/${resourceId}`),
-    create: (body: {
-      actor: string;
-      action: string;
-      resource_type: string;
-      resource_name: string;
-      resource_id?: string;
-      team?: string;
-      details?: Record<string, unknown>;
-    }) =>
-      request<AuditEvent>("/audit", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  },
-  lineage: {
-    graph: (resourceType: string, resourceId: string) =>
-      request<LineageGraphResponse>(
-        `/lineage/${resourceType}/${encodeURIComponent(resourceId)}`
-      ),
-    impact: (resourceType: string, resourceName: string) =>
-      request<ImpactAnalysisResponse>(
-        `/lineage/impact/${resourceType}/${encodeURIComponent(resourceName)}`
-      ),
-    registerDependency: (body: {
-      source_type: string;
-      source_id: string;
-      source_name: string;
-      target_type: string;
-      target_id: string;
-      target_name: string;
-      dependency_type: string;
-    }) =>
-      request<ResourceDependency>("/lineage/dependencies", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    syncAgent: (agentName: string, configSnapshot: Record<string, unknown>) =>
-      request<ResourceDependency[]>(`/lineage/sync/${encodeURIComponent(agentName)}`, {
-        method: "POST",
-        body: JSON.stringify(configSnapshot),
-      }),
-  },
-  evals: {
-    datasets: {
-      list: (params?: { team?: string; page?: number; per_page?: number }) => {
-        const sp = new URLSearchParams();
-        if (params?.team) sp.set("team", params.team);
-        if (params?.page) sp.set("page", String(params.page));
-        if (params?.per_page) sp.set("per_page", String(params.per_page));
-        const qs = sp.toString();
-        return request<EvalDataset[]>(`/eval/datasets${qs ? `?${qs}` : ""}`);
-      },
-      get: (id: string) => request<EvalDataset>(`/eval/datasets/${id}`),
-      create: (body: {
-        name: string;
-        description?: string;
-        agent_name?: string;
-        team?: string;
-        tags?: string[];
-      }) =>
-        request<EvalDataset>("/eval/datasets", {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      delete: (id: string) =>
-        request<{ deleted: boolean }>(`/eval/datasets/${id}`, { method: "DELETE" }),
-      addRows: (id: string, rows: { input: Record<string, unknown>; expected_output: string; tags?: string[] }[]) =>
-        request<EvalDatasetRow[]>(`/eval/datasets/${id}/rows`, {
-          method: "POST",
-          body: JSON.stringify({ rows }),
-        }),
-      listRows: (id: string, params?: { page?: number; per_page?: number }) => {
-        const sp = new URLSearchParams();
-        if (params?.page) sp.set("page", String(params.page));
-        if (params?.per_page) sp.set("per_page", String(params.per_page));
-        const qs = sp.toString();
-        return request<EvalDatasetRow[]>(`/eval/datasets/${id}/rows${qs ? `?${qs}` : ""}`);
-      },
-      importJsonl: (id: string, content: string) =>
-        request<{ imported: number }>(`/eval/datasets/${id}/import`, {
-          method: "POST",
-          body: JSON.stringify({ content }),
-        }),
-      exportJsonl: (id: string) =>
-        request<{ content: string }>(`/eval/datasets/${id}/export`),
-    },
-    runs: {
-      create: (body: {
-        agent_name: string;
-        dataset_id: string;
-        config?: Record<string, unknown>;
-      }) =>
-        request<EvalRun>("/eval/runs", {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      list: (params?: {
-        agent_name?: string;
-        dataset_id?: string;
-        status?: EvalRunStatus;
-        page?: number;
-        per_page?: number;
-      }) => {
-        const sp = new URLSearchParams();
-        if (params?.agent_name) sp.set("agent_name", params.agent_name);
-        if (params?.dataset_id) sp.set("dataset_id", params.dataset_id);
-        if (params?.status) sp.set("status", params.status);
-        if (params?.page) sp.set("page", String(params.page));
-        if (params?.per_page) sp.set("per_page", String(params.per_page));
-        const qs = sp.toString();
-        return request<EvalRun[]>(`/eval/runs${qs ? `?${qs}` : ""}`);
-      },
-      get: (id: string) => request<EvalRun & { results: EvalRunResult[] }>(`/eval/runs/${id}`),
-      cancel: (id: string) =>
-        request<{ cancelled: boolean }>(`/eval/runs/${id}`, { method: "DELETE" }),
-    },
-    scores: {
-      trend: (agent: string, params?: { metric?: string; limit?: number }) => {
-        const sp = new URLSearchParams({ agent });
-        if (params?.metric) sp.set("metric", params.metric);
-        if (params?.limit) sp.set("limit", String(params.limit));
-        return request<EvalScoreTrend[]>(`/eval/scores/trend?${sp.toString()}`);
-      },
-      compare: (runA: string, runB: string) =>
-        request<EvalComparison>(`/eval/scores/compare?run_a=${runA}&run_b=${runB}`),
-    },
   },
   a2a: {
     list: (params?: { team?: string; page?: number; per_page?: number }) => {
@@ -2496,40 +1498,6 @@ export const api = {
     install: (listingId: string) =>
       request<{ installed: boolean }>(`/marketplace/listings/${listingId}/install`, { method: "POST" }),
   },
-  orchestrations: {
-    list: (params?: { team?: string; status?: string }) => {
-      const sp = new URLSearchParams();
-      if (params?.team) sp.set("team", params.team);
-      if (params?.status) sp.set("status", params.status);
-      const qs = sp.toString();
-      return request<Orchestration[]>(`/orchestrations${qs ? `?${qs}` : ""}`);
-    },
-    get: (id: string) => request<Orchestration>(`/orchestrations/${id}`),
-    create: (body: OrchestrationCreate) =>
-      request<Orchestration>("/orchestrations", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    update: (id: string, body: Partial<OrchestrationCreate>) =>
-      request<Orchestration>(`/orchestrations/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      }),
-    delete: (id: string) =>
-      request<{ deleted: string }>(`/orchestrations/${id}`, { method: "DELETE" }),
-    validate: (yamlContent: string) =>
-      request<OrchestrationValidationResult>("/orchestrations/validate", {
-        method: "POST",
-        body: JSON.stringify({ yaml_content: yamlContent }),
-      }),
-    deploy: (id: string) =>
-      request<Orchestration>(`/orchestrations/${id}/deploy`, { method: "POST" }),
-    execute: (id: string, body: { input_message: string; context?: Record<string, unknown> }) =>
-      request<Record<string, unknown>>(`/orchestrations/${id}/execute`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  },
   search: (q: string) =>
     request<SearchResult[]>(`/registry/search?q=${encodeURIComponent(q)}`),
   health: () => fetch("/health").then((r) => r.json()),
@@ -2588,8 +1556,6 @@ export const api = {
         { method: "POST", body: JSON.stringify({ instruction, engine }) },
         onEvent,
       ),
-    deploy: (id: string) =>
-      request<BuilderSession>(`/builder/sessions/${id}/deploy`, { method: "POST" }),
   },
   analytics: {
     funnel: (period: string = "7d") =>
@@ -2650,50 +1616,6 @@ export const api = {
         body: JSON.stringify(body),
       }),
 
-    createJob: (
-      body: {
-        agent_id: string;
-        cloud: "aws" | "gcp" | "azure";
-        region: string;
-        infra_mode: "byo" | "provision";
-        byo_fields: Record<string, string>;
-        env_vars: { key: string; value: string }[];
-        secrets: string[];
-        scaling: { min: number; max: number; cpu_target_pct: number };
-        db_tier?: string | null;
-      },
-      idempotencyKey: string,
-    ) =>
-      request<{ job_id: string; pending_approval: boolean }>(
-        "/deployments/",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotencyKey,
-          },
-          body: JSON.stringify(body),
-        },
-      ),
-
-    getJob: (jobId: string) =>
-      request<{
-        job_id: string;
-        team_id: string;
-        agent_id: string;
-        cloud: string;
-        region: string;
-        status: string;
-        pending_approval: boolean;
-        endpoint_url: string | null;
-        created_at: string;
-      }>(`/deployments/${jobId}`),
-
-    destroyPartial: (jobId: string) =>
-      request<{ job_id: string; status: string }>(
-        `/deployments/${jobId}/destroy-partial`,
-        { method: "POST" },
-      ),
   },
 };
 

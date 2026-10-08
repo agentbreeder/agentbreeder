@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -97,57 +97,6 @@ function DiscoveredToolCard({
           <SchemaViewer schema={tool.schema_definition} />
         </div>
       )}
-    </div>
-  );
-}
-
-// Mock uptime data for the chart
-function UptimeChart() {
-  const bars = useMemo(
-    () =>
-      Array.from({ length: 30 }, (_, i) => {
-        // Deterministic mock data based on index
-        const v = ((i * 7 + 3) % 10);
-        return v > 0 ? "up" : i % 2 === 0 ? "slow" : "down";
-      }),
-    [],
-  );
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>30 days ago</span>
-        <span>Today</span>
-      </div>
-      <div className="flex gap-0.5">
-        {bars.map((status, i) => (
-          <div
-            key={i}
-            className={cn(
-              "h-6 flex-1 rounded-sm",
-              status === "up"
-                ? "bg-emerald-500/60"
-                : status === "slow"
-                  ? "bg-amber-500/60"
-                  : "bg-red-500/60"
-            )}
-          />
-        ))}
-      </div>
-      <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <span className="inline-block size-2 rounded-sm bg-emerald-500/60" />{" "}
-          Up
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block size-2 rounded-sm bg-amber-500/60" />{" "}
-          Slow
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block size-2 rounded-sm bg-red-500/60" />{" "}
-          Down
-        </span>
-      </div>
     </div>
   );
 }
@@ -335,14 +284,6 @@ export default function McpServerDetailPage() {
                 </span>
               </Field>
             </dl>
-          </div>
-
-          {/* Uptime chart */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Uptime (30 days)
-            </h3>
-            <UptimeChart />
           </div>
         </div>
 

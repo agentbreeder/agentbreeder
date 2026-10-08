@@ -44,10 +44,8 @@ teardown('clean up all e2e-* test data', async () => {
     '/api/v1/agents',
     '/api/v1/prompts',
     '/api/v1/tools',
-    '/api/v1/rag',
     '/api/v1/mcp_servers',
     '/api/v1/providers',
-    '/api/v1/evals/datasets',
   ];
 
   for (const ep of endpoints) {

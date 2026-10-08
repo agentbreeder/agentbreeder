@@ -23,7 +23,7 @@ import { CheckCircle2, ChevronRight, HardDrive, Network, Plug } from "lucide-rea
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { api, type OllamaDetectResult } from "@/lib/api";
+import { api } from "@/lib/api";
 import { ProviderCatalog } from "@/components/provider-catalog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -124,11 +124,16 @@ function PathCard({ id, icon: Icon, label, badge, badgeVariant, badgeClass, desc
 // ---------------------------------------------------------------------------
 
 function LocalPathPanel() {
-  const [result, setResult] = useState<OllamaDetectResult | null>(null);
+  const [registered, setRegistered] = useState(false);
 
-  const detectMutation = useMutation({
-    mutationFn: () => api.providers.detectOllama(),
-    onSuccess: (res) => setResult(res.data),
+  const registerMutation = useMutation({
+    mutationFn: () =>
+      api.providers.create({
+        name: "Ollama (local)",
+        provider_type: "ollama",
+        base_url: "http://localhost:11434",
+      }),
+    onSuccess: () => setRegistered(true),
   });
 
   return (
@@ -139,7 +144,7 @@ function LocalPathPanel() {
           <h3 className="text-sm font-semibold">Local — Ollama</h3>
         </div>
         <p className="mb-4 text-[11px] leading-relaxed text-muted-foreground">
-          AgentBreeder can auto-detect a running{" "}
+          Register a local{" "}
           <a
             href="https://ollama.com"
             target="_blank"
@@ -149,11 +154,13 @@ function LocalPathPanel() {
             Ollama
           </a>{" "}
           instance on{" "}
-          <code className="rounded bg-muted/50 px-1 py-0.5 text-[10px]">localhost:11434</code>,
-          register it as a provider, and discover all locally-available models automatically.
+          <code className="rounded bg-muted/50 px-1 py-0.5 text-[10px]">localhost:11434</code>{" "}
+          as a provider. Models are not discovered automatically — reference them in{" "}
+          <code className="rounded bg-muted/50 px-1">agent.yaml</code> as{" "}
+          <code className="rounded bg-muted/50 px-1">ollama/&lt;model&gt;</code>.
         </p>
 
-        {!result ? (
+        {!registered ? (
           <div className="space-y-3">
             <div className="rounded-md bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
               <span className="font-medium">Prerequisites:</span> make sure Ollama is installed and
@@ -162,74 +169,36 @@ function LocalPathPanel() {
               <code className="rounded bg-muted/50 px-1">ollama pull llama3.2</code>).
             </div>
 
-            {detectMutation.isError && (
+            {registerMutation.isError && (
               <div
                 role="alert"
                 className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-[11px] text-destructive"
-                data-testid="local-detect-error"
+                data-testid="local-register-error"
               >
-                {detectMutation.error instanceof Error
-                  ? detectMutation.error.message
-                  : "Could not reach Ollama. Is it running?"}
+                {registerMutation.error instanceof Error
+                  ? registerMutation.error.message
+                  : "Could not register the Ollama provider."}
               </div>
             )}
 
             <Button
               size="sm"
               variant="outline"
-              onClick={() => detectMutation.mutate()}
-              disabled={detectMutation.isPending}
-              data-testid="local-detect-btn"
+              onClick={() => registerMutation.mutate()}
+              disabled={registerMutation.isPending}
+              data-testid="local-register-btn"
               className="h-8 text-xs"
             >
-              {detectMutation.isPending ? "Detecting…" : "Detect Ollama"}
+              {registerMutation.isPending ? "Registering…" : "Register Ollama provider"}
             </Button>
           </div>
         ) : (
-          <div className="space-y-2" data-testid="local-detect-result">
-            <div className="flex items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="size-3.5" />
-              <span>
-                {result.created
-                  ? "Ollama registered as a new provider."
-                  : "Ollama provider already registered — models refreshed."}
-              </span>
-            </div>
-            {result.models.length > 0 ? (
-              <div className="rounded-md bg-muted/30 px-3 py-2">
-                <p className="mb-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                  Discovered models ({result.models.length})
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {result.models.map((m) => (
-                    <code
-                      key={m.id}
-                      className="rounded bg-muted/50 px-2 py-0.5 text-[10px]"
-                    >
-                      {m.name}
-                    </code>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">
-                No models found. Pull one with{" "}
-                <code className="rounded bg-muted/50 px-1">ollama pull &lt;model&gt;</code> then
-                re-detect.
-              </p>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setResult(null);
-                detectMutation.reset();
-              }}
-              className="h-7 text-xs text-muted-foreground"
-              data-testid="local-detect-reset"
-            >
-              Run again
-            </Button>
+          <div
+            className="flex items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400"
+            data-testid="local-register-result"
+          >
+            <CheckCircle2 className="size-3.5" />
+            <span>Ollama registered as a provider at localhost:11434.</span>
           </div>
         )}
       </div>

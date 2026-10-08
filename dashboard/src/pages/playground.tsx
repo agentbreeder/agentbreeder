@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronRight,
   Trash2,
-  Save,
   Settings2,
   Zap,
   Loader2,
@@ -178,15 +177,9 @@ function ToolCallCard({ call }: { call: PlaygroundToolCall }) {
 function MessageBubble({
   message,
   verbose,
-  onSaveEval,
-  isSavingEval,
-  showSaveEval = true,
 }: {
   message: ChatMessage;
   verbose: boolean;
-  onSaveEval: (message: ChatMessage) => void;
-  isSavingEval: boolean;
-  showSaveEval?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -295,16 +288,6 @@ function MessageBubble({
                   <Copy className="size-3" />
                 )}
               </button>
-              {showSaveEval && (
-                <button
-                  onClick={() => onSaveEval(message)}
-                  disabled={isSavingEval}
-                  className="rounded p-1 transition-colors hover:bg-muted disabled:opacity-50"
-                  title="Save as eval case"
-                >
-                  <Save className="size-3" />
-                </button>
-              )}
             </div>
           </div>
         )}
@@ -504,27 +487,6 @@ function ModelChatPanel() {
           },
         ]);
       }, estimatedDuration);
-    },
-  });
-
-  // Save eval case mutation
-  const evalMutation = useMutation({
-    mutationFn: async (assistantMessage: ChatMessage) => {
-      const history: ConversationMessage[] = messages
-        .filter((m) => m.timestamp <= assistantMessage.timestamp)
-        .map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
-
-      const res = await api.playground.saveEvalCase({
-        agent_id: selectedAgentId,
-        conversation_history: history,
-        assistant_message: assistantMessage.content,
-        model_used: assistantMessage.model_used ?? "",
-        tags: [],
-      });
-      return res.data;
     },
   });
 
@@ -814,8 +776,6 @@ function ModelChatPanel() {
               key={msg.id}
               message={msg}
               verbose={verbose}
-              onSaveEval={(m) => evalMutation.mutate(m)}
-              isSavingEval={evalMutation.isPending}
             />
           ))}
 
@@ -883,13 +843,6 @@ function ModelChatPanel() {
           </Button>
         </div>
 
-        {/* Eval save success toast (inline) */}
-        {evalMutation.isSuccess && (
-          <div className="mx-auto mt-2 max-w-3xl text-center text-xs text-green-600 dark:text-green-400">
-            <Check className="mr-1 inline size-3" />
-            Eval case saved successfully
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1214,11 +1167,6 @@ function AgentChatPanel() {
               key={msg.id}
               message={msg}
               verbose={verbose}
-              onSaveEval={() => {
-                /* eval-save not wired for agent mode yet */
-              }}
-              isSavingEval={false}
-              showSaveEval={false}
             />
           ))}
 

@@ -4,7 +4,7 @@
  * Covers:
  *   - Three path cards render, Gateway selected by default
  *   - Clicking a card switches the active panel
- *   - Local panel: Detect button calls detectOllama; success shows discovered models
+ *   - Local panel: Register button creates an Ollama provider record
  *   - Local panel: error state renders error message
  *   - Direct panel: Settings link is present
  *   - syncButton prop renders inside the chooser
@@ -31,7 +31,7 @@ vi.mock("@/lib/api", () => ({
     providers: {
       catalog: vi.fn().mockResolvedValue({ data: [] }),
       catalogStatus: vi.fn().mockResolvedValue({ data: {} }),
-      detectOllama: vi.fn(),
+      create: vi.fn(),
     },
   },
 }));
@@ -126,139 +126,39 @@ describe("ModelPathChooser — Local path panel", () => {
     fireEvent.click(screen.getByTestId("path-card-local"));
   }
 
-  it("renders Detect Ollama button", () => {
+  it("renders the Register Ollama provider button", () => {
     openLocalPanel();
-    expect(screen.getByTestId("local-detect-btn")).toBeInTheDocument();
-    expect(screen.getByTestId("local-detect-btn")).toHaveTextContent("Detect Ollama");
+    expect(screen.getByTestId("local-register-btn")).toHaveTextContent("Register Ollama provider");
   });
 
-  it("calls detectOllama when Detect button is clicked", async () => {
-    (api.providers.detectOllama as ReturnType<typeof vi.fn>).mockResolvedValue({
-      data: { provider: { id: "p1", name: "Ollama (local)" }, models: [], created: true },
+  it("creates an Ollama provider record when Register is clicked", async () => {
+    (api.providers.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { id: "p1", name: "Ollama (local)" },
     });
 
     openLocalPanel();
-    fireEvent.click(screen.getByTestId("local-detect-btn"));
+    fireEvent.click(screen.getByTestId("local-register-btn"));
 
     await waitFor(() => {
-      expect(api.providers.detectOllama).toHaveBeenCalledTimes(1);
+      expect(api.providers.create).toHaveBeenCalledWith({
+        name: "Ollama (local)",
+        provider_type: "ollama",
+        base_url: "http://localhost:11434",
+      });
     });
+    expect(await screen.findByTestId("local-register-result")).toBeInTheDocument();
   });
 
-  it("shows discovered model names after successful detection", async () => {
-    (api.providers.detectOllama as ReturnType<typeof vi.fn>).mockResolvedValue({
-      data: {
-        provider: { id: "p1", name: "Ollama (local)" },
-        models: [
-          { id: "llama3.2", name: "llama3.2", context_window: null, max_output_tokens: null, input_price_per_million: null, output_price_per_million: null, capabilities: [] },
-          { id: "mistral", name: "mistral", context_window: null, max_output_tokens: null, input_price_per_million: null, output_price_per_million: null, capabilities: [] },
-        ],
-        created: true,
-      },
-    });
-
-    openLocalPanel();
-    fireEvent.click(screen.getByTestId("local-detect-btn"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("local-detect-result")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("llama3.2")).toBeInTheDocument();
-    expect(screen.getByText("mistral")).toBeInTheDocument();
-  });
-
-  it("shows success message indicating provider was newly created", async () => {
-    (api.providers.detectOllama as ReturnType<typeof vi.fn>).mockResolvedValue({
-      data: {
-        provider: { id: "p1", name: "Ollama (local)" },
-        models: [],
-        created: true,
-      },
-    });
-
-    openLocalPanel();
-    fireEvent.click(screen.getByTestId("local-detect-btn"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("local-detect-result")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/registered as a new provider/i)).toBeInTheDocument();
-  });
-
-  it("shows success message indicating existing provider was refreshed", async () => {
-    (api.providers.detectOllama as ReturnType<typeof vi.fn>).mockResolvedValue({
-      data: {
-        provider: { id: "p1", name: "Ollama (local)" },
-        models: [],
-        created: false,
-      },
-    });
-
-    openLocalPanel();
-    fireEvent.click(screen.getByTestId("local-detect-btn"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("local-detect-result")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/models refreshed/i)).toBeInTheDocument();
-  });
-
-  it("shows error message when detection fails", async () => {
-    (api.providers.detectOllama as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("Connection refused"),
+  it("shows an error when registration fails", async () => {
+    (api.providers.create as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("Provider already exists"),
     );
 
     openLocalPanel();
-    fireEvent.click(screen.getByTestId("local-detect-btn"));
+    fireEvent.click(screen.getByTestId("local-register-btn"));
 
-    await waitFor(() => {
-      expect(screen.getByTestId("local-detect-error")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/Connection refused/i)).toBeInTheDocument();
-  });
-
-  it("Run again button resets result state back to detect form", async () => {
-    (api.providers.detectOllama as ReturnType<typeof vi.fn>).mockResolvedValue({
-      data: { provider: { id: "p1", name: "Ollama (local)" }, models: [], created: true },
-    });
-
-    openLocalPanel();
-    fireEvent.click(screen.getByTestId("local-detect-btn"));
-
-    await waitFor(() => screen.getByTestId("local-detect-result"));
-
-    fireEvent.click(screen.getByTestId("local-detect-reset"));
-
-    // Back to the detect form — button should be visible again
-    expect(screen.getByTestId("local-detect-btn")).toBeInTheDocument();
-    expect(screen.queryByTestId("local-detect-result")).not.toBeInTheDocument();
-  });
-});
-
-describe("ModelPathChooser — Direct path panel", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    (api.providers.catalog as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [] });
-    (api.providers.catalogStatus as ReturnType<typeof vi.fn>).mockResolvedValue({ data: {} });
-  });
-
-  it("shows Settings link in the foundation-providers pointer", () => {
-    renderChooser();
-    fireEvent.click(screen.getByTestId("path-card-direct"));
-
-    const link = screen.getByTestId("direct-settings-link");
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/settings");
-  });
-
-  it("contains copy mentioning OpenAI, Anthropic, or Google", () => {
-    renderChooser();
-    fireEvent.click(screen.getByTestId("path-card-direct"));
-
-    expect(screen.getByText(/openai, anthropic, or google/i)).toBeInTheDocument();
+    expect(await screen.findByTestId("local-register-error")).toHaveTextContent(
+      /Provider already exists/,
+    );
   });
 });

@@ -6,7 +6,8 @@
  *                              (providers.list is not paginated; reads default page)
  *   2. Create your first agent → agents.list({per_page:1}) meta.total > 0
  *   3. Test in the Playground → localStorage["ag-playground-used-v1"] === "1"
- *   4. Deploy (optional)     → deploys.list({per_page:1}) meta.total > 0
+ *   4. Deploy (optional)     → agents.list({status:"running",per_page:1}) meta.total > 0
+ *                              (`agentbreeder deploy` registers the agent as running)
  *
  * Self-hides when all four are done OR the user dismisses (persisted).
  */
@@ -162,8 +163,8 @@ export function GetStartedChecklist() {
   });
 
   const deploysQuery = useQuery({
-    queryKey: ["onboarding-deploys"],
-    queryFn: () => api.deploys.list({ per_page: 1 }),
+    queryKey: ["onboarding-deployed-agents"],
+    queryFn: () => api.agents.list({ status: "running", per_page: 1 }),
     staleTime: 30_000,
   });
 
@@ -211,10 +212,11 @@ export function GetStartedChecklist() {
     {
       id: "deploy",
       label: "Deploy — or keep local",
-      description: "Push your agent to AWS, GCP, Azure, or run it locally. Your call.",
+      description:
+        "Run `agentbreeder deploy agent.yaml` to ship to AWS, GCP, Azure, Kubernetes, or local Docker.",
       done: deploysDone,
-      ctaLabel: "Deploy now",
-      ctaHref: "/deploys",
+      ctaLabel: "View agents",
+      ctaHref: "/agents",
       optional: true,
     },
   ];

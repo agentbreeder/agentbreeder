@@ -19,9 +19,6 @@ prompts:
 tools:
   - ref: tools/e2e-search-tool
 
-knowledge_bases:
-  - ref: kb/e2e-kb-docs
-
 deploy:
   cloud: local
   runtime: docker-compose

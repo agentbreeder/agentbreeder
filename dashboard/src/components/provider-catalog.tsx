@@ -18,7 +18,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronDown, ExternalLink, Plug, Plus, Server } from "lucide-react";
+import { CheckCircle2, ChevronDown, ExternalLink, Plug, Server } from "lucide-react";
 import { useState } from "react";
 
 import { api, type CatalogProvider } from "@/lib/api";
@@ -180,31 +180,6 @@ export function ProviderCatalog({
           </div>
           <div className="flex items-center gap-3">
             <span className="text-[11px] text-muted-foreground">{hint}</span>
-            {canConfigure ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                disabled
-                title="Coming soon — add a custom OpenAI-compatible provider"
-                data-testid="catalog-add-provider"
-              >
-                <Plus className="mr-1 size-3" />
-                Add provider
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs opacity-50"
-                disabled
-                title={VIEWER_TOOLTIP}
-                data-testid="catalog-add-provider-disabled"
-              >
-                <Plus className="mr-1 size-3" />
-                Add provider
-              </Button>
-            )}
           </div>
         </div>
 

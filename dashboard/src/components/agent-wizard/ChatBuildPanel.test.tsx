@@ -30,15 +30,10 @@ vi.mock("@/lib/api", () => ({
     agents: {
       fromYaml: vi.fn(),
     },
-    deploys: {
-      create: vi.fn(),
-      getDetail: vi.fn(),
-    },
     builderSessions: {
       create: vi.fn(),
       get: vi.fn(),
       eject: vi.fn(),
-      deploy: vi.fn(),
     },
     mcpServers: {
       create: vi.fn(),
@@ -449,7 +444,7 @@ describe("ChatBuildPanel — deploy from chat", () => {
     vi.mocked(api.secrets.list).mockImplementation(withKeyResponse);
   });
 
-  it("deploys the built agent and tails logs to the thread", async () => {
+  it("shows the CLI deploy command for the built agent", async () => {
     vi.spyOn(api.builders, "chatStream").mockImplementation(async (_m, onEvent) => {
       onEvent("done", {
         assistant_message: "",
@@ -458,31 +453,14 @@ describe("ChatBuildPanel — deploy from chat", () => {
         errors: [],
       });
     });
-    vi.spyOn(api.deploys, "create").mockResolvedValue({
-      data: { id: "job1", status: "parsing" }, meta: { page: 1, per_page: 1, total: 1 }, errors: [],
-    } as never);
-    const getDetailSpy = vi
-      .spyOn(api.deploys, "getDetail")
-      .mockResolvedValue({
-        data: {
-          id: "job1", agent_id: "a1", agent_name: "my-agent", status: "completed",
-          target: "local", error_message: null, started_at: "", completed_at: "",
-          logs: [{ timestamp: "t1", level: "info", message: "Building image…", step: null }],
-        },
-        meta: { page: 1, per_page: 1, total: 1 }, errors: [],
-      } as never);
 
     renderPanel();
     fireEvent.change(await screen.findByTestId("chat-input"), { target: { value: "build it" } });
     fireEvent.click(screen.getByTestId("send-btn"));
 
     const card = await screen.findByTestId("spec-ready-card");
-    fireEvent.click(within(card).getByTestId("deploy-agent-btn"));
-
-    await waitFor(() => expect(getDetailSpy).toHaveBeenCalledWith("job1"));
-    await waitFor(() => expect(screen.getByText(/Building image/)).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("link", { name: /Agent deployed/i })).toBeInTheDocument());
-    expect(screen.getByRole("link", { name: /Agent deployed/i })).toHaveAttribute("href", "/agents/a1");
+    const instructions = within(card).getByTestId("deploy-instructions");
+    expect(instructions).toHaveTextContent("agentbreeder deploy agent.yaml --target local");
   });
 });
 
@@ -641,7 +619,6 @@ describe("ChatBuildPanel — eject to code", () => {
         engine: "claude",
         agent_yaml: VALID_YAML,
         files: {},
-        deploy_job_id: null,
         history: [],
       } as never),
     );
@@ -689,7 +666,6 @@ describe("ChatBuildPanel — eject to code", () => {
         engine: "claude",
         agent_yaml: VALID_YAML,
         files: {},
-        deploy_job_id: null,
         history: [],
       } as never),
     );
@@ -748,7 +724,6 @@ describe("ChatBuildPanel — eject to code", () => {
         engine: "claude",
         agent_yaml: VALID_YAML,
         files: {},
-        deploy_job_id: null,
         history: [],
       } as never),
     );
@@ -780,7 +755,6 @@ describe("ChatBuildPanel — eject to code", () => {
         engine: "claude",
         agent_yaml: VALID_YAML,
         files: {},
-        deploy_job_id: null,
         history: [],
       } as never),
     );
@@ -809,7 +783,7 @@ describe("ChatBuildPanel — eject to code", () => {
     expect(api.builderSessions.create).toHaveBeenCalledTimes(1);
   });
 
-  it("Deploy tab shows deploy controls but not the spec YAML", async () => {
+  it("Deploy tab shows deploy instructions but not the spec YAML", async () => {
     vi.mocked(api.builders.chatStream).mockImplementation(async (_m, onEvent) => {
       onEvent("done", { assistant_message: "", agent_yaml: VALID_YAML, valid: true, errors: [] });
     });
@@ -826,8 +800,8 @@ describe("ChatBuildPanel — eject to code", () => {
     // Switch to the Deploy tab.
     fireEvent.click(screen.getByTestId("artifact-tab-deploy"));
 
-    // Deploy controls remain; spec YAML and Create/Eject are hidden.
-    expect(screen.getByTestId("deploy-agent-btn")).toBeInTheDocument();
+    // Deploy instructions remain; spec YAML and Create/Eject are hidden.
+    expect(screen.getByTestId("deploy-instructions")).toBeInTheDocument();
     expect(screen.queryByText(/owner: alice@example.com/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("create-agent-btn")).not.toBeInTheDocument();
     expect(screen.queryByTestId("eject-code-btn")).not.toBeInTheDocument();

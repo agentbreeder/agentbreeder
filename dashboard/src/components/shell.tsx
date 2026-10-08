@@ -5,24 +5,14 @@ import {
   Cpu,
   FileText,
   Search,
-  Monitor,
-  Activity,
-  Clock,
   ChevronRight,
   LogOut,
   Settings,
   GripVertical,
   Server,
   Brain,
-  Database,
-  GitPullRequest,
   MessageSquare,
   Shield,
-  DollarSign,
-  ScrollText,
-  GitBranch,
-  FlaskConical,
-  PlayCircle,
   Network,
   Package,
   Store,
@@ -30,11 +20,8 @@ import {
   BarChart3,
   ShieldCheck,
   Siren,
-  Rocket,
 } from "lucide-react";
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { useTour } from "@/hooks/use-tour";
@@ -58,7 +45,6 @@ const REGISTRY_NAV = [
   { to: "/models", icon: Cpu, label: "Models" },
   { to: "/prompts", icon: FileText, label: "Prompts" },
   { to: "/memory", icon: Brain, label: "Memory" },
-  { to: "/rag", icon: Database, label: "RAG" },
   { to: "/playground", icon: MessageSquare, label: "Playground" },
 ] as const;
 
@@ -68,14 +54,7 @@ const MARKETPLACE_NAV = [
 ] as const;
 
 const OBSERVABILITY_NAV = [
-  { to: "/traces", icon: Activity, label: "Traces" },
-  { to: "/costs", icon: DollarSign, label: "Costs" },
   { to: "/builder-insights", icon: BarChart3, label: "Builder" },
-] as const;
-
-const EVALUATION_NAV = [
-  { to: "/evals/datasets", icon: FlaskConical, label: "Datasets" },
-  { to: "/evals/runs", icon: PlayCircle, label: "Eval Runs" },
 ] as const;
 
 const AGENTOPS_NAV = [
@@ -84,17 +63,8 @@ const AGENTOPS_NAV = [
   { to: "/compliance", icon: ShieldCheck, label: "Compliance" },
 ] as const;
 
-const DEPLOYMENT_NAV = [
-  { to: "/deploy-wizard", icon: Rocket, label: "Deploy Wizard" },
-] as const;
-
 const GOVERNANCE_NAV = [
   { to: "/teams", icon: Shield, label: "Teams" },
-  { to: "/approvals", icon: GitPullRequest, label: "Approvals" },
-  { to: "/audit", icon: ScrollText, label: "Audit Log" },
-  { to: "/lineage", icon: GitBranch, label: "Lineage" },
-  { to: "/deploys", icon: Monitor, label: "Deploys" },
-  { to: "/activity", icon: Clock, label: "Activity" },
 ] as const;
 
 const SETTINGS_NAV = [
@@ -235,16 +205,7 @@ const BREADCRUMB_ICONS: Record<string, React.ComponentType<{ className?: string 
   prompts: FileText,
   memory: Brain,
   playground: MessageSquare,
-  approvals: GitPullRequest,
-  deploys: Monitor,
-  activity: Clock,
-  traces: Activity,
   teams: Shield,
-  costs: DollarSign,
-  budgets: DollarSign,
-  audit: ScrollText,
-  lineage: GitBranch,
-  evals: FlaskConical,
   templates: Package,
   marketplace: Store,
   gateway: Layers,
@@ -443,18 +404,6 @@ function ShellInner() {
 
   const collapsed = sidebarWidth <= SIDEBAR_COLLAPSED_THRESHOLD;
 
-  // Fetch pending approvals count for sidebar badge
-  const { data: prData } = useQuery({
-    queryKey: ["prs-pending-count"],
-    queryFn: () => api.git.prs.list({ status: "submitted" }),
-    refetchInterval: 30_000, // refresh every 30s
-    staleTime: 10_000,
-  });
-  const pendingApprovalCount = useMemo(() => {
-    const prs = prData?.data?.prs ?? [];
-    return prs.length;
-  }, [prData]);
-
   // Persist sidebar width
   useEffect(() => {
     saveSidebarWidth(sidebarWidth);
@@ -636,11 +585,6 @@ function ShellInner() {
               <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
             ))}
 
-            <div className="!my-2 h-px bg-border" />
-            {!collapsed && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Evaluation</div>}
-            {EVALUATION_NAV.map(({ to, icon, label }) => (
-              <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
-            ))}
 
             <div className="!my-2 h-px bg-border" />
             {!collapsed && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">AgentOps</div>}
@@ -648,23 +592,11 @@ function ShellInner() {
               <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
             ))}
 
-            <div className="!my-2 h-px bg-border" />
-            {!collapsed && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Deployment</div>}
-            {DEPLOYMENT_NAV.map(({ to, icon, label }) => (
-              <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
-            ))}
 
             <div className="!my-2 h-px bg-border" />
             {!collapsed && <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Governance</div>}
             {GOVERNANCE_NAV.map(({ to, icon, label }) => (
-              <SidebarNavItem
-                key={to}
-                to={to}
-                icon={icon}
-                label={label}
-                collapsed={collapsed}
-                badge={to === "/approvals" ? pendingApprovalCount : undefined}
-              />
+              <SidebarNavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
             ))}
 
             <div className="!my-2 h-px bg-border" />

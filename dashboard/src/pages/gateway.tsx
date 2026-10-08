@@ -5,7 +5,6 @@ import {
   Zap,
   Server,
   Activity,
-  DollarSign,
   CheckCircle,
   XCircle,
   AlertCircle,
@@ -33,9 +32,9 @@ interface GatewayModel {
   name: string;
   provider: string;
   gateway_tier: string;
-  context_window: number;
-  input_price_per_million: number;
-  output_price_per_million: number;
+  context_window: number | null;
+  input_price_per_million: number | null;
+  output_price_per_million: number | null;
   status: string;
 }
 
@@ -63,28 +62,13 @@ interface LogEntry {
   status: "success" | "error";
 }
 
-interface CostRow {
-  model: string;
-  name: string;
-  provider: string;
-  gateway_tier: string;
-  input_per_million: number;
-  output_per_million: number;
-  context_window: number;
-}
-
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-function formatContext(tokens: number): string {
+function formatContext(tokens: number | null): string {
+  if (tokens == null) return "—";
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M`;
   if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens % 1_000 === 0 ? 0 : 1)}K`;
   return String(tokens);
-}
-
-function formatPrice(price: number): string {
-  if (price === 0) return "Free";
-  if (price < 0.01) return `$${price.toFixed(4)}`;
-  return `$${price.toFixed(2)}`;
 }
 
 const PROVIDER_COLORS: Record<string, string> = {
@@ -231,52 +215,6 @@ function RoutingTable({ models }: { models: GatewayModel[] }) {
   );
 }
 
-function CostTable({ rows }: { rows: CostRow[] }) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <div className="grid grid-cols-[1fr_100px_100px_100px_100px_80px] gap-4 border-b border-border bg-muted/30 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        <span>Model</span>
-        <span>Provider</span>
-        <span>Gateway</span>
-        <span className="text-right">Input / 1M</span>
-        <span className="text-right">Output / 1M</span>
-        <span className="text-right">Context</span>
-      </div>
-      {rows.map((row) => (
-        <div
-          key={row.model}
-          className="grid grid-cols-[1fr_100px_100px_100px_100px_80px] items-center gap-4 border-b border-border/50 px-4 py-2.5 last:border-0 hover:bg-muted/20"
-        >
-          <div className="font-mono text-xs">{row.model}</div>
-          <Badge
-            variant="outline"
-            className={cn(
-              "w-fit text-[10px]",
-              PROVIDER_COLORS[row.provider] ?? "bg-muted text-muted-foreground"
-            )}
-          >
-            {row.provider}
-          </Badge>
-          <Badge
-            variant="outline"
-            className={cn(
-              "w-fit text-[10px]",
-              TIER_COLORS[row.gateway_tier] ?? "bg-muted text-muted-foreground"
-            )}
-          >
-            {row.gateway_tier}
-          </Badge>
-          <div className="text-right font-mono text-xs">{formatPrice(row.input_per_million)}</div>
-          <div className="text-right font-mono text-xs">{formatPrice(row.output_per_million)}</div>
-          <div className="text-right font-mono text-xs text-muted-foreground">
-            {formatContext(row.context_window)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function LogTable({ entries }: { entries: LogEntry[] }) {
   return (
     <div className="overflow-hidden rounded-lg border border-border">
@@ -327,7 +265,7 @@ function LogTable({ entries }: { entries: LogEntry[] }) {
 
 // ── Main page ────────────────────────────────────────────────────────
 
-type Section = "routing" | "costs" | "logs";
+type Section = "routing" | "logs";
 
 export default function GatewayPage() {
   const [tiers, setTiers] = useState<GatewayTier[]>([]);
@@ -335,14 +273,13 @@ export default function GatewayPage() {
   const [providers, setProviders] = useState<GatewayProvider[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logsError, setLogsError] = useState<string | null>(null);
-  const [costRows, setCostRows] = useState<CostRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeSection, setActiveSection] = useState<Section>("routing");
 
   async function loadData() {
     try {
-      const [statusRes, modelsRes, providersRes, logsRaw, costsRes] = await Promise.all([
+      const [statusRes, modelsRes, providersRes, logsRaw] = await Promise.all([
         authFetch(`${API_BASE}/status`).then((r) => r.json()),
         authFetch(`${API_BASE}/models?per_page=200`).then((r) => r.json()),
         authFetch(`${API_BASE}/providers`).then((r) => r.json()),
@@ -350,7 +287,6 @@ export default function GatewayPage() {
           status: r.status,
           body: await r.json().catch(() => ({})),
         })),
-        authFetch(`${API_BASE}/costs/comparison`).then((r) => r.json()),
       ]);
 
       setTiers(statusRes.data ?? []);
@@ -365,7 +301,6 @@ export default function GatewayPage() {
       } else {
         setLogsError(null);
       }
-      setCostRows(costsRes.data ?? []);
     } catch (err) {
       console.error("Failed to load gateway data", err);
     } finally {
@@ -390,7 +325,6 @@ export default function GatewayPage() {
 
   const SECTIONS: { key: Section; label: string; icon: typeof Activity }[] = [
     { key: "routing", label: "Routing", icon: Zap },
-    { key: "costs", label: "Cost Comparison", icon: DollarSign },
     { key: "logs", label: "Request Log", icon: Activity },
   ];
 
@@ -486,18 +420,6 @@ export default function GatewayPage() {
           </div>
 
           {activeSection === "routing" && <RoutingTable models={models} />}
-          {activeSection === "costs" && (
-            <div className="space-y-2">
-              {costRows.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">
-                  No cost events recorded yet. Comparison rows will appear here once
-                  agents start logging real usage to the cost_events table.
-                </div>
-              ) : (
-                <CostTable rows={costRows} />
-              )}
-            </div>
-          )}
           {activeSection === "logs" && (
             <div className="space-y-2">
               {logsError ? (

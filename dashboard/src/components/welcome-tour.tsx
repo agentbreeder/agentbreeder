@@ -40,9 +40,8 @@ const STEPS: TourStep[] = [
     body: (
       <>
         <p>
-          You're looking at the place where agents live in your org —
-          registry, builder, deploys, costs, audit, and the playground all
-          under one roof.
+          You're looking at the place where agents live in your org — the
+          registry, the agent builder, and the playground under one roof.
         </p>
         <p className="mt-3">
           We&apos;ve seeded <span className="font-semibold">5 sample agents</span>{" "}
@@ -58,9 +57,9 @@ const STEPS: TourStep[] = [
     body: (
       <>
         <p>
-          The Playground lets you talk to any deployed agent without writing
-          any code. Pick one from the dropdown, ask a question, and watch
-          tool calls + traces stream back in real time.
+          The Playground lets you chat with any registered agent's model and
+          system prompt without writing any code. Pick one from the dropdown
+          and ask a question.
         </p>
         <p className="mt-3 text-xs text-muted-foreground">
           Tip: the <span className="font-mono">assistant</span> agent is a
@@ -76,39 +75,31 @@ const STEPS: TourStep[] = [
     body: (
       <>
         <p>
-          The visual agent builder ships a drag-and-drop canvas with 8 node
-          types — model, tool, MCP server, RAG, memory, prompt, guardrail,
-          handoff. No YAML required.
+          Describe the agent you want and the builder interviews you, then
+          emits a schema-valid <span className="font-mono">agent.yaml</span>.
         </p>
         <p className="mt-3">
-          When you&apos;re happy with it, <span className="font-semibold">Deploy</span>{" "}
-          runs an 8-step pipeline (parse → RBAC → resolve deps → build → provision →
-          health-check → register → return endpoint) — atomic, with rollback on
-          any failure.
+          Deploy it with <span className="font-mono">agentbreeder deploy</span> — an
+          8-step pipeline (parse → RBAC → resolve deps → build → provision →
+          deploy → health-check → register).
         </p>
       </>
     ),
-    cta: { label: "Open the builder", path: "/agents/builder" },
+    cta: { label: "Build an agent", path: "/agents/new" },
   },
   {
     icon: Shield,
-    title: "Everything you do is governed",
+    title: "Access is governed",
     body: (
       <>
         <p>
-          Every deploy, every LLM call, every tool execution shows up
-          automatically in <span className="font-semibold">Costs</span>{" "}
-          (per token, per team) and the{" "}
-          <span className="font-semibold">Audit Log</span> (every action,
-          immutable, exportable).
-        </p>
-        <p className="mt-3 text-xs text-muted-foreground">
-          Governance is a side effect of using Studio — never extra
-          configuration you have to remember.
+          Teams and role-based access control decide who can see, change,
+          and deploy each agent. Deploys are checked against RBAC before
+          anything is built.
         </p>
       </>
     ),
-    cta: { label: "See Costs", path: "/costs" },
+    cta: { label: "See Teams", path: "/teams" },
   },
 ];
 

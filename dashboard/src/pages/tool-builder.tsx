@@ -5,9 +5,7 @@ import {
   ArrowLeft,
   Plus,
   Trash2,
-  Play,
   AlertCircle,
-  CheckCircle2,
   Code,
   List,
   Save,
@@ -19,7 +17,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { SandboxRunner } from "@/components/sandbox-runner";
-import { SubmitForReview } from "@/components/submit-for-review";
 
 // --- Types ---
 
@@ -30,14 +27,6 @@ interface SchemaParameter {
   description: string;
   required: boolean;
   defaultValue: string;
-}
-
-interface TestRun {
-  id: string;
-  timestamp: string;
-  input: Record<string, unknown>;
-  output: Record<string, unknown>;
-  duration: number;
 }
 
 const PARAM_TYPES = ["string", "number", "integer", "boolean", "array", "object"] as const;
@@ -98,28 +87,6 @@ function schemaToParameters(schema: Record<string, unknown>): SchemaParameter[] 
     required: required.includes(name),
     defaultValue: prop.default !== undefined ? String(prop.default) : "",
   }));
-}
-
-function generateMockOutput(
-  _schema: Record<string, unknown>,
-  input: Record<string, unknown>
-): Record<string, unknown> {
-  const toolName = (input.query as string) || "result";
-  return {
-    success: true,
-    data: {
-      results: [
-        { id: 1, name: `${toolName}-item-1`, score: 0.95 },
-        { id: 2, name: `${toolName}-item-2`, score: 0.82 },
-      ],
-      total: 2,
-      query: input,
-    },
-    metadata: {
-      execution_time_ms: Math.floor(Math.random() * 200) + 50,
-      cached: false,
-    },
-  };
 }
 
 // --- Components ---
@@ -279,166 +246,6 @@ function JsonSchemaEditor({
   );
 }
 
-function TestRunner({
-  schema,
-  parameters,
-}: {
-  schema: Record<string, unknown>;
-  parameters: SchemaParameter[];
-}) {
-  const [testInputs, setTestInputs] = useState<Record<string, string>>({});
-  const [testRuns, setTestRuns] = useState<TestRun[]>([]);
-  const [running, setRunning] = useState(false);
-
-  // Reset inputs when parameters change
-  useEffect(() => {
-    const inputs: Record<string, string> = {};
-    for (const p of parameters) {
-      if (p.name) inputs[p.name] = p.defaultValue || "";
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- derive test inputs from parameters
-    setTestInputs(inputs);
-  }, [parameters]);
-
-  const runTest = useCallback(() => {
-    setRunning(true);
-    const input: Record<string, unknown> = {};
-    for (const p of parameters) {
-      if (!p.name) continue;
-      const val = testInputs[p.name] ?? "";
-      if (p.type === "number" || p.type === "integer") {
-        input[p.name] = val ? Number(val) : 0;
-      } else if (p.type === "boolean") {
-        input[p.name] = val === "true";
-      } else {
-        input[p.name] = val;
-      }
-    }
-
-    setTimeout(() => {
-      const output = generateMockOutput(schema, input);
-      const run: TestRun = {
-        id: generateId(),
-        timestamp: new Date().toISOString(),
-        input,
-        output,
-        duration: Math.floor(Math.random() * 800) + 200,
-      };
-      setTestRuns((prev) => [run, ...prev].slice(0, 5));
-      setRunning(false);
-    }, 1000);
-  }, [parameters, testInputs, schema]);
-
-  return (
-    <div className="space-y-4">
-      <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Test Input
-      </h3>
-
-      {parameters.filter((p) => p.name).length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          Define parameters to generate test inputs
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {parameters
-            .filter((p) => p.name)
-            .map((p) => (
-              <div key={p.id}>
-                <label className="mb-1 flex items-center gap-1 text-xs font-medium">
-                  {p.name}
-                  {p.required && (
-                    <span className="text-destructive">*</span>
-                  )}
-                  <Badge variant="outline" className="ml-1 text-[9px]">
-                    {p.type}
-                  </Badge>
-                </label>
-                {p.type === "boolean" ? (
-                  <select
-                    value={testInputs[p.name] ?? "false"}
-                    onChange={(e) =>
-                      setTestInputs((prev) => ({
-                        ...prev,
-                        [p.name]: e.target.value,
-                      }))
-                    }
-                    className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs outline-none"
-                  >
-                    <option value="true">true</option>
-                    <option value="false">false</option>
-                  </select>
-                ) : (
-                  <Input
-                    placeholder={p.description || p.name}
-                    value={testInputs[p.name] ?? ""}
-                    onChange={(e) =>
-                      setTestInputs((prev) => ({
-                        ...prev,
-                        [p.name]: e.target.value,
-                      }))
-                    }
-                    className="h-7 text-xs"
-                  />
-                )}
-              </div>
-            ))}
-        </div>
-      )}
-
-      <button
-        onClick={runTest}
-        disabled={running}
-        className="flex w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
-      >
-        {running ? (
-          <Loader2 className="size-3 animate-spin" />
-        ) : (
-          <Play className="size-3" />
-        )}
-        {running ? "Running..." : "Run Tool"}
-      </button>
-
-      {/* Test history */}
-      {testRuns.length > 0 && (
-        <div className="space-y-2">
-          <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Execution Log
-          </h3>
-          {testRuns.map((run) => (
-            <div
-              key={run.id}
-              className="space-y-2 rounded-md border border-border p-3"
-            >
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <CheckCircle2 className="size-3 text-emerald-500" />
-                <span>{new Date(run.timestamp).toLocaleTimeString()}</span>
-                <span className="ml-auto font-mono">{run.duration}ms</span>
-              </div>
-              <div>
-                <p className="mb-1 text-[10px] font-medium text-muted-foreground">
-                  Input
-                </p>
-                <pre className="overflow-x-auto rounded bg-muted/50 p-2 font-mono text-[10px] leading-relaxed">
-                  {JSON.stringify(run.input, null, 2)}
-                </pre>
-              </div>
-              <div>
-                <p className="mb-1 text-[10px] font-medium text-muted-foreground">
-                  Output
-                </p>
-                <pre className="overflow-x-auto rounded bg-muted/50 p-2 font-mono text-[10px] leading-relaxed">
-                  {JSON.stringify(run.output, null, 2)}
-                </pre>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // --- Main Page ---
 
 export default function ToolBuilderPage() {
@@ -469,7 +276,6 @@ export default function ToolBuilderPage() {
   const [toolCode, setToolCode] = useState(
     '# Tool code — `tool_input` is a dict with your input JSON\n# Set `result` to return structured output\n\nresult = {"echo": tool_input}\n'
   );
-  const [rightPanel, setRightPanel] = useState<"test" | "sandbox">("sandbox");
 
   // Load existing tool if editing
   const { isLoading: loadingTool } = useQuery({
@@ -571,8 +377,6 @@ export default function ToolBuilderPage() {
     },
   });
 
-  const currentSchema = parametersToSchema(parameters);
-
   if (loadingTool && isEditing) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -610,13 +414,6 @@ export default function ToolBuilderPage() {
           )}
           {isEditing ? "Update Tool" : "Create Tool"}
         </button>
-        <SubmitForReview
-          resourceType="tool"
-          resourceName={name || "untitled-tool"}
-          content={JSON.stringify(parametersToSchema(parameters), null, 2)}
-          variant="outline"
-          className="h-7 gap-1.5 px-2 text-xs"
-        />
       </div>
 
       {saveMutation.error && (
@@ -813,59 +610,21 @@ export default function ToolBuilderPage() {
           )}
         </div>
 
-        {/* Right: Test runner / Sandbox */}
+        {/* Right: Sandbox */}
         <div className="overflow-y-auto border-l border-border p-4">
-          {/* Panel toggle */}
-          <div className="mb-4 flex items-center gap-1 rounded-md bg-muted/40 p-0.5">
-            <button
-              onClick={() => setRightPanel("sandbox")}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                rightPanel === "sandbox"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Terminal className="size-3" />
-              Sandbox
-            </button>
-            <button
-              onClick={() => setRightPanel("test")}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                rightPanel === "test"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Play className="size-3" />
-              Quick Test
-            </button>
+          <div className="space-y-4">
+            <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Tool Code
+            </h3>
+            <textarea
+              value={toolCode}
+              onChange={(e) => setToolCode(e.target.value)}
+              spellCheck={false}
+              className="h-40 w-full resize-none rounded-md border border-input bg-muted/30 p-2.5 font-mono text-xs leading-relaxed outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+              placeholder="# Python code to execute..."
+            />
+            <SandboxRunner code={toolCode} />
           </div>
-
-          {rightPanel === "sandbox" ? (
-            <div className="space-y-4">
-              <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Tool Code
-              </h3>
-              <textarea
-                value={toolCode}
-                onChange={(e) => setToolCode(e.target.value)}
-                spellCheck={false}
-                className="h-40 w-full resize-none rounded-md border border-input bg-muted/30 p-2.5 font-mono text-xs leading-relaxed outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
-                placeholder="# Python code to execute..."
-              />
-              <SandboxRunner code={toolCode} />
-            </div>
-          ) : (
-            <>
-              <h2 className="mb-4 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                <Play className="size-3" />
-                Quick Test
-              </h2>
-              <TestRunner schema={currentSchema} parameters={parameters} />
-            </>
-          )}
         </div>
       </div>
     </div>

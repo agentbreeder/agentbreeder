@@ -18,9 +18,6 @@ vi.mock("@/lib/api", () => ({
     agents: {
       list: vi.fn(),
     },
-    deploys: {
-      list: vi.fn(),
-    },
   },
 }));
 
@@ -62,11 +59,10 @@ function mockApi({
   (api.providers.list as ReturnType<typeof vi.fn>).mockReturnValue(
     mockApiResponse(providers),
   );
-  (api.agents.list as ReturnType<typeof vi.fn>).mockReturnValue(
-    mockApiResponse(agents),
-  );
-  (api.deploys.list as ReturnType<typeof vi.fn>).mockReturnValue(
-    mockApiResponse(deploys),
+  // agents.list serves both "any agent" and "running (deployed) agent" queries.
+  (api.agents.list as ReturnType<typeof vi.fn>).mockImplementation(
+    (params?: { status?: string }) =>
+      mockApiResponse(params?.status === "running" ? deploys : agents),
   );
 }
 
@@ -120,7 +116,7 @@ describe("GetStartedChecklist", () => {
     });
   });
 
-  it("marks 'Deploy' done when deploys exist", async () => {
+  it("marks 'Deploy' done when a running agent exists", async () => {
     mockApi({ deploys: 3 });
     renderChecklist(makeClient());
     await waitFor(() => {

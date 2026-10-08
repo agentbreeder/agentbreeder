@@ -76,9 +76,6 @@ export function useKeyboardShortcuts({
           case "p":
             navigate("/prompts");
             return;
-          case "d":
-            navigate("/deploys");
-            return;
           case "s":
             navigate("/settings");
             return;
@@ -150,7 +147,6 @@ export const KEYBOARD_SHORTCUTS = [
       { keys: ["g", "t"], description: "Go to Tools" },
       { keys: ["g", "m"], description: "Go to Models" },
       { keys: ["g", "p"], description: "Go to Prompts" },
-      { keys: ["g", "d"], description: "Go to Deploys" },
       { keys: ["g", "s"], description: "Go to Settings" },
     ],
   },

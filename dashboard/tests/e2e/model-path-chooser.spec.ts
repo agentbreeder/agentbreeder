@@ -104,69 +104,66 @@ test.describe("ModelPathChooser — /models page", () => {
     await expect(page.getByTestId("gateway-path-panel")).toHaveCount(0);
   });
 
-  test("Local panel shows Detect Ollama button", async ({ authedPage: page }) => {
+  test("Local panel shows Register Ollama provider button", async ({ authedPage: page }) => {
     await mockModelsPageRoutes(page);
     await page.goto("/models");
 
     await page.getByTestId("path-card-local").click();
 
-    await expect(page.getByTestId("local-detect-btn")).toBeVisible();
-    await expect(page.getByTestId("local-detect-btn")).toHaveText(/detect ollama/i);
+    await expect(page.getByTestId("local-register-btn")).toBeVisible();
+    await expect(page.getByTestId("local-register-btn")).toHaveText(/register ollama provider/i);
   });
 
-  test("Local panel — successful Ollama detection shows discovered models", async ({
+  test("Local panel — registering creates the Ollama provider", async ({
     authedPage: page,
   }) => {
     await mockModelsPageRoutes(page);
 
-    // Mock the detect-ollama endpoint
-    await page.route("**/api/v1/providers/detect-ollama**", (r) =>
-      r.fulfill({
-        status: 200,
+    let createdBody: Record<string, unknown> | null = null;
+    await page.route("**/api/v1/providers", (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      createdBody = r.request().postDataJSON();
+      return r.fulfill({
+        status: 201,
         contentType: "application/json",
         body: JSON.stringify({
-          data: {
-            provider: { id: "p-local", name: "Ollama (local)", provider_type: "ollama" },
-            models: [
-              { id: "llama3.2", name: "llama3.2", context_window: null, max_output_tokens: null, input_price_per_million: null, output_price_per_million: null, capabilities: [] },
-              { id: "mistral", name: "mistral", context_window: null, max_output_tokens: null, input_price_per_million: null, output_price_per_million: null, capabilities: [] },
-            ],
-            created: true,
-          },
-          meta: { page: 1, per_page: 20, total: 0 },
+          data: { id: "p-local", name: "Ollama (local)", provider_type: "ollama" },
+          meta: { page: 1, per_page: 20, total: 1 },
           errors: [],
         }),
-      }),
-    );
+      });
+    });
 
     await page.goto("/models");
     await page.getByTestId("path-card-local").click();
-    await page.getByTestId("local-detect-btn").click();
+    await page.getByTestId("local-register-btn").click();
 
-    await expect(page.getByTestId("local-detect-result")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText("llama3.2")).toBeVisible();
-    await expect(page.getByText("mistral")).toBeVisible();
+    await expect(page.getByTestId("local-register-result")).toBeVisible({ timeout: 5000 });
+    expect(createdBody).toMatchObject({
+      provider_type: "ollama",
+      base_url: "http://localhost:11434",
+    });
   });
 
-  test("Local panel — failed detection shows error message", async ({
+  test("Local panel — failed registration shows error message", async ({
     authedPage: page,
   }) => {
     await mockModelsPageRoutes(page);
 
-    // Mock detect-ollama to return an error
-    await page.route("**/api/v1/providers/detect-ollama**", (r) =>
-      r.fulfill({
-        status: 500,
+    await page.route("**/api/v1/providers", (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      return r.fulfill({
+        status: 409,
         contentType: "application/json",
-        body: JSON.stringify({ detail: "Connection refused" }),
-      }),
-    );
+        body: JSON.stringify({ detail: "Provider already exists" }),
+      });
+    });
 
     await page.goto("/models");
     await page.getByTestId("path-card-local").click();
-    await page.getByTestId("local-detect-btn").click();
+    await page.getByTestId("local-register-btn").click();
 
-    await expect(page.getByTestId("local-detect-error")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("local-register-error")).toBeVisible({ timeout: 5000 });
   });
 
   test("Direct panel — Settings link points to /settings", async ({ authedPage: page }) => {

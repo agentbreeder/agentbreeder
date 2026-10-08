@@ -6,12 +6,10 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2,
-  RefreshCw,
   Loader2,
   Eye,
   EyeOff,
   CheckCircle2,
-  XCircle,
   ArrowRight,
   Pencil,
   Power,
@@ -26,7 +24,6 @@ import {
   api,
   type Provider,
   type ProviderType,
-  type ProviderTestResult,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -164,17 +161,6 @@ function timeAgo(dateStr: string | null): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   return `${days}d ago`;
-}
-
-// --- Discovered model type ---
-
-interface DiscoveredModel {
-  id: string;
-  name: string;
-  context_window?: number;
-  max_output?: number;
-  input_price?: number;
-  output_price?: number;
 }
 
 // --- Ollama Pull Model Dialog (#214) ---
@@ -365,44 +351,6 @@ function ProviderCard({
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const testMutation = useMutation({
-    mutationFn: () => api.providers.test(provider.id),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["providers"] });
-      if (data.data.success) {
-        toast({
-          title: "Connection healthy",
-          description: `${provider.name}: ${data.data.latency_ms}ms latency`,
-          variant: "success",
-        });
-      } else {
-        toast({
-          title: "Connection failed",
-          description: data.data.error ?? "Unknown error",
-          variant: "error",
-        });
-      }
-    },
-    onError: (err: Error) => {
-      toast({ title: "Test failed", description: err.message, variant: "error" });
-    },
-  });
-
-  const discoverMutation = useMutation({
-    mutationFn: () => api.providers.discover(provider.id),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["providers"] });
-      toast({
-        title: "Models discovered",
-        description: `Found ${data.data.total} models from ${provider.name}`,
-        variant: "success",
-      });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Discovery failed", description: err.message, variant: "error" });
-    },
-  });
-
   const deleteMutation = useMutation({
     mutationFn: () => api.providers.delete(provider.id),
     onSuccess: () => {
@@ -488,19 +436,6 @@ function ProviderCard({
             <Button
               variant="ghost"
               size="icon-xs"
-              onClick={() => testMutation.mutate()}
-              disabled={testMutation.isPending}
-              title="Test connection"
-            >
-              {testMutation.isPending ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <RefreshCw className="size-3" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
               onClick={() => onEdit(provider)}
               title="Edit provider"
             >
@@ -574,41 +509,8 @@ function ProviderCard({
               </div>
             </div>
 
-            {/* Discovered models */}
-            {discoverMutation.data && (
-              <div className="mt-4">
-                <span className="text-xs text-muted-foreground">
-                  Discovered models ({discoverMutation.data.data.total})
-                </span>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {discoverMutation.data.data.models.map((m) => (
-                    <Badge
-                      key={m}
-                      variant="outline"
-                      className="text-[10px] font-mono"
-                    >
-                      {m}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Actions */}
             <div className="mt-4 flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="xs"
-                onClick={() => discoverMutation.mutate()}
-                disabled={discoverMutation.isPending}
-              >
-                {discoverMutation.isPending ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <RefreshCw className="size-3" />
-                )}
-                Discover models
-              </Button>
               <Button
                 variant="outline"
                 size="xs"
@@ -664,7 +566,6 @@ function EditProviderDialog({
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
-  const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
 
   const meta = provider ? getProviderMeta(provider.provider_type) : null;
 
@@ -674,7 +575,6 @@ function EditProviderDialog({
       setBaseUrl(p.base_url ?? meta?.defaultUrl ?? "");
       setApiKey("");
       setShowKey(false);
-      setTestResult(null);
     },
     [meta]
   );
@@ -703,30 +603,6 @@ function EditProviderDialog({
     },
     onError: (err: Error) => {
       toast({ title: "Update failed", description: err.message, variant: "error" });
-    },
-  });
-
-  const testMutation = useMutation({
-    mutationFn: () => api.providers.test(provider!.id),
-    onSuccess: (data) => {
-      setTestResult(data.data);
-      queryClient.invalidateQueries({ queryKey: ["providers"] });
-      if (data.data.success) {
-        toast({
-          title: "Connection healthy",
-          description: `${data.data.latency_ms}ms latency`,
-          variant: "success",
-        });
-      } else {
-        toast({
-          title: "Connection failed",
-          description: data.data.error ?? "Unknown error",
-          variant: "error",
-        });
-      }
-    },
-    onError: (err: Error) => {
-      toast({ title: "Test failed", description: err.message, variant: "error" });
     },
   });
 
@@ -814,48 +690,9 @@ function EditProviderDialog({
             </div>
           )}
 
-          {/* Test result inline */}
-          {testResult && (
-            <div
-              className={cn(
-                "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs",
-                testResult.success
-                  ? "border-emerald-500/30 bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-                  : "border-red-500/30 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200"
-              )}
-            >
-              {testResult.success ? (
-                <>
-                  <CheckCircle2 className="size-3.5 shrink-0" />
-                  <span>
-                    Connected ({testResult.latency_ms}ms,{" "}
-                    {testResult.model_count} models)
-                  </span>
-                </>
-              ) : (
-                <>
-                  <XCircle className="size-3.5 shrink-0" />
-                  <span>{testResult.error ?? "Connection failed"}</span>
-                </>
-              )}
-            </div>
-          )}
         </div>
 
         <DialogFooter>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => testMutation.mutate()}
-            disabled={testMutation.isPending}
-          >
-            {testMutation.isPending ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <RefreshCw className="size-3" />
-            )}
-            Test Connection
-          </Button>
           <Button
             size="sm"
             onClick={handleSave}
@@ -883,17 +720,12 @@ function AddProviderDialog({
 }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedType, setSelectedType] = useState<ProviderMeta | null>(null);
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
-  const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
-  const [createdId, setCreatedId] = useState<string | null>(null);
-  const [discoveredModels, setDiscoveredModels] = useState<DiscoveredModel[]>([]);
-  const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
-  const [registeredCount, setRegisteredCount] = useState(0);
 
   const createMutation = useMutation({
     mutationFn: (body: {
@@ -902,57 +734,17 @@ function AddProviderDialog({
       base_url?: string;
       config?: Record<string, unknown>;
     }) => api.providers.create(body),
-    onSuccess: (data) => {
-      setCreatedId(data.data.id);
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["providers"] });
+      setStep(3);
+      toast({
+        title: "Provider added",
+        description: `${name} saved`,
+        variant: "success",
+      });
     },
     onError: (err: Error) => {
       toast({ title: "Creation failed", description: err.message, variant: "error" });
-    },
-  });
-
-  const testMutation = useMutation({
-    mutationFn: (id: string) => api.providers.test(id),
-    onSuccess: (data) => {
-      setTestResult(data.data);
-      if (data.data.success) {
-        // Move to model discovery step
-        setStep(3);
-      }
-    },
-    onError: (err: Error) => {
-      toast({ title: "Test failed", description: err.message, variant: "error" });
-      setTestResult({
-        success: false,
-        latency_ms: null,
-        model_count: null,
-        error: err.message,
-      });
-    },
-  });
-
-  const discoverMutation = useMutation({
-    mutationFn: (id: string) => api.providers.discover(id),
-    onSuccess: (data) => {
-      // The API returns model names as strings; map them to DiscoveredModel objects
-      const models: DiscoveredModel[] = data.data.models.map((m) => {
-        if (typeof m === "string") {
-          return { id: m, name: m };
-        }
-        // If API returns full model objects in the future
-        return m as unknown as DiscoveredModel;
-      });
-      setDiscoveredModels(models);
-      // Select all by default
-      setSelectedModels(new Set(models.map((m) => m.id)));
-      queryClient.invalidateQueries({ queryKey: ["providers"] });
-    },
-    onError: (err: Error) => {
-      toast({
-        title: "Discovery failed",
-        description: err.message,
-        variant: "error",
-      });
     },
   });
 
@@ -963,11 +755,6 @@ function AddProviderDialog({
     setBaseUrl("");
     setApiKey("");
     setShowKey(false);
-    setTestResult(null);
-    setCreatedId(null);
-    setDiscoveredModels([]);
-    setSelectedModels(new Set());
-    setRegisteredCount(0);
   };
 
   const handleOpenChange = (v: boolean) => {
@@ -988,78 +775,24 @@ function AddProviderDialog({
     const config: Record<string, unknown> = {};
     if (apiKey) config.api_key_env = `${selectedType.type.toUpperCase()}_API_KEY`;
 
-    const result = await createMutation.mutateAsync({
+    createMutation.mutate({
       name,
       provider_type: selectedType.type,
       base_url: baseUrl || undefined,
       config: Object.keys(config).length > 0 ? config : undefined,
-    });
-
-    // Auto-test after creation
-    testMutation.mutate(result.data.id);
-  };
-
-  const handleDiscoverModels = () => {
-    if (!createdId) return;
-    discoverMutation.mutate(createdId);
-  };
-
-  const handleToggleModel = (modelId: string) => {
-    setSelectedModels((prev) => {
-      const next = new Set(prev);
-      if (next.has(modelId)) {
-        next.delete(modelId);
-      } else {
-        next.add(modelId);
-      }
-      return next;
-    });
-  };
-
-  const handleSelectAll = () => {
-    if (selectedModels.size === discoveredModels.length) {
-      setSelectedModels(new Set());
-    } else {
-      setSelectedModels(new Set(discoveredModels.map((m) => m.id)));
-    }
-  };
-
-  const handleRegisterModels = () => {
-    // In a real app, this would call an API to register selected models.
-    // For now, we record the count and move to success step.
-    setRegisteredCount(selectedModels.size);
-    setStep(4);
-    queryClient.invalidateQueries({ queryKey: ["providers"] });
-    toast({
-      title: "Provider connected",
-      description: `${name} added with ${selectedModels.size} models`,
-      variant: "success",
-    });
-  };
-
-  const handleSkipToSuccess = () => {
-    setRegisteredCount(0);
-    setStep(4);
-    queryClient.invalidateQueries({ queryKey: ["providers"] });
-    toast({
-      title: "Provider connected",
-      description: `${name} added successfully`,
-      variant: "success",
     });
   };
 
   const stepTitles: Record<number, string> = {
     1: "Add Provider",
     2: `Configure ${selectedType?.label ?? "Provider"}`,
-    3: "Discover Models",
-    4: "All Set",
+    3: "All Set",
   };
 
   const stepDescriptions: Record<number, string> = {
     1: "Choose an LLM provider to connect",
     2: "Set up the connection details",
-    3: "Select models to register from this provider",
-    4: "Provider is connected and ready to use",
+    3: "Provider is saved"
   };
 
   return (
@@ -1072,7 +805,7 @@ function AddProviderDialog({
 
         {/* Step indicator */}
         <div className="flex items-center gap-1.5">
-          {[1, 2, 3, 4].map((s) => (
+          {[1, 2, 3].map((s) => (
             <div
               key={s}
               className={cn(
@@ -1167,7 +900,7 @@ function AddProviderDialog({
                     type={showKey ? "text" : "password"}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="sk-... (optional, for test only)"
+                    placeholder="sk-... (optional)"
                     className="h-8 pr-8 font-mono text-xs"
                   />
                   <button
@@ -1185,133 +918,18 @@ function AddProviderDialog({
               </div>
             )}
 
-            {/* Show test error if test failed inline */}
-            {testResult && !testResult.success && (
-              <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-50 px-3 py-2 text-xs text-red-800 dark:bg-red-950 dark:text-red-200">
-                <XCircle className="size-3.5 shrink-0" />
-                <span>{testResult.error ?? "Connection failed"}</span>
-              </div>
-            )}
           </div>
         )}
 
-        {/* Step 3: Model discovery */}
+        {/* Step 3: Success confirmation */}
         {step === 3 && (
-          <div className="space-y-4">
-            {/* Test success summary */}
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-              <CheckCircle2 className="size-3.5 shrink-0" />
-              <span>
-                Connected successfully
-                {testResult?.latency_ms != null && ` (${testResult.latency_ms}ms)`}
-              </span>
-            </div>
-
-            {/* Discover button or model list */}
-            {discoveredModels.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 py-6">
-                {discoverMutation.isPending ? (
-                  <>
-                    <Loader2 className="size-6 animate-spin text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground">
-                      Discovering available models...
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-xs text-muted-foreground">
-                      Fetch available models from this provider
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleDiscoverModels}
-                    >
-                      <RefreshCw className="size-3" />
-                      Discover Models
-                    </Button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <>
-                {/* Select all toggle */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
-                    {discoveredModels.length} models available
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={handleSelectAll}
-                  >
-                    {selectedModels.size === discoveredModels.length
-                      ? "Deselect All"
-                      : "Select All"}
-                  </Button>
-                </div>
-
-                {/* Model checklist */}
-                <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border">
-                  {discoveredModels.map((model) => {
-                    const isSelected = selectedModels.has(model.id);
-                    return (
-                      <label
-                        key={model.id}
-                        className={cn(
-                          "flex cursor-pointer items-center gap-3 px-3 py-2 text-xs transition-colors hover:bg-muted/50",
-                          isSelected && "bg-muted/30"
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleToggleModel(model.id)}
-                          className="size-3.5 rounded border-border accent-primary"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <span className="font-mono text-[11px] font-medium">
-                            {model.name}
-                          </span>
-                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                            {model.context_window && (
-                              <span>
-                                {(model.context_window / 1000).toFixed(0)}K ctx
-                              </span>
-                            )}
-                            {model.input_price != null && (
-                              <span>${model.input_price}/M in</span>
-                            )}
-                            {model.output_price != null && (
-                              <span>${model.output_price}/M out</span>
-                            )}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-
-                <p className="text-[11px] text-muted-foreground">
-                  {selectedModels.size} of {discoveredModels.length} models
-                  selected
-                </p>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Step 4: Success confirmation */}
-        {step === 4 && (
           <div className="flex flex-col items-center gap-3 py-6">
             <div className="flex size-12 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
               <CheckCircle2 className="size-6 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <p className="text-sm font-medium">Provider connected</p>
+            <p className="text-sm font-medium">Provider added</p>
             <p className="text-xs text-muted-foreground">
-              {registeredCount > 0
-                ? `${name} is ready with ${registeredCount} models registered`
-                : `${name} is connected and ready to use`}
+              {name} is saved. Register its models from the Models page.
             </p>
           </div>
         )}
@@ -1326,41 +944,18 @@ function AddProviderDialog({
             <Button
               size="sm"
               onClick={handleConfigure}
-              disabled={!name.trim() || createMutation.isPending || testMutation.isPending}
+              disabled={!name.trim() || createMutation.isPending}
             >
-              {createMutation.isPending || testMutation.isPending ? (
+              {createMutation.isPending ? (
                 <Loader2 className="size-3 animate-spin" />
               ) : (
                 <ArrowRight className="size-3" />
               )}
-              Test Connection
+              Add Provider
             </Button>
           </DialogFooter>
         )}
         {step === 3 && (
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={handleSkipToSuccess}>
-              Skip
-            </Button>
-            {discoveredModels.length > 0 ? (
-              <Button
-                size="sm"
-                onClick={handleRegisterModels}
-                disabled={selectedModels.size === 0}
-              >
-                <CheckCircle2 className="size-3" />
-                Register {selectedModels.size} Model
-                {selectedModels.size !== 1 ? "s" : ""}
-              </Button>
-            ) : !discoverMutation.isPending ? (
-              <Button size="sm" onClick={handleDiscoverModels}>
-                <RefreshCw className="size-3" />
-                Discover Models
-              </Button>
-            ) : null}
-          </DialogFooter>
-        )}
-        {step === 4 && (
           <DialogFooter>
             <Button size="sm" onClick={() => handleOpenChange(false)}>
               Done

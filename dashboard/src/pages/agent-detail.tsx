@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
-  Circle,
   ExternalLink,
   Copy,
   Check,
@@ -11,7 +10,6 @@ import {
   Users,
   Tag,
   Activity,
-  Target,
   Cpu,
   Wrench,
   MessageSquare,
@@ -26,7 +24,6 @@ import {
   Variable,
   Shield,
   Pencil,
-  Rocket,
   Save,
   X,
   AlertCircle,
@@ -35,7 +32,7 @@ import {
   Play,
   Loader2,
 } from "lucide-react";
-import { api, type Agent, type AgentStatus, type DeployJob, type AgentInvokeResponse, type AgentVersionEntry } from "@/lib/api";
+import { api, type Agent, type AgentStatus, type AgentInvokeResponse, type AgentVersionEntry } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,7 +46,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { DeployPipeline } from "@/components/deploy-pipeline";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { ConfigDiffViewer } from "@/components/config-diff-viewer";
 import { VersionSelector, type VersionEntry } from "@/components/version-selector";
@@ -206,18 +202,6 @@ function AgentHeader({ agent }: { agent: Agent }) {
         )}
       </div>
       <div className="flex items-center gap-2">
-        <Link to={`/deploy-wizard?agentId=${agent.id}&from=agent-detail`}>
-          <Button variant="outline" size="sm">
-            <Rocket className="size-3" />
-            Deploy
-          </Button>
-        </Link>
-        <Link to={`/agents/builder/${agent.id}`}>
-          <Button variant="outline" size="sm">
-            <Pencil className="size-3" />
-            Edit in Builder
-          </Button>
-        </Link>
         <CloneAgentDialog agent={agent} />
       </div>
     </div>
@@ -1399,151 +1383,6 @@ function EnvironmentTab({ agent }: { agent: Agent }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Deploy History Tab
-// ---------------------------------------------------------------------------
-
-const DEPLOY_STATUS_COLORS: Record<string, string> = {
-  completed: "text-emerald-500",
-  failed: "text-destructive",
-  pending: "text-muted-foreground",
-};
-
-const ACTIVE_DEPLOY_STATUSES = new Set([
-  "pending", "parsing", "building", "provisioning",
-  "deploying", "health_checking", "registering",
-]);
-
-const TARGET_BADGE_COLORS: Record<string, string> = {
-  local: "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20",
-  aws: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
-  gcp: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
-  kubernetes: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
-};
-
-function DeployHistoryTab({ agentId }: { agentId: string }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["deploys", { agent_id: agentId }],
-    queryFn: () => api.deploys.list({ agent_id: agentId }),
-    staleTime: 5_000,
-    refetchInterval: 10_000,
-  });
-
-  const jobs = data?.data ?? [];
-
-  if (isLoading) {
-    return (
-      <div className="space-y-3 pt-6">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="rounded-lg border border-border p-4">
-            <div className="flex items-center gap-3">
-              <div className="size-2 animate-pulse rounded-full bg-muted" />
-              <div className="h-3.5 w-24 animate-pulse rounded bg-muted" />
-              <div className="h-5 w-12 animate-pulse rounded-full bg-muted" />
-              <div className="ml-auto h-3 w-16 animate-pulse rounded bg-muted" />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="mt-6 rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-center text-sm text-destructive">
-        Failed to load deploy history: {(error as Error).message}
-      </div>
-    );
-  }
-
-  if (jobs.length === 0) {
-    return (
-      <div className="flex flex-col items-center py-16 text-center">
-        <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-dashed border-border">
-          <Activity className="size-5 text-muted-foreground" />
-        </div>
-        <h3 className="text-sm font-medium">No deploy history</h3>
-        <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-          This agent has no recorded deployments yet.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2 pt-6">
-      {jobs.map((job: DeployJob) => {
-        const isActive = ACTIVE_DEPLOY_STATUSES.has(job.status);
-        const statusColor =
-          DEPLOY_STATUS_COLORS[job.status] ??
-          (isActive ? "text-amber-500 animate-pulse" : "text-muted-foreground");
-        const isExpanded = expandedId === job.id;
-        const duration = job.completed_at
-          ? formatDeployDuration(new Date(job.started_at), new Date(job.completed_at))
-          : isActive
-            ? "in progress"
-            : "\u2014";
-
-        return (
-          <div key={job.id} className="overflow-hidden rounded-lg border border-border">
-            <div
-              onClick={() => setExpandedId(isExpanded ? null : job.id)}
-              className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/20"
-            >
-              <Circle className={cn("size-2 shrink-0 fill-current", statusColor)} />
-              <span className="text-xs font-medium capitalize">{job.status.replace("_", " ")}</span>
-              <Badge
-                variant="outline"
-                className={cn(
-                  "text-[10px]",
-                  TARGET_BADGE_COLORS[job.target] ?? "bg-muted text-muted-foreground border-border"
-                )}
-              >
-                <Target className="mr-0.5 size-2.5" />
-                {job.target}
-              </Badge>
-              <span className="ml-auto flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
-                <Clock className="size-2.5" />
-                {duration}
-              </span>
-              <RelativeTime
-                date={job.started_at}
-                className="text-[10px] text-muted-foreground"
-              />
-            </div>
-
-            {isExpanded && (
-              <div className="border-t border-border/30 bg-muted/10 px-4 py-4">
-                <DeployPipeline
-                  status={job.status}
-                  errorMessage={job.error_message}
-                />
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function formatDeployDuration(start: Date, end: Date): string {
-  const ms = end.getTime() - start.getTime();
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  if (minutes < 60) return `${minutes}m ${secs}s`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
-}
-
-// ---------------------------------------------------------------------------
-// Main Page
-// ---------------------------------------------------------------------------
-
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useUrlState("tab", "overview" as string);
@@ -1607,12 +1446,6 @@ export default function AgentDetailPage() {
           <TabsTrigger value="environment" className={TAB_TRIGGER_CLASS}>
             Environment
           </TabsTrigger>
-          <TabsTrigger value="deploys" className={TAB_TRIGGER_CLASS}>
-            Deploy History
-          </TabsTrigger>
-          <TabsTrigger value="logs" className={TAB_TRIGGER_CLASS}>
-            Logs
-          </TabsTrigger>
           <TabsTrigger value="invoke" className={TAB_TRIGGER_CLASS}>
             <Play className="size-3" />
             Invoke
@@ -1629,14 +1462,6 @@ export default function AgentDetailPage() {
         </TabsContent>
         <TabsContent value="environment">
           <EnvironmentTab agent={agent} />
-        </TabsContent>
-        <TabsContent value="deploys">
-          <DeployHistoryTab agentId={id!} />
-        </TabsContent>
-        <TabsContent value="logs">
-          <div className="flex flex-col items-center py-16 text-center">
-            <p className="text-sm text-muted-foreground">Live logs coming in M4.2</p>
-          </div>
         </TabsContent>
         <TabsContent value="invoke">
           <InvokePanel agentId={id!} defaultEndpoint={agent.endpoint_url || ""} agentName={agent.name} />
