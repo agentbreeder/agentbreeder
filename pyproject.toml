@@ -13,7 +13,9 @@ license-files = ["LICENSE"]
 dependencies = ["pydantic>=2.13.4,<3", "PyYAML>=6.0.3,<7"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10", "ruff>=0.11,<1", "build>=1,<2"]
+cedar = ["cedarpy==4.12.2"]
+aws = ["boto3>=1.40,<2"]
+dev = ["pytest>=8,<10", "pytest-cov>=5,<8", "ruff>=0.11,<1", "build>=1,<2", "cryptography>=44", "cedarpy==4.12.2"]
 
 [project.scripts]
 agentbreeder = "agentbreeder.cli:main"
@@ -21,10 +23,16 @@ agentbreeder = "agentbreeder.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+agentbreeder = ["policy/cedar_schema.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra"
+markers = [
+    "entra_live: live Microsoft Entra tenant test (needs AGENTBREEDER_ENTRA_LIVE credentials)",
+]
 
 [tool.ruff]
 target-version = "py311"

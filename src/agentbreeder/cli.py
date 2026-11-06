@@ -1,0 +1,298 @@
+"""Local development lifecycle commands with the deploy-time identity gate."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sqlite3
+import sys
+from dataclasses import asdict
+from pathlib import Path
+
+from agentbreeder import __version__
+from agentbreeder.deployer import DeployerError, device_login, os_deployer, resolve_deployer
+from agentbreeder.deployment import DeploymentService
+from agentbreeder.doctor import check_docker
+from agentbreeder.gate import GateDenied
+from agentbreeder.manifest import ManifestError, load_manifest
+from agentbreeder.operator_config import OperatorConfigError, load_operator_config
+from agentbreeder.runtime import Docker
+from agentbreeder.store import DeploymentError, Store
+
+DEFAULT_STATE = Path.home() / ".agentbreeder/local"
+EXIT_PENDING = 3
+_STATEFUL = {
+    "deploy",
+    "status",
+    "remove",
+    "approve",
+    "reject",
+    "approve-call",
+    "reject-call",
+    "disable",
+    "enable",
+    "reconcile",
+}
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="agentbreeder",
+        description=(
+            "Local development: validate, gate and deploy trusted HTTP containers. "
+            "The identity gate is a deploy-time check only."
+        ),
+    )
+    parser.add_argument("--version", action="version", version=__version__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    validate = commands.add_parser("validate", help="Validate a manifest without deploying")
+    validate.add_argument("manifest", type=Path)
+    validate.add_argument("--json", action="store_true", help="Print the validated manifest")
+    doctor = commands.add_parser("doctor", help="Check local Docker prerequisites without changes")
+    doctor.add_argument("--json", action="store_true")
+
+    def stateful(name, help_text, positional=None, local=False):
+        command = commands.add_parser(name, help=help_text)
+        if positional:
+            command.add_argument(positional)
+        command.add_argument("--state-dir", type=Path, default=DEFAULT_STATE)
+        command.add_argument("--json", action="store_true")
+        if local:
+            command.add_argument("--local", action="store_true", required=True)
+        return command
+
+    deploy = stateful("deploy", "Gate and deploy a manifest", "manifest", local=True)
+    deploy.add_argument("--environment", help="Operator-defined environment name")
+    status = stateful("status", "Show a deployment and re-verify its principal", "id")
+    status.add_argument("--no-verify", action="store_true", help="Skip principal re-resolution")
+    stateful("remove", "Remove a deployment", "id", local=True)
+    for name in ("approve", "reject"):
+        stateful(name, f"{name.title()} a pending approval as a second person", "approval_id")
+    for name in ("approve-call", "reject-call"):
+        verb = name.split("-")[0]
+        stateful(name, f"{verb.title()} one held MCP tool call as a second person", "held_id")
+    for name, help_text, local in (
+        ("disable", "Persist a principal blocker and stop its workloads", True),
+        ("enable", "Clear a principal blocker (starts nothing)", False),
+    ):
+        command = stateful(name, help_text, "target", local=local)
+        command.add_argument("--environment")
+        command.add_argument("--provider", help="Provider connection (with --ref)")
+        command.add_argument("--ref", help="Principal reference (with --provider)")
+        if name == "disable":
+            command.add_argument("--reason", default="administrative disable")
+            command.add_argument(
+                "--idp", action="store_true", help="Also disable in the IdP (opt-in write)"
+            )
+    stateful("reconcile", "Re-verify principals and retry blocked cleanup", local=True)
+    audit = commands.add_parser("audit", help="Inspect and verify the local audit chain")
+    audit_commands = audit.add_subparsers(dest="audit_command", required=True)
+    for name in ("verify", "list"):
+        command = audit_commands.add_parser(name)
+        command.add_argument("--state-dir", type=Path, default=DEFAULT_STATE)
+        command.add_argument("--json", action="store_true")
+        if name == "list":
+            command.add_argument("--limit", type=int, default=20)
+            command.add_argument("--attempt")
+    login = commands.add_parser("login", help="Sign in with the operator's OIDC device flow")
+    login.add_argument("--issuer")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    if args.command == "validate":
+        try:
+            manifest = load_manifest(args.manifest)
+        except ManifestError as error:
+            print(f"Validation failed: {error}", file=sys.stderr)
+            return 2
+        print(
+            manifest.model_dump_json(indent=2)
+            if args.json
+            else f"Valid manifest: {manifest.name} (schema {manifest.schema_version}). "
+            "Nothing deployed."
+        )
+        return 0
+    if args.command == "doctor":
+        checks = check_docker()
+        if args.json:
+            print(json.dumps([asdict(check) for check in checks], indent=2))
+        else:
+            for check in checks:
+                print(f"{'PASS' if check.passed else 'FAIL'} {check.name}: {check.message}")
+        return 0 if all(check.passed for check in checks) else 1
+    if args.command == "login":
+        try:
+            deployer = device_login(load_operator_config(), issuer=args.issuer)
+        except (DeployerError, OperatorConfigError) as error:
+            print(_message(error), file=sys.stderr)
+            return 2
+        print(f"Signed in as {deployer.label}")
+        return 0
+    return _stateful(args)
+
+
+def _message(error: Exception) -> str:
+    code = getattr(error, "code", None)
+    text = str(error)
+    return text if not code or text.startswith("[") else f"[{code}] {text}"
+
+
+def _stateful(args) -> int:
+    store = None
+    try:
+        manifest = load_manifest(Path(args.manifest)) if args.command == "deploy" else None
+        store = Store(args.state_dir)
+        if args.command == "audit":
+            return _audit(store, args)
+        operator = load_operator_config()
+        service = DeploymentService(store, Docker(), operator)
+        if args.command == "deploy":
+            try:
+                deployer = resolve_deployer(operator)
+            except DeployerError as error:
+                service.record_denial("deploy", os_deployer(), error.code, str(error))
+                raise
+            result = service.deploy(
+                manifest, local=args.local, environment=args.environment, deployer=deployer
+            )
+            return _print_deployment(result, args, "deploy")
+        if args.command in ("approve", "reject"):
+            result = service.decide(
+                args.approval_id, resolve_deployer(operator), approve=args.command == "approve"
+            )
+            print(
+                json.dumps(result, indent=2)
+                if args.json
+                else f"{result['id']}  {result['state']} by {result['checker']}"
+            )
+            return 0
+        if args.command in ("approve-call", "reject-call"):
+            result = service.decide_call(
+                args.held_id, resolve_deployer(operator), approve=args.command == "approve-call"
+            )
+            print(
+                json.dumps(result, indent=2)
+                if args.json
+                else f"{result['id']}  {result['server']}/{result['tool']}  {result['state']} by "
+                f"{result['checker']}"
+            )
+            return 0
+        if args.command in ("disable", "enable"):
+            options = {"environment": args.environment, "provider": args.provider, "ref": args.ref}
+            actor = resolve_deployer(operator)
+            if args.command == "disable":
+                result = service.disable(
+                    args.target, actor, reason=args.reason, idp=args.idp, **options
+                )
+            else:
+                result = service.enable(args.target, actor, **options)
+            print(json.dumps(result, indent=2) if args.json else _summary(result))
+            return 1 if result["state"] == "failed" else 0
+        if args.command == "reconcile":
+            results = service.reconcile(resolve_deployer(operator))
+            if args.json:
+                print(json.dumps(results, indent=2))
+            else:
+                for item in results:
+                    print(f"{item['id']}  {item['name']}  {item['compliance']}")
+            return 1 if any(r["compliance"].endswith(":cleanup_failed") for r in results) else 0
+        if args.command == "remove":
+            return _print_deployment(
+                service.remove(args.id, local=args.local, actor=resolve_deployer(operator)),
+                args,
+                "remove",
+            )
+        return _print_deployment(
+            service.status(args.id, verify=not args.no_verify), args, "status"
+        )
+    except (
+        ManifestError,
+        DeploymentError,
+        GateDenied,
+        OperatorConfigError,
+        DeployerError,
+    ) as error:
+        print(_message(error), file=sys.stderr)
+        return 2
+    except (OSError, sqlite3.Error):
+        print(
+            "Cannot access local state; check permissions and available disk space",
+            file=sys.stderr,
+        )
+        return 2
+    finally:
+        if store:
+            store.close()
+
+
+def _summary(result: dict) -> str:
+    lines = [result["state"]]
+    for key in ("stopped", "failed"):
+        if result.get(key):
+            lines.append(f"{key}: {json.dumps(result[key])}")
+    return "\n".join(lines)
+
+
+def _print_deployment(result: dict, args, command: str) -> int:
+    gate = result.get("gate") or {}
+    for warning in gate.get("warnings", []):
+        print(f"WARNING: {warning}", file=sys.stderr)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    elif result["state"] == "pending_approval":
+        print(
+            f"pending_approval  {result['approval_id']}\n"
+            f"A second authorized person must run: agentbreeder approve {result['approval_id']}"
+            f"\nThen repeat this deploy before {result['expires']}."
+        )
+    else:
+        detail = result.get("endpoint") or result.get("error") or "No endpoint"
+        lines = [f"{result['id']}  {result['state']}", detail]
+        if result.get("compliance"):
+            lines.append(f"Identity: {result['compliance']}")
+        if command == "status":
+            lines.append("Last recorded observation; not a live health check.")
+        if gate:
+            lines.append(
+                f"Gate attempt {gate['attempt_id']} ({gate['enforcement']}); unavailable checks: "
+                + (", ".join(gate["checks_unavailable"]) or "none")
+            )
+        print("\n".join(lines))
+    if result["state"] == "pending_approval":
+        return EXIT_PENDING
+    return 1 if result["state"] == "failed" else 0
+
+
+def _audit(store: Store, args) -> int:
+    if args.audit_command == "verify":
+        report = store.verify_audit()
+        if args.json:
+            print(json.dumps(report, indent=2))
+        else:
+            print(
+                f"{'OK' if report['ok'] else 'INVALID'}: {report['rows']} rows, head "
+                f"{report['head'][:16]}…"
+                + (
+                    f"; first invalid seq {report['first_invalid_seq']} ({report['problem']})"
+                    if not report["ok"]
+                    else ""
+                )
+            )
+            if report["incomplete_attempts"]:
+                print(f"Incomplete attempts: {', '.join(report['incomplete_attempts'])}")
+            print(f"Limitation: {report['limitations']}")
+        return 0 if report["ok"] else 1
+    rows = store.audit_rows(limit=max(1, min(args.limit, 1000)), attempt_id=args.attempt)
+    if args.json:
+        print(json.dumps(rows, indent=2))
+    else:
+        for row in rows:
+            reason = (row["reasons"] or [{}])[0].get("code", "")
+            print(
+                f"{row['seq']:>5} {row['at']} {row['attempt_id'][:8]} {row['action']} "
+                f"{row['decision']} {reason} actor={row['actor']}"
+                f"{'' if row['actor_verified'] else ' (unverified)'}"
+            )
+    return 0

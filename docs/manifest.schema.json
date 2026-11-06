@@ -1,0 +1,294 @@
+{
+  "$defs": {
+    "Capabilities": {
+      "additionalProperties": false,
+      "description": "Deploy-time ceiling; enforced per MCP HTTP call when the operator enables mcp_http.",
+      "properties": {
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ToolCapability"
+          },
+          "maxItems": 32,
+          "title": "Tools",
+          "type": "array"
+        },
+        "approval_required": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Approval Required",
+          "type": "array"
+        }
+      },
+      "title": "Capabilities",
+      "type": "object"
+    },
+    "GroupRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+=-]{0,255}$",
+          "title": "Authority",
+          "type": "string"
+        },
+        "group_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+=-]{0,255}$",
+          "title": "Group Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "authority",
+        "group_id"
+      ],
+      "title": "GroupRequirement",
+      "type": "object"
+    },
+    "IdentityReference": {
+      "additionalProperties": false,
+      "description": "A reference to an existing IdP principal. AgentBreeder never creates it.",
+      "properties": {
+        "provider": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+          "title": "Provider",
+          "type": "string"
+        },
+        "ref": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+=-]{0,255}$",
+          "title": "Ref",
+          "type": "string"
+        },
+        "environment": {
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$",
+          "title": "Environment",
+          "type": "string"
+        },
+        "expect_owner": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+=-]{0,255}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expect Owner"
+        }
+      },
+      "required": [
+        "provider",
+        "ref",
+        "environment"
+      ],
+      "title": "IdentityReference",
+      "type": "object"
+    },
+    "PolicySelection": {
+      "additionalProperties": false,
+      "description": "Operator-approved restriction bundle IDs only; never paths or OCI references.",
+      "properties": {
+        "restrictions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Restrictions",
+          "type": "array"
+        }
+      },
+      "title": "PolicySelection",
+      "type": "object"
+    },
+    "Requirements": {
+      "additionalProperties": false,
+      "properties": {
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/RoleRequirement"
+          },
+          "maxItems": 64,
+          "title": "Roles",
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/GroupRequirement"
+          },
+          "maxItems": 64,
+          "title": "Groups",
+          "type": "array"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "maxProperties": 64,
+          "title": "Attributes",
+          "type": "object"
+        }
+      },
+      "title": "Requirements",
+      "type": "object"
+    },
+    "RoleRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+=-]{0,255}$",
+          "title": "Authority",
+          "type": "string"
+        },
+        "resource": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+=-]{0,255}$",
+          "title": "Resource",
+          "type": "string"
+        },
+        "role_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+=-]{0,255}$",
+          "title": "Role Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "authority",
+        "resource",
+        "role_id"
+      ],
+      "title": "RoleRequirement",
+      "type": "object"
+    },
+    "ToolCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "mcp": {
+          "maxLength": 512,
+          "pattern": "^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^\\s]*)?$",
+          "title": "Mcp",
+          "type": "string"
+        },
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Actions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mcp",
+        "actions"
+      ],
+      "title": "ToolCapability",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "enum": [
+        1,
+        2
+      ],
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "name": {
+      "maxLength": 63,
+      "minLength": 1,
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+      "title": "Name",
+      "type": "string"
+    },
+    "image": {
+      "maxLength": 512,
+      "pattern": "(?:^(?:[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]{1,5})?/)?[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-f0-9]{64}$)|(?:^sha256:[a-f0-9]{64}$)",
+      "title": "Image",
+      "type": "string"
+    },
+    "target": {
+      "default": "local",
+      "enum": [
+        "local",
+        "kubernetes"
+      ],
+      "title": "Target",
+      "type": "string"
+    },
+    "port": {
+      "default": 8080,
+      "maximum": 65535,
+      "minimum": 1,
+      "title": "Port",
+      "type": "integer"
+    },
+    "health_path": {
+      "default": "/health",
+      "pattern": "^/[A-Za-z0-9/_-]*$",
+      "title": "Health Path",
+      "type": "string"
+    },
+    "secrets": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Secrets",
+      "type": "object"
+    },
+    "identity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IdentityReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "requires": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Requirements"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "capabilities": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Capabilities"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "policy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PolicySelection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schema_version",
+    "name",
+    "image"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}

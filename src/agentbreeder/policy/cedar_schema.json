@@ -1,0 +1,188 @@
+{
+  "AgentBreeder": {
+    "entityTypes": {
+      "Deployer": {
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "verified": {
+              "type": "Boolean"
+            },
+            "issuer": {
+              "type": "String"
+            },
+            "subject": {
+              "type": "String"
+            }
+          }
+        }
+      },
+      "Agent": {
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "name": {
+              "type": "String"
+            },
+            "environment": {
+              "type": "String"
+            },
+            "target": {
+              "type": "String"
+            },
+            "risk_tier": {
+              "type": "String"
+            },
+            "image_digest": {
+              "type": "String"
+            },
+            "principal_provider": {
+              "type": "String"
+            },
+            "principal_authority": {
+              "type": "String"
+            },
+            "principal_id": {
+              "type": "String"
+            },
+            "principal_kind": {
+              "type": "String"
+            },
+            "groups": {
+              "type": "Set",
+              "element": {
+                "type": "String"
+              }
+            },
+            "roles": {
+              "type": "Set",
+              "element": {
+                "type": "String"
+              }
+            },
+            "tool_actions": {
+              "type": "Set",
+              "element": {
+                "type": "String"
+              }
+            },
+            "approval_required": {
+              "type": "Set",
+              "element": {
+                "type": "String"
+              }
+            }
+          }
+        }
+      },
+      "Tool": {
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "server": {
+              "type": "String"
+            },
+            "name": {
+              "type": "String"
+            },
+            "url": {
+              "type": "String"
+            },
+            "environment": {
+              "type": "String"
+            },
+            "arguments_digest": {
+              "type": "String"
+            }
+          }
+        }
+      }
+    },
+    "actions": {
+      "deploy": {
+        "appliesTo": {
+          "principalTypes": [
+            "Deployer"
+          ],
+          "resourceTypes": [
+            "Agent"
+          ],
+          "context": {
+            "type": "Record",
+            "attributes": {}
+          }
+        }
+      },
+      "RequireApproval": {
+        "appliesTo": {
+          "principalTypes": [
+            "Deployer"
+          ],
+          "resourceTypes": [
+            "Agent"
+          ],
+          "context": {
+            "type": "Record",
+            "attributes": {}
+          }
+        }
+      },
+      "approve": {
+        "appliesTo": {
+          "principalTypes": [
+            "Deployer"
+          ],
+          "resourceTypes": [
+            "Agent"
+          ],
+          "context": {
+            "type": "Record",
+            "attributes": {}
+          }
+        }
+      },
+      "enable": {
+        "appliesTo": {
+          "principalTypes": [
+            "Deployer"
+          ],
+          "resourceTypes": [
+            "Agent"
+          ],
+          "context": {
+            "type": "Record",
+            "attributes": {}
+          }
+        }
+      },
+      "call_tool": {
+        "appliesTo": {
+          "principalTypes": [
+            "Agent"
+          ],
+          "resourceTypes": [
+            "Tool"
+          ],
+          "context": {
+            "type": "Record",
+            "attributes": {}
+          }
+        }
+      },
+      "RequireCallApproval": {
+        "appliesTo": {
+          "principalTypes": [
+            "Agent"
+          ],
+          "resourceTypes": [
+            "Tool"
+          ],
+          "context": {
+            "type": "Record",
+            "attributes": {}
+          }
+        }
+      }
+    }
+  }
+}

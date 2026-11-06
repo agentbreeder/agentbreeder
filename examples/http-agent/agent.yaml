@@ -1,0 +1,19 @@
+# Validation example only. Replace the illustrative digest with your pushed image's digest and
+# the identity reference with an agent principal already onboarded in your identity provider.
+schema_version: 2
+name: http-sample
+image: registry.example.com/http-sample@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+target: local
+port: 8080
+health_path: /health
+identity:
+  provider: entra
+  ref: 4f1c2b7e-0000-4000-8000-000000000001
+  environment: dev
+requires:
+  roles:
+    - {authority: contoso-tenant-id, resource: payments-api-id, role_id: refunds-role-id}
+  groups:
+    - {authority: contoso-tenant-id, group_id: finance-group-id}
+  attributes:
+    acme-governance/data_classification: confidential

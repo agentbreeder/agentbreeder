@@ -1,0 +1,38 @@
+{
+  "_note": "Recorded-shape fixtures for Microsoft Graph v1.0 (agentIdentity, appRoleAssignments, transitiveMemberOf, sponsors, owners). IDs are synthetic.",
+  "POST https://login.microsoftonline.com/tenant-a/oauth2/v2.0/token": [200, {"token_type": "Bearer", "expires_in": 3599, "access_token": "graph-token"}],
+  "GET https://graph.microsoft.com/v1.0/servicePrincipals/4f1c0000-0000-4000-8000-000000000001/microsoft.graph.agentIdentity?$select=id,accountEnabled,servicePrincipalType,customSecurityAttributes": [200, {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#servicePrincipals/microsoft.graph.agentIdentity/$entity",
+    "@odata.type": "#microsoft.graph.agentIdentity",
+    "id": "4f1c0000-0000-4000-8000-000000000001",
+    "accountEnabled": true,
+    "servicePrincipalType": "ServiceIdentity",
+    "customSecurityAttributes": {
+      "AgentBreeder": {"@odata.type": "#microsoft.graph.customSecurityAttributeValue", "environment": "prod", "reviewBy": "2099-06-30"},
+      "acmeGovernance": {"@odata.type": "#microsoft.graph.customSecurityAttributeValue", "data_classification": "confidential", "risk_tier": "high", "regions@odata.type": "#Collection(String)", "regions": ["eu", "us"]}
+    }
+  }],
+  "GET https://graph.microsoft.com/v1.0/servicePrincipals/4f1c0000-0000-4000-8000-000000000001/appRoleAssignments": [200, {
+    "value": [
+      {"id": "a1", "principalId": "4f1c0000-0000-4000-8000-000000000001", "resourceId": "payments-api-sp", "resourceDisplayName": "Payments API", "appRoleId": "refunds-role-id"}
+    ],
+    "@odata.nextLink": "https://graph.microsoft.com/v1.0/servicePrincipals/4f1c0000-0000-4000-8000-000000000001/appRoleAssignments?$skiptoken=page2"
+  }],
+  "GET https://graph.microsoft.com/v1.0/servicePrincipals/4f1c0000-0000-4000-8000-000000000001/appRoleAssignments?$skiptoken=page2": [200, {
+    "value": [
+      {"id": "a2", "principalId": "4f1c0000-0000-4000-8000-000000000001", "resourceId": "crm-api-sp", "resourceDisplayName": "CRM", "appRoleId": "crm-read-role-id"}
+    ]
+  }],
+  "GET https://graph.microsoft.com/v1.0/servicePrincipals/4f1c0000-0000-4000-8000-000000000001/transitiveMemberOf/microsoft.graph.group?$select=id,displayName": [200, {
+    "value": [{"id": "finance-group-id", "displayName": "Finance"}]
+  }],
+  "GET https://graph.microsoft.com/v1.0/servicePrincipals/4f1c0000-0000-4000-8000-000000000001/microsoft.graph.agentIdentity/sponsors?$select=id,accountEnabled,userPrincipalName": [200, {
+    "value": [
+      {"@odata.type": "#microsoft.graph.user", "id": "alice-oid", "accountEnabled": true, "userPrincipalName": "alice@contoso.com"},
+      {"@odata.type": "#microsoft.graph.group", "id": "sponsor-group"}
+    ]
+  }],
+  "GET https://graph.microsoft.com/v1.0/servicePrincipals/4f1c0000-0000-4000-8000-000000000001/owners?$select=id,accountEnabled,userPrincipalName": [200, {
+    "value": [{"@odata.type": "#microsoft.graph.user", "id": "bob-oid", "accountEnabled": false, "userPrincipalName": "bob@contoso.com"}]
+  }]
+}
