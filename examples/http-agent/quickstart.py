@@ -11,7 +11,6 @@ import uuid
 from pathlib import Path
 from urllib.request import ProxyHandler, Request, build_opener
 
-
 DEMO_PRINCIPALS = """# Demo only: real operators verify agents in their identity provider.
 principals:
   demo-agent:
@@ -21,7 +20,7 @@ principals:
     review_by: "2099-01-01"
     sponsors: [{id: demo-sponsor, name: demo@example.com, active: true}]
 """
-DEMO_OPERATOR = """# Demo operator config. Enforcement stays on; the static adapter stands in for an IdP.
+DEMO_OPERATOR = """# Demo operator config: enforcement on; a static adapter stands in for an IdP.
 enforcement: enforce
 default_environment: dev
 environments:
