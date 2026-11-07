@@ -1,0 +1,11 @@
+{
+  "title": "Migrations",
+  "pages": [
+    "overview",
+    "from-langgraph",
+    "from-crewai",
+    "from-openai-agents",
+    "from-autogen",
+    "from-custom"
+  ]
+}
