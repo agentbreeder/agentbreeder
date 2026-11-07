@@ -10,6 +10,23 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 
 ### Added
+- **Deploy-time agent identity gate (#701, phases 0–3).** Manifest `schema_version: 2`
+  (`identity`, scoped `requires`, `capabilities`, `policy.restrictions`); owner-only operator
+  config with `enforce`/`audit` modes and operator environment/target mappings; read-only
+  `static`, `entra`, `keycloak`, `aws` and experimental `okta` adapters; OIDC-verified deployers
+  (CI token, device-flow `login`); Cedar (default), OPA and AuthZEN PDPs with pinned operator
+  baselines and approved restrictions; revision-bound maker-checker approvals (`approve`/`reject`,
+  exit 3 while pending); durable `disable`/`enable` kill switch, `reconcile` and `status`
+  re-verification; hash-chained attempt audit log (`audit list`/`audit verify`). Deploy-time
+  only. See `docs/identity-gate.md`.
+- **Runtime MCP egress boundary (#706, phase 4).** `runtime_enforcement.mode: mcp_http` runs the
+  agent on a Docker `--internal` network behind a per-deployment sidecar PEP. Boundary verified by
+  inspection and active probes before traffic (`RUNTIME_BOUNDARY_UNVERIFIED`, exit 2, no degraded
+  mode). Per-call `call_tool` policy (Cedar schema adds `Tool`, `call_tool`,
+  `RequireCallApproval`), body-authoritative JSON-RPC with `Mcp-Method`/`Mcp-Name` checks, audit
+  before forward, held calls with `approve-call`/`reject-call`, host-side credential broker
+  (static or RFC 8693 token exchange), rate and size limits, and `reconcile` restoring the
+  sidecar. State schema v3 (`held_calls`).
 - **Python SDK**: async `RagMcpClient` wrapping the 8 RAG MCP tools (experimental). (#574)
 
 ### Changed

@@ -1,0 +1,16 @@
+{
+  "_note": "EXPERIMENTAL: shapes from Okta stable Apps/Users/client-roles APIs; agent semantics unverified.",
+  "GET https://acme.okta.com/api/v1/apps/0oa-agent-1": [200, {
+    "id": "0oa-agent-1", "status": "ACTIVE", "signOnMode": "OPENID_CONNECT",
+    "credentials": {"oauthClient": {"client_id": "client-abc"}},
+    "settings": {"oauthClient": {"application_type": "service"}},
+    "profile": {"agentbreederKind": "agent", "agentbreederEnvironment": "prod", "agentbreederReviewBy": "2099-01-01", "agentbreederSponsors": ["00u-alice"], "dataClassification": "confidential"}
+  }],
+  "GET https://acme.okta.com/oauth2/v1/clients/client-abc/roles": [200, [
+    {"id": "ra-1", "type": "CUSTOM", "role": "cr-refunds", "label": "Refunds", "status": "ACTIVE"},
+    {"id": "ra-2", "type": "READ_ONLY_ADMIN", "status": "INACTIVE"}
+  ]],
+  "GET https://acme.okta.com/api/v1/apps/0oa-agent-1/groups": [200, [{"id": "00g-finance"}]],
+  "GET https://acme.okta.com/api/v1/users/00u-alice": [200, {"id": "00u-alice", "status": "ACTIVE", "profile": {"login": "alice@acme.com"}}],
+  "POST https://acme.okta.com/api/v1/apps/0oa-agent-1/lifecycle/deactivate": [200, null]
+}

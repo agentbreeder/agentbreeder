@@ -1,0 +1,29 @@
+{
+  "_note": "Recorded-shape fixtures for the Keycloak Admin REST API. IDs are synthetic.",
+  "POST https://kc.example.com/realms/acme/protocol/openid-connect/token": [200, {"access_token": "kc-token", "token_type": "Bearer"}],
+  "GET https://kc.example.com/admin/realms/acme/clients/client-uuid-1": [200, {
+    "id": "client-uuid-1", "clientId": "refund-agent", "enabled": true, "serviceAccountsEnabled": true,
+    "attributes": {"agentbreeder.kind": "agent"}
+  }],
+  "GET https://kc.example.com/admin/realms/acme/clients/client-uuid-1/service-account-user": [200, {
+    "id": "sa-user-1", "username": "service-account-refund-agent", "enabled": true,
+    "attributes": {
+      "agentbreeder/environment": ["prod"],
+      "agentbreeder/review_by": ["2099-01-01"],
+      "agentbreeder.sponsors": ["alice-user", "gone-user"],
+      "acme/data_classification": ["confidential"],
+      "acme/regions": ["eu", "us"]
+    }
+  }],
+  "GET https://kc.example.com/admin/realms/acme/users/sa-user-1/role-mappings": [200, {
+    "realmMappings": [{"id": "realm-role-uuid", "name": "deployer"}],
+    "clientMappings": {
+      "payments-api": {"id": "payments-client-uuid", "client": "payments-api", "mappings": [{"id": "refunds-role-uuid", "name": "refunds"}]}
+    }
+  }],
+  "GET https://kc.example.com/admin/realms/acme/users/sa-user-1/groups?briefRepresentation=true&max=500": [200, [
+    {"id": "finance-group-uuid", "name": "finance", "path": "/finance"}
+  ]],
+  "GET https://kc.example.com/admin/realms/acme/users/alice-user": [200, {"id": "alice-user", "username": "alice", "enabled": true}],
+  "GET https://kc.example.com/admin/realms/acme/users/gone-user": [404, {"error": "User not found"}]
+}

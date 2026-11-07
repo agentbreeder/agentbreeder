@@ -1,0 +1,15 @@
+# Local deployment support
+
+Development-only single-user runtime for macOS/Linux. CLI calls one DeploymentService; there is no management HTTP API or UI yet. See the root README for build, deploy, status and removal commands.
+
+Manifest input must describe a trusted stateless HTTP image. Its process runs as UID/GID 65532, listens on 0.0.0.0 at the manifest port inside the container, and returns HTTP 200 from the health path. Host publication is loopback only. No redirects or HTTP proxies are used for health checks. Images declaring VOLUME, nonlocal Docker transports, Kubernetes targets and secret injection are rejected.
+
+SQLite state and events commit together; schema initialization is atomic. A process lock serializes local mutations. Repeating the same manifest reconciles the same deterministic owned container after an interruption. A different spec with the same active name fails; remove it before creating a replacement. Removal checks ownership labels, verifies absence and records errors instead of hiding partial cleanup. Events survive removal. Status reads the latest persisted observation and does not promise current availability.
+
+Every deploy first passes the deploy-time identity gate (`identity-gate.md`): pass `--environment <name>` from the operator configuration. Status re-resolves the bound principal and reports `compliant`, `noncompliant:<code>` or `unverifiable:<code>`.
+
+Exit codes: 0 for verified deployment/removal or successful status read; 1 for a recorded runtime failure or incomplete disable; 2 for invalid input, gate denial (`[CODE]`), audit-write failure, state access or prerequisite failure; 3 when deployment is pending a second-person approval. JSON output contains ID, state, endpoint (only on ready), safe error, digests, context, timestamps and event history. Pending/starting/removing states can remain after an interruption; repeat the original operation to reconcile.
+
+The state directory must be private (0700), database private (0600), and both owned by the current OS user. Do not share/copy the database across machines while it manages resources. Backups and migrations are not certified. Docker socket administrators can bypass ownership and runtime controls. Workloads can make outbound connections. Invocation has no application authentication added by this local tool; do not publish the port externally. The identity gate and audit chain are deploy-time controls for a single-user state directory. They are not private-egress controls, and the audit chain is not tamper-evident against the database owner.
+
+The local Docker lifecycle and fresh-install demo were verified on macOS with Docker Desktop on 2026-09-15. On 2026-11-05 the same real lifecycle test and fresh-install demo passed again on macOS through the identity gate (static adapter, `enforce` mode). Other platforms and production environments remain unverified. Unit tests with injected runtimes establish service behavior only. The opt-in integration test builds a real image, deploys and invokes it, repeats the request, reopens state, and removes the resource.
