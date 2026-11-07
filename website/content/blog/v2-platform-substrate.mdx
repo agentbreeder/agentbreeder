@@ -1,0 +1,86 @@
+---
+title: "AgentBreeder v2.0: Frameworks, Clouds, Languages, Providers Are Now Plug-Ins"
+description: "v2.0 turns AgentBreeder into a substrate. Six new tracks land at once: provider catalog, model lifecycle, gateways, polyglot runtime contract, sidecar, workspace secrets. What it means and what's next."
+author: "Rajit Saha"
+date: "2026-04-29"
+tags: ["release", "v2", "platform", "polyglot", "providers", "secrets", "sidecar"]
+---
+
+v1 of AgentBreeder shipped a working agent platform. v2 turns it into a **substrate** — anything above the substrate (frameworks, clouds, languages, providers) plugs in without engine changes.
+
+Six tracks landed at once. Here's what each one buys you.
+
+## Track F — Provider Catalog
+
+Adding Nvidia NIM used to mean writing a provider class. Same for Kimi K2, Groq, Together, Fireworks. They're all **OpenAI-compatible** — only `base_url` and `api_key` differ. v2 collapses them into one generic class plus a checked-in catalog YAML with 9 presets out of the box.
+
+```yaml
+model:
+  primary: nvidia/meta-llama-3.1-405b-instruct
+```
+
+Not on the list? `agentbreeder provider add my-vllm --type openai_compatible --base-url http://… --api-key-env MY_KEY` and you're done.
+
+## Track G — Model Lifecycle
+
+Provider model lists change weekly. v2 auto-discovers from each provider's `/models` endpoint, marks new ones `active`, deprecated ones `deprecated`, and after 30 days of absence: `retired`. Audit events for every transition. CLI: `agentbreeder model sync`.
+
+## Track H — Gateways as First-Class
+
+LiteLLM and OpenRouter graduate from "connector tucked away in a folder" to first-class catalog entries with `type: gateway`. Three-segment refs route the request:
+
+```yaml
+model:
+  primary: openrouter/moonshotai/kimi-k2
+```
+
+Switch upstream providers without touching agent code.
+
+## Track I — Polyglot Runtime Contract + Go SDK
+
+Every agent container — Python, TypeScript, Go, Kotlin, Rust, .NET — satisfies the same versioned HTTP contract: `/health`, `/invoke`, `/stream`, `/resume`, `/openapi.json`, bearer auth via `AGENT_AUTH_TOKEN`. Spec lives at `engine/schema/runtime-contract-v1.md` + `runtime-contract-v1.openapi.yaml`.
+
+The first Tier-2 SDK ships with v2: **Go** (`sdk/go/agentbreeder/`). Kotlin, Rust, and .NET are tracked in their own issues for v2.x.
+
+```bash
+agentbreeder init --lang go --framework custom my-go-agent
+```
+
+## Track J — The Sidecar
+
+CLAUDE.md described "the sidecar pattern (planned)" since v1. v2 ships it. A single Go binary auto-injected next to every agent that declares `guardrails:`, MCP `tools:`, or `a2a:`. Handles bearer auth, OTel tracing, cost attribution, PII guardrails, A2A JSON-RPC, MCP passthrough — once, in Go, and every language SDK gets it for free.
+
+## Track K — Workspace Secrets
+
+`engine/secrets/` had four backends (env, AWS, GCP, Vault) but no workspace binding. v2 adds:
+
+- `keychain` backend (cross-platform via `keyring`)
+- One backend per workspace (`AGENTBREEDER_INSTALL_MODE=team` defaults to env, etc.)
+- **Auto-mirror at deploy** — declared `secrets:` get written to the target cloud's native store under `agentbreeder/<agent>/<secret>`, runtime SA gets `secretAccessor`, no plaintext in the image
+
+```bash
+agentbreeder secret set OPENAI_API_KEY        # one command, right backend per workspace
+```
+
+## What didn't ship (yet)
+
+We were honest about scope. v2 doesn't include:
+
+- **Track A — Workspace primitive** ([#146](https://github.com/agentbreeder/agentbreeder/issues/146)): `workspace.yaml`, `agentbreeder workspace init/login`, multi-cloud config block. The pieces that depend on it (gateway config, secrets backend) ship in v2 with a per-agent fallback.
+- **`/agent-build` redesign** ([#147](https://github.com/agentbreeder/agentbreeder/issues/147)): the next-gen entrypoint that walks you from `pip install` through deploy.
+- **Polyglot phase 2/3 SDKs**: Kotlin ([#188](https://github.com/agentbreeder/agentbreeder/issues/188)), Rust ([#189](https://github.com/agentbreeder/agentbreeder/issues/189)), .NET ([#190](https://github.com/agentbreeder/agentbreeder/issues/190)). Tracked, not yet built.
+- **Auto-mirror to Azure** — the secrets auto-mirror flow currently covers AWS ECS + GCP Cloud Run. Azure Container Apps support is in the next minor.
+- **Daily model-sync cron** in cloud workspaces — Track G ships the engine + CLI; the cron itself is a system-cron sample for v2.0, native scheduler in v2.1.
+
+## Try it
+
+```bash
+pip install agentbreeder==2.0.0
+agentbreeder provider list                  # see the 9-preset catalog
+agentbreeder secret set OPENAI_API_KEY      # workspace backend, masked input
+agentbreeder model sync                     # auto-discover from your configured providers
+```
+
+Or `docker compose -f deploy/docker-compose.yml up -d` and open `http://localhost:3001`.
+
+Full changelog: [v2.0.0 release notes](https://github.com/agentbreeder/agentbreeder/releases/tag/v2.0.0). Architecture spec: [`docs/architecture/platform-v2.md`](https://github.com/agentbreeder/agentbreeder/blob/main/docs/architecture/platform-v2.md).

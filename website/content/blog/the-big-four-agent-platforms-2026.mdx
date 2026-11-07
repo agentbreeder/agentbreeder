@@ -1,0 +1,193 @@
+---
+title: "Google, Anthropic, OpenAI, and Azure All Have Agent Platforms Now. Here's the One Problem None of Them Solve."
+description: "In April 2026, Google rebranded Vertex AI into the Gemini Enterprise Agent Platform. Anthropic shipped Claude Managed Agents. OpenAI and Azure have been building for a year. Every platform is impressive. Every one locks you to their cloud. Here's what that means for enterprise teams — and the gap nobody's filling."
+author: "Rajit Saha"
+date: "2026-04-24"
+tags: ["enterprise", "ai-agents", "google", "anthropic", "openai", "azure", "multi-cloud", "vendor-lock-in"]
+image: "/blog/the-big-four-agent-platforms-2026/hero.png"
+---
+
+Two days ago, Google rebranded the entire Vertex AI product line into the **Gemini Enterprise Agent Platform**. That announcement — at Google Cloud Next '26 — landed just three weeks after Anthropic shipped **Claude Managed Agents** to GA. Azure has had **AI Foundry Agent Service** in GA since May 2025. OpenAI has been iterating its **Agents SDK** since early 2025.
+
+In the span of twelve months, every major AI company built a production enterprise agent platform.
+
+Every single one is cloud-locked.
+
+This is not a coincidence. It is a business model. And it is the single most important thing to understand before you commit your agent infrastructure to any of them.
+
+---
+
+## What Google Built
+
+Google's Gemini Enterprise Agent Platform is genuinely impressive. The announcement positions it as "full-stack vertical ownership" — custom silicon (Ironwood TPUs), frontier models (Gemini 2.5 Pro), the Agent Development Kit (ADK), and enterprise distribution through Google Workspace's 3 billion users.
+
+The governance story is real. **Agent Identity** gives every deployed agent a cryptographic ID. **Agent Gateway** acts as "air traffic control" — a policy enforcement point for every tool call. **Agent Anomaly Detection** uses statistical models and LLM-as-a-judge to flag unusual behavior in real time. This is not bolt-on governance. It is architecturally deep.
+
+The framework story is also compelling. ADK is genuinely open-source (Apache 2.0), runs Python and TypeScript and Go, and supports multi-agent orchestration via sequential, parallel, and loop patterns. Through the A2A protocol — which Google donated to the Linux Foundation — LangGraph, CrewAI, LlamaIndex, and AutoGen agents can all interoperate with ADK agents over a standardized message interface.
+
+**But here is the catch.** Every production governance feature — Agent Identity, Agent Gateway, Agent Security Dashboard, Memory Bank, Agent Runtime — **only works on GCP**. The A2A interoperability is message-level: you can talk to a LangGraph agent from ADK, but LangGraph does not run on Google's platform. If you want the cryptographic identity, the gateway enforcement, and the anomaly detection, your agents run on Google Cloud. Full stop.
+
+For enterprises with multi-cloud mandates — common in financial services, government, and any organization that completed a significant acquisition in the last three years — this is a hard constraint, not a soft preference.
+
+---
+
+## What Anthropic Built
+
+Claude Managed Agents is the most honest product launch in recent AI memory. The pitch is simple: "Instead of building your own agent loop, tool execution, and runtime, you get a fully managed environment." The promise is **10x faster time to production**.
+
+The execution is clean. Agents are versioned API resources. Each gets a sandboxed container with bash access, file system, web browsing, and a credential vault where Anthropic manages OAuth token refresh for you. Session persistence survives disconnections. The tracing in Claude Console is good.
+
+The launch customers — Notion, Rakuten, Asana, Sentry — are not toy use cases.
+
+**But here is what the launch announcement does not lead with.** There is no self-hosted option. There is no multi-cloud option. There is no data residency control — the `inference_geo` parameter that exists on the Messages API does not apply to Managed Agents. There is no support for GPT-4, Gemini, Llama, or any model that is not a Claude 4.5+. There is no LangGraph support. There is no CrewAI support. There is no visual builder. Multi-agent orchestration is in research preview only, supports one level of delegation, and is not GA.
+
+And perhaps most importantly: **environments are not versioned**. The official documentation says: *"Environments are not versioned. If you frequently update your environments, you may want to log these updates on your side."* For any organization that takes reproducibility seriously, that is a notable gap.
+
+Claude Managed Agents is the right product for a specific team: engineers already committed to Claude who want to skip infrastructure build-out and can accept Anthropic as their sole cloud provider. For everyone else, it is a sophisticated vendor lock-in play with a genuinely excellent developer experience.
+
+---
+
+## What OpenAI and Azure Built
+
+OpenAI's agent story is different from Google's and Anthropic's — because OpenAI is not primarily selling cloud infrastructure. The Agents SDK (open-source, Python and TypeScript) is a well-designed framework: `Agent` + `Runner` + `Handoffs` as clean primitives, built-in tracing, multi-agent handoff patterns. The April 2026 update added a long-horizon harness for complex multi-step workloads.
+
+The SDK is legitimately portable. You can run OpenAI agents on AWS, GCP, Azure, or your own infrastructure. But the inference always goes to `api.openai.com`. There is no deployment platform — no `agentbreeder deploy` equivalent. After you build your agent, you containerize it, host it, wire up observability, and build governance yourself. OpenAI provides the framework and the inference. The operations layer is yours.
+
+**Azure AI Foundry** is the most enterprise-complete platform of the four. The governance story — Entra Agent ID per deployed agent, Azure RBAC, OWASP Agent Governance Toolkit, Defender for Cloud AI threat protection — is genuinely deep. The framework support is broad: LangGraph, CrewAI, AutoGen, Semantic Kernel, LlamaIndex, and OpenAI Agents SDK are all first-class. The no-code visual builder and `azd up` CLI are well-executed.
+
+But Azure AI Foundry deploys to Azure. The "multi-cloud connectors" in the marketing refer to calling models from other providers — you can use a Bedrock model from within Foundry, or call a Vertex AI model. But the agent runtime is Azure. The governance stack (Entra identity, Conditional Access, Defender) is Azure. The distribution story (publish to Teams, Copilot) is Microsoft 365.
+
+If your cloud strategy is Azure-only, Foundry is the best enterprise agent platform available today. If you run on AWS, GCP, or a hybrid environment, you are operating outside its primary design assumptions.
+
+---
+
+## The Pattern
+
+Step back and you see the same architecture decision repeated four times:
+
+| Platform | Deploy runtime | Governance | Framework |
+|---|---|---|---|
+| Google Gemini Agent Platform | GCP only | GCP-tied (Agent Identity, Gateway) | ADK native; A2A for others |
+| Claude Managed Agents | Anthropic only | Session-level only | Claude harness only |
+| OpenAI Agent Platform | OpenAI API (you deploy app code) | Enterprise tier only | Own SDK only |
+| Azure AI Foundry | Azure only | Azure-tied (Entra, Defender) | Multi-framework (best of four) |
+
+Every platform is built so that the governance, the scalability, and the best features only work inside their cloud. This is not accidental. When governance requires their identity system and their infrastructure, they become harder to leave.
+
+The incentive structure of cloud providers is to make the cloud switch cost as high as possible. Agent platforms are the latest, and perhaps most effective, expression of that incentive.
+
+---
+
+## The Gap Nobody's Filling
+
+Here is what a multi-cloud, multi-framework enterprise team actually needs:
+
+1. **Deploy any framework** — LangGraph, CrewAI, Claude SDK, OpenAI Agents, Google ADK, or custom — without rewriting
+2. **Deploy to any cloud** — AWS ECS, GCP Cloud Run, Azure Container Apps, Kubernetes, or local Docker — from the same config
+3. **Governance that travels with the agent** — RBAC, cost attribution, audit trail, and registry registration should happen on every deploy, regardless of cloud target
+4. **A portable spec** — an `agent.yaml` you can take to any cloud without rewriting
+5. **No vendor lock-in at any tier** — if your inference provider changes, your deployment target changes, or your framework changes, the platform should survive all of it
+
+None of the four platforms above provide all five. Google provides 1 and 3 (but only on GCP). Azure provides 1 and 3 (but only on Azure). Anthropic provides none of them — it is the most locked-in of the four. OpenAI provides 1 partially but not 2, 3, 4, or 5.
+
+This is the gap AgentBreeder was built to fill.
+
+---
+
+## What AgentBreeder Does Differently
+
+AgentBreeder is not trying to be a better Azure AI Foundry or a better Google Agent Platform. It is solving a different problem: the platform layer that exists *above* any single cloud.
+
+The core primitive is `agent.yaml` — a portable, cloud-neutral configuration file. You write it once. AgentBreeder deploys it to any target: AWS ECS Fargate, GCP Cloud Run, Azure Container Apps, Kubernetes (EKS/GKE/AKS/self-hosted), or local Docker Compose. Same command. Same governance pipeline. No rewriting.
+
+```yaml
+name: customer-support-agent
+version: 1.0.0
+framework: langgraph
+team: customer-success
+
+model:
+  primary: claude-sonnet-4-6
+  fallback: gpt-4o
+
+deploy:
+  cloud: aws          # change to: gcp | azure | kubernetes | local
+  runtime: ecs-fargate
+```
+
+The governance is not a feature you configure. It is a side effect of `agentbreeder deploy`:
+
+- RBAC is validated *before* the build starts
+- The agent is registered in the org-wide registry *after* every successful deploy
+- Cost is attributed to the deploying team automatically
+- An audit log entry is written for every deploy
+
+If you change `cloud: aws` to `cloud: gcp` and redeploy, you get the same governance — not a different governance model tied to GCP's identity system.
+
+The framework support is runtime-level, not protocol-level. AgentBreeder actually runs your LangGraph, CrewAI, Claude SDK, OpenAI Agents, and Google ADK containers. You don't adapt your agent to a new framework — you wrap it in `agent.yaml` and deploy.
+
+---
+
+## Who Should Use Which Platform
+
+This is not a "AgentBreeder beats everything" argument. Different products fit different teams.
+
+**Use Google Gemini Enterprise Agent Platform if:**
+- Your entire infrastructure is GCP and will remain GCP
+- You want the deepest governance story available (Agent Identity, Agent Gateway, Anomaly Detection)
+- You are building new agents on ADK and do not have existing framework investments to protect
+
+**Use Claude Managed Agents if:**
+- Your team is already committed to Claude as your sole model provider
+- You want zero infrastructure overhead and can accept Anthropic hosting your agent execution
+- You are building coding or document automation agents where the Claude harness excels
+
+**Use Azure AI Foundry if:**
+- Your cloud strategy is Azure-only and you are a Microsoft 365 shop
+- You need the broadest framework support among the managed platforms
+- You want one-click publish to Teams and Copilot
+
+**Use OpenAI Agents SDK if:**
+- You want a clean, minimal framework for writing agent logic and are comfortable bringing your own infra
+- You need a TypeScript + Python agent framework with good tracing built in
+- You are not yet ready to commit to a full deployment platform
+
+**Use AgentBreeder if:**
+- You have teams on different clouds (AWS + GCP, or AWS + Azure, or any combination)
+- You have teams using different frameworks (LangGraph team and CrewAI team and Claude SDK team)
+- You need governance (RBAC, audit, cost tracking) to work uniformly across all of the above
+- You want an open-source platform you can self-host, inspect, and modify
+- You cannot accept a situation where your agent platform vendor controls where your agents run
+
+---
+
+## The Strategic Question
+
+The question every enterprise platform team should be asking right now is: *if we adopt Platform X, what does it cost us to leave in two years?*
+
+For Google, Anthropic, OpenAI, and Azure, the answer is "significant" — your agent logic, governance configuration, and deployment tooling are all tied to the platform. The better the governance (Google, Azure), the deeper the lock-in.
+
+AgentBreeder's answer is different: your agent is `agent.yaml` + your framework code. The YAML is portable. The framework code runs anywhere. If you migrate from AgentBreeder to a different platform, you are not rewriting agents — you are finding a new way to run the same `agent.yaml` somewhere else.
+
+That portability is the feature the hyperscalers are most incentivized not to offer.
+
+---
+
+## Try It
+
+```bash
+pip install agentbreeder
+agentbreeder init
+agentbreeder deploy --target local
+```
+
+- [How it compares to managed platforms](/docs/comparisons)
+- [Migration guides from LangGraph, CrewAI, and others](/docs/migrations/overview)
+- [The `agent.yaml` specification](/docs/agent-yaml)
+- [GitHub — Apache 2.0](https://github.com/agentbreeder/agentbreeder)
+
+---
+
+*The research behind this post was conducted April 24, 2026. All platform capabilities reflect announced and GA features as of that date. The AI agent platform space is moving extremely fast — check each platform's current documentation before making architectural decisions.*
+
+*Rajit Saha is the founder of AgentBreeder.*

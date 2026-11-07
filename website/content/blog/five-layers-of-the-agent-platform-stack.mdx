@@ -1,0 +1,286 @@
+---
+title: "The Five Layers of the Enterprise AI Agent Platform Stack"
+description: "A complete architecture map of the enterprise AI agent ecosystem in 2026: from infrastructure runtimes at the bottom to governance at the top — every framework, language, cloud, and control-plane tool your team needs to know."
+author: "Rajit Saha"
+date: "2026-04-24"
+tags: ["enterprise", "ai-agents", "architecture", "platform-engineering", "infrastructure", "frameworks"]
+image: "/blog/five-layers-of-the-agent-platform-stack/hero.png"
+---
+
+import { AgentPlatformDiagram } from '@/components/agent-platform-diagram';
+
+The enterprise AI agent ecosystem exploded in 2025–2026. Every major cloud provider shipped a runtime. Every major AI lab shipped an SDK. Every major language community got a framework.
+
+The result: a deeply fragmented stack that platform engineers have to reason about across five distinct layers — each with its own vendors, tradeoffs, and lock-in risks.
+
+This post maps the full stack. Not as a shopping list — as an architecture. The goal is to give platform engineers, AI leads, and CTOs a shared mental model for how the pieces fit together before committing to any particular path.
+
+<AgentPlatformDiagram />
+
+---
+
+## How to Read This Diagram
+
+The stack runs **bottom to top**:
+
+- **Layer 1** (bottom, blue) is where agents *execute* — cloud infrastructure, managed runtimes, serverless compute
+- **Layer 2** (purple) is the *frameworks* that define how agents reason, use tools, and collaborate
+- **Layer 3** (orange) is the *language* your team writes agent code in
+- **Layer 4** (green) is the *mode* your team uses to build — from no-code visual canvas to full SDK control
+- **Layer 5** (top, pink) is the *governance* layer — who can do what, what it costs, what happened
+
+The AgentBreeder bar on the right spans all five layers. We'll come back to why that matters.
+
+---
+
+## Layer 1: Agent Runtime & Infrastructure
+
+*Where your agents actually run.*
+
+This is the most consequential layer for enterprise teams — it determines cost model, data residency, compliance posture, and long-term portability. The 2025–2026 wave brought a lot of new entrants here.
+
+### Managed Cloud Runtimes
+
+**AWS Bedrock AgentCore** (GA: October 2025) is the most significant new entry. It is separate from the older Bedrock Agents console product — AgentCore is a framework-agnostic managed runtime that can run any agent code (LangGraph, CrewAI, Strands, LlamaIndex) at scale. It provides managed memory, observability, and identity (agents securely calling AWS services on behalf of users). If you're AWS-native, this is now the primary path.
+
+**Google Vertex Agent Engine** (GA: November 2025) is the companion to Google ADK. ADK is the framework for building; Agent Engine is the runtime for deploying. One-command deployment to GCP-managed infrastructure. Built for the Gemini Enterprise Agent Platform (announced Cloud Next '26, April 2026, as the rebrand of all Vertex AI products).
+
+**Claude Managed Agents** (Anthropic, GA: April 2026) is the most opinionated runtime: Anthropic manages everything, including the execution environment, tool sandboxing, and credential vault. No containers to operate. Zero infrastructure overhead. The constraint: it is Anthropic-hosted only, Claude models only, no framework support.
+
+**Mastra Cloud** (Beta, 2026) is the hosted layer on top of the open-source Mastra TypeScript framework — Mastra Studio (evals, traces, logs), Mastra Server (agents as REST APIs), and Memory Gateway (persistent agent memory as a service). TypeScript-native, backed by a $22M Series A.
+
+**Databricks Agent Bricks** (2026) is Databricks' full agent platform — building on the Lakehouse for agents that need deep data integration. Supervisor Agent orchestration, AI Gateway, Document Intelligence, and Lakebase (serverless operational DB for agent state). If your agents are data-intensive and your team is already on Databricks, this is the most coherent story.
+
+### Infrastructure-as-Runtime
+
+For teams that want control without managed platform tradeoffs:
+
+| Runtime | Provider | Notes |
+|---|---|---|
+| **ECS Fargate** | AWS | Serverless containers; most common AWS agent deployment target |
+| **EKS** | AWS | Kubernetes-based; needed when you want cluster-level control |
+| **Cloud Run** | GCP | Serverless containers; lowest operational overhead on GCP |
+| **GKE** | GCP | Kubernetes-based; GCP-native |
+| **Azure Container Apps** | Azure | Serverless containers; integrates with Entra identity |
+| **Kubernetes** | Self-hosted | EKS / GKE / AKS or bare metal; maximum portability |
+| **Local Docker** | Dev | Docker Compose; fastest dev loop |
+
+### The Layer 1 Lock-In Problem
+
+Every managed runtime is cloud-specific. AWS AgentCore governance (Agent IAM, memory, observability) only works on AWS. Google Agent Engine only works on GCP. Claude Managed Agents only works on Anthropic's infrastructure. Azure AI Foundry's governance stack (Entra Agent ID, OWASP toolkit) only works on Azure.
+
+If you pick a managed runtime today, moving to a different cloud tomorrow means rebuilding your governance and operational setup from scratch. This is not a bug — it is each provider's business model. Understanding it before you commit is the work.
+
+---
+
+## Layer 2: Agent Frameworks & SDKs
+
+*How your agents think, plan, use tools, and collaborate.*
+
+This is the most diverse layer. In 2026, there is no dominant framework — there are 10+ serious options, each with a distinct philosophy.
+
+### Python-Native Frameworks
+
+**LangGraph** is the most widely deployed production agent framework. Graph-based — agents are nodes, actions are edges. Excellent for stateful, multi-step workflows where you need to inspect and control the reasoning graph. Strong LangChain ecosystem integration.
+
+**CrewAI** is the most accessible multi-agent framework. Role-based: you define agents as crew members with roles, backstories, and tools. Sequential, parallel, and hierarchical agent patterns. Fastest to a working multi-agent demo.
+
+**PydanticAI** is the type-safety-first framework. Validates inputs and outputs with Pydantic schemas at every step. Popular with senior Python teams where correctness guarantees matter as much as capability.
+
+**Agno** (formerly Phidata) is optimized for high-performance multi-agent systems. 23+ LLM providers, native multimodal support, strong built-in memory and knowledge layers. One of the faster frameworks in production benchmarks.
+
+**AutoGen / AG2** is Microsoft Research's contribution. Event-driven multi-agent conversation. Strong for research-grade multi-agent orchestration with human-in-the-loop patterns. Comes with AutoGen Studio (visual UI for non-technical users).
+
+**smolagents** (HuggingFace) is intentionally minimal — a code-first agent that writes and executes Python to accomplish tasks. Small footprint, strong open-model ecosystem integration.
+
+**LlamaIndex** is data-centric. Its "Agentic Document Workflows" story is the strongest in the ecosystem for enterprises where agents need deep document understanding and RAG. Agents as a layer on top of a world-class data framework.
+
+**Strands** is AWS's agent framework — lightweight, event-driven, and explicitly optimized for Bedrock AgentCore. AWS's recommended path for new agent development.
+
+### TypeScript-Native
+
+**Mastra** is the dominant TypeScript agent framework — the only one with a serious production story. Built by the Gatsby team, YC-backed, 1.8M monthly npm downloads (Feb 2026). Tool use, memory, evals, and workflows all first-class. If your team is TypeScript-native, Mastra is the clear choice.
+
+### Cloud Provider SDKs
+
+**OpenAI Agents SDK** (Python + TypeScript) — clean three-primitive design: `Agent`, `Runner`, `Handoffs`. Built-in tracing. Best when your team is committed to OpenAI models and wants minimal framework overhead.
+
+**Claude Agent SDK** (Python + TypeScript) — the programmatic interface to Claude Managed Agents. Full SDK control over session lifecycle, tool configuration, credential vaults, and multi-agent coordination.
+
+**Google ADK** (Python, TypeScript, Go, Java) — Google's open-source framework for building ADK-native agents. Graph-based orchestration (Sequential/Parallel/Loop agents). Best on GCP with Gemini, but model-agnostic via LiteLLM.
+
+**Semantic Kernel** (Python, C#, Java) — Microsoft's enterprise-grade SDK. Plugin-based architecture, mature Azure OpenAI integration, strong .NET ecosystem. The right choice for enterprise teams with existing C#/Java investments.
+
+### JVM / Kotlin
+
+**Koog** (JetBrains, v0.7.3) — the only serious JVM-native agent framework. Kotlin Multiplatform: backend, Android, iOS, JS/Wasm. Graph-based and non-graph strategy APIs, OpenTelemetry built in, A2A protocol support. If your team is Kotlin-first, Koog is the framework to use. No equivalent exists in the JVM ecosystem.
+
+---
+
+## Layer 3: Programming Languages
+
+*The language your agent logic is written in.*
+
+Language choice at Layer 3 is often driven by what your team already knows — but it constrains your framework options at Layer 2.
+
+| Language | Framework options | Typical team profile |
+|---|---|---|
+| **Python** | All frameworks | ML engineers, data scientists, most AI-native teams |
+| **TypeScript** | Mastra, OpenAI SDK, Claude SDK, Google ADK, LlamaIndex | Full-stack engineers, product-building teams |
+| **Kotlin** | Koog | Android / JVM / JetBrains ecosystem teams |
+| **Go** | Google ADK | Backend infrastructure teams |
+| **Java** | Google ADK, Semantic Kernel, Koog (JVM) | Enterprise Java shops |
+| **C# / .NET** | Semantic Kernel | Microsoft / .NET enterprise teams |
+| **Rust** | Custom / early ecosystem | Systems teams; sparse framework support in 2026 |
+
+The practical implication: if you have LangGraph agents (Python) and Mastra agents (TypeScript) in the same organization, you need a platform layer above Layer 2 that can govern both — because no single framework spans both languages.
+
+---
+
+## Layer 4: Agent Builder Modes
+
+*How your team creates agents — from no technical knowledge required to full programmatic control.*
+
+The 2026 platform landscape has converged on four builder modes, often described as a progression:
+
+### No Code (Visual UI)
+Drag-and-drop canvas. Agents are built by connecting nodes visually. Examples: Google Agent Studio, Azure AI Foundry portal, AutoGen Studio, Flowise, Dify, AgentBreeder's visual builder. Fastest to a working prototype. Ceiling: the visual canvas is both the floor and the ceiling — when engineering complexity grows, there is no eject path.
+
+**Who uses it:** PMs, analysts, citizen builders, ops teams automating repetitive tasks.
+
+### Low Code (YAML / JSON Config)
+Agents defined in structured configuration files. Examples: `agent.yaml` (AgentBreeder), Azure AI Foundry workflow YAML, LangFlow config. The config is version-controlled, reviewable in PRs, editable in any IDE. Engineers can inspect and modify without running a UI.
+
+**Who uses it:** ML engineers, DevOps, platform engineers who want configuration-as-code without writing agent logic from scratch.
+
+### Full Code (SDK)
+Agents written entirely in code using an agent framework. Full programmatic control over routing, state management, tool composition, and error handling. All frameworks at Layer 2 support this.
+
+**Who uses it:** Senior engineers, researchers, teams building complex stateful workflows where the visual canvas would be a constraint.
+
+### Prompt-Only
+The simplest mode: configure a system prompt and let the model handle tool use automatically. Works for single-turn or lightly tool-augmented agents. Scales poorly to multi-step or multi-agent workflows.
+
+**Who uses it:** Teams that do not yet have agent engineering capacity and are evaluating capabilities.
+
+### Tier Mobility: The Missing Feature
+
+Most platforms let you build in one mode and stay there. The critical feature is **tier mobility** — the ability to start in No Code and eject to YAML, or start in YAML and eject to full SDK code, *without throwing away what you built*.
+
+AgentBreeder's three-tier model (No Code → Low Code → Full Code) always produces the same `agent.yaml` at the center. Visual canvas generates valid YAML. YAML can be extended with SDK code. Nothing is discarded as complexity grows.
+
+---
+
+## Layer 5: Governance & Control Plane
+
+*Who can do what, what it costs, and what happened.*
+
+This is the layer that separates "AI experiment" from "AI in production." Every enterprise that has moved beyond proofs-of-concept discovers it needs all of these.
+
+### Agent Registry
+A shared catalog of agents, their versions, owners, and metadata. Without this, different teams build duplicate agents with no visibility into what exists. **The registry is the difference between a fleet and a collection of one-offs.**
+
+Key capabilities:
+- Discovery: search agents by name, team, framework, tag, capability
+- Versioning: pin to specific versions; view history; compare versions
+- Ownership: which team is responsible for this agent? Who is the on-call?
+- Status: which agents are live, deprecated, or under review?
+
+### RBAC (Role-Based Access Control)
+Controls who can deploy, update, invoke, and delete agents. Must be enforced *before* the deploy pipeline starts — not as a post-deploy policy.
+
+Enterprise RBAC requirements:
+- Team-scoped deploy permissions (only the platform team can deploy to production)
+- Per-agent invocation policies (who can call this agent at runtime?)
+- Approval workflows (deploys to production require admin sign-off)
+- Integration with existing IAM (Entra ID, AWS IAM, GCP IAM)
+
+### Agentic Apps Registry
+A higher-level catalog of *applications* built on agents — the products and workflows that end-users interact with. Distinct from the agent registry, which catalogs the building blocks.
+
+### Cost Attribution
+Every LLM call costs money. Without cost attribution, engineering teams cannot answer "which agent, which team, which project is responsible for this month's $40,000 inference bill?"
+
+Requirements:
+- Per-agent token tracking (input + output + cache)
+- Per-team rollup with budget alerts
+- Per-deploy attribution (which version of which agent drove this cost?)
+- Cross-model cost comparison (is switching from GPT-5 to Haiku for this use case cost-justified?)
+
+### Audit Trail
+An immutable log of every significant action in the agent fleet:
+- Who deployed which agent version, when, from where
+- Who changed the system prompt, when, to what
+- Which user invoked which agent with what input (for compliance)
+- Every model call in regulated workflows (HIPAA, SOX, FedRAMP)
+
+### Observability
+Distributed tracing across the agent execution stack — not just "did the agent return?" but "which LLM call, which tool use, which sub-agent, which step took how long, cost how much, and failed why?"
+
+---
+
+## The Cross-Cutting Problem
+
+Every platform at Layers 1–4 solves its own layer well. The problem: governance at Layer 5 is almost always tied to a specific Layer 1 runtime.
+
+Google's governance (Agent Identity, Agent Gateway, Anomaly Detection) only works on GCP.
+Azure's governance (Entra Agent ID, OWASP toolkit, Defender) only works on Azure.
+AWS AgentCore's identity and memory management only works on AWS.
+Claude Managed Agents' governance only works on Anthropic's infrastructure.
+
+This means: if your organization runs agents on AWS *and* GCP *and* uses LangGraph *and* CrewAI *and* has both Python and TypeScript teams — no single platform covers all five layers uniformly.
+
+That is the gap AgentBreeder is designed to fill.
+
+---
+
+## Where AgentBreeder Fits
+
+AgentBreeder is a platform that spans all five layers without tying governance to any single Layer 1 runtime.
+
+**Layer 1:** AgentBreeder deploys to AWS ECS Fargate, App Runner, and EKS; GCP Cloud Run and GKE; Azure Container Apps; Kubernetes (EKS/GKE/AKS/self-hosted); and local Docker Compose — from a single `agent.yaml`.
+
+**Layer 2:** AgentBreeder runs LangGraph, CrewAI, OpenAI Agents SDK, Claude Agent SDK, Google ADK, and custom framework containers — at the runtime level, not just at the message protocol level.
+
+**Layer 3:** Any language your framework supports. AgentBreeder deploys containers — it does not constrain the language inside.
+
+**Layer 4:** Three builder tiers — No Code visual canvas, Low Code YAML (`agent.yaml`), Full Code SDK — with full tier mobility. The visual canvas generates `agent.yaml`. `agent.yaml` can be extended with SDK code. Nothing is thrown away.
+
+**Layer 5:** RBAC validated before the build starts. Agent auto-registered in the org registry after every successful deploy. Cost attributed to the deploying team. Audit log written. Works on any cloud target — not tied to GCP IAM, Azure Entra, or AWS IAM.
+
+---
+
+## Building Your Own Stack
+
+For teams evaluating their architecture, here is the key decision at each layer:
+
+**Layer 1:** Choose managed runtime (lower ops burden, higher lock-in) vs infrastructure-as-runtime (higher ops burden, full control). For multi-cloud orgs, infrastructure-as-runtime with a unified governance layer is the only viable path.
+
+**Layer 2:** Choose framework(s) that match your team's language and workflow complexity. Do not mandate a single framework org-wide — different workloads genuinely benefit from different frameworks.
+
+**Layer 3:** Follow your team. Do not migrate language stacks for agents. The governance layer should work regardless of language.
+
+**Layer 4:** Start No Code or Low Code for initial exploration. Build the eject path *before* you need it — the moment complexity grows, you want to move to Full Code without rebuilding.
+
+**Layer 5:** Decide on governance *before* you have 10 agents in production, not after. The cost of retrofitting registry, RBAC, and audit trail to an existing fleet is very high.
+
+---
+
+## Try AgentBreeder
+
+Open-source, Apache 2.0. Works with every framework in Layer 2, every cloud in Layer 1.
+
+```bash
+pip install agentbreeder
+agentbreeder init
+agentbreeder deploy --target local
+```
+
+- [Full docs](/docs)
+- [Compare AgentBreeder to Google, Anthropic, OpenAI, and Azure](/docs/comparisons)
+- [Migration guides from LangGraph, CrewAI, OpenAI Agents, AutoGen](/docs/migrations/overview)
+- [GitHub](https://github.com/agentbreeder/agentbreeder)
+
+---
+
+*Rajit Saha is the founder of AgentBreeder. This architecture reflects the state of the enterprise AI agent ecosystem in April 2026 — a market moving faster than any single post can capture. If something is missing or wrong, open an issue on GitHub.*

@@ -1,0 +1,440 @@
+---
+title: Low Code — agent.yaml + CLI
+description: Configure agents in YAML and deploy with one command. No infrastructure expertise needed.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Write one `agent.yaml` file, run `agentbreeder deploy`. That's it.
+
+**Who this is for:** ML engineers, DevOps engineers, platform engineers, and architects who are comfortable editing YAML and running terminal commands — but don't want to write boilerplate infrastructure code.
+
+---
+
+## Supported Frameworks
+
+Set `framework:` to any of the 6 supported values. AgentBreeder picks the right runtime container, installs the correct dependencies, and injects the framework's server adapter automatically.
+
+| Value | Framework |
+|-------|-----------|
+| `langgraph` | LangGraph (LangChain) |
+| `openai_agents` | OpenAI Agents SDK |
+| `claude_sdk` | Anthropic Claude SDK |
+| `crewai` | CrewAI |
+| `google_adk` | Google Agent Development Kit |
+| `custom` | Bring your own entrypoint |
+
+---
+
+## Supported Deployment Targets
+
+Set `deploy.cloud` and optionally `deploy.runtime`.
+
+> **Status:** Deploy-target availability (which targets ship full governance, greenfield provisioning, and secret auto-mirror) is maintained in one canonical place — see the [deploy-target status table](cli-reference#agentbreeder-deploy).
+
+| `cloud` | `runtime` (default) | Also supports |
+|---------|--------------------|-|
+| `local` | `docker-compose` | — |
+| `aws` | `ecs-fargate` | `app-runner` |
+| `gcp` | `cloud-run` | — |
+| `azure` | `container-apps` | — |
+| `kubernetes` | `deployment` | — |
+| `claude-managed` | *(no container)* | — |
+
+---
+
+## Getting Started
+
+### 1. Install
+
+```bash
+pipx install agentbreeder    # or: python3 -m pip install agentbreeder
+```
+
+### 2. Initialize a project
+
+```bash
+agentbreeder init
+```
+
+The wizard asks 5 questions and generates a ready-to-run project:
+
+```
+my-agent/
+├── agent.yaml        # ← the only file AgentBreeder needs
+├── agent.py          # working agent code for your chosen framework
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+### 3. Edit agent.yaml
+
+Here is a fully-featured example showing all major sections:
+
+```yaml
+# Identity
+name: support-agent
+version: 1.0.0
+description: "Handles tier-1 customer support"
+team: customer-success
+owner: alice@company.com
+tags: [support, zendesk, production]
+
+# Framework
+framework: langgraph   # langgraph | openai_agents | claude_sdk | crewai | google_adk | custom
+
+# Model
+model:
+  primary: claude-sonnet-4      # any model in your registry
+  fallback: gpt-4o              # used if primary is unavailable
+  temperature: 0.7
+  max_tokens: 4096
+
+# Tools & MCP Servers — always reference by registry ref. Never inline.
+# Local files at tools/<snake_name>.py override the registry automatically.
+tools:
+  - ref: tools/web-search       # resolves engine.tools.standard.web_search
+  - ref: tools/markdown-writer  # resolves engine.tools.standard.markdown_writer
+
+# Knowledge Bases (RAG)
+knowledge_bases:
+  - ref: kb/product-docs
+  - ref: kb/return-policy
+
+# Versioned Prompts — always reference by registry ref. Never inline.
+# The actual prompt body lives at prompts/<name>.md in the project.
+prompts:
+  system: prompts/microlearning-system   # file-first; falls back to registry API
+
+# Guardrails
+guardrails:
+  - pii_detection           # strip PII from outputs
+  - hallucination_check     # flag low-confidence responses
+  - content_filter          # block harmful content
+
+# Deployment
+deploy:
+  cloud: aws                # aws | gcp | azure | kubernetes | local | claude-managed
+  runtime: app-runner       # default for aws: ecs-fargate; also: app-runner
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 10
+    target_cpu: 70
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  env_vars:
+    LOG_LEVEL: info
+  secrets:
+    - ZENDESK_API_KEY
+    - OPENAI_API_KEY
+
+# Access Control
+access:
+  visibility: team              # public | team | private
+  allowed_callers:
+    - team:engineering
+    - team:customer-success
+  require_approval: false
+```
+
+For the full field reference see [agent.yaml Reference →](agent-yaml).
+
+<Callout type="info" title="Resolver chain">
+  Both `prompts:` and `tools:` use a **file-first** resolution chain so you can iterate locally without touching the registry. AgentBreeder's runtime calls `engine.prompt_resolver.resolve_prompt("prompts/<name>", project_root)` and `engine.tool_resolver.resolve_tool("tools/<kebab>", project_root)` at startup.
+
+  **Prompt:** local file (`<project>/prompts/<name>.md`) → registry API (`${AGENTBREEDER_REGISTRY_URL}/api/v1/registry/prompts`) → inline literal (backward compat).
+
+  **Tool:** local file (`<project>/tools/<snake_name>.py`) → first-party stdlib (`engine.tools.standard.<snake_name>`) → registry API metadata.
+
+  TypeScript agents (sdk-ts) get the same precedence via `resolvePrompt()` and `resolveTool()` in `engine/runtimes/templates/node/_shared_loader.ts`, including local `.ts/.js/.mjs` files.
+</Callout>
+
+### 4. Validate
+
+```bash
+agentbreeder validate agent.yaml
+```
+
+Runs three checks: YAML syntax, JSON Schema, and semantic validation (framework supported, team exists).
+
+### 5. Deploy
+
+<Tabs items={['Local', 'AWS App Runner', 'AWS ECS Fargate', 'GCP Cloud Run', 'Azure Container Apps', 'Kubernetes', 'Claude Managed']}>
+  <Tab value="Local">
+```bash
+agentbreeder deploy agent.yaml --target local
+```
+  </Tab>
+  <Tab value="AWS App Runner">
+```bash
+agentbreeder deploy agent.yaml --target app-runner --region us-east-1
+```
+
+Required in `deploy`:
+```yaml
+deploy:
+  cloud: aws
+  runtime: app-runner
+  env_vars:
+    AWS_ACCOUNT_ID: "123456789012"
+    AWS_REGION: us-east-1
+```
+  </Tab>
+  <Tab value="AWS ECS Fargate">
+```bash
+agentbreeder deploy agent.yaml --target ecs-fargate --region us-east-1
+```
+
+Required in `deploy`:
+```yaml
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  env_vars:
+    AWS_ACCOUNT_ID: "123456789012"
+    AWS_REGION: us-east-1
+```
+  </Tab>
+  <Tab value="GCP Cloud Run">
+```bash
+agentbreeder deploy agent.yaml --target cloud-run --region us-central1
+```
+
+Set `GOOGLE_APPLICATION_CREDENTIALS` and `GOOGLE_CLOUD_PROJECT` in your environment.
+  </Tab>
+  <Tab value="Azure Container Apps">
+```bash
+agentbreeder deploy agent.yaml --target container-apps
+```
+  </Tab>
+  <Tab value="Kubernetes">
+```bash
+agentbreeder deploy agent.yaml --target kubernetes
+```
+
+Works with EKS, GKE, AKS, and self-hosted clusters. Ensure your `kubectl` context is pointed at the target cluster.
+  </Tab>
+  <Tab value="Claude Managed">
+```bash
+agentbreeder deploy agent.yaml --target claude-managed
+```
+
+No container is built. Add `ANTHROPIC_API_KEY` to secrets:
+```yaml
+deploy:
+  cloud: claude-managed
+  secrets:
+    - ANTHROPIC_API_KEY
+
+claude_managed:
+  environment:
+    networking: unrestricted
+  tools:
+    - type: agent_toolset_20260401
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Framework-Specific Configuration
+
+Some frameworks support extra config blocks in `agent.yaml`. These are optional — AgentBreeder picks sensible defaults.
+
+### Claude SDK
+
+```yaml
+claude_sdk:
+  thinking:
+    type: adaptive          # "adaptive" (default) | "enabled"
+    effort: high            # "low" | "medium" | "high"
+  prompt_caching: true      # cache system prompt for latency + cost savings
+```
+
+### Google ADK
+
+```yaml
+google_adk:
+  session_backend: memory           # "memory" | "database" | "vertex_ai"
+  session_db_url: ""                # required if session_backend is "database"
+  memory_service: memory            # "memory" | "vertex_ai_bank" | "vertex_ai_rag"
+  artifact_service: memory          # "memory" | "gcs"
+  gcs_bucket: ""                    # required if artifact_service is "gcs"
+```
+
+### Claude Managed
+
+```yaml
+claude_managed:
+  environment:
+    networking: unrestricted        # "unrestricted" | "restricted"
+  tools:
+    - type: agent_toolset_20260401  # full built-in toolset
+```
+
+---
+
+## Common Workflows
+
+### Push your agent to the registry
+
+Before (or instead of) deploying, push the agent and its dependent entities to your org's registry so they can be re-used, versioned, and deployed from Studio.
+
+```bash
+# Push the prompt — versioned. Auto-bumps semver patch on update.
+agentbreeder registry prompt push prompts/microlearning-system.md \
+    --version 1.0.0 \
+    --team eng \
+    --description "Microlearning ebook author"
+
+# Push the tools. The CLI auto-detects dispatch type:
+#   .py file → python:<abs_path>
+#   .ts/.js  → node:<abs_path>
+#   module path → kept for in-process import
+agentbreeder registry tool push tools/web_search.py
+agentbreeder registry tool push tools/markdown_writer.py
+
+# Push the agent record itself (refs the prompt + tools above).
+# Works for both Python agents (top-level `framework:`) and polyglot
+# agents (top-level `runtime: {language, framework}`) — the runtime
+# block is validated at deploy time by the runtime registry, so the
+# registry accepts any framework string under `runtime.framework`.
+agentbreeder registry agent push agent.yaml
+```
+
+List anything in the registry:
+
+```bash
+agentbreeder registry prompt list --team eng
+agentbreeder registry tool list
+agentbreeder registry agent list --team eng
+```
+
+<Callout type="info" title="Auth">
+  All `registry` commands are auth-gated. Set `AGENTBREEDER_API_TOKEN` to a JWT obtained from `POST /api/v1/auth/login`.
+</Callout>
+
+### Test before deploy
+
+Run a prompt or a tool against the registry directly from your terminal — no agent, no container build.
+
+```bash
+# Render a prompt with a real Gemini call (POST /api/v1/registry/prompts/{id}/render)
+agentbreeder registry prompt try microlearning-system \
+    --input "What is your job?" \
+    --model gemini-2.5-flash
+
+# Run a tool with structured args (POST /api/v1/registry/tools/{tool_id}/execute)
+agentbreeder registry tool run web-search \
+    --args '{"query": "agentbreeder docs"}'
+
+agentbreeder registry tool run markdown-writer \
+    --args '{"path": "out.md", "content": "# Hello"}'
+```
+
+Once the agent is deployed, you can chat with it through the same registry-aware CLI:
+
+```bash
+agentbreeder registry agent invoke microlearning-ebook-agent \
+    --input "What is your job?" \
+    --endpoint https://microlearning-ebook-agent-sizukgalta-uc.a.run.app \
+    --token "$AGENT_MICROLEARNING_EBOOK_AGENT_TOKEN"
+```
+
+The CLI calls `POST /api/v1/agents/{agent_id}/invoke`, which proxies server-side and attaches the bearer token from `--token` or the `AGENT_<UPPER_SNAKE>_TOKEN` env var.
+
+### Check status and interact
+
+```bash
+agentbreeder status
+agentbreeder logs my-agent --follow
+agentbreeder chat my-agent
+```
+
+### Search and inspect the registry
+
+```bash
+agentbreeder search "support"          # search across all agents, tools, prompts, models
+agentbreeder list                      # list all your deployed agents
+agentbreeder describe my-agent         # detailed info about one agent
+```
+
+### Roll back
+
+```bash
+agentbreeder deploy agent.yaml --version 1.0.0
+```
+
+### Schedule a recurring run
+
+```bash
+agentbreeder schedule my-agent --cron "0 9 * * 1-5"    # weekdays at 9am
+```
+
+### Run evaluations
+
+```bash
+agentbreeder eval my-agent --suite evals/support.yaml
+```
+
+### Manage secrets
+
+```bash
+agentbreeder secret set ZENDESK_API_KEY           # stores in your configured backend
+agentbreeder secret list
+agentbreeder secret delete ZENDESK_API_KEY
+```
+
+Supported secret backends: environment variables, AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault.
+
+### Discover available models and MCP servers
+
+```bash
+agentbreeder scan                         # discovers local MCP servers + models
+agentbreeder scan --provider ollama       # Ollama models
+agentbreeder scan --provider openrouter   # OpenRouter models
+agentbreeder scan --provider litellm      # LiteLLM gateway
+```
+
+### Tear down
+
+```bash
+agentbreeder teardown my-agent
+```
+
+---
+
+## Eject to Full Code
+
+When you need custom routing, state machines, or programmatic control:
+
+```bash
+agentbreeder eject my-agent --to code
+```
+
+This generates a Python or TypeScript SDK project from your `agent.yaml`. Your YAML is preserved as the source of truth — the SDK wraps it with full programmatic access. See [Full Code →](full-code).
+
+---
+
+## All Frameworks × All Deployment Targets
+
+Every framework compiles to every deployment target. The full matrix — and the per-target governance caveats — live in the [agent.yaml reference → All Frameworks × All Deployment Targets](agent-yaml#all-frameworks--all-deployment-targets).
+
+---
+
+## Next Steps
+
+| What | Where |
+|------|-------|
+| All `agent.yaml` fields | [agent.yaml Reference →](agent-yaml) |
+| All CLI commands | [CLI Reference →](cli-reference) |
+| MCP server setup | [MCP Servers →](mcp-servers) |
+| RAG & knowledge bases | [RAG →](rag) |
+| Versioned prompts | [Prompts →](prompts) |
+| Multi-agent orchestration | [Orchestration SDK →](orchestration-sdk) |
+| Full Python/TypeScript SDK | [Full Code →](full-code) |
+| No-code Studio UI | [No Code →](no-code) |
