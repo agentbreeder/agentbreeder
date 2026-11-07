@@ -87,7 +87,10 @@ class OktaProvider:
                     f"{self.org}/api/v1/users/{safe_id(sponsor)}",
                     headers=headers,
                 )
-                login = (user.get("profile") or {}).get("login")
+                if not isinstance(user, dict):
+                    raise ProviderError("PROVIDER_ERROR", "Unexpected Okta sponsor shape")
+                profile_data = user.get("profile")
+                login = profile_data.get("login") if isinstance(profile_data, dict) else None
                 sponsors.append(Person(str(sponsor), user.get("status") == "ACTIVE", login))
             except ProviderError as error:
                 if error.code != "PRINCIPAL_NOT_FOUND":

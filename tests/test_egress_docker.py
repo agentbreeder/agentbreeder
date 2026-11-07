@@ -81,11 +81,13 @@ def test_real_boundary_end_to_end(tmp_path, identity_env, monkeypatch):
     store = Store(tmp_path / "state")
     service = DeploymentService(store, runtime, operator)
     image_file = tmp_path / "image-id"
+    # Remove by a unique tag, not the deterministic image ID other runs may share.
+    tag = "agentbreeder-test:" + uuid.uuid4().hex[:12]
     image = result = None
     try:
         subprocess.run(
             ["docker", "--context", runtime.context, "build", "--iidfile", str(image_file),
-             str(Path(__file__).parents[1] / "examples/http-agent")],
+             "--tag", tag, str(Path(__file__).parents[1] / "examples/http-agent")],
             check=True, timeout=180, capture_output=True,
         )  # fmt: skip
         image = image_file.read_text().strip()
@@ -171,7 +173,7 @@ def test_real_boundary_end_to_end(tmp_path, identity_env, monkeypatch):
         store.close()
         upstream.close()
         if image:
-            runtime.command("image", "rm", image)
+            runtime.command("image", "rm", tag)
 
 
 def _deploy(tmp_path, identity_env, monkeypatch, runtime):

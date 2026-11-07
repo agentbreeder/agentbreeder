@@ -21,6 +21,9 @@ def test_real_docker_lifecycle(tmp_path):
     runtime = Docker()
     runtime.authorize()
     image_file = tmp_path / "image-id"
+    # The sample builds to a deterministic image ID that other runs or the quickstart may also
+    # reference, so `image rm <id>` can fail. Remove this run's unique tag instead.
+    tag = "agentbreeder-test:" + uuid.uuid4().hex[:12]
     image = None
     store = Store(tmp_path / "state")
     service = DeploymentService(store, runtime)
@@ -34,6 +37,8 @@ def test_real_docker_lifecycle(tmp_path):
                 "build",
                 "--iidfile",
                 str(image_file),
+                "--tag",
+                tag,
                 str(Path(__file__).parents[1] / "examples/http-agent"),
             ],
             check=True,
@@ -66,4 +71,4 @@ def test_real_docker_lifecycle(tmp_path):
             service.remove(result["id"], local=True)
         store.close()
         if image:
-            runtime.command("image", "rm", image)
+            runtime.command("image", "rm", tag)

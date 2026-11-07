@@ -89,9 +89,7 @@ class DeploymentService:
             raise AuditUnavailable() from error
 
     @staticmethod
-    def _gate_fields(decision: GateDecision | None) -> dict:
-        if decision is None:
-            return {}
+    def _gate_fields(decision: GateDecision) -> dict:
         return {
             "checks_evaluated": list(decision.checks_evaluated),
             "checks_unavailable": list(decision.checks_unavailable),
@@ -588,8 +586,8 @@ class DeploymentService:
         return result.allowed and not result.obligations
 
     def _consume(self, approval, execution_id, attempt, deployer, fields):
-        if approval["state"] == "consumed":
-            return
+        # Only "approved" can be consumed; anything else (including an already-consumed
+        # approval) fails the compare-and-set below and is denied as a replay.
         if not self.store.decide_approval(
             approval["id"],
             expected=("approved",),
@@ -726,7 +724,12 @@ class DeploymentService:
                         reasons=[{"code": "RUNTIME_UNAVAILABLE", "message": str(error)}],
                     )
                 )
-                raise
+                # Removal must run against the context the container was created in; never
+                # fall back to another engine, which could miss (and orphan) the container.
+                raise DeploymentError(
+                    f"{error}. This deployment was created in Docker context "
+                    f"{record['context']!r}; make that context reachable and retry"
+                ) from error
             try:
                 self.store.transition(identifier, "removing", audit=event("removing"))
             except AuditError as error:
@@ -998,6 +1001,9 @@ class DeploymentService:
             principal = self.gate.resolve(manifest.identity.provider, manifest.identity.ref)
         except ProviderError as error:
             return f"unverifiable:{error.code}"
+        except Exception:
+            # Mirror the gate: an unexpected adapter failure is reported, never raised.
+            return "unverifiable:PROVIDER_ERROR"
         if principal.key != record["principal_key"]:
             return "noncompliant:PRINCIPAL_CHANGED"
         failure = self.gate.identity_failure(manifest, principal, context)

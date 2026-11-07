@@ -67,7 +67,10 @@ class Docker:
                 raise DeploymentError("Only a local Unix-socket Docker context is supported")
         except (ValueError, KeyError, IndexError, TypeError) as error:
             raise DeploymentError("Cannot verify a local Docker context") from error
-        self.command("info", "--format", "{{.ServerVersion}}", timeout=10)
+        # `docker version` fails when the engine is unreachable; `docker info --format`
+        # exits 0 in that case (Docker CLI 27), so it cannot prove the engine is up.
+        if not self.command("version", "--format", "{{.Server.Version}}", timeout=10).strip():
+            raise DeploymentError("Cannot reach the Docker engine for this context")
 
     def inspect(self, record: dict) -> dict | None:
         identifiers = self.command(
@@ -111,6 +114,8 @@ class Docker:
                 raise DeploymentError(
                     "Images declaring VOLUME are unsupported; use a stateless image"
                 )
+        except DeploymentError:
+            raise  # a specific reason (DeploymentError subclasses ValueError); keep it
         except (ValueError, KeyError, IndexError, TypeError) as error:
             raise DeploymentError("Cannot verify image configuration") from error
         self.command(

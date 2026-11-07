@@ -219,7 +219,8 @@ def test_cli_kill_switch_flow(identity_env, tmp_path, monkeypatch, capsys):
     assert "[PRINCIPAL_BLOCKED]" in capsys.readouterr().err
     assert cli.main(["enable", "sample", *state]) == 2
     assert "[DEPLOYER_UNVERIFIED]" in capsys.readouterr().err
-    assert cli.main(["reconcile", "--local", *state]) == 0
+    # Drift (here: a blocked principal) exits 4 so scripts and CI can gate on it.
+    assert cli.main(["reconcile", "--local", *state]) == 4
     assert "noncompliant:PRINCIPAL_BLOCKED" in capsys.readouterr().out
     assert cli.main(["audit", "verify", *state]) == 0
     assert "OK:" in capsys.readouterr().out

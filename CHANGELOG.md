@@ -8,6 +8,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Fixed
+- `doctor` and the deploy preflight no longer pass when the Docker engine is unreachable
+  (`docker info --format` exits 0 in that case; checks now use `docker version`).
+- `reconcile` exits 4 when any deployment is noncompliant or unverifiable (1 still means blocked
+  cleanup failed). Read commands error on a missing `--state-dir` instead of creating empty state.
+- Keycloak/Okta sponsor responses of the wrong shape fail closed with `PROVIDER_ERROR`;
+  `status`/`reconcile` report unexpected adapter failures as `unverifiable` instead of crashing.
+- The VOLUME rejection reason is no longer replaced by a generic error; `remove` names the Docker
+  context to restore when it is unreachable.
+- Docs: the bring-your-own-image guide and README recovery commands now include the operator
+  config and `--environment`; exit codes, `disable`/`enable` and `SECURITY.md` corrected.
+
+### Changed
+- The website now documents the focused rebuild; 2.x docs were replaced by a Legacy 2.x page.
+
 
 ### Added
 - **Deploy-time agent identity gate (#701, phases 0–3).** Manifest `schema_version: 2`

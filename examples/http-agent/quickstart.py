@@ -159,7 +159,8 @@ def main() -> int:
                 failed = True
                 print(
                     f"State recovery required at {directory / 'state'}. "
-                    f"Retry: agentbreeder deploy {directory / 'agent.yaml'} --local "
+                    f"Retry: AGENTBREEDER_OPERATOR_CONFIG={directory / 'operator.yaml'} "
+                    f"agentbreeder deploy {directory / 'agent.yaml'} --local --environment dev "
                     f"--state-dir {directory / 'state'}, then remove the returned ID.",
                     file=sys.stderr,
                 )
@@ -170,7 +171,9 @@ def main() -> int:
                 print("5/5 Sample container removed. History retained.", flush=True)
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
                 print(
-                    f"Cleanup incomplete. Run: agentbreeder remove {identifier} --local "
+                    f"Cleanup incomplete. Run: "
+                    f"AGENTBREEDER_OPERATOR_CONFIG={directory / 'operator.yaml'} "
+                    f"agentbreeder remove {identifier} --local "
                     f"--state-dir {directory / 'state'}",
                     file=sys.stderr,
                 )

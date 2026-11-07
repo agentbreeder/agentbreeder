@@ -40,11 +40,12 @@ Run `.venv/bin/agentbreeder doctor` first. Start Docker Desktop or your local Do
 | Deployment or cleanup fails | Keep the printed state directory. Follow the printed removal command, or use the recovery commands below. |
 
 ```sh
+export AGENTBREEDER_OPERATOR_CONFIG=DEMO_DIRECTORY/operator.yaml
 .venv/bin/agentbreeder status DEPLOYMENT_ID --state-dir STATE_DIRECTORY --json
 .venv/bin/agentbreeder remove DEPLOYMENT_ID --state-dir STATE_DIRECTORY --local
 ```
 
-If no ID was printed, retry `deploy DEMO_DIRECTORY/agent.yaml --state-dir DEMO_DIRECTORY/state --local` to reconcile the saved request, then remove its returned ID. Do not delete state while a workload remains. Demo history is stored in a temporary directory and may be cleared by the OS; copy it privately if needed.
+If no ID was printed, retry `deploy DEMO_DIRECTORY/agent.yaml --state-dir DEMO_DIRECTORY/state --local --environment dev` (with the same `AGENTBREEDER_OPERATOR_CONFIG`) to reconcile the saved request, then remove its returned ID. Do not delete state while a workload remains. Demo history is stored in a temporary directory and may be cleared by the OS; copy it privately if needed.
 
 ## Bring your own agent
 

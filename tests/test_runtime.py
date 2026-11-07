@@ -95,6 +95,6 @@ def test_image_declared_volumes_denied():
     runtime = Docker()
     runtime.command = Mock(return_value=json.dumps([{"Config": {"Volumes": {"/data": {}}}}]))
     manifest = Manifest(schema_version=1, name="test", image="sha256:" + "a" * 64)
-    with pytest.raises(DeploymentError):
+    with pytest.raises(DeploymentError, match="VOLUME are unsupported"):
         runtime.create({"container": "owned", "id": "id", "digest": "hash"}, manifest)
     assert runtime.command.call_count == 1

@@ -447,6 +447,15 @@ def test_keycloak_sponsor_lookup_failure_propagates(secret, failure, code):
     assert resolve_error(keycloak(transport), "client-uuid-1").code == code
 
 
+@pytest.mark.parametrize("body", [["alice"], "alice", None], ids=["list", "string", "null"])
+def test_keycloak_non_object_sponsor_fails_closed(secret, body):
+    # Regression: a non-dict sponsor body raised AttributeError instead of a typed error.
+    transport = FakeTransport("keycloak")
+    transport.routes[f"GET {KC_ADMIN}/users/alice-user"] = [200, body]
+    error = resolve_error(keycloak(transport), "client-uuid-1")
+    assert error.code == "PROVIDER_ERROR" and "sponsor shape" in str(error)
+
+
 @pytest.mark.parametrize(
     "mappings",
     [
@@ -537,6 +546,22 @@ def test_okta_sponsor_lookup_failure_propagates(secret, failure, code):
     transport = FakeTransport("okta")
     transport.routes["GET https://acme.okta.com/api/v1/users/00u-alice"] = failure
     assert resolve_error(okta(transport), "0oa-agent-1").code == code
+
+
+@pytest.mark.parametrize("body", [["00u-alice"], "x", None], ids=["list", "string", "null"])
+def test_okta_non_object_sponsor_fails_closed(secret, body):
+    # Regression: a non-dict sponsor body raised AttributeError instead of a typed error.
+    transport = FakeTransport("okta")
+    transport.routes["GET https://acme.okta.com/api/v1/users/00u-alice"] = [200, body]
+    error = resolve_error(okta(transport), "0oa-agent-1")
+    assert error.code == "PROVIDER_ERROR" and "sponsor shape" in str(error)
+
+
+def test_okta_non_object_sponsor_profile_has_no_login(secret):
+    transport = FakeTransport("okta")
+    transport.routes["GET https://acme.okta.com/api/v1/users/00u-alice"][1]["profile"] = "x"
+    sponsors = okta(transport).resolve("0oa-agent-1").sponsors
+    assert sponsors and sponsors[0].name is None
 
 
 @pytest.mark.parametrize(

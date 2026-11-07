@@ -20,7 +20,9 @@ def check_docker() -> list[Check]:
         return [Check("Docker", False, "Install a Docker-compatible CLI and start its engine.")]
     try:
         result = subprocess.run(
-            [docker, "info", "--format", "{{json .ServerVersion}}"],
+            # `docker version`, not `docker info`: `info --format` exits 0 even when the
+            # engine is unreachable (Docker CLI 27), which would report a false pass.
+            [docker, "version", "--format", "{{.Server.Version}}"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -30,7 +32,7 @@ def check_docker() -> list[Check]:
         return [
             Check("Docker", False, "Engine check failed or timed out; check your Docker context.")
         ]
-    if result.returncode != 0:
+    if result.returncode != 0 or not result.stdout.strip():
         return [
             Check("Docker", False, "Cannot reach the engine; start it and check docker context.")
         ]

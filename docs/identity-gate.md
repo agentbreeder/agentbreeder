@@ -66,7 +66,7 @@ providers:
     type: entra
     tenant_id: 00000000-0000-0000-0000-000000000000
     client_id: 11111111-1111-1111-1111-111111111111
-    credential: env:AGENTBREEDER_ENTRA_SECRET   # env:NAME or file:/path; literals rejected
+    credential: env:AGENTBREEDER_ENTRA_SECRET   # env:NAME or file:/path; a literal fails at first use (PROVIDER_ERROR)
   lab: { type: static, authority: lab, file: principals.yaml }
 deployer:
   require_verified: false
@@ -173,20 +173,24 @@ the deployment's execution intent. Crash recovery may reuse it only for that sam
 ```sh
 agentbreeder disable <deployment-id|name> --local [--idp]
 agentbreeder disable - --local --provider corp --ref <id> --environment prod
-agentbreeder enable <deployment-id|name>     # verified actor + policy `enable`
+agentbreeder enable <deployment-id|name>     # verified human + a PDP that permits `enable`
 agentbreeder reconcile --local               # compliance marks + blocked cleanup retries
 agentbreeder status <id>                     # re-resolves the principal: compliant/noncompliant
 ```
 
 `disable` persists a blocker keyed by provider connection, authority, immutable principal ID and
-environment, and audits it. It then invalidates open approvals and stops every affected container.
+environment, and audits it. It then invalidates open approvals and stops and removes every affected
+container (and its runtime boundary); the deployment record stays, in state `disabled`.
 The blocker survives retries, restarts, renames and deployment removal/recreation, and audit mode
 cannot bypass it. If stopping fails, the blocker stays, the failure is recorded and the command
-exits 1. `enable` clears only the local blocker. It starts nothing, revives no approval and never
+exits 1. `disable` needs no verified actor. `enable` requires a verified human identity and a
+configured PDP that permits `enable`, so without a PDP a blocker cannot be cleared from the CLI.
+`enable` clears only the local blocker. It starts nothing, revives no approval and never
 re-enables an IdP principal. Disabling clears the approval binding of every affected deployment,
 so a later deploy always needs a fresh gate and, where required, fresh approval. Deployments made in
 audit mode without a resolved principal are matched by manifest provider and reference.
-`reconcile` exits 1 when blocked cleanup still fails. `--idp` additionally disables the principal in Entra/Okta when the
+`reconcile` exits 1 when blocked cleanup still fails, 4 when any deployment is noncompliant or
+unverifiable (so scripts and CI can gate on drift), and 0 otherwise. `--idp` additionally disables the principal in Entra/Okta when the
 connection sets `write_enabled: true`.
 
 ## Audit log

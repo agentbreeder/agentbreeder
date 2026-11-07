@@ -234,8 +234,10 @@ def test_remove_requires_local(identity_env, state, runtime):
 def test_remove_runtime_unavailable_is_aborted_and_audited(identity_env, state, runtime):
     first = deploy(identity_env, state, runtime)
     runtime.authorize.side_effect = DeploymentError("Docker context changed")
-    with pytest.raises(DeploymentError, match="context changed"):
+    with pytest.raises(DeploymentError, match="context changed") as raised:
         service(identity_env, state, runtime).remove(first["id"], local=True)
+    # The error names the context the deployment was created in, so the user can restore it.
+    assert repr(first["context"]) in str(raised.value)
     assert last_audit(state) == ("remove", "aborted", "RUNTIME_UNAVAILABLE")
     assert state.get(first["id"])["state"] == "ready"
     runtime.remove.assert_not_called()
@@ -370,6 +372,20 @@ def test_unbound_record_is_not_reverified(identity_env, state, runtime):
     svc = service(identity_env, state, runtime)
     assert svc.verify(state.get("legacy")) == "unbound"
     assert svc.status("legacy")["compliance"] is None
+
+
+def test_unexpected_adapter_failure_is_unverifiable_not_raised(
+    identity_env, state, runtime, monkeypatch
+):
+    # Regression: status/reconcile must not crash on an adapter bug (e.g. AttributeError).
+    first = deploy(identity_env, state, runtime)
+    svc = service(identity_env, state, runtime)
+
+    def broken(*_args):
+        raise AttributeError("list has no attribute get")
+
+    monkeypatch.setattr(svc.gate, "resolve", broken)
+    assert svc.verify(state.get(first["id"])) == "unverifiable:PROVIDER_ERROR"
 
 
 def test_status_reports_blocker_on_a_running_record(identity_env, state, runtime):
@@ -796,4 +812,19 @@ def test_cli_unusable_state_dir_exits_2(tmp_path, capsys):
     blocker = tmp_path / "not-a-dir"
     blocker.write_text("x")
     assert cli.main(["status", "abc", "--state-dir", str(blocker)]) == 2
+    assert "No AgentBreeder state" in capsys.readouterr().err
+    # A command that may create state still reports the unusable directory.
+    assert cli.main(["disable", "abc", "--local", "--state-dir", str(blocker)]) == 2
     assert "Cannot access local state" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["audit", "verify"], ["audit", "list"], ["status", "abc"], ["reconcile", "--local"]],
+)
+def test_cli_mistyped_state_dir_is_an_error_not_an_empty_success(tmp_path, capsys, argv):
+    # Regression: `audit verify --state-dir /typo` printed "OK: 0 rows" and created the directory.
+    typo = tmp_path / "typo"
+    assert cli.main([*argv, "--state-dir", str(typo)]) == 2
+    assert "No AgentBreeder state" in capsys.readouterr().err
+    assert not typo.exists()
