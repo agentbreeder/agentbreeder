@@ -98,9 +98,11 @@ AgentBreeder ships across **three repositories** that must stay in sync at all t
 - **Breaking change**: `agentbreeder-cloud` must get a companion PR before or alongside
 - **Update the guides in BOTH repos**: any feature that changes cross-repo behaviour MUST update `CLAUDE.md` in **both** `agentbreeder` and `agentbreeder-cloud`, spelling out *what changes on each side* (see "Documenting a cross-repo feature" below). `AGENTS.md` is a 100xprism-generated skills catalog (`# Source of truth: modules/<slug>/SKILL.md`) — **do not hand-edit it**; refresh it with `100xprism update`. It does **not** carry these rules; put them in `CLAUDE.md`, which both harnesses use (Codex reads `CLAUDE.md` directly). `/update-claude` edits `CLAUDE.md`, not `AGENTS.md`.
 
-**Cross-repo detail** (bidirectional feature-documentation table + the
-`brand.css` design-system source-of-truth #583) lives in
+**Cross-repo detail** (current state, the change-sync table and the
+`brand.css` design-system source of truth #583, now at `website/brand.css`) lives in
 `docs/cross-repo-sync.md` — read it before any schema/API/branding change.
+The website documents 2.x (what PyPI installs); the focused rebuild is documented
+under `website/content/docs/preview/` until it is released.
 
 ## 🎯 When Adding a New Feature
 

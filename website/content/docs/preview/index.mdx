@@ -1,0 +1,75 @@
+---
+title: Focused rebuild (preview)
+description: A development preview of the rebuilt AgentBreeder. It deploys existing agent containers locally behind a deploy-time identity gate. Install from source only.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Preview: not a release">
+  This section covers the focused rebuild on the `main` branch. It is a development baseline, not
+  a production release. `pip install agentbreeder` still installs **2.x**, which the rest of these
+  docs describe. The rebuild is incompatible with 2.x: don't use it to upgrade an existing
+  installation, and don't point it at 2.x `agent.yaml` files.
+</Callout>
+
+AgentBreeder is being rebuilt around deploying **existing** agents into infrastructure you
+control. You bring a trusted HTTP container; AgentBreeder validates a small manifest, checks the
+agent's identity, and deploys it.
+
+## What works today
+
+- **Manifest validation.** `agentbreeder validate` checks a strict YAML manifest (v1 or v2). See
+  [Manifest](/docs/preview/manifest).
+- **Local deployment lifecycle.** Deploy, status and remove on a local Docker engine, with history
+  in SQLite. See [Local deployment](/docs/preview/local-deployment).
+- **Deploy-time identity gate.** A deploy is refused unless the agent already exists in your
+  identity provider with an active sponsor, a valid review date and the required scoped grants.
+  Optional extras: a Cedar, OPA or AuthZEN policy check, second-person approval, a kill switch and
+  a hash-chained local audit log. See [Identity gate](/docs/preview/identity-gate).
+- **Opt-in runtime tool enforcement.** Operators can put a deployment behind an MCP egress sidecar
+  that applies policy to every MCP Streamable HTTP tool call. STDIO and in-process tools are never
+  mediated.
+
+## What isn't implemented
+
+- Production deployment targets. Only the local Docker adapter exists; `kubernetes` is accepted
+  by the manifest but not deployable.
+- An operational UI or management HTTP API.
+- Secret injection, volumes, updates and rollback.
+
+Verification so far: the local lifecycle and the identity gate pass on macOS with Docker Desktop.
+Entra, Keycloak, Okta (experimental) and AWS adapters are fixture-tested; live-tenant checks are
+still open. The Linux decision-service socket path is unit-tested but not yet verified on a Linux
+host.
+
+## Install from source
+
+Requires macOS or Linux, Python 3.11+ and a running local Docker engine. Use a fresh virtual
+environment: an older install exposes the 2.x CLI.
+
+```sh
+git clone https://github.com/agentbreeder/agentbreeder.git
+cd agentbreeder
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/python examples/http-agent/quickstart.py
+```
+
+The demo builds a sample image, deploys it, invokes it, retries the same deployment, checks the
+saved history and removes the container. It needs no model account or API key. The sample echoes
+JSON; it is not an AI agent.
+
+If it stops, run `.venv/bin/agentbreeder doctor` first.
+
+For policy checks with Cedar, install the extra: `pip install '.[cedar]'`.
+
+## Canonical docs
+
+These pages summarise the docs in the repository, which are the source of truth:
+[README](https://github.com/agentbreeder/agentbreeder/blob/main/README.md),
+[manifest](https://github.com/agentbreeder/agentbreeder/blob/main/docs/manifest.md),
+[local deployment](https://github.com/agentbreeder/agentbreeder/blob/main/docs/local-deployment.md),
+[identity gate](https://github.com/agentbreeder/agentbreeder/blob/main/docs/identity-gate.md) and
+[architecture](https://github.com/agentbreeder/agentbreeder/blob/main/ARCHITECTURE.md).
+Engineering tracking: [#648](https://github.com/agentbreeder/agentbreeder/issues/648) and
+[#701](https://github.com/agentbreeder/agentbreeder/issues/701).
