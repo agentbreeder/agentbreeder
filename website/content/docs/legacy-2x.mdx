@@ -1,0 +1,54 @@
+---
+title: Legacy 2.x
+description: AgentBreeder 2.x is what pip installs today. It is unmaintained, superseded by the focused rebuild, and has known functional and security issues.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="error" title="Unmaintained: do not use beyond local experiments">
+  AgentBreeder 2.x (PyPI `agentbreeder` up to 2.7.3, and the matching Docker images) is no longer
+  maintained and will not receive fixes. Its self-hosted API server has known security issues: do
+  not expose it to untrusted users or networks, and do not use it with production data or
+  credentials. Report anything you find through
+  [GitHub private vulnerability reporting](https://github.com/agentbreeder/agentbreeder/security/advisories/new).
+</Callout>
+
+## What happened to 2.x
+
+2.x set out to cover agent building, registries, multi-cloud deploys and governance in one
+platform. A full end-to-end test of 2.7.3 on 2026-11-07 found that much of what its docs described
+did not work as written. Rather than keep documenting it, AgentBreeder was rebuilt around one job it
+can do reliably today: deploying an existing agent container behind a deploy-time identity gate.
+The rest of these docs cover that rebuild. It shares no code with the 2.x API server or dashboard.
+
+## Known issues in 2.7.3
+
+These were reproduced on a fresh install. They are not exhaustive.
+
+- **Local deploy reports failure.** `agentbreeder deploy` with a local target reports `FAILED`
+  with an empty message even when the container came up healthy, and registers nothing.
+- **Scaffolded agents.** Of the templates `agentbreeder init` generates, only LangGraph produced an
+  agent that answered end to end.
+- **Studio dashboard.** The 2.7.2 and 2.7.3 dashboard images render a blank page. Deploying from
+  Studio does not build or run a container.
+- **Evaluations.** `agentbreeder eval run` does not call the agent; its scores are simulated.
+- **SDK.** The documented Python SDK examples do not match the published package, and
+  `Agent.deploy()` does not deploy.
+- **Governance.** Access control, audit logging and cost tracking in the API server do not enforce
+  or persist as the 2.x docs described.
+- **Cloud targets.** AWS, GCP, Azure and Kubernetes deploys were not re-verified and should be
+  treated as unverified.
+
+## If you are using 2.x
+
+- Keep it to local, single-user experiments, and keep the API server off shared networks.
+- Pin the version you have; there will be no 2.7.4.
+- To try the rebuild, install it from source in a **fresh** virtual environment (see the
+  [overview](/docs)). It is not an upgrade path: there is no migration from 2.x data or `agent.yaml`
+  files.
+
+## 2.x documentation
+
+The 2.x docs are preserved in the repository at the
+[`v2.7.3` tag](https://github.com/agentbreeder/agentbreeder/tree/v2.7.3/website/content/docs). They
+describe intended behaviour, which the issues above contradict in places.

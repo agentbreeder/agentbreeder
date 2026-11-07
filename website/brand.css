@@ -11,9 +11,9 @@
  * the legacy dashboard was removed (#709); the token blocks are unchanged.
  * Consumers: the Cloud console vendors a snapshot and drift-checks against this
  * file (agentbreeder-cloud/dashboard/scripts/check-token-drift.mjs). The website
- * does not import it yet: its `@theme inline` font and colour mappings would
- * override the site's next/font families and utilities, so adopting it needs a
- * visual review first.
+ * imports it from app/globals.css, then overrides the font families (it loads
+ * them via next/font) and the radii (it defines no shadcn `--radius`) in its own
+ * `@theme inline` block.
  *
  * Cross-repo policy (see CLAUDE.md and docs/cross-repo-sync.md): the design
  * system belongs to OSS. Changes flow OSS → Cloud, never the reverse.

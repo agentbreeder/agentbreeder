@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 const RECOVERY_LINKS = [
   { href: '/', label: 'Home', description: 'Back to the front page' },
   { href: '/docs', label: 'Docs', description: 'Read the documentation' },
-  { href: '/docs/quickstart', label: 'Quickstart', description: 'Deploy your first agent in 5 minutes' },
+  { href: '/docs/local-deployment', label: 'Local deployment', description: 'Deploy your own image through the gate' },
   { href: '/blog', label: 'Blog', description: 'Posts on agents, deploy, and AgentBreeder' },
   { href: '/about', label: 'About', description: 'About AgentBreeder and the project' },
 ];

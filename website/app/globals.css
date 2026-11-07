@@ -1,5 +1,30 @@
 @import 'fumadocs-ui/style.css';
 @import "tailwindcss";
+/* Shared OSS design system (#583). Its .dark palette and @theme mapping are
+   the source of truth the Cloud console drift-checks against. */
+@import "../brand.css";
+
+/* Site overrides for brand.css's @theme. They must come after the import.
+   - Fonts: brand.css names fontsource families ('Geist Variable', 'Bricolage
+     Grotesque Variable'). This site loads its fonts via next/font, which
+     exposes them as --font-geist-sans/--font-geist-mono/--font-bricolage
+     (set on <html> in app/layout.tsx).
+   - Radii: brand.css derives them from a shadcn --radius this site does not
+     define. Pin them to Tailwind's defaults, which the site was designed with.
+   Note: tailwind.config.ts is not loaded (Tailwind v4 without @config), so
+   theme values must live here, not there. */
+@theme inline {
+  --font-sans: var(--font-geist-sans), 'Inter', sans-serif;
+  --font-mono: var(--font-geist-mono), 'JetBrains Mono', monospace;
+  --font-display: var(--font-bricolage), var(--font-geist-sans), 'Inter', sans-serif;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+  --radius-4xl: 2rem;
+}
 
 :root {
   --bg: #09090b;

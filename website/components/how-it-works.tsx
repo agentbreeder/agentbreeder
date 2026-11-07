@@ -6,44 +6,55 @@ interface Step {
   desc: ReactNode;
 }
 
+function Code({ children }: { children: ReactNode }) {
+  return (
+    <code className="rounded px-1 py-0.5 font-mono text-xs" style={{ background: 'var(--bg-surface)' }}>
+      {children}
+    </code>
+  );
+}
+
 const STEPS: Step[] = [
   {
     num: '01',
-    title: 'Define your agent',
+    title: 'Onboard the agent in your IdP',
     desc: (
       <>
-        Write{' '}
-        <code
-          className="rounded px-1 py-0.5 font-mono text-xs"
-          style={{ background: 'var(--bg-surface)' }}
-        >
-          agent.yaml
-        </code>{' '}
-        with your model, tools, prompts, and deploy config. Schema-validated,
-        human-readable, version-controlled.
+        Register the agent as a workload principal in Entra, Keycloak, Okta (experimental), AWS or
+        a static file, with a sponsor and a review date. AgentBreeder only reads it.
       </>
     ),
   },
   {
     num: '02',
-    title: 'Run one command',
+    title: 'Describe the image',
     desc: (
       <>
-        <code
-          className="rounded px-1 py-0.5 font-mono text-xs"
-          style={{ background: 'var(--bg-surface)' }}
-        >
-          agentbreeder deploy
-        </code>{' '}
-        validates, builds a container, provisions infra, and deploys to your cloud
-        in under 5 minutes.
+        Write <Code>agent.yaml</Code>: an immutable image digest, the HTTP port and health path,
+        and the identity reference. <Code>agentbreeder validate</Code> checks it without side effects.
       </>
     ),
   },
   {
     num: '03',
-    title: 'Governance is automatic',
-    desc: 'Your agent is live, registered in the org registry, RBAC enforced, costs attributed, audit trail written. Nothing extra to configure.',
+    title: 'Deploy through the gate',
+    desc: (
+      <>
+        <Code>agentbreeder deploy --local</Code> resolves the principal, runs the checks you
+        configured, and only then starts a locked-down container on loopback. Every attempt,
+        allowed or denied, goes to the hash-chained audit log.
+      </>
+    ),
+  },
+  {
+    num: '04',
+    title: 'Re-verify and stop',
+    desc: (
+      <>
+        <Code>status</Code> and <Code>reconcile</Code> re-check the principal and flag drift.
+        <Code>disable</Code> blocks the principal and removes its containers.
+      </>
+    ),
   },
 ];
 
@@ -64,13 +75,13 @@ export function HowItWorks() {
           className="mb-3 text-[28px] sm:text-[36px] font-extrabold text-white"
           style={{ letterSpacing: '-1px' }}
         >
-          From YAML to production in 3 steps
+          From a container to a gated local deploy
         </h2>
         <p className="mb-12 max-w-[500px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
-          No infrastructure expertise required. AgentBreeder handles the entire
-          deploy pipeline.
+          You bring the agent image and the identity. AgentBreeder decides whether it may run,
+          and records why.
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {STEPS.map(({ num, title, desc }, i) => (
             <div key={num} className="relative p-7">
               <p
@@ -85,7 +96,7 @@ export function HowItWorks() {
               </p>
               {i < STEPS.length - 1 && (
                 <span
-                  className="hidden md:block absolute right-0 top-1/2 -translate-y-1/2 text-lg"
+                  className="hidden lg:block absolute right-0 top-1/2 -translate-y-1/2 text-lg"
                   style={{ color: 'var(--text-dim)' }}
                 >
                   →

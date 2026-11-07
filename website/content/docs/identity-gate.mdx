@@ -1,5 +1,5 @@
 ---
-title: Identity gate (preview)
+title: Identity gate
 description: The rebuild's deploy-time identity gate, optional policy and approvals, kill switch, audit log and opt-in MCP egress sidecar.
 ---
 
@@ -107,14 +107,20 @@ revision, expires (default 900 seconds) and is consumed once.
 
 ```sh
 agentbreeder disable <deployment-id|name> --local [--idp]
-agentbreeder enable <deployment-id|name>
+agentbreeder enable <deployment-id|name>    # verified human + a PDP that permits enable
 agentbreeder reconcile --local
 agentbreeder status <id>
 ```
 
 `disable` persists a blocker for the principal and environment, audits it, invalidates open
-approvals and stops every affected container. Retries, restarts, renames, removal and audit mode
-can't bypass it. `enable` clears only the local blocker; it starts nothing and revives no approval.
+approvals, and stops and removes every affected container; the record stays, in state `disabled`.
+Retries, restarts, renames, removal and audit mode can't bypass it. `disable` needs no verified
+actor, but `enable` requires a verified human and a configured PDP that permits `enable`, so
+without a PDP a blocker can't be cleared from the CLI. `enable` clears only the local blocker; it
+starts nothing and revives no approval.
+
+`reconcile` exits 1 when blocked cleanup still fails, 4 when any deployment is noncompliant or
+unverifiable, and 0 otherwise.
 
 ## Audit log
 
@@ -132,7 +138,7 @@ audit write fails before execution, nothing is deployed.
 
 With `runtime_enforcement.mode: mcp_http` (which needs a policy engine), each local deployment
 runs behind an **MCP egress sidecar**. This is a different component from the 2.x
-[Go sidecar](/docs/sidecar).
+Go sidecar.
 
 - **Isolation.** The agent joins only a per-deployment Docker `--internal` network with no route
   off the host. The sidecar is its only way out. Before any traffic, deploy verifies the topology

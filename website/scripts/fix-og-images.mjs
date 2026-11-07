@@ -75,7 +75,7 @@ async function main() {
 
   // ── blog hero images ──────────────────────────────────────────────────────
   // Both 1200×630 (or similar). Bottom-right domain only.
-  for (const slug of ['agentbreeder-vs-competitors', 'why-i-built-agentbreeder']) {
+  for (const slug of ['why-i-built-agentbreeder']) {
     await patchImage(resolve(pub, `blog/${slug}/hero.png`), [
       { x: 990, y: 590, w: 200, h: 28, text: 'agentbreeder.io', fontSize: 12, color: '#52525b', align: 'right' },
     ]);

@@ -1,69 +1,81 @@
 ---
 title: Overview
-description: Open-source platform for building, deploying, and governing enterprise AI agents.
+description: AgentBreeder deploys existing agent containers to local Docker behind a deploy-time identity gate. Open-source preview; install from source.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-**Define Once. Deploy Anywhere. Govern Automatically.**
-
-AgentBreeder is an open-source platform for building, deploying, and governing enterprise AI agents.
-Write one `agent.yaml`, run `agentbreeder deploy`, and your agent runs locally or on your cloud —
-with RBAC, cost tracking, audit trail, and org-wide discoverability automatic.
-
-<Callout title="Core promise">
-  Governance is a **side effect** of deploying, not extra configuration. Every `agentbreeder deploy`
-  validates RBAC, registers the agent, attributes costs, and writes an audit log — automatically.
+<Callout type="warn" title="Preview: not a release">
+  These docs cover the focused rebuild on the `main` branch. It is a development baseline, not a
+  production release, and it is not on PyPI yet: `pip install agentbreeder` installs the older
+  **2.x** platform, which is unmaintained and has known issues (see [Legacy 2.x](/docs/legacy-2x)).
+  The rebuild is incompatible with 2.x: don't use it to upgrade an existing installation, and don't
+  point it at 2.x `agent.yaml` files.
 </Callout>
 
-<Callout title="Deploy-target parity (v2.6.0)">
-  The same `agent.yaml` deploys with full governance — sidecar (guardrails, cost, tracing) and
-  secret mirroring — to **AWS ECS Fargate**, **GCP Cloud Run**, and **Azure Container Apps**, plus
-  **Local (Docker Compose)**. AWS App Runner is single-container, so it deploys without a sidecar and
-  rejects `guardrails:`/`secrets:` at validation; Kubernetes and Claude-managed are in flight. See the
-  [deploy-target status table](cli-reference#agentbreeder-deploy) and
-  [per-target prerequisites](deployment#prerequisites-per-target-as-of-2026-05-18) before you pick a target.
-</Callout>
+AgentBreeder is being rebuilt around deploying **existing** agents into infrastructure you
+control. You bring a trusted HTTP container; AgentBreeder validates a small manifest, checks the
+agent's identity, and deploys it.
 
-## Three Builder Tiers
+## What works today
 
-AgentBreeder supports three ways to build agents. All three compile to the same internal format
-and share the same deploy pipeline.
+- **Manifest validation.** `agentbreeder validate` checks a strict YAML manifest (v1 or v2). See
+  [Manifest](/docs/manifest).
+- **Local deployment lifecycle.** Deploy, status and remove on a local Docker engine, with history
+  in SQLite. See [Local deployment](/docs/local-deployment).
+- **Deploy-time identity gate.** In `enforce` mode a deploy is refused unless the agent already
+  exists in your identity provider with an active sponsor, a valid review date and the required
+  scoped grants. (`audit` mode records the same denials but lets the deploy proceed.)
+  Optional extras: a Cedar, OPA or AuthZEN policy check, second-person approval, a kill switch and
+  a hash-chained local audit log. See [Identity gate](/docs/identity-gate).
+- **Opt-in runtime tool enforcement.** Operators can put a deployment behind an MCP egress sidecar
+  that applies policy to every MCP Streamable HTTP tool call. STDIO and in-process tools are never
+  mediated.
 
-| Tier | Method | Who |
-|---|---|---|
-| No Code | Visual drag-and-drop UI | PMs, analysts, citizen builders |
-| Low Code | `agent.yaml` in any IDE | ML engineers, DevOps |
-| Full Code | Python/TS SDK | Senior engineers, researchers |
+## What isn't implemented
 
-All three tiers compile to the same internal format and share the same deploy pipeline — start No Code,
-eject to YAML, eject to Full Code at any time.
+- Production deployment targets. Only the local Docker adapter exists; `kubernetes` is accepted
+  by the manifest but not deployable.
+- An operational UI or management HTTP API.
+- Secret injection, volumes, updates and rollback.
 
-## Supported Languages & Frameworks
+Verification so far: the local lifecycle, the identity gate (static-file adapter), Cedar policy,
+approvals, the kill switch, the audit chain and the MCP egress sidecar pass end to end on macOS with
+Docker Desktop (last full run 2026-11-07).
+Entra, Keycloak, Okta (experimental) and AWS adapters are fixture-tested; live-tenant checks are
+still open. The Linux decision-service socket path is unit-tested but not yet verified on a Linux
+host.
 
-**Python:** LangGraph · OpenAI Agents SDK · Anthropic Claude SDK · CrewAI · Google ADK · Custom
+## Install from source
 
-**TypeScript/Node.js:** Vercel AI SDK · Mastra · LangChain.js · OpenAI Agents TS · Custom
+Requires macOS or Linux, Python 3.11+ and a running local Docker engine. Use a fresh virtual
+environment: an older install exposes the 2.x CLI.
 
-**Go** *(v2.0 — Tier-2 SDK; see [Go SDK](go-sdk))*
+```sh
+git clone https://github.com/agentbreeder/agentbreeder.git
+cd agentbreeder
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/python examples/http-agent/quickstart.py
+```
 
-**Kotlin · Rust · .NET** *(roadmap — tracked at [#188](https://github.com/agentbreeder/agentbreeder/issues/188), [#189](https://github.com/agentbreeder/agentbreeder/issues/189), [#190](https://github.com/agentbreeder/agentbreeder/issues/190))*
+The demo builds a sample image, deploys it, invokes it, retries the same deployment, checks the
+saved history and removes the container. It needs no model account or API key. The sample echoes
+JSON; it is not an AI agent.
 
-## Deploy Targets
+If it stops, run `.venv/bin/agentbreeder doctor` first.
 
-Local (Docker Compose) · AWS ECS Fargate · AWS App Runner · GCP Cloud Run · Azure Container Apps · Kubernetes · Claude-managed
+For policy checks with Cedar, install the extra: `pip install '.[cedar]'`. Configuring any policy
+engine also requires a verified deployer (an OIDC token from an operator-trusted issuer); the
+unverified OS user is then denied with `DEPLOYER_UNVERIFIED`.
 
-> **Status (v2.6.0):** Local, AWS ECS Fargate, GCP Cloud Run, and Azure Container Apps deploy with full governance parity (sidecar + secret mirroring). AWS App Runner runs single-container (no sidecar); Kubernetes and Claude-managed are in flight. See the [deploy-target status table](cli-reference#agentbreeder-deploy) and [per-target prerequisites](deployment#prerequisites-per-target-as-of-2026-05-18).
+## Canonical docs
 
-## Quick Navigation
-
-| Goal | Where to go |
-|------|-------------|
-| Build your first agent in 5 minutes | [Quickstart →](quickstart) |
-| TypeScript or Go agents | [Polyglot Agents →](polyglot-agents) |
-| Deploy to a specific cloud | [How-To →](how-to) |
-| Model gateway — budgets, guardrails, caching | [Gateways →](gateways) |
-| Agent YAML reference | [agent.yaml →](agent-yaml) |
-| Registry: prompts, tools, RAG, memory | [Registry Guide →](registry-guide) |
-| All CLI commands | [CLI Reference →](cli-reference) |
-| Multi-agent orchestration | [Orchestration SDK →](orchestration-sdk) |
+These pages summarise the docs in the repository, which are the source of truth:
+[README](https://github.com/agentbreeder/agentbreeder/blob/main/README.md),
+[manifest](https://github.com/agentbreeder/agentbreeder/blob/main/docs/manifest.md),
+[local deployment](https://github.com/agentbreeder/agentbreeder/blob/main/docs/local-deployment.md),
+[identity gate](https://github.com/agentbreeder/agentbreeder/blob/main/docs/identity-gate.md) and
+[architecture](https://github.com/agentbreeder/agentbreeder/blob/main/ARCHITECTURE.md).
+Engineering tracking: [#648](https://github.com/agentbreeder/agentbreeder/issues/648) and
+[#701](https://github.com/agentbreeder/agentbreeder/issues/701).

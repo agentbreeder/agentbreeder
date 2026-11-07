@@ -8,7 +8,6 @@ image: "/blog/why-i-built-agentbreeder/hero.png"
 ---
 
 import { ArchitectureLayers } from '@/components/architecture-layers';
-import { FrameworkComparison } from '@/components/framework-comparison';
 
 I was in a planning meeting where six engineering teams presented their AI agent strategies.
 
@@ -100,7 +99,7 @@ Every production deployment needs:
 
 - **RBAC** — who can deploy agents, who can invoke them, who can modify them
 - **Cost attribution** — which team, which agent, which model, how much
-- **Audit trail** — who changed what, when, in a durable immutable log
+- **Audit trail** — who changed what, and when
 - **Secret management** — API keys and credentials, not in your repository
 
 Every enterprise ends up building this separately, after the fact, when something goes wrong. Three months in, you discover that one team's agents consumed 80 percent of your OpenAI budget because nobody set spend limits. You have no idea which agent called which tool because there is no centralized trace. The security team asks for an audit log and it does not exist.
@@ -108,12 +107,6 @@ Every enterprise ends up building this separately, after the fact, when somethin
 Governance should not be an afterthought bolted on after deployment. It should be a structural property of the platform — **a side effect of deploying, not a separate project**.
 
 ---
-
-## How AgentBreeder Compares to Existing Frameworks
-
-Before diving into the architecture, here is how AgentBreeder stacks up against the frameworks your teams are already debating. The key insight: every existing tool is excellent at the layer it was designed for — but none of them solve the coordination problem above that layer.
-
-<FrameworkComparison />
 
 ## Why "Just Pick One Framework" Does Not Work
 
@@ -246,7 +239,7 @@ Every `agentbreeder deploy` automatically:
 1. Validates RBAC — can this user or team deploy to this target?
 2. Registers the agent in the org-wide registry
 3. Attributes cost to the deploying team
-4. Writes an immutable audit log entry
+4. Writes an audit log entry
 5. Injects an OpenTelemetry sidecar for distributed traces, token counts, and error rates
 
 You do not configure governance. You do not add a governance step to your pipeline. There is no governance form to fill out.

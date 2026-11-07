@@ -11,23 +11,25 @@
 
 ## 🧠 What is AgentBreeder?
 
-AgentBreeder is an **open-source platform** for building, deploying, and governing enterprise AI agents.
+AgentBreeder is an **open-source preview** that deploys an agent container you already built,
+and only after a **deploy-time identity gate** confirms the agent in your identity provider.
 
-**Core tagline:** Define Once. Deploy Anywhere. Govern Automatically.
+**Tagline (site):** Know the agent. Gate the deploy. Audit every attempt.
 
-**The one-sentence pitch:** A developer writes one `agent.yaml` file, runs `agentbreeder deploy`, and their agent is live on AWS or GCP — with RBAC, cost tracking, audit trail, and org-wide discoverability automatic and zero extra work.
+**What ships today (source-only, `0.0.0.dev0`; verified end to end on macOS + Docker Desktop):**
+- `validate` and `doctor`; a local Docker `deploy`/`status`/`remove` lifecycle with SQLite history
+- The identity gate (Entra, Keycloak, Okta (experimental), AWS, static file; only the static
+  adapter is live-verified), Cedar/OPA/AuthZEN policy, second-person approval, a kill switch,
+  `reconcile` drift checks and a hash-chained audit log
+- An opt-in MCP egress sidecar that applies policy to MCP Streamable HTTP tool calls only
 
-**What makes it unique:**
-- Framework-agnostic (LangGraph, CrewAI, Claude SDK, OpenAI Agents, Google ADK, Custom)
-- Multi-cloud first (AWS ECS Fargate/App Runner/EKS, GCP Cloud Run/GKE, Azure Container Apps, and Kubernetes as equal first-class targets)
-- Governance is a **side effect** of deploying, not extra configuration
-- Shared org-wide registry for agents, prompts, tools/MCP servers, models, knowledge bases
-- **Three builder tiers** for both agent development AND agent orchestration:
-  - **No Code** — Visual drag-and-drop UI, registry pickers, ReactFlow canvas (for PMs, analysts, citizen builders)
-  - **Low Code** — YAML config (`agent.yaml`, `orchestration.yaml`) in any IDE or the dashboard editor (for ML engineers, DevOps)
-  - **Full Code** — Python/TS SDK with full programmatic control, custom routing, state machines (for senior engineers, researchers)
-- All three tiers compile to the same internal format and share the same deploy pipeline, governance, and observability
-- **Tier mobility** — start No Code, eject to YAML, eject to Full Code. No vendor lock-in at any level.
+**Not shipped:** cloud/production deploy targets, a management API or UI, authenticated
+invocation, a PyPI release. 2.x (PyPI ≤ 2.7.3) is unmaintained and has known functional and
+security issues; it is summarised on the website's Legacy 2.x page.
+
+**Claim rule:** README, docs and the website claim only what has been run end to end. Never
+claim tamper-evidence (the audit chain detects corruption; a DB owner can recompute it), and
+never claim runtime enforcement beyond MCP Streamable HTTP via the opt-in sidecar.
 
 ---
 
@@ -101,8 +103,10 @@ AgentBreeder ships across **three repositories** that must stay in sync at all t
 **Cross-repo detail** (current state, the change-sync table and the
 `brand.css` design-system source of truth #583, now at `website/brand.css`) lives in
 `docs/cross-repo-sync.md` — read it before any schema/API/branding change.
-The website documents 2.x (what PyPI installs); the focused rebuild is documented
-under `website/content/docs/preview/` until it is released.
+Since 2026-11-07 the website documents the focused rebuild (`website/content/docs/`); 2.x
+is unmaintained and summarised on one page, `website/content/docs/legacy-2x.mdx` (2.x docs
+live at the `v2.7.3` tag). Claim only what has been run end to end; see
+`website/components/what-ships.tsx`.
 
 ## 🎯 When Adding a New Feature
 

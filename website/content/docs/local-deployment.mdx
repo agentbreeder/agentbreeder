@@ -1,5 +1,5 @@
 ---
-title: Local deployment (preview)
+title: Local deployment
 description: Deploy, inspect and remove a trusted HTTP container on a local Docker engine with the rebuild's CLI.
 ---
 
@@ -21,20 +21,45 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Deploy your own image
 
+Every deploy first passes the [identity gate](/docs/identity-gate), so you need an operator
+config and an onboarded agent principal. Without them the deploy fails closed
+(`CONTEXT_ENVIRONMENT_UNKNOWN`). For a local trial, use the static adapter as the demo does; real
+operators point a provider at their IdP. Both files must be private (mode 0600).
+
 ```sh
-docker build --iidfile /tmp/agentbreeder-sample-image examples/http-agent
-.venv/bin/python - <<'PYTHON'
-from pathlib import Path
-image = Path('/tmp/agentbreeder-sample-image').read_text().strip()
-Path('/tmp/agentbreeder-sample.yaml').write_text(
-    f'schema_version: 1\nname: http-sample\nimage: {image}\ntarget: local\n'
-)
-PYTHON
-.venv/bin/agentbreeder deploy /tmp/agentbreeder-sample.yaml --local
+umask 077
+cat > principals.yaml <<'YAML'
+principals:
+  my-agent:
+    kind: agent
+    enabled: true
+    environment: dev
+    review_by: "2099-01-01"
+    sponsors: [{id: me, name: me@example.com, active: true}]
+YAML
+cat > operator.yaml <<'YAML'
+enforcement: enforce
+default_environment: dev
+environments:
+  dev: {targets: [local]}
+providers:
+  trial: {type: static, authority: trial, file: principals.yaml}
+YAML
+export AGENTBREEDER_OPERATOR_CONFIG="$PWD/operator.yaml"
+
+docker build --iidfile image-id PATH/TO/agentbreeder/examples/http-agent
+cat > agent.yaml <<YAML
+schema_version: 2
+name: http-sample
+image: $(cat image-id)
+target: local
+identity: {provider: trial, ref: my-agent, environment: dev}
+YAML
+.venv/bin/agentbreeder deploy agent.yaml --local --environment dev
+curl -s -X POST ENDPOINT/invoke -d '{"message":"hello"}'
 ```
 
-Every deploy first passes the [identity gate](/docs/preview/identity-gate). Pass
-`--environment <name>` to pick an environment from the operator configuration.
+Keep `AGENTBREEDER_OPERATOR_CONFIG` set for later commands, so `status` can re-verify the principal:
 
 ```sh
 .venv/bin/agentbreeder status DEPLOYMENT_ID --json
@@ -52,10 +77,13 @@ health check.
 
 | Code | Meaning |
 |---|---|
-| 0 | Deployment or removal verified, or status read |
-| 1 | Recorded runtime failure, or an incomplete disable |
-| 2 | Invalid input, gate denial (`[CODE]`), audit-write failure, state access or prerequisite failure |
+| 0 | Deployment or removal verified, or status read of a deployment that has not failed |
+| 1 | Recorded runtime failure (including status of a `failed` deployment), an incomplete disable, unfinished blocked cleanup in `reconcile`, or an invalid chain in `audit verify` |
+| 2 | Invalid input, gate denial (`[CODE]`), audit-write failure, missing or inaccessible state (including a mistyped `--state-dir`) or prerequisite failure |
 | 3 | Deployment is pending a second-person approval |
+| 4 | `reconcile` found a noncompliant or unverifiable deployment |
+
+With `--json`, errors go to stderr only and stdout stays empty.
 
 ## State and limits
 
@@ -64,7 +92,7 @@ health check.
   resources exist.
 - Anyone with access to the Docker socket can bypass these local controls.
 - Workloads can make outbound connections unless the operator turns on
-  [runtime enforcement](/docs/preview/identity-gate#runtime-tool-enforcement).
+  [runtime enforcement](/docs/identity-gate#runtime-tool-enforcement).
 - The local tool adds no authentication to invocation. Don't publish the port externally.
 
 Canonical reference:

@@ -7,12 +7,12 @@ import { Footer } from '@/components/footer';
 export const metadata: Metadata = {
   title: 'About',
   description:
-    'AgentBreeder is an open-source platform for building, deploying, and governing enterprise AI agents. Built by Rajit Saha alongside his role as Director of Data Platform at Udemy + Coursera.',
+    'AgentBreeder is an open-source preview that deploys existing agent containers behind a deploy-time identity gate. Built by Rajit Saha alongside a role as Director of Data Platform at Udemy + Coursera.',
   alternates: { canonical: '/about' },
   openGraph: {
     title: 'About AgentBreeder',
     description:
-      'AgentBreeder is an open-source platform for building, deploying, and governing enterprise AI agents. Built by Rajit Saha alongside his role as Director of Data Platform at Udemy + Coursera.',
+      'AgentBreeder is an open-source preview that deploys existing agent containers behind a deploy-time identity gate. Built by Rajit Saha alongside a role as Director of Data Platform at Udemy + Coursera.',
     url: '/about',
     type: 'website',
     images: [
@@ -40,16 +40,16 @@ export default function AboutPage() {
           className="mb-6 font-display text-[36px] sm:text-[48px] font-extrabold text-white"
           style={{ letterSpacing: '-1.5px', lineHeight: 1.1 }}
         >
-          One agent.yaml. Any framework. Any cloud.
+          Know which agent you are running.
         </h1>
         <p
           className="mb-12 text-[18px] sm:text-[20px] leading-[1.6]"
           style={{ color: 'var(--text-muted)' }}
         >
-          AgentBreeder is an open-source platform for building, deploying, and governing
-          enterprise AI agents. It exists so a developer can write one config file, run one
-          command, and ship an agent to AWS, GCP, Azure, or Kubernetes — with RBAC, cost
-          tracking, audit trail, and observability automatic.
+          AgentBreeder is an open-source preview that deploys an agent container you already
+          built, and only after your identity provider confirms the agent is real, sponsored and
+          still within its review date. Today it deploys to local Docker; production targets are
+          not shipped yet.
         </p>
 
         {/* Mission */}
@@ -61,17 +61,18 @@ export default function AboutPage() {
             Why this exists
           </h2>
           <p className="mb-4 text-[16px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
-            Every team building production AI agents reinvents the same plumbing: a deploy
-            pipeline, a registry, RBAC, cost attribution, an audit log, observability.
-            And every framework (LangGraph, CrewAI, OpenAI Agents, Claude SDK, Google ADK)
-            asks you to learn a new container shape, a new entrypoint, a new way to wire
-            secrets.
+            Agents are starting to act on real systems, but most teams can&apos;t answer a basic
+            question before one goes live: which identity is this, who sponsors it, and is it
+            still meant to be running? Identity providers already hold that answer. Deploy
+            pipelines rarely ask.
           </p>
           <p className="text-[16px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
-            AgentBreeder collapses that down. Pick your framework. Pick your cloud. Write
-            <code className="mx-1 rounded px-1.5 py-0.5 text-[14px]" style={{ background: 'var(--bg-elevated)', color: 'var(--accent)' }}>agent.yaml</code>.
-            Run <code className="rounded px-1.5 py-0.5 text-[14px]" style={{ background: 'var(--bg-elevated)', color: 'var(--accent)' }}>agentbreeder deploy</code>.
-            Governance happens as a side effect, not as extra configuration.
+            AgentBreeder makes the deploy ask. You keep your framework and your container; it
+            checks the agent&apos;s identity, optional policy and second-person approval, records
+            every attempt in a hash-chained log, and can block a principal everywhere at once.
+            An earlier 2.x version tried to cover building, registries and every cloud at once,
+            and much of it did not work as documented. The rebuild only claims what we have run
+            end to end.
           </p>
         </section>
 
@@ -113,8 +114,8 @@ export default function AboutPage() {
                 </p>
                 <p className="mb-4 text-[14px] leading-[1.75]" style={{ color: 'var(--text-muted)' }}>
                   AgentBreeder is currently built alongside that role. The open-source
-                  project is released under Apache 2.0, with a managed cloud offering
-                  (<Link href="https://console.agentbreeder.io" className="underline" style={{ color: 'var(--accent)' }}>console.agentbreeder.io</Link>) coming next.
+                  project is released under Apache 2.0. A managed cloud offering is planned
+                  but not available.
                 </p>
                 <Link
                   href={LINKEDIN_URL}
@@ -140,13 +141,14 @@ export default function AboutPage() {
           </h2>
           <ul className="space-y-3 text-[15px] leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
             <li>
-              <strong className="text-white">Open-source CLI + engine</strong> — Apache 2.0,
-              installable via pip, Homebrew, or Docker. Multi-cloud, multi-framework, governance built in.
+              <strong className="text-white">Open-source preview</strong> — Apache 2.0, install
+              from source. Local Docker deploys behind an identity gate; see{' '}
+              <Link href="/docs" className="underline" style={{ color: 'var(--accent)' }}>what works today</Link>.
+              The older 2.x on PyPI is unmaintained.
             </li>
             <li>
-              <strong className="text-white">Managed cloud (coming soon)</strong> — a hosted
-              control plane at <Link href="https://console.agentbreeder.io" className="underline" style={{ color: 'var(--accent)' }}>console.agentbreeder.io</Link> for
-              teams that want the registry, RBAC, and observability without running the API server themselves.
+              <strong className="text-white">Managed cloud (planned)</strong> — a hosted
+              version is planned. It is not available, and there is no date yet.
             </li>
             <li>
               <strong className="text-white">Status</strong> — bootstrapped, no external funding,
