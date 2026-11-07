@@ -1,0 +1,159 @@
+---
+title: Identity gate (preview)
+description: The rebuild's deploy-time identity gate, optional policy and approvals, kill switch, audit log and opt-in MCP egress sidecar.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Guarantee boundary">
+  Preview, install from source. The gate is a **deploy-time** check. Tool calls are mediated at
+  runtime only when the operator sets `runtime_enforcement.mode: mcp_http`, and only for MCP
+  Streamable HTTP servers reached through the MCP egress sidecar. STDIO and in-process tools are
+  never mediated. Anyone with Docker-socket or state-directory access can bypass local controls.
+</Callout>
+
+`agentbreeder deploy` refuses to start an agent unless it is already onboarded in an external
+identity provider (IdP). **Verify, don't mint:** the manifest references and requires; the IdP
+grants. AgentBreeder never creates identities, and its adapters are read-only (disabling in the
+IdP is an explicit opt-in).
+
+## What runs on every deploy
+
+Before contacting any IdP or policy engine, the deploy is recorded in the audit log. Then it
+checks that:
+
+- the `--environment` exists in the operator configuration and allows the target;
+- the manifest is `schema_version: 2` with an `identity` block, and `identity.ref` resolves to
+  exactly one principal;
+- the principal isn't administratively disabled, is an `agent` or `workload` (not a human or
+  shared account), and is enabled in the IdP;
+- it has an active human sponsor (and `expect_owner` matches), and it isn't past its `review_by`
+  date;
+- the required scoped roles, stable group IDs and exact namespaced attributes are granted;
+- the manifest, IdP and `--environment` agree on the environment;
+- when configured, the policy baseline and every selected restriction allow `deploy`.
+
+A deny exits with code 2, prints `[CODE] message (attempt <id>)` and makes no Docker call. Roles
+and groups match on immutable IDs within their authority and resource. Display names never
+satisfy a requirement. Without a policy engine the output says **identity preflight only**:
+treat that as a partial guarantee.
+
+## Operator configuration
+
+Enforcement lives outside the agent repository, in `~/.agentbreeder/operator.yaml` or
+`$AGENTBREEDER_OPERATOR_CONFIG`. The file must be owned by you with mode `0600`. If the default
+file is missing, the mode is `enforce` with no environments, so every deploy fails closed.
+
+```yaml
+enforcement: enforce            # enforce | audit (there is no "off")
+default_environment: dev
+environments:
+  dev:  { targets: [local] }
+  prod: { targets: [local] }
+providers:
+  corp:
+    type: entra
+    tenant_id: 00000000-0000-0000-0000-000000000000
+    client_id: 11111111-1111-1111-1111-111111111111
+    credential: env:AGENTBREEDER_ENTRA_SECRET   # env:NAME or file:/path; literals rejected
+  lab: { type: static, authority: lab, file: principals.yaml }
+pdp:
+  engine: cedar                 # cedar | opa | authzen
+  baseline: { source: baseline.cedar, digest: "sha256:<64 hex>" }
+maker_checker: { risk_tiers: [high] }
+```
+
+`audit` mode records everything but proceeds past identity and policy denies, with a prominent
+warning. It never bypasses a disabled principal, unknown context, unsupported controls,
+audit-write failures or approval requirements.
+
+## Identity providers
+
+| Type | Status |
+|---|---|
+| `static` | Stable; an operator-controlled YAML file, for tests and air-gapped use |
+| `entra` | Fixture-tested (Microsoft Graph agent identity service principals). Verify against a live tenant before production |
+| `keycloak` | Fixture-tested (confidential client with a service account) |
+| `okta` | **Experimental**; requires `experimental: true` |
+| `aws` | Fixture-tested (AgentCore workload identity); needs `agentbreeder[aws]` |
+
+Adapters time out after 10 seconds. Any error, timeout, ambiguity or unsupported shape fails closed.
+
+## Verified deployers
+
+By default the OS user is recorded as an **unverified** deployer. To verify, supply an RS256
+OIDC ID token from an operator-trusted issuer: `AGENTBREEDER_OIDC_TOKEN`,
+`AGENTBREEDER_OIDC_TOKEN_FILE`, or `agentbreeder login` (device flow). Only `human` identities can
+approve or enable.
+
+## Policy and approvals
+
+The policy engine evaluates an OpenID AuthZEN-shaped request. The operator's pinned baseline and
+every manifest-selected, operator-approved restriction must allow; any deny or error wins. Cedar
+is the default (`agentbreeder[cedar]`); OPA and AuthZEN servers are also supported.
+
+When policy or `maker_checker` requires approval, the deploy is held and exits with code 3:
+
+```sh
+agentbreeder approve <approval-id>                          # a second, verified person
+agentbreeder deploy agent.yaml --local --environment prod   # rerun to resume
+```
+
+The approver must be a verified human who isn't the deployer or the principal's sole sponsor. The
+approval is bound to the exact manifest, image, principal, environment, configuration and policy
+revision, expires (default 900 seconds) and is consumed once.
+
+## Kill switch and lifecycle
+
+```sh
+agentbreeder disable <deployment-id|name> --local [--idp]
+agentbreeder enable <deployment-id|name>
+agentbreeder reconcile --local
+agentbreeder status <id>
+```
+
+`disable` persists a blocker for the principal and environment, audits it, invalidates open
+approvals and stops every affected container. Retries, restarts, renames, removal and audit mode
+can't bypass it. `enable` clears only the local blocker; it starts nothing and revives no approval.
+
+## Audit log
+
+`agentbreeder audit list` and `agentbreeder audit verify` read a hash-chained audit table in the
+local state database. Deployment state changes and their audit events commit together. If an
+audit write fails before execution, nothing is deployed.
+
+<Callout title="Integrity limits">
+  Verification detects corruption and edits that don't recompute the chain. It does **not**
+  detect a database owner recomputing the whole chain, replacing the database or deleting a valid
+  tail. It is not tamper-evident against the database owner.
+</Callout>
+
+## Runtime tool enforcement
+
+With `runtime_enforcement.mode: mcp_http` (which needs a policy engine), each local deployment
+runs behind an **MCP egress sidecar**. This is a different component from the 2.x
+[Go sidecar](/docs/sidecar).
+
+- **Isolation.** The agent joins only a per-deployment Docker `--internal` network with no route
+  off the host. The sidecar is its only way out. Before any traffic, deploy verifies the topology
+  and probes that direct egress is blocked; if anything fails, everything is removed and the
+  deploy exits with `RUNTIME_BOUNDARY_UNVERIFIED`.
+- **Every tool call.** The JSON-RPC body is validated and must match the MCP headers. A host
+  decision service evaluates `tools/call` against policy for the deployment's verified principal,
+  and writes an audit row **before** forwarding. If the audit write fails, nothing is forwarded.
+- **Credentials.** The agent's own `Authorization` header is stripped. Tool credentials stay on
+  the host and are added by the sidecar, so the agent never holds them.
+- **Held calls.** A call that needs approval returns JSON-RPC error `-32002` with a
+  `held_call_id`. A second person runs `agentbreeder approve-call <id>` (or `reject-call`), and
+  the agent retries the identical call, which is released once.
+
+Only MCP Streamable HTTP `POST` is supported. Verified on Docker Desktop (macOS). The Linux
+Unix-socket path is unit-tested but not yet verified on a Linux host.
+
+## Not implemented
+
+- GCP/Databricks identity anchors, SPIRE and draft protocols. These depend on non-local targets.
+- Break-glass deploys during an IdP outage (deliberately absent).
+
+Canonical reference, including the full deny-code table and operator options:
+[docs/identity-gate.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/identity-gate.md).

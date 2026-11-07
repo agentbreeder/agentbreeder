@@ -1,0 +1,72 @@
+---
+title: Local deployment (preview)
+description: Deploy, inspect and remove a trusted HTTP container on a local Docker engine with the rebuild's CLI.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn">
+  Preview, install from source. This is a development-only, single-user runtime for macOS and
+  Linux. There is no management HTTP API or UI, and no production deployment target.
+</Callout>
+
+## Requirements for your image
+
+- A trusted, stateless HTTP container that returns HTTP 200 from its health path.
+- It runs as UID/GID 65532 with a read-only filesystem and listens on `0.0.0.0` at the manifest
+  port inside the container.
+- The port is published on host loopback only. Health checks follow no redirects and use no proxies.
+- Images that declare `VOLUME` are rejected, as are secret injection, non-local Docker transports
+  and Kubernetes targets.
+
+## Deploy your own image
+
+```sh
+docker build --iidfile /tmp/agentbreeder-sample-image examples/http-agent
+.venv/bin/python - <<'PYTHON'
+from pathlib import Path
+image = Path('/tmp/agentbreeder-sample-image').read_text().strip()
+Path('/tmp/agentbreeder-sample.yaml').write_text(
+    f'schema_version: 1\nname: http-sample\nimage: {image}\ntarget: local\n'
+)
+PYTHON
+.venv/bin/agentbreeder deploy /tmp/agentbreeder-sample.yaml --local
+```
+
+Every deploy first passes the [identity gate](/docs/preview/identity-gate). Pass
+`--environment <name>` to pick an environment from the operator configuration.
+
+```sh
+.venv/bin/agentbreeder status DEPLOYMENT_ID --json
+.venv/bin/agentbreeder remove DEPLOYMENT_ID --local
+```
+
+Repeating a deploy with the same manifest resumes the same deployment. A changed manifest needs
+the earlier deployment removed first; updates and rollback are later work.
+
+`status` re-resolves the bound principal and reports `compliant`, `noncompliant:<code>` or
+`unverifiable:<code>`. The deployment state it shows is the last recorded observation, not a live
+health check.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Deployment or removal verified, or status read |
+| 1 | Recorded runtime failure, or an incomplete disable |
+| 2 | Invalid input, gate denial (`[CODE]`), audit-write failure, state access or prerequisite failure |
+| 3 | Deployment is pending a second-person approval |
+
+## State and limits
+
+- State and event history live in `~/.agentbreeder/local` (override with `--state-dir`). The
+  directory must be `0700` and the database `0600`, both owned by you. Keep the directory while
+  resources exist.
+- Anyone with access to the Docker socket can bypass these local controls.
+- Workloads can make outbound connections unless the operator turns on
+  [runtime enforcement](/docs/preview/identity-gate#runtime-tool-enforcement).
+- The local tool adds no authentication to invocation. Don't publish the port externally.
+
+Canonical reference:
+[docs/local-deployment.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/local-deployment.md)
+and [docs/first-deployment.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/first-deployment.md).

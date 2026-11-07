@@ -1,0 +1,80 @@
+---
+title: Manifest (preview)
+description: The rebuild's deployment manifest, schema versions 1 and 2. It is incompatible with 2.x agent.yaml files.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn">
+  Preview, install from source. This manifest is **not** the 2.x [`agent.yaml`](/docs/agent-yaml).
+  It has no framework, prompt, RAG or orchestration fields: your container supplies the agent's
+  behaviour.
+</Callout>
+
+## Fields
+
+| Field | Contract |
+|---|---|
+| `schema_version` | Required: `1` or `2`. Operator `enforce` mode requires `2` to deploy |
+| `name` | Required lowercase DNS label, 1–63 characters |
+| `image` | Required image reference ending in `@sha256:` plus 64 lowercase hex characters, or a local-only `sha256:<64 hex>` image ID |
+| `target` | `local` (default) or `kubernetes`; only the local adapter is implemented |
+| `port` | Integer 1–65535; default 8080 |
+| `health_path` | Absolute HTTP path (letters, digits, `/`, `_`, `-`); default `/health`; no query string |
+| `secrets` | Optional map of uppercase environment names to `secret://name` references; no literal values. Local deploys reject nonempty secrets |
+| `identity` | v2, required: `provider` (operator connection name), `ref` (provider-specific immutable ID), `environment`, optional `expect_owner`. A reference only; AgentBreeder never creates identities |
+| `requires.roles` | v2: list of `{authority, resource, role_id}` immutable IDs that must already be granted |
+| `requires.groups` | v2: list of `{authority, group_id}` stable IDs |
+| `requires.attributes` | v2: map of `namespace/name` to an exact required value |
+| `capabilities` | v2: `tools: [{mcp: https://…, actions: [...]}]` and `approval_required`. A deploy-time ceiling; enforced per call only when the operator turns on runtime enforcement |
+| `policy.restrictions` | v2: operator-approved restriction bundle IDs. They can only restrict |
+
+Input must be a single UTF-8 YAML mapping of at most 64 KiB. Unknown fields, duplicate keys,
+aliases/anchors and wrong types are rejected.
+
+Nothing in the manifest can grant a permission, select the baseline policy, choose the
+enforcement mode or create an environment. Those belong to the operator configuration.
+
+## Examples
+
+```yaml
+schema_version: 1
+name: support-agent
+image: registry.example.com/support@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+target: local
+port: 8080
+health_path: /health
+```
+
+```yaml
+schema_version: 2
+name: refund-agent
+image: registry.example.com/refund@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+target: local
+identity:
+  provider: corp
+  ref: 4f1c2b7e-0000-4000-8000-000000000001
+  environment: prod
+  expect_owner: alice@example.com
+requires:
+  roles:
+    - {authority: tenant-id, resource: payments-api-id, role_id: refunds-role-id}
+  groups:
+    - {authority: tenant-id, group_id: finance-group-id}
+  attributes:
+    acme-governance/data_classification: confidential
+policy:
+  restrictions: [pci]
+```
+
+## Validate
+
+```sh
+.venv/bin/agentbreeder validate agent.yaml          # exit 0 valid, 2 invalid
+.venv/bin/agentbreeder validate agent.yaml --json   # normalized output
+```
+
+Validation doesn't deploy anything or check that the image or secrets exist.
+
+Canonical reference: [docs/manifest.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/manifest.md)
+and its [JSON Schema](https://github.com/agentbreeder/agentbreeder/blob/main/docs/manifest.schema.json).

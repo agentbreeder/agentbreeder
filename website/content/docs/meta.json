@@ -6,6 +6,8 @@
     "quickstart",
     "how-to",
     "local-development",
+    "---Focused rebuild (preview)---",
+    "preview",
     "---Concepts---",
     "agent-yaml",
     "registry-guide",
