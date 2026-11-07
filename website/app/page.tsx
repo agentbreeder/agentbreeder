@@ -1,16 +1,7 @@
 import { Nav } from '@/components/nav';
-import { CloudBanner } from '@/components/cloud-banner';
 import { Hero } from '@/components/hero';
-import { Frameworks } from '@/components/frameworks';
-import { AgentDemo } from '@/components/agent-demo';
-import { AgentForAll } from '@/components/agent-for-all';
-import { DeployAnywhere } from '@/components/deploy-anywhere';
-import { PlatformLock } from '@/components/platform-lock';
-import { FiveLayerArch } from '@/components/five-layer-arch';
-import { RegistryLifecycle } from '@/components/registry-lifecycle';
-import { Features } from '@/components/features';
 import { HowItWorks } from '@/components/how-it-works';
-import { CloudComing } from '@/components/cloud-coming';
+import { WhatShips } from '@/components/what-ships';
 import { BuiltBy } from '@/components/built-by';
 import { Footer } from '@/components/footer';
 import type { Metadata } from 'next';
@@ -22,7 +13,7 @@ export const metadata: Metadata = {
 const SITE_URL = 'https://www.agentbreeder.io';
 const GITHUB_URL = 'https://github.com/agentbreeder/agentbreeder';
 const SITE_DESCRIPTION =
-  "The only agent platform that doesn't pick a winner. Open-source substrate for building, deploying, and governing AI agents — any framework, any cloud, one agent.yaml. Apache 2.0.";
+  'Open-source preview: deploy an agent container to local Docker only after its identity checks out in your identity provider, with policy, approval, a kill switch and a hash-chained audit log. Apache 2.0.';
 
 const homeJsonLd = {
   '@context': 'https://schema.org',
@@ -38,7 +29,7 @@ const homeJsonLd = {
       '@type': 'SoftwareApplication',
       name: 'AgentBreeder',
       applicationCategory: 'DeveloperApplication',
-      operatingSystem: 'Linux, macOS, Windows',
+      operatingSystem: 'macOS, Linux',
       url: SITE_URL,
       description: SITE_DESCRIPTION,
       offers: {
@@ -61,21 +52,11 @@ export default function HomePage() {
       */}
       <script type="application/ld+json">{JSON.stringify(homeJsonLd)}</script>
       <Nav />
-      <CloudBanner />
       <main>
         <Hero />
-        <Frameworks />
-        <AgentDemo />
-        <AgentForAll />
-        <DeployAnywhere />
-        <PlatformLock />
-        <FiveLayerArch />
-        <RegistryLifecycle />
-        <Features />
         <HowItWorks />
+        <WhatShips />
         <BuiltBy />
-        <div className="border-t" style={{ borderColor: 'var(--border)' }} />
-        <CloudComing />
       </main>
       <Footer />
     </>

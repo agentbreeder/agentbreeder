@@ -8,11 +8,12 @@ import { Logo } from '@/components/logo';
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <>
-      <Banner id="rebuild-preview-2026-11">
+      <Banner id="rebuild-docs-2026-11">
         <span>
-          These docs cover AgentBreeder 2.x, the version on PyPI. A focused rebuild is in preview:{' '}
-          <Link href="/docs/preview" className="underline underline-offset-4">
-            read about it
+          Preview, install from source. <code>pip install agentbreeder</code> still installs the
+          unmaintained 2.x:{' '}
+          <Link href="/docs/legacy-2x" className="underline underline-offset-4">
+            known issues
           </Link>
           .
         </span>

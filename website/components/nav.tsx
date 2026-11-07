@@ -13,8 +13,7 @@ type NavLink = {
 
 const NAV_LINKS: NavLink[] = [
   { href: '/docs', label: 'Docs' },
-  { href: '/docs/quickstart', label: 'Examples' },
-  { href: '/cloud', label: 'Cloud', highlight: true, icon: 'zap' },
+  { href: '/cloud', label: 'Cloud (planned)' },
   { href: '/blog', label: 'Blog' },
 ];
 
@@ -105,7 +104,7 @@ export function Nav() {
             <span className="hidden lg:inline">GitHub</span>
           </a>
           <Link
-            href="/docs/quickstart"
+            href="/docs"
             className="flex min-h-[44px] items-center rounded-lg px-4 text-sm font-bold no-underline transition-opacity hover:opacity-90"
             style={{ background: 'var(--accent)', color: '#000' }}
           >

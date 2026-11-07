@@ -3,18 +3,15 @@ import { Logo } from './logo';
 
 const LINKS = {
   Docs: [
-    { label: 'Getting Started', href: '/docs' },
-    { label: 'agent.yaml', href: '/docs/agent-yaml' },
-    { label: 'CLI Reference', href: '/docs/cli-reference' },
-    { label: 'SDK', href: '/docs/orchestration-sdk' },
-    { label: 'Migrations', href: '/docs/migrations/overview' },
+    { label: 'Overview', href: '/docs' },
+    { label: 'Local deployment', href: '/docs/local-deployment' },
+    { label: 'Manifest', href: '/docs/manifest' },
+    { label: 'Identity gate', href: '/docs/identity-gate' },
+    { label: 'Legacy 2.x', href: '/docs/legacy-2x' },
   ],
   'Open Source': [
     { label: 'GitHub ↗', href: 'https://github.com/agentbreeder/agentbreeder' },
-    { label: 'PyPI ↗', href: 'https://pypi.org/project/agentbreeder/' },
-    { label: 'Docker Hub ↗', href: 'https://hub.docker.com/u/rajits' },
-    { label: 'npm ↗', href: 'https://www.npmjs.com/package/@agentbreeder/sdk' },
-    { label: 'Homebrew ↗', href: 'https://github.com/agentbreeder/homebrew-agentbreeder' },
+    { label: 'Security ↗', href: 'https://github.com/agentbreeder/agentbreeder/security' },
   ],
   Blog: [
     { label: 'Why I Built AgentBreeder', href: '/blog/why-i-built-agentbreeder' },
@@ -44,7 +41,7 @@ export function Footer() {
               className="mt-3 max-w-[280px] text-[13px] leading-[1.7]"
               style={{ color: 'var(--text-muted)' }}
             >
-              Open-source platform for building, deploying, and governing enterprise AI agents.
+              Open-source preview: deploy existing agent containers behind a deploy-time identity gate.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-8 sm:contents">
@@ -86,7 +83,7 @@ export function Footer() {
               color: 'var(--accent)',
             }}
           >
-            v2.6.0
+            preview · source only
           </span>
         </div>
       </div>

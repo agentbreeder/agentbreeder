@@ -8,7 +8,7 @@ AgentBreeder spans this repo (OSS, including `website/`) and `agentbreeder-cloud
 | Surface | State |
 |---|---|
 | PyPI `agentbreeder` | 2.7.3, the legacy 2.x release. The focused rebuild (`0.0.0.dev0`) installs from source only |
-| `website/content/docs/` | Documents 2.x, matching PyPI. The rebuild is documented under `website/content/docs/preview/`, with a docs banner linking to it |
+| `website/content/docs/` | Documents the focused rebuild (since 2026-11-07). 2.x is unmaintained and summarised in `legacy-2x.mdx`; its docs live at the `v2.7.3` tag. Old `/docs/preview/*` and 2.x URLs redirect (`website/next.config.mjs`) |
 | `agentbreeder-cloud` code | Imports no OSS module and doesn't read the manifest or call the CLI. A rebuild manifest change needs no Cloud code change today |
 | Design system | `website/brand.css` (moved from `dashboard/src/styles/brand.css` when the dashboard was removed) |
 
@@ -30,8 +30,8 @@ Edit `brand.css` here first, then re-vendor in Cloud and let the drift check con
 
 | Change | OSS | Cloud | Website |
 |---|---|---|---|
-| Manifest field or CLI flag | `docs/manifest.md`, `docs/manifest.schema.json`, tests | Search for the field; today nothing consumes it | Update `content/docs/preview/` |
-| Identity gate or runtime enforcement | `docs/identity-gate.md` | Note in Cloud `CLAUDE.md` if Cloud should expose it | Update `content/docs/preview/identity-gate.mdx` |
+| Manifest field or CLI flag | `docs/manifest.md`, `docs/manifest.schema.json`, tests | Search for the field; today nothing consumes it | Update `website/content/docs/manifest.mdx` |
+| Identity gate or runtime enforcement | `docs/identity-gate.md` | Note in Cloud `CLAUDE.md` if Cloud should expose it | Update `website/content/docs/identity-gate.mdx` (and `what-ships.tsx` if a capability changes) |
 | First PyPI release of the rebuild | Release notes; migration guidance from 2.x | Re-check consumers; companion PR if needed | Replace the 2.x docs, footer version and install steps |
 | `brand.css` | Edit `website/brand.css` | Re-vendor `tokens.css`; run `tokens:check` | Adopt once visually reviewed |
 

@@ -1,5 +1,9 @@
 # ROADMAP.md — AgentBreeder
 
+> **Historical (2.x).** This roadmap describes the 2.x platform, which is unmaintained. Items
+> marked done here were not all verified to work (see the website's Legacy 2.x page). The focused
+> rebuild is tracked in #648 and described in `README.md` and `ARCHITECTURE.md`.
+
 > **Vision:** The enterprise one-stop shop for Agent Marketplace, Agent Evaluation, Agent Observability, Cost Monitoring, and AgentOps.
 >
 > **Guiding principle:** The dashboard and registry are the product. The CLI and deploy engine are the on-ramp. Every milestone should make the UI more useful and the registry more valuable.

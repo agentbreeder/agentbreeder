@@ -63,6 +63,9 @@ function tagStyle(tag: string) {
   return TAG_PALETTE[tag] ?? { bg: 'rgba(255,255,255,0.06)', text: 'var(--text-muted)' };
 }
 
+// Posts dated before the focused rebuild describe 2.x and get a historical notice.
+const REBUILD_DATE = '2026-09-15';
+
 export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params;
   const post = getBlogPost(slug);
@@ -171,6 +174,26 @@ export default async function BlogPostPage({ params }: Props) {
               className="block w-full h-auto"
               sizes="(max-width: 768px) 100vw, 768px"
             />
+          </div>
+        )}
+
+        {post.date < REBUILD_DATE && (
+          <div
+            role="note"
+            className="mb-10 rounded-xl border px-5 py-4 text-[14px] leading-[1.65]"
+            style={{ borderColor: 'rgba(251,191,36,0.35)', background: 'rgba(251,191,36,0.06)', color: 'var(--text-muted)' }}
+          >
+            <strong className="text-white">Historical post.</strong> This was written about
+            AgentBreeder 2.x. Many product claims in it did not hold up in a 2026-11 end-to-end
+            test, and 2.x is now unmaintained. For what AgentBreeder does today, see{' '}
+            <Link href="/docs" className="underline" style={{ color: 'var(--accent)' }}>
+              the docs
+            </Link>{' '}
+            and{' '}
+            <Link href="/docs/legacy-2x" className="underline" style={{ color: 'var(--accent)' }}>
+              Legacy 2.x
+            </Link>
+            .
           </div>
         )}
 
