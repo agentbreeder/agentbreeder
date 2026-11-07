@@ -4,7 +4,7 @@
 
 - `src/agentbreeder/manifest.py`: versioned strict input contract, bounded YAML parsing, no side effects.
 - `src/agentbreeder/doctor.py`: read-only local Docker diagnostic with a timeout.
-- `src/agentbreeder/cli.py`: validate, doctor, deploy, status and remove commands.
+- `src/agentbreeder/cli.py`: validate, doctor, deploy, status, remove, approve/reject, approve-call/reject-call, disable/enable, reconcile, audit list/verify and login.
 - Identity gate (#701): `operator_config.py` (operator enforcement/environments), `identity/` (read-only IdP adapters), `deployer.py` (OIDC-verified deployers), `policy/` (Cedar/OPA/AuthZEN PDP), `gate.py` (deploy-time checks), `audit.py` (hash-chained attempt log). See `docs/identity-gate.md`.
 - `examples/http-agent`: real health/invocation sample; not an AI agent or production service.
 

@@ -98,7 +98,7 @@ def test_authorize_local_unix_context_probes_engine(monkeypatch):
     assert calls == [
         ("context", "show"),
         ("context", "inspect", "desktop-linux"),
-        ("info", "--format", "{{.ServerVersion}}"),
+        ("version", "--format", "{{.Server.Version}}"),
     ]
     assert runtime.command.call_args_list[-1].kwargs == {"timeout": 10}
 
@@ -677,3 +677,17 @@ def test_python_dash_m_entrypoint_reports_version(monkeypatch, capsys):
         runpy.run_module("agentbreeder", run_name="__main__")
     assert exit_.value.code == 0
     assert capsys.readouterr().out.strip() == __version__
+
+
+def test_authorize_empty_engine_version_fails_closed(monkeypatch):
+    # Regression: an unreachable engine must not authorize just because the CLI exited 0.
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    runtime = Docker()
+    runtime.command = Mock(
+        side_effect=[
+            json.dumps([{"Endpoints": {"docker": {"Host": "unix:///var/run/docker.sock"}}}]),
+            "",
+        ]
+    )
+    with pytest.raises(DeploymentError, match="Cannot reach the Docker engine"):
+        runtime.authorize("local")

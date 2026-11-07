@@ -40,7 +40,9 @@ def _parser() -> argparse.ArgumentParser:
         prog="agentbreeder",
         description=(
             "Local development: validate, gate and deploy trusted HTTP containers. "
-            "The identity gate is a deploy-time check only."
+            "The identity gate runs at deploy time; status and reconcile re-verify "
+            "principals. Opt-in runtime enforcement covers MCP Streamable HTTP tool calls "
+            "through the egress sidecar only."
         ),
     )
     parser.add_argument("--version", action="version", version=__version__)
@@ -139,10 +141,34 @@ def _message(error: Exception) -> str:
     return text if not code or text.startswith("[") else f"[{code}] {text}"
 
 
+# Commands that only make sense against existing state. deploy creates it; disable may set a
+# blocker before any deployment exists.
+_NEEDS_EXISTING_STATE = frozenset(
+    {
+        "status",
+        "remove",
+        "approve",
+        "reject",
+        "approve-call",
+        "reject-call",
+        "enable",
+        "reconcile",
+        "audit",
+    }
+)
+
+
 def _stateful(args) -> int:
     store = None
     try:
         manifest = load_manifest(Path(args.manifest)) if args.command == "deploy" else None
+        if (
+            args.command in _NEEDS_EXISTING_STATE
+            and not (args.state_dir / "deployments.sqlite3").exists()
+        ):
+            # Never create an empty state for a read/act-on-existing command: a mistyped
+            # --state-dir would otherwise report success ("OK: 0 rows") on the wrong place.
+            raise DeploymentError(f"No AgentBreeder state at {args.state_dir}; check --state-dir")
         store = Store(args.state_dir)
         if args.command == "audit":
             return _audit(store, args)
@@ -197,7 +223,7 @@ def _stateful(args) -> int:
             else:
                 for item in results:
                     print(f"{item['id']}  {item['name']}  {item['compliance']}")
-            return 1 if any(r["compliance"].endswith(":cleanup_failed") for r in results) else 0
+            return _reconcile_exit_code(results)
         if args.command == "remove":
             return _print_deployment(
                 service.remove(args.id, local=args.local, actor=resolve_deployer(operator)),
@@ -225,6 +251,17 @@ def _stateful(args) -> int:
     finally:
         if store:
             store.close()
+
+
+def _reconcile_exit_code(results: list[dict]) -> int:
+    """1 when blocked cleanup still fails; 4 when any deployment is noncompliant or cannot be
+    verified (so scripts and CI can gate on drift); otherwise 0."""
+    compliance = [r["compliance"] or "" for r in results]
+    if any(c.endswith(":cleanup_failed") for c in compliance):
+        return 1
+    if any(c.startswith(("noncompliant:", "unverifiable:")) for c in compliance):
+        return 4
+    return 0
 
 
 def _summary(result: dict) -> str:

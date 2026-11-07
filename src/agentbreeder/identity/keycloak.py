@@ -103,6 +103,8 @@ class KeycloakProvider:
                 person = call(
                     self.transport, "GET", f"{admin}/users/{safe_id(sponsor)}", headers=headers
                 )
+                if not isinstance(person, dict):
+                    raise ProviderError("PROVIDER_ERROR", "Unexpected Keycloak sponsor shape")
                 username = str(person.get("username") or "")
                 is_human = not person.get("serviceAccountClientId") and not username.startswith(
                     "service-account-"

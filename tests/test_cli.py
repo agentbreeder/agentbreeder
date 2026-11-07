@@ -15,10 +15,10 @@ def test_docker_command_is_bounded_read_only(monkeypatch):
     monkeypatch.setattr(doctor.shutil, "which", lambda _: "/usr/bin/docker")
 
     def run(command, **options):
-        assert command == ["/usr/bin/docker", "info", "--format", "{{json .ServerVersion}}"]
+        assert command == ["/usr/bin/docker", "version", "--format", "{{.Server.Version}}"]
         assert options["timeout"] == 10
         assert "shell" not in options
-        return subprocess.CompletedProcess(command, 0, '"1.0"', "")
+        return subprocess.CompletedProcess(command, 0, "1.0\n", "")
 
     monkeypatch.setattr(doctor.subprocess, "run", run)
     assert doctor.check_docker()[0].passed
@@ -93,3 +93,14 @@ def test_deploy_cli_failed_runtime_exit(monkeypatch, tmp_path, capsys):
         == 1
     )
     assert json.loads(capsys.readouterr().out)["endpoint"] is None
+
+
+def test_docker_unreachable_engine_with_zero_exit_is_not_a_pass(monkeypatch):
+    # Regression: `docker info --format` exits 0 with empty output when the engine is down.
+    monkeypatch.setattr(doctor.shutil, "which", lambda _: "/usr/bin/docker")
+    monkeypatch.setattr(
+        doctor.subprocess,
+        "run",
+        lambda command, **options: subprocess.CompletedProcess(command, 0, "\n", "error"),
+    )
+    assert doctor.check_docker()[0].passed is False
