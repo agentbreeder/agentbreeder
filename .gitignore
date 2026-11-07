@@ -108,6 +108,5 @@ docs/superpowers/private/
 # longer contain supported source. Preserve the protection formerly supplied
 # by their removed nested .gitignore files, including credentials/build output.
 /dashboard/
-/website/
 /sidecar/
 /examples/go-agent/

@@ -1,0 +1,408 @@
+---
+title: MCP Server Authoring
+description: Build and deploy MCP servers in TypeScript, Python, or Go using AgentBreeder's scaffolding. Same deploy pipeline as agents — governance, registry, and RBAC included.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+AgentBreeder lets you **author, deploy, and register MCP servers** in any supported language using the same workflow as agents. Once deployed, any agent in your organization can reference your MCP server from `agent.yaml` — no manual wiring required.
+
+<Callout type="info">
+  MCP servers are containers. They go through the same RBAC check, registry entry, and governance pipeline as agents. There is no separate "tool registry" — MCP servers appear in the main registry under the `tools/` namespace.
+</Callout>
+
+<Callout type="warn" title="Language status (v2.0)">
+  TypeScript, Python, and Go MCP-server scaffolds are shipped. **Rust** scaffolding is reserved but not yet wired (tracked at [#189](https://github.com/agentbreeder/agentbreeder/issues/189)) — the Rust tabs below show the planned shape; until then implement the MCP protocol by hand and deploy as `framework: custom`.
+</Callout>
+
+---
+
+## Quickstart
+
+### 1. Scaffold
+
+<Tabs items={['TypeScript', 'Python', 'Go', 'Rust']}>
+<Tab value="TypeScript">
+```bash
+agentbreeder init --type mcp-server --language node --name my-tools
+```
+</Tab>
+<Tab value="Python">
+```bash
+agentbreeder init --type mcp-server --language python --name my-tools
+```
+</Tab>
+<Tab value="Go">
+```bash
+agentbreeder init --type mcp-server --language go --name my-tools
+```
+</Tab>
+<Tab value="Rust">
+```bash
+agentbreeder init --type mcp-server --language rust --name my-tools
+```
+</Tab>
+</Tabs>
+
+### 2. Write your tools
+
+This is the only file you write. No MCP protocol code, no server setup.
+
+<Tabs items={['TypeScript', 'Python', 'Go', 'Rust']}>
+<Tab value="TypeScript">
+```typescript
+// tools.ts
+export async function search_web({
+  query,
+  max_results = 10,
+}: {
+  query: string
+  max_results?: number
+}) {
+  const res = await fetch(`https://api.search.com?q=${encodeURIComponent(query)}&n=${max_results}`)
+  return res.json()
+}
+
+export async function read_file({ path }: { path: string }) {
+  const { readFile } = await import('fs/promises')
+  return readFile(path, 'utf-8')
+}
+
+export async function run_query({
+  sql,
+}: {
+  sql: string
+}) {
+  // your database client
+  return db.query(sql)
+}
+```
+</Tab>
+<Tab value="Python">
+```python
+# tools.py
+import httpx
+
+async def search_web(query: str, max_results: int = 10) -> dict:
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://api.search.com",
+            params={"q": query, "n": max_results}
+        )
+        return resp.json()
+
+async def read_file(path: str) -> str:
+    with open(path) as f:
+        return f.read()
+
+async def run_query(sql: str) -> list[dict]:
+    return await db.fetch(sql)
+```
+</Tab>
+<Tab value="Go">
+```go
+// tools.go
+package tools
+
+import "net/http"
+
+func SearchWeb(args struct{ Query string; MaxResults int }) (any, error) {
+    if args.MaxResults == 0 {
+        args.MaxResults = 10
+    }
+    resp, err := http.Get("https://api.search.com?q=" + args.Query)
+    // ... parse and return
+    return results, err
+}
+
+func ReadFile(args struct{ Path string }) (string, error) {
+    data, err := os.ReadFile(args.Path)
+    return string(data), err
+}
+```
+</Tab>
+<Tab value="Rust">
+```rust
+// tools.rs
+pub async fn search_web(query: &str, max_results: usize) -> anyhow::Result<serde_json::Value> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://api.search.com")
+        .query(&[("q", query), ("n", &max_results.to_string())])
+        .send()
+        .await?
+        .json()
+        .await?;
+    Ok(resp)
+}
+
+pub async fn read_file(path: &str) -> anyhow::Result<String> {
+    Ok(tokio::fs::read_to_string(path).await?)
+}
+```
+</Tab>
+</Tabs>
+
+### 3. Configure `mcp-server.yaml`
+
+```yaml
+name: my-search-tools
+version: 1.0.0
+type: mcp-server
+team: engineering
+owner: you@company.com
+
+runtime:
+  language: node          # node | python | go | rust
+  framework: mcp-ts       # mcp-ts | mcp-py | mcp-go | mcp-rust
+  version: "20"
+
+transport: http            # http (default) | stdio
+
+tools:
+  - name: search_web
+    description: "Search the web for current information"
+    schema:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "Search query"
+        max_results:
+          type: integer
+          default: 10
+      required: [query]
+
+  - name: read_file
+    description: "Read file contents from the workspace"
+    schema:
+      type: object
+      properties:
+        path: { type: string }
+      required: [path]
+
+deploy:
+  cloud: local
+
+access:
+  visibility: team         # public | team | private
+```
+
+### 4. Deploy and register
+
+```bash
+agentbreeder deploy
+
+# → MCP server built and started
+# → Registered in registry as tools/my-search-tools
+# → Available to all agents in your team
+```
+
+### 5. Reference from any agent
+
+```yaml
+# agent.yaml
+tools:
+  - ref: tools/my-search-tools     # TypeScript MCP server
+  - ref: tools/zendesk-mcp         # Python MCP server
+  - ref: tools/data-pipeline-tools # Go MCP server
+```
+
+Language of the MCP server is transparent to the agent — the APS sidecar handles the protocol.
+
+---
+
+## `mcp-server.yaml` Reference
+
+```yaml
+name: my-tools              # Required. Slug: ^[a-z0-9][a-z0-9-]*[a-z0-9]$
+version: 1.0.0              # Required. SemVer.
+type: mcp-server            # Required. Distinguishes from agent type.
+team: engineering           # Required.
+owner: you@company.com      # Required.
+description: "..."          # Optional but encouraged.
+tags: [search, data]        # Optional.
+
+runtime:
+  language: node            # Required. node | python | go | rust
+  framework: mcp-ts         # Required. See framework table below.
+  version: "20"             # Optional. Language runtime version.
+
+transport: http             # Optional. http (default) | stdio
+
+tools:
+  - name: tool_name         # Required. snake_case.
+    description: "..."      # Required. Shown to LLMs — be specific.
+    schema:                 # Required. OpenAPI-compatible JSON Schema.
+      type: object
+      properties:
+        param: { type: string, description: "..." }
+      required: [param]
+
+deploy:
+  cloud: local              # Required. Same options as agent.yaml.
+  resources:
+    cpu: "0.5"
+    memory: "512Mi"
+
+access:
+  visibility: team          # Optional. Defaults to team.
+```
+
+### Framework options
+
+| `runtime.language` | `runtime.framework` | MCP SDK used |
+|---|---|---|
+| `node` | `mcp-ts` | `@modelcontextprotocol/sdk` |
+| `python` | `mcp-py` | `mcp` (official Python SDK) |
+| `go` | `mcp-go` | `github.com/mark3labs/mcp-go` |
+| `rust` | `mcp-rust` | `mcp-rs` |
+
+---
+
+## Transport Modes
+
+### HTTP (default)
+
+The MCP server runs as an HTTP service. Agents connect via the platform registry — no URL needed in `agent.yaml`.
+
+```yaml
+transport: http
+```
+
+Best for: long-running tools, tools that maintain connection state, high-throughput scenarios.
+
+### stdio
+
+The MCP server runs as a subprocess. The platform manages process lifecycle.
+
+```yaml
+transport: stdio
+```
+
+Best for: simple tools, tools that wrap CLI utilities, local development.
+
+---
+
+## Writing Good Tool Descriptions
+
+Tool descriptions are passed directly to LLMs. Vague descriptions cause the LLM to use the wrong tool or misformat arguments.
+
+**Bad:**
+```yaml
+- name: search
+  description: "Does a search"
+```
+
+**Good:**
+```yaml
+- name: search_web
+  description: >
+    Search the web for current information not in the LLM's training data.
+    Use for: news, current events, pricing, availability, recent releases.
+    Do NOT use for: general knowledge, code questions, math.
+  schema:
+    type: object
+    properties:
+      query:
+        type: string
+        description: "Specific search query. Be precise — avoid vague terms."
+      max_results:
+        type: integer
+        description: "Number of results to return. Default 10, max 50."
+```
+
+---
+
+## Versioning MCP Servers
+
+Use SemVer. Agents pin to a version range in `agent.yaml`:
+
+```yaml
+# agent.yaml
+tools:
+  - ref: tools/my-search-tools@^1.0    # any 1.x version
+  - ref: tools/my-search-tools@1.2.0   # exact version
+  - ref: tools/my-search-tools         # latest
+```
+
+Breaking changes (removed tools, changed required params) → bump major version.  
+New tools, new optional params → bump minor version.
+
+---
+
+## Testing Your MCP Server Locally
+
+```bash
+# Start the MCP server
+agentbreeder deploy --target local
+
+# Call a tool directly
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "search_web",
+      "arguments": { "query": "AgentBreeder polyglot" }
+    },
+    "id": 1
+  }'
+
+# Or use the AgentBreeder sandbox
+agentbreeder tool sandbox --ref tools/my-search-tools --tool search_web \
+  --input '{"query": "test query"}'
+```
+
+---
+
+## Deploying to Cloud
+
+```yaml
+deploy:
+  cloud: aws
+  runtime: ecs-fargate
+  region: us-east-1
+  scaling:
+    min: 1
+    max: 5
+  resources:
+    cpu: "0.5"
+    memory: "512Mi"
+```
+
+```bash
+agentbreeder deploy --target aws
+# → Container built, pushed to ECR, deployed to ECS
+# → Registry entry updated with production endpoint
+# → All agents referencing tools/my-search-tools now use the production URL
+```
+
+---
+
+## FAQ
+
+**Can an MCP server written in Go be used by a TypeScript agent?**  
+Yes. The APS sidecar proxies MCP protocol calls — language is transparent. The agent's `agent.yaml` just references `tools/my-go-tools` and the sidecar handles the rest.
+
+**Can I use an existing MCP server (not built with AgentBreeder)?**  
+Yes — register it manually:
+```bash
+agentbreeder register --type mcp-server \
+  --name existing-server \
+  --url https://my-mcp-server.example.com
+```
+
+**How are secrets (API keys) passed to MCP servers?**  
+Same as agents — use `deploy.secrets` in `mcp-server.yaml`:
+```yaml
+deploy:
+  secrets:
+    - SEARCH_API_KEY
+    - DATABASE_URL
+```
+
+**What's the difference between `tools` in `agent.yaml` and `tools` in `mcp-server.yaml`?**  
+In `agent.yaml`, `tools` is a list of tool references the agent can call. In `mcp-server.yaml`, `tools` is the list of tools this server **exposes** — it defines the schema shown to LLMs.

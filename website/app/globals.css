@@ -1,0 +1,192 @@
+@import 'fumadocs-ui/style.css';
+@import "tailwindcss";
+
+:root {
+  --bg: #09090b;
+  --bg-base: #09090b;
+  --bg-surface: #111113;
+  --bg-elevated: #1a1a1e;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-hover: rgba(255, 255, 255, 0.14);
+  --text: #e4e4e7;
+  --text-muted: #a1a1aa;   /* zinc-400 — ~7.8:1 on --bg, AAA */
+  --text-dim:   #8b8b95;   /* ~5.9:1 on --bg, AA — was #3f3f46 which was ~1.9:1 and failed WCAG */
+  --accent: #22c55e;
+  --accent-dim: rgba(34, 197, 94, 0.10);
+  --accent-border: rgba(34, 197, 94, 0.22);
+  --purple: #a78bfa;
+}
+
+/* Override Fumadocs dark-mode tokens so sidebar, content, and TOC share the same background */
+.dark {
+  --color-fd-background: #09090b;
+  --color-fd-muted: #111113;
+  --color-fd-card: #09090b;
+  --color-fd-border: rgba(255, 255, 255, 0.07);
+}
+
+/* Also apply at root for pages that don't add .dark explicitly */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-fd-background: #09090b;
+    --color-fd-muted: #111113;
+    --color-fd-card: #09090b;
+    --color-fd-border: rgba(255, 255, 255, 0.07);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  /* offset anchors and page-tops below the fixed Fumadocs nav (h-14 = 3.5rem) */
+  scroll-padding-top: 3.5rem;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg-elevated); border-radius: 3px; }
+
+@keyframes ab-pulse {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 0.15; }
+}
+
+/* Hero load-in: staggered fade + translate. See #494. */
+@keyframes hero-reveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.hero-stagger > * {
+  opacity: 0;
+  animation: hero-reveal 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.hero-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.hero-stagger > *:nth-child(2) { animation-delay: 80ms; }
+.hero-stagger > *:nth-child(3) { animation-delay: 160ms; }
+.hero-stagger > *:nth-child(4) { animation-delay: 240ms; }
+.hero-stagger > *:nth-child(5) { animation-delay: 320ms; }
+
+.hero-reveal-late {
+  opacity: 0;
+  animation: hero-reveal 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: 320ms;
+}
+
+/* Respect user motion preference — WCAG 2.3.3, Apple HIG, Material Motion.
+   Also resets the staggered reveal so content is immediately visible. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .hero-stagger > *,
+  .hero-reveal-late {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* Blog article prose */
+.prose-blog {
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.8;
+}
+.prose-blog h2 {
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+.prose-blog h3 {
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #fff;
+}
+.prose-blog p { margin-bottom: 1.25rem; }
+.prose-blog ul, .prose-blog ol {
+  margin-bottom: 1.25rem;
+  padding-left: 1.5rem;
+}
+.prose-blog li { margin-bottom: 0.4rem; }
+.prose-blog strong { color: #fff; font-weight: 600; }
+.prose-blog em { color: var(--text-muted); font-style: italic; }
+.prose-blog code {
+  font-family: var(--font-geist-mono);
+  font-size: 0.85em;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-hover);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+  color: var(--accent);
+}
+.prose-blog pre {
+  margin-bottom: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+}
+.prose-blog pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+.prose-blog hr {
+  margin: 2.5rem 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+.prose-blog a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.prose-blog a:hover { opacity: 0.85; }
+.prose-blog blockquote {
+  margin: 1.5rem 0;
+  padding: 0.75rem 1.25rem;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-surface);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.prose-blog table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+  font-size: 14px;
+}
+.prose-blog th {
+  text-align: left;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border-hover);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.prose-blog td {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.prose-blog tr:last-child td { border-bottom: none; }

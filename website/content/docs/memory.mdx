@@ -1,0 +1,354 @@
+---
+title: Memory — Conversation History & Session State
+description: Configure buffer memory, persistent session storage, and shared team memory for your agents.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+AgentBreeder's memory system gives agents access to conversation history, session state, and shared context across invocations. You configure a memory backend once and agents reference it by name — the same way they reference prompts or tools.
+
+---
+
+## Memory Backends
+
+| Backend | Value | Best for |
+|---------|-------|----------|
+| In-memory (default) | `in_memory` | Development and single-instance deployments |
+| PostgreSQL | `postgresql` | Production — durable across restarts and replicas |
+
+## Memory Types
+
+| Type | Value | Behaviour |
+|------|-------|-----------|
+| Buffer window | `buffer_window` | Keeps the last N messages (default: 100). Oldest are evicted. |
+| Buffer | `buffer` | Keeps all messages. No eviction. Use with caution on long sessions. |
+
+---
+
+## Quickstart
+
+### 1 — Create a memory config
+
+```bash
+agentbreeder config memory create \
+  --name support-memory \
+  --backend postgresql \
+  --type buffer_window \
+  --max-messages 50 \
+  --scope agent
+```
+
+Or via the API:
+
+```bash
+curl -X POST https://your-agentbreeder/api/v1/memory/configs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "support-memory",
+    "backend_type": "postgresql",
+    "memory_type": "buffer_window",
+    "max_messages": 50,
+    "scope": "agent"
+  }'
+```
+
+### 2 — Reference it in `agent.yaml`
+
+```yaml
+name: support-agent
+framework: claude_sdk
+model:
+  primary: claude-sonnet-4
+
+memory_config: support-memory
+```
+
+That's it. The agent now has a sliding window of the last 50 messages per session, persisted in PostgreSQL.
+
+---
+
+## Configuration Reference
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `name` | — | Registry name for this config — referenced in `agent.yaml` |
+| `backend_type` | `in_memory` | Storage backend: `in_memory` or `postgresql` |
+| `memory_type` | `buffer_window` | Eviction strategy: `buffer_window` or `buffer` |
+| `max_messages` | `100` | Max messages to retain per session (buffer_window only) |
+| `namespace_pattern` | `{agent_id}:{session_id}` | Key template — controls memory isolation |
+| `scope` | `agent` | Who shares this memory: `agent` (available now), `team` or `global` (Phase 2 — not yet available) |
+| `linked_agents` | `[]` | Other agents that can read from this memory config |
+
+---
+
+## Deploying with a managed memory backend (cloud)
+
+For a deployed agent, point memory at a managed Redis or Postgres you control with
+`backend_url`. AgentBreeder infers the backend from the URL scheme, so you don't
+need to restate `backend`:
+
+```yaml
+memory:
+  backend_url: rediss://prod-cache.aws:6379         # → MEMORY_BACKEND=redis
+  # or:
+  # backend_url: postgresql://user:pass@db.internal:5432/mem   # → MEMORY_BACKEND=postgresql
+```
+
+At deploy time the resolver injects these into the agent container:
+
+| Env var | Source |
+|---------|--------|
+| `MEMORY_BACKEND` | explicit `memory.backend`, else inferred from the `backend_url` scheme |
+| `REDIS_URL` / `DATABASE_URL` | `memory.backend_url` (Redis vs Postgres, by scheme) |
+| `MEMORY_TTL_SECONDS` | the memory store's TTL |
+
+The runtime's MemoryManager connects to that backend on startup and persists
+conversation turns there — **no connection string is read from the machine you
+deployed from**. A `backend_url` pointing at `localhost` while deploying to a real
+cloud is flagged at deploy time.
+
+### Automatic provisioning (no `backend_url`)
+
+If you set `backend` (either `postgresql` or `redis`) **without** a `backend_url`
+and deploy to AWS/GCP/Azure, `agentbreeder deploy` provisions a managed store
+into the agent's own BYO network and injects the connection env for you:
+
+```yaml
+memory:
+  stores: [conversation-history]
+  backend: redis             # or postgresql — no backend_url → auto-provisioned
+```
+
+| `backend` | Provisioned store (per cloud) | Injected env |
+|-----------|-------------------------------|--------------|
+| `postgresql` | AWS RDS · GCP Cloud SQL · Azure Flexible Server | `DATABASE_URL` + `MEMORY_BACKEND=postgresql` |
+| `redis` | AWS ElastiCache · GCP Memorystore · Azure Cache for Redis | `REDIS_URL` + `MEMORY_BACKEND=redis` |
+
+**Postgres** sharing: if the same agent also declares a knowledge base
+(pgvector), the KB and `postgresql` memory **share a single provisioned
+instance** — Postgres is created at most once per deploy.
+
+**Redis** auth: AWS/GCP caches are network-isolated and unauthenticated
+(`redis://…`); Azure Cache for Redis is TLS + access-key authenticated
+(`rediss://…`), the key stored in Key Vault. (A KB pgvector Postgres and `redis`
+memory in the same agent provision two stores.)
+
+Secrets (DB passwords / Redis keys) live only in the cloud secret manager. The
+provisioned footprint is recorded in `.agentbreeder/infra-state.json`, and
+`agentbreeder teardown <agent>` destroys everything it created. See
+[RAG → Automatic provisioning](/docs/rag) for the per-cloud networking
+requirements (BYO subnets / Private Service Access / delegated subnet).
+
+<Callout type="info" title="backend_url always wins">
+An explicit `backend_url` short-circuits auto-provisioning — point it at a store
+you manage and AgentBreeder won't create one. Auto-provisioning applies only to
+`aws` / `gcp` / `azure`; `local`, `kubernetes`, and `claude-managed` are out of
+scope. For full Redis network isolation on Azure, use a Premium cache with VNet
+injection / private endpoint.
+</Callout>
+
+---
+
+## Patterns
+
+### Single-agent conversation history
+
+The default use case: one agent remembers the current conversation.
+
+```yaml
+# agent.yaml
+memory_config: my-agent-memory
+```
+
+```bash
+agentbreeder config memory create \
+  --name my-agent-memory \
+  --backend postgresql \
+  --type buffer_window \
+  --max-messages 100 \
+  --scope agent
+```
+
+History is namespaced to `{agent_id}:{session_id}` by default — each session is isolated.
+
+---
+
+### Shared team memory
+
+<Callout type="warn" title="Team isolation is now enforced at the API layer (HR-1)">
+  `scope: team` configs are gated by the caller's team — every read/write
+  request must carry an authenticated principal whose `user.team` matches the
+  config's `team` field. Cross-team access returns **HTTP 403**. Service-layer
+  calls that omit `requesting_team` against a team-scoped config also raise
+  `PermissionError`. If your code relied on the previous (silent) cross-team
+  behavior, update it to pass the caller's team before upgrading.
+</Callout>
+
+<Callout type="info" title="Status">
+  `scope: team` is enforced at runtime. `scope: global` (truly org-wide
+  memory) is still tracked in [#134](https://github.com/agentbreeder/agentbreeder/issues/134).
+</Callout>
+
+Multiple agents on a team share the same context (e.g., a triage agent and a billing agent both need to see conversation history).
+
+```bash
+agentbreeder config memory create \
+  --name team-shared-memory \
+  --backend postgresql \
+  --type buffer_window \
+  --max-messages 200 \
+  --scope team \
+  --linked-agents triage-agent,billing-agent,technical-agent
+```
+
+```yaml
+# triage-agent/agent.yaml
+memory_config: team-shared-memory
+
+# billing-agent/agent.yaml
+memory_config: team-shared-memory
+```
+
+<Callout type="info">
+  When `scope` is `team`, the namespace key is shared across all `linked_agents` for the same session. This lets a handoff from triage → billing preserve full history.
+</Callout>
+
+---
+
+### Long-term memory (no eviction)
+
+For agents that need to remember everything — research assistants, long-running workflows.
+
+```bash
+agentbreeder config memory create \
+  --name research-full-memory \
+  --backend postgresql \
+  --type buffer \
+  --scope agent
+```
+
+<Callout type="warn">
+  `buffer` type keeps all messages indefinitely. Monitor storage growth for long-running sessions. Use `buffer_window` for customer-facing agents.
+</Callout>
+
+---
+
+### Development (in-memory, no persistence)
+
+For local development where you don't want to set up PostgreSQL:
+
+```bash
+agentbreeder config memory create \
+  --name dev-memory \
+  --backend in_memory \
+  --type buffer_window \
+  --max-messages 20 \
+  --scope agent
+```
+
+<Callout type="warn">
+  In-memory backend loses all history on agent restart. Never use in production.
+</Callout>
+
+---
+
+## Reading and Writing Memory via API
+
+### Store a message
+
+```bash
+curl -X POST https://your-agentbreeder/api/v1/memory/configs/support-memory/messages \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "sess-abc123",
+    "role": "user",
+    "content": "What is my order status?"
+  }'
+```
+
+### Retrieve conversation history
+
+```bash
+curl "https://your-agentbreeder/api/v1/memory/configs/support-memory/messages?session_id=sess-abc123" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Search across sessions
+
+```bash
+curl "https://your-agentbreeder/api/v1/memory/configs/support-memory/search?q=order+status" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Get stats
+
+```bash
+curl "https://your-agentbreeder/api/v1/memory/configs/support-memory/stats" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{
+  "data": {
+    "config_id": "support-memory",
+    "total_sessions": 1842,
+    "total_messages": 24318,
+    "avg_messages_per_session": 13.2,
+    "backend_type": "postgresql",
+    "memory_type": "buffer_window"
+  }
+}
+```
+
+---
+
+## Custom Namespace Patterns
+
+The default namespace `{agent_id}:{session_id}` keeps each agent's memory isolated per session. You can override this to create custom isolation boundaries.
+
+| Pattern | Isolation |
+|---------|-----------|
+| `{agent_id}:{session_id}` | Per-agent, per-session (default) |
+| `{agent_id}:{user_id}` | Per-agent, per-user (persistent across sessions) |
+| `{team}:{session_id}` | Team-wide, per-session |
+| `{agent_id}` | Per-agent, global (one context for all sessions) |
+
+```bash
+agentbreeder config memory create \
+  --name user-history \
+  --backend postgresql \
+  --type buffer_window \
+  --namespace-pattern "{agent_id}:{user_id}" \
+  --scope agent
+```
+
+---
+
+## Framework-Specific Notes
+
+### CrewAI
+
+CrewAI has its own memory system that runs alongside AgentBreeder's. Use the `crewai.memory` field in `agent.yaml` for CrewAI's internal memory, and `memory_config` for AgentBreeder's API-level memory.
+
+```yaml
+framework: crewai
+memory_config: support-memory   # AgentBreeder conversation history
+
+crewai:
+  memory: true                  # CrewAI internal short-term + long-term memory
+```
+
+### Google ADK
+
+Google ADK manages session state via its own session backends. Configure those via `google_adk.session_backend`. `memory_config` applies to AgentBreeder's conversation API on top.
+
+```yaml
+framework: google_adk
+memory_config: support-memory   # AgentBreeder conversation API
+
+google_adk:
+  session_backend: database     # ADK internal session state
+```

@@ -1,0 +1,157 @@
+---
+title: Self-Hosting
+description: Run the full AgentBreeder platform (Studio + API + Postgres + Redis) on your own Kubernetes cluster with Helm.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+AgentBreeder ships a Helm chart that runs the whole platform — **AgentBreeder
+Studio**, the **API**, and database migrations — on your own Kubernetes cluster.
+Postgres and Redis come bundled as toggleable dependencies, so you can start with
+one command and switch to managed datastores when you go to production.
+
+The chart lives at [`deploy/helm/agentbreeder`](https://github.com/agentbreeder/agentbreeder/tree/main/deploy/helm/agentbreeder).
+
+## Prerequisites
+
+- A Kubernetes cluster (1.25+) and `kubectl` pointed at it
+- [Helm 3](https://helm.sh/docs/intro/install/)
+- An ingress controller (the chart defaults to the `nginx` ingress class)
+- A DNS record for your chosen `host` pointing at the ingress
+- For TLS: a TLS Secret, or [cert-manager](https://cert-manager.io/)
+
+## Quick start
+
+```bash
+# Fetch the bundled Postgres/Redis subcharts
+helm dependency update deploy/helm/agentbreeder
+
+# Install. Bundled datastores REQUIRE explicit passwords — no defaults ship.
+helm install agentbreeder deploy/helm/agentbreeder \
+  --namespace agentbreeder --create-namespace \
+  --set host=agents.example.com \
+  --set postgresql.auth.password="$(openssl rand -hex 16)" \
+  --set redis.auth.password="$(openssl rand -hex 16)"
+```
+
+Studio is then served at `https://agents.example.com`, the API at
+`/api/v1`, and the OpenAPI docs at `/api/docs`.
+
+<Callout type="info" title="Signing keys are generated for you">
+  `SECRET_KEY` and `JWT_SECRET_KEY` are auto-generated on first install and
+  preserved across upgrades (no known default is ever shipped). Set
+  `secrets.secretKey` / `secrets.jwtSecretKey`, or point `secrets.existingSecret`
+  at a pre-created Secret, to manage them yourself.
+</Callout>
+
+## Using external managed Postgres / Redis
+
+For production, disable the bundled stores and point at managed datastores. The
+connection strings are stored in the release Secret and injected as
+`DATABASE_URL` / `REDIS_URL`.
+
+```bash
+helm install agentbreeder deploy/helm/agentbreeder \
+  --namespace agentbreeder --create-namespace \
+  --set host=agents.example.com \
+  --set postgresql.enabled=false \
+  --set redis.enabled=false \
+  --set externalDatabaseUrl="postgresql+asyncpg://user:pw@db.example.com:5432/agentbreeder" \
+  --set externalRedisUrl="redis://cache.example.com:6379"
+```
+
+<Callout type="warn">
+  `DATABASE_URL` must use the `postgresql+asyncpg://` driver — the API runs async
+  SQLAlchemy. A bare `postgresql://` URL will fail at startup.
+</Callout>
+
+## TLS
+
+TLS is off by default so you can evaluate the chart with plain HTTP. **Turn it on
+for anything real** — when enabled, the chart also adds an HTTP→HTTPS redirect and
+restricts CORS to the `https://` origin.
+
+<Tabs items={['Pre-created secret', 'cert-manager']}>
+<Tab value="Pre-created secret">
+
+```bash
+kubectl create secret tls agentbreeder-tls \
+  --cert=tls.crt --key=tls.key -n agentbreeder
+
+helm upgrade agentbreeder deploy/helm/agentbreeder \
+  --set ingress.tls.enabled=true \
+  --set ingress.tls.secretName=agentbreeder-tls
+```
+
+</Tab>
+<Tab value="cert-manager">
+
+```bash
+helm upgrade agentbreeder deploy/helm/agentbreeder \
+  --set ingress.tls.enabled=true \
+  --set ingress.tls.secretName=agentbreeder-tls \
+  --set ingress.annotations."cert-manager\.io/cluster-issuer"=letsencrypt-prod
+```
+
+</Tab>
+</Tabs>
+
+## CORS
+
+CORS is derived from `host` automatically: `https://<host>` (and `http://<host>`
+only while TLS is disabled). The API reads it as the `CORS_ORIGINS` env var. To
+allow additional origins, add them under `api.env` (as a JSON array string, since
+pydantic-settings parses the list from JSON):
+
+```yaml
+api:
+  env:
+    CORS_ORIGINS: '["https://agents.example.com","https://studio.internal"]'
+```
+
+## Migrations
+
+A `pre-install,pre-upgrade` Helm hook Job runs `alembic upgrade head` against the
+database before the API rolls out, so the schema is always current. Disable it
+with `--set migrate.enabled=false` if you manage migrations yourself.
+
+## Configuration reference
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `host` | `agentbreeder.local` | Public hostname (Ingress + CORS). |
+| `image.tag` | `2.6.0` | Image tag for api + dashboard (pin per environment). |
+| `secrets.secretKey` / `secrets.jwtSecretKey` | _(auto-generated)_ | App signing keys. |
+| `secrets.existingSecret` | `""` | Use a pre-created Secret instead of generating. |
+| `postgresql.enabled` | `true` | Bundle Postgres (set `false` for external). |
+| `postgresql.auth.password` | _(required)_ | Bundled Postgres password — install aborts if unset. |
+| `redis.enabled` | `true` | Bundle Redis (auth on). |
+| `redis.auth.password` | _(required)_ | Bundled Redis password — install aborts if unset. |
+| `externalDatabaseUrl` / `externalRedisUrl` | `""` | Connection strings when bundling is off. |
+| `ingress.enabled` | `true` | Create an Ingress. |
+| `ingress.tls.enabled` | `false` | Terminate TLS + force HTTPS redirect. |
+| `migrate.enabled` | `true` | Run `alembic upgrade head` as a pre-upgrade hook. |
+
+## Docker Compose alternative
+
+If you don't run Kubernetes, the standalone Compose file brings up the same stack
+from pre-built images:
+
+```bash
+curl -O https://raw.githubusercontent.com/agentbreeder/agentbreeder/main/deploy/docker-compose.standalone.yml
+docker compose -f docker-compose.standalone.yml up -d
+```
+
+Override `SECRET_KEY` / `JWT_SECRET_KEY` and the Postgres password before exposing
+it to any network.
+
+## Troubleshooting
+
+- **Install aborts with `postgresql.auth.password must be set`** — bundled stores
+  require explicit passwords. Pass them with `--set`, or use external datastores.
+- **API `CrashLoopBackOff`** — check `DATABASE_URL` uses `postgresql+asyncpg://`
+  and that the migrate Job completed (`kubectl logs job/agentbreeder-migrate`).
+- **Studio loads but API calls 502** — the dashboard proxies `/api` to the API
+  Service via the `API_UPSTREAM` env (set by the chart); confirm the API pods are
+  `Ready` and the Service name matches.

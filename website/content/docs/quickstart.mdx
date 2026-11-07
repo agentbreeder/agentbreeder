@@ -1,0 +1,229 @@
+---
+title: Quickstart
+description: Zero to running AI agents in one command.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Two commands. Three minutes. Done.
+
+```bash
+pipx install agentbreeder
+agentbreeder quickstart
+```
+
+<Callout type="info" title="No pipx? Use the standard installer instead">
+  ```bash
+  python3 -m pip install agentbreeder
+  ```
+
+  `python3 -m pip` works on every Python install regardless of whether `pip`, `pip3`, or neither is on your `PATH`. If you see `agentbreeder: command not found` after, see [Troubleshooting](#when-something-goes-wrong).
+
+  We recommend `pipx` because it installs `agentbreeder` into an isolated environment and puts the executable on `PATH` automatically — no shell-rc edits, no clashes with other tools.
+</Callout>
+
+<Callout type="info" title="Before you start">
+  AgentBreeder needs three things on the machine:
+
+  - **Python 3.11+** — install via `pyenv` (see below)
+  - **One container runtime** — Docker Desktop, OrbStack, Colima, Podman, or nerdctl
+  - **macOS 12+ · Linux · or Windows 11 + WSL2** · ~8 GiB free disk · ~4 GiB RAM
+
+  Not sure? Run `agentbreeder doctor` after installing — it checks every prerequisite, exits in under two seconds, and prints copy-pasteable fix commands for whatever's missing.
+</Callout>
+
+<Callout type="info" title="Recommended: install Python via pyenv">
+  Using `pyenv` is the simplest way to avoid the most common AgentBreeder install issue: stale editable installs from earlier source checkouts that quietly shadow the PyPI release and break the `agentbreeder` CLI with `ModuleNotFoundError: No module named 'cli'`.
+
+  **macOS:**
+
+  ```bash
+  brew install pyenv
+  echo 'eval "$(pyenv init -)"' >> ~/.zshrc && exec zsh
+  pyenv install 3.12.11
+  pyenv global 3.12.11
+  ```
+
+  **Linux:**
+
+  ```bash
+  curl -fsSL https://pyenv.run | bash
+  echo 'eval "$(pyenv init -)"' >> ~/.bashrc && exec bash
+  pyenv install 3.12.11
+  pyenv global 3.12.11
+  ```
+
+  Verify:
+
+  ```bash
+  python --version   # should print Python 3.12.11
+  which python       # should be under ~/.pyenv/shims
+  ```
+
+  Then `pipx install agentbreeder` (or `python -m pip install agentbreeder`) installs cleanly into the pyenv-managed interpreter. Switching Python versions later is one command (`pyenv global 3.13.x`) and never collides with system Python.
+</Callout>
+
+<Callout type="info" title="What to expect">
+  `agentbreeder quickstart` is an **interactive wizard**. It asks a handful of questions (container runtime, model source, API keys, port conflicts) and pulls ~3 GB if you choose local models. Expect ~3 minutes on a cold first run.
+
+  Want zero prompts for CI? Use the scripted path:
+
+  ```bash
+  agentbreeder quickstart --yes --no-ollama --no-browser
+  ```
+
+  `--yes` skips every yes/no prompt and uses safe defaults. `--no-ollama` keeps you on the cloud path (set `OPENAI_API_KEY` etc. before running). `--no-browser` skips opening Studio.
+</Callout>
+
+`agentbreeder quickstart` is interactive and walks you through everything:
+
+1. Detects (or installs) Docker, Podman, or nerdctl
+2. Asks how you want to run models — **Local**, **Cloud**, or **Both**.
+   - If Ollama is already running with models, **Local** is the default (press Enter — free, no key).
+   - Otherwise the default is **Both** (install Ollama + add cloud keys).
+3. Sets up the path you chose:
+   - **Local** — installs Ollama if needed, pulls `gemma3` (~2 GB). No API key required.
+   - **Cloud** — prompts for **OpenRouter** first (one key, 100+ models — recommended), then optionally
+     for direct OpenAI / Anthropic / Google keys behind a single yes/no gate.
+   - **Both** — local Ollama plus cloud keys.
+4. _(macOS only, if Ollama is bound to 127.0.0.1)_ Optionally rebinds Ollama to `0.0.0.0:11434` so
+   the Docker stack can reach it via `host.docker.internal`. This is **opt-in** (default: skip) —
+   it restarts Ollama. Skipping is fine if you're using cloud or gateway models.
+5. Frees any conflicting ports for you on confirmation
+6. Starts the full stack — API · Studio · Postgres · Redis · ChromaDB · Neo4j · MCP servers · LiteLLM
+7. Seeds RAG docs, the knowledge graph, MCP servers, and prompts
+8. Deploys 5 sample agents (`assistant`, `rag-agent`, `graph-agent`, `search-agent`, `a2a-orchestrator`)
+9. Opens Studio at [http://localhost:3001](http://localhost:3001)
+
+<Callout type="info" title="Already have a cloud API key?">
+  Skip the ~3 GB Ollama download with the `--no-ollama` flag:
+
+  ```bash
+  agentbreeder quickstart --no-ollama
+  ```
+
+  Equivalent to choosing **Cloud** at the model-source prompt. You'll be asked for **OpenRouter** first
+  (one key, 100+ models), then optionally for OpenAI / Anthropic / Google direct keys.
+</Callout>
+
+<Callout type="info" title="Ollama and the Docker stack">
+  Docker containers reach your host machine via `host.docker.internal` — not `localhost`. If Ollama is
+  bound to `127.0.0.1` only (the macOS default), the AgentBreeder API container can't reach it even
+  though `ollama run` works fine in your terminal.
+
+  Quickstart detects this and will attempt to rebind Ollama to `0.0.0.0:11434` (opt-in). If the
+  auto-rebind fails — for example because a brew/launchd supervisor restarts Ollama or because the
+  Ollama.app process can't be killed cleanly — quickstart will print the manual rebind steps below.
+
+  Manual rebind:
+
+  ```bash
+  launchctl setenv OLLAMA_HOST 0.0.0.0:11434
+  pkill -f Ollama.app && open -a Ollama   # pkill avoids the "really quit?" GUI dialog
+  ```
+
+  If you skip the rebind, agents that need local models will fall back to cloud providers.
+</Callout>
+
+<Callout type="info" title="Default login">
+  **Email:** `admin@agentbreeder.local` · **Password:** `plant`
+
+  Studio will force you to set a new password on first sign-in — the default
+  is publicly documented and unsafe to leave in place.
+</Callout>
+
+---
+
+## After it finishes
+
+```bash
+agentbreeder chat assistant            # talk to an agent
+agentbreeder list agents               # see what's deployed
+agentbreeder down                      # stop everything
+agentbreeder quickstart --reset        # nuke and start fresh
+```
+
+Deploy to cloud from the same setup:
+
+```bash
+agentbreeder quickstart --cloud aws    # also: gcp | azure
+```
+
+---
+
+## Build from a conversation
+
+The fastest way to create and deploy an agent is through the conversational builder in Studio. No `agent.yaml` editing required.
+
+1. Open Studio at [http://localhost:3001](http://localhost:3001). The **Home** page (`/`) greets you with the conversational front door — **"What do you want to build today?"** — and a row of example starters. Type there to start. (The **Agents** page (`/agents`) shows your existing agents; when empty it prompts you with "Pick a path to ship your first agent" and two starter cards — pick **Chat to build** to jump into the same conversational builder at `/agents/new`.)
+2. The builder interviews you with 3–5 focused questions (framework, model, deploy target, any tools you need) — answers stream back token-by-token as you type.
+3. When it has enough information it generates a complete `agent.yaml`, shown inline in the thread for you to review or tweak.
+4. Click **Deploy now**. Live deploy logs stream directly in the conversation thread. When the pipeline finishes you get a live endpoint link — paste it straight into `agentbreeder chat` or your app.
+
+<Callout type="info" title="Claude API key required">
+  The chat builder drives a Claude model to generate your `agent.yaml`. You need to add your Claude API key once — either inline in Studio (open `/agents/new` → **Chat to build** tab; the **Claude API Key** card appears above the chat input until the key is set) or from the CLI (`agentbreeder secret set AGENTBREEDER_CLAUDE_BUILDER_KEY` — see the [CLI reference](cli-reference#agentbreeder-secret-set)). Either path stores it in the workspace secrets backend — never written to the database, returned to the browser, or logged. Get a key at [console.anthropic.com](https://console.anthropic.com).
+
+  The builder works identically whether you are running locally or on AgentBreeder cloud at [console.agentbreeder.io](https://console.agentbreeder.io).
+</Callout>
+
+---
+
+## Build your own agent
+
+```bash
+agentbreeder init                      # scaffold agent.yaml + code
+agentbreeder validate agent.yaml
+agentbreeder deploy agent.yaml --target local   # also: aws | gcp | azure | kubernetes
+```
+
+The 8-step deploy pipeline (parse → RBAC → resolve deps → build container → provision → health check → register → return endpoint) is atomic. If anything fails, the whole deploy rolls back.
+
+---
+
+## Useful flags
+
+| Flag | What it does |
+|---|---|
+| `--yes` / `-y` | Non-interactive mode for CI. Skip every yes/no prompt and use safe defaults. Pair with `--no-ollama` and `--no-browser` for a fully scripted bootstrap. |
+| `--no-ollama` | Skip the Ollama install/start/pull bootstrap |
+| `--ollama-model NAME` | Pull a different default model (e.g. `llama3.2`, `phi4-mini`) |
+| `--no-browser` | Don't open Studio at the end |
+| `--skip-seed` | Skip seeding sample data (faster restart) |
+| `--reset` | Tear down all volumes and start fresh |
+| `--dev` | Build API/Studio images from source instead of Docker Hub |
+| `--skip-doctor` | Skip the prerequisite preflight (advanced; CI environments) |
+
+---
+
+## When something goes wrong
+
+| Problem | Fix |
+|---|---|
+| `agentbreeder: command not found` | pip's script directory isn't on `PATH`. Either re-install with `pipx install agentbreeder` (recommended), or find the dir with `python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"` and prepend it to `PATH` in your shell rc. Running `agentbreeder welcome` once it works prints the same hint. |
+| `ModuleNotFoundError: No module named 'cli'` (or `api`, `engine`, `registry`) when running `agentbreeder` | A previous `pip install -e .` from a source checkout left a broken editable install in your Python — and `pip install agentbreeder` from PyPI sees it as already satisfied and won't replace it. Fix: `pip uninstall -y agentbreeder && pip install --force-reinstall agentbreeder`. Use `pyenv` (see prerequisites above) to keep this from happening across Python versions. |
+| Port conflict (`:5432 already in use` etc.) | Quickstart will offer to kill the conflicting process. Accept with `y`, or stop it manually. |
+| Container daemon not running | Quickstart will tell you what to start (Docker Desktop, OrbStack, Colima, Podman, systemd, etc.) and re-detect after you confirm. |
+| Stack already up, ports stuck | `agentbreeder down --clean` then retry. |
+| No LLM provider | Quickstart prompts to install Ollama; or run `agentbreeder setup` separately for the full provider wizard. |
+| Studio at `:3001` is blank | Stale `rajits/agentbreeder-dashboard:latest` cached locally. `docker rmi` it, then `agentbreeder quickstart --dev` to rebuild from source. Full steps: [FAQ →](faq#studio-at-httplocalhost3001-shows-a-blank-page) |
+| `migrate-1` shows `Exited` | Expected — `migrate` is a one-shot job that runs `alembic upgrade head` and exits. Only worry if the exit code is non-zero. |
+| `DOCKER_HOST` points at a dead socket | Quickstart detects this and points at the missing path. Run `unset DOCKER_HOST` (and remove the `export` line from your shell rc). |
+| `permission denied` on `/var/run/docker.sock` (Linux) | Your user isn't in the `docker` group. Quickstart prompts you to run `sudo usermod -aG docker $USER && newgrp docker`. |
+| Snap / Flatpak Docker — "cannot connect to daemon" | Quickstart detects the socket-path mismatch and tells you the exact `export DOCKER_HOST=unix://<path>` to run. |
+| Docker socket reachable but `docker` CLI missing | Partial install. Quickstart prints the distro-specific install command (`brew install docker`, `apt-get install docker-ce-cli`, etc.). |
+| Rootless Docker volume permission errors | Quickstart prints a one-liner heads-up when rootless is detected. Bind-mounts are owned by your user, not root. |
+
+---
+
+## Next
+
+| You want to… | Go here |
+|---|---|
+| See every CLI command | [CLI reference →](cli-reference) |
+| See every `agent.yaml` field | [agent.yaml reference →](agent-yaml) |
+| Deploy to AWS / GCP / Azure / Kubernetes | [How-To: Deploy →](how-to#deploy-to-different-targets) |
+| Add knowledge bases (RAG / GraphRAG) | [RAG →](rag) · [GraphRAG →](graphrag) |
+| Add tools / MCP servers | [MCP servers →](mcp-servers) |
+| Chat to build (conversational) | [How-To: Chat to build →](how-to#chat-to-build-byo-claude-key) |
+| Visual builder | [No Code →](no-code) |
+| Python / TypeScript SDK | [Full Code →](full-code) |
