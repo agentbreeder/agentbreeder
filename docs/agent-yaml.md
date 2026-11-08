@@ -1,10 +1,9 @@
 # `agent.yaml` (authoring schema v1, preview)
 
 > Part of the `agent.yaml` build work (#725), preview. `validate` and `build` work today with the
-> ADK runtime (`runtime/adk@1.0.0`). Verified end to end on macOS + Docker Desktop with the
+> ADK runtime (`runtime/adk@1.0.1`). Verified end to end on macOS + Docker Desktop with the
 > Northwind example (`examples/northwind/`): built from `agent.yaml`, deployed through the gate
-> and answering. Per-deployment gateway keys and `release` (the eval gate) are not implemented
-> yet; the example stack mints one scoped LiteLLM key instead.
+> and answering. `release` (the eval gate) is not implemented yet.
 
 An agent file says what an agent is made of: a runtime, a model alias, a prompt, knowledge, tools,
 memory and evals. Everything is a registry reference (`kind/name@X.Y.Z`, see `registry.md`). You
@@ -18,7 +17,7 @@ config for the environment you build for. Nothing in it can grant a permission o
 kind: agent                    # required; tells agent files apart from manifests and 2.x files
 schema_version: 1
 name: northwind-support        # DNS label, at most 53 characters
-runtime: runtime/adk@1.0.0
+runtime: runtime/adk@1.0.1
 model:
   alias: support-model         # a LiteLLM gateway alias
   reasoning: low               # none | low | medium | high
@@ -88,14 +87,14 @@ environments:
     models: [support-model, support-embedding]
     ceilings: {budget_usd: 50, rpm: 300}
     services: {traces_url: …, tools_proxy_url: …}            # → AGENTBREEDER_SERVICE_<NAME>
-    bindings: {DATABASE_URL: secret://northwind-db, LLM_GATEWAY_KEY: secret://northwind-gateway-key}
+    bindings: {DATABASE_URL: secret://northwind-db}
     agents:
       northwind-support:
         identity: {provider: demo, ref: support-agent, environment: dev}
         candidate_identity: {provider: demo, ref: support-agent-candidate, environment: dev}
 ```
 
-## The ADK runtime (`runtime/adk@1.0.0`)
+## The ADK runtime (`runtime/adk@1.0.1`)
 
 The runtime ships with AgentBreeder and is built on Google ADK 2.12. It reaches models through
 the LiteLLM gateway, using the `openai/<alias>` route with `reasoning_effort` set from
@@ -112,3 +111,11 @@ the LiteLLM gateway, using the `openai/<alias>` route with `reasoning_effort` se
 
 Tools run in the agent's own process with its privileges. Customer scoping is enforced by the
 shipped tools' own code, not by an engine boundary.
+
+**`customer_id` is not authenticated.** `POST /invoke` accepts `customer_id` from the request
+body, and AgentBreeder does not ship authenticated invocation. Anyone who can reach the endpoint
+can act as any customer. The endpoint is published on loopback only. Put an authenticating proxy
+in front of it before exposing it to real users, and have that proxy set the customer. Requests
+without a `customer_id` run as the shared `guest` identity. Guests get no saved notes, so notes
+cannot leak between anonymous visitors, and note text is neutralised before it enters the
+prompt.

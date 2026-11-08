@@ -7,7 +7,7 @@
 #   operator.yaml   environment `dev`: gateway grant, model allow-list, ceilings, service URLs,
 #                   secret bindings and the agent's identities (static demo provider)
 #   principals.yaml demo identities support-agent and support-agent-candidate
-#   state/secrets/  local secret files: northwind-db (DATABASE_URL), northwind-gateway-key
+#   state/secrets/  local secret file northwind-db (DATABASE_URL); the gateway key is minted per deploy
 # Keys come from the environment or ~/.env: GEMINI_API_KEY, TAVILY_API_KEY, OPENROUTER_API_KEY (optional).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -97,7 +97,6 @@ environments:
       tools_proxy_url: http://host.docker.internal:8787
     bindings:
       DATABASE_URL: secret://northwind-db
-      LLM_GATEWAY_KEY: secret://northwind-gateway-key
     agents:
       northwind-support:
         identity: {provider: demo, ref: support-agent, environment: dev}
@@ -108,19 +107,7 @@ chmod 600 "$AB_DIR/operator.yaml" "$AB_DIR/principals.yaml"
 # --- local secret files (values never printed) --------------------------------------------------
 printf 'postgresql://support:%s@host.docker.internal:5433/support' "$(cat .secrets/db-password)" \
   | "$AGENTBREEDER" secret set northwind-db --state-dir "$STATE" >/dev/null
-# Until per-deployment key minting lands (#725 slice 6), the stack mints one scoped key.
-MASTER="Authorization: Bearer $(cat .secrets/secrets/litellm_master_key)"
-if [ ! -s "$STATE/secrets/northwind-gateway-key" ] || ! curl -sf http://127.0.0.1:4000/key/info \
-     -H "Authorization: Bearer $(cat "$STATE/secrets/northwind-gateway-key")" >/dev/null; then
-  curl -sf http://127.0.0.1:4000/key/delete -H "$MASTER" -H 'content-type: application/json' \
-    -d '{"key_aliases":["northwind-support-agent"]}' >/dev/null 2>&1 || true
-  python3 -c 'import json; print(json.dumps({"key_alias": "northwind-support-agent",
-    "models": ["support-model", "support-embedding"], "max_budget": 25.0,
-    "budget_duration": "30d", "rpm_limit": 120}))' \
-    | curl -sf http://127.0.0.1:4000/key/generate -H "$MASTER" -H 'content-type: application/json' -d @- \
-    | python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["key"])' \
-    | "$AGENTBREEDER" secret set northwind-gateway-key --state-dir "$STATE" >/dev/null
-fi
+# The agent's LiteLLM key is minted per deployment by `agentbreeder deploy` (master key above).
 
 cat <<EOF
 

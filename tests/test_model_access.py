@@ -18,7 +18,7 @@ def grant(identity_env, **environment):
             "type": "litellm",
             "url": "http://127.0.0.1:4000",
             "agent_url": "http://host.docker.internal:4000",
-            "master_key": "env:LITELLM_MASTER_KEY",
+            # no master_key: access checks only, no key minting (see test_gateway_keys.py)
         }
     }
     identity_env.config["environments"]["dev"].update(
@@ -121,7 +121,7 @@ def test_manifest_model_access_validation(access):
         lambda c: c["environments"]["dev"].update({"bindings": {"lower": "secret://x"}}),
         lambda c: c["environments"]["dev"].update({"bindings": {"DB": "literal-value"}}),
         lambda c: c["environments"]["dev"].update({"agents": {"Bad_Name": {}}}),
-        lambda c: c["gateways"]["litellm-local"].update({"master_key": "sk-literal"}),
+        lambda c: c["gateways"]["litellm-local"].update({"master_key": "literal-value"}),
     ],
 )
 def test_operator_config_validation(identity_env, mutation):

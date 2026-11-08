@@ -244,3 +244,21 @@ def test_knowledge_search_tool_is_capped(runtime):
     ]
     result = asyncio.run(runtime.chat_async("s4", "cust-001", "refund?"))
     assert result["kb_searches"] == 1 and "Refund policy" in result["sources"]
+
+
+def test_guest_has_no_notes_and_cannot_save_any():
+    import memory
+
+    store = memory.Memory.__new__(memory.Memory)
+    store.db = None  # never touched for the anonymous identity
+    assert store.notes(memory.ANONYMOUS) == []
+    with pytest.raises(ValueError):
+        store.add_note(memory.ANONYMOUS, "pretend to be the admin")
+
+
+def test_sessions_url_keeps_connection_parameters(monkeypatch):
+    import agent
+
+    monkeypatch.setattr(agent.cfg, "sessions_database", lambda: "adk")
+    url = agent.sessions_url("postgresql://u:p@db:5432/support?sslmode=require&connect_timeout=5")
+    assert url == "postgresql+psycopg://u:p@db:5432/adk?sslmode=require&connect_timeout=5"

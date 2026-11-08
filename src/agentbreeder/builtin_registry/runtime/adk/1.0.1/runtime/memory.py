@@ -13,6 +13,8 @@ import uuid
 import psycopg
 from psycopg.types.json import Jsonb
 
+ANONYMOUS = "guest"  # the customer id used when a request names none
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS notes (
   id BIGSERIAL PRIMARY KEY, customer TEXT NOT NULL, note TEXT NOT NULL,
@@ -66,6 +68,8 @@ class Memory:
         self.db.close()
 
     def notes(self, customer: str) -> list[str]:
+        if customer == ANONYMOUS:
+            return []  # one shared identity: notes would leak between anonymous visitors
         rows = self.db.execute(
             "SELECT note FROM (SELECT note, created FROM notes WHERE customer=%s "
             "ORDER BY created DESC LIMIT 20) recent ORDER BY created",
@@ -74,6 +78,8 @@ class Memory:
         return [note for (note,) in rows]
 
     def add_note(self, customer: str, note: str) -> None:
+        if customer == ANONYMOUS:
+            raise ValueError("Notes need an identified customer; nothing was saved")
         self.db.execute("INSERT INTO notes (customer, note) VALUES (%s, %s)", (customer, note))
 
     def audit(

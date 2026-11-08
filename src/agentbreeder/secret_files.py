@@ -161,6 +161,25 @@ def materialise(state: Path, deployment_id: str, references: dict[str, str]) -> 
     return mounts
 
 
+def write_generated(state: Path, deployment_id: str, name: str, env: str, data: bytes):
+    """Write an engine-generated secret (e.g. the minted gateway key) for one deployment."""
+    if not NAME.fullmatch(name):
+        raise SecretError("SECRET_NAME", "invalid generated secret name")
+    target_dir = deployment_dir(state, deployment_id)
+    _private_dir(target_dir.parent.parent)
+    _private_dir(target_dir.parent)
+    _private_dir(target_dir)
+    path = target_dir / name
+    temporary = target_dir / f".{name}.tmp"
+    temporary.unlink(missing_ok=True)
+    descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(data)
+    os.chmod(temporary, 0o444)
+    os.replace(temporary, path)
+    return SecretMount((env,), name, path, f"{MOUNT_ROOT}/{name}")
+
+
 def present(state: Path, deployment_id: str, references: dict[str, str]) -> bool:
     """Whether every copy for this container generation still exists."""
     directory = deployment_dir(state, deployment_id)

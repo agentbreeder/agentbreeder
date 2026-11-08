@@ -16,7 +16,7 @@ Verified on macOS with Docker Desktop: `build` → `deploy` → the agent answer
 |---|---|---|
 | Agent definition | `agent.yaml`, `agent.lock` | yours (about 35 lines of YAML) |
 | Prompt, knowledge, tools, eval set | `registry/<kind>/<name>/1.0.0/` | registry entries. The tools are small Python packages: that is where custom logic lives |
-| Runtime (ADK, memory, RAG, server) | `runtime/adk@1.0.0`, shipped with AgentBreeder | AgentBreeder |
+| Runtime (ADK, memory, RAG, server) | `runtime/adk@1.0.1`, shipped with AgentBreeder | AgentBreeder |
 | Supporting stack (Postgres, LiteLLM, Phoenix, key proxy, ops dashboard) | `stack/` | example infrastructure, not AgentBreeder product |
 
 ## Run it
@@ -51,8 +51,6 @@ http://127.0.0.1:6006: log in as `admin@localhost` with the initial password fro
 
 ## Honest limits (preview)
 
-- **Gateway key.** One scoped LiteLLM key is minted by `stack/up.sh`. Per-deployment keys minted
-  by `deploy` are not implemented yet.
 - **No eval gate yet.** `agentbreeder release`, which runs the 61-case eval gate in
   `registry/eval/northwind-golden` before promoting, is not implemented yet.
 - **Customer scoping is tool code.** It holds in the shipped tools, but it is not an engine

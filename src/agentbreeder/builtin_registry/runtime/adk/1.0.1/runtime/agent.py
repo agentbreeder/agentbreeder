@@ -134,7 +134,11 @@ class Runtime:
         notes = self.turns.get(context.invocation_id, {}).get("notes") or []
         if not notes:
             return self.system
-        remembered = "\n".join(f"- {n}" for n in notes)
+        # Notes are customer-influenced text: neutralise markup so a note cannot close the
+        # memory block and pose as instructions.
+        remembered = "\n".join(
+            "- " + n.replace("<", "\u2039").replace(">", "\u203a") for n in notes
+        )
         return (
             f"{self.system}\n\n<customer_memory>\nNotes saved from this customer's earlier "
             f"conversations:\n{remembered}\n</customer_memory>"
@@ -481,7 +485,11 @@ class AgentPlugin(BasePlugin):
 def sessions_url(database_url: str) -> str:
     """Same Postgres server, the sessions database, async psycopg driver."""
     parts = urlsplit(database_url)
-    return urlunsplit(("postgresql+psycopg", parts.netloc, "/" + cfg.sessions_database(), "", ""))
+    # Keep the query string (sslmode, connect_timeout, ...): dropping it would silently downgrade
+    # the connection settings the operator configured.
+    return urlunsplit(
+        ("postgresql+psycopg", parts.netloc, "/" + cfg.sessions_database(), parts.query, "")
+    )
 
 
 # -- process singleton, used by server.py ----------------------------------------------------

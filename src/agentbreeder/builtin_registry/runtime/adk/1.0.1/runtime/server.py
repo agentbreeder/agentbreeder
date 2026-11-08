@@ -20,6 +20,7 @@ import config as cfg  # noqa: E402
 import psycopg  # noqa: E402
 import sqlalchemy.exc  # noqa: E402
 from agent import ModelError, chat  # noqa: E402
+from memory import ANONYMOUS  # noqa: E402
 
 MAX_BODY = 64 * 1024
 MAX_MESSAGE = 4000
@@ -90,7 +91,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(message, str) or not message.strip():
                 raise ValueError
             session = payload.get("session_id") or uuid.uuid4().hex
-            customer = payload.get("customer_id") or "guest"
+            customer = payload.get("customer_id") or ANONYMOUS
             if not (ID.match(session) and ID.match(customer)):
                 raise ValueError
         except (ValueError, KeyError, TypeError, UnicodeError):
