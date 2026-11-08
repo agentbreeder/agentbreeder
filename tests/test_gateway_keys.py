@@ -206,10 +206,15 @@ def test_remove_revokes_and_reconcile_cleans_orphans(minting, gateway, state, ru
     assert removed["state"] == "removed" and removed["gateway_key"] == "revoke_failed"
     assert key_alias in gateway.keys
     gateway.down = False
-    gateway.keys[gateway_keys.PREFIX + "f" * 32] = dict(gateway.keys[key_alias])  # stray orphan
+    # keys this store does not own are left alone (another state dir, an eval judge key)
+    foreign = gateway_keys.PREFIX + "f" * 32
+    judge = gateway_keys.PREFIX + "eval-20261107-abc"
+    gateway.keys[foreign] = dict(gateway.keys[key_alias])
+    gateway.keys[judge] = dict(gateway.keys[key_alias])
     results = service.reconcile()
-    assert key_alias not in gateway.keys and not [k for k in gateway.keys if "f" * 32 in k]
-    assert sum(r["compliance"] == "gateway_key_revoked" for r in results) == 2
+    assert key_alias not in gateway.keys
+    assert foreign in gateway.keys and judge in gateway.keys
+    assert sum(r["compliance"] == "gateway_key_revoked" for r in results) == 1
 
 
 def test_remove_revokes_when_gateway_up(minting, gateway, state, runtime):

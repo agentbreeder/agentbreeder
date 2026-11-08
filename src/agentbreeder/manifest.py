@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 from typing import Literal
@@ -157,6 +158,12 @@ class Manifest(BaseModel):
     capabilities: Capabilities | None = None
     policy: PolicySelection | None = None
     model_access: ModelAccess | None = None
+
+    def digest(self) -> str:
+        """Spec digest. Optional fields added later are left out when unset, so a manifest
+        deployed before they existed keeps the same digest (no NAME_CONFLICT on redeploy)."""
+        exclude = {"model_access"} if self.model_access is None else set()
+        return hashlib.sha256(self.model_dump_json(exclude=exclude).encode()).hexdigest()
 
     @model_validator(mode="after")
     def version_fields(self):

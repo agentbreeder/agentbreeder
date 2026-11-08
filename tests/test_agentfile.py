@@ -100,6 +100,11 @@ def test_minimal_defaults(tmp_path):
         ({"surprise": 1}, "surprise"),
         ({"evals__threshold": 1.5}, "threshold"),
         ({"knowledge": [{"ref": "knowledge/k@1.0.0", "top_k": 99}]}, "top_k"),
+        (
+            {"knowledge": [{"ref": "knowledge/a@1.0.0"}, {"ref": "knowledge/b@1.0.0"}]},
+            "knowledge",
+        ),
+        ({"memory__sessions": "in_memory"}, "sessions"),
     ],
 )
 def test_invalid_agent_files(tmp_path, changes, needle):

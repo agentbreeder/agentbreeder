@@ -232,3 +232,41 @@ def test_cli_build(project, operator, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["image"] == IMAGE
     assert cli.main(["build", str(project / "agent.yaml"), "--environment", "missing"]) == 2
     assert "CONTEXT_ENVIRONMENT_UNKNOWN" in capsys.readouterr().err
+
+
+def test_path_prompt_is_renamed_for_the_runtime(project, operator):
+    (project / "prompts").mkdir()
+    (project / "prompts/dev.md").write_text("Draft prompt")
+    text = (project / "agent.yaml").read_text()
+    (project / "agent.yaml").write_text(
+        text.replace("prompt: {ref: prompt/helper@1.0.0}", "prompt: {path: prompts/dev.md}")
+    )
+    fake = FakeBuilder()
+    build(project / "agent.yaml", operator.load(), "dev", builder=fake)
+    listing, config = fake.contexts[0]
+    assert f"{config['prompt']['dir']}/prompt.md" in listing
+
+
+def test_tool_module_names_must_be_unique(project, operator):
+    version(
+        project / "registry",
+        "tool",
+        "dupe",
+        {
+            "tool.yaml": "functions: [{name: f, module: orders, function: f}]\n",
+            "src/orders.py": "",
+        },
+    )
+    (project / "registry/tool/orders/1.0.0/tool.yaml").write_text(
+        "functions: [{name: g, module: orders, function: g}]\n"
+    )
+    text = (project / "agent.yaml").read_text()
+    (project / "agent.yaml").write_text(
+        text.replace(
+            "  - {ref: tool/orders@1.0.0}\n",
+            "  - {ref: tool/orders@1.0.0}\n  - {ref: tool/dupe@1.0.0}\n",
+        )
+    )
+    with pytest.raises(BuildError) as error:
+        build(project / "agent.yaml", operator.load(), "dev", builder=FakeBuilder())
+    assert error.value.code == "TOOL_MODULE_CONFLICT"

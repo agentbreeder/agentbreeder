@@ -123,3 +123,17 @@ def test_error_does_not_echo_secret(tmp_path):
     with pytest.raises(ManifestError) as error:
         load_manifest(write(tmp_path, VALID + "secrets:\n  API_KEY: very-sensitive-value\n"))
     assert "very-sensitive-value" not in str(error.value)
+
+
+def test_digest_ignores_unset_model_access():
+    """Manifests deployed before model_access existed keep their digest (no NAME_CONFLICT)."""
+    import hashlib
+    import json
+
+    from agentbreeder.manifest import Manifest
+
+    data = {"schema_version": 1, "name": "x", "image": "sha256:" + "a" * 64}
+    manifest = Manifest.model_validate(data)
+    old = {k: v for k, v in json.loads(manifest.model_dump_json()).items() if k != "model_access"}
+    legacy = hashlib.sha256(json.dumps(old, separators=(",", ":")).encode()).hexdigest()
+    assert manifest.digest() == legacy

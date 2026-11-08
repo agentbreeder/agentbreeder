@@ -61,7 +61,7 @@ class Knowledge(_Strict):
 
 
 class Memory(_Strict):
-    sessions: Literal["postgres", "in_memory"] = "postgres"
+    sessions: Literal["postgres"] = "postgres"
     notes: bool = False
 
 
@@ -79,7 +79,8 @@ class AgentFile(_Strict):
     description: str = Field(default="", max_length=500)
     model: Model
     prompt: PromptSource
-    knowledge: list[Knowledge] = Field(default_factory=list, max_length=10)
+    # runtime/adk 1.x retrieves from one knowledge set (chunk ids are not namespaced per set)
+    knowledge: list[Knowledge] = Field(default_factory=list, max_length=1)
     tools: list[RefEntry] = Field(default_factory=list, max_length=50)
     memory: Memory = Field(default_factory=Memory)
     agent_events: Literal["postgres", "none"] = "postgres"

@@ -114,6 +114,35 @@ def _config(agent: AgentFile, placed: dict[str, Path], context: Path) -> dict:
     }
 
 
+def _prompt_as_prompt_md(directory: Path) -> None:
+    """The runtime reads `<prompt dir>/prompt.md`; a path prompt keeps its own file name in
+    the lock (hash of what you wrote) and is renamed only inside the build context."""
+    files = [p for p in directory.iterdir() if p.is_file()]
+    if len(files) == 1 and files[0].name != "prompt.md":
+        files[0].rename(directory / "prompt.md")
+    if not (directory / "prompt.md").is_file():
+        raise BuildError("ARTIFACT_INVALID", "a path prompt must be one file or contain prompt.md")
+
+
+def _check_tool_modules(agent: AgentFile, placed: dict[str, Path]) -> None:
+    """Python caches modules by name, so two tools exporting the same module name would run
+    one package's code for the other. Refuse that at build time."""
+    owners: dict[str, str] = {}
+    for tool in agent.tools:
+        try:
+            spec = load_file(placed[tool.ref] / "tool.yaml")
+        except StrictYamlError as error:
+            raise BuildError("ARTIFACT_INVALID", f"{tool.ref} tool.yaml: {error}") from error
+        for function in spec.get("functions") or []:
+            module = str((function or {}).get("module", ""))
+            if module in owners and owners[module] != tool.ref:
+                raise BuildError(
+                    "TOOL_MODULE_CONFLICT",
+                    f"{tool.ref} and {owners[module]} both define Python module {module!r}",
+                )
+            owners[module] = tool.ref
+
+
 def _manifest(agent, operator, environment, image, identity, aliases, name) -> dict:
     env = operator.model.environments[environment]
     data: dict = {
@@ -197,6 +226,9 @@ def build(
         shutil.rmtree(artifacts / "runtime")
         shutil.rmtree(artifacts / "eval", ignore_errors=True)
         placed = {entry.key: entry.path for entry in entries}
+        if agent.prompt.path:
+            _prompt_as_prompt_md(placed[f"path:{Path(agent.prompt.path).as_posix()}"])
+        _check_tool_modules(agent, placed)
         config = _config(agent, placed, context)
         (context / "agent.config.json").write_text(json.dumps(config, indent=2, sort_keys=True))
         aliases = [agent.model.alias]

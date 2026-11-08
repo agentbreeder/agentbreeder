@@ -26,12 +26,12 @@ model:
   budget_usd: 25               # optional; can only lower the operator's ceiling
   rpm: 120                     # optional; same rule
 prompt: {ref: prompt/northwind-support@1.0.0}   # or {path: ./prompts/dev.md} while iterating
-knowledge:
+knowledge:                     # runtime/adk 1.x: at most one knowledge set
   - {ref: knowledge/northwind-help@1.0.0, top_k: 5, extra_searches: 1}
 tools:
   - {ref: tool/customer-notes@1.0.0}
   - {ref: tool/orders@1.0.0}
-memory: {sessions: postgres, notes: true}       # notes needs tool/customer-notes
+memory: {sessions: postgres, notes: true}       # notes needs tool/customer-notes; postgres is the only session store
 agent_events: postgres         # the agent's own event log, not the deploy audit chain
 traces: otlp
 evals: {ref: eval/northwind-golden@1.0.0, threshold: 1.0, retries: 1}
@@ -42,7 +42,9 @@ evals: {ref: eval/northwind-golden@1.0.0, threshold: 1.0, retries: 1}
 - **Strict YAML:** at most 64 KiB, unique keys, no anchors or aliases, and no unknown fields.
 - **Refs:** each ref must have the kind its field expects, an exact version, and may appear only
   once.
-- **Paths:** `prompt.path` must be a relative path inside the project.
+- **Paths:** `prompt.path` must be a relative path inside the project. Its file is copied into
+  the image as `prompt.md`.
+- **Tools:** two tool packages may not define the same Python module (`TOOL_MODULE_CONFLICT`).
 - **Error messages** name the field and never echo the value you supplied.
 
 ## Wrong file kinds

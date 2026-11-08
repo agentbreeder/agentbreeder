@@ -576,3 +576,25 @@ def test_rollback_validates_journal_and_gate(project, operator, state):
     prod = state.active("helper")["id"]
     denied = rollback(project / "agent.yaml", service, actor("dave"))
     assert denied.code == EXIT_DENIED and state.active("helper")["id"] == prod  # untouched
+
+
+def test_promote_that_raises_restores_previous(project, operator, state, monkeypatch):
+    from agentbreeder.store import DeploymentError as StoreError
+
+    prepare_lock(project, operator)
+    runtime = FakeRuntime()
+    old = "sha256:" + "a" * 64
+    do_release(project, operator, state, runtime, old)
+    original = DeploymentService.deploy
+
+    def deploy(self, manifest, **kwargs):
+        if manifest.name == "helper" and manifest.image != old:
+            raise StoreError("gateway key not minted")
+        return original(self, manifest, **kwargs)
+
+    monkeypatch.setattr(DeploymentService, "deploy", deploy)
+    outcome, _ = do_release(project, operator, state, runtime, "sha256:" + "b" * 64)
+    assert (
+        outcome.code == EXIT_RUNTIME and "previous production restored (ready)" in outcome.message
+    )
+    assert state.manifest(state.active("helper")["id"])["image"] == old

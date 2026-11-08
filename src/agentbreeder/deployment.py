@@ -7,8 +7,8 @@ audit events commit in the same SQLite transaction. Audit failure aborts before 
 
 from __future__ import annotations
 
-import hashlib
 import json
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -154,7 +154,7 @@ class DeploymentService:
         if not local or manifest.target != "local":
             raise DeploymentError("Deployment requires --local and target: local")
         deployer = deployer or os_deployer()
-        digest = hashlib.sha256(manifest.model_dump_json().encode()).hexdigest()
+        digest = manifest.digest()
         with self.store.lock():
             attempt = uuid.uuid4().hex
             requested = {"environment": environment, "target": manifest.target}
@@ -1293,9 +1293,9 @@ class DeploymentService:
         return results
 
     def _revoke_orphan_keys(self, attempt, actor) -> list[dict]:
-        """Keys whose deployment is gone, removed or disabled (e.g. a revoke that failed while
-        the gateway was down) are revoked here."""
-        live = {r["id"] for r in self.store.active_all() if r["state"] in ("ready", "starting")}
+        """Revoke keys of deployments THIS store knows are removed, disabled or failed (e.g. a
+        revoke that failed while the gateway was down). Unknown aliases are left alone: another
+        state dir or operator may share the gateway, and eval judge keys are short-lived."""
         results = []
         for name in self.operator.model.gateways:
             try:
@@ -1304,7 +1304,13 @@ class DeploymentService:
                     continue
                 for key_alias in client.aliases():
                     identifier = key_alias.removeprefix(gateway_keys.PREFIX)
-                    if identifier in live:
+                    if not re.fullmatch(r"[0-9a-f]{32}", identifier):
+                        continue  # not a deployment key (e.g. an eval judge key)
+                    try:
+                        record = self.store.get(identifier)
+                    except DeploymentError:
+                        continue  # not ours
+                    if record["state"] not in ("removed", "disabled", "failed"):
                         continue
                     client.revoke(key_alias)
                     self._audit(

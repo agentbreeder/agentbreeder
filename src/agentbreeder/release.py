@@ -21,7 +21,6 @@ journal's previous manifest.
 from __future__ import annotations
 
 import fcntl
-import hashlib
 import json
 import os
 import tempfile
@@ -35,9 +34,11 @@ from agentbreeder.agentfile import load_agent_file
 from agentbreeder.build import BuildError, build, docker_build
 from agentbreeder.deployer import Deployer
 from agentbreeder.deployment import DeploymentService
+from agentbreeder.gate import GateDenied
 from agentbreeder.lock import Lock
 from agentbreeder.manifest import Manifest, load_manifest
 from agentbreeder.operator_config import OperatorConfig
+from agentbreeder.store import DeploymentError
 
 EXIT_OK, EXIT_RUNTIME, EXIT_DENIED, EXIT_APPROVAL, EXIT_EVAL = 0, 1, 2, 3, 5
 
@@ -59,7 +60,7 @@ class ReleaseError(ValueError):
 
 
 def _digest(manifest: Manifest) -> str:
-    return hashlib.sha256(manifest.model_dump_json().encode()).hexdigest()
+    return manifest.digest()
 
 
 def _eval_set(agent, project: Path) -> evals.EvalSet:
@@ -237,7 +238,10 @@ def release(
         if current:
             log(f"Replacing production {current['id']} ...")
             service.remove(current["id"], local=True, actor=deployer)
-        promoted = service.deploy(production, local=True, environment=env, deployer=deployer)
+        try:
+            promoted = service.deploy(production, local=True, environment=env, deployer=deployer)
+        except (GateDenied, DeploymentError) as error:
+            promoted = {"state": "failed", "error": str(error)}
         if promoted["state"] != "ready":
             rolled = _restore(service, previous, deployer, promoted)
             service.record("release", "failed", deployer, reasons)
@@ -256,15 +260,18 @@ def release(
 
 
 def _restore(service, previous, deployer, failed) -> str:
-    if failed.get("id"):
-        service.remove(failed["id"], local=True, actor=deployer)
-    if previous is None:
-        return "there was no previous production to restore"
-    manifest = Manifest.model_validate(previous["manifest"])
-    restored = service.deploy(
-        manifest, local=True, environment=previous["environment"], deployer=deployer
-    )
-    return f"previous production restored ({restored['state']})"
+    try:
+        if failed.get("id"):
+            service.remove(failed["id"], local=True, actor=deployer)
+        if previous is None:
+            return "there was no previous production to restore"
+        manifest = Manifest.model_validate(previous["manifest"])
+        restored = service.deploy(
+            manifest, local=True, environment=previous["environment"], deployer=deployer
+        )
+        return f"previous production restored ({restored['state']})"
+    except (GateDenied, DeploymentError) as error:
+        return f"restoring the previous production failed ({error}); run `release --rollback`"
 
 
 def rollback(
