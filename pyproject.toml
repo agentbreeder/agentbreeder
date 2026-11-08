@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-dependencies = ["pydantic>=2.13.4,<3", "PyYAML>=6.0.3,<7"]
+dependencies = ["pydantic>=2.14.3,<3", "PyYAML>=6.0.3,<7"]
 
 [project.optional-dependencies]
 cedar = ["cedarpy==4.12.2"]
