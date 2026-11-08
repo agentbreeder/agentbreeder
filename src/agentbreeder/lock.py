@@ -120,6 +120,7 @@ def materialise(
         if relative.is_absolute() or ".." in relative.parts:
             raise RegistryError("ENTRY_UNSAFE", f"path refs must stay inside the project: {text}")
         source_path = project_dir / relative
+        _no_symlinks(project_dir, relative, text)
         key = f"path:{relative.as_posix()}"
         if key in seen:
             continue
@@ -175,6 +176,18 @@ def _reconcile(lock, key, digest, source, locked, mode, update) -> bool:
         )
     lock.entries[key] = {"sha256": digest, "source": source}
     return True
+
+
+def _no_symlinks(project_dir: Path, relative: Path, text: str) -> None:
+    """Every component of a path ref must be a real directory or file inside the project: a
+    symlinked folder (e.g. prompts -> ~/.ssh) would copy files from outside into the image."""
+    current = project_dir
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise RegistryError("ENTRY_UNSAFE", f"path refs may not go through symlinks: {text}")
+    if not current.resolve().is_relative_to(project_dir.resolve()):
+        raise RegistryError("ENTRY_UNSAFE", f"path refs must stay inside the project: {text}")
 
 
 def _copy_file(source: Path, target: Path) -> str:

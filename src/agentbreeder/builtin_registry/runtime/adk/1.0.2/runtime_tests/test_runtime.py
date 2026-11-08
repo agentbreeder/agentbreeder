@@ -262,3 +262,26 @@ def test_sessions_url_keeps_connection_parameters(monkeypatch):
     monkeypatch.setattr(agent.cfg, "sessions_database", lambda: "adk")
     url = agent.sessions_url("postgresql://u:p@db:5432/support?sslmode=require&connect_timeout=5")
     assert url == "postgresql+psycopg://u:p@db:5432/adk?sslmode=require&connect_timeout=5"
+
+
+def test_timed_out_turn_is_cancelled_before_returning(monkeypatch):
+    import asyncio
+    import concurrent.futures
+
+    import agent
+
+    state = {"cancelled": False}
+
+    class Slow:
+        async def chat_async(self, session, customer, message):
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                state["cancelled"] = True
+                raise
+
+    monkeypatch.setattr(agent, "runtime", lambda: Slow())
+    monkeypatch.setattr(agent, "TURN_TIMEOUT", 0.2)
+    with pytest.raises(concurrent.futures.TimeoutError):
+        agent.chat("s", "c", "hi")
+    assert state["cancelled"]  # stopped before chat() returned (the lock is still held)

@@ -428,3 +428,14 @@ def test_builtin_versions_lock_as_builtin(project, tmp_path, monkeypatch):
         project, tmp_path, lock, mode="locked", refs=["runtime/adk@1.0.0"], name="b2"
     )
     assert not changed and entries[0].source == "builtin"
+
+
+def test_path_ref_through_symlinked_folder_is_refused(project, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "id_rsa").write_text("private")
+    import os as _os
+
+    _os.symlink(outside, project / "prompts")
+    with pytest.raises(RegistryError, match="symlinks"):
+        run(project, tmp_path, Lock(), refs=[], paths=["prompts/id_rsa"], name="s")

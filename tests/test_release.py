@@ -598,3 +598,88 @@ def test_promote_that_raises_restores_previous(project, operator, state, monkeyp
         outcome.code == EXIT_RUNTIME and "previous production restored (ready)" in outcome.message
     )
     assert state.manifest(state.active("helper")["id"])["image"] == old
+
+
+def test_promote_gate_denied_restores_and_exits_denied(project, operator, state, monkeypatch):
+    from agentbreeder.gate import GateDenied
+
+    prepare_lock(project, operator)
+    runtime = FakeRuntime()
+    old = "sha256:" + "c" * 64
+    do_release(project, operator, state, runtime, old)
+    original = DeploymentService.deploy
+
+    def deploy(self, manifest, **kwargs):
+        if manifest.name == "helper" and manifest.image != old:
+            raise GateDenied("PRINCIPAL_BLOCKED", "blocked during the eval window")
+        return original(self, manifest, **kwargs)
+
+    monkeypatch.setattr(DeploymentService, "deploy", deploy)
+    outcome, _ = do_release(project, operator, state, runtime, "sha256:" + "d" * 64)
+    assert outcome.code == EXIT_DENIED and "restored (ready)" in outcome.message
+    assert state.manifest(state.active("helper")["id"])["image"] == old
+
+
+def test_audit_failure_during_promote_is_not_swallowed(project, operator, state, monkeypatch):
+    from agentbreeder.deployment import AuditIncomplete
+
+    prepare_lock(project, operator)
+    runtime = FakeRuntime()
+    old = "sha256:" + "e" * 64
+    do_release(project, operator, state, runtime, old)
+    original = DeploymentService.deploy
+
+    def deploy(self, manifest, **kwargs):
+        if manifest.name == "helper" and manifest.image != old:
+            raise AuditIncomplete()
+        return original(self, manifest, **kwargs)
+
+    monkeypatch.setattr(DeploymentService, "deploy", deploy)
+    with pytest.raises(AuditIncomplete):
+        do_release(project, operator, state, runtime, "sha256:" + "f" * 64)
+
+
+def test_failed_candidate_removal_aborts_release(project, operator, state, monkeypatch):
+    prepare_lock(project, operator)
+    runtime = FakeRuntime()
+    original = DeploymentService.remove
+
+    def remove(self, identifier, **kwargs):
+        record = self.store.get(identifier)
+        if record["name"] == "helper-candidate":
+            return {**record, "state": "failed", "error": "engine timeout"}
+        return original(self, identifier, **kwargs)
+
+    monkeypatch.setattr(DeploymentService, "remove", remove)
+    from agentbreeder.release import ReleaseError
+
+    with pytest.raises(ReleaseError, match="REMOVE_FAILED"):
+        do_release(project, operator, state, runtime, "sha256:" + "1" * 64)
+    assert state.active("helper") is None  # never promoted
+
+
+def test_eval_sessions_unique_for_long_case_ids():
+    seen = []
+
+    class Recorder:
+        def grade(self, prompt):
+            return 1.0, "ok"
+
+    import agentbreeder.evals as ev
+
+    original = ev._post
+
+    def post(url, body, headers=None, timeout=180):
+        seen.append(body["session_id"])
+        return {"reply": "ok", "tools": [], "sources": []}
+
+    ev._post = post
+    try:
+        long_a = {"id": "x" * 50 + "a", "turns": ["hi"], "reference": "r"}
+        long_b = {"id": "x" * 50 + "b", "turns": ["hi"], "reference": "r"}
+        for case in (long_a, long_b):
+            for attempt in (1, 2):
+                ev.run_case("http://x", "20261107-220940-67e281", case, Recorder(), attempt)
+    finally:
+        ev._post = original
+    assert len(set(seen)) == 4 and all(len(s) <= 64 for s in seen)

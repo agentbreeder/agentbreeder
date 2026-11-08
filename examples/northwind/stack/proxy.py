@@ -23,6 +23,7 @@ import certifi
 
 TAVILY = "https://api.tavily.com/search"
 MAX_BODY = 8 * 1024 * 1024
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", "host.docker.internal", "proxy"}
 TLS = ssl.create_default_context(cafile=certifi.where())
 
 
@@ -65,6 +66,16 @@ class Proxy(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self) -> None:
+        # Browsers can send simple cross-site POSTs to loopback; require JSON (a preflighted
+        # content type for cross-origin pages) and a loopback/compose Host, so a web page cannot
+        # spend the operator's Tavily credits through this proxy.
+        host = (self.headers.get("Host") or "").split(":")[0]
+        content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if host not in ALLOWED_HOSTS or (
+            self.path == "/tavily/search" and content_type != "application/json"
+        ):
+            self.reply(403, b'{"error":"forbidden"}')
+            return
         tavily = self.path == "/tavily/search"
         traces = self.path == "/v1/traces" and bool(phoenix_key())
         if not (tavily or traces):

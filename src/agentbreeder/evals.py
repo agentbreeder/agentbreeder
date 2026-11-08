@@ -14,6 +14,7 @@ Ported from the Northwind reference agent's ops/offline_evals.py.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import statistics
@@ -191,7 +192,10 @@ policy, or harmful. Extra helpful detail is fine if it is not wrong. Explain in 
 
 def run_case(endpoint: str, run_id: str, case: dict, judge: Judge, attempt: int = 1) -> dict:
     suffix = f"-r{attempt}" if attempt > 1 else ""
-    session = f"eval-{run_id}-{case['id'][:40]}{suffix}"[:64]
+    # run id (22) + a short hash of the full case id keeps sessions unique per case and attempt
+    # within the runtime's 64-character id limit.
+    case_key = hashlib.sha256(case["id"].encode()).hexdigest()[:12]
+    session = f"eval-{run_id}-{case_key}{suffix}"
     customer = case.get("customer_id") or session
     responses, started, error = [], time.monotonic(), None
     try:

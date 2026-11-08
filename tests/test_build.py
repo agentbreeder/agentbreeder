@@ -270,3 +270,23 @@ def test_tool_module_names_must_be_unique(project, operator):
     with pytest.raises(BuildError) as error:
         build(project / "agent.yaml", operator.load(), "dev", builder=FakeBuilder())
     assert error.value.code == "TOOL_MODULE_CONFLICT"
+
+
+def test_build_context_is_readable_under_strict_umask(project, operator):
+    import os
+
+    old = os.umask(0o077)
+    try:
+        fake = FakeBuilder()
+        modes = {}
+
+        def builder(context, iidfile):
+            for path in [context, *context.rglob("*")]:
+                modes[path.relative_to(context).as_posix()] = path.stat().st_mode & 0o777
+            return fake(context, iidfile)
+
+        build(project / "agent.yaml", operator.load(), "dev", builder=builder)
+    finally:
+        os.umask(old)
+    assert modes["agent.config.json"] == 0o644 and modes["."] == 0o755
+    assert all(m in (0o644, 0o755) for m in modes.values())

@@ -114,6 +114,18 @@ def _config(agent: AgentFile, placed: dict[str, Path], context: Path) -> dict:
     }
 
 
+def _world_readable(context: Path) -> None:
+    """Directories 0755, files 0644 (0755 if executable): a restrictive umask must not make
+    the image unreadable to the non-root runtime user. Nothing secret is in the context."""
+    for path in [context, *context.rglob("*")]:
+        if path.is_symlink():
+            raise BuildError("ARTIFACT_INVALID", f"unexpected symlink in build context: {path}")
+        if path.is_dir():
+            path.chmod(0o755)
+        else:
+            path.chmod(0o755 if path.stat().st_mode & 0o111 else 0o644)
+
+
 def _prompt_as_prompt_md(directory: Path) -> None:
     """The runtime reads `<prompt dir>/prompt.md`; a path prompt keeps its own file name in
     the lock (hash of what you wrote) and is renamed only inside the build context."""
@@ -231,6 +243,7 @@ def build(
         _check_tool_modules(agent, placed)
         config = _config(agent, placed, context)
         (context / "agent.config.json").write_text(json.dumps(config, indent=2, sort_keys=True))
+        _world_readable(context)  # the image runs as uid 65532; COPY keeps these modes
         aliases = [agent.model.alias]
         for knowledge in agent.knowledge:
             alias = _knowledge_alias(placed[knowledge.ref])

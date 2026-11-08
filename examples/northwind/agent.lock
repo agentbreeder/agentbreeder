@@ -13,8 +13,8 @@
       "sha256": "sha256:2b41e4292bfeedd02ba47c8e21b5a8af1d65f892c46390b02c74ae37c0cb64d7",
       "source": "registry"
     },
-    "runtime/adk@1.0.1": {
-      "sha256": "sha256:836cb2ac6f11f51e4dd56bde03d7d54d7e137293178b0705fcc55bf947b95cd6",
+    "runtime/adk@1.0.2": {
+      "sha256": "sha256:299dca87785a766e2646ed83e35e25bacd6a94950b3cb673cbc34e6e664417a5",
       "source": "builtin"
     },
     "tool/cancel-order@1.0.0": {

@@ -33,7 +33,7 @@ from agentbreeder import evals, registry
 from agentbreeder.agentfile import load_agent_file
 from agentbreeder.build import BuildError, build, docker_build
 from agentbreeder.deployer import Deployer
-from agentbreeder.deployment import DeploymentService
+from agentbreeder.deployment import AuditIncomplete, AuditUnavailable, DeploymentService
 from agentbreeder.gate import GateDenied
 from agentbreeder.lock import Lock
 from agentbreeder.manifest import Manifest, load_manifest
@@ -191,7 +191,7 @@ def release(
             )
         finally:
             if deployed.get("id"):
-                service.remove(deployed["id"], local=True, actor=deployer)
+                _removed_or_raise(service, deployed["id"], deployer, "the candidate")
         summary = report.summary()
         report_path = output / f"{agent.name}.eval-{report.run_id}.json"
         output.mkdir(parents=True, exist_ok=True)
@@ -237,16 +237,21 @@ def release(
         )
         if current:
             log(f"Replacing production {current['id']} ...")
-            service.remove(current["id"], local=True, actor=deployer)
+            _removed_or_raise(service, current["id"], deployer, "the previous production")
+        denied = False
         try:
             promoted = service.deploy(production, local=True, environment=env, deployer=deployer)
+        except (AuditUnavailable, AuditIncomplete):
+            raise  # never continue (or restore) when the attempt cannot be audited
         except (GateDenied, DeploymentError) as error:
-            promoted = {"state": "failed", "error": str(error)}
+            denied = isinstance(error, GateDenied)
+            leftover = service.store.active(production.name)
+            promoted = {"state": "failed", "error": str(error), "id": leftover and leftover["id"]}
         if promoted["state"] != "ready":
             rolled = _restore(service, previous, deployer, promoted)
             service.record("release", "failed", deployer, reasons)
             return Outcome(
-                EXIT_RUNTIME,
+                EXIT_DENIED if denied else EXIT_RUNTIME,
                 f"Production deploy failed ({promoted.get('error')}); {rolled}",
                 details,
             )
@@ -256,6 +261,18 @@ def release(
             EXIT_OK,
             f"Released {built.image}: {summary['passed']}/{summary['cases']} evals passed",
             details,
+        )
+
+
+def _removed_or_raise(service, identifier: str, deployer, what: str) -> None:
+    """`remove` reports a failed teardown as state `failed` instead of raising; a release must
+    not carry on (promote, or exit 0) while a container it meant to remove keeps running."""
+    result = service.remove(identifier, local=True, actor=deployer)
+    if result.get("state") != "removed":
+        raise ReleaseError(
+            "REMOVE_FAILED",
+            f"Could not remove {what} ({identifier}): {result.get('error')}. Production is "
+            f"unchanged where possible; run `agentbreeder remove {identifier} --local` and retry",
         )
 
 
@@ -270,6 +287,8 @@ def _restore(service, previous, deployer, failed) -> str:
             manifest, local=True, environment=previous["environment"], deployer=deployer
         )
         return f"previous production restored ({restored['state']})"
+    except (AuditUnavailable, AuditIncomplete):
+        raise
     except (GateDenied, DeploymentError) as error:
         return f"restoring the previous production failed ({error}); run `release --rollback`"
 

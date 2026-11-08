@@ -13,6 +13,7 @@ user_id (set server-side from the request), never a value the model chooses.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import re
 import threading
@@ -44,6 +45,7 @@ from tools import RegistryTool, ToolRuntime, load_functions
 warnings.filterwarnings("ignore", message=r"\[EXPERIMENTAL\]")
 
 TURN_TIMEOUT = 170
+CANCEL_GRACE = 30  # seconds to wait for a cancelled turn to stop
 REASONING = {"none": None, "low": "low", "medium": "medium", "high": "high"}
 
 
@@ -518,4 +520,11 @@ def chat(session: str, customer: str, message: str) -> dict:
     future = asyncio.run_coroutine_threadsafe(
         runtime().chat_async(session, customer, message), LOOP
     )
-    return future.result(timeout=TURN_TIMEOUT)
+    try:
+        return future.result(timeout=TURN_TIMEOUT)
+    except concurrent.futures.TimeoutError:
+        # Cancel the turn and wait for it to stop before the caller releases the session lock,
+        # so a retry can never run alongside it (and repeat its tool writes).
+        future.cancel()
+        concurrent.futures.wait([future], timeout=CANCEL_GRACE)
+        raise
