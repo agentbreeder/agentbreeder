@@ -174,6 +174,36 @@ class Output(_Strict):
         return self
 
 
+TMPFS_LIMIT = 4
+# Paths a service tmpfs may not cover: AgentBreeder's own mounts, the default /tmp, kernel trees.
+TMPFS_RESERVED = ("/tmp", "/proc", "/sys", "/dev", "/run/secrets", "/run/params", "/files")
+
+
+def _tmpfs(paths: list[str], volume_targets: set[str]) -> None:
+    if len(paths) > TMPFS_LIMIT:
+        raise ValueError(f"tmpfs: at most {TMPFS_LIMIT} paths")
+    if len(set(paths)) != len(paths):
+        raise ValueError("tmpfs paths must be unique")
+    for path in paths:
+        parts = path.split("/")[1:]
+        if (
+            not _matches(ABS_PATH, path)
+            or path.endswith("/")
+            or any(part in ("", ".", "..") for part in parts)
+        ):
+            raise ValueError("tmpfs paths must be normalised absolute container paths")
+        if any(
+            path == r or path.startswith(r + "/") or r.startswith(path + "/")
+            for r in TMPFS_RESERVED
+        ):
+            raise ValueError("tmpfs path is reserved")
+        if any(
+            path == t or t.startswith(path + "/") or path.startswith(t + "/")
+            for t in volume_targets
+        ):
+            raise ValueError("tmpfs path overlaps a volume")
+
+
 class ServiceSpec(_Strict):
     image: str | None = Field(default=None, pattern=IMAGE)
     build: Literal["Dockerfile"] | None = None
@@ -186,6 +216,9 @@ class ServiceSpec(_Strict):
     secrets: dict[str, SecretSource] = Field(default_factory=dict, max_length=20)
     inputs: dict[str, Input] = Field(default_factory=dict, max_length=20)
     volumes: dict[str, str] = Field(default_factory=dict, max_length=2)
+    # Extra writable scratch paths (noexec, nosuid, size-capped) on top of the read-only root,
+    # e.g. postgres's /var/run/postgresql socket directory.
+    tmpfs: list[str] = Field(default_factory=list)
     health: Health | None = None
     egress: bool = False
     init: OneShot | None = None
@@ -214,6 +247,7 @@ class ServiceSpec(_Strict):
         for target in self.volumes.values():
             if not _matches(ABS_PATH, target):
                 raise ValueError("volume targets must be absolute container paths")
+        _tmpfs(self.tmpfs, set(self.volumes.values()))
         if self.volumes and self.user in ("image", "host"):
             raise ValueError("a service with a data volume needs a fixed user (uid:gid)")
         clash = set(self.secrets) & set(self.inputs)

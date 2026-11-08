@@ -22,6 +22,14 @@ from agentbreeder.services.refs import Reference
 from agentbreeder.services.schema import ServiceError, ServiceSpec
 
 TMPFS = "/tmp:rw,noexec,nosuid,size=64m"
+EXTRA_TMPFS = "rw,noexec,nosuid,size=16m"
+
+
+def tmpfs_mounts(spec) -> list[str]:
+    """The default /tmp plus a service's declared scratch paths, all noexec and size-capped."""
+    return [TMPFS, *(f"{path}:{EXTRA_TMPFS}" for path in spec.tmpfs)]
+
+
 LABEL_STACK = "io.agentbreeder.stack"
 LABEL_SERVICE = "io.agentbreeder.service"
 LABEL_CONFIG = "io.agentbreeder.config"
@@ -179,7 +187,7 @@ class Plan:
                 "read_only": True,
                 "cap_drop": ["ALL"],
                 "security_opt": ["no-new-privileges:true"],
-                "tmpfs": [TMPFS],
+                "tmpfs": tmpfs_mounts(spec),
                 "pids_limit": 512,
                 "restart": "unless-stopped",
                 "logging": {"driver": "local", "options": {"max-size": "10m", "max-file": "2"}},

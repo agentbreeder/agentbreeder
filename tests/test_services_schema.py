@@ -502,3 +502,44 @@ def test_expose_accepts_a_list_of_scopes():
             Port(port=1, protocol="tcp", expose=bad)
     with pytest.raises(ValueError, match="needs a guard"):
         Port(port=1, expose=["host"])
+
+
+def test_tmpfs_paths_become_hardened_mounts():
+    from agentbreeder.services.plan import TMPFS, tmpfs_mounts
+
+    data = copy.deepcopy(POSTGRES)
+    data["tmpfs"] = ["/var/run/postgresql"]
+    spec = ServiceSpec.model_validate(data)
+    assert tmpfs_mounts(spec) == [TMPFS, "/var/run/postgresql:rw,noexec,nosuid,size=16m"]
+    assert tmpfs_mounts(ServiceSpec.model_validate(copy.deepcopy(POSTGRES))) == [TMPFS]
+
+
+@pytest.mark.parametrize(
+    "paths, message",
+    [
+        (["relative"], "absolute"),
+        (["/"], "absolute"),
+        (["/a/../etc"], "absolute"),
+        (["/tmp"], "reserved"),
+        (["/proc"], "reserved"),
+        (["/sys/fs"], "reserved"),
+        (["/dev"], "reserved"),
+        (["/run/secrets"], "reserved"),
+        (["/run/params/x"], "reserved"),
+        (["/files"], "reserved"),
+        (["/var/run/pg", "/var/run/pg"], "unique"),
+        (["/a", "/b", "/c", "/d", "/e"], "at most"),
+    ],
+)
+def test_tmpfs_rejects(paths, message):
+    data = copy.deepcopy(POSTGRES)
+    data["tmpfs"] = paths
+    with pytest.raises(ValueError, match=message):
+        ServiceSpec.model_validate(data)
+
+
+def test_tmpfs_may_not_shadow_a_volume():
+    data = copy.deepcopy(POSTGRES)
+    data["tmpfs"] = [next(iter(data["volumes"].values()))]
+    with pytest.raises(ValueError, match="volume"):
+        ServiceSpec.model_validate(data)
