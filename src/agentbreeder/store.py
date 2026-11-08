@@ -69,6 +69,10 @@ def _now() -> str:
 
 class Store:
     def __init__(self, directory: Path):
+        if "," in str(directory.absolute()):
+            # Secret files are bind-mounted from here with `--mount type=bind,src=…`, which is
+            # comma-delimited.
+            raise DeploymentError("State directory path must not contain a comma")
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         if directory.is_symlink() or directory.stat().st_uid != os.getuid():
             raise DeploymentError("State directory must be owned by the current user")

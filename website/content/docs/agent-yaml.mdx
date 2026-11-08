@@ -88,9 +88,9 @@ tools' own code, not by an engine boundary.
 
 The operator environment grants a gateway, a model allow-list and budget and rate ceilings. The
 gate denies a deploy that asks for more, with no audit-mode override. With a gateway master key,
-each deployment gets its own LiteLLM virtual key, limited to its aliases, budget and rate. The key
-is mounted as a file and revoked on remove. Other secrets are local files set with
-`agentbreeder secret set`; see [Local deployment](/docs/local-deployment).
+each deployment gets its own LiteLLM virtual key, limited to its aliases, its rate and a budget
+that renews every 30 days. The key is mounted as a file and revoked on remove. Other secrets
+are local files set with `agentbreeder secret set`; see [Local deployment](/docs/local-deployment).
 
 ## Eval and release
 
@@ -102,7 +102,8 @@ agentbreeder release agent.yaml --rollback
 
 `release` builds with `--locked` and checks production through the gate. It then deploys a
 candidate under its own identity and runs the eval set against it. Each case needs its rule checks
-and an LLM judge (on its own short-lived key) to pass. Below the threshold it exits 5 and leaves
+and an LLM judge (on its own key, revoked after the run and expiring after 6 hours) to pass.
+An eval set's fixtures SQL runs against the eval database, so treat eval sets as trusted code. Below the threshold it exits 5 and leaves
 production unchanged. Otherwise it promotes the exact evaluated image, and restores the previous
 production if the new one fails to start.
 

@@ -134,12 +134,15 @@ agentbreeder release agent.yaml --rollback [--environment ENV]   # gate-checked 
 `eval` runs the agent's eval set (`eval/<name>@X.Y.Z`, verified against `agent.lock`) against a
 running endpoint. A case passes when every rule check passes (sources, tools, regex) and the LLM
 judge scores correctness at least 0.7. The judge calls the gateway alias from the eval manifest,
-on its own short-lived key that is revoked after the run. The eval set's `fixtures.sql` runs
-against the environment's `eval_database` before the run and before each retry round. That needs
-`pip install "agentbreeder[eval]"`.
+on its own key, which is revoked after the run and expires after 6 hours in case the run is
+killed. The eval set's `fixtures.sql` runs against the environment's `eval_database`, with that
+database's credentials, before the run and before each retry round. That needs
+`pip install "agentbreeder[eval]"`. An eval set is therefore trusted code, like a tool package:
+only use eval sets you would let write to that database.
 
 `release` is orchestration around two ordinary governed deploys. The exit codes are 0 released or
-already in production, 1 runtime failure, 2 denied, 3 needs approval, 5 eval gate failed. The
+already in production, 1 runtime failure, 2 denied or a release precondition failed (for example `LOCK_STALE`,
+`PRODUCTION_CHANGED`, `REMOVE_FAILED`, `RELEASE_BUSY`), 3 needs approval, 5 eval gate failed. The
 steps:
 
 1. Build with `--locked`.

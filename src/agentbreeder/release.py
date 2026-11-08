@@ -318,7 +318,8 @@ def rollback(
 ) -> Outcome:
     """Redeploy the previous production recorded by the last release. The journal is only a
     pointer: the manifest must name this agent, the environment comes from the caller or the
-    operator default, and the gate is checked before anything is removed."""
+    operator default, and the gate and the previous image are checked before anything is
+    removed."""
     agent = load_agent_file(agent_path)
     journal = _journal_path(service.store.directory, agent.name)
     if not journal.exists():
@@ -335,6 +336,13 @@ def rollback(
         return Outcome(EXIT_DENIED, f"[{decision.code}] {decision.message}; production unchanged")
     if "require_approval" in decision.obligations:
         return Outcome(EXIT_APPROVAL, "The rollback deploy needs approval; production unchanged")
+    if not service.runtime.image_present(manifest.image):
+        # Checked before anything is removed: a pruned local image can't be pulled back.
+        return Outcome(
+            EXIT_RUNTIME,
+            f"The previous image {manifest.image} is no longer available locally; production "
+            "unchanged. Rebuild and release instead",
+        )
     with _ReleaseLock(service.store.directory):
         current = service.store.active(agent.name)
         if current:

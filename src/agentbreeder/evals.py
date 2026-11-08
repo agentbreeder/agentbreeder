@@ -30,6 +30,8 @@ from agentbreeder import gateway_keys, secret_files
 from agentbreeder.operator_config import OperatorConfig
 from agentbreeder.strict_yaml import StrictYamlError, load_file
 
+JUDGE_KEY_DURATION = "6h"  # judge keys expire even if a killed run never revokes them
+
 CORRECTNESS_PASS = 0.7
 MAX_CASES = 1000
 _OPENER = build_opener(ProxyHandler({}))
@@ -308,8 +310,14 @@ def run(
             raise EvalError(
                 "GATEWAY_CREDENTIAL", "The gateway needs a master_key to mint a judge key"
             )
+        # Revoked in `finally` below; the expiry covers a run that is killed before that.
         key = client.mint(
-            key_alias, [eval_set.judge_alias], 5.0, 300, {"agentbreeder": True, "eval_run": run_id}
+            key_alias,
+            [eval_set.judge_alias],
+            5.0,
+            300,
+            {"agentbreeder": True, "eval_run": run_id},
+            duration=JUDGE_KEY_DURATION,
         )
         judge = Judge(operator.model.gateways[env.gateway].url, key, eval_set.judge_alias)
     try:

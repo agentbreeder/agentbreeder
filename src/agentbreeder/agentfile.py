@@ -109,9 +109,12 @@ class AgentFile(_Strict):
                 ) from None
             if ref.kind != kind:
                 raise ValueError(f"{where}: must be a {kind}/name@X.Y.Z ref")
-            if text in seen:
-                raise ValueError(f"{where}: duplicates {seen[text]}")
-            seen[text] = where
+            # One version per kind/name: the build context places each ref at kind/name, and
+            # two versions of one tool would also define the same Python modules.
+            key = f"{ref.kind}/{ref.name}"
+            if key in seen:
+                raise ValueError(f"{where}: duplicates {seen[key]} (one version per name)")
+            seen[key] = where
         if self.prompt.path:
             path = Path(self.prompt.path)
             if path.is_absolute() or ".." in path.parts:

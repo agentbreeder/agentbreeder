@@ -136,6 +136,7 @@ def test_deploy_mints_scoped_key_into_private_file(minting, gateway, state, runt
     assert minted["models"] == ["support-model"]
     assert (minted["max_budget"], minted["rpm_limit"]) == (25.0, 120)
     assert minted["metadata"]["deployment_id"] == result["id"]
+    assert "duration" not in minted  # deployment keys live until remove revokes them
     mounts = runtime.create.call_args.kwargs["mounts"]
     key_mount = [m for m in mounts if m.envs == ("LLM_GATEWAY_KEY",)][0]
     assert key_mount.source.read_text() == minted["key"]

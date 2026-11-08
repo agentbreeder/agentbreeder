@@ -97,6 +97,17 @@ class Docker:
         except (ValueError, KeyError, IndexError, TypeError) as error:
             raise DeploymentError("Cannot verify container ownership") from error
 
+    def image_present(self, image: str) -> bool:
+        """A local image ID (`sha256:…`) must still exist: it cannot be pulled back. A
+        registry digest can be pulled at create time, so it counts as present."""
+        if not image.startswith("sha256:"):
+            return True
+        try:
+            self.command("image", "inspect", "--format", "{{.Id}}", image)
+        except DeploymentError:
+            return False
+        return True
+
     def create(
         self,
         record: dict,

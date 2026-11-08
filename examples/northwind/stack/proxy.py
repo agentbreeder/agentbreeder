@@ -1,7 +1,7 @@
 """Key proxy: keeps the Tavily and Phoenix keys out of the agent image.
 
-AgentBreeder's local deploy rejects secret injection, so the agent container calls this proxy at
-http://host.docker.internal:8787 and the proxy adds the keys. It forwards only POST /tavily/search
+The agent never holds these keys: it calls this proxy at http://host.docker.internal:8787 and
+the proxy adds them, so a compromised agent can use Tavily but cannot take the key elsewhere. It forwards only POST /tavily/search
 and POST /v1/traces (to Phoenix). Model calls do NOT go through here: the agent uses the LiteLLM
 gateway (port 4000) with a budget-capped virtual key, so there is no uncapped model route.
 

@@ -65,21 +65,29 @@ class LiteLLM:
             ) from error
 
     def mint(
-        self, key_alias: str, models: list[str], budget: float, rpm: int, metadata: dict
+        self,
+        key_alias: str,
+        models: list[str],
+        budget: float,
+        rpm: int,
+        metadata: dict,
+        duration: str | None = None,
     ) -> str:
+        """Mint a virtual key. `budget` renews every 30 days (LiteLLM `budget_duration`).
+        `duration` makes the key itself expire (e.g. "6h"): set it for short-lived keys whose
+        revoke could be skipped by a killed process."""
         self.revoke(key_alias)  # idempotent retry: an earlier attempt may have minted it
-        result = self._call(
-            "POST",
-            "/key/generate",
-            {
-                "key_alias": key_alias,
-                "models": models,
-                "max_budget": budget,
-                "budget_duration": "30d",
-                "rpm_limit": rpm,
-                "metadata": metadata,
-            },
-        )
+        body = {
+            "key_alias": key_alias,
+            "models": models,
+            "max_budget": budget,
+            "budget_duration": "30d",
+            "rpm_limit": rpm,
+            "metadata": metadata,
+        }
+        if duration:
+            body["duration"] = duration
+        result = self._call("POST", "/key/generate", body)
         key = (result or {}).get("key")
         if not isinstance(key, str) or not key:
             raise GatewayError("GATEWAY_ERROR", "LiteLLM did not return a key")

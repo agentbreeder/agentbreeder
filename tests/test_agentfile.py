@@ -93,6 +93,10 @@ def test_minimal_defaults(tmp_path):
         ({"prompt": {"path": "/etc/passwd"}}, "inside the project"),
         ({"tools": [{"ref": "tool/orders"}]}, "tools[0].ref: not a pinned"),
         ({"tools": [{"ref": "tool/orders@1.0.0"}, {"ref": "tool/orders@1.0.0"}]}, "duplicates"),
+        (
+            {"tools": [{"ref": "tool/orders@1.0.0"}, {"ref": "tool/orders@1.1.0"}]},
+            "one version per name",
+        ),
         ({"memory__notes": True, "tools": [{"ref": "tool/orders@1.0.0"}]}, "customer-notes"),
         ({"model__max_model_calls": 0}, "max_model_calls"),
         ({"model__reasoning": "extreme"}, "reasoning"),

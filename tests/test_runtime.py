@@ -92,6 +92,24 @@ def test_endpoint_must_be_running_and_local(ip, running):
         Docker().endpoint(info, manifest)
 
 
+def test_image_present_checks_local_ids_only():
+    runtime = Docker()
+    runtime.command = Mock(return_value="sha256:" + "a" * 64)
+    assert runtime.image_present("sha256:" + "a" * 64)
+    runtime.command = Mock(side_effect=DeploymentError("no such image"))
+    assert not runtime.image_present("sha256:" + "a" * 64)
+    assert runtime.image_present("registry.example.com/a@sha256:" + "b" * 64)  # pullable
+    runtime.command.assert_called_once()
+
+
+def test_state_dir_with_comma_refused(tmp_path):
+    from agentbreeder.store import Store
+
+    with pytest.raises(DeploymentError, match="comma"):
+        Store(tmp_path / "a,b")
+    assert not (tmp_path / "a,b").exists()
+
+
 def test_image_declared_volumes_denied():
     runtime = Docker()
     runtime.command = Mock(return_value=json.dumps([{"Config": {"Volumes": {"/data": {}}}}]))

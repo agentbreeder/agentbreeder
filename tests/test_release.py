@@ -26,6 +26,10 @@ class FakeRuntime:
         self.containers: dict[str, dict] = {}
         self.healthy_flag = True
         self.unhealthy_images: set[str] = set()
+        self.missing_images: set[str] = set()
+
+    def image_present(self, image):
+        return image not in self.missing_images
 
     def authorize(self, context=None):
         return None
@@ -405,6 +409,8 @@ def test_run_mints_and_revokes_judge_key(project, operator, state, tmp_path):
     eval_set = evals.EvalSet("golden", "1.0.0", "support-judge", CASES, None)
 
     def grade(self, prompt):
+        minted = [k for a, k in gateway.keys.items() if "eval-" in a]
+        assert minted and minted[0]["duration"] == evals.JUDGE_KEY_DURATION
         graded.append(self.key)
         assert self.key.startswith("vk-") and self.alias == "support-judge"
         return 1.0, "ok"
@@ -576,6 +582,21 @@ def test_rollback_validates_journal_and_gate(project, operator, state):
     prod = state.active("helper")["id"]
     denied = rollback(project / "agent.yaml", service, actor("dave"))
     assert denied.code == EXIT_DENIED and state.active("helper")["id"] == prod  # untouched
+
+
+def test_rollback_refuses_when_previous_image_is_gone(project, operator, state):
+    from conftest import actor
+
+    prepare_lock(project, operator)
+    runtime = FakeRuntime()
+    old = "sha256:" + "c" * 64
+    do_release(project, operator, state, runtime, old)
+    _, service = do_release(project, operator, state, runtime, "sha256:" + "d" * 64)
+    prod = state.active("helper")["id"]
+    runtime.missing_images = {old}
+    outcome = rollback(project / "agent.yaml", service, actor("dave"))
+    assert outcome.code == EXIT_RUNTIME and "no longer available" in outcome.message
+    assert state.active("helper")["id"] == prod  # production untouched
 
 
 def test_promote_that_raises_restores_previous(project, operator, state, monkeypatch):
