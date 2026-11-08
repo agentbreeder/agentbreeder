@@ -148,7 +148,13 @@ def _reconcile(lock, key, digest, source, locked, mode, update) -> bool:
             lock.entries[key] = {"sha256": digest, "source": source}
             return True
         return False
-    allowed = mode == "update" and (update is None or not update or key in update)
+    # Only path refs (work in progress) may change hash. A published registry version is
+    # immutable, so a different hash is tampering or a re-publish: never accept it.
+    allowed = (
+        key.startswith("path:")
+        and mode == "update"
+        and (update is None or not update or key in update)
+    )
     if not allowed:
         raise RegistryError(
             "HASH_MISMATCH",

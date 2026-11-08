@@ -386,3 +386,20 @@ def test_lock_misc_paths(project, tmp_path):
 def test_safe_name_rejects(part):
     with pytest.raises(RegistryError):
         registry._safe_name(part)
+
+
+def test_update_never_accepts_a_changed_registry_version(project, tmp_path):
+    lock = Lock()
+    run(project, tmp_path, lock)
+    (project / "registry/prompt/support/1.0.0/prompt.md").write_text("tampered")
+    for update in (None, set(), {"prompt/support@1.0.0"}):
+        with pytest.raises(RegistryError) as error:
+            run(
+                project,
+                tmp_path,
+                lock,
+                mode="update",
+                update=update,
+                name=f"u{len(update or ())}{update is None}",
+            )
+        assert error.value.code == "HASH_MISMATCH"

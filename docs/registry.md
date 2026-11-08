@@ -53,7 +53,7 @@ lock file:
 | Mode | Behaviour |
 |---|---|
 | plain | verifies the entries it already has, adds new refs, prunes refs the agent no longer uses |
-| `--update [ref]` | accepts new hashes for path refs (`{path: ./prompts/dev.md}`) while you iterate |
+| `--update [ref]` | accepts new hashes for path refs only (`{path: ./prompts/dev.md}`) while you iterate; a published version with a changed hash is always `HASH_MISMATCH` |
 | `--locked` (CI) | refuses any change (`LOCK_STALE`) and any path ref (`REF_UNPINNED`), and loads each ref only from its locked source |
 
 A changed byte in a locked version fails with `HASH_MISMATCH`. Hashes detect tampering after a
