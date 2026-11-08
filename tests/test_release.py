@@ -717,3 +717,7 @@ def test_production_changed_during_evals_aborts(project, operator, state):
         do_release(project, operator, state, runtime, "sha256:" + "3" * 64, SwapDuringEval())
     survivor = state.active("helper")
     assert survivor and survivor["id"] != first and state.manifest(survivor["id"])["port"] == 9090
+    from agentbreeder.release import _journal_path
+
+    journal = json.loads(_journal_path(state.directory, "helper").read_text())
+    assert journal["image"] != "sha256:" + "3" * 64  # the aborted release wrote no journal

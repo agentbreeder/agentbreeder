@@ -49,6 +49,14 @@ CANCEL_GRACE = 120  # seconds to wait for a cancelled turn (and any in-flight to
 REASONING = {"none": None, "low": "low", "medium": "medium", "high": "high"}
 
 
+class SessionBusy(Exception):
+    """A previous turn for this session is still finishing (e.g. after a timeout)."""
+
+
+INFLIGHT: set[str] = set()
+INFLIGHT_LOCK = threading.Lock()
+
+
 class ModelError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
@@ -163,7 +171,7 @@ class Runtime:
         return texts[-1:], not existing.events
 
     async def chat_async(self, session: str, customer: str, message: str) -> dict:
-        memory = await asyncio.to_thread(Memory, self.database_url, self.events)
+        memory = await run_to_completion(Memory, self.database_url, self.events)
         turn = uuid.uuid4().hex
         started = time.monotonic()
         trace = {
@@ -202,7 +210,7 @@ class Runtime:
                 },
             ) as root:
                 trace_id, span_id = ids(root)
-                await asyncio.to_thread(
+                await run_to_completion(
                     memory.audit,
                     turn,
                     session,
@@ -216,7 +224,7 @@ class Runtime:
                     set_output(root, reply)
                 except Exception as failure:
                     error = f"{type(failure).__name__}: {failure}"[:500]
-                    await asyncio.to_thread(
+                    await run_to_completion(
                         memory.audit, turn, session, customer, "system", "turn_failed",
                         {"error": error},
                     )  # fmt: skip
@@ -226,7 +234,7 @@ class Runtime:
                     if type(failure).__module__.startswith("litellm") and isinstance(status, int):
                         raise ModelError(status, str(failure)[:300]) from failure
                     raise
-            await asyncio.to_thread(
+            await run_to_completion(
                 memory.audit, turn, session, customer, "agent", "reply_sent", {"chars": len(reply)}
             )
             return {
@@ -243,7 +251,7 @@ class Runtime:
         finally:
             self.turns.pop(turn, None)
             try:
-                await asyncio.to_thread(
+                await run_to_completion(
                     memory.record_turn,
                     turn=turn,
                     session=session,
@@ -265,7 +273,7 @@ class Runtime:
             except Exception as failure:  # never hide the turn's own error behind a log error
                 print(f"turn record failed: {type(failure).__name__}", flush=True)
             finally:
-                await asyncio.to_thread(memory.close)
+                await run_to_completion(memory.close)
 
     async def run_turn(self, turn: str, session: str, customer: str, message: str) -> str:
         context = self.turns[turn]
@@ -281,7 +289,7 @@ class Runtime:
                 set_documents(retrieval, hits)
                 trace["retrieval"] = hits[0]["mode"] if hits else "none"
                 retrieval.set_attribute("retrieval.mode", trace["retrieval"])
-            await asyncio.to_thread(
+            await run_to_completion(
                 memory.audit, turn, session, customer, "agent", "knowledge_retrieved",
                 {"mode": trace["retrieval"], "chunks": [h["id"] for h in hits]},
             )  # fmt: skip
@@ -296,9 +304,9 @@ class Runtime:
                 types.Part(text=f"<knowledge_base_results>\n{passages}\n</knowledge_base_results>")
             )
         if self.config.get("memory", {}).get("notes"):
-            context["notes"] = await asyncio.to_thread(memory.notes, customer)
+            context["notes"] = await run_to_completion(memory.notes, customer)
             if new_session and context["notes"]:
-                await asyncio.to_thread(
+                await run_to_completion(
                     memory.audit, turn, session, customer, "agent", "memory_recalled",
                     {"notes": len(context["notes"])},
                 )  # fmt: skip
@@ -380,7 +388,7 @@ class AgentPlugin(BasePlugin):
     async def _audit(self, context, actor: str, action: str, detail: dict) -> None:
         turn = self.runtime.turns.get(context.invocation_id)
         if turn:
-            await asyncio.to_thread(
+            await run_to_completion(
                 turn["memory"].audit, context.invocation_id, turn["session"], turn["customer"],
                 actor, action, detail,
             )  # fmt: skip
@@ -520,15 +528,28 @@ def runtime() -> Runtime:
 
 def chat(session: str, customer: str, message: str) -> dict:
     """Run one customer turn (called from HTTP handler threads)."""
+    with INFLIGHT_LOCK:
+        if session in INFLIGHT:
+            raise SessionBusy(session)
+        INFLIGHT.add(session)
     finished = threading.Event()
 
     async def turn():
         try:
             return await runtime().chat_async(session, customer, message)
         finally:
-            finished.set()  # runs only once the coroutine has really unwound
+            # Runs only once the coroutine has really unwound (in-flight tool and DB work
+            # included); until then the session stays busy even if chat() gave up waiting.
+            with INFLIGHT_LOCK:
+                INFLIGHT.discard(session)
+            finished.set()
 
-    future = asyncio.run_coroutine_threadsafe(turn(), LOOP)
+    try:
+        future = asyncio.run_coroutine_threadsafe(turn(), LOOP)
+    except BaseException:
+        with INFLIGHT_LOCK:
+            INFLIGHT.discard(session)
+        raise
     try:
         return future.result(timeout=TURN_TIMEOUT)
     except concurrent.futures.TimeoutError:

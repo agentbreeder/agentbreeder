@@ -215,6 +215,16 @@ def release(
             )
 
         journal = _journal_path(state, agent.name)
+        # A plain `deploy` does not take the release lock: if production changed while the
+        # evals ran, stop rather than replace (or later "restore" over) someone else's deploy.
+        # Checked before the journal is written, so an aborted release never records a stale
+        # "previous" for rollback.
+        now = service.store.active(production.name)
+        if (now and now["id"]) != (current and current["id"]):
+            raise ReleaseError(
+                "PRODUCTION_CHANGED",
+                "Production changed while the evals ran; nothing was replaced. Re-run release",
+            )
         previous = None
         if current:
             previous = {
@@ -235,14 +245,6 @@ def release(
             )
             + "\n"
         )
-        # A plain `deploy` does not take the release lock: if production changed while the
-        # evals ran, stop rather than replace (or later "restore" over) someone else's deploy.
-        now = service.store.active(production.name)
-        if (now and now["id"]) != (current and current["id"]):
-            raise ReleaseError(
-                "PRODUCTION_CHANGED",
-                "Production changed while the evals ran; nothing was replaced. Re-run release",
-            )
         if current:
             log(f"Replacing production {current['id']} ...")
             _removed_or_raise(service, current["id"], deployer, "the previous production")

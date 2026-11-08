@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config as cfg  # noqa: E402
 import psycopg  # noqa: E402
 import sqlalchemy.exc  # noqa: E402
-from agent import ModelError, chat  # noqa: E402
+from agent import ModelError, SessionBusy, chat  # noqa: E402
 from memory import ANONYMOUS  # noqa: E402
 
 MAX_BODY = 64 * 1024
@@ -106,6 +106,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with LOCKS[session]:
                 self.respond(200, chat(session, customer, message.strip()))
+        except SessionBusy:
+            self.respond(
+                409,
+                {"error": "This conversation is still finishing a previous turn; retry shortly"},
+            )
         except concurrent.futures.TimeoutError:
             self.respond(504, {"error": "The agent took too long to answer; please try again"})
         except (

@@ -16,7 +16,7 @@ Verified on macOS with Docker Desktop: `build` → `deploy` → the agent answer
 |---|---|---|
 | Agent definition | `agent.yaml`, `agent.lock` | yours (about 35 lines of YAML) |
 | Prompt, knowledge, tools, eval set | `registry/<kind>/<name>/1.0.0/` | registry entries. The tools are small Python packages: that is where custom logic lives |
-| Runtime (ADK, memory, RAG, server) | `runtime/adk@1.0.3`, shipped with AgentBreeder | AgentBreeder |
+| Runtime (ADK, memory, RAG, server) | `runtime/adk@1.0.4`, shipped with AgentBreeder | AgentBreeder |
 | Supporting stack (Postgres, LiteLLM, Phoenix, key proxy, ops dashboard) | `stack/` | example infrastructure, not AgentBreeder product |
 
 ## Run it

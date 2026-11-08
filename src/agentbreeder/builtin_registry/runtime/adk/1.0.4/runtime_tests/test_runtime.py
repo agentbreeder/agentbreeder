@@ -310,3 +310,30 @@ def test_timed_out_turn_waits_for_in_flight_tool_thread(monkeypatch):
     with pytest.raises(concurrent.futures.TimeoutError):
         agent.chat("s", "c", "hi")
     assert writes == ["done"]  # the write finished before chat() returned and freed the lock
+
+
+def test_session_stays_busy_until_a_slow_cancelled_turn_finishes(monkeypatch):
+    import concurrent.futures
+    import time
+
+    import agent
+    from tools import run_to_completion
+
+    def slow_write():
+        time.sleep(1.0)
+
+    class Turn:
+        async def chat_async(self, session, customer, message):
+            await run_to_completion(slow_write)
+            return {"reply": "ok"}
+
+    monkeypatch.setattr(agent, "runtime", lambda: Turn())
+    monkeypatch.setattr(agent, "TURN_TIMEOUT", 0.1)
+    monkeypatch.setattr(agent, "CANCEL_GRACE", 0.1)  # grace shorter than the in-flight write
+    with pytest.raises(concurrent.futures.TimeoutError):
+        agent.chat("busy-session", "c", "hi")
+    with pytest.raises(agent.SessionBusy):  # the write is still running: no overlapping retry
+        agent.chat("busy-session", "c", "again")
+    time.sleep(1.2)
+    monkeypatch.setattr(agent, "TURN_TIMEOUT", 5)
+    assert agent.chat("busy-session", "c", "after")["reply"] == "ok"
