@@ -85,14 +85,14 @@ def test_minimal_defaults(tmp_path):
     [
         ({"name": "x" * 54}, "name"),
         ({"name": "Bad_Name"}, "name"),
-        ({"runtime": "tool/orders@1.0.0"}, "runtime"),
+        ({"runtime": "tool/orders@1.0.0"}, "runtime: must be a runtime/"),
         ({"prompt": {"ref": "tool/orders@1.0.0"}}, "prompt/"),
         ({"prompt": {"ref": "prompt/a@1.0.0", "path": "p.md"}}, "exactly one"),
         ({"prompt": {}}, "exactly one"),
         ({"prompt": {"path": "../outside.md"}}, "inside the project"),
         ({"prompt": {"path": "/etc/passwd"}}, "inside the project"),
-        ({"tools": [{"ref": "tool/orders"}]}, "REF_UNPINNED"),
-        ({"tools": [{"ref": "tool/orders@1.0.0"}, {"ref": "tool/orders@1.0.0"}]}, "twice"),
+        ({"tools": [{"ref": "tool/orders"}]}, "tools[0].ref: not a pinned"),
+        ({"tools": [{"ref": "tool/orders@1.0.0"}, {"ref": "tool/orders@1.0.0"}]}, "duplicates"),
         ({"memory__notes": True, "tools": [{"ref": "tool/orders@1.0.0"}]}, "customer-notes"),
         ({"model__max_model_calls": 0}, "max_model_calls"),
         ({"model__reasoning": "extreme"}, "reasoning"),
@@ -167,3 +167,16 @@ def test_cli_deploy_refuses_agent_file(tmp_path, capsys):
     assert code == 2
     err = capsys.readouterr().err
     assert "WRONG_FILE_KIND" in err and "agentbreeder build" in err
+
+
+def test_ref_errors_never_echo_the_ref_value(tmp_path):
+    canary = "canary-pasted-into-a-ref"
+    for changes in (
+        {"tools": [{"ref": canary}]},
+        {"runtime": canary},
+        {"prompt": {"ref": "prompt/" + canary}},
+        {"evals": {"ref": canary}},
+    ):
+        with pytest.raises(AgentFileError) as error:
+            load_agent_file(write(tmp_path, mutate(**changes)))
+        assert canary not in str(error.value)

@@ -88,32 +88,36 @@ class AgentFile(_Strict):
 
     @model_validator(mode="after")
     def _refs(self):
-        expected = [(self.runtime, "runtime")]
+        # Messages name the field location only, never the supplied value (it is printed).
+        expected = [("runtime", self.runtime, "runtime")]
         if self.prompt.ref:
-            expected.append((self.prompt.ref, "prompt"))
-        expected += [(k.ref, "knowledge") for k in self.knowledge]
-        expected += [(t.ref, "tool") for t in self.tools]
+            expected.append(("prompt.ref", self.prompt.ref, "prompt"))
+        expected += [
+            (f"knowledge[{i}].ref", k.ref, "knowledge") for i, k in enumerate(self.knowledge)
+        ]
+        expected += [(f"tools[{i}].ref", t.ref, "tool") for i, t in enumerate(self.tools)]
         if self.evals:
-            expected.append((self.evals.ref, "eval"))
-        seen = set()
-        for text, kind in expected:
+            expected.append(("evals.ref", self.evals.ref, "eval"))
+        seen: dict[str, str] = {}
+        for where, text, kind in expected:
             try:
                 ref = Ref.parse(text)
             except RegistryError as error:
-                raise ValueError(str(error)) from error
+                raise ValueError(
+                    f"{where}: not a pinned {kind}/name@X.Y.Z ref ({error.code})"
+                ) from None
             if ref.kind != kind:
-                raise ValueError(f"{text} must be a {kind}/… ref")
+                raise ValueError(f"{where}: must be a {kind}/name@X.Y.Z ref")
             if text in seen:
-                raise ValueError(f"{text} is listed twice")
-            seen.add(text)
+                raise ValueError(f"{where}: duplicates {seen[text]}")
+            seen[text] = where
         if self.prompt.path:
             path = Path(self.prompt.path)
             if path.is_absolute() or ".." in path.parts:
-                raise ValueError("prompt.path must be a relative path inside the project")
-        if self.memory.notes and not any(
-            Ref.parse(t.ref).kind + "/" + Ref.parse(t.ref).name == NOTES_TOOL for t in self.tools
-        ):
-            raise ValueError(f"memory.notes needs the {NOTES_TOOL} tool")
+                raise ValueError("prompt.path: must be a relative path inside the project")
+        names = {f"{Ref.parse(t.ref).kind}/{Ref.parse(t.ref).name}" for t in self.tools}
+        if self.memory.notes and NOTES_TOOL not in names:
+            raise ValueError(f"memory.notes: needs the {NOTES_TOOL} tool")
         return self
 
     def refs(self) -> list[str]:
