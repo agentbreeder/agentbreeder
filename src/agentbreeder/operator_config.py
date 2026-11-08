@@ -252,6 +252,10 @@ class OperatorModel(_Strict):
         for environment in self.environments.values():
             if environment.gateway and environment.gateway not in self.gateways:
                 raise ValueError("environment gateway is not defined in gateways")
+            # The egress boundary puts agents on its own internal network only; a stack network
+            # would be silently dropped, so refuse the combination instead.
+            if environment.network and self.runtime_enforcement.mode != "none":
+                raise ValueError("environment network is not supported with runtime_enforcement")
         return self
 
     @field_validator("environments")

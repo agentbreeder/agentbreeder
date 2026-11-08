@@ -150,6 +150,9 @@ class FakeDocker(DockerCLI):
     def image_exists(self, tag):
         return tag in self.images
 
+    def pull(self, image):
+        self.events.append(("pull", image))
+
     def probe(self, state, network, url, **kwargs):
         self.events.append(("probe", url))
         return self.healthy
@@ -197,7 +200,7 @@ def test_up_writes_compose_operator_config_and_bindings(env, tmp_path):
     result, instance = up(env, docker)
     assert result["services"] == {"echo": "created", "gateway": "created"}
     state_dir = Path(result["state_dir"])
-    stack_dir = state_dir.parent.parent
+    stack_dir = state_dir.parents[2]
     assert stack_dir.parent == tmp_path / "stacks"
     assert (env / "stack.lock").exists()
 
@@ -237,10 +240,10 @@ def test_up_writes_compose_operator_config_and_bindings(env, tmp_path):
     host_link = (state_dir / "secrets" / "eval-database").read_text()
     assert link == f"http://echo:{token.decode()}@echo:8080/index.html"
     assert host_link.startswith(f"http://echo:{token.decode()}@127.0.0.1:")
-    principals = yaml.safe_load((stack_dir / "dev" / "principals.yaml").read_text())
+    principals = yaml.safe_load((stack_dir / "envs" / "dev" / "principals.yaml").read_text())
     assert principals["principals"]["demo-agent"]["sponsors"][0]["active"] is True
     for name in ("operator.yaml", "principals.yaml"):
-        assert stat.S_IMODE((stack_dir / "dev" / name).stat().st_mode) == 0o600
+        assert stat.S_IMODE((stack_dir / "envs" / "dev" / name).stat().st_mode) == 0o600
 
     # Canaries: never in generated files, never in the result.
     generated = all_files(stack_dir)
@@ -309,7 +312,7 @@ def test_operator_config_edits_are_refused(env):
 def test_preseeded_operator_config_is_refused(env):
     instance = engine(env)
     target = instance.state.env_dir("dev")
-    target.mkdir(mode=0o700)
+    target.mkdir(mode=0o700, parents=True)
     (target / "operator.yaml").write_text("enforcement: audit\n")
     instance.close()
     with pytest.raises(ServiceError, match="OPERATOR_CONFIG_MODIFIED"):
@@ -330,7 +333,7 @@ def test_preseeded_secret_is_refused(env):
 def test_lost_password_with_existing_data_fails(env):
     docker = FakeDocker()
     result, _ = up(env, docker)
-    stack_dir = Path(result["state_dir"]).parent.parent
+    stack_dir = Path(result["state_dir"]).parents[2]
     (stack_dir / "service-secrets" / "echo" / "token").unlink()
     with pytest.raises(ServiceError, match="SECRET_LOST"):
         up(env, docker)
@@ -485,7 +488,7 @@ def test_built_services_check_their_dockerfile(env):
     for text in (f"FROM {PY}\nARG TOKEN\n", f"FROM {PY}\nRUN --mount=type=secret,id=x true\n"):
         dockerfile.write_text(text)
         (env / "stack.lock").unlink(missing_ok=True)
-        with pytest.raises(ServiceError, match="build args"):
+        with pytest.raises(ServiceError, match="ARG is refused|secrets and SSH"):
             up(env)
     dockerfile.write_text(f"FROM {PY} AS base\n\nFROM base\nCOPY files /files\n")
     (env / "stack.lock").unlink(missing_ok=True)
@@ -700,7 +703,7 @@ def test_plan_per_item_tcp_urls_and_inputs(env):
     write_project(env, stack=stack)
     docker = FakeDocker()
     result, _ = up(env, docker)
-    stack_dir = Path(result["state_dir"]).parent.parent
+    stack_dir = Path(result["state_dir"]).parents[2]
     compose = yaml.safe_load((stack_dir / "compose.yaml").read_text())
     app = compose["services"]["app"]
     assert app["user"] == f"{os.getuid()}:{os.getgid()}"
@@ -722,3 +725,97 @@ def test_plan_per_item_tcp_urls_and_inputs(env):
             plan.output(Reference("db", "bad"), "internal")
     finally:
         instance.close()
+
+
+def test_probe_image_is_pulled_once(env):
+    from agentbreeder.services.compose import PROBE_IMAGE
+
+    docker = FakeDocker()
+    up(env, docker)
+    assert docker.events.count(("pull", PROBE_IMAGE)) == 1
+
+
+def test_new_generated_secret_with_existing_volume_is_created(env):
+    docker = FakeDocker()
+    up(env, docker)
+    instance = engine(env, docker)
+    instance.state.db.execute("DELETE FROM secrets WHERE name='token'")
+    (instance.state.directory / "service-secrets" / "echo" / "token").unlink()
+    instance.close()
+    result, _ = up(env, docker)  # never recorded: a new secret, not a lost one
+    assert result["services"]["echo"] == "recreated"
+
+
+def test_declined_grant_leaves_no_lock_and_no_ports(env):
+    with pytest.raises(ServiceError, match="GRANT_NOT_CONFIRMED"):
+        up(env, confirm=False)
+    assert not (env / "stack.lock").exists()
+    instance = engine(env)
+    try:
+        assert instance.state.ports() == {}
+    finally:
+        instance.close()
+
+
+def test_changing_a_binding_needs_reconfirmation(env):
+    docker = FakeDocker()
+    up(env, docker)
+    changed = copy.deepcopy(STACK)
+    changed["environment"]["bindings"]["ECHO_TOKEN"] = {"ref": "echo.minted"}
+    (env / "stack.yaml").write_text(yaml.safe_dump(changed))
+    with pytest.raises(ServiceError, match="GRANT_NOT_CONFIRMED"):
+        up(env, docker, confirm=False)
+    instance = engine(env, docker)
+    try:
+        from agentbreeder.services.plan import grant_text
+
+        grant = instance.plan().grant("dev")
+        assert grant["bindings"]["ECHO_TOKEN"] == "echo.minted"
+        text = grant_text(grant)
+        assert "secret ECHO_TOKEN <- echo.minted" in text and "Eval database" in text
+    finally:
+        instance.close()
+
+
+def test_environment_names_cannot_collide_with_stack_dirs(env):
+    docker = FakeDocker()
+    instance = engine(env, docker)
+    try:
+        instance.up("mounts", confirm=lambda grant: True)
+        assert (instance.state.directory / "envs" / "mounts" / "operator.yaml").exists()
+        instance.up("mounts", confirm=lambda grant: True)  # prune_mounts keeps it
+        assert (instance.state.deploy_state("mounts") / "secrets").is_dir()
+    finally:
+        instance.close()
+
+
+@pytest.mark.parametrize(
+    "text,why",
+    [
+        ("# syntax=evil/frontend\nFROM {py}\n", "parser directives"),
+        ("#escape=`\nFROM {py}\n", "parser directives"),
+        ("FROM \\\n  python:3.12-slim\n", "digest-pinned"),
+        ("FROM {py}\nCOPY --from=evil:latest /x /x\n", "--from"),
+        ("FROM {py}\nRUN --mount=from=evil:latest,target=/x true\n", "mount's from"),
+        ("FROM {py}\nRUN --mount=id=x,type=secret true\n", "secrets and SSH"),
+        ("FROM {py}\nRUN --mount=type=ssh true\n", "secrets and SSH"),
+        ("FROM {py}\nONBUILD RUN true\n", "ONBUILD"),
+        ("FROM {py}\nRUN true \\\n && true\nARG X\n", "ARG"),
+    ],
+)
+def test_dockerfile_pinning_cannot_be_bypassed(tmp_path, text, why):
+    path = tmp_path / "Dockerfile"
+    path.write_text(text.format(py=PY))
+    with pytest.raises(ServiceError, match=why):
+        engine_module._check_dockerfile(path)
+
+
+def test_dockerfile_allows_stages_scratch_and_continuations(tmp_path):
+    path = tmp_path / "Dockerfile"
+    path.write_text(
+        f"# a comment\nFROM {PY} AS build\nRUN echo a \\\n  # inner comment\n  && true\n"
+        f"FROM {PY}\nCOPY --from=build /x /x\nCOPY --from=0 /y /y\n"
+        "RUN --mount=type=cache,target=/c --mount=from=build,target=/b true\n"
+        "FROM scratch\nCOPY --from=1 /z /z\nRUN true \\"
+    )
+    engine_module._check_dockerfile(path)

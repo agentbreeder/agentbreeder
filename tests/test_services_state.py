@@ -50,13 +50,13 @@ def test_layout_is_private(state):
     assert stat.S_IMODE((state.directory / "stack.db").stat().st_mode) == 0o600
     assert state.project == f"agentbreeder-{state.id}"
     assert state.compose_path.parent == state.directory
-    assert state.deploy_state("dev") == state.directory / "dev" / "state"
+    assert state.deploy_state("dev") == state.directory / "envs" / "dev" / "state"
     with pytest.raises(ServiceError, match="STACK_ENVIRONMENT"):
         state.env_dir("../x")
     assert state.environments() == []
-    (state.directory / "dev").mkdir()
-    (state.directory / "dev" / "operator.yaml").write_text("x")
-    (state.directory / "Bad").mkdir()
+    (state.directory / "envs" / "dev").mkdir(parents=True)
+    (state.directory / "envs" / "dev" / "operator.yaml").write_text("x")
+    (state.directory / "envs" / "Bad").mkdir()
     assert state.environments() == ["dev"]
 
 
@@ -123,10 +123,14 @@ def test_secrets_are_owned_and_preseeded_files_refused(state):
 
 
 def test_host_ports_are_recorded_and_unique(state):
-    offered = iter([5000, 5000, 5001])
+    offered = iter([5000, 5000, 5001, 5002, 5003])
     assert state.host_port("a", "http", lambda: next(offered)) == 5000
+    assert state.ports() == {}  # allocated, not recorded until up is confirmed
+    state.record_port("a", "http", 5000)
     assert state.host_port("a", "http", lambda: 1) == 5000  # reused
     assert state.host_port("b", "http", lambda: next(offered)) == 5001  # 5000 skipped
+    assert state.host_port("c", "http", lambda: next(offered), {5002}) == 5003
+    state.record_port("b", "http", 5001)
     assert state.ports() == {"a": {"http": 5000}, "b": {"http": 5001}}
     with pytest.raises(ServiceError, match="PORT_ALLOCATION"):
         state.host_port("c", "http", lambda: 5000)

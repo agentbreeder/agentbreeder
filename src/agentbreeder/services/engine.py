@@ -8,6 +8,7 @@ operator config. Every value stays in the stack state dir; nothing is written to
 
 from __future__ import annotations
 
+import re
 import shlex
 import socket
 import tempfile
@@ -17,7 +18,7 @@ from pathlib import Path
 
 from agentbreeder import env_import, registry, secret_files
 from agentbreeder.services import operator as operator_writer
-from agentbreeder.services.compose import DockerCLI
+from agentbreeder.services.compose import PROBE_IMAGE, DockerCLI
 from agentbreeder.services.lock import LockedStack, StackLock, lock_stack
 from agentbreeder.services.plan import Plan, grant_digest
 from agentbreeder.services.schema import ServiceError, Stack, load_stack
@@ -99,6 +100,8 @@ class Engine:
         self.docker = docker or DockerCLI()
         self.log = log
         self.allocate = allocate
+        self._pending_lock = None
+        self._probe_pulled = False
 
     def close(self) -> None:
         self.state.close()
@@ -125,19 +128,20 @@ class Engine:
                 name: {key: self.state.copy_file(path) for key, path in files.items()}
                 for name, files in locked.files.items()
             }
-        if locked.changed:
-            lock.save(lock_path)
+        # Saved only once the grant is confirmed (up), never by a declined or failed plan.
+        self._pending_lock = (lock, lock_path) if locked.changed else None
         return locked
 
     def plan(self, mode: str = "plain") -> Plan:
         locked = self._lock(mode)
         host_ports: dict[str, dict[str, int]] = {}
+        chosen: set[int] = set()
         for name in locked.resolved.order:
             for port_name, port in sorted(locked.specs[name].ports.items()):
                 if "host" in port.scopes:
-                    host_ports.setdefault(name, {})[port_name] = self.state.host_port(
-                        name, port_name, self.allocate
-                    )
+                    number = self.state.host_port(name, port_name, self.allocate, chosen)
+                    chosen.add(number)
+                    host_ports.setdefault(name, {})[port_name] = number
         plan = Plan(self.state.id, self.state.project, locked, host_ports, secrets={})
         plan.files = locked.files
         for name, directory in locked.service_dirs.items():
@@ -210,7 +214,8 @@ class Engine:
             if self.state.owner(service, key) != "generate":
                 raise ServiceError("SECRET_NOT_OWNED", f"service {service}: secret {key}")
             return current
-        if self._volumes_exist(plan, service):
+        # Lost, not new: up recorded it once and its data volume still exists.
+        if self.state.owner(service, key) is not None and self._volumes_exist(plan, service):
             raise ServiceError(
                 "SECRET_LOST",
                 f"service {service}: secret {key} is gone but its data volume exists; restore "
@@ -239,6 +244,12 @@ class Engine:
                 "GRANT_NOT_CONFIRMED",
                 "the stack's grant is new or changed; review it and pass --yes to confirm",
             )
+        if self._pending_lock is not None:
+            lock, path = self._pending_lock
+            lock.save(path)
+        for service, ports in plan.host_ports.items():
+            for port_name, number in ports.items():
+                self.state.record_port(service, port_name, number)
         self.docker.authorize()
         self.secrets(plan, env_file)
         for name in plan.locked.resolved.order:
@@ -298,6 +309,9 @@ class Engine:
         if health is not None and health.http is not None:
             port = health.port or next(iter(plan.spec(name).ports))
             url = f"http://{plan.address(name, port, 'internal')}{health.http}"
+            if not self._probe_pulled:
+                self.docker.pull(PROBE_IMAGE)
+                self._probe_pulled = True
             if not self.docker.probe(self.state, plan.networks["stack"], url):
                 raise ServiceError(
                     "SERVICE_UNHEALTHY",
@@ -354,6 +368,7 @@ class Engine:
     # -- status / logs / down ---------------------------------------------------------------------
 
     def status(self) -> dict:
+        self.docker.authorize()  # the same Docker context as up and down
         containers = self.docker.containers(self.state)
         ports = self.state.ports()
         services = {}
@@ -375,6 +390,7 @@ class Engine:
 
         if service not in self.stack.services:
             raise ServiceError("SERVICE_UNKNOWN", "no such service in stack.yaml")
+        self.docker.authorize()
         self.docker.redactions.extend(self.state.known_secrets())
         output = self.docker.logs(self.state, service, max(1, min(tail, 10000)))
         return redact(output, self.docker.redactions)
@@ -419,26 +435,80 @@ class Engine:
         ]
 
 
+_DIRECTIVE = re.compile(r"#\s*[A-Za-z]+\s*=")
+
+
+def _instructions(text: str) -> list[tuple[int, str]]:
+    """Logical lines as BuildKit reads them (backslash escape): continuations joined, comments
+    skipped. Parser directives (`# syntax=`, `# escape=`, `# check=`) are refused, so a custom
+    frontend or escape character can't change what the build runs."""
+    result: list[tuple[int, str]] = []
+    pending: list[str] = []
+    start = 0
+    leading = True
+    for number, raw in enumerate(text.splitlines(), start=1):
+        stripped = raw.strip()
+        if leading and _DIRECTIVE.match(stripped):
+            raise ServiceError(
+                "BUILD_INVALID", f"Dockerfile line {number}: parser directives are refused"
+            )
+        if stripped.startswith("#") or (not stripped and not pending):
+            continue
+        leading = False
+        if not pending:
+            start = number
+        if stripped.endswith("\\"):
+            pending.append(stripped[:-1])
+            continue
+        pending.append(stripped)
+        result.append((start, " ".join(part for part in pending if part)))
+        pending = []
+    if pending:
+        result.append((start, " ".join(pending)))
+    return result
+
+
 def _check_dockerfile(path: Path) -> None:
-    """Built services: every FROM is digest-pinned, and no build args, secrets or SSH."""
+    """Built services: every base image is digest-pinned (FROM, COPY --from, RUN --mount from=),
+    and no build args, secrets, SSH, ONBUILD or parser directives."""
     if not path.is_file() or path.is_symlink():
         raise ServiceError("BUILD_INVALID", "a built service needs a regular Dockerfile")
-    stages: set[str] = set()
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        words = line.strip().split()
-        if not words:
-            continue
+    stages: list[str] = []
+
+    def pinned(image: str) -> bool:
+        image = image.lower()
+        return (
+            "@sha256:" in image
+            or image in stages
+            or image == "scratch"
+            or (image.isdigit() and int(image) < len(stages))
+        )
+
+    def refuse(number: int, why: str):
+        raise ServiceError("BUILD_INVALID", f"Dockerfile line {number}: {why}")
+
+    for number, line in _instructions(path.read_text(encoding="utf-8")):
+        words = line.split()
         instruction = words[0].upper()
+        if instruction in ("ARG", "ONBUILD"):
+            refuse(number, f"{instruction} is refused")
+        options = [w for w in words[1:] if w.startswith("--")]
         if instruction == "FROM":
             images = [w for w in words[1:] if not w.startswith("--")]
             # A later stage may build FROM an earlier stage's name.
-            if not images or ("@sha256:" not in images[0] and images[0].lower() not in stages):
-                raise ServiceError(
-                    "BUILD_INVALID", f"Dockerfile line {number}: FROM must be digest-pinned"
-                )
-            if len(images) == 3 and images[1].upper() == "AS":
-                stages.add(images[2].lower())
-        if instruction == "ARG" or "--mount=type=secret" in line or "--mount=type=ssh" in line:
-            raise ServiceError(
-                "BUILD_INVALID", f"Dockerfile line {number}: build args, secrets and SSH refused"
+            if not images or not pinned(images[0]):
+                refuse(number, "FROM must be digest-pinned")
+            stage = (
+                images[2] if len(images) == 3 and images[1].upper() == "AS" else str(len(stages))
             )
+            stages.append(stage.lower())
+        for option in options:
+            name, _, value = option[2:].partition("=")
+            if name == "from" and not pinned(value):
+                refuse(number, "--from must name an earlier stage or a digest-pinned image")
+            if name == "mount":
+                fields = dict(part.partition("=")[::2] for part in value.split(",") if "=" in part)
+                if fields.get("type") in ("secret", "ssh"):
+                    refuse(number, "build secrets and SSH are refused")
+                if "from" in fields and not pinned(fields["from"]):
+                    refuse(number, "a mount's from must be an earlier stage or pinned")

@@ -276,6 +276,16 @@ class Plan:
             "stack": self.stack_id,
             "environment": environment,
             "services": services,
+            # Every secret and URL flow is part of what the operator consents to: rewiring a
+            # secret to another service or binding changes the grant and needs reconfirmation.
+            "wires": {
+                f"{name}.{input_name}": reference
+                for name in self.locked.resolved.order
+                for input_name, reference in sorted(stack.services[name].wire.items())
+            },
+            "agent_services": dict(sorted(env.services.items())),
+            "bindings": {key: value.ref for key, value in sorted(env.bindings.items())},
+            "eval_database": env.eval_database.ref if env.eval_database else None,
             "gateway": env.gateway,
             "models": list(env.models),
             "ceilings": env.ceilings.model_dump(),
@@ -304,6 +314,14 @@ def grant_text(grant: dict) -> str:
             f"{'yes' if service['agents'] else 'no'}; host: {ports or 'no'}; imports: "
             f"{', '.join(service['imports']) or 'none'}"
         )
+    if grant["wires"]:
+        lines.append("Wiring (input <- output):")
+        lines += [f"  {target} <- {source}" for target, source in grant["wires"].items()]
+    lines.append("Given to agents:")
+    lines += [f"  service {key}: {value}" for key, value in grant["agent_services"].items()]
+    lines += [f"  secret {key} <- {value}" for key, value in grant["bindings"].items()]
+    if grant["eval_database"]:
+        lines.append(f"Eval database (host) <- {grant['eval_database']}")
     ceilings = grant["ceilings"]
     lines += [
         f"Gateway {grant['gateway']}: models {', '.join(grant['models'])}; "

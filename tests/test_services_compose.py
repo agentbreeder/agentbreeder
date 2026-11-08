@@ -183,7 +183,9 @@ def oneshot(state, process, **options):
             raise process
         return process
 
-    docker = DockerCLI(popen=popen)
+    ticks = iter(range(100000))
+    seen["run"] = Recorder()
+    docker = DockerCLI(popen=popen, run=seen["run"], clock=lambda: next(ticks))
     result = docker.oneshot(
         state,
         label="echo.bootstrap",
@@ -213,6 +215,7 @@ def test_oneshot_argv_is_hardened(state, tmp_path):
     assert f"type=bind,src={tmp_path},dst=/run/secrets,readonly" in argv
     assert argv.index("--env=A=1") < argv.index("--env=B=2")
     assert argv[-4:] == ["img", "python3", "-c", "print(1)"]
+    assert argv[argv.index("--name") + 1].startswith(f"{state.project}-step-")
     assert seen["kwargs"]["stderr"] == subprocess.DEVNULL
     _, seen = oneshot(state, FakeProcess())
     assert seen["kwargs"]["stdout"] == subprocess.DEVNULL and "--user" not in seen["argv"]
@@ -278,3 +281,48 @@ def test_authorize_maps_docker_errors(monkeypatch):
     docker = DockerCLI()
     docker.authorize()
     assert docker.context == "local"
+
+
+@pytest.mark.parametrize(
+    "process,code",
+    [(FakeProcess(hang=True), "ONESHOT_FAILED"), (None, "ONESHOT_OUTPUT")],
+)
+def test_oneshot_removes_the_container_when_aborted(state, process, code):
+    """A step that hangs or floods stdout is removed by name, not just its docker client."""
+    import threading as threading_module
+
+    if process is None:  # floods stdout and keeps running until killed
+        release = threading_module.Event()
+
+        class Flooding(FakeProcess):
+            def wait(self, timeout=None):
+                if not self.killed:
+                    release.wait(timeout or 0)
+                    raise subprocess.TimeoutExpired("docker", timeout)
+                return -9
+
+        process = Flooding(b"x" * (8 * 1024 + 1))
+    with pytest.raises(ServiceError) as error:
+        _, seen = oneshot(state, process, capture=True, timeout=50)
+    assert error.value.code == code
+    assert process.killed
+
+
+def test_oneshot_abort_tolerates_cleanup_failures(state):
+    class Stubborn(FakeProcess):
+        def wait(self, timeout=None):
+            raise subprocess.TimeoutExpired("docker", timeout)
+
+    seen = {}
+
+    def popen(argv, **kwargs):
+        seen["argv"] = argv
+        return Stubborn()
+
+    ticks = iter(range(1000))
+    run = Recorder((1, "", "no such container"))
+    docker = DockerCLI(popen=popen, run=run, clock=lambda: next(ticks))
+    with pytest.raises(ServiceError, match="timed out"):
+        docker.oneshot(state, label="x", network="n", image="i", command=["true"], timeout=3)
+    name = seen["argv"][seen["argv"].index("--name") + 1]
+    assert run.calls[0][0][-3:] == ["rm", "--force", name]

@@ -197,3 +197,10 @@ def test_environment_network_name_is_validated(identity_env, name):
     grant(identity_env, network=name)
     with pytest.raises(OperatorConfigError):
         identity_env.load()
+
+
+def test_environment_network_refused_with_runtime_enforcement(identity_env):
+    grant(identity_env, network="stack-agents")
+    identity_env.config["runtime_enforcement"] = {"mode": "mcp_http"}
+    with pytest.raises(OperatorConfigError):
+        identity_env.load()

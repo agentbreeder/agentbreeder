@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import subprocess
+import threading
 import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -51,10 +53,16 @@ def redact(text: str, values: Iterable[bytes | str]) -> str:
 class DockerCLI:
     """Runs docker on the authorised local context. `run` is injectable for tests."""
 
-    def __init__(self, run: Callable = subprocess.run, popen: Callable = subprocess.Popen):
+    def __init__(
+        self,
+        run: Callable = subprocess.run,
+        popen: Callable = subprocess.Popen,
+        clock: Callable = time.monotonic,
+    ):
         self.context = ""
         self._run = run
         self._popen = popen
+        self._clock = clock
         self.redactions: list[bytes | str] = []
 
     def authorize(self) -> None:
@@ -215,10 +223,12 @@ class DockerCLI:
 
     # -- one-shot containers ----------------------------------------------------------------------
 
-    def _oneshot_argv(self, state, *, label, network, user, mounts, env, image, command):
+    def _oneshot_argv(self, state, *, label, name, network, user, mounts, env, image, command):
         argv = [
             "run",
             "--rm",
+            "--name",
+            name,
             "--log-driver",
             "none",
             "--pull",
@@ -259,13 +269,17 @@ class DockerCLI:
         mounts: list[tuple[Path, str]] = (),
         env: dict[str, str] | None = None,
         capture: bool = False,
-        timeout: int = 300,
+        timeout: float = 300,
     ) -> bytes:
-        """Run a step to completion. With `capture`, return stdout (1..8 KiB, else fail)."""
+        """Run a step to completion. With `capture`, return stdout (1..8 KiB, else fail).
+        The deadline covers the whole run, and a step that times out or writes too much is
+        removed by name (killing the docker client alone would leave the container running)."""
+        name = f"{state.project}-step-{secrets.token_hex(6)}"
         argv = self._argv(
             self._oneshot_argv(
                 state,
                 label=label,
+                name=name,
                 network=network,
                 user=user,
                 mounts=mounts,
@@ -284,22 +298,40 @@ class DockerCLI:
             )
         except OSError:
             raise ServiceError("ONESHOT_FAILED", f"{label} could not start") from None
-        output = b""
+        chunks: list[bytes] = []
+        overflow = threading.Event()
+
+        def read() -> None:
+            data = process.stdout.read(ONESHOT_LIMIT + 1)
+            chunks.append(data)
+            if len(data) > ONESHOT_LIMIT:
+                overflow.set()
+
+        reader = threading.Thread(target=read, daemon=True) if capture else None
+        if reader is not None:
+            reader.start()
+        deadline = self._clock() + timeout
+        code = None
         try:
-            if capture:
-                output = process.stdout.read(ONESHOT_LIMIT + 1)
-                if len(output) > ONESHOT_LIMIT:
-                    process.kill()
-                    process.wait(timeout=30)
+            while code is None:
+                if overflow.is_set():
+                    self._abort(process, name)
                     raise ServiceError("ONESHOT_OUTPUT", f"{label} wrote more than 8 KiB")
-            code = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=30)
-            raise ServiceError("ONESHOT_FAILED", f"{label} timed out") from None
+                if self._clock() >= deadline:
+                    self._abort(process, name)
+                    raise ServiceError("ONESHOT_FAILED", f"{label} timed out")
+                try:
+                    code = process.wait(timeout=0.2)
+                except subprocess.TimeoutExpired:
+                    continue
+            if reader is not None:
+                reader.join(timeout=5)
         finally:
             if capture and process.stdout:
                 process.stdout.close()
+        output = chunks[0] if chunks else b""
+        if len(output) > ONESHOT_LIMIT:
+            raise ServiceError("ONESHOT_OUTPUT", f"{label} wrote more than 8 KiB")
         if code:
             raise ServiceError("ONESHOT_FAILED", f"{label} exited with status {code}")
         if capture:
@@ -307,6 +339,17 @@ class DockerCLI:
             if not output:
                 raise ServiceError("ONESHOT_OUTPUT", f"{label} wrote nothing")
         return output
+
+    def _abort(self, process, name: str) -> None:
+        process.kill()
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            self.run("rm", "--force", name, timeout=60, what="removing a stopped step")
+        except ServiceError:
+            pass
 
     def probe(
         self,

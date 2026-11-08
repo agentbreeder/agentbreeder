@@ -5,7 +5,7 @@
     files/<sha>/        content-addressed copies of file params and service `files/`
     service-secrets/    <service>/<name>[.<item>] values (0600), never mounted into agents
     mounts/             per-generation 0444 copies that containers bind-mount read-only
-    <env>/operator.yaml, <env>/principals.yaml, <env>/state/   (the deploy state dir)
+    envs/<env>/operator.yaml, principals.yaml, state/   (the deploy state dir)
 
 `<stack-id>` is `<name>-<first 8 hex of sha256(absolute project path)>`, so two checkouts that
 both use `name: northwind` never share secrets, ports, volumes or config. Every directory is
@@ -119,13 +119,17 @@ class StackState:
     def env_dir(self, environment: str) -> Path:
         if not _ENV.fullmatch(environment):
             raise ServiceError("STACK_ENVIRONMENT", "invalid environment name")
-        return self.directory / environment
+        # Under envs/, so an environment can't be named like the stack's own dirs (mounts/...).
+        return self.directory / "envs" / environment
 
     def environments(self) -> list[str]:
         """Environments `up` has written an operator config for."""
+        root = self.directory / "envs"
+        if not root.is_dir():
+            return []
         return sorted(
             child.name
-            for child in self.directory.iterdir()
+            for child in root.iterdir()
             if _ENV.fullmatch(child.name) and (child / "operator.yaml").is_file()
         )
 
@@ -211,22 +215,25 @@ class StackState:
 
     # -- ports ----------------------------------------------------------------------------------
 
-    def host_port(self, service: str, port: str, allocate) -> int:
+    def host_port(self, service: str, port: str, allocate, reserved=frozenset()) -> int:
+        """The recorded host port, or a newly allocated one (not recorded: see record_port)."""
         row = self.db.execute(
             "SELECT host_port FROM ports WHERE service=? AND port=?", (service, port)
         ).fetchone()
         if row:
             return int(row[0])
-        taken = {r[0] for r in self.db.execute("SELECT host_port FROM ports")}
+        taken = {r[0] for r in self.db.execute("SELECT host_port FROM ports")} | set(reserved)
         for _ in range(20):
             chosen = int(allocate())
             if chosen not in taken:
-                self.db.execute(
-                    "INSERT INTO ports (service, port, host_port) VALUES (?, ?, ?)",
-                    (service, port, chosen),
-                )
                 return chosen
         raise ServiceError("PORT_ALLOCATION", "could not allocate a free loopback port")
+
+    def record_port(self, service: str, port: str, host_port: int) -> None:
+        self.db.execute(
+            "INSERT OR IGNORE INTO ports (service, port, host_port) VALUES (?, ?, ?)",
+            (service, port, host_port),
+        )
 
     def ports(self) -> dict[str, dict[str, int]]:
         result: dict[str, dict[str, int]] = {}

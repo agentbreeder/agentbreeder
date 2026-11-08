@@ -465,3 +465,12 @@ r4 (slice 3 implementation, verified against Docker 27.5 / Compose 2.33):
 - **Mount generations:** a service's `/run/secrets` directory is named by an HMAC (per-stack
   random key) of its values, so unchanged values keep the same path and Compose recreates
   nothing, and the path reveals nothing about the values.
+- **Review fixes (independent review + security review of 11238fb):** environments live under
+  `envs/<env>/` (a name like `mounts` could otherwise collide with the stack's own dirs); the
+  grant also lists wires, agent service URLs, bindings and `eval_database`, so rewiring a secret
+  needs reconfirmation; `stack.lock` and host ports are written only after confirmation;
+  `SECRET_LOST` applies only to a secret up recorded before; the probe image is pulled before the
+  first probe; status and logs use the authorised Docker context; one-shot steps have a real
+  deadline and are removed by name when they time out or exceed 8 KiB; the Dockerfile check joins
+  continuations, refuses parser directives, `ONBUILD` and `ARG`, and pins `--from` and mount
+  `from=`; `Environment.network` is refused together with runtime enforcement.
