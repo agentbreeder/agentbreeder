@@ -242,11 +242,22 @@ class ServiceSpec(_Strict):
             key = self.outputs.get("master_key")
             if url is None or url.type != "url" or key is None or key.type != "secret":
                 raise ValueError("gateway/litellm needs a url output and a master_key secret")
-            if not key.operator_only:
-                raise ValueError("gateway/litellm's master_key output must be operator_only")
+            if not key.operator_only or key.secret is None:
+                raise ValueError(
+                    "gateway/litellm's master_key output must be operator_only and name its secret"
+                )
             config = self.params.get("config")
             if config is None or config.type != "file":
                 raise ValueError("gateway/litellm needs a `config` file param (its model list)")
+        # Operator-only is a property of the secret, not of one output's name: every output that
+        # exposes an operator-only secret (whole, or inside a template) must be operator-only.
+        guarded = {o.secret for o in self.outputs.values() if o.operator_only and o.secret}
+        for name, output in self.outputs.items():
+            exposes = {output.secret} if output.secret else set()
+            if output.template:
+                exposes |= {s for s in guarded if "{secret." + s + "}" in output.template}
+            if exposes & guarded and not output.operator_only:
+                raise ValueError(f"output {name} exposes an operator_only secret")
         return self
 
     def mounted_secrets(self) -> set[str]:

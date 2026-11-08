@@ -136,7 +136,7 @@ generated secrets) instead of callers rewriting URLs.
 
 **Reference grammar:**
 - `{params.NAME}` (a string/db_name param) and `{inputs.NAME}` (a url input) may appear in a
-  service's `env` and `command` values;
+  service's `env` values (never in command arguments);
 - `{SERVICE.OUTPUT}` (a url output) may appear in `environment.services` values;
 - wires and bindings are bare references, `SERVICE.OUTPUT` or `SERVICE.OUTPUT.ITEM` for per-item
   outputs.
@@ -432,6 +432,11 @@ r3 (slice 2 implementation):
 - **Operator-only outputs** (security review of slice 2): the gateway's `master_key` output must be
   `operator_only`. Such an output can never be wired to a service, bound into an agent or used as
   `eval_database`: only AgentBreeder reads it, to mint per-agent keys.
-- **No shells:** a command, health check or one-shot step may not start with a shell or wrapper
-  (`sh`, `bash`, `ksh`, `busybox`, `env` and so on), so arguments are never parsed as command
-  lines.
+- **Operator-only follows the secret:** every output that exposes an operator-only secret, whole
+  or inside a template, must itself be operator-only. The master key output must name its secret.
+- **No templated arguments:** commands, health checks and one-shot steps can't contain
+  placeholders. Values reach a service through `env`, which is never parsed as a command line;
+  this rules out re-parsing by interpreters and wrappers, which no denylist could. As defence in
+  depth, argv[0] can't be a shell or wrapper (`sh`, `bash`, `ksh`, `busybox`, `env` and so on).
+  The reference grammar above is narrowed accordingly: `{params.NAME}` and `{inputs.NAME}` are
+  valid in `env` only.

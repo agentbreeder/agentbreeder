@@ -379,12 +379,59 @@ def test_param_placeholder_without_value_and_optional_input():
     assert "proxy" in refs.check(stack(mutate), specs(proxy=proxy)).order
 
 
-def test_command_templates_checked():
+@pytest.mark.parametrize(
+    "field,argv",
+    [
+        ("command", ["litellm", "--key", "{secrets.master-key}"]),
+        ("command", ["{params.config}"]),
+        ("command", ["python", "-c", "{inputs.database-url}"]),
+        ("init", ["python", "/files/x.py", "{params.config}"]),
+        ("health", ["check", "{params.config}"]),
+    ],
+)
+def test_command_arguments_are_never_templated(field, argv):
     litellm = copy.deepcopy(LITELLM)
-    litellm["command"] = ["litellm", "--key", "{secrets.master-key}"]
+    if field == "command":
+        litellm["command"] = argv
+    elif field == "init":
+        litellm["init"] = {"command": argv}
+    else:
+        litellm["health"] = {"command": argv}
     with pytest.raises(ServiceError) as caught:
         refs.check(stack(), specs(litellm=litellm))
-    assert caught.value.code == "SECRET_IN_TEMPLATE"
+    assert caught.value.code == "TEMPLATE_IN_ARGV"
+
+
+def test_literal_braces_in_argv_are_fine():
+    litellm = copy.deepcopy(LITELLM)
+    litellm["command"] = ["litellm", "--json", "{{}}"]
+    assert refs.check(stack(), specs(litellm=litellm))
+
+
+def test_operator_only_follows_the_secret_not_the_output_name():
+    data = copy.deepcopy(LITELLM)
+    data["outputs"]["also_key"] = {"type": "secret", "secret": "master-key"}
+    with pytest.raises(ValueError, match="exposes an operator_only secret"):
+        ServiceSpec.model_validate(data)
+    data = copy.deepcopy(LITELLM)
+    data["outputs"]["wrapped"] = {
+        "type": "secret",
+        "port": "http",
+        "template": "http://x:{secret.master-key}@{address}",
+    }
+    with pytest.raises(ValueError, match="exposes an operator_only secret"):
+        ServiceSpec.model_validate(data)
+    data["outputs"]["wrapped"]["operator_only"] = True
+    assert ServiceSpec.model_validate(data)
+    data = copy.deepcopy(LITELLM)
+    data["outputs"]["master_key"] = {
+        "type": "secret",
+        "port": "http",
+        "template": "{secret.master-key}",
+        "operator_only": True,
+    }
+    with pytest.raises(ValueError, match="name its secret"):
+        ServiceSpec.model_validate(data)
 
 
 def test_expand_is_single_pass_with_escapes():

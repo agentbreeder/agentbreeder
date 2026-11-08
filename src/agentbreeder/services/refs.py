@@ -1,8 +1,8 @@
 """References between a stack's services, checked before anything runs.
 
 Grammar (single pass, no nesting; `{{` and `}}` are literal braces):
-  {params.NAME}            a service's own string/db_name param   (service env and command)
-  {inputs.NAME}            a url input wired by the stack          (service env and command)
+  {params.NAME}            a service's own string/db_name param   (service env only)
+  {inputs.NAME}            a url input wired by the stack          (service env only)
   {SERVICE.OUTPUT}         another service's url output            (stack environment.services)
 A wire or binding is a bare reference `SERVICE.OUTPUT` or `SERVICE.OUTPUT.ITEM` (for outputs
 declared `per:` a list param).
@@ -121,11 +121,21 @@ def _check_templates(name: str, spec: ServiceSpec, params: dict) -> None:
     allowed |= {f"inputs.{k}" for k, i in spec.inputs.items() if i.type == "url"}
     secret_like = {f"inputs.{k}" for k, i in spec.inputs.items() if i.type == "secret"}
     secret_like |= {f"secrets.{k}" for k in spec.mounted_secrets()}
-    texts = [(f"env.{k}", v) for k, v in spec.env.items()]
-    texts += [(f"command[{i}]", v) for i, v in enumerate(spec.command or [])]
+    # Arguments are never templated: a value placed in argv can be re-parsed by the program
+    # (an interpreter's -c, a wrapper), which no denylist can rule out. Values travel in env.
+    argv = [(f"command[{i}]", v) for i, v in enumerate(spec.command or [])]
     for step_name, step in (("init", spec.init), ("bootstrap", spec.bootstrap)):
         if step is not None:
-            texts += [(f"{step_name}.command[{i}]", v) for i, v in enumerate(step.command)]
+            argv += [(f"{step_name}.command[{i}]", v) for i, v in enumerate(step.command)]
+    if spec.health is not None and spec.health.command:
+        argv += [(f"health.command[{i}]", v) for i, v in enumerate(spec.health.command)]
+    for where, text in argv:
+        if placeholders(text, f"service {name} {where}"):
+            raise ServiceError(
+                "TEMPLATE_IN_ARGV",
+                f"service {name} {where}: pass values through env, not command arguments",
+            )
+    texts = [(f"env.{k}", v) for k, v in spec.env.items()]
     for where, text in texts:
         for placeholder in placeholders(text, f"service {name} {where}"):
             if placeholder in secret_like:
