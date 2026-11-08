@@ -354,7 +354,19 @@ class DeploymentService:
                     except (SecretError, OSError) as error:
                         code = getattr(error, "code", "SECRET_UNREADABLE")
                         raise DeploymentError(f"[{code}] {error}") from error
-                self.runtime.create(record, manifest, mounts=mounts)
+                environment = self._service_environment(
+                    manifest, (fields.get("context") or {}).get("environment")
+                )
+                if environment is None:
+                    self.runtime.create(record, manifest, mounts=mounts)
+                else:
+                    self.runtime.create(
+                        record,
+                        manifest,
+                        mounts=mounts,
+                        environment=environment,
+                        host_gateway=True,
+                    )
                 info = self.runtime.inspect(record)
             if info is None:
                 raise DeploymentError(
@@ -379,6 +391,19 @@ class DeploymentService:
             return self.store.transition(
                 identifier, "failed", error=str(error), audit=event("failed")
             )
+
+    def _service_environment(self, manifest: Manifest, name: str | None) -> dict[str, str] | None:
+        """Non-secret configuration for deployments that request model access (agent.yaml
+        builds): the gateway URL agents use and the environment's service URLs."""
+        if manifest.model_access is None:
+            return None
+        model = self.operator.model
+        environment = model.environments.get(name or "")
+        gateway = model.gateways.get(manifest.model_access.gateway)
+        result = {"AGENTBREEDER_GATEWAY_URL": gateway.agent_url} if gateway else {}
+        for name, url in sorted((environment.services if environment else {}).items()):
+            result[f"AGENTBREEDER_SERVICE_{name.upper()}"] = url
+        return result
 
     def _run_boundary(self, identifier, record, manifest, attempt, deployer, fields, decision):
         """Start the agent behind its egress boundary. Verification failure is a deny (exit 2)

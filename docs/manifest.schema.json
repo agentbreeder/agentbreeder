@@ -86,6 +86,60 @@
       "title": "IdentityReference",
       "type": "object"
     },
+    "ModelAccess": {
+      "additionalProperties": false,
+      "description": "Model gateway access this deployment requests. The operator's environment grants it:\nthe gate checks the gateway, the alias allow-list and the budget/rate ceilings.",
+      "properties": {
+        "gateway": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+          "title": "Gateway",
+          "type": "string"
+        },
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Aliases",
+          "type": "array"
+        },
+        "budget_usd": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 100000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Usd"
+        },
+        "rpm": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rpm"
+        }
+      },
+      "required": [
+        "gateway",
+        "aliases"
+      ],
+      "title": "ModelAccess",
+      "type": "object"
+    },
     "PolicySelection": {
       "additionalProperties": false,
       "description": "Operator-approved restriction bundle IDs only; never paths or OCI references.",
@@ -276,6 +330,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/PolicySelection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "model_access": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelAccess"
         },
         {
           "type": "null"

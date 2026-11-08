@@ -231,6 +231,30 @@ class IdentityGate:
             context=extra or {},
         )
 
+    def _model_access(self, access, context) -> tuple[str, str] | None:
+        """The environment grants model access; a manifest can only ask within it. None of
+        these denies is overridable in audit mode (they are not in OVERRIDABLE)."""
+        environment = self.operator.model.environments.get(context.environment)
+        if environment is None or environment.gateway is None:
+            return (
+                "MODEL_ACCESS_UNCONFIGURED",
+                f"Environment {context.environment} grants no model gateway",
+            )
+        if access.gateway != environment.gateway:
+            return ("GATEWAY_MISMATCH", "model_access.gateway is not this environment's gateway")
+        missing = sorted(set(access.aliases) - set(environment.models))
+        if missing:
+            return (
+                "MODEL_NOT_ALLOWED",
+                f"Model alias(es) not allowed in {context.environment}: {', '.join(missing)}",
+            )
+        ceilings = environment.ceilings
+        if ceilings and access.budget_usd is not None and access.budget_usd > ceilings.budget_usd:
+            return ("BUDGET_CEILING", "Requested budget exceeds the environment ceiling")
+        if ceilings and access.rpm is not None and access.rpm > ceilings.rpm:
+            return ("BUDGET_CEILING", "Requested rpm exceeds the environment ceiling")
+        return None
+
     def evaluate(self, request: PolicyRequest, restrictions: list[str]) -> PolicyDecision:
         pdp = self.operator.model.pdp
         if pdp is None:
@@ -294,6 +318,11 @@ class IdentityGate:
         # Secrets are references only (manifest validation); local values are files checked by
         # the deployment preflight after this gate (secret_files.py). Nothing is read here.
         evaluated.append("secrets")
+        if manifest.model_access is not None:
+            evaluated.append("model_access")
+            denied = self._model_access(manifest.model_access, context)
+            if denied:
+                return decision.deny(*denied)
         if manifest.policy and manifest.policy.restrictions and model.pdp is None:
             return decision.deny(
                 "POLICY_UNAVAILABLE", "Manifest selects restrictions but no PDP is configured"

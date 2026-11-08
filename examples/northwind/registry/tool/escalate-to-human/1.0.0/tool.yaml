@@ -1,0 +1,16 @@
+functions:
+  - name: escalate_to_human
+    module: escalation
+    function: escalate_to_human
+    description: Open a ticket for the human support team and return the ticket ID.
+    parameters:
+      type: object
+      properties:
+        priority:
+          type: string
+          enum: [low, normal, urgent]
+          description: One of "low", "normal" or "urgent".
+        summary:
+          type: string
+          description: What the customer needs and what was already tried.
+      required: [priority, summary]

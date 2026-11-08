@@ -28,6 +28,7 @@ def make_version(root: Path, kind: str, name: str, version: str, files: dict) ->
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     monkeypatch.delenv(registry.PATH_ENV, raising=False)
+    monkeypatch.setattr(registry, "BUILTIN_ROOT", tmp_path / "builtin")  # isolate from shipped
     project = tmp_path / "project"
     make_version(project / "registry", "prompt", "support", "1.0.0", {"prompt.md": "Be kind."})
     make_version(project / "registry", "tool", "orders", "1.0.0", {"src/orders.py": "x = 1\n"})
@@ -403,3 +404,27 @@ def test_update_never_accepts_a_changed_registry_version(project, tmp_path):
                 name=f"u{len(update or ())}{update is None}",
             )
         assert error.value.code == "HASH_MISMATCH"
+
+
+def test_interpreter_caches_are_ignored(project, tmp_path):
+    version = project / "registry/tool/orders/1.0.0"
+    before = registry.copy_and_hash(version)
+    (version / "src/__pycache__").mkdir()
+    (version / "src/__pycache__/orders.cpython-312.pyc").write_bytes(b"\0")
+    (version / "src/stray.pyc").write_bytes(b"\0")
+    assert registry.copy_and_hash(version) == before
+    copy = tmp_path / "copy"
+    registry.copy_and_hash(version, copy)
+    assert not (copy / "src/__pycache__").exists() and not (copy / "src/stray.pyc").exists()
+
+
+def test_builtin_versions_lock_as_builtin(project, tmp_path, monkeypatch):
+    builtin = tmp_path / "builtin"
+    make_version(builtin, "runtime", "adk", "1.0.0", {"Dockerfile": "FROM scratch\n"})
+    lock = Lock()
+    run(project, tmp_path, lock, refs=["runtime/adk@1.0.0"], name="b1")
+    assert lock.entries["runtime/adk@1.0.0"]["source"] == "builtin"
+    entries, changed = run(
+        project, tmp_path, lock, mode="locked", refs=["runtime/adk@1.0.0"], name="b2"
+    )
+    assert not changed and entries[0].source == "builtin"

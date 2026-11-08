@@ -7,6 +7,7 @@ import os
 import re
 import socket
 import subprocess
+import sys
 import time
 
 from agentbreeder.manifest import Manifest
@@ -104,6 +105,7 @@ class Docker:
         network: str | None = None,
         environment: dict[str, str] | None = None,
         mounts=(),
+        host_gateway: bool = False,
     ):
         """Create the agent container. With `network` (runtime boundary) the agent joins only
         that internal network, publishes nothing and is reached through its sidecar."""
@@ -138,6 +140,13 @@ class Docker:
                 else ["--publish", f"127.0.0.1::{manifest.port}"]
             ),
             *[f"--env={key}={value}" for key, value in (environment or {}).items()],
+            # Linux Docker has no host.docker.internal by default; built agents reach the
+            # operator's gateway and services through it.
+            *(
+                ["--add-host", "host.docker.internal:host-gateway"]
+                if host_gateway and sys.platform.startswith("linux")
+                else []
+            ),
             # Local secret files: read-only bind mounts; the value never enters env or labels.
             *[
                 arg

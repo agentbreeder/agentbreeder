@@ -1,0 +1,7 @@
+kind: eval
+name: northwind-golden
+version: 1.0.0
+description: 61 golden cases for the Northwind support agent (refunds, billing, account, orders, cancellation, safety, memory, out-of-scope).
+judge: {alias: support-judge}
+cases: golden.jsonl
+fixtures: fixtures.sql

@@ -1,0 +1,20 @@
+functions:
+  - name: cancel_order
+    module: cancellation
+    function: cancel_order
+    writes_requests: true
+    description: >-
+      Request cancellation of one of the current customer's orders that has not shipped yet.
+      This does NOT cancel the order: it files a request that a human staff member must approve.
+      Only call it after the customer has explicitly confirmed, in this conversation, that they
+      want this specific order cancelled.
+    parameters:
+      type: object
+      properties:
+        order_id:
+          type: string
+          description: The order to cancel, e.g. "NW-10030".
+        reason:
+          type: string
+          description: The customer's reason, in a few words.
+      required: [order_id, reason]

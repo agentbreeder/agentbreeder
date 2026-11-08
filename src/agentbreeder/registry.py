@@ -108,6 +108,9 @@ def _entries(source: Path) -> list[tuple[str, Path, os.stat_result]]:
     found = []
     total = 0
     for directory, dirnames, filenames in os.walk(source, followlinks=False):
+        # Interpreter caches are never part of a version: skipped for hashing and copying.
+        dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+        filenames = [f for f in filenames if not f.endswith((".pyc", ".pyo"))]
         for name in sorted(dirnames + filenames):
             _safe_name(name)
             path = Path(directory, name)

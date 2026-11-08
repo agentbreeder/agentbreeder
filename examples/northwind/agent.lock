@@ -1,0 +1,41 @@
+{
+  "lock_version": 1,
+  "entries": {
+    "eval/northwind-golden@1.0.0": {
+      "sha256": "sha256:d4b92fc6d57c5a39a0cb19094b2be3af9b00b59cb061ed5f4f51a8dad9a2989b",
+      "source": "registry"
+    },
+    "knowledge/northwind-help@1.0.0": {
+      "sha256": "sha256:e3fbd5ba636f66a80ba29ad23b63ff20a9b79484849fbaa926219fbbd3a1703e",
+      "source": "registry"
+    },
+    "prompt/northwind-support@1.0.0": {
+      "sha256": "sha256:2b41e4292bfeedd02ba47c8e21b5a8af1d65f892c46390b02c74ae37c0cb64d7",
+      "source": "registry"
+    },
+    "runtime/adk@1.0.0": {
+      "sha256": "sha256:e3f1d7bab5b2ca594c60e6e3e5508dea646a56e3985acb9e7fdafa7a6f324f1d",
+      "source": "builtin"
+    },
+    "tool/cancel-order@1.0.0": {
+      "sha256": "sha256:8c9e2752f94e40f29bcb6c3b2b397c09a43f6183f0fcd9b3692267c6dd6e1cbb",
+      "source": "registry"
+    },
+    "tool/customer-notes@1.0.0": {
+      "sha256": "sha256:aca6633fc4ebf74462ad05c99d9a7f7def2ac5c24fa68ab1a4f346d1b9a19abf",
+      "source": "registry"
+    },
+    "tool/escalate-to-human@1.0.0": {
+      "sha256": "sha256:c8c452a56335f2af5c4890fed8a25bc6ea7180a98a0470aa0b744b6c26c8076c",
+      "source": "registry"
+    },
+    "tool/orders@1.0.0": {
+      "sha256": "sha256:5484187ac326abc3e08358f24c0efe168981052cbe30a16b7de0a77a7ffc7f98",
+      "source": "registry"
+    },
+    "tool/web-search@1.0.0": {
+      "sha256": "sha256:de1ff331e3f7284acbf0b15f9be4ba4df23776cf3519808cca2c2ec7894f0c09",
+      "source": "registry"
+    }
+  }
+}

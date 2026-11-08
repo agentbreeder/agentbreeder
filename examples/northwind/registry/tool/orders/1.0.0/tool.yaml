@@ -1,0 +1,29 @@
+functions:
+  - name: lookup_orders
+    module: orders
+    function: lookup_orders
+    description: >-
+      Look up the current customer's Northwind orders: status, items, prices, totals, carrier,
+      tracking number and dates. With neither argument, returns their 10 most recent orders.
+      Only the customer in this conversation's orders are visible.
+    parameters:
+      type: object
+      properties:
+        order_id:
+          type: string
+          description: One order, e.g. "NW-10021". Leave empty for recent orders.
+        status:
+          type: string
+          description: "Optional filter: pending, paid, shipped, delivered, cancelled, returned, refunded."
+  - name: get_product_catalog
+    module: orders
+    function: get_product_catalog
+    description: >-
+      Current Northwind products and prices: the Northwind Pen, accessories, shipping options
+      and subscription plans.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Optional keyword filter, e.g. "tips", "dock" or "plan".

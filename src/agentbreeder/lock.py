@@ -14,6 +14,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from agentbreeder import registry
 from agentbreeder.registry import Ref, RegistryError, copy_and_hash, resolve
 
 LOCK_VERSION = 1
@@ -54,7 +55,13 @@ class Materialised:
     source: str
 
 
+BUILTIN_LABEL = "builtin"
+
+
 def _source_label(root: Path, project_dir: Path) -> str:
+    # Built-in versions ship inside AgentBreeder; their install path differs per machine.
+    if root.resolve() == registry.BUILTIN_ROOT.resolve():
+        return BUILTIN_LABEL
     try:
         return os.path.relpath(root, project_dir)
     except ValueError:
@@ -96,7 +103,11 @@ def materialise(
         hit = resolve(ref, search)
         if mode == "locked" and locked:
             # Load only from the locked source; never from a newly shadowing root.
-            wanted = (project_dir / locked["source"]).resolve()
+            wanted = (
+                registry.BUILTIN_ROOT
+                if locked["source"] == BUILTIN_LABEL
+                else project_dir / locked["source"]
+            ).resolve()
             if hit.root.resolve() != wanted:
                 hit = resolve(ref, [wanted])
         target = context / ref.kind / ref.name

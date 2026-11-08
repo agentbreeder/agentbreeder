@@ -1,0 +1,48 @@
+# LiteLLM Proxy (model gateway) for the Northwind support agent.
+# The agent asks for model aliases; this file decides which provider serves them.
+# Provider keys come from Compose secrets (see litellm/entrypoint.sh) and never reach the agent,
+# which holds only a scoped, budget-capped LiteLLM virtual key minted by up.sh.
+model_list:
+  # Chat: Gemini direct first ...
+  - model_name: support-model
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+      timeout: 60
+  # ... OpenRouter (same model, different route) when Gemini fails or rate-limits.
+  - model_name: support-model-openrouter
+    litellm_params:
+      model: openrouter/google/gemini-3.8-flash
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 60
+  # Eval judge (offline evals in `agentbreeder release`); stronger model, separate key.
+  - model_name: support-judge
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GEMINI_API_KEY
+      timeout: 120
+  # Knowledge-base embeddings (768-dim, matches the kb_chunks pgvector column).
+  - model_name: support-embedding
+    litellm_params:
+      model: gemini/gemini-embedding-2
+      api_key: os.environ/GEMINI_API_KEY
+      dimensions: 768
+
+router_settings:
+  num_retries: 1
+  retry_after: 1
+  # Cool a failing deployment down instead of hammering it.
+  allowed_fails: 3
+  cooldown_time: 30
+
+litellm_settings:
+  fallbacks: [{"support-model": ["support-model-openrouter"]}]
+  drop_params: true          # don't fail a fallback on a parameter OpenRouter lacks
+  request_timeout: 120
+  turn_off_message_logging: true   # spend logs keep tokens/cost, not customer messages
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_prompts_in_spend_logs: false
+  disable_spend_logs: false

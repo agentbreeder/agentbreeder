@@ -1,5 +1,6 @@
 import json
 import subprocess
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -98,3 +99,27 @@ def test_image_declared_volumes_denied():
     with pytest.raises(DeploymentError, match="VOLUME are unsupported"):
         runtime.create({"container": "owned", "id": "id", "digest": "hash"}, manifest)
     assert runtime.command.call_count == 1
+
+
+@pytest.mark.parametrize("platform,expected", [("linux", True), ("darwin", False)])
+def test_host_gateway_only_on_linux(monkeypatch, platform, expected):
+    from agentbreeder import runtime as runtime_module
+    from agentbreeder.secret_files import SecretMount
+
+    monkeypatch.setattr(runtime_module.sys, "platform", platform)
+    runtime = Docker()
+    runtime.command = Mock(return_value=json.dumps([{"Config": {}}]))
+    manifest = Manifest(schema_version=1, name="test", image="sha256:" + "a" * 64)
+    mount = SecretMount(("A", "B"), "k", Path("/state/k"), "/run/secrets/k")
+    runtime.create(
+        {"container": "owned", "id": "id", "digest": "hash"},
+        manifest,
+        environment={"X": "1"},
+        mounts=[mount],
+        host_gateway=True,
+    )
+    args = runtime.command.call_args.args
+    assert ("--add-host" in args) is expected
+    assert "--env=X=1" in args and "--env=A_FILE=/run/secrets/k" in args
+    assert "--env=B_FILE=/run/secrets/k" in args
+    assert args[args.index("--mount") + 1] == "type=bind,src=/state/k,dst=/run/secrets/k,readonly"

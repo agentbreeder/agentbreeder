@@ -110,3 +110,8 @@ docs/superpowers/private/
 /dashboard/
 /sidecar/
 /examples/go-agent/
+
+# Northwind example: generated secrets, operator state and build output (never commit)
+examples/northwind/stack/.secrets/
+examples/northwind/.agentbreeder/
+examples/northwind/deploy/

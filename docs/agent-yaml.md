@@ -1,7 +1,10 @@
 # `agent.yaml` (authoring schema v1, preview)
 
-> Part of the `agent.yaml` build work (#725). `agentbreeder validate` checks agent files today.
-> `agentbreeder build`, which turns one into an image, is **not implemented yet**.
+> Part of the `agent.yaml` build work (#725), preview. `validate` and `build` work today with the
+> ADK runtime (`runtime/adk@1.0.0`). Verified end to end on macOS + Docker Desktop with the
+> Northwind example (`examples/northwind/`): built from `agent.yaml`, deployed through the gate
+> and answering. Per-deployment gateway keys and `release` (the eval gate) are not implemented
+> yet; the example stack mints one scoped LiteLLM key instead.
 
 An agent file says what an agent is made of: a runtime, a model alias, a prompt, knowledge, tools,
 memory and evals. Everything is a registry reference (`kind/name@X.Y.Z`, see `registry.md`). You
@@ -50,3 +53,62 @@ evals: {ref: eval/northwind-golden@1.0.0, threshold: 1.0, retries: 1}
 - **A deploy manifest passed where an agent file is expected** gets a pointer to `deploy`.
 - **A 2.x `agent.yaml`** (`spec_version` or `framework`, without `kind`) is reported as
   unsupported.
+
+## Build
+
+```
+agentbreeder build agent.yaml --environment dev [--locked | --update [REF ...]] [--output deploy/] [--json]
+```
+
+`build` resolves every ref (`registry.md`), copies and hashes each one into a temporary build
+context, writes `agent.config.json` (data only), and runs `docker build` with the runtime's fixed
+Dockerfile. That Dockerfile has a base image pinned by digest, hash-locked requirements, and no
+build arguments or secrets. `build` then writes:
+
+- `deploy/<name>.deploy.yaml`: the v2 deploy manifest for that image. Its identity, secret
+  bindings and `model_access` come from the operator environment.
+- `deploy/<name>-candidate.deploy.yaml`, when the environment defines a candidate identity.
+- `deploy/<name>.build.json`: the image, the agent.yaml and lock hashes, and every ref's hash.
+- `agent.lock`, unless you ran with `--locked`.
+
+`build` never deploys and never reads secrets. Deploy the manifest with `agentbreeder deploy`.
+
+The operator environment has to grant what the build needs:
+
+```yaml
+gateways:
+  litellm-local:
+    type: litellm
+    url: http://127.0.0.1:4000
+    agent_url: http://host.docker.internal:4000
+environments:
+  dev:
+    targets: [local]
+    gateway: litellm-local
+    models: [support-model, support-embedding]
+    ceilings: {budget_usd: 50, rpm: 300}
+    services: {traces_url: …, tools_proxy_url: …}            # → AGENTBREEDER_SERVICE_<NAME>
+    bindings: {DATABASE_URL: secret://northwind-db, LLM_GATEWAY_KEY: secret://northwind-gateway-key}
+    agents:
+      northwind-support:
+        identity: {provider: demo, ref: support-agent, environment: dev}
+        candidate_identity: {provider: demo, ref: support-agent-candidate, environment: dev}
+```
+
+## The ADK runtime (`runtime/adk@1.0.0`)
+
+The runtime ships with AgentBreeder and is built on Google ADK 2.12. It reaches models through
+the LiteLLM gateway, using the `openai/<alias>` route with `reasoning_effort` set from
+`model.reasoning`.
+
+- **Sessions:** ADK sessions in Postgres.
+- **Memory:** per-customer notes, injected into the prompt.
+- **Knowledge:** hybrid pgvector and BM25 retrieval, with embeddings through the gateway.
+- **Tools:** loaded from tool packages (`tool.yaml` plus `src/`). The customer comes from the
+  server-side session, never from the model.
+- **Step cap:** the last model call has tools switched off.
+- **Observability:** OpenInference traces and an append-only event log.
+- **Secrets:** read only from `*_FILE` mounts.
+
+Tools run in the agent's own process with its privileges. Customer scoping is enforced by the
+shipped tools' own code, not by an engine boundary.

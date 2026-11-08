@@ -1,0 +1,4 @@
+kind: tool
+name: customer-notes
+version: 1.0.0
+description: Saves a durable, non-secret note about the current customer (long-term memory).
