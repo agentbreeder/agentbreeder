@@ -91,9 +91,10 @@ def test_model_access_denials_not_overridable_in_audit_mode(identity_env, state,
     assert error.value.code == "BUDGET_CEILING"
 
 
-def test_no_ceilings_means_no_ceiling_checks(identity_env, state, runtime):
+def test_gateway_without_ceilings_is_rejected(identity_env):
     grant(identity_env, ceilings=None)
-    assert deploy(identity_env, state, runtime, budget_usd=1000)["state"] == "ready"
+    with pytest.raises(OperatorConfigError, match="environments"):
+        identity_env.load()
 
 
 @pytest.mark.parametrize(
@@ -149,3 +150,17 @@ def test_operator_agents_and_bindings_parse(identity_env):
     environment = identity_env.load().model.environments["dev"]
     assert environment.bindings == {"DATABASE_URL": "secret://northwind-db"}
     assert environment.agents["northwind-support"].identity.ref == "agent-1"
+
+
+def test_preflight_applies_the_deploy_requirements(identity_env, state, runtime):
+    from conftest import actor
+
+    grant(identity_env)
+    service = DeploymentService(state, runtime, identity_env.load())
+    data = v2_manifest_data(
+        model_access={"gateway": "litellm-local", "aliases": ["support-model"]},
+        secrets={"DATABASE_URL": "secret://missing-db"},
+    )
+    decision = service.preflight(Manifest.model_validate(data), "dev", actor("dave"))
+    assert not decision.allowed and decision.code == "SECRET_MISSING"
+    runtime.create.assert_not_called()

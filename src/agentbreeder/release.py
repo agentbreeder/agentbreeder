@@ -352,15 +352,36 @@ def rollback(
                 f"The previous image {manifest.image} is no longer available locally; "
                 "production unchanged. Rebuild and release instead",
             )
+        replaced = None
         if current:
+            replaced = {
+                "id": current["id"],
+                "manifest": service.store.manifest(current["id"]),
+                "environment": current.get("environment"),
+            }
             _removed_or_raise(service, current["id"], deployer, "the current production")
-        restored = service.deploy(manifest, local=True, environment=env, deployer=deployer)
+        try:
+            restored = service.deploy(manifest, local=True, environment=env, deployer=deployer)
+        except (AuditUnavailable, AuditIncomplete):
+            raise
+        except (GateDenied, DeploymentError) as error:
+            restored = {"state": "failed", "error": str(error)}
+        if restored["state"] != "ready":
+            # Put back what was running, so a failed rollback never leaves nothing running.
+            note = _restore(service, replaced, deployer, restored)
+            service.record(
+                "release",
+                "rollback_failed",
+                deployer,
+                [{"code": "RELEASE_IMAGE", "message": manifest.image}],
+            )
+            reason = restored.get("error") or restored["state"]
+            return Outcome(EXIT_RUNTIME, f"Rollback to {manifest.image} failed ({reason}); {note}")
     service.record(
         "release", "rolled_back", deployer, [{"code": "RELEASE_IMAGE", "message": manifest.image}]
     )
-    code = EXIT_OK if restored["state"] == "ready" else EXIT_RUNTIME
     return Outcome(
-        code,
-        f"Rolled back to {manifest.image} ({restored['state']})",
+        EXIT_OK,
+        f"Rolled back to {manifest.image} (ready)",
         {"production": {"id": restored.get("id"), "endpoint": restored.get("endpoint")}},
     )

@@ -136,13 +136,18 @@ class DeploymentService:
             context = self.operator.context(environment, manifest.target)
         except ContextError as error:
             return GateDecision(False, error.code, str(error))
-        return self.gate.check(
+        decision = self.gate.check(
             manifest,
             deployer,
             context,
             is_blocked=lambda key, env: self.store.blocker(key, env) is not None,
             is_reference_blocked=self.store.blocked_reference,
         )
+        if decision.allowed:
+            problem = self._deploy_requirements(manifest)
+            if problem is not None:
+                return GateDecision(False, *problem)
+        return decision
 
     # -- deploy ------------------------------------------------------------------------------
 
@@ -232,53 +237,14 @@ class DeploymentService:
                     )
                 )
                 raise DeploymentError("Agent name already has a different spec; remove it first")
-            if self.enforcing and manifest.model_access is not None:
-                # The egress boundary runs agents on an internal network with no gateway key,
-                # gateway URL or service URLs: the deploy would be "ready" and every call fail.
-                reason = [
-                    {
-                        "code": "MODEL_ACCESS_UNSUPPORTED",
-                        "message": "model_access is not yet supported with runtime enforcement",
-                    }
-                ]
+            problem = self._deploy_requirements(manifest)
+            if problem is not None:
+                code, message = problem
+                reason = [{"code": code, "message": message}]
                 self._audit(
                     self._event(attempt, "deploy", "deny", deployer, reasons=reason, **fields)
                 )
-                raise GateDenied("MODEL_ACCESS_UNSUPPORTED", reason[0]["message"], attempt)
-            if self._minting(manifest) and (
-                GATEWAY_KEY_ENV in manifest.secrets
-                or f"secret://{GATEWAY_KEY_FILE}" in manifest.secrets.values()
-            ):
-                reason = [
-                    {
-                        "code": "SECRET_RESERVED",
-                        "message": f"{GATEWAY_KEY_ENV} is minted per deployment; remove it",
-                    }
-                ]
-                self._audit(
-                    self._event(attempt, "deploy", "deny", deployer, reasons=reason, **fields)
-                )
-                raise GateDenied("SECRET_RESERVED", reason[0]["message"], attempt)
-            if manifest.secrets:
-                try:
-                    if self.enforcing:
-                        raise SecretError(
-                            "SECRETS_UNSUPPORTED",
-                            "Secret files are not yet supported with runtime enforcement",
-                        )
-                    secret_files.preflight(self.store.directory, manifest.secrets)
-                except SecretError as error:
-                    self._audit(
-                        self._event(
-                            attempt,
-                            "deploy",
-                            "deny",
-                            deployer,
-                            reasons=[{"code": error.code, "message": str(error)}],
-                            **fields,
-                        )
-                    )
-                    raise GateDenied(error.code, str(error), attempt) from error
+                raise GateDenied(code, message, attempt)
             approval = None
             if "require_approval" in decision.obligations:
                 approval = self._approval_for(
@@ -391,11 +357,13 @@ class DeploymentService:
                 attempt, "transition", state, deployer, deployment_id=identifier, **fields
             )
 
+        key_live = False  # a key exists for this deployment (kept container, or minted now)
         try:
             info = self.runtime.inspect(record)
             state = self.store.directory
             minting = self._minting(manifest)
             generated = {GATEWAY_KEY_ENV: "secret://" + GATEWAY_KEY_FILE} if minting else {}
+            key_live = minting and info is not None
             if (
                 info is not None
                 and (manifest.secrets or generated)
@@ -415,6 +383,7 @@ class DeploymentService:
                         code = getattr(error, "code", "SECRET_UNREADABLE")
                         raise DeploymentError(f"[{code}] {error}") from error
                 if minting:
+                    key_live = True  # mint deletes then generates: assume it may exist
                     mounts.append(self._mint_key(manifest, identifier, fields, attempt, deployer))
                 environment = self._service_environment(
                     manifest, (fields.get("context") or {}).get("environment")
@@ -450,12 +419,41 @@ class DeploymentService:
             )
         except DeploymentError as error:
             secret_files.cleanup(self.store.directory, identifier)
-            self._revoke_key(manifest, identifier, attempt, deployer)
+            if key_live:
+                self._revoke_key(manifest, identifier, attempt, deployer)
             return self.store.transition(
                 identifier, "failed", error=str(error), audit=event("failed")
             )
 
     # -- per-deployment gateway keys ---------------------------------------------------------
+
+    def _deploy_requirements(self, manifest: Manifest) -> tuple[str, str] | None:
+        """Checks after the gate that need no side effects: what this installation can run.
+        `deploy` and `preflight` share them, so `release --rollback` learns of a deny before it
+        removes production."""
+        if self.enforcing and manifest.model_access is not None:
+            # The egress boundary runs agents on an internal network with no gateway key,
+            # gateway URL or service URLs: the deploy would be "ready" and every call fail.
+            return (
+                "MODEL_ACCESS_UNSUPPORTED",
+                "model_access is not yet supported with runtime enforcement",
+            )
+        if self._minting(manifest) and (
+            GATEWAY_KEY_ENV in manifest.secrets
+            or f"secret://{GATEWAY_KEY_FILE}" in manifest.secrets.values()
+        ):
+            return "SECRET_RESERVED", f"{GATEWAY_KEY_ENV} is minted per deployment; remove it"
+        if manifest.secrets:
+            try:
+                if self.enforcing:
+                    raise SecretError(
+                        "SECRETS_UNSUPPORTED",
+                        "Secret files are not yet supported with runtime enforcement",
+                    )
+                secret_files.preflight(self.store.directory, manifest.secrets)
+            except SecretError as error:
+                return error.code, str(error)
+        return None
 
     def _minting(self, manifest: Manifest) -> bool:
         if manifest.model_access is None:

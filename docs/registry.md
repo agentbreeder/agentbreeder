@@ -5,7 +5,7 @@
 
 A registry is a directory of **immutable, versioned building blocks**: prompts, tools,
 knowledge sources, eval sets and runtimes. You reference each one as `kind/name@X.Y.Z`, for
-example `tool/orders@1.0.0`. Phase A accepts exact versions only.
+example `tool/orders@1.0.0`. Only exact versions are accepted.
 
 ```
 registry/

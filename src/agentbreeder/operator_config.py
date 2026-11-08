@@ -74,6 +74,14 @@ class Environment(_Strict):
     # Host-reachable database for eval fixture resets (`agentbreeder eval` / `release`).
     eval_database: str | None = Field(default=None, pattern=r"^secret://[a-z0-9][a-z0-9_-]{0,62}$")
 
+    @model_validator(mode="after")
+    def gateway_needs_ceilings(self):
+        # Without ceilings a manifest (and so an agent.yaml) could set any budget or rpm and
+        # the minted key would carry it: an environment that grants a gateway caps it.
+        if self.gateway is not None and self.ceilings is None:
+            raise ValueError("an environment with a gateway must set ceilings (budget_usd, rpm)")
+        return self
+
     @field_validator("models")
     @classmethod
     def model_names(cls, value: list[str]) -> list[str]:

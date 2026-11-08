@@ -415,6 +415,8 @@ def test_remove_audit_failure_before_docker_says_nothing_removed(
         (["compliant", "noncompliant:REVIEW_EXPIRED"], 4),
         (["unverifiable:PRINCIPAL_NOT_FOUND"], 4),
         (["noncompliant:REVIEW_EXPIRED", "noncompliant:PRINCIPAL_BLOCKED:cleanup_failed"], 1),
+        (["compliant", "gateway_unreachable:GATEWAY_UNREACHABLE"], 1),
+        (["gateway_credential_error"], 1),
     ],
 )
 def test_reconcile_exit_code_precedence(compliance, code):

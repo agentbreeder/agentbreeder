@@ -168,7 +168,11 @@ def test_model_access_denied_under_runtime_enforcement(identity_env, state, runt
         }
     }
     identity_env.config["environments"]["dev"].update(
-        {"gateway": "litellm-local", "models": ["support-model"]}
+        {
+            "gateway": "litellm-local",
+            "models": ["support-model"],
+            "ceilings": {"budget_usd": 50, "rpm": 300},
+        }
     )
     service = _service(state, runtime, identity_env)
     access = {"gateway": "litellm-local", "aliases": ["support-model"]}

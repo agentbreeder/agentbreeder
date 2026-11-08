@@ -86,6 +86,7 @@ def operator(identity_env):
         {
             "gateway": "litellm-local",
             "models": ["support-model", "support-embedding"],
+            "ceilings": {"budget_usd": 50, "rpm": 300},
             "bindings": {"DATABASE_URL": "secret://helper-db"},
             "agents": {
                 "helper": {

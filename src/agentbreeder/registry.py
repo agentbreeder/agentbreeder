@@ -60,9 +60,7 @@ class Ref:
                 "REF_INVALID", f"{text!r} is not kind/name@X.Y.Z (kinds: {', '.join(KINDS)})"
             )
         if not VERSION.fullmatch(match["version"]):
-            raise RegistryError(
-                "REF_UNPINNED", f"{text!r}: Phase A refs need an exact X.Y.Z version"
-            )
+            raise RegistryError("REF_UNPINNED", f"{text!r}: refs need an exact X.Y.Z version")
         return cls(match["kind"], match["name"], match["version"])
 
     def __str__(self) -> str:

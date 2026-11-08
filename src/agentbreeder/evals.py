@@ -305,6 +305,10 @@ def run(
             f"Judge alias {eval_set.judge_alias} is not allowed in {environment}",
         )
     run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+    if only:
+        unknown = sorted(only - {c["id"] for c in eval_set.cases})
+        if unknown:
+            raise EvalError("EVAL_INVALID", f"--only names cases that don't exist: {unknown}")
     cases = [c for c in eval_set.cases if not only or c["id"] in only]
     reset_fixtures(eval_set, operator, environment, state)
     report = EvalReport(
@@ -313,7 +317,10 @@ def run(
     client = None
     key_alias = f"{gateway_keys.PREFIX}eval-{run_id}"
     if judge is None:
-        client = gateway_keys.client(operator, env.gateway)
+        try:
+            client = gateway_keys.client(operator, env.gateway)
+        except gateway_keys.GatewayError as error:
+            raise EvalError(error.code, str(error)) from None
         if client is None:
             raise EvalError(
                 "GATEWAY_CREDENTIAL", "The gateway needs a master_key to mint a judge key"

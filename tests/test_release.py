@@ -108,6 +108,7 @@ def operator(identity_env):
         {
             "gateway": "gw",
             "models": ["support-model", "support-judge"],
+            "ceilings": {"budget_usd": 50, "rpm": 300},
             "agents": {"helper": {"identity": identity, "candidate_identity": dict(identity)}},
         }
     )
@@ -640,6 +641,58 @@ def test_unknown_environment_is_a_deny_not_a_traceback(project, operator, state)
     outcome = rollback(project / "agent.yaml", service, actor("dave"), environment="nope")
     assert outcome.code == EXIT_DENIED and "CONTEXT_ENVIRONMENT_UNKNOWN" in outcome.message
     assert state.active("helper")["id"] == prod
+
+
+def test_rollback_whose_deploy_fails_restores_what_was_running(
+    project, operator, state, monkeypatch
+):
+    from conftest import actor
+
+    prepare_lock(project, operator)
+    runtime = FakeRuntime()
+    old, new = "sha256:" + "1" * 63 + "a", "sha256:" + "2" * 63 + "b"
+    do_release(project, operator, state, runtime, old)
+    _, service = do_release(project, operator, state, runtime, new)
+    original = DeploymentService.deploy
+
+    def deploy(self, manifest, **kwargs):
+        if manifest.image == old:
+            from agentbreeder.store import DeploymentError as StoreError
+
+            raise StoreError("container create failed")
+        return original(self, manifest, **kwargs)
+
+    monkeypatch.setattr(DeploymentService, "deploy", deploy)
+    outcome = rollback(project / "agent.yaml", service, actor("dave"))
+    assert (
+        outcome.code == EXIT_RUNTIME and "previous production restored (ready)" in outcome.message
+    )
+    assert state.manifest(state.active("helper")["id"])["image"] == new  # still running
+
+
+def test_eval_only_rejects_unknown_ids(project, operator, state):
+    eval_set = evals.EvalSet("golden", "1.0.0", "support-judge", CASES, None)
+    with pytest.raises(evals.EvalError) as caught:
+        evals.run(
+            eval_set,
+            "http://127.0.0.1:9",
+            operator.load(),
+            "dev",
+            state.directory,
+            only={"nope"},
+            judge=object(),
+        )
+    assert caught.value.code == "EVAL_INVALID"
+
+
+def test_empty_master_key_is_an_eval_error(project, operator, state):
+    master = project / "empty-master"
+    master.write_text("")
+    master.chmod(0o600)
+    operator.config["gateways"]["gw"].update({"master_key": f"file:{master}"})
+    eval_set = evals.EvalSet("golden", "1.0.0", "support-judge", CASES, None)
+    with pytest.raises(evals.EvalError):
+        evals.run(eval_set, "http://127.0.0.1:9", operator.load(), "dev", state.directory)
 
 
 def test_rollback_refuses_when_previous_image_is_gone(project, operator, state):
