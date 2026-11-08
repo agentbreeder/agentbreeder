@@ -81,6 +81,9 @@ only through a LiteLLM gateway. It keeps sessions in Postgres, injects per-custo
 hybrid pgvector and BM25 retrieval, and loads tool packages. It emits OpenInference traces and
 reads secrets only from mounted files.
 
+Agents built this way can't yet run behind the opt-in MCP egress sidecar: the deploy is refused,
+because the sidecar's network has no route to the model gateway.
+
 Tools run in the agent's process with its privileges. Customer scoping is enforced by the shipped
 tools' own code, not by an engine boundary.
 

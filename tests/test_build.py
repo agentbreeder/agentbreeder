@@ -57,6 +57,7 @@ def project(tmp_path, monkeypatch):
             "runtime/requirements.lock": "",
             "runtime/server.py": "x=1\n",
         },
+        extra="port: 9000\nhealth_path: /healthz\n",  # the manifest must take these from here
     )
     version(root, "prompt", "helper", {"prompt.md": "Be helpful."})
     version(
@@ -131,6 +132,7 @@ def test_build_assembles_context_and_writes_manifests(project, operator):
 
     manifest = load_manifest(result.manifest_path)
     assert manifest.image == IMAGE and manifest.name == "helper"
+    assert (manifest.port, manifest.health_path) == (9000, "/healthz")
     assert manifest.secrets == {"DATABASE_URL": "secret://helper-db"}
     assert manifest.model_access.aliases == ["support-model", "support-embedding"]
     assert manifest.model_access.budget_usd == 10

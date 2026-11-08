@@ -155,15 +155,23 @@ def _check_tool_modules(agent: AgentFile, placed: dict[str, Path]) -> None:
             owners[module] = tool.ref
 
 
-def _manifest(agent, operator, environment, image, identity, aliases, name) -> dict:
+def _runtime_serving(runtime_dir: Path, ref: str) -> dict:
+    """The port and health path the runtime serves on, from its own manifest.yaml."""
+    try:
+        meta = load_file(runtime_dir / "manifest.yaml")
+    except StrictYamlError as error:
+        raise BuildError("ARTIFACT_INVALID", f"{ref} manifest.yaml: {error}") from error
+    return {"port": meta.get("port", 8080), "health_path": meta.get("health_path", "/health")}
+
+
+def _manifest(agent, operator, environment, image, identity, aliases, name, serving) -> dict:
     env = operator.model.environments[environment]
     data: dict = {
         "schema_version": 2,
         "name": name,
         "image": image,
         "target": "local",
-        "port": 8080,
-        "health_path": "/health",
+        **serving,
         "identity": identity.model_dump(exclude_none=True),
     }
     if env.bindings:
@@ -231,6 +239,7 @@ def build(
             update=update,
         )
         runtime_dir = artifacts / "runtime" / registry.Ref.parse(agent.runtime).name
+        serving = _runtime_serving(runtime_dir, agent.runtime)
         for item in RUNTIME_FILES:
             if not (runtime_dir / item).exists():
                 raise BuildError("ARTIFACT_INVALID", f"{agent.runtime} is missing {item}")
@@ -253,7 +262,9 @@ def build(
     if not image.startswith("sha256:"):
         raise BuildError("BUILD_FAILED", "docker build did not return an image ID")
     output.mkdir(parents=True, exist_ok=True)
-    manifest = _manifest(agent, operator, name, image, identities.identity, aliases, agent.name)
+    manifest = _manifest(
+        agent, operator, name, image, identities.identity, aliases, agent.name, serving
+    )
     manifest_path = output / f"{agent.name}.deploy.yaml"
     manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
     candidate_path = None
@@ -266,6 +277,7 @@ def build(
             identities.candidate_identity,
             aliases,
             f"{agent.name}-candidate",
+            serving,
         )
         candidate_path = output / f"{agent.name}-candidate.deploy.yaml"
         candidate_path.write_text(yaml.safe_dump(candidate, sort_keys=False))

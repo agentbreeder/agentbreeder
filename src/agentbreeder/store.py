@@ -69,7 +69,8 @@ def _now() -> str:
 
 class Store:
     def __init__(self, directory: Path):
-        if "," in str(directory.absolute()):
+        directory = directory.absolute()  # secret files are bind-mounted from here
+        if "," in str(directory):
             # Secret files are bind-mounted from here with `--mount type=bind,src=…`, which is
             # comma-delimited.
             raise DeploymentError("State directory path must not contain a comma")

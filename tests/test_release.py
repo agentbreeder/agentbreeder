@@ -584,6 +584,19 @@ def test_rollback_validates_journal_and_gate(project, operator, state):
     assert denied.code == EXIT_DENIED and state.active("helper")["id"] == prod  # untouched
 
 
+def test_unknown_environment_is_a_deny_not_a_traceback(project, operator, state):
+    from conftest import actor
+
+    prepare_lock(project, operator)
+    runtime = FakeRuntime()
+    do_release(project, operator, state, runtime, "sha256:" + "e" * 64)
+    _, service = do_release(project, operator, state, runtime, "sha256:" + "f" * 64)
+    prod = state.active("helper")["id"]
+    outcome = rollback(project / "agent.yaml", service, actor("dave"), environment="nope")
+    assert outcome.code == EXIT_DENIED and "CONTEXT_ENVIRONMENT_UNKNOWN" in outcome.message
+    assert state.active("helper")["id"] == prod
+
+
 def test_rollback_refuses_when_previous_image_is_gone(project, operator, state):
     from conftest import actor
 

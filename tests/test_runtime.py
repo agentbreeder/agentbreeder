@@ -102,6 +102,14 @@ def test_image_present_checks_local_ids_only():
     runtime.command.assert_called_once()
 
 
+def test_relative_state_dir_is_made_absolute(tmp_path, monkeypatch):
+    from agentbreeder.store import Store
+
+    monkeypatch.chdir(tmp_path)
+    store = Store(Path("state"))
+    assert store.directory.is_absolute() and store.directory == tmp_path / "state"
+
+
 def test_state_dir_with_comma_refused(tmp_path):
     from agentbreeder.store import Store
 

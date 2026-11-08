@@ -158,6 +158,26 @@ def _tool_rows(state):
 # -- gate ------------------------------------------------------------------------------------
 
 
+def test_model_access_denied_under_runtime_enforcement(identity_env, state, runtime, monkeypatch):
+    enable_boundary(identity_env, URL, PEM, monkeypatch)
+    identity_env.config["gateways"] = {
+        "litellm-local": {
+            "type": "litellm",
+            "url": "http://127.0.0.1:4000",
+            "agent_url": "http://host.docker.internal:4000",
+        }
+    }
+    identity_env.config["environments"]["dev"].update(
+        {"gateway": "litellm-local", "models": ["support-model"]}
+    )
+    service = _service(state, runtime, identity_env)
+    access = {"gateway": "litellm-local", "aliases": ["support-model"]}
+    with pytest.raises(GateDenied) as caught:
+        service.deploy(_manifest(model_access=access), local=True, deployer=actor("dave"))
+    assert caught.value.code == "MODEL_ACCESS_UNSUPPORTED"
+    runtime.create.assert_not_called()
+
+
 def test_gate_requires_pdp_and_approved_destinations(identity_env, state, runtime, monkeypatch):
     identity_env.config["runtime_enforcement"] = {
         "mode": "mcp_http",

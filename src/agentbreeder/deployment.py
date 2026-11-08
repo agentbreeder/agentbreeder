@@ -132,7 +132,10 @@ class DeploymentService:
         """Evaluate the gate for a manifest without deploying, auditing or touching Docker.
         Used by `release` to learn, before removing production, whether its deploy would be
         denied or need approval."""
-        context = self.operator.context(environment, manifest.target)
+        try:
+            context = self.operator.context(environment, manifest.target)
+        except ContextError as error:
+            return GateDecision(False, error.code, str(error))
         return self.gate.check(
             manifest,
             deployer,
@@ -229,6 +232,19 @@ class DeploymentService:
                     )
                 )
                 raise DeploymentError("Agent name already has a different spec; remove it first")
+            if self.enforcing and manifest.model_access is not None:
+                # The egress boundary runs agents on an internal network with no gateway key,
+                # gateway URL or service URLs: the deploy would be "ready" and every call fail.
+                reason = [
+                    {
+                        "code": "MODEL_ACCESS_UNSUPPORTED",
+                        "message": "model_access is not yet supported with runtime enforcement",
+                    }
+                ]
+                self._audit(
+                    self._event(attempt, "deploy", "deny", deployer, reasons=reason, **fields)
+                )
+                raise GateDenied("MODEL_ACCESS_UNSUPPORTED", reason[0]["message"], attempt)
             if self._minting(manifest) and (
                 GATEWAY_KEY_ENV in manifest.secrets
                 or f"secret://{GATEWAY_KEY_FILE}" in manifest.secrets.values()
@@ -533,8 +549,8 @@ class DeploymentService:
         environment = model.environments.get(name or "")
         gateway = model.gateways.get(manifest.model_access.gateway)
         result = {"AGENTBREEDER_GATEWAY_URL": gateway.agent_url} if gateway else {}
-        for name, url in sorted((environment.services if environment else {}).items()):
-            result[f"AGENTBREEDER_SERVICE_{name.upper()}"] = url
+        for service, url in sorted((environment.services if environment else {}).items()):
+            result[f"AGENTBREEDER_SERVICE_{service.upper()}"] = url
         return result
 
     def _run_boundary(self, identifier, record, manifest, attempt, deployer, fields, decision):
@@ -1322,7 +1338,7 @@ class DeploymentService:
                             "gateway_key",
                             "revoked",
                             actor,
-                            deployment_id=identifier if len(identifier) == 32 else None,
+                            deployment_id=identifier,
                             reasons=[{"code": "GATEWAY_KEY_ORPHAN", "message": key_alias}],
                         )
                     )

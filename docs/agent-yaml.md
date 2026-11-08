@@ -112,6 +112,10 @@ the LiteLLM gateway, using the `openai/<alias>` route with `reasoning_effort` se
 - **Observability:** OpenInference traces and an append-only event log.
 - **Secrets:** read only from `*_FILE` mounts.
 
+Agents built from `agent.yaml` can't yet run behind the opt-in MCP egress sidecar
+(`runtime_enforcement: mcp_http`): the deploy is refused with `MODEL_ACCESS_UNSUPPORTED`, because
+the sidecar's network has no route to the gateway.
+
 Tools run in the agent's own process with its privileges. Customer scoping is enforced by the
 shipped tools' own code, not by an engine boundary.
 
