@@ -126,7 +126,7 @@ prompt.
 ```
 agentbreeder eval agent.yaml --endpoint URL [--environment ENV] [--only id,...] [--retries N] [--json]
 agentbreeder release agent.yaml --environment ENV [--threshold 1.0] [--retries N] [--json]
-agentbreeder release agent.yaml --rollback
+agentbreeder release agent.yaml --rollback [--environment ENV]   # gate-checked before anything is removed
 ```
 
 `eval` runs the agent's eval set (`eval/<name>@X.Y.Z`, verified against `agent.lock`) against a
@@ -147,7 +147,8 @@ steps:
    then remove the candidate.
 4. Below the threshold, exit 5 with production unchanged. The report is in
    `deploy/<name>.eval-<run>.json`.
-5. Otherwise write `deploy/<name>.release.json` (the previous production and its manifest),
+5. Otherwise write a release journal (the previous production and its manifest) to
+   `<state-dir>/releases/<name>.json`,
    remove the old production, and deploy the **exact evaluated image**.
 6. If the new production fails to start, restore the previous one.
 

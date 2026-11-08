@@ -341,7 +341,9 @@ def _release(args) -> int:
             service.record_denial("release", os_deployer(), error.code, str(error))
             raise
         if args.rollback:
-            outcome = rollback(Path(args.agent), service, deployer, output=args.output)
+            outcome = rollback(
+                Path(args.agent), service, deployer, args.environment, output=args.output
+            )
         else:
             outcome = release(
                 Path(args.agent),

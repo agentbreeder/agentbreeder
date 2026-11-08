@@ -90,6 +90,16 @@ class EvalReport:
         }
 
 
+def _inside(directory: Path, name, field: str) -> Path:
+    """A file named in the eval manifest must be a plain file in the (hashed) eval version."""
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
+        raise EvalError("EVAL_INVALID", f"eval manifest `{field}` must be a plain file name")
+    path = directory / name
+    if path.is_symlink() or not path.is_file():
+        raise EvalError("EVAL_INVALID", f"eval manifest `{field}` file is missing")
+    return path
+
+
 def load_eval_set(directory: Path) -> EvalSet:
     try:
         manifest = load_file(directory / "manifest.yaml")
@@ -98,7 +108,7 @@ def load_eval_set(directory: Path) -> EvalSet:
     judge = (manifest.get("judge") or {}).get("alias")
     if not isinstance(judge, str) or not judge:
         raise EvalError("EVAL_INVALID", "eval manifest needs judge.alias")
-    cases_file = directory / str(manifest.get("cases") or "golden.jsonl")
+    cases_file = _inside(directory, manifest.get("cases") or "golden.jsonl", "cases")
     cases = []
     for number, line in enumerate(cases_file.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
@@ -115,7 +125,9 @@ def load_eval_set(directory: Path) -> EvalSet:
     if not cases or len(cases) > MAX_CASES:
         raise EvalError("EVAL_INVALID", f"eval set must have 1..{MAX_CASES} cases")
     fixtures = manifest.get("fixtures")
-    sql = (directory / str(fixtures)).read_text(encoding="utf-8") if fixtures else None
+    sql = (
+        _inside(directory, fixtures, "fixtures").read_text(encoding="utf-8") if fixtures else None
+    )
     return EvalSet(str(manifest.get("name")), str(manifest.get("version")), judge, cases, sql)
 
 

@@ -82,6 +82,13 @@ def _eval_set(agent, project: Path) -> evals.EvalSet:
         return evals.load_eval_set(copy)
 
 
+def _journal_path(state: Path, name: str) -> Path:
+    """Release journals live in the private (0700) state dir, never in the project tree."""
+    directory = state / "releases"
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return directory / f"{name}.json"
+
+
 class _ReleaseLock:
     def __init__(self, state: Path):
         state.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -206,7 +213,7 @@ def release(
                 details,
             )
 
-        journal = output / f"{agent.name}.release.json"
+        journal = _journal_path(state, agent.name)
         previous = None
         if current:
             previous = {
@@ -264,25 +271,37 @@ def rollback(
     agent_path: Path,
     service: DeploymentService,
     deployer: Deployer,
+    environment: str | None = None,
     *,
     output: Path | None = None,
 ) -> Outcome:
+    """Redeploy the previous production recorded by the last release. The journal is only a
+    pointer: the manifest must name this agent, the environment comes from the caller or the
+    operator default, and the gate is checked before anything is removed."""
     agent = load_agent_file(agent_path)
-    output = (output or agent_path.resolve().parent / "deploy").resolve()
-    journal = output / f"{agent.name}.release.json"
+    journal = _journal_path(service.store.directory, agent.name)
     if not journal.exists():
         raise ReleaseError("NO_RELEASE_JOURNAL", f"No release journal at {journal}")
     previous = json.loads(journal.read_text()).get("previous")
     if not previous:
         raise ReleaseError("NO_PREVIOUS", "The last release had no previous production")
+    manifest = Manifest.model_validate(previous["manifest"])
+    if manifest.name != agent.name:
+        raise ReleaseError("JOURNAL_MISMATCH", "The release journal is for a different agent")
+    env = environment or service.operator.model.default_environment
+    decision = service.preflight(manifest, env, deployer)
+    if not decision.allowed:
+        return Outcome(EXIT_DENIED, f"[{decision.code}] {decision.message}; production unchanged")
+    if "require_approval" in decision.obligations:
+        return Outcome(EXIT_APPROVAL, "The rollback deploy needs approval; production unchanged")
     with _ReleaseLock(service.store.directory):
         current = service.store.active(agent.name)
         if current:
             service.remove(current["id"], local=True, actor=deployer)
-        manifest = Manifest.model_validate(previous["manifest"])
-        restored = service.deploy(
-            manifest, local=True, environment=previous["environment"], deployer=deployer
-        )
+        restored = service.deploy(manifest, local=True, environment=env, deployer=deployer)
+    service.record(
+        "release", "rolled_back", deployer, [{"code": "RELEASE_IMAGE", "message": manifest.image}]
+    )
     code = EXIT_OK if restored["state"] == "ready" else EXIT_RUNTIME
     return Outcome(
         code,

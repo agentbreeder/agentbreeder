@@ -536,3 +536,43 @@ def test_retries_reset_fixtures_first(project, operator, state, monkeypatch):
     )
     assert len(resets) == 2  # before the run and before the retry round
     agent.server.shutdown()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("cases", "../outside.jsonl"), ("cases", "/etc/passwd"), ("fixtures", "sub/f.sql")],
+)
+def test_eval_manifest_file_names_stay_inside(tmp_path, field, value):
+    d = tmp_path / "e"
+    d.mkdir()
+    (d / "golden.jsonl").write_text(json.dumps(CASES[0]) + "\n")
+    (d / "manifest.yaml").write_text(
+        f"kind: eval\nname: g\nversion: 1.0.0\njudge: {{alias: j}}\n{field}: {value}\n"
+    )
+    with pytest.raises(evals.EvalError, match="plain file name"):
+        evals.load_eval_set(d)
+
+
+def test_rollback_validates_journal_and_gate(project, operator, state):
+    from conftest import actor
+
+    from agentbreeder.release import ReleaseError, _journal_path
+
+    prepare_lock(project, operator)
+    runtime = FakeRuntime()
+    do_release(project, operator, state, runtime, "sha256:" + "8" * 64)
+    _, service = do_release(project, operator, state, runtime, "sha256:" + "9" * 64)
+    journal = _journal_path(state.directory, "helper")
+    assert journal.parent.stat().st_mode & 0o777 == 0o700
+    data = json.loads(journal.read_text())
+    data["previous"]["manifest"]["name"] = "someone-else"
+    journal.write_text(json.dumps(data))
+    with pytest.raises(ReleaseError, match="JOURNAL_MISMATCH"):
+        rollback(project / "agent.yaml", service, actor("dave"))
+    data["previous"]["manifest"]["name"] = "helper"
+    journal.write_text(json.dumps(data))
+    operator.config["environments"]["dev"]["models"] = ["support-judge"]  # now denied
+    service = DeploymentService(state, runtime, operator.load())
+    prod = state.active("helper")["id"]
+    denied = rollback(project / "agent.yaml", service, actor("dave"))
+    assert denied.code == EXIT_DENIED and state.active("helper")["id"] == prod  # untouched
