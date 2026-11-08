@@ -1,8 +1,8 @@
 {
   "lock_version": 1,
   "entries": {
-    "eval/northwind-golden@1.0.0": {
-      "sha256": "sha256:d4b92fc6d57c5a39a0cb19094b2be3af9b00b59cb061ed5f4f51a8dad9a2989b",
+    "eval/northwind-golden@1.0.1": {
+      "sha256": "sha256:b71b246135d8f25a068574ef0a5629705949e00f8cf23e3d797c222543d80374",
       "source": "registry"
     },
     "knowledge/northwind-help@1.0.0": {

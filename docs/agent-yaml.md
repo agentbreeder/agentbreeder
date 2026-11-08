@@ -3,7 +3,8 @@
 > Part of the `agent.yaml` build work (#725), preview. `validate` and `build` work today with the
 > ADK runtime (`runtime/adk@1.0.1`). Verified end to end on macOS + Docker Desktop with the
 > Northwind example (`examples/northwind/`): built from `agent.yaml`, deployed through the gate
-> and answering. `release` (the eval gate) is not implemented yet.
+> and answering, and released through the 61-case eval gate with `agentbreeder release` (61/61,
+> 2026-11-07).
 
 An agent file says what an agent is made of: a runtime, a model alias, a prompt, knowledge, tools,
 memory and evals. Everything is a registry reference (`kind/name@X.Y.Z`, see `registry.md`). You
@@ -119,3 +120,42 @@ in front of it before exposing it to real users, and have that proxy set the cus
 without a `customer_id` run as the shared `guest` identity. Guests get no saved notes, so notes
 cannot leak between anonymous visitors, and note text is neutralised before it enters the
 prompt.
+
+## Eval and release
+
+```
+agentbreeder eval agent.yaml --endpoint URL [--environment ENV] [--only id,...] [--retries N] [--json]
+agentbreeder release agent.yaml --environment ENV [--threshold 1.0] [--retries N] [--json]
+agentbreeder release agent.yaml --rollback
+```
+
+`eval` runs the agent's eval set (`eval/<name>@X.Y.Z`, verified against `agent.lock`) against a
+running endpoint. A case passes when every rule check passes (sources, tools, regex) and the LLM
+judge scores correctness at least 0.7. The judge calls the gateway alias from the eval manifest,
+on its own short-lived key that is revoked after the run. The eval set's `fixtures.sql` runs
+against the environment's `eval_database` before the run and before each retry round. That needs
+`pip install "agentbreeder[eval]"`.
+
+`release` is orchestration around two ordinary governed deploys. The exit codes are 0 released or
+already in production, 1 runtime failure, 2 denied, 3 needs approval, 5 eval gate failed. The
+steps:
+
+1. Build with `--locked`.
+2. Check the production manifest through the gate without deploying. A deny exits 2. A required
+   approval exits 3, because release does not run approvals.
+3. Deploy `<name>-candidate` under its own identity and gateway key, run the eval set against it,
+   then remove the candidate.
+4. Below the threshold, exit 5 with production unchanged. The report is in
+   `deploy/<name>.eval-<run>.json`.
+5. Otherwise write `deploy/<name>.release.json` (the previous production and its manifest),
+   remove the old production, and deploy the **exact evaluated image**.
+6. If the new production fails to start, restore the previous one.
+
+Limits:
+- **The eval gate can be bypassed.** It is release orchestration, not an engine control: anyone
+  with deploy rights can run plain `deploy`.
+- **Promotion has brief downtime.** The engine refuses two specs under one name, so the old
+  production is removed before the new one starts.
+- **Gateway changes are not gated.** Changing the gateway's model mapping does not change the
+  image, so `release` reports "already in production". Re-run `eval` against production after
+  gateway changes.

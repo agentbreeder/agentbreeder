@@ -97,6 +97,7 @@ environments:
       tools_proxy_url: http://host.docker.internal:8787
     bindings:
       DATABASE_URL: secret://northwind-db
+    eval_database: secret://northwind-eval-db   # host-side fixture resets for `agentbreeder release`
     agents:
       northwind-support:
         identity: {provider: demo, ref: support-agent, environment: dev}
@@ -107,6 +108,8 @@ chmod 600 "$AB_DIR/operator.yaml" "$AB_DIR/principals.yaml"
 # --- local secret files (values never printed) --------------------------------------------------
 printf 'postgresql://support:%s@host.docker.internal:5433/support' "$(cat .secrets/db-password)" \
   | "$AGENTBREEDER" secret set northwind-db --state-dir "$STATE" >/dev/null
+printf 'postgresql://support:%s@127.0.0.1:5433/support' "$(cat .secrets/db-password)" \
+  | "$AGENTBREEDER" secret set northwind-eval-db --state-dir "$STATE" >/dev/null
 # The agent's LiteLLM key is minted per deployment by `agentbreeder deploy` (master key above).
 
 cat <<EOF
@@ -114,7 +117,8 @@ cat <<EOF
 Northwind stack is up. Now:
   export AGENTBREEDER_OPERATOR_CONFIG=$AB_DIR/operator.yaml AGENTBREEDER_STATE_DIR=$STATE
   cd $EXAMPLE
-  agentbreeder build agent.yaml --environment dev
-  agentbreeder deploy deploy/northwind-support.deploy.yaml --local --environment dev
+  agentbreeder release agent.yaml --environment dev      # build, candidate, 61 evals, promote
+  (or step by step: agentbreeder build agent.yaml --environment dev
+                    agentbreeder deploy deploy/northwind-support.deploy.yaml --local --environment dev)
   Ops dashboard  http://127.0.0.1:8790   Phoenix  http://127.0.0.1:6006   Gateway  http://127.0.0.1:4000
 EOF

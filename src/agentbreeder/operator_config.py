@@ -71,6 +71,8 @@ class Environment(_Strict):
     # ENV name -> secret:// reference written into generated manifests.
     bindings: dict[str, str] = Field(default_factory=dict, max_length=20)
     agents: dict[str, AgentIdentities] = Field(default_factory=dict, max_length=200)
+    # Host-reachable database for eval fixture resets (`agentbreeder eval` / `release`).
+    eval_database: str | None = Field(default=None, pattern=r"^secret://[a-z0-9][a-z0-9_-]{0,62}$")
 
     @field_validator("models")
     @classmethod

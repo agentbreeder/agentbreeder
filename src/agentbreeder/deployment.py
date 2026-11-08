@@ -120,6 +120,27 @@ class DeploymentService:
         )
         return attempt
 
+    def record(self, action: str, decision: str, actor: Deployer, reasons: list[dict]) -> str:
+        """Record an orchestration event (e.g. `release`) in the same audit chain."""
+        attempt = uuid.uuid4().hex
+        self._audit(self._event(attempt, action, decision, actor, reasons=reasons[:50]))
+        return attempt
+
+    def preflight(
+        self, manifest: Manifest, environment: str | None, deployer: Deployer
+    ) -> GateDecision:
+        """Evaluate the gate for a manifest without deploying, auditing or touching Docker.
+        Used by `release` to learn, before removing production, whether its deploy would be
+        denied or need approval."""
+        context = self.operator.context(environment, manifest.target)
+        return self.gate.check(
+            manifest,
+            deployer,
+            context,
+            is_blocked=lambda key, env: self.store.blocker(key, env) is not None,
+            is_reference_blocked=self.store.blocked_reference,
+        )
+
     # -- deploy ------------------------------------------------------------------------------
 
     def deploy(

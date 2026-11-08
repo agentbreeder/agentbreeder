@@ -122,6 +122,26 @@ def _parser() -> argparse.ArgumentParser:
     )
     build.add_argument("--output", type=Path, help="Where to write manifests (default ./deploy)")
     build.add_argument("--json", action="store_true")
+    ev = commands.add_parser("eval", help="Run an agent's eval set against a running endpoint")
+    ev.add_argument("agent")
+    ev.add_argument("--endpoint", required=True)
+    ev.add_argument("--environment")
+    ev.add_argument("--only", help="Comma-separated case IDs")
+    ev.add_argument("--retries", type=int, default=None)
+    ev.add_argument("--state-dir", type=Path, default=DEFAULT_STATE)
+    ev.add_argument("--json", action="store_true")
+    rel = commands.add_parser(
+        "release",
+        help="Build, deploy a candidate, run the eval gate, promote the exact image if it passes",
+    )
+    rel.add_argument("agent")
+    rel.add_argument("--environment")
+    rel.add_argument("--threshold", type=float, default=None)
+    rel.add_argument("--retries", type=int, default=None)
+    rel.add_argument("--rollback", action="store_true", help="Redeploy the previous production")
+    rel.add_argument("--state-dir", type=Path, default=DEFAULT_STATE)
+    rel.add_argument("--output", type=Path)
+    rel.add_argument("--json", action="store_true")
     reg = commands.add_parser("registry", help="Author and inspect registry versions")
     reg_commands = reg.add_subparsers(dest="registry_command", required=True)
     reg_new = reg_commands.add_parser("new", help="Scaffold a version directory to edit")
@@ -191,6 +211,10 @@ def main(argv: list[str] | None = None) -> int:
         return _registry(args)
     if args.command == "build":
         return _build(args)
+    if args.command == "eval":
+        return _eval(args)
+    if args.command == "release":
+        return _release(args)
     if args.command == "secret":
         data = sys.stdin.buffer.read(secret_files.MAX_BYTES + 2)
         if data.endswith(b"\n"):
@@ -253,6 +277,112 @@ def _build(args) -> int:
     environment = f" --environment {args.environment}" if args.environment else ""
     print(f"Next: agentbreeder deploy {result.manifest_path} --local{environment}")
     return 0
+
+
+def _eval(args) -> int:
+    from agentbreeder import evals
+    from agentbreeder.release import ReleaseError, _eval_set
+
+    try:
+        operator = load_operator_config()
+        agent = agentfile.load_agent_file(Path(args.agent))
+        environment = args.environment or operator.model.default_environment
+        eval_set = _eval_set(agent, Path(args.agent).resolve().parent)
+        report = evals.run(
+            eval_set,
+            args.endpoint,
+            operator,
+            environment,
+            args.state_dir,
+            retries=agent.evals.retries if args.retries is None else args.retries,
+            only=set(args.only.split(",")) if args.only else None,
+        )
+    except (
+        evals.EvalError,
+        ReleaseError,
+        agentfile.AgentFileError,
+        registry.RegistryError,
+        OperatorConfigError,
+        secret_files.SecretError,
+    ) as error:
+        print(_message(error), file=sys.stderr)
+        return 2
+    summary = report.summary()
+    if args.json:
+        print(json.dumps({**summary, "results": report.results}, indent=2))
+    else:
+        for result in report.results:
+            mark = (
+                "PASS"
+                if result["passed"] and result["attempts"] == 1
+                else ("FLKY" if result["passed"] else "FAIL")
+            )
+            print(f"{mark} {result['case_id']} ({result['correctness']:.2f})")
+        print(
+            f"{summary['passed']}/{summary['cases']} passed, mean correctness "
+            f"{summary['mean_correctness']}, p50 {summary['p50_latency_ms']} ms"
+        )
+    return 0 if report.pass_rate >= agent.evals.threshold else 5
+
+
+def _release(args) -> int:
+    from agentbreeder import evals
+    from agentbreeder.build import BuildError
+    from agentbreeder.release import ReleaseError, release, rollback
+
+    store = None
+    try:
+        operator = load_operator_config()
+        store = Store(args.state_dir)
+        service = DeploymentService(store, Docker(), operator)
+        try:
+            deployer = resolve_deployer(operator)
+        except DeployerError as error:
+            service.record_denial("release", os_deployer(), error.code, str(error))
+            raise
+        if args.rollback:
+            outcome = rollback(Path(args.agent), service, deployer, output=args.output)
+        else:
+            outcome = release(
+                Path(args.agent),
+                operator,
+                service,
+                deployer,
+                args.environment,
+                threshold=args.threshold,
+                retries=args.retries,
+                output=args.output,
+                log=(lambda message: None)
+                if args.json
+                else (lambda message: print(message, file=sys.stderr)),
+            )
+    except (
+        BuildError,
+        ReleaseError,
+        evals.EvalError,
+        agentfile.AgentFileError,
+        registry.RegistryError,
+        OperatorConfigError,
+        DeployerError,
+        GateDenied,
+        DeploymentError,
+        secret_files.SecretError,
+    ) as error:
+        print(_message(error), file=sys.stderr)
+        return 3 if getattr(error, "code", "") == "APPROVAL_REQUIRED" else 2
+    finally:
+        if store:
+            store.close()
+    if args.json:
+        print(json.dumps(outcome.as_json(), indent=2))
+    else:
+        print(outcome.message)
+        production = outcome.details.get("production")
+        if production and production.get("endpoint"):
+            print(f"Production: {production['endpoint']} ({production['id']})")
+        if outcome.details.get("eval_report"):
+            print(f"Eval report: {outcome.details['eval_report']}")
+    return outcome.code
 
 
 def _registry(args) -> int:

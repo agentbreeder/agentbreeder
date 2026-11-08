@@ -32,9 +32,18 @@ examples/northwind/stack/up.sh        # starts the stack; writes .agentbreeder/ 
 export AGENTBREEDER_OPERATOR_CONFIG=$PWD/examples/northwind/.agentbreeder/operator.yaml
 export AGENTBREEDER_STATE_DIR=$PWD/examples/northwind/.agentbreeder/state
 cd examples/northwind
-agentbreeder build agent.yaml --environment dev
-agentbreeder deploy deploy/northwind-support.deploy.yaml --local --environment dev
+pip install -e ".[eval]"             # at the repo root; the eval gate resets fixtures in Postgres
+agentbreeder release agent.yaml --environment dev   # build → candidate → 61 evals → promote
 ```
+
+Or step by step: `agentbreeder build agent.yaml --environment dev`, then
+`agentbreeder deploy deploy/northwind-support.deploy.yaml --local --environment dev`.
+
+**Models and cost.** These were measured from LiteLLM's spend logs on 2026-11-07. The agent and
+the eval judge both use `gemini-3.8-flash`: a full release (candidate, 61 cases, judge, retries)
+costs about $0.24 and passed 61/61. The previous setup, with a `gemini-3.1-pro-preview` judge,
+cost about $0.44 per release. `gemini-3.5-flash-lite` for the agent failed the gate (50/61): its
+answers left out required details. Change models in `stack/litellm/config.yaml`.
 
 The deploy prints the chat endpoint, for example `http://127.0.0.1:55448`. Open it in a browser,
 or call it directly:
@@ -51,8 +60,6 @@ http://127.0.0.1:6006: log in as `admin@localhost` with the initial password fro
 
 ## Honest limits (preview)
 
-- **No eval gate yet.** `agentbreeder release`, which runs the 61-case eval gate in
-  `registry/eval/northwind-golden` before promoting, is not implemented yet.
 - **Customer scoping is tool code.** It holds in the shipped tools, but it is not an engine
   boundary, and `customer_id` in `/invoke` is not authenticated.
 - **Gateway image.** The stack's LiteLLM gateway image is pinned at v1.106.2, which still bundles

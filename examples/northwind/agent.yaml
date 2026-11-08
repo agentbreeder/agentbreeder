@@ -30,4 +30,4 @@ memory: {sessions: postgres, notes: true}
 agent_events: postgres
 traces: otlp
 
-evals: {ref: eval/northwind-golden@1.0.0, threshold: 1.0, retries: 1}
+evals: {ref: eval/northwind-golden@1.0.1, threshold: 1.0, retries: 1}
