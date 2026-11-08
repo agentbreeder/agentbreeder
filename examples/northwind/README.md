@@ -10,7 +10,8 @@ and **no agent Python**. It has:
 - **web search**, through Tavily;
 - **escalation** to a human.
 
-Verified on macOS with Docker Desktop: `build` → `deploy` → the agent answers.
+Verified on macOS with Docker Desktop: `build` → `deploy` → the agent answers, and
+`agentbreeder release` passed the 61-case eval gate (61/61, 2026-11-07).
 
 | What | Where | Whose code |
 |---|---|---|
@@ -26,13 +27,12 @@ the environment or in `~/.env`. `OPENROUTER_API_KEY` is optional; it enables the
 fallback route.
 
 ```
-python3 -m venv .venv && .venv/bin/pip install -e .      # at the repo root; there is no PyPI release
+python3 -m venv .venv && .venv/bin/pip install -e ".[eval]"   # at the repo root; there is no PyPI release. [eval] lets the eval gate reset fixtures in Postgres
 export PATH=$PWD/.venv/bin:$PATH
 examples/northwind/stack/up.sh        # starts the stack; writes .agentbreeder/ (operator config, identities, secret files)
 export AGENTBREEDER_OPERATOR_CONFIG=$PWD/examples/northwind/.agentbreeder/operator.yaml
 export AGENTBREEDER_STATE_DIR=$PWD/examples/northwind/.agentbreeder/state
 cd examples/northwind
-pip install -e ".[eval]"             # at the repo root; the eval gate resets fixtures in Postgres
 agentbreeder release agent.yaml --environment dev   # build → candidate → 61 evals → promote
 ```
 

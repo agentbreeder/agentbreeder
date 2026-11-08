@@ -28,6 +28,11 @@ agent's identity, and deploys it.
   scoped grants. (`audit` mode records the same denials but lets the deploy proceed.)
   Optional extras: a Cedar, OPA or AuthZEN policy check, second-person approval, a kill switch and
   a hash-chained local audit log. See [Identity gate](/docs/identity-gate).
+- **Preview: build agents from `agent.yaml`.** Describe an agent as registry references
+  (runtime, prompt, knowledge, tools, evals) and `agentbreeder build` makes the image and the
+  deploy manifest. Deploys get local secret files and their own LiteLLM key, and
+  `agentbreeder release` promotes only after the eval set passes. Verified only with the Northwind
+  example (61/61). See [Build from agent.yaml](/docs/agent-yaml).
 - **Opt-in runtime tool enforcement.** Operators can put a deployment behind an MCP egress sidecar
   that applies policy to every MCP Streamable HTTP tool call. STDIO and in-process tools are never
   mediated.
@@ -37,7 +42,8 @@ agent's identity, and deploys it.
 - Production deployment targets. Only the local Docker adapter exists; `kubernetes` is accepted
   by the manifest but not deployable.
 - An operational UI or management HTTP API.
-- Secret injection, volumes, updates and rollback.
+- Volumes, in-place updates, and a production secret backend (local secret files only).
+- Authenticated invocation: a deployed agent's endpoint trusts whatever caller reaches it.
 
 Verification so far: the local lifecycle, the identity gate (static-file adapter), Cedar policy,
 approvals, the kill switch, the audit chain and the MCP egress sidecar pass end to end on macOS with
