@@ -15,6 +15,7 @@ from test_services_engine import CANARY, PY, STACK, write_project
 
 from agentbreeder import registry
 from agentbreeder.services.engine import Engine
+from agentbreeder.services.schema import ServiceError
 from agentbreeder.services.state import ROOT_ENV
 
 pytestmark = pytest.mark.skipif(
@@ -177,6 +178,17 @@ def test_postgres_pgvector_roles_init_sql_and_hardening(tmp_path, monkeypatch):
             ).fetchone() == (False,)
         with pytest.raises(psycopg.OperationalError):
             psycopg.connect(f"{dsn}/beta", connect_timeout=10).close()
+
+        # A repo init_sql can't run psql meta-commands (the init step also holds the superuser):
+        # a leading one is refused, any later one is a server syntax error; nothing executes.
+        for sql in ("\\! touch /tmp/pwned\n", "SELECT 1;\n\\! touch /tmp/pwned\n"):
+            (project / "db" / "seed.sql").write_text(sql)
+            (project / "stack.lock").unlink()
+            with pytest.raises(ServiceError, match="postgres.init exited"):
+                up(one)
+        (project / "db" / "seed.sql").write_text("SELECT 1;\n")
+        (project / "stack.lock").unlink()
+        up(one)
 
         one.down()
         assert up(one)["services"]["postgres"] == "created"
