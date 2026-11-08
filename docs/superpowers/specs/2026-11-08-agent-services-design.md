@@ -474,3 +474,8 @@ r4 (slice 3 implementation, verified against Docker 27.5 / Compose 2.33):
   deadline and are removed by name when they time out or exceed 8 KiB; the Dockerfile check joins
   continuations, refuses parser directives, `ONBUILD` and `ARG`, and pins `--from` and mount
   `from=`; `Environment.network` is refused together with runtime enforcement.
+- **Dockerfile subset (security review of 0c62ab0):** instead of re-implementing BuildKit's
+  parser, a built service's Dockerfile must stay inside a small unambiguous subset
+  (`services/dockerfile.py`): ASCII only, one instruction per line (no continuations or heredocs),
+  FROM/RUN/COPY/WORKDIR/ENV/USER/EXPOSE/LABEL/CMD/ENTRYPOINT/HEALTHCHECK/STOPSIGNAL only, an
+  option allowlist per instruction, and `FROM name@sha256:<64 hex>`, a named stage or `scratch`.

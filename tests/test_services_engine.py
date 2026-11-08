@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import stat
 from pathlib import Path
 
@@ -502,7 +503,7 @@ def test_built_services_check_their_dockerfile(env):
 
 def test_dockerfile_must_be_utf8(tmp_path):
     (tmp_path / "Dockerfile").write_bytes(b"FROM \xff\n")
-    with pytest.raises(ServiceError, match="plain UTF-8"):
+    with pytest.raises(ServiceError, match="plain ASCII"):
         engine_module._check_dockerfile(tmp_path / "Dockerfile")
 
 
@@ -800,38 +801,50 @@ def test_environment_names_cannot_collide_with_stack_dirs(env):
     [
         ("# syntax=evil/frontend\nFROM {py}\n", "parser directives"),
         ("#escape=`\nFROM {py}\n", "parser directives"),
-        ("FROM \\\n  python:3.12-slim\n", "digest-pinned"),
+        ("\ufeffFROM {py}\n", "plain ASCII"),
+        ("FROM {py}\r\nRUN true\r\n", "printable ASCII"),
+        ("FROM {py}\nRUN true\u00a0\n", "plain ASCII"),
+        ("FROM \\\n  python:3.12-slim\n", "continuations"),
+        ("FROM {py}\nRUN true \\ \t\n", "continuations"),
+        ("FROM {py}\nRUN <<EOT\ntrue\nEOT\n", "heredocs"),
+        ("FROM python:3.12-slim\n", "digest-pinned"),
+        ("FROM ${{IMG}}\n", "digest-pinned"),
+        ("FROM python@sha256:{short}\n", "digest-pinned"),
+        ("FROM {py} AS base\nFROM 0\n", "digest-pinned"),
+        ("FROM --platform=linux/amd64 {py}\n", "unsupported FROM option"),
+        ("FROM {py} AS a extra\n", "optional `AS name`"),
         ("FROM {py}\nCOPY --from=evil:latest /x /x\n", "--from"),
-        ("FROM {py}\nRUN --mount=from=evil:latest,target=/x true\n", "mount's from"),
-        ("FROM {py}\nRUN --mount=id=x,type=secret true\n", "secrets and SSH"),
-        ("FROM {py}\nRUN --mount=type=ssh true\n", "secrets and SSH"),
-        ("FROM {py}\nONBUILD RUN true\n", "ONBUILD"),
-        ("FROM {py}\nRUN true \\\n && true\nARG X\n", "ARG"),
-        ("\ufeff# syntax=evil/frontend\nFROM {py}\n", "plain UTF-8"),
-        ("FROM {py}\r\nRUN true\r\n", "plain UTF-8"),
-        ("FROM {py}\nRUN <<EOT\ntrue \\\nEOT\nFROM evil\n", "heredocs"),
-        ('FROM {py}\nRUN --mount="type=secret,id=x" true\n', "quotes"),
-        ("FROM {py}\nRUN --mount=TYPE=Secret,id=x true\n", "secrets and SSH"),
+        ("FROM {py}\nCOPY --FROM=evil:1 /x /x\n", "unsupported COPY option"),
+        ("FROM {py}\nCOPY --from=$IMG /x /x\n", "unsupported COPY option"),
+        ("FROM {py}\nCOPY --fr\\om=evil /x /x\n", "unsupported COPY option"),
+        ("FROM {py}\nCOPY --from=1 /x /x\n", "--from"),
+        ("FROM {py}\nRUN --network=host true\n", "unsupported RUN option"),
+        ("FROM {py}\nRUN --mount=type=secret,id=x true\n", "secrets and SSH"),
+        ('FROM {py}\nRUN --mount="type=secret,id=x" true\n', "unsupported RUN option"),
         ("FROM {py}\nRUN --mount=type=bind,from=evil:1 true\n", "mount's from"),
-        ("FROM {py}\nRUN --mount=type=cache,target=/c,unknown=1 true\n", "unsupported"),
-        ("FROM {py}\nRUN --mount=type=cache,type=secret true\n", "unsupported"),
-        ("FROM {py}\nCOPY --FROM=evil:1 /x /x\n", "--from"),
-        ("FROM {py}\nCOPY --from=$IMG /x /x\n", "quotes and variables"),
+        ("FROM {py}\nRUN --mount=type=cache,target=/c,unknown=1 true\n", "unsupported --mount"),
+        ("FROM {py}\nRUN --mount=type=cache,type=ssh true\n", "unsupported --mount"),
+        ("FROM {py}\nARG X\n", "ARG is refused"),
+        ("FROM {py}\nADD https://example.com/x /x\n", "ADD is refused"),
+        ("FROM {py}\nONBUILD RUN true\n", "ONBUILD is refused"),
+        ('FROM {py}\nSHELL ["/bin/sh", "-c"]\n', "SHELL is refused"),
     ],
 )
-def test_dockerfile_pinning_cannot_be_bypassed(tmp_path, text, why):
+def test_dockerfile_subset_refuses_ambiguous_syntax(tmp_path, text, why):
     path = tmp_path / "Dockerfile"
-    path.write_text(text.format(py=PY))
-    with pytest.raises(ServiceError, match=why):
+    path.write_bytes(text.format(py=PY, short="a" * 63).encode("utf-8"))
+    with pytest.raises(ServiceError, match=re.escape(why)):
         engine_module._check_dockerfile(path)
 
 
-def test_dockerfile_allows_stages_scratch_and_continuations(tmp_path):
+def test_dockerfile_subset_allows_pinned_multistage_builds(tmp_path):
     path = tmp_path / "Dockerfile"
     path.write_text(
-        f"# a comment\nFROM {PY} AS build\nRUN echo a \\\n  # inner comment\n  && true\n"
-        f"FROM {PY}\nCOPY --from=build /x /x\nCOPY --from=0 /y /y\n"
-        "RUN --mount=type=cache,target=/c --mount=from=build,target=/b true\n"
-        "FROM scratch\nCOPY --from=1 /z /z\nRUN true \\"
+        f"# a comment\nFROM {PY} AS build\nRUN pip install x && echo $HOME\n"
+        f"FROM {PY}\nCOPY --from=build --chown=1:1 /x /x\nCOPY --from=0 /y /y\n"
+        "RUN --mount=type=cache,target=/c --mount=type=bind,from=build,target=/b true\n"
+        "ENV A=1\nUSER 65532:65532\nEXPOSE 8080\n"
+        'HEALTHCHECK --interval=5s CMD ["python3", "-c", "pass"]\n'
+        'CMD ["python3", "-m", "app"]\n\nFROM scratch\nCOPY --from=1 /z /z\n'
     )
     engine_module._check_dockerfile(path)
