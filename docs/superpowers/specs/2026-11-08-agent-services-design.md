@@ -429,3 +429,9 @@ r3 (slice 2 implementation):
   lives in its `service.yaml`.
 - **Gateway contract:** `provides: gateway/litellm` also requires a `config` file param, which the
   alias check reads.
+- **Operator-only outputs** (security review of slice 2): the gateway's `master_key` output must be
+  `operator_only`. Such an output can never be wired to a service, bound into an agent or used as
+  `eval_database`: only AgentBreeder reads it, to mint per-agent keys.
+- **No shells:** a command, health check or one-shot step may not start with a shell or wrapper
+  (`sh`, `bash`, `ksh`, `busybox`, `env` and so on), so arguments are never parsed as command
+  lines.

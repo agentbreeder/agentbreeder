@@ -152,6 +152,11 @@ def _output(stack_specs, params, reference: Reference, where: str):
         raise ServiceError(
             "REFERENCE_UNKNOWN", f"{where}: {reference.service} has no output {reference.output}"
         )
+    if output.operator_only:
+        raise ServiceError(
+            "OUTPUT_OPERATOR_ONLY",
+            f"{where}: {reference.service}.{reference.output} is for AgentBreeder only",
+        )
     if output.per is None and reference.item is not None:
         raise ServiceError("REFERENCE_INVALID", f"{where}: {reference.output} takes no item")
     if output.per is not None:

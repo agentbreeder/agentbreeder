@@ -55,7 +55,7 @@ LITELLM = {
     "egress": True,
     "outputs": {
         "url": {"type": "url", "port": "http"},
-        "master_key": {"type": "secret", "secret": "master-key"},
+        "master_key": {"type": "secret", "secret": "master-key", "operator_only": True},
     },
 }
 PROXY = {
@@ -145,6 +145,10 @@ def test_valid_stack_resolves_params_and_dependency_order():
         (lambda s: s.update(image="pgvector/pgvector:latest"), "image"),
         (lambda s: s.update(build="Dockerfile"), "exactly one of image"),
         (lambda s: s.update(command=["sh", "-c", "echo hi"]), "exec form"),
+        (lambda s: s.update(command=["/bin/bash", "-xc", "id"]), "exec form"),
+        (lambda s: s.update(command=["busybox", "sh", "-c", "id"]), "exec form"),
+        (lambda s: s.update(command=["env", "sh", "-c", "id"]), "exec form"),
+        (lambda s: s.update(command=["ksh", "-c", "id"]), "exec form"),
         (lambda s: s.update(command=[]), "exec-form list"),
         (lambda s: s.update(user="image"), "fixed user"),
         (lambda s: s["ports"].update(web={"port": 80, "expose": "host"}), "needs a guard"),
@@ -202,6 +206,10 @@ def test_bootstrap_and_gateway_contracts():
     data = copy.deepcopy(LITELLM)
     data["outputs"].pop("master_key")
     with pytest.raises(ValueError, match="gateway/litellm needs"):
+        ServiceSpec.model_validate(data)
+    data = copy.deepcopy(LITELLM)
+    data["outputs"]["master_key"]["operator_only"] = False
+    with pytest.raises(ValueError, match="operator_only"):
         ServiceSpec.model_validate(data)
     assert "ingest-key" in ServiceSpec.model_validate(PHOENIX).mounted_secrets()
     assert "database-url" in ServiceSpec.model_validate(LITELLM).mounted_secrets()
@@ -289,11 +297,25 @@ def test_stack_schema_rejects(mutate, message):
             "STACK_CYCLE",
         ),
         (
+            lambda d: d["services"]["phoenix"]["wire"].update(
+                {"database-url": "litellm.master_key"}
+            ),
+            "OUTPUT_OPERATOR_ONLY",
+        ),
+        (
+            lambda d: d["environment"]["bindings"].update(KEY={"ref": "litellm.master_key"}),
+            "OUTPUT_OPERATOR_ONLY",
+        ),
+        (
+            lambda d: d["environment"].update(eval_database={"ref": "litellm.master_key"}),
+            "OUTPUT_OPERATOR_ONLY",
+        ),
+        (
             lambda d: d["services"]["proxy"]["wire"].update(phoenix="phoenix.ingest_key"),
             "WIRE_TYPE",
         ),
         (
-            lambda d: d["environment"]["services"].update(key="{litellm.master_key}"),
+            lambda d: d["environment"]["services"].update(key="{phoenix.ingest_key}"),
             "SECRET_IN_TEMPLATE",
         ),
         (lambda d: d["environment"]["services"].update(key="{proxy.url"), "TEMPLATE_INVALID"),

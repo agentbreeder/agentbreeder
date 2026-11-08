@@ -26,6 +26,11 @@ IMAGE = r"^[a-z0-9][a-z0-9./_-]{0,254}(:[A-Za-z0-9._-]{1,128})?@sha256:[a-f0-9]{
 ABS_PATH = r"^/[A-Za-z0-9._/-]{1,255}$"
 RESERVED = frozenset({"params", "ports", "secrets", "self", "item", "address"})
 MAX_ARG = 4096
+# Interpreters that turn an argument into a command line. Refused outright as argv[0]: option
+# clusters (`-xc`), wrappers (`env sh -c`) and busybox applets make a narrower check bypassable.
+SHELLS = frozenset(
+    {"sh", "bash", "dash", "zsh", "ash", "ksh", "mksh", "fish", "csh", "tcsh", "busybox", "env"}
+)
 
 
 class ServiceError(ValueError):
@@ -43,8 +48,8 @@ def _argv(value: list[str] | None, where: str) -> list[str] | None:
         return None
     if not value or len(value) > 64 or any(not a or len(a) > MAX_ARG for a in value):
         raise ValueError(f"{where} must be a non-empty exec-form list of arguments")
-    if Path(value[0]).name in {"sh", "bash", "dash", "zsh", "ash"} and "-c" in value[1:3]:
-        raise ValueError(f"{where} must be exec form, not a shell command")
+    if Path(value[0]).name in SHELLS:
+        raise ValueError(f"{where} must be exec form: run a program, not a shell or wrapper")
     return value
 
 
@@ -141,6 +146,9 @@ class Output(_Strict):
     secret: str | None = Field(default=None, pattern=KEY)  # a whole secret, by name
     template: str | None = Field(default=None, max_length=512)  # secret built from parts
     per: str | None = Field(default=None, pattern=KEY)  # one value per item of a list param
+    # Only AgentBreeder itself may use it (the gateway master key mints agent keys): never
+    # wired to another service, bound into an agent or used as the eval database.
+    operator_only: bool = False
 
     @model_validator(mode="after")
     def shape(self):
@@ -234,6 +242,8 @@ class ServiceSpec(_Strict):
             key = self.outputs.get("master_key")
             if url is None or url.type != "url" or key is None or key.type != "secret":
                 raise ValueError("gateway/litellm needs a url output and a master_key secret")
+            if not key.operator_only:
+                raise ValueError("gateway/litellm's master_key output must be operator_only")
             config = self.params.get("config")
             if config is None or config.type != "file":
                 raise ValueError("gateway/litellm needs a `config` file param (its model list)")
