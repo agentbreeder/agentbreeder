@@ -78,15 +78,19 @@ def materialise(
     context: Path,
     mode: str = "plain",
     update: set[str] | None = None,
+    prune: bool = True,
+    locked_paths: bool = False,
 ) -> tuple[list[Materialised], bool]:
     """Copy every ref/path into `context`, hash the copies and reconcile with `lock`.
 
     Returns (materialised entries, whether the lock changed). Raises RegistryError on any
-    mismatch the mode does not allow.
+    mismatch the mode does not allow. `prune=False` leaves unused entries for the caller (a
+    stack locks in two passes). `locked_paths=True` lets --locked accept path entries whose
+    hash matches the lock (stack file params), instead of refusing every path.
     """
     if mode not in MODES:
         raise ValueError(mode)
-    if mode == "locked" and paths:
+    if mode == "locked" and paths and not locked_paths:
         raise RegistryError(
             "REF_UNPINNED", f"--locked refuses path refs: {', '.join(sorted(paths))}"
         )
@@ -135,7 +139,7 @@ def materialise(
             lock, key, digest, relative.as_posix(), lock.entries.get(key), mode, update
         )
         results.append(Materialised(key, target, digest, relative.as_posix()))
-    unused = sorted(set(lock.entries) - seen)
+    unused = sorted(set(lock.entries) - seen) if prune else []
     if unused:
         if mode == "locked":
             raise RegistryError(

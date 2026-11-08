@@ -1,6 +1,7 @@
 # Local backing services from a `stack.yaml` (design, r2)
 
-Status: r2, after architecture and security design review (findings folded in; see "Review log").
+Status: r3. r2 folded in the architecture and security reviews; r3 records the implementation
+decisions of slice 2 (typed inputs wired by the stack; see "Review log").
 Epic: #734 (sub-issues #735–#740). Stacked on #733 (agent.yaml build).
 
 ## Problem
@@ -87,7 +88,8 @@ secrets:                         # mounted at /run/secrets/<name>, never in env
   master-key: {generate: token}
   gemini-api-key: {import: GEMINI_API_KEY}
   openrouter-api-key: {import: OPENROUTER_API_KEY, optional: true}
-  database-url: {ref: postgres.databases.litellm.url}   # another service's secret output
+inputs:                          # provided by another service; wired in stack.yaml
+  database-url: {type: secret}   # mounted at /run/secrets/database-url
 health: {http: /health/liveliness}
 egress: true                     # needs outbound internet (model providers); shown in the grant
 outputs:
@@ -126,12 +128,21 @@ A port without a guard is rejected. This covers browser and DNS-rebinding reques
 - A secret output is always used as a whole value, never interpolated into a string.
 - Any other use is a validation error (taint check in slice 2).
 
-Postgres-style services declare parameterised outputs (`databases.<name>.url`) instead of
-callers rewriting URLs.
+Services never name each other. A service declares typed `inputs` (url or secret), and
+`stack.yaml` wires each one to another service's output (`wire:`), so registry entries stay
+reusable. A wire must match types: a secret input takes a secret output. Postgres-style services
+declare per-item outputs (`per: databases`, built from a secret `template` with per-item
+generated secrets) instead of callers rewriting URLs.
 
-**Reference grammar:** `{service.output}` or `{service.databases.<name>.url}` in `env` values and
-`environment.services` only. It is expanded in a single pass with no nesting, and `{{` escapes a
-brace. `params`, `ports`, `secrets` and `self` are reserved and can't be service names.
+**Reference grammar:**
+- `{params.NAME}` (a string/db_name param) and `{inputs.NAME}` (a url input) may appear in a
+  service's `env` and `command` values;
+- `{SERVICE.OUTPUT}` (a url output) may appear in `environment.services` values;
+- wires and bindings are bare references, `SERVICE.OUTPUT` or `SERVICE.OUTPUT.ITEM` for per-item
+  outputs.
+
+Templates are expanded in a single pass with no nesting, and `{{` escapes a brace. `params`,
+`ports`, `secrets`, `self`, `item` and `address` are reserved and can't be names.
 
 **Parameter types:**
 - `db_name` matches `^[a-z][a-z0-9_]{0,62}$`.
@@ -180,10 +191,15 @@ name: northwind
 services:
   postgres:
     ref: service/postgres-pgvector@1.0.0
-    with: {databases: [support, adk, litellm, phoenix], init_sql: ./stack/db/commerce.sql}
-  litellm: {ref: service/litellm@1.0.0, with: {config: ./stack/litellm/config.yaml}}
-  phoenix: {ref: service/phoenix@1.0.0}
-  proxy: {ref: service/northwind-proxy@1.0.0}
+    with: {databases: [support, adk, litellm, phoenix], init_sql: stack/db/commerce.sql}
+  litellm:
+    ref: service/litellm@1.0.0
+    with: {config: stack/litellm/config.yaml}
+    wire: {database-url: postgres.databases.litellm}
+  phoenix:
+    ref: service/phoenix@1.0.0
+    wire: {database-url: postgres.databases.phoenix}
+  proxy: {ref: service/northwind-proxy@1.0.0, wire: {phoenix: phoenix.url}}
   ops: {ref: service/northwind-ops@1.0.0}
 environment:
   gateway: litellm                       # must provide gateway/litellm
@@ -193,8 +209,8 @@ environment:
     traces_url: "{proxy.url}/v1/traces"
     tools_proxy_url: "{proxy.url}"
   bindings:
-    DATABASE_URL: {ref: postgres.databases.support.url}
-  eval_database: {ref: postgres.databases.support.url}
+    DATABASE_URL: {ref: postgres.databases.support}
+  eval_database: {ref: postgres.databases.support}
   agents:
     northwind-support:
       sponsor: support-lead@example.com
@@ -404,3 +420,12 @@ M1–M6, L1–L3) of r1:
 - **Containers:** exact hardening deltas, and source builds pinned.
 - **Isolation:** stack id from the project path; label-scoped `down`; Compose hygiene.
 - **Scope:** the ops script removal moved out of scope.
+
+r3 (slice 2 implementation):
+- **Inputs and wiring:** services declare typed inputs and the stack wires them, instead of
+  service entries naming other services.
+- **References:** per-item references drop the `.url` suffix.
+- **Image digests:** these are recorded through the service version hash. A service's image digest
+  lives in its `service.yaml`.
+- **Gateway contract:** `provides: gateway/litellm` also requires a `config` file param, which the
+  alias check reads.

@@ -142,3 +142,23 @@ def client(operator: OperatorConfig, name: str) -> LiteLLM | None:
     if not key:
         raise GatewayError("GATEWAY_CREDENTIAL", "The gateway master key is empty")
     return LiteLLM(gateway.url, key)
+
+
+def config_aliases(path: Path) -> set[str]:
+    """The model aliases a LiteLLM proxy config serves (`model_list[].model_name`)."""
+    from agentbreeder.strict_yaml import StrictYamlError, load_file
+
+    try:
+        data = load_file(path, 256 * 1024)
+    except StrictYamlError as error:
+        raise GatewayError("GATEWAY_CONFIG", f"{path.name}: {error}") from None
+    models = data.get("model_list")
+    if not isinstance(models, list):
+        raise GatewayError("GATEWAY_CONFIG", f"{path.name}: model_list must be a list")
+    aliases = set()
+    for entry in models:
+        name = entry.get("model_name") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name:
+            raise GatewayError("GATEWAY_CONFIG", f"{path.name}: every model needs a model_name")
+        aliases.add(name)
+    return aliases
