@@ -683,3 +683,37 @@ def test_eval_sessions_unique_for_long_case_ids():
     finally:
         ev._post = original
     assert len(set(seen)) == 4 and all(len(s) <= 64 for s in seen)
+
+
+def test_production_changed_during_evals_aborts(project, operator, state):
+    from agentbreeder.release import ReleaseError
+
+    prepare_lock(project, operator)
+    runtime = FakeRuntime()
+    do_release(project, operator, state, runtime, "sha256:" + "2" * 64)
+    first = state.active("helper")["id"]
+
+    class SwapDuringEval(Evaluator):
+        def __call__(self, eval_set, endpoint, operator_, environment, state_dir, *, retries):
+            # an operator replaces production with a plain deploy while the evals run
+            from conftest import actor
+
+            svc = DeploymentService(state, runtime, operator.load())
+            svc.remove(first, local=True, actor=actor("ops"))
+            manifest = state.manifest(first)
+            from agentbreeder.manifest import Manifest
+
+            svc.deploy(
+                Manifest.model_validate({**manifest, "port": 9090}),
+                local=True,
+                environment="dev",
+                deployer=actor("ops"),
+            )
+            return super().__call__(
+                eval_set, endpoint, operator_, environment, state_dir, retries=retries
+            )
+
+    with pytest.raises(ReleaseError, match="PRODUCTION_CHANGED"):
+        do_release(project, operator, state, runtime, "sha256:" + "3" * 64, SwapDuringEval())
+    survivor = state.active("helper")
+    assert survivor and survivor["id"] != first and state.manifest(survivor["id"])["port"] == 9090

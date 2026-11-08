@@ -40,12 +40,12 @@ from memory import Memory
 from opentelemetry import trace as otel
 from rag import Embedder, KnowledgeSet, Retriever
 from telemetry import as_text, ids, set_documents, set_output, span
-from tools import RegistryTool, ToolRuntime, load_functions
+from tools import RegistryTool, ToolRuntime, load_functions, run_to_completion
 
 warnings.filterwarnings("ignore", message=r"\[EXPERIMENTAL\]")
 
 TURN_TIMEOUT = 170
-CANCEL_GRACE = 30  # seconds to wait for a cancelled turn to stop
+CANCEL_GRACE = 120  # seconds to wait for a cancelled turn (and any in-flight tool) to stop
 REASONING = {"none": None, "low": "low", "medium": "medium", "high": "high"}
 
 
@@ -277,7 +277,7 @@ class Runtime:
             # together with the previous customer message.
             query = " ".join(previous + [message])
             with span("retrieve_knowledge", "RETRIEVER", input=query) as retrieval:
-                hits = await asyncio.to_thread(self.retriever.search, memory.db, query, self.top_k)
+                hits = await run_to_completion(self.retriever.search, memory.db, query, self.top_k)
                 set_documents(retrieval, hits)
                 trace["retrieval"] = hits[0]["mode"] if hits else "none"
                 retrieval.set_attribute("retrieval.mode", trace["retrieval"])
@@ -357,8 +357,11 @@ class KnowledgeSearchTool(BaseTool):
         if trace["kb_searches"] >= self.runtime.extra_searches:
             return "Search limit reached. Answer now from the passages you already have."
         trace["kb_searches"] += 1
-        hits = await asyncio.to_thread(
-            self.runtime.retriever.search, turn["memory"].db, str(args.get("query", ""))
+        hits = await run_to_completion(
+            self.runtime.retriever.search,
+            turn["memory"].db,
+            str(args.get("query", "")),
+            self.runtime.top_k,
         )
         trace["sources"].extend(h["title"] for h in hits if h["title"] not in trace["sources"])
         trace["evidence"].extend(
@@ -517,14 +520,22 @@ def runtime() -> Runtime:
 
 def chat(session: str, customer: str, message: str) -> dict:
     """Run one customer turn (called from HTTP handler threads)."""
-    future = asyncio.run_coroutine_threadsafe(
-        runtime().chat_async(session, customer, message), LOOP
-    )
+    finished = threading.Event()
+
+    async def turn():
+        try:
+            return await runtime().chat_async(session, customer, message)
+        finally:
+            finished.set()  # runs only once the coroutine has really unwound
+
+    future = asyncio.run_coroutine_threadsafe(turn(), LOOP)
     try:
         return future.result(timeout=TURN_TIMEOUT)
     except concurrent.futures.TimeoutError:
-        # Cancel the turn and wait for it to stop before the caller releases the session lock,
-        # so a retry can never run alongside it (and repeat its tool writes).
+        # Cancel the turn and wait for the coroutine itself to stop (not just the cross-thread
+        # future, which reports cancelled at once) before the caller releases the session lock,
+        # so a retry cannot run alongside it. Tool and DB work runs via run_to_completion, so
+        # an in-flight tool write finishes before the turn counts as stopped.
         future.cancel()
-        concurrent.futures.wait([future], timeout=CANCEL_GRACE)
+        finished.wait(CANCEL_GRACE)
         raise

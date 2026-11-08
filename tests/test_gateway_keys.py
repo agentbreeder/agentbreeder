@@ -281,3 +281,15 @@ def test_no_master_key_means_no_client(identity_env):
     }
     assert gateway_keys.client(identity_env.load(), "g") is None
     assert gateway_keys.client(identity_env.load(), "missing") is None
+
+
+def test_generated_key_file_name_is_reserved(minting, state, runtime):
+    data = v2_manifest_data(
+        model_access={"gateway": "litellm-local", "aliases": ["support-model"]},
+        secrets={"OTHER": "secret://llm-gateway-key"},
+    )
+    with pytest.raises(GateDenied) as error:
+        DeploymentService(state, runtime, minting.load()).deploy(
+            Manifest.model_validate(data), local=True
+        )
+    assert error.value.code == "SECRET_RESERVED"

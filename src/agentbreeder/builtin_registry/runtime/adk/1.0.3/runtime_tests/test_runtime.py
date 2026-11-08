@@ -277,6 +277,7 @@ def test_timed_out_turn_is_cancelled_before_returning(monkeypatch):
             try:
                 await asyncio.sleep(30)
             except asyncio.CancelledError:
+                await asyncio.sleep(0.5)  # unwinding takes time (e.g. closing a span)
                 state["cancelled"] = True
                 raise
 
@@ -285,3 +286,27 @@ def test_timed_out_turn_is_cancelled_before_returning(monkeypatch):
     with pytest.raises(concurrent.futures.TimeoutError):
         agent.chat("s", "c", "hi")
     assert state["cancelled"]  # stopped before chat() returned (the lock is still held)
+
+
+def test_timed_out_turn_waits_for_in_flight_tool_thread(monkeypatch):
+    import concurrent.futures
+    import time
+
+    import agent
+    from tools import run_to_completion
+
+    writes = []
+
+    def slow_write():
+        time.sleep(0.6)
+        writes.append("done")
+
+    class Turn:
+        async def chat_async(self, session, customer, message):
+            await run_to_completion(slow_write)
+
+    monkeypatch.setattr(agent, "runtime", lambda: Turn())
+    monkeypatch.setattr(agent, "TURN_TIMEOUT", 0.1)
+    with pytest.raises(concurrent.futures.TimeoutError):
+        agent.chat("s", "c", "hi")
+    assert writes == ["done"]  # the write finished before chat() returned and freed the lock

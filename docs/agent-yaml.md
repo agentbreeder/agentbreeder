@@ -1,7 +1,7 @@
 # `agent.yaml` (authoring schema v1, preview)
 
 > Part of the `agent.yaml` build work (#725), preview. `validate` and `build` work today with the
-> ADK runtime (`runtime/adk@1.0.2`). Verified end to end on macOS + Docker Desktop with the
+> ADK runtime (`runtime/adk@1.0.3`). Verified end to end on macOS + Docker Desktop with the
 > Northwind example (`examples/northwind/`): built from `agent.yaml`, deployed through the gate
 > and answering, and released through the 61-case eval gate with `agentbreeder release` (61/61,
 > 2026-11-07).
@@ -18,7 +18,7 @@ config for the environment you build for. Nothing in it can grant a permission o
 kind: agent                    # required; tells agent files apart from manifests and 2.x files
 schema_version: 1
 name: northwind-support        # DNS label, at most 53 characters
-runtime: runtime/adk@1.0.2
+runtime: runtime/adk@1.0.3
 model:
   alias: support-model         # a LiteLLM gateway alias
   reasoning: low               # none | low | medium | high
@@ -97,7 +97,7 @@ environments:
         candidate_identity: {provider: demo, ref: support-agent-candidate, environment: dev}
 ```
 
-## The ADK runtime (`runtime/adk@1.0.2`)
+## The ADK runtime (`runtime/adk@1.0.3`)
 
 The runtime ships with AgentBreeder and is built on Google ADK 2.12. It reaches models through
 the LiteLLM gateway, using the `openai/<alias>` route with `reasoning_effort` set from

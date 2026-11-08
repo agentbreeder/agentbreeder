@@ -40,6 +40,18 @@ RESERVED = {"agent", "config", "memory", "rag", "server", "telemetry", "tools"} 
 )
 
 
+async def run_to_completion(function, *args, **kwargs):
+    """Run blocking work (a tool, a DB query) in a thread. If the turn is cancelled meanwhile,
+    wait for the thread to finish before propagating the cancellation: a thread cannot be
+    interrupted, so the turn must not report "stopped" while its write is still in flight."""
+    work = asyncio.ensure_future(asyncio.to_thread(function, *args, **kwargs))
+    try:
+        return await asyncio.shield(work)
+    except asyncio.CancelledError:
+        await asyncio.wait({work})
+        raise
+
+
 class ToolLoadError(RuntimeError):
     pass
 
@@ -149,4 +161,4 @@ class RegistryTool(BaseTool):
         if missing:
             raise ValueError(f"missing arguments: {', '.join(missing)}")
         runtime = self.runtime_for(tool_context)
-        return await asyncio.to_thread(self.spec.call, runtime, **args)
+        return await run_to_completion(self.spec.call, runtime, **args)

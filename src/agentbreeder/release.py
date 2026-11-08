@@ -235,6 +235,14 @@ def release(
             )
             + "\n"
         )
+        # A plain `deploy` does not take the release lock: if production changed while the
+        # evals ran, stop rather than replace (or later "restore" over) someone else's deploy.
+        now = service.store.active(production.name)
+        if (now and now["id"]) != (current and current["id"]):
+            raise ReleaseError(
+                "PRODUCTION_CHANGED",
+                "Production changed while the evals ran; nothing was replaced. Re-run release",
+            )
         if current:
             log(f"Replacing production {current['id']} ...")
             _removed_or_raise(service, current["id"], deployer, "the previous production")
@@ -246,7 +254,12 @@ def release(
         except (GateDenied, DeploymentError) as error:
             denied = isinstance(error, GateDenied)
             leftover = service.store.active(production.name)
-            promoted = {"state": "failed", "error": str(error), "id": leftover and leftover["id"]}
+            ours = leftover and leftover["digest"] == production.digest()
+            promoted = {
+                "state": "failed",
+                "error": str(error),
+                "id": leftover["id"] if ours else None,
+            }
         if promoted["state"] != "ready":
             rolled = _restore(service, previous, deployer, promoted)
             service.record("release", "failed", deployer, reasons)
@@ -323,7 +336,7 @@ def rollback(
     with _ReleaseLock(service.store.directory):
         current = service.store.active(agent.name)
         if current:
-            service.remove(current["id"], local=True, actor=deployer)
+            _removed_or_raise(service, current["id"], deployer, "the current production")
         restored = service.deploy(manifest, local=True, environment=env, deployer=deployer)
     service.record(
         "release", "rolled_back", deployer, [{"code": "RELEASE_IMAGE", "message": manifest.image}]

@@ -229,7 +229,10 @@ class DeploymentService:
                     )
                 )
                 raise DeploymentError("Agent name already has a different spec; remove it first")
-            if self._minting(manifest) and GATEWAY_KEY_ENV in manifest.secrets:
+            if self._minting(manifest) and (
+                GATEWAY_KEY_ENV in manifest.secrets
+                or f"secret://{GATEWAY_KEY_FILE}" in manifest.secrets.values()
+            ):
                 reason = [
                     {
                         "code": "SECRET_RESERVED",
