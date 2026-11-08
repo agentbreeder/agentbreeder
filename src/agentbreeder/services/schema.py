@@ -59,13 +59,25 @@ def _argv(value: list[str] | None, where: str) -> list[str] | None:
 class Port(_Strict):
     port: int = Field(ge=1, le=65535)
     protocol: Literal["http", "tcp"] = "http"
-    expose: Literal["internal", "agents", "host"] = "internal"
+    # One scope or a list: `[agents, host]` serves agent containers and AgentBreeder on the host
+    # (a gateway, or a database used both by agents and for eval fixture resets).
+    expose: Literal["internal", "agents", "host"] | list[Literal["agents", "host"]] = "internal"
     guard: Literal["litellm-auth", "bearer", "host-allowlist"] | None = None
+
+    @property
+    def scopes(self) -> frozenset[str]:
+        """Where the port is reachable from: always `internal`, plus `agents` and/or `host`."""
+        given = [self.expose] if isinstance(self.expose, str) else self.expose
+        return frozenset({"internal", *given})
 
     @model_validator(mode="after")
     def http_needs_guard(self):
+        if isinstance(self.expose, list) and (
+            not self.expose or len(set(self.expose)) != len(self.expose)
+        ):
+            raise ValueError("expose lists name agents and/or host, once each")
         # Loopback HTTP is reachable from browsers (CSRF, DNS rebinding): require a check.
-        if self.protocol == "http" and self.expose != "internal" and self.guard is None:
+        if self.protocol == "http" and self.scopes != {"internal"} and self.guard is None:
             raise ValueError("an HTTP port reachable outside the stack needs a guard")
         if self.protocol == "tcp" and self.guard is not None:
             raise ValueError("guard applies to HTTP ports only")

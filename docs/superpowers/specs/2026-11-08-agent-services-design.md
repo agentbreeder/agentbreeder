@@ -440,3 +440,28 @@ r3 (slice 2 implementation):
   depth, argv[0] can't be a shell or wrapper (`sh`, `bash`, `ksh`, `busybox`, `env` and so on).
   The reference grammar above is narrowed accordingly: `{params.NAME}` and `{inputs.NAME}` are
   valid in `env` only.
+
+r4 (slice 3 implementation, verified against Docker 27.5 / Compose 2.33):
+- **`expose` takes a list:** `[agents, host]` serves both agent containers and AgentBreeder on
+  the host (a gateway it mints keys on, a database used for eval resets). A single value still
+  works.
+- **Reachability is per container:** Docker networks don't filter ports, so a service with any
+  `agents` port is reachable from agents on all its ports. Keep agent-facing and internal-only
+  listeners in separate services when that matters.
+- **Host ports imply egress:** Docker can't publish ports from an internal network, so a service
+  with a `host` port also joins the stack's non-internal `edge` network. The grant shows
+  `egress: host port` for it.
+- **Guards are declarations:** the service enforces its guard (LiteLLM's key check, a bearer
+  check); AgentBreeder only requires one and shows it. The `echo` test service enforces nothing.
+- **HTTP health:** probed from inside the stack network by a one-shot container from the pinned
+  `python:3.12-slim` image the egress sidecar already uses. `health.command` uses Compose
+  healthchecks and `up --wait`.
+- **Agents network:** Docker refuses the default bridge plus a user network at create, so the
+  agent container is created as before (bridge, loopback publish) and then connected to
+  `Environment.network` before it starts. Unset, the create call is unchanged.
+- **Start order:** services start one at a time in dependency order, each followed by its health
+  check, `init` and (once per volume identity) `bootstrap`; a service that mounts what its own
+  bootstrap minted is recreated once.
+- **Mount generations:** a service's `/run/secrets` directory is named by an HMAC (per-stack
+  random key) of its values, so unchanged values keep the same path and Compose recreates
+  nothing, and the path reveals nothing about the values.

@@ -117,9 +117,13 @@ class Docker:
         environment: dict[str, str] | None = None,
         mounts=(),
         host_gateway: bool = False,
+        agents_network: str | None = None,
     ):
         """Create the agent container. With `network` (runtime boundary) the agent joins only
-        that internal network, publishes nothing and is reached through its sidecar."""
+        that internal network, publishes nothing and is reached through its sidecar. With
+        `agents_network` (a `services up` stack) it keeps the default bridge for its published
+        port and is also connected to that network, where the stack's `expose: agents` services
+        are."""
         if not manifest.image.startswith("sha256:"):
             self.command("image", "pull", manifest.image, timeout=120)
         try:
@@ -192,6 +196,17 @@ class Docker:
             manifest.image,
             timeout=120,
         )
+        if agents_network and not network:
+            # Docker refuses the default bridge plus a user network at create; connecting
+            # before start keeps the published port and adds the stack's agents network.
+            try:
+                self.command("network", "connect", agents_network, record["container"])
+            except DeploymentError:
+                self.command("container", "rm", "--force", record["container"])
+                raise DeploymentError(
+                    "Cannot join the environment's network; is its stack up "
+                    "(agentbreeder services up)?"
+                ) from None
 
     def start(self, info: dict):
         self.command("container", "start", info["Id"])

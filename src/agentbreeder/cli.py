@@ -13,7 +13,7 @@ from pathlib import Path
 from agentbreeder import __version__, agentfile, env_import, registry, secret_files
 from agentbreeder.deployer import DeployerError, device_login, os_deployer, resolve_deployer
 from agentbreeder.deployment import DeploymentService
-from agentbreeder.doctor import check_docker
+from agentbreeder.doctor import check_compose, check_docker
 from agentbreeder.gate import GateDenied
 from agentbreeder.manifest import ManifestError, load_manifest
 from agentbreeder.operator_config import OperatorConfigError, load_operator_config
@@ -78,7 +78,7 @@ def _parser() -> argparse.ArgumentParser:
     deploy.add_argument("--environment", help="Operator-defined environment name")
     status = stateful("status", "Show a deployment and re-verify its principal", "id")
     status.add_argument("--no-verify", action="store_true", help="Skip principal re-resolution")
-    stateful("remove", "Remove a deployment", "id", local=True)
+    remove = stateful("remove", "Remove a deployment", "id", local=True)
     for name in ("approve", "reject"):
         stateful(name, f"{name.title()} a pending approval as a second person", "approval_id")
     for name in ("approve-call", "reject-call"):
@@ -97,7 +97,7 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument(
                 "--idp", action="store_true", help="Also disable in the IdP (opt-in write)"
             )
-    stateful("reconcile", "Re-verify principals and retry blocked cleanup", local=True)
+    reconcile = stateful("reconcile", "Re-verify principals and retry blocked cleanup", local=True)
     audit = commands.add_parser("audit", help="Inspect and verify the local audit chain")
     audit_commands = audit.add_subparsers(dest="audit_command", required=True)
     for name in ("verify", "list"):
@@ -178,6 +178,40 @@ def _parser() -> argparse.ArgumentParser:
     secret_set.add_argument(
         "--force", action="store_true", help="With --generate: replace an existing secret"
     )
+    services = commands.add_parser(
+        "services", help="Local backing services from stack.yaml (local-only preview)"
+    )
+    service_commands = services.add_subparsers(dest="services_command", required=True)
+    up = service_commands.add_parser("up", help="Start the stack and write its demo config")
+    up.add_argument("dir", nargs="?", type=Path, default=Path("."))
+    up.add_argument("--environment", required=True)
+    up.add_argument("--locked", action="store_true", help="Refuse any stack.lock change")
+    up.add_argument("--env-file", type=Path, help="KEY=value file for imported variables")
+    up.add_argument("--yes", action="store_true", help="Confirm a new or changed grant")
+    up.add_argument("--json", action="store_true")
+    sv_status = service_commands.add_parser("status", help="Show the stack's services")
+    sv_status.add_argument("dir", nargs="?", type=Path, default=Path("."))
+    sv_status.add_argument("--json", action="store_true")
+    sv_logs = service_commands.add_parser("logs", help="Show a service's logs (redacted)")
+    sv_logs.add_argument("target", nargs="+", metavar="[DIR] NAME")
+    sv_logs.add_argument("--tail", type=int, default=200)
+    sv_env = service_commands.add_parser("env", help="Print exports for the stack's config")
+    sv_env.add_argument("dir", nargs="?", type=Path, default=Path("."))
+    sv_env.add_argument("--environment")
+    down = service_commands.add_parser("down", help="Stop the stack (keeps data and secrets)")
+    down.add_argument("dir", nargs="?", type=Path, default=Path("."))
+    down.add_argument("--volumes", action="store_true", help="Also delete the stack's volumes")
+    down.add_argument("--yes", action="store_true")
+    down.add_argument("--json", action="store_true")
+    for command in (deploy, status, remove, reconcile, build, ev, rel):
+        command.add_argument(
+            "--stack",
+            type=Path,
+            metavar="DIR",
+            help="Use the operator config and state that `services up` wrote for DIR",
+        )
+    for command in (status, remove, reconcile):
+        command.add_argument("--environment", help="With --stack: the stack environment")
     login = commands.add_parser("login", help="Sign in with the operator's OIDC device flow")
     login.add_argument("--issuer")
     return parser
@@ -224,8 +258,137 @@ def _secret_set(args) -> int:
     return 0
 
 
+def _use_stack(args) -> int | None:
+    """`--stack DIR`: point the operator config and state dir at what `services up` wrote."""
+    from agentbreeder.operator_config import CONFIG_ENV
+    from agentbreeder.services import engine
+    from agentbreeder.services.schema import ServiceError
+
+    if getattr(args, "stack", None) is None:
+        if args.command in ("status", "remove", "reconcile") and args.environment:
+            _parser().error("--environment needs --stack for this command")
+        return None
+    if getattr(args, "state_dir", DEFAULT_STATE) != DEFAULT_STATE:
+        _parser().error("use --stack or --state-dir, not both")
+    try:
+        resolved = engine.context(args.stack, getattr(args, "environment", None))
+    except (ServiceError, OSError) as error:
+        print(_message(error), file=sys.stderr)
+        return 2
+    os.environ[CONFIG_ENV] = str(resolved.operator_config)
+    if hasattr(args, "state_dir"):
+        args.state_dir = resolved.state_dir
+    if hasattr(args, "environment"):
+        args.environment = resolved.environment
+    print(
+        f"Using stack {resolved.stack_id} ({resolved.environment}): demo identities "
+        "(generated by services up)",
+        file=sys.stderr,
+    )
+    return None
+
+
+def _services(args) -> int:
+    from agentbreeder.services import plan as stack_plan
+    from agentbreeder.services.engine import Engine
+    from agentbreeder.services.schema import ServiceError
+
+    command = args.services_command
+    if command == "logs":
+        if len(args.target) > 2:
+            _parser().error("logs takes [DIR] NAME")
+        directory = Path(args.target[0]) if len(args.target) == 2 else Path(".")
+        name = args.target[-1]
+    else:
+        directory = args.dir
+    if command == "down" and args.volumes and not args.yes:
+        print("[CONFIRM_REQUIRED] down --volumes deletes data; add --yes", file=sys.stderr)
+        return 2
+    engine = None
+    log = (
+        (lambda message: None)
+        if getattr(args, "json", False)
+        else (lambda message: print(message, file=sys.stderr))
+    )
+    try:
+        engine = Engine(directory, log=log)
+        if command == "up":
+
+            def confirm(grant: dict) -> bool:
+                print(stack_plan.grant_text(grant), file=sys.stderr)
+                if args.yes:
+                    return True
+                if not sys.stdin.isatty():
+                    return False
+                return input("Confirm this grant? [y/N] ").strip().lower() in ("y", "yes")
+
+            result = engine.up(
+                args.environment,
+                mode="locked" if args.locked else "plain",
+                env_file=args.env_file,
+                confirm=confirm,
+            )
+            for warning in result["warnings"]:
+                print(f"WARNING: {warning}", file=sys.stderr)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                for service, action in result["services"].items():
+                    print(f"{service:<16} {action}")
+                print(f"Operator config: {result['operator_config']}")
+                print(
+                    f"Next: agentbreeder release agent.yaml --stack {directory} "
+                    f"--environment {args.environment}"
+                )
+            return 0
+        if command == "status":
+            result = engine.status()
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(f"Stack {result['stack']}")
+                for service, info in result["services"].items():
+                    ports = ", ".join(f"{k} 127.0.0.1:{v}" for k, v in info["host_ports"].items())
+                    health = f" ({info['health']})" if info["health"] else ""
+                    print(f"{service:<16} {info['state']}{health}  {ports}")
+            return 0
+        if command == "logs":
+            print(engine.logs(name, args.tail))
+            return 0
+        if command == "env":
+            print("\n".join(engine.env_lines(args.environment)))
+            return 0
+        result = engine.down(volumes=args.volumes)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Stopped stack {result['stack']} (data and secrets kept)")
+            for volume in result["volumes_removed"]:
+                print(f"Removed volume {volume}")
+        return 0
+    except (
+        ServiceError,
+        registry.RegistryError,
+        secret_files.SecretError,
+        DeploymentError,
+    ) as error:
+        print(_message(error), file=sys.stderr)
+        return 2
+    except (OSError, sqlite3.Error):
+        print("Cannot access the stack state; check permissions and disk space", file=sys.stderr)
+        return 2
+    finally:
+        if engine is not None:
+            engine.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "services":
+        return _services(args)
+    stacked = _use_stack(args)
+    if stacked is not None:
+        return stacked
     if args.command == "validate":
         kind = _file_kind(args.manifest)
         if kind in ("agent", "legacy"):
@@ -254,13 +417,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     if args.command == "doctor":
-        checks = check_docker()
+        checks = check_docker() + check_compose()
         if args.json:
             print(json.dumps([asdict(check) for check in checks], indent=2))
         else:
             for check in checks:
-                print(f"{'PASS' if check.passed else 'FAIL'} {check.name}: {check.message}")
-        return 0 if all(check.passed for check in checks) else 1
+                mark = "PASS" if check.passed else "FAIL" if check.required else "WARN"
+                print(f"{mark} {check.name}: {check.message}")
+        return 0 if all(check.passed or not check.required for check in checks) else 1
     if args.command == "registry":
         return _registry(args)
     if args.command == "build":

@@ -385,16 +385,13 @@ class DeploymentService:
                 environment = self._service_environment(
                     manifest, (fields.get("context") or {}).get("environment")
                 )
-                if environment is None:
-                    self.runtime.create(record, manifest, mounts=mounts)
-                else:
-                    self.runtime.create(
-                        record,
-                        manifest,
-                        mounts=mounts,
-                        environment=environment,
-                        host_gateway=True,
-                    )
+                options = {}
+                if environment is not None:
+                    options = {"environment": environment, "host_gateway": True}
+                network = self._agents_network((fields.get("context") or {}).get("environment"))
+                if network is not None:
+                    options["agents_network"] = network
+                self.runtime.create(record, manifest, mounts=mounts, **options)
                 info = self.runtime.inspect(record)
             if info is None:
                 raise DeploymentError(
@@ -536,6 +533,11 @@ class DeploymentService:
             )
         )
         return outcome
+
+    def _agents_network(self, name: str | None) -> str | None:
+        """The operator environment's extra network (a `services up` stack), if any."""
+        environment = self.operator.model.environments.get(name or "")
+        return environment.network if environment else None
 
     def _service_environment(self, manifest: Manifest, name: str | None) -> dict[str, str] | None:
         """Non-secret configuration for deployments that request model access (agent.yaml

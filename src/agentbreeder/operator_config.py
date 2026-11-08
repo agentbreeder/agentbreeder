@@ -73,6 +73,16 @@ class Environment(_Strict):
     agents: dict[str, AgentIdentities] = Field(default_factory=dict, max_length=200)
     # Host-reachable database for eval fixture resets (`agentbreeder eval` / `release`).
     eval_database: str | None = Field(default=None, pattern=r"^secret://[a-z0-9][a-z0-9_-]{0,62}$")
+    # A Docker network agent containers also join (`services up` writes the stack's agents
+    # network). Unset: deployments are created exactly as before.
+    network: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_.-]{0,127}$")
+
+    @field_validator("network")
+    @classmethod
+    def user_network(cls, value: str | None) -> str | None:
+        if value in ("bridge", "host", "none"):
+            raise ValueError("network names a user-defined network")
+        return value
 
     @model_validator(mode="after")
     def gateway_needs_ceilings(self):

@@ -489,3 +489,16 @@ def test_agent_yaml_rejects_service_refs(tmp_path):
         path.write_text(yaml.safe_dump({**base, **case}))
         with pytest.raises(AgentFileError):
             load_agent_file(path)
+
+
+def test_expose_accepts_a_list_of_scopes():
+    from agentbreeder.services.schema import Port
+
+    port = Port(port=4000, expose=["agents", "host"], guard="litellm-auth")
+    assert port.scopes == {"internal", "agents", "host"}
+    assert Port(port=5432, protocol="tcp").scopes == {"internal"}
+    for bad in ([], ["host", "host"]):
+        with pytest.raises(ValueError, match="once each"):
+            Port(port=1, protocol="tcp", expose=bad)
+    with pytest.raises(ValueError, match="needs a guard"):
+        Port(port=1, expose=["host"])

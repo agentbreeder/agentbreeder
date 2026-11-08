@@ -149,3 +149,39 @@ def test_host_gateway_only_on_linux(monkeypatch, platform, expected):
     assert "--env=X=1" in args and "--env=A_FILE=/run/secrets/k" in args
     assert "--env=B_FILE=/run/secrets/k" in args
     assert args[args.index("--mount") + 1] == "type=bind,src=/state/k,dst=/run/secrets/k,readonly"
+
+
+def test_agents_network_is_connected_after_create():
+    runtime = Docker()
+    runtime.command = Mock(return_value=json.dumps([{"Config": {}}]))
+    manifest = Manifest(schema_version=1, name="test", image="sha256:" + "a" * 64)
+    record = {"container": "owned", "id": "id", "digest": "hash"}
+    runtime.create(record, manifest, agents_network="stack-agents")
+    create = runtime.command.call_args_list[-2].args
+    assert create[create.index("--publish") + 1] == "127.0.0.1::8080"
+    assert "--network" not in create
+    assert runtime.command.call_args.args == ("network", "connect", "stack-agents", "owned")
+    runtime.command.reset_mock()
+    runtime.create(record, manifest)
+    assert all(c.args[0] != "network" for c in runtime.command.call_args_list)
+
+
+def test_agents_network_failure_removes_the_container():
+    runtime = Docker()
+    outputs = [json.dumps([{"Config": {}}]), "", DeploymentError("no such network"), ""]
+
+    def command(*args, **kwargs):
+        value = outputs.pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    runtime.command = Mock(side_effect=command)
+    manifest = Manifest(schema_version=1, name="test", image="sha256:" + "a" * 64)
+    with pytest.raises(DeploymentError, match="services up"):
+        runtime.create(
+            {"container": "owned", "id": "id", "digest": "hash"},
+            manifest,
+            agents_network="stack-agents",
+        )
+    assert runtime.command.call_args.args == ("container", "rm", "--force", "owned")
