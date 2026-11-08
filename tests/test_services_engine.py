@@ -256,6 +256,9 @@ def test_up_writes_compose_operator_config_and_bindings(env, tmp_path):
     assert [e[1] for e in labels] == ["echo.init", "echo.bootstrap"]
     init_mount = Path(labels[0][2][0][0])
     assert sorted(p.name for p in init_mount.iterdir()) == ["token"]  # only declared secrets
+    # A step reaches its own service by name; AgentBreeder sets this, the service can't.
+    assert labels[0][3]["AGENTBREEDER_SERVICE"] == "echo"
+    assert labels[1][3]["AGENTBREEDER_SERVICE"] == "echo"
     assert ("probe", "http://echo:8080/index.html") in docker.events
 
 

@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from test_services_engine import CANARY, PY, write_project
+from test_services_engine import CANARY, PY, STACK, write_project
 
 from agentbreeder import registry
 from agentbreeder.services.engine import Engine
@@ -115,3 +115,76 @@ def test_echo_stack_lifecycle(projects):
     assert removed["volumes_removed"] == [f"{one.state.project}-echo-data"]
     volumes = json.loads(json.dumps(docker("volume", "ls", "--quiet").split()))
     assert f"{two.state.project}-echo-data" in volumes
+
+
+PG = "pgvector/pgvector@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f"
+
+
+def test_postgres_pgvector_roles_init_sql_and_hardening(tmp_path, monkeypatch):
+    """The built-in postgres runs read-only, capability-free as 999; each database has its own
+    role that can't reach the other; init_sql runs as the target database's role."""
+    import psycopg
+
+    monkeypatch.delenv(registry.PATH_ENV, raising=False)
+    monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))
+    stack = json.loads(json.dumps(STACK))
+    stack["services"] = {
+        "postgres": {
+            "ref": "service/postgres-pgvector@1.0.0",
+            "with": {
+                "databases": ["alpha", "beta"],
+                "init_sql": "db/seed.sql",
+                "init_sql_database": "alpha",
+            },
+        },
+        "gateway": stack["services"]["gateway"],
+    }
+    stack["environment"]["services"] = {}
+    stack["environment"]["bindings"] = {"DATABASE_URL": {"ref": "postgres.databases.alpha"}}
+    stack["environment"]["eval_database"] = {"ref": "postgres.databases.alpha"}
+    project = write_project(tmp_path / "pg", stack=stack)
+    (project / "db").mkdir()
+    (project / "db" / "seed.sql").write_text(
+        "CREATE TABLE IF NOT EXISTS items (id int PRIMARY KEY, v vector(3));\n"
+        "INSERT INTO items VALUES (1, '[1,2,3]') ON CONFLICT DO NOTHING;\n"
+    )
+    one = Engine(project)
+    try:
+        assert up(one)["services"]["postgres"] == "created"
+        assert up(one)["services"]["postgres"] == "unchanged"  # init is idempotent
+
+        container = f"{one.state.project}-postgres-1"
+        config = json.loads(docker("inspect", container))[0]["HostConfig"]
+        assert config["ReadonlyRootfs"] and config["CapDrop"] == ["ALL"]
+        assert json.loads(docker("inspect", container))[0]["Config"]["User"] == "999:999"
+        inspect = docker("inspect", container)
+        for value in one.state.known_secrets():
+            assert value.decode() not in inspect
+
+        port = one.status()["services"]["postgres"]["host_ports"]["pg"]
+        alpha = one.state.read_secret("postgres", "role.alpha").decode()
+        dsn = f"postgresql://alpha:{alpha}@127.0.0.1:{port}"
+        with psycopg.connect(f"{dsn}/alpha", connect_timeout=10) as conn:
+            assert conn.execute("SELECT v::text FROM items WHERE id = 1").fetchone() == (
+                "[1,2,3]",
+            )
+            owner = conn.execute(
+                "SELECT tableowner FROM pg_tables WHERE tablename = 'items'"
+            ).fetchone()
+            assert owner == ("alpha",)  # applied as the database's role, not the superuser
+            assert conn.execute(
+                "SELECT rolsuper FROM pg_roles WHERE rolname = 'alpha'"
+            ).fetchone() == (False,)
+        with pytest.raises(psycopg.OperationalError):
+            psycopg.connect(f"{dsn}/beta", connect_timeout=10).close()
+
+        one.down()
+        assert up(one)["services"]["postgres"] == "created"
+        with psycopg.connect(f"{dsn}/alpha", connect_timeout=10) as conn:
+            assert conn.execute("SELECT count(*) FROM items").fetchone() == (1,)
+    finally:
+        try:
+            one.active_deployments = lambda: []
+            one.down(volumes=True)
+        finally:
+            one.close()

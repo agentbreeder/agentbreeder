@@ -291,8 +291,15 @@ class StackState:
             shutil.copytree(source, staging / source.name, symlinks=False)
         else:
             shutil.copyfile(source, staging / source.name)
+        # Read-only for everyone; a source file's executable bit is kept (it is hashed, as in the
+        # registry), so a locked `files/init.sh` can be run as a program rather than via a shell.
+        copied = staging / source.name
         for path in [staging, *staging.rglob("*")]:
-            path.chmod(0o755 if path.is_dir() else 0o444)
+            if path.is_dir():
+                path.chmod(0o755)
+            else:
+                original = source if source.is_file() else source / path.relative_to(copied)
+                path.chmod(0o555 if _executable(original) else 0o444)
         os.replace(staging, root / digest[:16])
         return target
 
@@ -305,4 +312,9 @@ def _tree_digest(source: Path) -> str:
             raise ServiceError("STATE_UNSAFE", "service files must not contain symlinks")
         digest.update(path.relative_to(source.parent).as_posix().encode() + b"\0")
         digest.update(hashlib.sha256(path.read_bytes()).digest())
+        digest.update(b"x" if _executable(path) else b"-")
     return digest.hexdigest()
+
+
+def _executable(path: Path) -> bool:
+    return bool(path.stat().st_mode & stat.S_IXUSR)

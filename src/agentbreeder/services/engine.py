@@ -336,7 +336,8 @@ class Engine:
             command=list(step.command),
             user=plan.user(name),
             mounts=binds,
-            env=plan.environment(name),
+            # Set last, so it always wins; the schema also reserves the AGENTBREEDER_ prefix.
+            env={**plan.environment(name), "AGENTBREEDER_SERVICE": name},
             capture=capture,
         )
 

@@ -244,6 +244,8 @@ class ServiceSpec(_Strict):
         for name in self.env:
             if not _matches(ENV_NAME, name):
                 raise ValueError(f"env name {name!r} must be an uppercase variable name")
+            if name.startswith("AGENTBREEDER_"):
+                raise ValueError(f"env name {name!r} uses the reserved AGENTBREEDER_ prefix")
         for target in self.volumes.values():
             if not _matches(ABS_PATH, target):
                 raise ValueError("volume targets must be absolute container paths")

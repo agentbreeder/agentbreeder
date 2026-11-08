@@ -184,6 +184,7 @@ def test_valid_stack_resolves_params_and_dependency_order():
             "per names a list",
         ),
         (lambda s: s.update(inputs={"superuser": {"type": "secret"}}), "both secret and input"),
+        (lambda s: s.update(env={"AGENTBREEDER_SERVICE": "x"}), "reserved AGENTBREEDER_"),
     ],
 )
 def test_service_schema_rejects(change, message):

@@ -1,0 +1,9 @@
+kind: service
+name: postgres-pgvector
+version: 1.0.0
+description: >-
+  PostgreSQL 16.15 with pgvector 0.8.7 (pgvector/pgvector, digest-pinned), run with a read-only
+  root, no capabilities and uid 999. Each name in `databases` gets its own login role that owns
+  that database and can't connect to the others; the generated superuser is used only by `init`
+  and is never an output. `init_sql` (optional) is applied to `init_sql_database` as that
+  database's role.

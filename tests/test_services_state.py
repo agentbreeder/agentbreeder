@@ -182,6 +182,21 @@ def test_copy_file_is_content_addressed(state, tmp_path):
         state.copy_file(tree)
 
 
+def test_copy_file_keeps_the_executable_bit_and_hashes_it(state, tmp_path):
+    tree = tmp_path / "files"
+    tree.mkdir()
+    script = tree / "init.sh"
+    script.write_text("#!/bin/sh\nexit 0\n")
+    (tree / "data.sql").write_text("select 1;\n")
+    plain = state.copy_file(tree)
+    assert stat.S_IMODE((plain / "init.sh").stat().st_mode) == 0o444
+    script.chmod(0o755)
+    executable = state.copy_file(tree)
+    assert executable != plain  # the mode is part of the content address
+    assert stat.S_IMODE((executable / "init.sh").stat().st_mode) == 0o555
+    assert stat.S_IMODE((executable / "data.sql").stat().st_mode) == 0o444
+
+
 def test_copy_file_replaces_stale_staging(state, tmp_path):
     source = tmp_path / "f"
     source.write_text("x")
