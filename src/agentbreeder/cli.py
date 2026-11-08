@@ -10,7 +10,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from agentbreeder import __version__, registry, secret_files
+from agentbreeder import __version__, agentfile, registry, secret_files
 from agentbreeder.deployer import DeployerError, device_login, os_deployer, resolve_deployer
 from agentbreeder.deployment import DeploymentService
 from agentbreeder.doctor import check_docker
@@ -56,7 +56,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
-    validate = commands.add_parser("validate", help="Validate a manifest without deploying")
+    validate = commands.add_parser(
+        "validate", help="Validate a deploy manifest or an agent file (kind: agent)"
+    )
     validate.add_argument("manifest", type=Path)
     validate.add_argument("--json", action="store_true", help="Print the validated manifest")
     doctor = commands.add_parser("doctor", help="Check local Docker prerequisites without changes")
@@ -136,6 +138,20 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "validate":
+        kind = _file_kind(args.manifest)
+        if kind in ("agent", "legacy"):
+            try:
+                agent = agentfile.load_agent_file(args.manifest)
+            except agentfile.AgentFileError as error:
+                print(f"Validation failed: {error}", file=sys.stderr)
+                return 2
+            print(
+                agent.model_dump_json(indent=2)
+                if args.json
+                else f"Valid agent file: {agent.name} ({len(agent.refs())} registry refs). "
+                "Build it with `agentbreeder build`."
+            )
+            return 0
         try:
             manifest = load_manifest(args.manifest)
         except ManifestError as error:
@@ -178,6 +194,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Signed in as {deployer.label}")
         return 0
     return _stateful(args)
+
+
+def _file_kind(path: Path) -> str:
+    try:
+        return agentfile.read(path)[0]
+    except agentfile.AgentFileError:
+        return "unknown"  # let the manifest loader report the precise problem
 
 
 def _registry(args) -> int:
@@ -239,6 +262,11 @@ _NEEDS_EXISTING_STATE = frozenset(
 def _stateful(args) -> int:
     store = None
     try:
+        if args.command == "deploy" and _file_kind(Path(args.manifest)) == "agent":
+            raise DeploymentError(
+                f"[WRONG_FILE_KIND] {args.manifest} is an agent file; run "
+                f"`agentbreeder build {args.manifest}` and deploy the manifest it writes"
+            )
         manifest = load_manifest(Path(args.manifest)) if args.command == "deploy" else None
         if (
             args.command in _NEEDS_EXISTING_STATE
