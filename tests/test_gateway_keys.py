@@ -172,6 +172,23 @@ def test_failed_health_revokes_key_and_deletes_file(minting, gateway, state, run
     assert not secret_files.deployment_dir(state.directory, result["id"]).exists()
 
 
+def test_failure_before_minting_still_revokes_an_earlier_key(minting, gateway, state, runtime):
+    from conftest import actor
+
+    from agentbreeder.store import DeploymentError
+
+    running(runtime)
+    service = DeploymentService(state, runtime, minting.load())
+    result = service.deploy(manifest(), local=True)
+    key_alias = gateway_keys.alias(result["id"])
+    assert key_alias in gateway.keys  # live key from the first generation
+    runtime.inspect.side_effect = DeploymentError("docker unavailable")
+    record = state.get(result["id"])
+    failed = service._run(result["id"], record, manifest(), "attempt-2", actor("dave"), {})
+    assert failed["state"] == "failed"
+    assert key_alias not in gateway.keys  # revoked even though this attempt minted nothing
+
+
 def test_gateway_down_fails_deploy_cleanly(minting, gateway, state, runtime):
     running(runtime)
     gateway.down = True

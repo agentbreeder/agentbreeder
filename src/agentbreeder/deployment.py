@@ -357,13 +357,11 @@ class DeploymentService:
                 attempt, "transition", state, deployer, deployment_id=identifier, **fields
             )
 
-        key_live = False  # a key exists for this deployment (kept container, or minted now)
         try:
             info = self.runtime.inspect(record)
             state = self.store.directory
             minting = self._minting(manifest)
             generated = {GATEWAY_KEY_ENV: "secret://" + GATEWAY_KEY_FILE} if minting else {}
-            key_live = minting and info is not None
             if (
                 info is not None
                 and (manifest.secrets or generated)
@@ -383,7 +381,6 @@ class DeploymentService:
                         code = getattr(error, "code", "SECRET_UNREADABLE")
                         raise DeploymentError(f"[{code}] {error}") from error
                 if minting:
-                    key_live = True  # mint deletes then generates: assume it may exist
                     mounts.append(self._mint_key(manifest, identifier, fields, attempt, deployer))
                 environment = self._service_environment(
                     manifest, (fields.get("context") or {}).get("environment")
@@ -419,8 +416,10 @@ class DeploymentService:
             )
         except DeploymentError as error:
             secret_files.cleanup(self.store.directory, identifier)
-            if key_live:
-                self._revoke_key(manifest, identifier, attempt, deployer)
+            # Always revoke on failure: a key from an earlier generation may still be live even
+            # when this attempt minted nothing (container gone, or inspect failed). Revoking a
+            # key that doesn't exist is a no-op at the gateway.
+            self._revoke_key(manifest, identifier, attempt, deployer)
             return self.store.transition(
                 identifier, "failed", error=str(error), audit=event("failed")
             )
