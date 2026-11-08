@@ -7,6 +7,7 @@ import os
 import re
 import socket
 import subprocess
+import sys
 import time
 
 from agentbreeder.manifest import Manifest
@@ -96,6 +97,17 @@ class Docker:
         except (ValueError, KeyError, IndexError, TypeError) as error:
             raise DeploymentError("Cannot verify container ownership") from error
 
+    def image_present(self, image: str) -> bool:
+        """A local image ID (`sha256:…`) must still exist: it cannot be pulled back. A
+        registry digest can be pulled at create time, so it counts as present."""
+        if not image.startswith("sha256:"):
+            return True
+        try:
+            self.command("image", "inspect", "--format", "{{.Id}}", image)
+        except DeploymentError:
+            return False
+        return True
+
     def create(
         self,
         record: dict,
@@ -103,6 +115,8 @@ class Docker:
         *,
         network: str | None = None,
         environment: dict[str, str] | None = None,
+        mounts=(),
+        host_gateway: bool = False,
     ):
         """Create the agent container. With `network` (runtime boundary) the agent joins only
         that internal network, publishes nothing and is reached through its sidecar."""
@@ -137,6 +151,23 @@ class Docker:
                 else ["--publish", f"127.0.0.1::{manifest.port}"]
             ),
             *[f"--env={key}={value}" for key, value in (environment or {}).items()],
+            # Linux Docker has no host.docker.internal by default; built agents reach the
+            # operator's gateway and services through it.
+            *(
+                ["--add-host", "host.docker.internal:host-gateway"]
+                if host_gateway and sys.platform.startswith("linux")
+                else []
+            ),
+            # Local secret files: read-only bind mounts; the value never enters env or labels.
+            *[
+                arg
+                for mount in mounts
+                for arg in (
+                    "--mount",
+                    f"type=bind,src={mount.source},dst={mount.target},readonly",
+                    *[f"--env={env}_FILE={mount.target}" for env in mount.envs],
+                )
+            ],
             "--user",
             "65532:65532",
             "--read-only",

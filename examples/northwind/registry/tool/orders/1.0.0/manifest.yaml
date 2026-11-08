@@ -1,0 +1,4 @@
+kind: tool
+name: orders
+version: 1.0.0
+description: Read-only order lookup and product catalog for the current customer (Northwind commerce tables).

@@ -1,0 +1,9 @@
+kind: knowledge
+name: northwind-help
+version: 1.0.0
+description: >-
+  Northwind's help-center articles (billing, refunds, account and security, troubleshooting,
+  the Northwind Pen).
+chunking: paragraph
+embedding: {alias: support-embedding, dimensions: 768}
+store: pgvector

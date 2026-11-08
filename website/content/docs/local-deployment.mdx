@@ -16,8 +16,13 @@ import { Callout } from 'fumadocs-ui/components/callout';
 - It runs as UID/GID 65532 with a read-only filesystem and listens on `0.0.0.0` at the manifest
   port inside the container.
 - The port is published on host loopback only. Health checks follow no redirects and use no proxies.
-- Images that declare `VOLUME` are rejected, as are secret injection, non-local Docker transports
-  and Kubernetes targets.
+- Images that declare `VOLUME` are rejected, as are non-local Docker transports and Kubernetes
+  targets.
+- Secrets are local files: `agentbreeder secret set NAME < value` stores one in
+  `<state-dir>/secrets/NAME`. A manifest entry `DATABASE_URL: secret://NAME` is mounted read-only at
+  `/run/secrets/NAME`, and the container gets `DATABASE_URL_FILE`. The value never appears in
+  `docker inspect`, labels, logs or the audit log. Anyone who can `docker exec` into the container,
+  or who owns the state directory, can read it.
 
 ## Deploy your own image
 
@@ -67,7 +72,9 @@ Keep `AGENTBREEDER_OPERATOR_CONFIG` set for later commands, so `status` can re-v
 ```
 
 Repeating a deploy with the same manifest resumes the same deployment. A changed manifest needs
-the earlier deployment removed first; updates and rollback are later work.
+the earlier deployment removed first; in-place updates are later work. For agents built from
+`agent.yaml`, `agentbreeder release` replaces production after an eval gate and can roll back
+(see [Build from agent.yaml](/docs/agent-yaml)).
 
 `status` re-resolves the bound principal and reports `compliant`, `noncompliant:<code>` or
 `unverifiable:<code>`. The deployment state it shows is the last recorded observation, not a live

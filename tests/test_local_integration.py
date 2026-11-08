@@ -72,3 +72,49 @@ def test_real_docker_lifecycle(tmp_path):
         store.close()
         if image:
             runtime.command("image", "rm", tag)
+
+
+@pytest.mark.skipif(os.getenv("AGENTBREEDER_DOCKER_TEST") != "1", reason="Opt-in real Docker test")
+def test_real_docker_secret_file(tmp_path):
+    """#727: the agent (uid 65532, read-only rootfs) reads a mounted secret file; the value is
+    absent from `docker inspect`, and the host copy is deleted on remove."""
+    from agentbreeder import secret_files
+
+    runtime = Docker()
+    runtime.authorize()
+    image_file = tmp_path / "image-id"
+    tag = "agentbreeder-test:" + uuid.uuid4().hex[:12]
+    store = Store(tmp_path / "state")
+    service = DeploymentService(store, runtime)
+    value = "secret-" + uuid.uuid4().hex
+    secret_files.set_secret(tmp_path / "state", "db", value.encode())
+    result = None
+    try:
+        subprocess.run(
+            ["docker", "--context", runtime.context, "build", "--iidfile", str(image_file),
+             "--tag", tag, str(Path(__file__).parents[1] / "examples/http-agent")],
+            check=True, timeout=180, capture_output=True,
+        )  # fmt: skip
+        manifest = Manifest.model_validate(
+            v2_manifest_data(
+                name="test-" + uuid.uuid4().hex[:12],
+                image=image_file.read_text().strip(),
+                secrets={"DATABASE_URL": "secret://db"},
+            )
+        )
+        result = service.deploy(manifest, local=True)
+        assert result["state"] == "ready", result.get("error")
+        container = runtime.inspect(store.get(result["id"]))
+        script = "import os; print(open(os.environ['DATABASE_URL_FILE']).read())"
+        read = runtime.command("exec", container["Id"], "python", "-c", script)
+        assert read.strip() == value
+        assert value not in json.dumps(container)
+        assert container["Config"]["User"] == "65532:65532"
+        assert service.remove(result["id"], local=True)["state"] == "removed"
+        assert not secret_files.deployment_dir(tmp_path / "state", result["id"]).exists()
+        result = None
+    finally:
+        if result:
+            service.remove(result["id"], local=True)
+        store.close()
+        runtime.command("image", "rm", tag)

@@ -1,0 +1,12 @@
+functions:
+  - name: save_customer_note
+    module: customer_notes
+    function: save_customer_note
+    description: Remember one durable, non-secret fact about this customer for future conversations.
+    parameters:
+      type: object
+      properties:
+        note:
+          type: string
+          description: A short third-person sentence, e.g. "Customer uses macOS 14."
+      required: [note]

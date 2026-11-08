@@ -37,6 +37,11 @@ const WORKS: { title: string; detail: string }[] = [
       'Every attempt, allowed or denied. Detects corruption; a database owner can recompute the chain, so it is not tamper-evidence.',
   },
   {
+    title: 'Preview: build from agent.yaml',
+    detail:
+      'Versioned, hash-locked registries for runtimes, prompts, knowledge, tools and evals; an ADK runtime; per-deployment LiteLLM keys; an eval-gated release. Verified only with the Northwind example, which passed 61/61.',
+  },
+  {
     title: 'MCP egress sidecar (opt-in)',
     detail:
       'Policy on every MCP Streamable HTTP tool call, with credential injection and held calls. STDIO and in-process tools are never mediated.',

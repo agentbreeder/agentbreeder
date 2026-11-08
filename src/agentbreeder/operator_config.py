@@ -20,7 +20,14 @@ from pydantic import (
     model_validator,
 )
 
-from agentbreeder.manifest import _ENVIRONMENT, ManifestError, _UniqueLoader
+from agentbreeder.manifest import (
+    _ALIAS,
+    _ENVIRONMENT,
+    _GATEWAY,
+    IdentityReference,
+    ManifestError,
+    _UniqueLoader,
+)
 
 MAX_CONFIG_BYTES = 256 * 1024
 CONFIG_ENV = "AGENTBREEDER_OPERATOR_CONFIG"
@@ -37,8 +44,86 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
 
+_CREDENTIAL_REF = r"^(env:[A-Z_][A-Z0-9_]*|file:\S{1,511})$"
+_SERVICE_URL = r"^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^\s]*)?$"
+
+
+class Ceilings(_Strict):
+    budget_usd: float = Field(gt=0, le=100000)
+    rpm: int = Field(ge=1, le=100000)
+
+
+class AgentIdentities(_Strict):
+    """Identity references `agentbreeder build` writes into generated manifests."""
+
+    identity: IdentityReference
+    candidate_identity: IdentityReference | None = None
+
+
 class Environment(_Strict):
     targets: list[Literal["local", "kubernetes"]] = Field(min_length=1)
+    # Model gateway grant for agents in this environment (agent.yaml builds, spec §10).
+    gateway: str | None = Field(default=None, pattern=_GATEWAY)
+    models: list[str] = Field(default_factory=list, max_length=50)
+    ceilings: Ceilings | None = None
+    # Non-secret service URLs passed to built agents as AGENTBREEDER_SERVICE_<NAME>.
+    services: dict[str, str] = Field(default_factory=dict, max_length=20)
+    # ENV name -> secret:// reference written into generated manifests.
+    bindings: dict[str, str] = Field(default_factory=dict, max_length=20)
+    agents: dict[str, AgentIdentities] = Field(default_factory=dict, max_length=200)
+    # Host-reachable database for eval fixture resets (`agentbreeder eval` / `release`).
+    eval_database: str | None = Field(default=None, pattern=r"^secret://[a-z0-9][a-z0-9_-]{0,62}$")
+
+    @model_validator(mode="after")
+    def gateway_needs_ceilings(self):
+        # Without ceilings a manifest (and so an agent.yaml) could set any budget or rpm and
+        # the minted key would carry it: an environment that grants a gateway caps it.
+        if self.gateway is not None and self.ceilings is None:
+            raise ValueError("an environment with a gateway must set ceilings (budget_usd, rpm)")
+        return self
+
+    @field_validator("models")
+    @classmethod
+    def model_names(cls, value: list[str]) -> list[str]:
+        if any(not re.fullmatch(_ALIAS, alias) for alias in value):
+            raise ValueError("invalid model alias")
+        return value
+
+    @field_validator("services")
+    @classmethod
+    def service_urls(cls, value: dict[str, str]) -> dict[str, str]:
+        for key, url in value.items():
+            if not re.fullmatch(r"^[a-z][a-z0-9_]{0,31}$", key) or not re.fullmatch(
+                _SERVICE_URL, url
+            ):
+                raise ValueError("invalid service name or URL")
+        return value
+
+    @field_validator("bindings")
+    @classmethod
+    def binding_refs(cls, value: dict[str, str]) -> dict[str, str]:
+        for key, ref in value.items():
+            if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key) or not re.fullmatch(
+                r"secret://[a-z0-9][a-z0-9_-]{0,62}", ref
+            ):
+                raise ValueError("bindings map ENV names to secret://name references")
+        return value
+
+    @field_validator("agents")
+    @classmethod
+    def agent_names(cls, value: dict[str, AgentIdentities]) -> dict[str, AgentIdentities]:
+        if any(not re.fullmatch(r"^[a-z0-9]([a-z0-9-]{0,51}[a-z0-9])?$", k) for k in value):
+            raise ValueError("invalid agent name")
+        return value
+
+
+class Gateway(_Strict):
+    """A model gateway AgentBreeder grants agents access to. Only LiteLLM in Phase A."""
+
+    type: Literal["litellm"]
+    url: str = Field(pattern=_SERVICE_URL)  # how AgentBreeder reaches it
+    agent_url: str = Field(pattern=_SERVICE_URL)  # how agent containers reach it
+    master_key: str | None = Field(default=None, pattern=_CREDENTIAL_REF)
 
 
 class PolicySource(_Strict):
@@ -88,7 +173,6 @@ class MakerChecker(_Strict):
     risk_tiers: list[str] = Field(default_factory=list)
 
 
-_CREDENTIAL_REF = r"^(env:[A-Z_][A-Z0-9_]*|file:\S{1,511})$"
 _DESTINATION_URL = r"^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^\s]*)?$"
 
 
@@ -151,6 +235,14 @@ class OperatorModel(_Strict):
     maker_checker: MakerChecker = MakerChecker()
     approval_ttl_seconds: int = Field(default=900, ge=60, le=86400)
     runtime_enforcement: RuntimeEnforcement = RuntimeEnforcement()
+    gateways: dict[str, Gateway] = Field(default_factory=dict, max_length=8)
+
+    @model_validator(mode="after")
+    def gateway_references(self):
+        for environment in self.environments.values():
+            if environment.gateway and environment.gateway not in self.gateways:
+                raise ValueError("environment gateway is not defined in gateways")
+        return self
 
     @field_validator("environments")
     @classmethod

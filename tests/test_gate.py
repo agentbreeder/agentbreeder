@@ -95,10 +95,27 @@ def test_expect_owner_mismatch_and_match(identity_env, state, runtime):
     assert deploy(identity_env, state, runtime, data)["state"] == "ready"
 
 
-def test_secrets_check_retained(identity_env, state, runtime):
-    with pytest.raises(GateDenied, match="SECRETS_UNSUPPORTED"):
+def test_missing_secret_file_denied_before_runtime(identity_env, state, runtime):
+    with pytest.raises(GateDenied, match="SECRET_MISSING"):
         deploy(identity_env, state, runtime, v2_manifest_data(secrets={"KEY": "secret://k"}))
     assert runtime.mock_calls == []
+    assert ("deploy", "deny") in audit_actions(state)
+
+
+def test_secret_file_mounted_and_value_never_recorded(identity_env, state, runtime):
+    from agentbreeder import secret_files
+
+    secret_files.set_secret(state.directory, "k", b"hunter2-value")
+    info = {"Id": "container-id", "State": {"Running": True}}
+    runtime.inspect.side_effect = [None, info, info, info]
+    result = deploy(identity_env, state, runtime, v2_manifest_data(secrets={"KEY": "secret://k"}))
+    assert result["state"] == "ready"
+    mounts = runtime.create.call_args.kwargs["mounts"]
+    assert [(m.envs, m.name, m.target) for m in mounts] == [(("KEY",), "k", "/run/secrets/k")]
+    assert mounts[0].source.read_bytes() == b"hunter2-value"
+    assert oct(mounts[0].source.stat().st_mode & 0o777) == "0o444"
+    rows = state.audit_rows(limit=1000)
+    assert "hunter2-value" not in repr(rows)
 
 
 def test_v1_rejected_under_enforce_and_warned_under_audit(identity_env, state, runtime):
@@ -304,3 +321,57 @@ def test_conflicting_spec_aborts_and_is_audited(identity_env, state, runtime):
     assert runtime.mock_calls == []
     assert audit_actions(state)[-1] == ("deploy", "aborted")
     assert state.verify_audit()["incomplete_attempts"] == []
+
+
+def test_secret_copies_removed_on_failure_and_remove(identity_env, state, runtime):
+    from agentbreeder import secret_files
+
+    secret_files.set_secret(state.directory, "k", b"v")
+    data = v2_manifest_data(secrets={"KEY": "secret://k"})
+    runtime.healthy.return_value = False
+    failed = deploy(identity_env, state, runtime, data)
+    assert failed["state"] == "failed"
+    assert not secret_files.deployment_dir(state.directory, failed["id"]).exists()
+    runtime.healthy.return_value = True
+    ready = deploy(identity_env, state, runtime, data)
+    assert ready["state"] == "ready"
+    assert secret_files.deployment_dir(state.directory, ready["id"]).exists()
+    runtime.inspect.side_effect = [{"Id": "c", "State": {"Running": True}}, None]
+    service = DeploymentService(state, runtime, identity_env.load())
+    assert service.remove(ready["id"], local=True)["state"] == "removed"
+    assert not secret_files.deployment_dir(state.directory, ready["id"]).exists()
+
+
+def test_existing_container_without_secret_copies_is_recreated(identity_env, state, runtime):
+    from agentbreeder import secret_files
+
+    secret_files.set_secret(state.directory, "k", b"v1")
+    data = v2_manifest_data(secrets={"KEY": "secret://k"})
+    running = {"Id": "c", "State": {"Running": True}}
+    runtime.inspect.side_effect = [None, running, running, running]
+    first = deploy(identity_env, state, runtime, data)
+    secret_files.cleanup(state.directory, first["id"])  # e.g. an earlier failed attempt
+    store_record = state.get(first["id"])
+    state.transition(first["id"], "failed", error="x")
+    runtime.inspect.side_effect = [running, running, running, running]
+    runtime.create.reset_mock()
+    again = deploy(identity_env, state, runtime, data)
+    assert again["state"] == "ready" and store_record["id"] == again["id"]
+    runtime.remove.assert_called_once()
+    runtime.create.assert_called_once()
+    assert secret_files.present(state.directory, again["id"], {"KEY": "secret://k"})
+
+
+def test_materialise_os_error_fails_and_cleans(identity_env, state, runtime, monkeypatch):
+    from agentbreeder import secret_files
+
+    secret_files.set_secret(state.directory, "k", b"v")
+    runtime.inspect.side_effect = [None] + [{"Id": "c", "State": {"Running": True}}] * 3
+
+    def boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(secret_files, "materialise", boom)
+    result = deploy(identity_env, state, runtime, v2_manifest_data(secrets={"KEY": "secret://k"}))
+    assert result["state"] == "failed" and "SECRET_UNREADABLE" in result["error"]
+    runtime.create.assert_not_called()

@@ -1,0 +1,4 @@
+kind: tool
+name: escalate-to-human
+version: 1.0.0
+description: Opens a ticket for the human support team.

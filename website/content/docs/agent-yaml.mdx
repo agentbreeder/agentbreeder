@@ -1,0 +1,132 @@
+---
+title: Build from agent.yaml
+description: Preview. Describe an agent as versioned registry references, build its image with the ADK runtime, and release it only after its eval set passes.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Preview">
+  Install from source. Verified end to end only with the Northwind example on macOS with Docker
+  Desktop: built from `agent.yaml`, deployed through the identity gate, and released through a
+  61-case eval gate (61/61, 2026-11-07). There is no authenticated invocation: an agent's
+  endpoint trusts whatever caller reaches it, and is published on loopback only.
+</Callout>
+
+An `agent.yaml` says what an agent is made of: a runtime, a model alias, a prompt, knowledge,
+tools, memory and evals. Each one is a registry reference (`kind/name@X.Y.Z`). You write no agent
+Python: the runtime and the tool packages provide the code.
+
+It is not the [deploy manifest](/docs/manifest). `agentbreeder build` turns it into an image and a
+manifest, which then deploy through the usual [identity gate](/docs/identity-gate). It is also
+environment-neutral: the model gateway, services, secret bindings and identities come from the
+operator config, and nothing in the file can grant a permission or raise a limit.
+
+```yaml
+kind: agent
+schema_version: 1
+name: northwind-support
+runtime: runtime/adk@1.0.4
+model:
+  alias: support-model         # a LiteLLM gateway alias
+  reasoning: low
+  max_model_calls: 4           # the last call has tools switched off
+  budget_usd: 25               # can only lower the operator's ceiling
+  rpm: 120
+prompt: {ref: prompt/northwind-support@1.0.0}
+knowledge:
+  - {ref: knowledge/northwind-help@1.0.0, top_k: 5, extra_searches: 1}
+tools:
+  - {ref: tool/orders@1.0.0}
+  - {ref: tool/customer-notes@1.0.0}
+memory: {sessions: postgres, notes: true}
+agent_events: postgres
+traces: otlp
+evals: {ref: eval/northwind-golden@1.0.1, threshold: 1.0, retries: 1}
+```
+
+## Registries and the lock file
+
+A registry is a directory of immutable, versioned building blocks: prompts, tools, knowledge,
+eval sets and runtimes. AgentBreeder looks in the project's `./registry`, then
+`AGENTBREEDER_REGISTRY_PATH`, then the versions it ships (the ADK runtime). The same ref with
+different content in two places is an error, never a silent shadow.
+
+```sh
+agentbreeder registry new tool orders --dir .     # scaffold a tool package to edit
+agentbreeder registry publish ./tool-orders       # versions are immutable
+agentbreeder registry list
+agentbreeder registry verify
+```
+
+Each version is hashed over its paths, contents and executable bits; symlinks, hardlinks and `..`
+paths are refused. `agent.lock` records every ref's hash. `build --locked` (for CI) refuses any
+change and any unpinned path ref. Hashes detect a change after a version is first locked; they
+don't vouch for that first lock.
+
+## Build
+
+```sh
+agentbreeder build agent.yaml --environment dev [--locked]
+```
+
+`build` copies and hashes each ref into a build context, writes a data-only config, and runs
+`docker build` with the runtime's fixed Dockerfile: a base image pinned by digest, hash-locked
+requirements, no build arguments and no secrets. It writes the deploy manifest (and a candidate
+manifest when the environment has a candidate identity) and never deploys.
+
+## The ADK runtime
+
+`runtime/adk@1.0.4` ships with AgentBreeder and is built on Google ADK 2.12. It reaches models
+only through a LiteLLM gateway. It keeps sessions in Postgres, injects per-customer notes, runs
+hybrid pgvector and BM25 retrieval, and loads tool packages. It emits OpenInference traces and
+reads secrets only from mounted files.
+
+Agents built this way can't yet run behind the opt-in MCP egress sidecar: the deploy is refused,
+because the sidecar's network has no route to the model gateway.
+
+Tools run in the agent's process with its privileges. Customer scoping is enforced by the shipped
+tools' own code, not by an engine boundary.
+
+## Model access, secrets and keys
+
+The operator environment grants a gateway, a model allow-list and budget and rate ceilings. The
+gate denies a deploy that asks for more, with no audit-mode override. With a gateway master key,
+each deployment gets its own LiteLLM virtual key, limited to its aliases, its rate and a budget
+that renews every 30 days. The key is mounted as a file and revoked on remove. Other secrets
+are local files set with `agentbreeder secret set`; see [Local deployment](/docs/local-deployment).
+
+## Eval and release
+
+```sh
+agentbreeder eval agent.yaml --endpoint URL
+agentbreeder release agent.yaml --environment dev
+agentbreeder release agent.yaml --rollback
+```
+
+`release` builds with `--locked` and checks production through the gate. It then deploys a
+candidate under its own identity and runs the eval set against it. Each case needs its rule checks
+and an LLM judge (on its own key, revoked after the run and expiring after 6 hours) to pass.
+An eval set's fixtures SQL runs against the eval database, so treat eval sets as trusted code. Below the threshold it exits 5 and leaves
+production unchanged. Otherwise it promotes the exact evaluated image, and restores the previous
+production if the new one fails to start.
+
+Limits:
+
+- **The eval gate can be bypassed.** It is release orchestration, not an engine control: anyone
+  with deploy rights can run a plain `deploy`.
+- **Promotion has brief downtime.** The old production is removed before the new one starts.
+- **Gateway changes are not gated.** Remapping a model alias doesn't change the image. Re-run
+  `eval` against production after gateway changes.
+
+## Try it: Northwind
+
+[`examples/northwind`](https://github.com/agentbreeder/agentbreeder/tree/main/examples/northwind)
+is a customer support agent with knowledge search, memory, order lookup, staff-approved
+cancellations, web search and escalation. It's about 35 lines of `agent.yaml` plus registry
+entries. Its stack (Postgres with pgvector, LiteLLM, Phoenix, an ops dashboard) is example
+infrastructure, not part of AgentBreeder. It needs `GEMINI_API_KEY` and `TAVILY_API_KEY`. With
+Gemini Flash as both agent and judge, a release measured about $0.24.
+
+The canonical docs are
+[agent-yaml.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/agent-yaml.md) and
+[registry.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/registry.md).

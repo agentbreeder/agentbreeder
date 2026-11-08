@@ -259,3 +259,16 @@ def test_static_alias_reference_blocked_before_resolution(identity_env, state, r
     svc.disable("sample", OPS)
     assert state.blocked_reference("static", "alias-ref", "dev")
     assert not state.blocked_reference("static", "alias-ref", "prod")
+
+
+def test_disable_deletes_secret_copies(identity_env, state, runtime):
+    from agentbreeder import secret_files
+
+    secret_files.set_secret(state.directory, "k", b"v")
+    running = {"Id": "container-id", "State": {"Running": True}}
+    runtime.inspect.side_effect = [None, running, running, running]
+    first = deploy(identity_env, state, runtime, secrets={"KEY": "secret://k"})
+    assert secret_files.deployment_dir(state.directory, first["id"]).exists()
+    stopping(runtime)
+    service(identity_env, state, runtime).disable("sample", OPS)
+    assert not secret_files.deployment_dir(state.directory, first["id"]).exists()

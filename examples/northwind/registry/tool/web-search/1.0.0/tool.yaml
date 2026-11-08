@@ -1,0 +1,14 @@
+functions:
+  - name: web_search
+    module: web_search_tavily
+    function: web_search
+    description: >-
+      Search the public web (Tavily) for general or third-party information, such as how to
+      export from another note app. Never use it for Northwind policy.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: What to search for.
+      required: [query]

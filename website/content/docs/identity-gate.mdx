@@ -31,6 +31,8 @@ checks that:
   date;
 - the required scoped roles, stable group IDs and exact namespaced attributes are granted;
 - the manifest, IdP and `--environment` agree on the environment;
+- a manifest with `model_access` gets only what the environment grants: its gateway, allowed
+  model aliases, and budget and rate within the ceilings;
 - when configured, the policy baseline and every selected restriction allow `deploy`.
 
 A deny exits with code 2, prints `[CODE] message (attempt <id>)` and makes no Docker call. Roles

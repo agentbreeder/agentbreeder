@@ -21,7 +21,8 @@ import { Callout } from 'fumadocs-ui/components/callout';
 | `target` | `local` (default) or `kubernetes`; only the local adapter is implemented |
 | `port` | Integer 1–65535; default 8080 |
 | `health_path` | Absolute HTTP path (letters, digits, `/`, `_`, `-`); default `/health`; no query string |
-| `secrets` | Optional map of uppercase environment names to `secret://name` references; no literal values. Local deploys reject nonempty secrets |
+| `secrets` | Optional map of uppercase environment names to `secret://name` references; no literal values. Locally, each value is read from a secret file and mounted read-only at `/run/secrets/<name>` with `<ENV>_FILE` set |
+| `model_access` | Optional: `{gateway, aliases, budget_usd?, rpm?}`. The operator environment must grant the gateway, every alias and the limits, or the gate denies the deploy (no audit-mode override). With a gateway master key, deploy mints a LiteLLM virtual key for each container generation and revokes it on remove. `agentbreeder build` writes this block |
 | `identity` | v2, required: `provider` (operator connection name), `ref` (provider-specific immutable ID), `environment`, optional `expect_owner`. A reference only; AgentBreeder never creates identities |
 | `requires.roles` | v2: list of `{authority, resource, role_id}` immutable IDs that must already be granted |
 | `requires.groups` | v2: list of `{authority, group_id}` stable IDs |

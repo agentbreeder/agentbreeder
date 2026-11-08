@@ -1,0 +1,6 @@
+# Build context for Dockerfile.host: allow-list only. .secrets/ holds secrets and must never be sent.
+*
+!proxy.py
+!ops/*.py
+!ops/dashboard.html
+!ops/golden.jsonl

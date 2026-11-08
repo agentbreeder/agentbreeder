@@ -7,11 +7,12 @@ audit events commit in the same SQLite transaction. Audit failure aborts before 
 
 from __future__ import annotations
 
-import hashlib
 import json
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from agentbreeder import gateway_keys, secret_files
 from agentbreeder.audit import AuditError, AuditEvent
 from agentbreeder.deployer import Deployer, os_deployer
 from agentbreeder.egress.boundary import Boundary, BoundaryUnverified
@@ -22,10 +23,12 @@ from agentbreeder.operator_config import (
     ContextError,
     DeploymentContext,
     OperatorConfig,
+    OperatorConfigError,
     load_operator_config,
 )
 from agentbreeder.policy import PolicyError
 from agentbreeder.runtime import Docker
+from agentbreeder.secret_files import SecretError
 from agentbreeder.store import DeploymentError, Store
 
 
@@ -47,6 +50,12 @@ class AuditIncomplete(DeploymentError):
             f"[AUDIT_WRITE_FAILED] Audit log could not be written {what}; "
             "run `agentbreeder reconcile --local` or remove the deployment"
         )
+
+
+GATEWAY_KEY_ENV = "LLM_GATEWAY_KEY"
+GATEWAY_KEY_FILE = "llm-gateway-key"
+DEFAULT_BUDGET_USD = 10.0  # when neither the manifest nor the environment sets one
+DEFAULT_RPM = 60
 
 
 def _now() -> datetime:
@@ -111,6 +120,35 @@ class DeploymentService:
         )
         return attempt
 
+    def record(self, action: str, decision: str, actor: Deployer, reasons: list[dict]) -> str:
+        """Record an orchestration event (e.g. `release`) in the same audit chain."""
+        attempt = uuid.uuid4().hex
+        self._audit(self._event(attempt, action, decision, actor, reasons=reasons[:50]))
+        return attempt
+
+    def preflight(
+        self, manifest: Manifest, environment: str | None, deployer: Deployer
+    ) -> GateDecision:
+        """Evaluate the gate for a manifest without deploying, auditing or touching Docker.
+        Used by `release` to learn, before removing production, whether its deploy would be
+        denied or need approval."""
+        try:
+            context = self.operator.context(environment, manifest.target)
+        except ContextError as error:
+            return GateDecision(False, error.code, str(error))
+        decision = self.gate.check(
+            manifest,
+            deployer,
+            context,
+            is_blocked=lambda key, env: self.store.blocker(key, env) is not None,
+            is_reference_blocked=self.store.blocked_reference,
+        )
+        if decision.allowed:
+            problem = self._deploy_requirements(manifest)
+            if problem is not None:
+                return GateDecision(False, *problem)
+        return decision
+
     # -- deploy ------------------------------------------------------------------------------
 
     def deploy(
@@ -124,7 +162,7 @@ class DeploymentService:
         if not local or manifest.target != "local":
             raise DeploymentError("Deployment requires --local and target: local")
         deployer = deployer or os_deployer()
-        digest = hashlib.sha256(manifest.model_dump_json().encode()).hexdigest()
+        digest = manifest.digest()
         with self.store.lock():
             attempt = uuid.uuid4().hex
             requested = {"environment": environment, "target": manifest.target}
@@ -199,6 +237,14 @@ class DeploymentService:
                     )
                 )
                 raise DeploymentError("Agent name already has a different spec; remove it first")
+            problem = self._deploy_requirements(manifest)
+            if problem is not None:
+                code, message = problem
+                reason = [{"code": code, "message": message}]
+                self._audit(
+                    self._event(attempt, "deploy", "deny", deployer, reasons=reason, **fields)
+                )
+                raise GateDenied(code, message, attempt)
             approval = None
             if "require_approval" in decision.obligations:
                 approval = self._approval_for(
@@ -313,8 +359,42 @@ class DeploymentService:
 
         try:
             info = self.runtime.inspect(record)
+            state = self.store.directory
+            minting = self._minting(manifest)
+            generated = {GATEWAY_KEY_ENV: "secret://" + GATEWAY_KEY_FILE} if minting else {}
+            if (
+                info is not None
+                and (manifest.secrets or generated)
+                and not secret_files.present(state, identifier, {**manifest.secrets, **generated})
+            ):
+                # Secret copies belong to one container generation. Without them (a failed
+                # attempt cleaned up), recreate the container rather than start it against
+                # missing or stale files.
+                self.runtime.remove(info)
+                info = None
             if info is None:
-                self.runtime.create(record, manifest)
+                mounts = []
+                if manifest.secrets:
+                    try:
+                        mounts = secret_files.materialise(state, identifier, manifest.secrets)
+                    except (SecretError, OSError) as error:
+                        code = getattr(error, "code", "SECRET_UNREADABLE")
+                        raise DeploymentError(f"[{code}] {error}") from error
+                if minting:
+                    mounts.append(self._mint_key(manifest, identifier, fields, attempt, deployer))
+                environment = self._service_environment(
+                    manifest, (fields.get("context") or {}).get("environment")
+                )
+                if environment is None:
+                    self.runtime.create(record, manifest, mounts=mounts)
+                else:
+                    self.runtime.create(
+                        record,
+                        manifest,
+                        mounts=mounts,
+                        environment=environment,
+                        host_gateway=True,
+                    )
                 info = self.runtime.inspect(record)
             if info is None:
                 raise DeploymentError(
@@ -335,9 +415,140 @@ class DeploymentService:
                 identifier, "ready", endpoint=endpoint, audit=event("ready")
             )
         except DeploymentError as error:
+            secret_files.cleanup(self.store.directory, identifier)
+            # Always revoke on failure: a key from an earlier generation may still be live even
+            # when this attempt minted nothing (container gone, or inspect failed). Revoking a
+            # key that doesn't exist is a no-op at the gateway.
+            self._revoke_key(manifest, identifier, attempt, deployer)
             return self.store.transition(
                 identifier, "failed", error=str(error), audit=event("failed")
             )
+
+    # -- per-deployment gateway keys ---------------------------------------------------------
+
+    def _deploy_requirements(self, manifest: Manifest) -> tuple[str, str] | None:
+        """Checks after the gate that need no side effects: what this installation can run.
+        `deploy` and `preflight` share them, so `release --rollback` learns of a deny before it
+        removes production."""
+        if self.enforcing and manifest.model_access is not None:
+            # The egress boundary runs agents on an internal network with no gateway key,
+            # gateway URL or service URLs: the deploy would be "ready" and every call fail.
+            return (
+                "MODEL_ACCESS_UNSUPPORTED",
+                "model_access is not yet supported with runtime enforcement",
+            )
+        if self._minting(manifest) and (
+            GATEWAY_KEY_ENV in manifest.secrets
+            or f"secret://{GATEWAY_KEY_FILE}" in manifest.secrets.values()
+        ):
+            return "SECRET_RESERVED", f"{GATEWAY_KEY_ENV} is minted per deployment; remove it"
+        if manifest.secrets:
+            try:
+                if self.enforcing:
+                    raise SecretError(
+                        "SECRETS_UNSUPPORTED",
+                        "Secret files are not yet supported with runtime enforcement",
+                    )
+                secret_files.preflight(self.store.directory, manifest.secrets)
+            except SecretError as error:
+                return error.code, str(error)
+        return None
+
+    def _minting(self, manifest: Manifest) -> bool:
+        if manifest.model_access is None:
+            return False
+        gateway = self.operator.model.gateways.get(manifest.model_access.gateway)
+        return gateway is not None and gateway.master_key is not None
+
+    def _gateway(self, manifest_data) -> gateway_keys.LiteLLM | None:
+        access = manifest_data.get("model_access") if isinstance(manifest_data, dict) else None
+        if not access:
+            return None
+        return gateway_keys.client(self.operator, access["gateway"])
+
+    def _mint_key(self, manifest, identifier, fields, attempt, actor):
+        """Mint this container generation's key: after the gate and approval, inside the
+        lifecycle lock. The value only reaches the deployment's private secret file."""
+        access = manifest.model_access
+        environment = self.operator.model.environments.get(
+            (fields.get("context") or {}).get("environment") or ""
+        )
+        ceilings = environment.ceilings if environment else None
+        budget = access.budget_usd or (ceilings.budget_usd if ceilings else DEFAULT_BUDGET_USD)
+        rpm = access.rpm or (ceilings.rpm if ceilings else DEFAULT_RPM)
+        key_alias = gateway_keys.alias(identifier)
+        try:
+            client = gateway_keys.client(self.operator, access.gateway)
+            key = client.mint(
+                key_alias,
+                list(access.aliases),
+                float(budget),
+                int(rpm),
+                {
+                    "agentbreeder": True,
+                    "deployment_id": identifier,
+                    "agent": manifest.name,
+                    "environment": environment
+                    and (fields.get("context") or {}).get("environment"),
+                },
+            )
+            mount = secret_files.write_generated(
+                self.store.directory, identifier, GATEWAY_KEY_FILE, GATEWAY_KEY_ENV, key.encode()
+            )
+        except (gateway_keys.GatewayError, OperatorConfigError, SecretError, OSError) as error:
+            code = getattr(error, "code", "GATEWAY_ERROR")
+            raise DeploymentError(f"[{code}] gateway key not minted: {error}") from error
+        self._audit(
+            self._event(
+                attempt,
+                "gateway_key",
+                "minted",
+                actor,
+                deployment_id=identifier,
+                reasons=[{"code": "GATEWAY_KEY", "message": key_alias}],
+            )
+        )
+        return mount
+
+    def _revoke_key(self, manifest_or_data, identifier, attempt, actor) -> str | None:
+        """Best-effort revoke; returns None, 'revoked' or 'revoke_failed' (reconcile retries)."""
+        data = (
+            manifest_or_data.model_dump()
+            if isinstance(manifest_or_data, Manifest)
+            else manifest_or_data
+        )
+        try:
+            client = self._gateway(data)
+            if client is None:
+                return None
+            client.revoke(gateway_keys.alias(identifier))
+            outcome = "revoked"
+        except (gateway_keys.GatewayError, OperatorConfigError):
+            outcome = "revoke_failed"
+        self._audit(
+            self._event(
+                attempt,
+                "gateway_key",
+                outcome,
+                actor,
+                deployment_id=identifier,
+                reasons=[{"code": "GATEWAY_KEY", "message": gateway_keys.alias(identifier)}],
+            )
+        )
+        return outcome
+
+    def _service_environment(self, manifest: Manifest, name: str | None) -> dict[str, str] | None:
+        """Non-secret configuration for deployments that request model access (agent.yaml
+        builds): the gateway URL agents use and the environment's service URLs."""
+        if manifest.model_access is None:
+            return None
+        model = self.operator.model
+        environment = model.environments.get(name or "")
+        gateway = model.gateways.get(manifest.model_access.gateway)
+        result = {"AGENTBREEDER_GATEWAY_URL": gateway.agent_url} if gateway else {}
+        for service, url in sorted((environment.services if environment else {}).items()):
+            result[f"AGENTBREEDER_SERVICE_{service.upper()}"] = url
+        return result
 
     def _run_boundary(self, identifier, record, manifest, attempt, deployer, fields, decision):
         """Start the agent behind its egress boundary. Verification failure is a deny (exit 2)
@@ -743,7 +954,12 @@ class DeploymentService:
                         self.boundary.teardown(record)
                     if self.runtime.inspect(record) is not None:
                         raise DeploymentError("Container removal could not be verified; retry")
-                    return self.store.transition(identifier, "removed", audit=event("removed"))
+                    secret_files.cleanup(self.store.directory, identifier)
+                    key = self._revoke_key(
+                        self.store.manifest(identifier), identifier, attempt, actor
+                    )
+                    removed = self.store.transition(identifier, "removed", audit=event("removed"))
+                    return {**removed, "gateway_key": key} if key else removed
                 except DeploymentError as error:
                     return self.store.transition(
                         identifier, "failed", error=str(error), audit=event("failed")
@@ -869,6 +1085,8 @@ class DeploymentService:
                     self.boundary.teardown(record)
                 if self.runtime.inspect(record) is not None:
                     raise DeploymentError("Container stop could not be verified; retry reconcile")
+                secret_files.cleanup(self.store.directory, identifier)
+                self._revoke_key(self.store.manifest(identifier), identifier, attempt, actor)
                 self.store.transition(
                     identifier,
                     "disabled",
@@ -1015,6 +1233,17 @@ class DeploymentService:
             compliance = self.verify(record)
             self.store.set_compliance(identifier, compliance)
             record = self.store.get(identifier)
+        if record["state"] != "removed":
+            try:
+                client = self._gateway(self.store.manifest(record["id"]))
+                if client is not None:
+                    record = {
+                        **record,
+                        "gateway_key": client.describe(gateway_keys.alias(record["id"]))
+                        or {"alias": gateway_keys.alias(record["id"]), "missing": True},
+                    }
+            except (gateway_keys.GatewayError, OperatorConfigError) as error:
+                record = {**record, "gateway_key": {"error": str(error)}}
         return record
 
     def reconcile(self, actor: Deployer | None = None) -> list[dict]:
@@ -1067,6 +1296,7 @@ class DeploymentService:
                 results.append(
                     {"id": record["id"], "name": record["name"], "compliance": compliance}
                 )
+            results += self._revoke_orphan_keys(attempt, actor)
             self._audit(
                 self._event(
                     attempt,
@@ -1076,6 +1306,48 @@ class DeploymentService:
                     reasons=[{"code": r["compliance"], "message": r["id"]} for r in results][:100],
                 )
             )
+        return results
+
+    def _revoke_orphan_keys(self, attempt, actor) -> list[dict]:
+        """Revoke keys of deployments THIS store knows are removed, disabled or failed (e.g. a
+        revoke that failed while the gateway was down). Unknown aliases are left alone: another
+        state dir or operator may share the gateway, and eval judge keys are short-lived."""
+        results = []
+        for name in self.operator.model.gateways:
+            try:
+                client = gateway_keys.client(self.operator, name)
+                if client is None:
+                    continue
+                for key_alias in client.aliases():
+                    identifier = key_alias.removeprefix(gateway_keys.PREFIX)
+                    if not re.fullmatch(r"[0-9a-f]{32}", identifier):
+                        continue  # not a deployment key (e.g. an eval judge key)
+                    try:
+                        record = self.store.get(identifier)
+                    except DeploymentError:
+                        continue  # not ours
+                    if record["state"] not in ("removed", "disabled", "failed"):
+                        continue
+                    client.revoke(key_alias)
+                    self._audit(
+                        self._event(
+                            attempt,
+                            "gateway_key",
+                            "revoked",
+                            actor,
+                            deployment_id=identifier,
+                            reasons=[{"code": "GATEWAY_KEY_ORPHAN", "message": key_alias}],
+                        )
+                    )
+                    results.append(
+                        {"id": identifier, "name": key_alias, "compliance": "gateway_key_revoked"}
+                    )
+            except (gateway_keys.GatewayError, OperatorConfigError) as error:
+                results.append(
+                    {"id": name, "name": name, "compliance": f"gateway_unreachable:{error.code}"}
+                    if isinstance(error, gateway_keys.GatewayError)
+                    else {"id": name, "name": name, "compliance": "gateway_credential_error"}
+                )
         return results
 
     def _ensure_boundary(self, record, attempt, actor) -> str:

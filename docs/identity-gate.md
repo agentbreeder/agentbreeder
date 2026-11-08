@@ -26,7 +26,8 @@ any IdP or PDP. Under the lifecycle lock it then checks:
 | — | With `mcp_http`, every declared MCP server is an operator destination | `DESTINATION_UNAPPROVED` |
 | — | Verified deployer when required (always when a PDP is configured) | `DEPLOYER_UNVERIFIED` |
 | — | Manifest restrictions need a configured PDP | `POLICY_UNAVAILABLE` |
-| 8 | No secrets (local slice cannot inject them) | `SECRETS_UNSUPPORTED` |
+| 8 | Secret references are names only; after the gate, local secret files must exist, be yours and be mode 0600 (`local-deployment.md`) | `SECRET_MISSING`, `SECRET_MODE`, `SECRET_NAME`, `SECRETS_UNSUPPORTED` (with `mcp_http`) |
+| — | `model_access`: the environment has a gateway, it matches, every alias is allowed and the budget/rpm are within the ceilings (no audit-mode override); not yet supported with `mcp_http` (`manifest.md`) | `MODEL_ACCESS_UNCONFIGURED`, `GATEWAY_MISMATCH`, `MODEL_NOT_ALLOWED`, `BUDGET_CEILING`, `MODEL_ACCESS_UNSUPPORTED` |
 | — | `schema_version: 2` with an `identity` block | `IDENTITY_REQUIRED` |
 | 1 | `identity.ref` resolves to exactly one principal | `PRINCIPAL_NOT_FOUND`, `PRINCIPAL_AMBIGUOUS`, `PROVIDER_TIMEOUT`, `PROVIDER_ERROR`, `PROVIDER_UNKNOWN` |
 | — | No administrative disable for the principal/environment | `PRINCIPAL_BLOCKED` |

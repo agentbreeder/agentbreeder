@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 from typing import Literal
@@ -119,6 +120,29 @@ class PolicySelection(_Strict):
         return value
 
 
+_ALIAS = r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
+_GATEWAY = r"^[a-z0-9][a-z0-9_-]{0,31}$"
+
+
+class ModelAccess(_Strict):
+    """Model gateway access this deployment requests. The operator's environment grants it:
+    the gate checks the gateway, the alias allow-list and the budget/rate ceilings."""
+
+    gateway: str = Field(pattern=_GATEWAY)
+    aliases: list[str] = Field(min_length=1, max_length=20)
+    budget_usd: float | None = Field(default=None, gt=0, le=100000)
+    rpm: int | None = Field(default=None, ge=1, le=100000)
+
+    @field_validator("aliases")
+    @classmethod
+    def alias_names(cls, value: list[str]) -> list[str]:
+        if any(not re.fullmatch(_ALIAS, alias) for alias in value) or len(set(value)) != len(
+            value
+        ):
+            raise ValueError("aliases must be unique gateway model names")
+        return value
+
+
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -133,6 +157,13 @@ class Manifest(BaseModel):
     requires: Requirements | None = None
     capabilities: Capabilities | None = None
     policy: PolicySelection | None = None
+    model_access: ModelAccess | None = None
+
+    def digest(self) -> str:
+        """Spec digest. Optional fields added later are left out when unset, so a manifest
+        deployed before they existed keeps the same digest (no NAME_CONFLICT on redeploy)."""
+        exclude = {"model_access"} if self.model_access is None else set()
+        return hashlib.sha256(self.model_dump_json(exclude=exclude).encode()).hexdigest()
 
     @model_validator(mode="after")
     def version_fields(self):

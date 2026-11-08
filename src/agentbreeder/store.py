@@ -69,6 +69,11 @@ def _now() -> str:
 
 class Store:
     def __init__(self, directory: Path):
+        # Secret files are bind-mounted from here with `--mount type=bind,src=…`: Docker needs
+        # an absolute path, and the option is comma-delimited.
+        directory = directory.absolute()
+        if "," in str(directory):
+            raise DeploymentError("State directory path must not contain a comma")
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         if directory.is_symlink() or directory.stat().st_uid != os.getuid():
             raise DeploymentError("State directory must be owned by the current user")
