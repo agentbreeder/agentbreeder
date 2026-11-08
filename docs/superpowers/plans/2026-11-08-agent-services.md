@@ -119,5 +119,12 @@ fix findings before the next slice.
 - **Postgres as uid 999 without capabilities:** this depends on the image's entrypoint. Verify it
   in slice 4 first; fallback is an explicit, documented `cap_add` list (`CHOWN`, `SETUID`,
   `SETGID`, `FOWNER`, `DAC_OVERRIDE`) for that service only.
+  **VERIFIED 2026-11-08** (pgvector image sha256:0dd3149a…): the image runs with a read-only root,
+  `cap_drop: ALL`, `no-new-privileges` and `--user 999:999`. pgvector 0.8.7 loads, and data
+  survives a restart. It needs (a) a tmpfs at `/var/run/postgresql` besides `/tmp`, so
+  `service.yaml` gains `tmpfs: [abs paths]` (allowlisted, size-capped, noexec,nosuid); and (b) the
+  data volume owned by 999 before first start, done by a one-off `chown` container from the
+  service image with only `CHOWN` added (never on the long-running service). No cap_add fallback
+  is needed.
 - **Phoenix bootstrap:** this needs Phoenix's GraphQL API. Pin the image, and test the mint step
   in isolation.

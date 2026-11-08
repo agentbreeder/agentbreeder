@@ -342,6 +342,284 @@ The stack has its own state dir, so this is checkable with the existing store.
 
 The Northwind ops dashboard gains a generated bearer token, which also serves as its guard.
 
+### 7. MCP servers through a relay (#743, folded into #734 on 2026-11-08)
+
+**Owner decisions (2026-11-08):** MCP support ships inside #734. Credentials live in a
+stack-hosted relay, never in the agent. Live verification targets GitHub, Slack, Supabase,
+Google Workspace and Stripe (owner supplies test credentials) plus Playwright (needs none).
+RBAC/ABAC on tool calls is #742, which adds a policy check at this same relay.
+
+**Why a relay.** Agents built from `agent.yaml` use `model_access`, and `mcp_http` runtime
+enforcement refuses `model_access` (`MODEL_ACCESS_UNSUPPORTED`) and stack networks. So no MCP call
+from a built agent can reach the egress sidecar until #742. The relay gives two guarantees now,
+both outside the agent process:
+- **The agent never holds the upstream credential.** It holds only a per-deployment relay token.
+- **The relay forwards only the tools granted to that deployment.**
+
+The relay does not evaluate Cedar/OPA policy, approvals or risk tiers; that is #742. Docs must
+not call it policy enforcement.
+
+#### 7.1 Registry kind `mcp`
+
+`mcp/<name>@X.Y.Z` is immutable and hash-locked like every other kind (`mcp` is added to
+`registry.KINDS`). `agent.yaml` may reference it only under `mcp:`, and `stack.yaml` only under
+`mcp:`. Files: `manifest.yaml` and `mcp.yaml` (strict YAML):
+
+```yaml
+upstream:                        # exactly one of remote / service
+  remote: {url: "https://api.example.com/mcp"}      # https only; egress through the relay
+  # service: {ref: service/playwright-mcp@1.0.0, port: http, path: /mcp}
+auth:                            # how the relay authenticates upstream
+  type: bearer                   # none | bearer | header | oauth_refresh
+  secret: token                  # a relay secret (imported or service-provided), never in agent.yaml
+  # header: {name: X-Api-Key, secret: api-key}
+  # oauth_refresh: {token_url: https://oauth2.example.com/token, client_id: client-id,
+  #                 client_secret: client-secret, refresh_token: refresh-token, scopes: [...]}
+secrets:                         # same grammar as service.yaml secrets (import/generate/optional)
+  token: {import: GITHUB_MCP_TOKEN}
+tools:                           # the only tools that can ever be granted
+  list_issues: {effect: read}
+  create_issue: {effect: write}
+```
+
+- `effect: read|write` is required on every tool. It's recorded for #742 (risk tiers,
+  approvals). In #734 it shows in the grant.
+- `remote` upstreams resolving to private, loopback or link-local addresses are refused, using the
+  sidecar's resolution check.
+- A `service` upstream must be a stack service port with `expose: internal`, so agents can't
+  bypass the relay. Stdio-only servers are packaged as a service with a bridge, or not at all.
+- The import denylist still applies: `GITHUB_TOKEN` and `GH_TOKEN` can't be imported, so the
+  GitHub entry imports `GITHUB_MCP_TOKEN`.
+
+#### 7.2 `stack.yaml` and the grant
+
+```yaml
+mcp:
+  github: {ref: mcp/github@1.0.0}
+  browser: {ref: mcp/playwright@1.0.0}   # pulls in its service upstream automatically
+environment:
+  agents:
+    northwind-support:
+      mcp: {github: [list_issues]}       # per-agent tool grant, shown in the grant
+```
+
+- Each `mcp:` entry becomes one relay container (`service/mcp-relay@1.0.0`, built from source
+  under the strict Dockerfile subset, `expose: agents`, guard `bearer`). One credential per
+  container. Relays with a remote upstream get `egress: true`. Relays with a service upstream
+  don't.
+- The grant shows, per server: the upstream (URL or service), the auth type, the imported
+  variable names, egress, and per agent the granted tools with their effect.
+- The generated operator config gains `mcp_relays: {<name>: {url, grants_dir}}`. It's added to
+  the list of fields that config may contain. Nothing else about the config changes.
+
+#### 7.3 Agent side
+
+```yaml
+mcp:
+  - ref: mcp/github@1.0.0       # deploy finds the stack entry with this ref (§7.7.6)
+    tools: [list_issues]
+```
+
+- `build` checks that `tools` is a subset of the version's declared tools. It writes them into
+  `agent.config.json` and the manifest (`mcp_access: [{server, tools}]`).
+- **Deploy**, after the gate and approval, does the following:
+  - It refuses (`MCP_SERVER_UNAVAILABLE`) when the environment has no such relay. It refuses
+    (`MCP_TOOL_NOT_GRANTED`) when the requested tools aren't in that agent's grant.
+  - It mints a per-deployment token, the same way as `gateway_keys`. The value goes only into
+    the deployment's private secret file. The relay gets a grant file
+    `<grants_dir>/<sha256(token)>.json` holding `{deployment, agent, environment, server, tools}`,
+    written atomically (0444, §7.7.4). The relay reads it read-only through a bind mount.
+  - On remove or disable, it deletes the grant file before reporting success. `reconcile` deletes
+    grant files with no active deployment.
+- Deploy refuses `mcp_access` under `runtime_enforcement: mcp_http` (`MCP_RELAY_UNSUPPORTED`), like
+  `network`.
+- **Runtime:** the ADK runtime becomes `runtime/adk@1.1.0`, which also folds in the #741 fixes.
+  It builds one ADK `McpToolset` per server over Streamable HTTP. The URL comes from
+  `AGENTBREEDER_MCP_<SERVER>_URL` and the token from its secret file. `tool_filter` is set to
+  the granted tools. That filter is a convenience; the relay is the boundary.
+
+#### 7.4 Relay behaviour
+
+1. **Auth.** Hash the bearer token and look up the grant file by that hash (see §7.6, item 10).
+   If there's no file, return 401. The agent's `Authorization` header is never forwarded.
+2. **Parse** with `egress/protocol.parse_request` (vendored into the relay version). It accepts
+   only `initialize`, `notifications/initialized`, `notifications/cancelled`, `ping`,
+   `tools/list` and `tools/call`. Batches, resources, prompts and sampling are refused.
+3. **`tools/list`.** Filter the upstream response to the deployment's granted tools.
+4. **Tool-definition pinning.** `services up` probes each upstream and hashes every declared tool
+   (name, description, input schema). The hashes go in `stack.lock`; `--locked` refuses any
+   change (`LOCK_STALE`). The relay hides a tool whose live definition hash differs, and refuses
+   calls to it (`TOOL_DEFINITION_CHANGED`). `services status` shows it.
+5. **`tools/call`.** A call to a tool that isn't granted gets a JSON-RPC error and never reaches
+   upstream. A granted call goes upstream with the injected credential (`oauth_refresh` access
+   tokens are cached until expiry). Response headers go through an allowlist.
+6. **Limits:** a body size limit and calls per minute per token, with the sidecar defaults.
+7. **Logs:** one JSON line per request with deployment, method, tool, decision and latency. Never
+   arguments, results or credentials. Hash-chained audit integration is #742.
+
+#### 7.5 Built-ins and claims
+
+| Built-in | Upstream (confirmed during verification) | Auth |
+|---|---|---|
+| `mcp/github` | remote | bearer (fine-grained PAT) |
+| `mcp/stripe` | remote | bearer (restricted key) |
+| `mcp/supabase` | remote | bearer (access token) |
+| `mcp/slack` | remote or service | decided during verification |
+| `mcp/google-workspace` | service (digest-pinned community server) or remote | `oauth_refresh` |
+| `mcp/playwright` | service (`service/playwright-mcp`) | none |
+
+The tool list for each built-in is limited to what the verification run exercised, plus tools
+listed upstream that the owner approves. A built-in counts as **verified** only after a real call
+through the relay from a deployed agent. Docs and the site list verified ones only; the others
+ship marked `unverified` in their manifest description.
+
+#### 7.6 Security requirements (r5 security review, all normative)
+
+**Origin and consent:**
+1. **Origin.** The grant labels every `mcp` entry by origin: built-in, project, or
+   `AGENTBREEDER_REGISTRY_PATH`. For each credential it prints "credential `VAR` will be sent to
+   `<scheme://host:port>`". A project-origin or env-origin entry whose remote upstream carries
+   auth is refused unless the operator passes `--allow-project-mcp NAME`; `--yes` alone never
+   allows it. `stack.lock` records each entry's origin, upstream origin and `token_url` host, and
+   a change requires consent again (`LOCK_STALE` under `--locked`).
+2. **Relay image.** `service/mcp-relay` resolves only from the built-in root. It can't be named,
+   shadowed or overridden by `stack.yaml`, `./registry` or `AGENTBREEDER_REGISTRY_PATH`.
+
+**Relay protocol handling:**
+
+3. **Sessions.** The relay mints its own `Mcp-Session-Id`s and maps each one to an upstream
+   session, keyed by the token hash. A session id presented by another token is refused.
+   `Last-Event-ID` is dropped; streams are not resumable through the relay. Unknown session
+   ids get 404 (§7.7.7).
+4. **Server-to-client traffic.** The relay parses every response event, JSON or SSE. It passes
+   only the JSON-RPC response matching the request id, plus `notifications/progress` and
+   `notifications/message`. It drops `sampling/*`, `elicitation/*`, `roots/*` and
+   `notifications/tools/list_changed`. It rewrites the `initialize` result's capabilities to
+   `{tools: {}}`. `GET` (the standalone server stream) is refused.
+5. **Pinning.**
+   - The hash covers the whole canonical tool object, including `title`, `annotations`,
+     `outputSchema` and `_meta`.
+   - The relay answers `tools/list` from the locked definitions and fetches upstream only to
+     check them, following `nextCursor` up to 20 pages.
+   - The grant shows each granted tool's definition hash.
+   - Docs state that the first lock trusts the upstream (trust on first use).
+6. **Headers.** The body is authoritative. `Mcp-Method` and `Mcp-Name` are optional for the
+   relay, and when present they must equal the body. The relay sets them correctly upstream.
+
+**Network:**
+
+7. **SSRF and rebinding.** The relay calls `resolve_destination` and pins the address on every
+   upstream connection, the way the sidecar does with `_PinnedHTTPS`. That applies to the MCP
+   upstream and to `token_url`. It refuses redirects, strips `*_PROXY` from its environment, and
+   accepts https on port 443 only for remote upstreams, unless the operator config allow-lists a
+   port.
+8. **Service upstreams.** A service upstream joins only a private network shared with its relay,
+   never the `stack` network. A browser service (`mcp/playwright`) has no direct egress. Its
+   outbound traffic goes through a built-in filtering forward proxy that refuses private,
+   loopback, link-local and metadata addresses (checked after resolution), and the host's
+   published ports. This is required hardening, not an optional exception.
+
+**Credentials and tokens:**
+
+9. **OAuth refresh.**
+   - Cached access tokens live in memory only.
+   - Providers that rotate refresh tokens are refused in #734.
+   - Token-endpoint bodies and `error_description` are never echoed or logged.
+10. **Grant files.**
+    - Each relay has its own `grants_dir`, and each file carries `server`, which must match.
+    - The relay re-reads the file on every request; there is no cache.
+    - It accepts only names matching `^[0-9a-f]{64}\.json$`.
+    - Tokens are 256-bit random hex. A presented token that is longer than 128 characters or
+      contains characters outside `[0-9a-f]` is rejected before it is hashed.
+    - The lookup is by sha256 filename. That is not a comparison, so the spec makes no
+      constant-time claim.
+    - The relay runs as a fixed uid. For file permissions, see §7.7.4.
+    - `disable` (principal-wide) deletes the grant files for every deployment of that principal
+      before it reports success.
+11. **Relay credential and limits.**
+    - The upstream credential is a mounted 0400 file, never an environment variable.
+    - The relay enforces per-token concurrency (default 4).
+    - Each response has a wall-clock cap (default 120 s).
+    - Rewritten responses (`tools/list`, `initialize`) are buffered with a 1 MiB cap.
+    - Criterion 10's canary check covers the relay's `docker inspect` and the generated Compose
+      file too.
+
+**Logging and claims:**
+
+12. **Logs.** Every field is JSON-encoded. An ungranted tool name is logged as `ungranted` plus
+    its hash. Upstream error bodies and `WWW-Authenticate` are never logged.
+13. **Claims.** Docs must say all of the following:
+    - Tool arguments are unconstrained: a granted `list_issues` reaches any repository the
+      credential can see.
+    - Upstream results reach the agent unfiltered, so prompt injection through tool output is not
+      mitigated.
+    - "The agent never holds the credential" says nothing about the credential's scope.
+    - `effect` labels from project-origin entries are untrusted, and #742 must not rely on them.
+
+#### 7.7 Architecture requirements (r5 architecture review, normative; override earlier text)
+
+1. **Pinning without credentials before consent.**
+   - `up` confirms in two phases. Phase 1 is the grant: upstreams, credential destinations,
+     per-agent tools. Imports and the relay start happen only after phase 1.
+   - Phase 2 runs inside the relay: a probe mode, started with a stack-only admin token, never
+     from the host. It shows the definitions it found (hash, description, schema) and asks
+     "pin these?".
+   - Pins are written to a file on the relay's mount that the relay reloads, so re-pinning
+     doesn't recreate it. `--yes` accepts both phases only for built-in origins.
+   - `services up --repin` shows a diff with consent, reporting "missing upstream" separately
+     from "changed".
+2. **Per-environment grants.**
+   - Grant files live in `~/.agentbreeder/stacks/<id>/grants/<env>/<server>/`.
+   - Each file carries `server` and `environment`, and the relay checks both.
+   - `reconcile` and `disable` touch only their own environment.
+3. **Grant lifecycle** (state-backed, unlike the stateless `gateway_keys` alias):
+   - The deployment record stores the current token hash per server.
+   - Before minting, and on any failure in `_run`, delete every grant file whose `deployment`
+     matches. A retry or crash never leaves an earlier token valid.
+   - `reconcile` also deletes grants whose hash isn't the recorded one.
+   - The MCP token file is part of `secret_files.present` for the restart path.
+4. **File permissions.** Grant files and the pin file follow the existing service-mount
+   convention: 0444 files in 0755 staging directories (`services/state.py`). They hold only a
+   hash, deployment, agent, environment, server and tools, never a token.
+5. **Where the grant lives.**
+   - The environment's agent entry in the generated operator config gains
+     `mcp: {<server>: [tools]}`.
+   - `MCP_SERVER_UNAVAILABLE` and `MCP_TOOL_NOT_GRANTED` are checked in `_deploy_requirements`,
+     so `preflight` and `release --rollback` see them.
+   - The relay intersects each grant file's tools with its configured grant, so a narrowed grant
+     takes effect at once.
+   - `up` refuses to drop an `mcp:` entry, or narrow a grant, while an active deployment uses it
+     (as `down` does).
+6. **Contracts.**
+   - `Manifest.mcp_access` is excluded from `digest()` when unset, like `model_access`, so
+     existing digests don't change.
+   - `mcp_access` is the relay contract; `capabilities.tools` stays the `mcp_http` contract. #742
+     unifies them, with `capabilities` deriving from `mcp_access`.
+   - `agent.yaml` names only `ref`; there is no `server:` field. Deploy resolves the stack entry
+     whose ref matches. Zero matches gives `MCP_SERVER_UNAVAILABLE`, and two or more give
+     `MCP_SERVER_AMBIGUOUS`. This keeps the non-goal of no stack names in `agent.yaml`.
+   - The cross-repo grep for `mcp_access` / `mcp` in agentbreeder-cloud happens before the PR.
+7. **Protocol scope** (verified against google-adk 2.12.0 and mcp 2.3.0):
+   - **Handshake-era protocol versions only, on both sides.** Upstreams that support only the
+     2026-07-28 stateless protocol (`server/discover`, no sessions) are refused.
+   - **One page for `tools/list`.** ADK calls it once with no cursor loop, so the relay returns
+     every granted tool in one page with no `nextCursor`.
+   - **`DELETE` closes the upstream session.** ADK's default `terminate_on_close` sends `DELETE`,
+     and the relay closes the mapped upstream session, so browser contexts don't leak.
+   - **Unknown or expired session ids get 404,** which makes the client initialize again. A relay
+     restart, or recreation after a credential rotation, therefore recovers. An acceptance case
+     covers this.
+   - **ADK client settings.** The runtime sets `tool_name_prefix=<server>_` and uses
+     `header_provider` for the token. Per the installed library, mcp 2.3 sends
+     `Mcp-Method`/`Mcp-Name`.
+8. **Credential rotation.** `up` re-reads imported values. A changed value makes a new mount
+   generation and recreates the relay, and live sessions get 404 and re-initialize.
+9. **Google Workspace.** It ships only with an upstream that accepts a bearer or OAuth access
+   token from the relay: remote, or a server with no token store of its own. Otherwise it is
+   unverified.
+10. **Server names.** `stack.yaml` `mcp:` keys match `^[a-z][a-z0-9_]{0,31}$`, so
+    `AGENTBREEDER_MCP_<NAME>_URL` is always a valid variable name.
+
 ## Acceptance criteria
 
 1. **No script, no exports:** from a clean support-agent checkout, run `services up --environment
@@ -369,6 +647,20 @@ The Northwind ops dashboard gains a generated bearer token, which also serves as
 8. **Tests:** unit tests for parsing, references, taint, the graph, ports and config writing; one
    opt-in real-Docker test with the `echo` service; at least 95% coverage on new modules.
 9. **Docs:** `docs/services.md` and the site describe it as a local-only preview.
+10. **MCP relay.** Tested against a mock upstream that counts calls, then live:
+    - a deployed agent calls a granted tool through the relay on every verified built-in;
+    - an ungranted tool is absent from `tools/list`, and calling it never reaches upstream;
+    - a token from another deployment, or from a removed one, gets 401;
+    - a session id or stream belonging to another deployment is refused;
+    - a server-initiated `sampling/createMessage` injected upstream never reaches the agent;
+    - the upstream credential (a canary) never appears in the agent container's environment,
+      files, `docker inspect` output, or the relay's logs.
+11. **Tool definition change:** a changed upstream tool definition is hidden and refused, and
+    `status` reports it; a tool missing upstream is reported separately; `--locked` refuses both;
+    `up --repin` shows the diff and asks before accepting it. A relay restart mid-run recovers
+    (404, then initialize again).
+12. **Service upstream:** `mcp/playwright` runs end to end with its upstream on `expose: internal`
+    and the default hardening (or a documented, tested exception).
 
 ## Decisions (former open questions)
 
@@ -398,6 +690,14 @@ The Northwind ops dashboard gains a generated bearer token, which also serves as
 4. **#739:** built-in `postgres-pgvector` (roles, init), `litellm` and `phoenix` (bootstrap). The
    Northwind project services and the ops token. Remove `up.sh` and Compose from the example and
    the support-agent repo, then the acceptance run.
+4a. **MCP contracts:** the `mcp` kind and `mcp.yaml`; `stack.yaml` `mcp:` and per-agent
+   grants in the operator config; `agent.yaml` `mcp:` and `mcp_access`; deploy, remove, disable
+   and reconcile grant lifecycle against a fake relay.
+4b. **MCP relay:** `service/mcp-relay` (sessions, filtering, pinning with the two-phase
+   confirmation, OAuth, SSRF pinning, caps); mock-upstream tests and an opt-in real-Docker test.
+4c. **Runtime:** `runtime/adk@1.0.5` (#741 only), then `runtime/adk@1.1.0` (the MCP toolset).
+4d. **Filtering forward proxy** for browser-type service upstreams (§7.6.8).
+4e. **MCP built-ins:** the six entries; live verification with owner credentials.
 5. **#740:** docs and site.
 
 Maintenance note: built-in service digests are a CVE and update duty. They change only through a
@@ -479,3 +779,9 @@ r4 (slice 3 implementation, verified against Docker 27.5 / Compose 2.33):
   (`services/dockerfile.py`): ASCII only, one instruction per line (no continuations or heredocs),
   FROM/RUN/COPY/WORKDIR/ENV/USER/EXPOSE/LABEL/CMD/ENTRYPOINT/HEALTHCHECK/STOPSIGNAL only, an
   option allowlist per instruction, and `FROM name@sha256:<64 hex>`, a named stage or `scratch`.
+
+r5 (2026-11-08) folds #743 in as §7 (MCP relay, owner decision). It also folds in the
+security review (4 high, 6 medium, 2 low, now §7.6) and the architecture review (2 blockers,
+8 should-fix, 2 nits, now §7.7). §7.7 overrides earlier §7 text where they differ. Postgres
+hardening was verified: it needs a `tmpfs:` field and a CHOWN-only one-off volume chown (see the
+plan's Risks section).
