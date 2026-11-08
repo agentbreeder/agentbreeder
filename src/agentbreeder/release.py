@@ -181,14 +181,20 @@ def release(
                     details,
                 )
             log(f"Running {len(eval_set.cases)} evals against {deployed['endpoint']} ...")
-            report = evaluate(
-                eval_set,
-                deployed["endpoint"],
-                operator,
-                env,
-                state,
-                retries=agent.evals.retries if retries is None else retries,
-            )
+            try:
+                report = evaluate(
+                    eval_set,
+                    deployed["endpoint"],
+                    operator,
+                    env,
+                    state,
+                    retries=agent.evals.retries if retries is None else retries,
+                )
+            except evals.EvalError as error:
+                service.record(
+                    "release", "failed", deployer, [{"code": error.code, "message": str(error)}]
+                )
+                raise
         finally:
             if deployed.get("id"):
                 _removed_or_raise(service, deployed["id"], deployer, "the candidate")
@@ -336,15 +342,16 @@ def rollback(
         return Outcome(EXIT_DENIED, f"[{decision.code}] {decision.message}; production unchanged")
     if "require_approval" in decision.obligations:
         return Outcome(EXIT_APPROVAL, "The rollback deploy needs approval; production unchanged")
-    if not service.runtime.image_present(manifest.image):
-        # Checked before anything is removed: a pruned local image can't be pulled back.
-        return Outcome(
-            EXIT_RUNTIME,
-            f"The previous image {manifest.image} is no longer available locally; production "
-            "unchanged. Rebuild and release instead",
-        )
     with _ReleaseLock(service.store.directory):
         current = service.store.active(agent.name)
+        service.runtime.authorize(current["context"] if current else None)
+        if not service.runtime.image_present(manifest.image):
+            # Checked before anything is removed: a pruned local image can't be pulled back.
+            return Outcome(
+                EXIT_RUNTIME,
+                f"The previous image {manifest.image} is no longer available locally; "
+                "production unchanged. Rebuild and release instead",
+            )
         if current:
             _removed_or_raise(service, current["id"], deployer, "the current production")
         restored = service.deploy(manifest, local=True, environment=env, deployer=deployer)

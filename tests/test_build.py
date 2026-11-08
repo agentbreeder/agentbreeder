@@ -292,3 +292,13 @@ def test_build_context_is_readable_under_strict_umask(project, operator):
         os.umask(old)
     assert modes["agent.config.json"] == 0o644 and modes["."] == 0o755
     assert all(m in (0o644, 0o755) for m in modes.values())
+
+
+@pytest.mark.parametrize("extra", ["port: '8080'\n", "port: 0\n", "health_path: bad\n"])
+def test_invalid_runtime_serving_fields_are_build_errors(project, extra):
+    from agentbreeder.build import BuildError, _runtime_serving
+
+    runtime = project / "registry/runtime/fake/1.0.0"
+    (runtime / "manifest.yaml").write_text("kind: runtime\nname: fake\nversion: 1.0.0\n" + extra)
+    with pytest.raises(BuildError, match="invalid port or health_path"):
+        _runtime_serving(runtime, "runtime/fake@1.0.0")

@@ -584,6 +584,51 @@ def test_rollback_validates_journal_and_gate(project, operator, state):
     assert denied.code == EXIT_DENIED and state.active("helper")["id"] == prod  # untouched
 
 
+def test_gateway_and_fixture_failures_are_eval_errors(project, operator, state, monkeypatch):
+    from test_gateway_keys import FakeGateway
+
+    gateway = FakeGateway()
+    gateway.down = True
+    master = project / "master"
+    master.write_text("sk-master")
+    master.chmod(0o600)
+    operator.config["gateways"]["gw"].update({"url": gateway.url, "master_key": f"file:{master}"})
+    eval_set = evals.EvalSet("golden", "1.0.0", "support-judge", CASES, None)
+    with pytest.raises(evals.EvalError) as caught:
+        evals.run(eval_set, "http://127.0.0.1:9", operator.load(), "dev", state.directory)
+    assert caught.value.code in ("GATEWAY_UNREACHABLE", "GATEWAY_ERROR")
+    gateway.server.shutdown()
+
+    psycopg = pytest.importorskip("psycopg")
+    operator.config["environments"]["dev"]["eval_database"] = "secret://eval-db"
+    from agentbreeder import secret_files
+
+    secret_files.set_secret(state.directory, "eval-db", b"postgresql://u:pw@127.0.0.1:1/x")
+
+    def refuse(*args, **kwargs):
+        raise psycopg.OperationalError("connection to 127.0.0.1 user u password pw failed")
+
+    monkeypatch.setattr(psycopg, "connect", refuse)
+    with_fixtures = evals.EvalSet("golden", "1.0.0", "support-judge", CASES, "SELECT 1;")
+    with pytest.raises(evals.EvalError) as caught:
+        evals.reset_fixtures(with_fixtures, operator.load(), "dev", state.directory)
+    assert caught.value.code == "EVAL_FIXTURES" and "pw" not in str(caught.value)
+
+
+def test_release_records_eval_errors(project, operator, state):
+    prepare_lock(project, operator)
+    runtime = FakeRuntime()
+
+    def broken(*args, **kwargs):
+        raise evals.EvalError("GATEWAY_UNREACHABLE", "LiteLLM is unreachable")
+
+    with pytest.raises(evals.EvalError):
+        do_release(project, operator, state, runtime, "sha256:" + "7" * 64, evaluator=broken)
+    rows = repr(state.audit_rows(limit=50))
+    assert "GATEWAY_UNREACHABLE" in rows
+    assert state.active("helper-candidate") is None  # candidate removed
+
+
 def test_unknown_environment_is_a_deny_not_a_traceback(project, operator, state):
     from conftest import actor
 

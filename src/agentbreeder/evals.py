@@ -272,8 +272,16 @@ def reset_fixtures(eval_set: EvalSet, operator: OperatorConfig, environment: str
         ) from error
     name = secret_files.secret_name(env.eval_database)
     url = secret_files._read(state / "secrets" / name).decode()
-    with psycopg.connect(url, autocommit=True, connect_timeout=10) as db:
-        db.execute(eval_set.fixtures_sql)
+    try:
+        with psycopg.connect(url, autocommit=True, connect_timeout=10) as db:
+            db.execute(eval_set.fixtures_sql)
+    except psycopg.Error as error:
+        # The driver's message can include the connection target; name the failure kind only.
+        raise EvalError(
+            "EVAL_FIXTURES",
+            f"Resetting fixtures failed ({type(error).__name__}); check "
+            f"environments.{environment}.eval_database and {eval_set.name}'s fixtures.sql",
+        ) from None
 
 
 def run(
@@ -311,14 +319,17 @@ def run(
                 "GATEWAY_CREDENTIAL", "The gateway needs a master_key to mint a judge key"
             )
         # Revoked in `finally` below; the expiry covers a run that is killed before that.
-        key = client.mint(
-            key_alias,
-            [eval_set.judge_alias],
-            5.0,
-            300,
-            {"agentbreeder": True, "eval_run": run_id},
-            duration=JUDGE_KEY_DURATION,
-        )
+        try:
+            key = client.mint(
+                key_alias,
+                [eval_set.judge_alias],
+                5.0,
+                300,
+                {"agentbreeder": True, "eval_run": run_id},
+                duration=JUDGE_KEY_DURATION,
+            )
+        except gateway_keys.GatewayError as error:
+            raise EvalError(error.code, f"Could not mint the judge key: {error}") from None
         judge = Judge(operator.model.gateways[env.gateway].url, key, eval_set.judge_alias)
     try:
         with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
@@ -344,5 +355,8 @@ def run(
         report.results = results
     finally:
         if client is not None:
-            client.revoke(key_alias)
+            try:
+                client.revoke(key_alias)
+            except gateway_keys.GatewayError:
+                pass  # best effort: the key expires after JUDGE_KEY_DURATION anyway
     return report

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -20,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+from pydantic import ValidationError
 
 from agentbreeder import registry
 from agentbreeder.agentfile import AgentFile, load_agent_file
@@ -161,7 +163,16 @@ def _runtime_serving(runtime_dir: Path, ref: str) -> dict:
         meta = load_file(runtime_dir / "manifest.yaml")
     except StrictYamlError as error:
         raise BuildError("ARTIFACT_INVALID", f"{ref} manifest.yaml: {error}") from error
-    return {"port": meta.get("port", 8080), "health_path": meta.get("health_path", "/health")}
+    port, health = meta.get("port", 8080), meta.get("health_path", "/health")
+    if (
+        not isinstance(port, int)
+        or isinstance(port, bool)
+        or not 1 <= port <= 65535
+        or not isinstance(health, str)
+        or not re.fullmatch(r"/[A-Za-z0-9/_-]*", health)
+    ):
+        raise BuildError("ARTIFACT_INVALID", f"{ref} manifest.yaml: invalid port or health_path")
+    return {"port": port, "health_path": health}
 
 
 def _manifest(agent, operator, environment, image, identity, aliases, name, serving) -> dict:
@@ -182,7 +193,13 @@ def _manifest(agent, operator, environment, image, identity, aliases, name, serv
     if agent.model.rpm is not None:
         access["rpm"] = agent.model.rpm
     data["model_access"] = access
-    Manifest.model_validate(data)  # generated manifests must satisfy the deploy contract
+    try:
+        Manifest.model_validate(data)  # generated manifests must satisfy the deploy contract
+    except ValidationError as error:
+        where = ", ".join(".".join(map(str, e["loc"])) for e in error.errors()[:5])
+        raise BuildError(
+            "MANIFEST_INVALID", f"generated deploy manifest is invalid: {where}"
+        ) from None
     return data
 
 
