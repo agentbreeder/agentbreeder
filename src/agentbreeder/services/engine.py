@@ -446,7 +446,11 @@ def _instructions(text: str) -> list[tuple[int, str]]:
     pending: list[str] = []
     start = 0
     leading = True
-    for number, raw in enumerate(text.splitlines(), start=1):
+    # Split on \n only, as BuildKit does; anything that could make the two parsers disagree
+    # (a BOM in front of a directive, carriage returns) is refused outright.
+    if "\ufeff" in text or "\r" in text:
+        raise ServiceError("BUILD_INVALID", "Dockerfile must be plain UTF-8 with \\n line ends")
+    for number, raw in enumerate(text.split("\n"), start=1):
         stripped = raw.strip()
         if leading and _DIRECTIVE.match(stripped):
             raise ServiceError(
@@ -455,6 +459,9 @@ def _instructions(text: str) -> list[tuple[int, str]]:
         if stripped.startswith("#") or (not stripped and not pending):
             continue
         leading = False
+        if "<<" in stripped:
+            # Heredoc bodies are data to BuildKit but lines to this parser: refuse them.
+            raise ServiceError("BUILD_INVALID", f"Dockerfile line {number}: heredocs are refused")
         if not pending:
             start = number
         if stripped.endswith("\\"):
@@ -487,7 +494,7 @@ def _check_dockerfile(path: Path) -> None:
     def refuse(number: int, why: str):
         raise ServiceError("BUILD_INVALID", f"Dockerfile line {number}: {why}")
 
-    for number, line in _instructions(path.read_text(encoding="utf-8")):
+    for number, line in _instructions(_dockerfile_text(path)):
         words = line.split()
         instruction = words[0].upper()
         if instruction in ("ARG", "ONBUILD"):
@@ -504,11 +511,43 @@ def _check_dockerfile(path: Path) -> None:
             stages.append(stage.lower())
         for option in options:
             name, _, value = option[2:].partition("=")
+            name = name.lower()
+            if any(quote in option for quote in "\"'`$"):
+                refuse(number, "quotes and variables in instruction options are refused")
             if name == "from" and not pinned(value):
                 refuse(number, "--from must name an earlier stage or a digest-pinned image")
             if name == "mount":
-                fields = dict(part.partition("=")[::2] for part in value.split(",") if "=" in part)
-                if fields.get("type") in ("secret", "ssh"):
-                    refuse(number, "build secrets and SSH are refused")
-                if "from" in fields and not pinned(fields["from"]):
-                    refuse(number, "a mount's from must be an earlier stage or pinned")
+                _check_mount(number, value, pinned, refuse)
+
+
+_MOUNT_TYPES = frozenset({"bind", "cache", "tmpfs"})
+_MOUNT_KEYS = frozenset(
+    {
+        "type", "target", "dst", "destination", "source", "src", "from", "id", "sharing",
+        "readonly", "ro", "rw", "readwrite", "mode", "uid", "gid", "size",
+    }
+)  # fmt: skip
+
+
+def _check_mount(number: int, value: str, pinned, refuse) -> None:
+    """RUN --mount: only bind, cache and tmpfs, only known keys, `from` pinned. Unknown or
+    malformed fields are refused rather than guessed at (no secret or SSH mounts)."""
+    fields: dict[str, str] = {}
+    for part in value.split(","):
+        key, _, item = part.partition("=")
+        key = key.strip().lower()
+        if key not in _MOUNT_KEYS or key in fields:
+            refuse(number, "unsupported --mount option")
+        fields[key] = item.strip()
+    if fields.get("type", "bind").lower() not in _MOUNT_TYPES:
+        refuse(number, "build secrets and SSH are refused (mount types: bind, cache, tmpfs)")
+    if "from" in fields and not pinned(fields["from"]):
+        refuse(number, "a mount's from must be an earlier stage or pinned")
+
+
+def _dockerfile_text(path: Path) -> str:
+    # Raw bytes: read_text's universal newlines would hide carriage returns from the check.
+    try:
+        return path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        raise ServiceError("BUILD_INVALID", "Dockerfile must be plain UTF-8") from None

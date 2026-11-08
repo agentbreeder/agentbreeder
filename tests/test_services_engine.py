@@ -500,6 +500,12 @@ def test_built_services_check_their_dockerfile(env):
     assert len([e for e in docker.events if e[0] == "build"]) == 1  # image reused
 
 
+def test_dockerfile_must_be_utf8(tmp_path):
+    (tmp_path / "Dockerfile").write_bytes(b"FROM \xff\n")
+    with pytest.raises(ServiceError, match="plain UTF-8"):
+        engine_module._check_dockerfile(tmp_path / "Dockerfile")
+
+
 def test_dockerfile_must_be_a_regular_file(tmp_path):
     with pytest.raises(ServiceError, match="regular Dockerfile"):
         engine_module._check_dockerfile(tmp_path / "Dockerfile")
@@ -801,6 +807,16 @@ def test_environment_names_cannot_collide_with_stack_dirs(env):
         ("FROM {py}\nRUN --mount=type=ssh true\n", "secrets and SSH"),
         ("FROM {py}\nONBUILD RUN true\n", "ONBUILD"),
         ("FROM {py}\nRUN true \\\n && true\nARG X\n", "ARG"),
+        ("\ufeff# syntax=evil/frontend\nFROM {py}\n", "plain UTF-8"),
+        ("FROM {py}\r\nRUN true\r\n", "plain UTF-8"),
+        ("FROM {py}\nRUN <<EOT\ntrue \\\nEOT\nFROM evil\n", "heredocs"),
+        ('FROM {py}\nRUN --mount="type=secret,id=x" true\n', "quotes"),
+        ("FROM {py}\nRUN --mount=TYPE=Secret,id=x true\n", "secrets and SSH"),
+        ("FROM {py}\nRUN --mount=type=bind,from=evil:1 true\n", "mount's from"),
+        ("FROM {py}\nRUN --mount=type=cache,target=/c,unknown=1 true\n", "unsupported"),
+        ("FROM {py}\nRUN --mount=type=cache,type=secret true\n", "unsupported"),
+        ("FROM {py}\nCOPY --FROM=evil:1 /x /x\n", "--from"),
+        ("FROM {py}\nCOPY --from=$IMG /x /x\n", "quotes and variables"),
     ],
 )
 def test_dockerfile_pinning_cannot_be_bypassed(tmp_path, text, why):
