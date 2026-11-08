@@ -5,7 +5,8 @@ defence in depth for one rule: every base image is digest-pinned, and builds get
 secrets or SSH. Rather than re-implement BuildKit's parser, and differ from it, it accepts only a
 small subset whose meaning is unambiguous, and refuses everything else:
 
-- printable ASCII and tabs only, `\\n` line ends, no BOM, no parser directives;
+- printable ASCII and tabs only, `\\n` line ends, no BOM; no parser directives, shebangs or
+  comments that look like a directive, anywhere in the file;
 - one instruction per line: no line continuations, no heredocs;
 - instructions: FROM, RUN, COPY, WORKDIR, ENV, USER, EXPOSE, LABEL, CMD, ENTRYPOINT,
   HEALTHCHECK, STOPSIGNAL (no ARG, ADD, ONBUILD, SHELL, VOLUME);
@@ -24,6 +25,7 @@ from agentbreeder.services.schema import ServiceError
 
 PINNED = re.compile(r"[a-z0-9][a-z0-9._/:-]{0,254}@sha256:[0-9a-f]{64}")
 STAGE = re.compile(r"[a-z][a-z0-9_.-]{0,63}")
+_DIRECTIVE_LIKE = re.compile(r"#[ \t]*[A-Za-z_][A-Za-z0-9_-]*[ \t]*=")
 _LINE = re.compile(r"[\x20-\x7e\t]*")
 _OPTION = re.compile(r"--([a-z-]+)(=([A-Za-z0-9@:._/,=+-]*))?")
 OPTIONS = {
@@ -79,8 +81,10 @@ def check(path: Path) -> None:
             _refuse(number, "only printable ASCII and tabs are allowed")
         stripped = line.strip(" \t")
         if not stripped or stripped.startswith("#"):
-            if number == 1 and re.match(r"#[ \t]*[A-Za-z]+[ \t]*=", stripped):
-                _refuse(number, "parser directives are refused")
+            # Anywhere, not just line 1: BuildKit reads directives from the leading comments,
+            # and which comments count as leading is exactly where parsers differ.
+            if _DIRECTIVE_LIKE.match(stripped) or stripped.startswith("#!"):
+                _refuse(number, "parser directives (and comments that look like them) are refused")
             continue
         if stripped.endswith("\\"):
             _refuse(number, "line continuations are refused (one instruction per line)")

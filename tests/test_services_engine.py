@@ -801,6 +801,9 @@ def test_environment_names_cannot_collide_with_stack_dirs(env):
     [
         ("# syntax=evil/frontend\nFROM {py}\n", "parser directives"),
         ("#escape=`\nFROM {py}\n", "parser directives"),
+        ("#!/bin/true\n# syntax=evil/frontend\nFROM {py}\n", "parser directives"),
+        ("# note\n\n#  check = skip=all\nFROM {py}\n", "parser directives"),
+        ("FROM {py}\n# syntax=evil/frontend\n", "parser directives"),
         ("\ufeffFROM {py}\n", "plain ASCII"),
         ("FROM {py}\r\nRUN true\r\n", "printable ASCII"),
         ("FROM {py}\nRUN true\u00a0\n", "plain ASCII"),
