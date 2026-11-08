@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from agentbreeder import __version__
+from agentbreeder import __version__, secret_files
 from agentbreeder.deployer import DeployerError, device_login, os_deployer, resolve_deployer
 from agentbreeder.deployment import DeploymentService
 from agentbreeder.doctor import check_docker
@@ -19,7 +20,15 @@ from agentbreeder.operator_config import OperatorConfigError, load_operator_conf
 from agentbreeder.runtime import Docker
 from agentbreeder.store import DeploymentError, Store
 
-DEFAULT_STATE = Path.home() / ".agentbreeder/local"
+STATE_ENV = "AGENTBREEDER_STATE_DIR"
+
+
+def _default_state() -> Path:
+    value = os.environ.get(STATE_ENV)
+    return Path(value).expanduser() if value else Path.home() / ".agentbreeder/local"
+
+
+DEFAULT_STATE = _default_state()
 EXIT_PENDING = 3
 _STATEFUL = {
     "deploy",
@@ -96,6 +105,13 @@ def _parser() -> argparse.ArgumentParser:
         if name == "list":
             command.add_argument("--limit", type=int, default=20)
             command.add_argument("--attempt")
+    secret = commands.add_parser("secret", help="Manage local secret files (secret:// refs)")
+    secret_commands = secret.add_subparsers(dest="secret_command", required=True)
+    secret_set = secret_commands.add_parser(
+        "set", help="Store a secret value read from stdin (never from arguments)"
+    )
+    secret_set.add_argument("name")
+    secret_set.add_argument("--state-dir", type=Path, default=DEFAULT_STATE)
     login = commands.add_parser("login", help="Sign in with the operator's OIDC device flow")
     login.add_argument("--issuer")
     return parser
@@ -124,6 +140,17 @@ def main(argv: list[str] | None = None) -> int:
             for check in checks:
                 print(f"{'PASS' if check.passed else 'FAIL'} {check.name}: {check.message}")
         return 0 if all(check.passed for check in checks) else 1
+    if args.command == "secret":
+        data = sys.stdin.buffer.read(secret_files.MAX_BYTES + 2)
+        if data.endswith(b"\n"):
+            data = data[:-1]  # `echo value |` and here-strings add one newline
+        try:
+            path = secret_files.set_secret(args.state_dir, args.name, data)
+        except secret_files.SecretError as error:
+            print(f"[{error.code}] {error}", file=sys.stderr)
+            return 2
+        print(f"Stored secret {args.name} at {path} (0600). Reference it as secret://{args.name}")
+        return 0
     if args.command == "login":
         try:
             deployer = device_login(load_operator_config(), issuer=args.issuer)

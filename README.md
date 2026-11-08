@@ -49,7 +49,7 @@ If no ID was printed, retry `deploy DEMO_DIRECTORY/agent.yaml --state-dir DEMO_D
 
 ## Bring your own agent
 
-Follow [the local image guide](docs/first-deployment.md). Supply a trusted stateless HTTP container, a real immutable image ID/digest, and a health path returning HTTP 200. Containers run as UID 65532 with a read-only filesystem and publish only to loopback. Images declaring volumes and secret injection are currently unsupported.
+Follow [the local image guide](docs/first-deployment.md). Supply a trusted stateless HTTP container, a real immutable image ID/digest, and a health path returning HTTP 200. Containers run as UID 65532 with a read-only filesystem and publish only to loopback. Images declaring volumes are unsupported. Secrets are local files mounted read-only (`agentbreeder secret set`; see [local deployment](docs/local-deployment.md)).
 
 Local OS/Docker permissions are the control boundary. Production permissions, approvals and authenticated invocation are later work. Status shows the last recorded observation, not a live health guarantee.
 

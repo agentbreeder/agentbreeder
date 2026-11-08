@@ -2,7 +2,9 @@
 
 Development-only single-user runtime for macOS/Linux. CLI calls one DeploymentService; there is no management HTTP API or UI yet. See the root README for build, deploy, status and removal commands.
 
-Manifest input must describe a trusted stateless HTTP image. Its process runs as UID/GID 65532, listens on 0.0.0.0 at the manifest port inside the container, and returns HTTP 200 from the health path. Host publication is loopback only. No redirects or HTTP proxies are used for health checks. Images declaring VOLUME, nonlocal Docker transports, Kubernetes targets and secret injection are rejected.
+Manifest input must describe a trusted stateless HTTP image. Its process runs as UID/GID 65532, listens on 0.0.0.0 at the manifest port inside the container, and returns HTTP 200 from the health path. Host publication is loopback only. No redirects or HTTP proxies are used for health checks. Images declaring VOLUME, nonlocal Docker transports and Kubernetes targets are rejected.
+
+Secrets: `agentbreeder secret set NAME < value` stores a value in `<state-dir>/secrets/NAME` (set `AGENTBREEDER_STATE_DIR` or pass `--state-dir`, the same one you deploy with). A manifest entry `DATABASE_URL: secret://NAME` is mounted read-only at `/run/secrets/NAME`, and the container gets `DATABASE_URL_FILE=/run/secrets/NAME`. The value never appears in `docker inspect`, labels, logs or the audit log. Copies are deleted on failure and removal. Anyone who can run `docker exec` on the container, or who owns the state directory, can read the value.
 
 SQLite state and events commit together; schema initialization is atomic. A process lock serializes local mutations. Repeating the same manifest reconciles the same deterministic owned container after an interruption. A different spec with the same active name fails; remove it before creating a replacement. Removal checks ownership labels, verifies absence and records errors instead of hiding partial cleanup. Events survive removal. Status reads the latest persisted observation and does not promise current availability.
 

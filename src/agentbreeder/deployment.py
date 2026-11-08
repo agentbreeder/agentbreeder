@@ -12,6 +12,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from agentbreeder import secret_files
 from agentbreeder.audit import AuditError, AuditEvent
 from agentbreeder.deployer import Deployer, os_deployer
 from agentbreeder.egress.boundary import Boundary, BoundaryUnverified
@@ -26,6 +27,7 @@ from agentbreeder.operator_config import (
 )
 from agentbreeder.policy import PolicyError
 from agentbreeder.runtime import Docker
+from agentbreeder.secret_files import SecretError
 from agentbreeder.store import DeploymentError, Store
 
 
@@ -199,6 +201,26 @@ class DeploymentService:
                     )
                 )
                 raise DeploymentError("Agent name already has a different spec; remove it first")
+            if manifest.secrets:
+                try:
+                    if self.enforcing:
+                        raise SecretError(
+                            "SECRETS_UNSUPPORTED",
+                            "Secret files are not yet supported with runtime enforcement",
+                        )
+                    secret_files.preflight(self.store.directory, manifest.secrets)
+                except SecretError as error:
+                    self._audit(
+                        self._event(
+                            attempt,
+                            "deploy",
+                            "deny",
+                            deployer,
+                            reasons=[{"code": error.code, "message": str(error)}],
+                            **fields,
+                        )
+                    )
+                    raise GateDenied(error.code, str(error), attempt) from error
             approval = None
             if "require_approval" in decision.obligations:
                 approval = self._approval_for(
@@ -313,8 +335,26 @@ class DeploymentService:
 
         try:
             info = self.runtime.inspect(record)
+            state = self.store.directory
+            if (
+                info is not None
+                and manifest.secrets
+                and not secret_files.present(state, identifier, manifest.secrets)
+            ):
+                # Secret copies belong to one container generation. Without them (a failed
+                # attempt cleaned up), recreate the container rather than start it against
+                # missing or stale files.
+                self.runtime.remove(info)
+                info = None
             if info is None:
-                self.runtime.create(record, manifest)
+                mounts = []
+                if manifest.secrets:
+                    try:
+                        mounts = secret_files.materialise(state, identifier, manifest.secrets)
+                    except (SecretError, OSError) as error:
+                        code = getattr(error, "code", "SECRET_UNREADABLE")
+                        raise DeploymentError(f"[{code}] {error}") from error
+                self.runtime.create(record, manifest, mounts=mounts)
                 info = self.runtime.inspect(record)
             if info is None:
                 raise DeploymentError(
@@ -335,6 +375,7 @@ class DeploymentService:
                 identifier, "ready", endpoint=endpoint, audit=event("ready")
             )
         except DeploymentError as error:
+            secret_files.cleanup(self.store.directory, identifier)
             return self.store.transition(
                 identifier, "failed", error=str(error), audit=event("failed")
             )
@@ -743,6 +784,7 @@ class DeploymentService:
                         self.boundary.teardown(record)
                     if self.runtime.inspect(record) is not None:
                         raise DeploymentError("Container removal could not be verified; retry")
+                    secret_files.cleanup(self.store.directory, identifier)
                     return self.store.transition(identifier, "removed", audit=event("removed"))
                 except DeploymentError as error:
                     return self.store.transition(
@@ -869,6 +911,7 @@ class DeploymentService:
                     self.boundary.teardown(record)
                 if self.runtime.inspect(record) is not None:
                     raise DeploymentError("Container stop could not be verified; retry reconcile")
+                secret_files.cleanup(self.store.directory, identifier)
                 self.store.transition(
                     identifier,
                     "disabled",

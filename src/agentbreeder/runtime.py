@@ -103,6 +103,7 @@ class Docker:
         *,
         network: str | None = None,
         environment: dict[str, str] | None = None,
+        mounts=(),
     ):
         """Create the agent container. With `network` (runtime boundary) the agent joins only
         that internal network, publishes nothing and is reached through its sidecar."""
@@ -137,6 +138,16 @@ class Docker:
                 else ["--publish", f"127.0.0.1::{manifest.port}"]
             ),
             *[f"--env={key}={value}" for key, value in (environment or {}).items()],
+            # Local secret files: read-only bind mounts; the value never enters env or labels.
+            *[
+                arg
+                for mount in mounts
+                for arg in (
+                    "--mount",
+                    f"type=bind,src={mount.source},dst={mount.target},readonly",
+                    *[f"--env={env}_FILE={mount.target}" for env in mount.envs],
+                )
+            ],
             "--user",
             "65532:65532",
             "--read-only",

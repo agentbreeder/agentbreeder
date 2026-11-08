@@ -10,7 +10,7 @@ This contract is under development. Validation does not deploy resources or chec
 | `target` | `local` (default) or `kubernetes`; only the local adapter is implemented |
 | `port` | Integer 1–65535; default 8080 |
 | `health_path` | Absolute HTTP path containing letters, digits, `/`, `_`, `-`; default `/health`; no query string |
-| `secrets` | Optional map of uppercase environment names to `secret://name` references; no literal values |
+| `secrets` | Optional map of uppercase environment names to `secret://name` references; no literal values. Locally, values come from secret files (below) |
 | `identity` | v2 only, required: `provider` (operator connection name), `ref` (provider-specific immutable ID), `environment`, optional `expect_owner`. A reference only; never created |
 | `requires.roles` | v2: list of `{authority, resource, role_id}` immutable IDs; must already be granted |
 | `requires.groups` | v2: list of `{authority, group_id}` stable IDs |
@@ -18,7 +18,7 @@ This contract is under development. Validation does not deploy resources or chec
 | `capabilities` | v2: `tools: [{mcp: https://…, actions: [...]}]` and `approval_required` (declared actions). Deploy-time ceiling; enforced per call only when the operator enables `runtime_enforcement.mode: mcp_http` (MCP Streamable HTTP via the sidecar; see `docs/identity-gate.md`) |
 | `policy.restrictions` | v2: operator-approved restriction bundle IDs (lowercase IDs, never paths or OCI references). They can only restrict |
 
-Input must be one UTF-8 YAML mapping at most 64 KiB. Unknown fields, duplicate keys, aliases/anchors and invalid types are rejected. Secret references are names only; the production secret backend will be configured by the administrator in a future slice.
+Input must be one UTF-8 YAML mapping at most 64 KiB. Unknown fields, duplicate keys, aliases/anchors and invalid types are rejected. Secret references are names only. Local secret files: each `secret://name` reference (local names match `[a-z0-9][a-z0-9_-]{0,62}`) is read from `<state-dir>/secrets/<name>`, which `agentbreeder secret set NAME` writes from stdin (mode 0600, owned by you, symlinks refused). After the gate allows the deploy, AgentBreeder copies each value into the deployment's private directory and bind-mounts it read-only at `/run/secrets/<name>`, setting `<ENV>_FILE=/run/secrets/<name>` in the container (for example `DATABASE_URL_FILE`). Read the file in your app; the value is never put in environment variables, labels, logs or the audit log (which records names only). A missing or unsafe file is a deny (`SECRET_MISSING`, `SECRET_MODE`). The copies are deleted when the deployment fails or is removed. Secret files are not yet supported together with `runtime_enforcement: mcp_http`. A production secret backend is a future slice.
 
 ```yaml
 schema_version: 1
@@ -57,4 +57,4 @@ policy:
 
 Exit codes: validation success 0; invalid input/usage 2. The CLI supports `validate agent.yaml --json` for normalized output. The new manifest intentionally omits framework, prompt, RAG and orchestration definitions: supply agent behavior in your container.
 
-The local deploy command applies the identity gate (`identity-gate.md`), rejects nonempty secrets and Kubernetes targets. A local image ID is invalid with a Kubernetes target. See `local-deployment.md` for runtime limitations.
+The local deploy command applies the identity gate (`identity-gate.md`), mounts local secret files and rejects Kubernetes targets. A local image ID is invalid with a Kubernetes target. See `local-deployment.md` for runtime limitations.

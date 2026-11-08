@@ -291,11 +291,9 @@ class IdentityGate:
                 "DEPLOYER_UNVERIFIED",
                 "A verified deployer identity is required (agentbreeder login)",
             )
+        # Secrets are references only (manifest validation); local values are files checked by
+        # the deployment preflight after this gate (secret_files.py). Nothing is read here.
         evaluated.append("secrets")
-        if manifest.secrets:
-            return decision.deny(
-                "SECRETS_UNSUPPORTED", "Secret injection is not supported in this local slice"
-            )
         if manifest.policy and manifest.policy.restrictions and model.pdp is None:
             return decision.deny(
                 "POLICY_UNAVAILABLE", "Manifest selects restrictions but no PDP is configured"
