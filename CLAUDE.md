@@ -116,7 +116,7 @@ live at the `v2.7.3` tag). Claim only what has been run end to end; see
 
 ## 🎯 When Adding a New Feature
 
-1. **Check the ROADMAP.md** — is this feature planned? Which milestone?
+1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?
 2. **Check AGENT.md** — which AI skills/agents can help build it?
 3. **Use `sequential-thinking` MCP** — plan before coding for anything > 100 lines
 4. **Write the test first** — TDD is strongly preferred for engine and API code
@@ -131,12 +131,12 @@ live at the `v2.7.3` tag). Claim only what has been run end to end; see
 ## Resume & live state (read FIRST when resuming)
 
 - **`RESOLVE.md`** (gitignored working state) — the live loop cursor (current
-  epic / stage / NEXT ACTION). **If present**, read it INSTEAD of scanning
-  `ROADMAP.md` (3.4k lines / ~50k tok) to find what's live; update its
+  epic / stage / NEXT ACTION). **If present**, read it first; update its
   `## LIVE` block at every stage boundary, then `/clear` (free) rather than
   `/compact` (paid). **If absent** (fresh clone / new contributor), fall back
-  to `ROADMAP.md` + the normal onboarding flow, and create RESOLVE.md when you
-  start a loop. `ROADMAP.md` is long-form history only.
+  to `ROADMAP.md` (the current priority order, lanes and dependencies) + the
+  normal onboarding flow, and create RESOLVE.md when you start a loop.
+  The 2.x roadmap is history only: `docs/history/ROADMAP-2x.md`.
 
 ## Reference router — read the doc before working in its area
 
