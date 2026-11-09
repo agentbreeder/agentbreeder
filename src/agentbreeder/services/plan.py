@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
 
+from agentbreeder import gateway_keys
 from agentbreeder.services import refs
 from agentbreeder.services.lock import LockedStack
 from agentbreeder.services.refs import Reference
@@ -261,6 +262,16 @@ class Plan:
 
     # -- the grant --------------------------------------------------------------------------------
 
+    def _gateway_config(self) -> dict | None:
+        config = self.files.get(self.locked.stack.environment.gateway, {}).get("config")
+        if config is None:
+            return None
+        try:
+            review = gateway_keys.config_review(config)
+        except gateway_keys.GatewayError as error:
+            raise ServiceError(error.code, str(error)) from None
+        return {"sha256": review.sha256, "providers": dict(sorted(review.providers.items()))}
+
     def grant(self, environment: str) -> dict:
         stack = self.locked.stack
         services = []
@@ -298,6 +309,9 @@ class Plan:
             "bindings": {key: value.ref for key, value in sorted(env.bindings.items())},
             "eval_database": env.eval_database.ref if env.eval_database else None,
             "gateway": env.gateway,
+            # The gateway config comes from the repo: its digest and where each alias sends which
+            # key are part of the consent, so an edit to it needs reconfirmation.
+            "gateway_config": self._gateway_config(),
             "models": list(env.models),
             "ceilings": env.ceilings.model_dump(),
             "demo_identities": [
@@ -310,6 +324,15 @@ class Plan:
                 for agent, spec in sorted(env.agents.items())
             ],
         }
+
+
+def _gateway_line(review: dict | None) -> list[str]:
+    if review is None:
+        return []
+    return [
+        f"  config sha256 {review['sha256'][:16]}…; keys go only to their provider:",
+        *(f"    {alias}: {route}" for alias, route in review["providers"].items()),
+    ]
 
 
 def grant_text(grant: dict) -> str:
@@ -337,6 +360,7 @@ def grant_text(grant: dict) -> str:
     lines += [
         f"Gateway {grant['gateway']}: models {', '.join(grant['models'])}; "
         f"ceilings ${ceilings['budget_usd']:g}, {ceilings['rpm']} rpm",
+        *_gateway_line(grant.get("gateway_config")),
         "Demo identities (static provider, written outside the repo):",
         *(
             f"  {i['agent']}{' (+ candidate)' if i['candidate'] else ''}  sponsor "

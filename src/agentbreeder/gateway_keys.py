@@ -144,21 +144,157 @@ def client(operator: OperatorConfig, name: str) -> LiteLLM | None:
     return LiteLLM(gateway.url, key)
 
 
-def config_aliases(path: Path) -> set[str]:
-    """The model aliases a LiteLLM proxy config serves (`model_list[].model_name`)."""
+# A stack's gateway config comes from the repo, so it is reviewed before any key reaches it
+# (#739 security review): keys may only flow to their own provider's default endpoint.
+PROVIDER_KEYS = {
+    "gemini": "GEMINI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+}
+_ENV = "os.environ/"
+_SECTIONS = {
+    "model_list": None,
+    "router_settings": {
+        "num_retries",
+        "retry_after",
+        "allowed_fails",
+        "cooldown_time",
+        "routing_strategy",
+        "timeout",
+        "enable_pre_call_checks",
+    },
+    "litellm_settings": {
+        "fallbacks",
+        "context_window_fallbacks",
+        "drop_params",
+        "request_timeout",
+        "turn_off_message_logging",
+        "num_retries",
+        "set_verbose",
+        "json_logs",
+    },
+    "general_settings": {
+        "master_key",
+        "database_url",
+        "store_prompts_in_spend_logs",
+        "disable_spend_logs",
+        "disable_error_logs",
+        "max_parallel_requests",
+    },
+}
+_ENTRY = {"model_name", "litellm_params", "model_info"}
+_PARAMS = {
+    "model",
+    "api_key",
+    "timeout",
+    "stream_timeout",
+    "max_retries",
+    "dimensions",
+    "rpm",
+    "tpm",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "drop_params",
+    "reasoning_effort",
+}
+_GENERAL_ENV = {"master_key": _ENV + "LITELLM_MASTER_KEY", "database_url": _ENV + "DATABASE_URL"}
+
+
+@dataclass
+class ConfigReview:
+    aliases: set[str]
+    providers: dict[str, str]  # alias -> "gemini (GEMINI_API_KEY)", shown in the services grant
+    sha256: str
+
+
+def _unsafe(path: Path, where: str) -> GatewayError:
+    # Names the location only: config values are never echoed.
+    return GatewayError("GATEWAY_CONFIG_UNSAFE", f"{path.name}: {where} is not allowed")
+
+
+def _env_strings(value, where: str):
+    if isinstance(value, str):
+        if value.startswith(_ENV):
+            yield where, value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _env_strings(item, f"{where}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _env_strings(item, f"{where}[{index}]")
+
+
+def config_review(path: Path) -> ConfigReview:
+    """Parse a LiteLLM proxy config and refuse anything that could send a credential somewhere
+    other than its provider: only allow-listed keys per section, no custom endpoints or
+    callbacks, and `os.environ/` only for the master key, the database URL and each model's own
+    provider key."""
+    import hashlib
+
     from agentbreeder.strict_yaml import StrictYamlError, load_file
 
     try:
         data = load_file(path, 256 * 1024)
     except StrictYamlError as error:
         raise GatewayError("GATEWAY_CONFIG", f"{path.name}: {error}") from None
+    if not isinstance(data, dict):
+        raise GatewayError("GATEWAY_CONFIG", f"{path.name}: must be a mapping")
     models = data.get("model_list")
     if not isinstance(models, list):
         raise GatewayError("GATEWAY_CONFIG", f"{path.name}: model_list must be a list")
-    aliases = set()
-    for entry in models:
+    allowed_env: set[str] = set()
+    for section, value in data.items():
+        if section not in _SECTIONS:
+            raise _unsafe(
+                path, f"top-level key {section!r}" if section.isidentifier() else "a key"
+            )
+        keys = _SECTIONS[section]
+        if keys is None:
+            continue
+        if not isinstance(value, dict):
+            raise GatewayError("GATEWAY_CONFIG", f"{path.name}: {section} must be a mapping")
+        for key in value:
+            if key not in keys:
+                raise _unsafe(path, f"{section}.{key}" if str(key).isidentifier() else section)
+    general = data.get("general_settings") or {}
+    for key, expected in _GENERAL_ENV.items():
+        if key in general:
+            if general[key] != expected:
+                raise _unsafe(path, f"general_settings.{key} other than {expected}")
+            allowed_env.add(f"general_settings.{key}")
+
+    aliases: set[str] = set()
+    providers: dict[str, str] = {}
+    for index, entry in enumerate(models):
         name = entry.get("model_name") if isinstance(entry, dict) else None
         if not isinstance(name, str) or not name:
             raise GatewayError("GATEWAY_CONFIG", f"{path.name}: every model needs a model_name")
+        where = f"model_list[{index}]"
+        if set(entry) - _ENTRY:
+            raise _unsafe(path, f"{where} key")
+        params = entry.get("litellm_params") or {}
+        if not isinstance(params, dict) or set(params) - _PARAMS:
+            raise _unsafe(path, f"{where}.litellm_params key (custom endpoints are refused)")
+        model = params.get("model")
+        provider = model.split("/", 1)[0] if isinstance(model, str) and "/" in model else None
+        key = params.get("api_key")
+        if key is not None:
+            expected = PROVIDER_KEYS.get(provider)
+            if expected is None or key != _ENV + expected:
+                raise _unsafe(path, f"{where}.litellm_params.api_key (use the provider's own key)")
+            allowed_env.add(f"{where}.litellm_params.api_key")
+        label = provider if provider in PROVIDER_KEYS else "unknown"
+        providers[name] = f"{label} ({key[len(_ENV) :] if key else 'no key'})"
         aliases.add(name)
-    return aliases
+    for where, _ in _env_strings(data, "config"):
+        if where.removeprefix("config.") not in allowed_env:
+            raise _unsafe(path, f"os.environ reference at {where.removeprefix('config.')}")
+    return ConfigReview(aliases, providers, hashlib.sha256(path.read_bytes()).hexdigest())
+
+
+def config_aliases(path: Path) -> set[str]:
+    """The model aliases a LiteLLM proxy config serves (`model_list[].model_name`), after
+    `config_review` accepted the config."""
+    return config_review(path).aliases

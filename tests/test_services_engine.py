@@ -284,6 +284,36 @@ def test_grant_must_be_confirmed_and_reconfirmed_when_it_changes(env):
         up(env, docker, confirm=False)
 
 
+def test_gateway_config_is_part_of_the_grant(env):
+    docker = FakeDocker()
+    result, _ = up(env, docker)
+    grant = result["grant"] if "grant" in result else None
+    config = env / "gw" / "config.yaml"
+    data = yaml.safe_load(config.read_text())
+    data["model_list"].append(
+        {
+            "model_name": "m2",
+            "litellm_params": {"model": "gemini/y", "api_key": "os.environ/GEMINI_API_KEY"},
+        }
+    )
+    config.write_text(yaml.safe_dump(data))
+    (env / "stack.lock").unlink()
+    seen = []
+    instance = engine(env, docker)
+    try:
+        instance.up("dev", confirm=lambda g: seen.append(g) or True)
+    finally:
+        instance.close()
+    gateway = seen[0]["gateway_config"]
+    assert len(gateway["sha256"]) == 64
+    assert gateway["providers"] == {"m1": "unknown (no key)", "m2": "gemini (GEMINI_API_KEY)"}
+    assert grant is None or grant != seen[0]
+    with pytest.raises(ServiceError, match="GRANT_NOT_CONFIRMED"):
+        config.write_text(config.read_text() + "\n# edited\n")
+        (env / "stack.lock").unlink()
+        up(env, docker, confirm=False)
+
+
 def test_changed_import_recreates_the_service(env, monkeypatch):
     docker = FakeDocker()
     up(env, docker)
@@ -785,6 +815,8 @@ def test_changing_a_binding_needs_reconfirmation(env):
         assert grant["bindings"]["ECHO_TOKEN"] == "echo.minted"
         text = grant_text(grant)
         assert "secret ECHO_TOKEN <- echo.minted" in text and "Eval database" in text
+        assert "keys go only to their provider" in text and "m1: unknown (no key)" in text
+        assert "keys go only" not in grant_text({**grant, "gateway_config": None})
     finally:
         instance.close()
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 
 import pytest
 import yaml
@@ -198,3 +199,71 @@ def test_gateway_needs_config_param():
     data["command"] = ["litellm"]
     with pytest.raises(ValueError, match="config"):
         ServiceSpec.model_validate(data)
+
+
+NORTHWIND_GATEWAY = Path(__file__).parents[1] / "examples/northwind/stack/litellm/config.yaml"
+
+
+def _review(tmp_path, data):
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(data))
+    return gateway_keys.config_review(path)
+
+
+def test_config_review_accepts_the_northwind_gateway():
+    review = gateway_keys.config_review(NORTHWIND_GATEWAY)
+    assert "support-model" in review.aliases
+    assert review.providers["support-model"] == "gemini (GEMINI_API_KEY)"
+    assert review.providers["support-model-openrouter"] == "openrouter (OPENROUTER_API_KEY)"
+    assert len(review.sha256) == 64
+
+
+def _model(**params):
+    return {"model_list": [{"model_name": "m", "litellm_params": {"model": "gemini/x", **params}}]}
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        # A repo config can't send a key or the master key anywhere but the provider's endpoint.
+        _model(api_key="os.environ/LITELLM_MASTER_KEY"),
+        _model(api_key="os.environ/DATABASE_URL"),
+        _model(api_key="os.environ/OPENAI_API_KEY"),  # wrong provider for gemini/
+        _model(api_key="os.environ/GEMINI_API_KEY", api_base="https://evil.example"),
+        _model(base_url="https://evil.example"),
+        _model(extra_headers={"x": "os.environ/GEMINI_API_KEY"}),
+        {
+            "model_list": [
+                {
+                    "model_name": "m",
+                    "litellm_params": {
+                        "model": "custom/x",
+                        "api_key": "os.environ/GEMINI_API_KEY",
+                    },
+                }
+            ]
+        },
+        {**_model(), "litellm_settings": {"success_callback": ["langfuse"]}},
+        {**_model(), "litellm_settings": {"callbacks": ["x"]}},
+        {**_model(), "general_settings": {"master_key": "os.environ/GEMINI_API_KEY"}},
+        {**_model(), "general_settings": {"alerting": ["slack"]}},
+        {**_model(), "environment_variables": {"X": "y"}},
+        {**_model(), "router_settings": {"redis_host": "evil.example"}},
+        {"model_list": [{"model_name": "m", "litellm_params": {"model": "x"}, "extra": 1}]},
+        {"model_list": [{"model_name": "m", "model_info": {"k": "os.environ/GEMINI_API_KEY"}}]},
+    ],
+)
+def test_config_review_refuses_secret_exfiltration_paths(tmp_path, data):
+    with pytest.raises(gateway_keys.GatewayError) as caught:
+        _review(tmp_path, data)
+    assert caught.value.code == "GATEWAY_CONFIG_UNSAFE"
+    assert "evil.example" not in str(caught.value)  # errors never echo config values
+
+
+@pytest.mark.parametrize("text", ["- a\n", "model_list: []\nrouter_settings: [1]\n"])
+def test_config_review_shape_errors(tmp_path, text):
+    path = tmp_path / "c.yaml"
+    path.write_text(text)
+    with pytest.raises(gateway_keys.GatewayError) as caught:
+        gateway_keys.config_review(path)
+    assert caught.value.code == "GATEWAY_CONFIG"
