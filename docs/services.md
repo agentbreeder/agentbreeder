@@ -183,4 +183,7 @@ config can only describe a local demo environment, and `up` refuses to overwrite
 - Local Docker only; not a production deployment path.
 - Demo identities come from a generated static provider.
 - `customer_id` on an agent's `/invoke` is not authenticated (see the root README).
-- MCP servers through a relay (#744–#748) are not implemented yet.
+- MCP servers through a relay (#744–#748) are not implemented yet. The `mcp` registry kind,
+  `stack.yaml` `mcp:` entries with per-agent tool grants, `agent.yaml` `mcp:` and the deploy-side
+  grant lifecycle exist (spec §7); `services up` refuses a stack with `mcp:` entries
+  (`MCP_RELAY_UNAVAILABLE`) until the relay ships.

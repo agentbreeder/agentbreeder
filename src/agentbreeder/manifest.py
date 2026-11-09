@@ -143,6 +143,24 @@ class ModelAccess(_Strict):
         return value
 
 
+class McpAccess(_Strict):
+    """Tools of one MCP server (an `mcp/<name>@X.Y.Z` registry version) this deployment uses
+    through its stack's relay. The operator environment grants them; the relay holds the
+    upstream credential, never the agent."""
+
+    ref: str = Field(pattern=r"^mcp/[a-z0-9][a-z0-9-]{0,62}@[0-9]+\.[0-9]+\.[0-9]+$")
+    tools: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("tools")
+    @classmethod
+    def tool_names(cls, value: list[str]) -> list[str]:
+        if any(
+            not re.fullmatch(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$", tool) for tool in value
+        ) or len(set(value)) != len(value):
+            raise ValueError("tools must be unique MCP tool names")
+        return value
+
+
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -158,11 +176,12 @@ class Manifest(BaseModel):
     capabilities: Capabilities | None = None
     policy: PolicySelection | None = None
     model_access: ModelAccess | None = None
+    mcp_access: list[McpAccess] | None = Field(default=None, min_length=1, max_length=10)
 
     def digest(self) -> str:
         """Spec digest. Optional fields added later are left out when unset, so a manifest
         deployed before they existed keeps the same digest (no NAME_CONFLICT on redeploy)."""
-        exclude = {"model_access"} if self.model_access is None else set()
+        exclude = {name for name in ("model_access", "mcp_access") if getattr(self, name) is None}
         return hashlib.sha256(self.model_dump_json(exclude=exclude).encode()).hexdigest()
 
     @model_validator(mode="after")
@@ -172,6 +191,12 @@ class Manifest(BaseModel):
             raise ValueError("identity, requires, capabilities and policy need schema_version 2")
         if self.schema_version == 2 and self.identity is None:
             raise ValueError("schema_version 2 requires an identity block")
+        if self.mcp_access is not None:
+            if self.model_access is None:
+                raise ValueError("mcp_access is for built agents: it needs model_access")
+            refs = [entry.ref.split("@")[0] for entry in self.mcp_access]
+            if len(set(refs)) != len(refs):
+                raise ValueError("mcp_access names each MCP server once")
         return self
 
     @model_validator(mode="after")

@@ -238,6 +238,14 @@ class Engine:
         confirm: Callable[[dict], bool],
     ) -> dict:
         self.state.env_dir(environment)  # validates the name before anything runs
+        if self.stack.mcp:
+            # Refused rather than half-done: without a relay, deploys would write grants that
+            # nothing serves. The relay is the next slice of the MCP work.
+            raise ServiceError(
+                "MCP_RELAY_UNAVAILABLE",
+                "stack.yaml declares mcp: servers, but the MCP relay isn't implemented yet; "
+                "remove the mcp: entries for now",
+            )
         plan = self.plan(mode)
         grant = plan.grant(environment)
         digest = grant_digest(grant)

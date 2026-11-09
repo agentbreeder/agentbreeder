@@ -38,6 +38,12 @@ traces: otlp
 evals: {ref: eval/northwind-golden@1.0.1, threshold: 1.0, retries: 1}
 ```
 
+`mcp:` (optional, at most 10) lists MCP servers by registry ref only, with the tools the agent
+uses: `- {ref: mcp/github@1.0.0, tools: [list_issues]}`. `build` refuses tools the version's
+`mcp.yaml` doesn't declare (`MCP_TOOL_UNKNOWN`) and writes them into `agent.config.json` and the
+manifest's `mcp_access`. The stack-hosted relay that serves them is not implemented yet, so an
+agent with `mcp:` can't call its tools yet.
+
 ## Validation rules
 
 - **Strict YAML:** at most 64 KiB, unique keys, no anchors or aliases, and no unknown fields.

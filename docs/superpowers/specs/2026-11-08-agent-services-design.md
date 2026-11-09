@@ -814,3 +814,24 @@ role, so a compromised agent process could approve its own cancellation request.
   public CREATE, CREATE SCHEMA and reading customers; a staff approval through the ops API works.
 - **`services up --update`** accepts new hashes for edited project files (never a published
   version); lock errors name the right lock file and command.
+
+r7 (slice 4a, #744, implementation decisions):
+- **`Manifest.mcp_access` carries `{ref, tools}`,** not a server name (§7.3 sketch said
+  `server`): deploy resolves the relay from the ref (§7.7.6), so a manifest stays
+  environment-neutral. It needs `model_access` (built agents only) and is left out of the
+  digest when unset.
+- **The grant belongs to the agent's identities:** deploy finds the operator environment's agent
+  entry whose `identity` or `candidate_identity` equals the manifest's, so the release candidate
+  gets the same grant.
+- **The token file is the record (§7.7.3):** instead of a new store column, `reconcile` keeps a
+  grant only if its deployment is active and the sha256 of the deployment's private token file
+  equals the grant's name. Deploy deletes the deployment's grants before minting; failure,
+  remove and disable delete them first (a deletion failure fails the remove).
+- **Runtime contract:** `agent.config.json` gains `mcp: [{name, version, tools}]`; the container
+  gets `AGENTBREEDER_MCP_<NAME>_URL` and `AGENTBREEDER_MCP_<NAME>_TOKEN_FILE`, where `<NAME>` is
+  the mcp version's name (upper case, `-` as `_`), not the stack key.
+- **`services up` refuses `mcp:`** (`MCP_RELAY_UNAVAILABLE`) until slice 4b adds the relay and
+  writes `mcp_relays` into the generated operator config; grants nobody serves would otherwise
+  look like working deploys. `mcp` versions aren't locked into `stack.lock` yet (4b).
+- Cross-repo grep (agentbreeder-cloud, 2026-11-08): no use of `mcp_access`, `model_access` or
+  `mcp_relays`; no companion change.

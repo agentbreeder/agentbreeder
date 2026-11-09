@@ -158,9 +158,7 @@ def _reconcile(lock, key, digest, source, locked, mode, update, names) -> bool:
     lock_file, update_command = names
     if locked is None:
         if mode == "locked":
-            raise RegistryError(
-                "LOCK_STALE", f"{key} is not in {lock_file}; run without --locked"
-            )
+            raise RegistryError("LOCK_STALE", f"{key} is not in {lock_file}; run without --locked")
         lock.entries[key] = {"sha256": digest, "source": source}
         return True
     if locked.get("sha256") == digest:

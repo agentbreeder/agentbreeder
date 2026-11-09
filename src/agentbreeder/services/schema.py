@@ -370,10 +370,28 @@ class Ceilings(_Strict):
     rpm: int = Field(ge=1, le=100000)
 
 
+MCP_SERVER = r"^[a-z][a-z0-9_]{0,31}$"  # AGENTBREEDER_MCP_<NAME>_URL stays a valid name
+MCP_TOOL = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"
+
+
 class DemoAgent(_Strict):
     sponsor: str = Field(min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+$")
     review_by: str = Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
     candidate: bool = False
+    mcp: dict[str, list[str]] = Field(default_factory=dict, max_length=10)  # server -> tools
+
+    @model_validator(mode="after")
+    def mcp_tools(self):
+        for tools in self.mcp.values():
+            if not 1 <= len(tools) <= 100 or len(set(tools)) != len(tools):
+                raise ValueError("an mcp grant lists 1-100 unique tools")
+            if any(not _matches(MCP_TOOL, tool) for tool in tools):
+                raise ValueError("invalid mcp tool name")
+        return self
+
+
+class StackMcp(_Strict):
+    ref: str  # mcp/<name>@X.Y.Z; served by its own relay container
 
 
 class StackEnvironment(_Strict):
@@ -404,6 +422,7 @@ class Stack(_Strict):
     schema_version: Literal[1]
     name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,30}$")
     services: dict[str, StackService] = Field(min_length=1, max_length=20)
+    mcp: dict[str, StackMcp] = Field(default_factory=dict, max_length=10)
     environment: StackEnvironment
 
     @model_validator(mode="after")
@@ -419,6 +438,23 @@ class Stack(_Strict):
                 raise ValueError(f"services.{name}.ref: must be a service/name@X.Y.Z ref")
         if self.environment.gateway not in self.services:
             raise ValueError("environment.gateway must name a service in this stack")
+        refs = []
+        for name, entry in self.mcp.items():
+            if not _matches(MCP_SERVER, name):
+                raise ValueError(f"mcp name {name!r} is invalid")
+            try:
+                ref = Ref.parse(entry.ref)
+            except RegistryError as error:
+                raise ValueError(f"mcp.{name}.ref: not an mcp/name@X.Y.Z ref") from error
+            if ref.kind != "mcp":
+                raise ValueError(f"mcp.{name}.ref: must be an mcp/name@X.Y.Z ref")
+            refs.append(f"{ref.kind}/{ref.name}")
+        if len(set(refs)) != len(refs):
+            raise ValueError("each MCP server appears once (agents find their relay by ref)")
+        for agent, demo in self.environment.agents.items():
+            unknown = sorted(set(demo.mcp) - set(self.mcp))
+            if unknown:
+                raise ValueError(f"environment.agents.{agent}.mcp names unknown servers {unknown}")
         return self
 
 

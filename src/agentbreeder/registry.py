@@ -26,7 +26,7 @@ from pathlib import Path
 
 from agentbreeder.strict_yaml import StrictYamlError, load_file
 
-KINDS = ("runtime", "prompt", "tool", "knowledge", "eval", "service")
+KINDS = ("runtime", "prompt", "tool", "knowledge", "eval", "service", "mcp")
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 VERSION = re.compile(r"(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})")
 REF = re.compile(rf"(?P<kind>{'|'.join(KINDS)})/(?P<name>{NAME.pattern})@(?P<version>[0-9.]+)")
@@ -245,6 +245,15 @@ def verify(search: list[Path]) -> list[dict]:
 
 
 SCAFFOLD = {
+    "mcp": {
+        "mcp.yaml": (
+            "# See docs/services.md (MCP servers). Remote upstreams are https only.\n"
+            'upstream:\n  remote: {url: "https://mcp.example.com/mcp"}\n'
+            "auth: {type: bearer, secret: token}\n"
+            "secrets:\n  token: {import: EXAMPLE_MCP_TOKEN}\n"
+            "tools:\n  example_tool: {effect: read}\n"
+        ),
+    },
     "prompt": {"prompt.md": "You are a helpful assistant.\n"},
     "tool": {
         "tool.yaml": "functions: []   # see docs/agent-yaml.md\n",

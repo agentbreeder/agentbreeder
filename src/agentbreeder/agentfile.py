@@ -60,6 +60,12 @@ class Knowledge(_Strict):
     extra_searches: int = Field(default=1, ge=0, le=5)
 
 
+class McpEntry(_Strict):
+    # Only the ref: deploy finds the stack's relay for it, so agent.yaml names no stack.
+    ref: str
+    tools: list[str] = Field(min_length=1, max_length=100)
+
+
 class Memory(_Strict):
     sessions: Literal["postgres"] = "postgres"
     notes: bool = False
@@ -82,6 +88,7 @@ class AgentFile(_Strict):
     # runtime/adk 1.x retrieves from one knowledge set (chunk ids are not namespaced per set)
     knowledge: list[Knowledge] = Field(default_factory=list, max_length=1)
     tools: list[RefEntry] = Field(default_factory=list, max_length=50)
+    mcp: list[McpEntry] = Field(default_factory=list, max_length=10)
     memory: Memory = Field(default_factory=Memory)
     agent_events: Literal["postgres", "none"] = "postgres"
     traces: Literal["otlp", "none"] = "otlp"
@@ -97,6 +104,7 @@ class AgentFile(_Strict):
             (f"knowledge[{i}].ref", k.ref, "knowledge") for i, k in enumerate(self.knowledge)
         ]
         expected += [(f"tools[{i}].ref", t.ref, "tool") for i, t in enumerate(self.tools)]
+        expected += [(f"mcp[{i}].ref", m.ref, "mcp") for i, m in enumerate(self.mcp)]
         if self.evals:
             expected.append(("evals.ref", self.evals.ref, "eval"))
         seen: dict[str, str] = {}
@@ -115,6 +123,9 @@ class AgentFile(_Strict):
             if key in seen:
                 raise ValueError(f"{where}: duplicates {seen[key]} (one version per name)")
             seen[key] = where
+        for i, entry in enumerate(self.mcp):
+            if len(set(entry.tools)) != len(entry.tools):
+                raise ValueError(f"mcp[{i}].tools: duplicate tool")
         if self.prompt.path:
             path = Path(self.prompt.path)
             if path.is_absolute() or ".." in path.parts:
@@ -130,6 +141,7 @@ class AgentFile(_Strict):
         if self.prompt.ref:
             result.append(self.prompt.ref)
         result += [k.ref for k in self.knowledge] + [t.ref for t in self.tools]
+        result += [m.ref for m in self.mcp]
         if self.evals:
             result.append(self.evals.ref)
         return result

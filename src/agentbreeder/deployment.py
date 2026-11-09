@@ -11,8 +11,10 @@ import json
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from agentbreeder import gateway_keys, secret_files
+from agentbreeder import mcp as mcp_relay
 from agentbreeder.audit import AuditError, AuditEvent
 from agentbreeder.deployer import Deployer, os_deployer
 from agentbreeder.egress.boundary import Boundary, BoundaryUnverified
@@ -144,7 +146,7 @@ class DeploymentService:
             is_reference_blocked=self.store.blocked_reference,
         )
         if decision.allowed:
-            problem = self._deploy_requirements(manifest)
+            problem = self._deploy_requirements(manifest, context.environment)
             if problem is not None:
                 return GateDecision(False, *problem)
         return decision
@@ -237,7 +239,7 @@ class DeploymentService:
                     )
                 )
                 raise DeploymentError("Agent name already has a different spec; remove it first")
-            problem = self._deploy_requirements(manifest)
+            problem = self._deploy_requirements(manifest, context.environment)
             if problem is not None:
                 code, message = problem
                 reason = [{"code": code, "message": message}]
@@ -362,6 +364,11 @@ class DeploymentService:
             state = self.store.directory
             minting = self._minting(manifest)
             generated = {GATEWAY_KEY_ENV: "secret://" + GATEWAY_KEY_FILE} if minting else {}
+            context_env = (fields.get("context") or {}).get("environment")
+            _, servers = self._mcp_servers(manifest, context_env)
+            for access, _server, _relay, _tools in servers:
+                env, name = _mcp_secret(access.ref)
+                generated[env] = "secret://" + name
             if (
                 info is not None
                 and (manifest.secrets or generated)
@@ -385,6 +392,14 @@ class DeploymentService:
                 environment = self._service_environment(
                     manifest, (fields.get("context") or {}).get("environment")
                 )
+                for access, server, relay, tools in servers:
+                    mounts.append(
+                        self._grant_mcp(
+                            manifest, identifier, context_env, access, server, relay, tools
+                        )
+                    )
+                    variable = mcp_relay.env_name(access.ref.split("/")[1].split("@")[0])
+                    environment[f"AGENTBREEDER_MCP_{variable}_URL"] = relay.url
                 options = {}
                 if environment is not None:
                     options = {"environment": environment, "host_gateway": True}
@@ -413,6 +428,7 @@ class DeploymentService:
             )
         except DeploymentError as error:
             secret_files.cleanup(self.store.directory, identifier)
+            self._revoke_mcp(identifier)
             # Always revoke on failure: a key from an earlier generation may still be live even
             # when this attempt minted nothing (container gone, or inspect failed). Revoking a
             # key that doesn't exist is a no-op at the gateway.
@@ -423,10 +439,21 @@ class DeploymentService:
 
     # -- per-deployment gateway keys ---------------------------------------------------------
 
-    def _deploy_requirements(self, manifest: Manifest) -> tuple[str, str] | None:
+    def _deploy_requirements(
+        self, manifest: Manifest, environment: str | None = None
+    ) -> tuple[str, str] | None:
         """Checks after the gate that need no side effects: what this installation can run.
         `deploy` and `preflight` share them, so `release --rollback` learns of a deny before it
         removes production."""
+        if manifest.mcp_access is not None:
+            if self.enforcing:
+                return (
+                    "MCP_RELAY_UNSUPPORTED",
+                    "mcp_access is not yet supported with runtime enforcement",
+                )
+            problem, _ = self._mcp_servers(manifest, environment)
+            if problem is not None:
+                return problem
         if self.enforcing and manifest.model_access is not None:
             # The egress boundary runs agents on an internal network with no gateway key,
             # gateway URL or service URLs: the deploy would be "ready" and every call fail.
@@ -533,6 +560,136 @@ class DeploymentService:
             )
         )
         return outcome
+
+    # -- MCP relay grants (spec §7.3, §7.7.3) -----------------------------------------------
+
+    def _mcp_servers(self, manifest: Manifest, environment: str | None):
+        """Resolve each `mcp_access` ref to the environment's relay and the agent's grant.
+        Returns (problem, [(access, server, relay, tools)]); tools are the requested ones."""
+        if not manifest.mcp_access:
+            return None, []
+        env = self.operator.model.environments.get(environment or "")
+        relays = env.mcp_relays if env else {}
+        # The grant belongs to the agent whose identity (or candidate identity) this is.
+        granted: dict[str, list[str]] = {}
+        for agent in (env.agents if env else {}).values():
+            if manifest.identity in (agent.identity, agent.candidate_identity):
+                granted = agent.mcp
+                break
+        result = []
+        for access in manifest.mcp_access:
+            matches = sorted(name for name, relay in relays.items() if relay.ref == access.ref)
+            if not matches:
+                return (
+                    "MCP_SERVER_UNAVAILABLE",
+                    f"environment {environment} has no MCP relay for {access.ref}",
+                ), []
+            if len(matches) > 1:
+                return (
+                    "MCP_SERVER_AMBIGUOUS",
+                    f"environment {environment} has {len(matches)} relays for {access.ref}",
+                ), []
+            server = matches[0]
+            missing = sorted(set(access.tools) - set(granted.get(server, [])))
+            if missing:
+                return (
+                    "MCP_TOOL_NOT_GRANTED",
+                    f"{access.ref}: {len(missing)} requested tool(s) not granted to this agent "
+                    f"in {environment}: {', '.join(missing)}",
+                ), []
+            result.append((access, server, relays[server], list(access.tools)))
+        return None, result
+
+    def _grant_mcp(self, manifest, identifier, environment, access, server, relay, tools):
+        """Mint this container generation's relay token. Earlier grants of the deployment go
+        first, so a retry or crash never leaves an older token valid; the token reaches only
+        the deployment's private secret file, the relay only its sha256."""
+        directory = Path(relay.grants_dir)
+        env, name = _mcp_secret(access.ref)
+        try:
+            mcp_relay.revoke(directory, deployment=identifier)
+            token = mcp_relay.mint_token()
+            mount = secret_files.write_generated(
+                self.store.directory, identifier, name, env, token.encode()
+            )
+            mcp_relay.write_grant(
+                directory,
+                token,
+                {
+                    "deployment": identifier,
+                    "agent": manifest.name,
+                    "environment": environment,
+                    "server": server,
+                    "tools": sorted(tools),
+                },
+            )
+        except (mcp_relay.McpError, SecretError, OSError) as error:
+            code = getattr(error, "code", "MCP_GRANT_FAILED")
+            raise DeploymentError(f"[{code}] MCP grant for {server} not written") from error
+        return mount
+
+    def _relay_dirs(self) -> list[Path]:
+        environments = self.operator.model.environments.values()
+        return [Path(r.grants_dir) for env in environments for r in env.mcp_relays.values()]
+
+    def _revoke_mcp(self, identifier: str) -> None:
+        """Delete every grant file of a deployment, in every relay this installation knows."""
+        try:
+            for directory in self._relay_dirs():
+                mcp_relay.revoke(directory, deployment=identifier)
+        except OSError as error:
+            raise DeploymentError(
+                f"[MCP_GRANT_CLEANUP] grant files not deleted; retry ({type(error).__name__})"
+            ) from error
+
+    def _prune_mcp_grants(self, attempt, actor) -> list[dict]:
+        """Delete grant files with no active deployment, or whose hash isn't that deployment's
+        current token (its private token file is the record)."""
+        results = []
+        environments = self.operator.model.environments
+        for env_name, env in environments.items():
+            for server, relay in env.mcp_relays.items():
+                directory = Path(relay.grants_dir)
+                for digest, grant in mcp_relay.grants(directory).items():
+                    if self._grant_current(digest, grant, env_name, server, relay.ref):
+                        continue
+                    (directory / f"{digest}.json").unlink(missing_ok=True)
+                    self._audit(
+                        self._event(
+                            attempt,
+                            "mcp_grant",
+                            "revoked",
+                            actor,
+                            deployment_id=str(grant.get("deployment", ""))[:64] or None,
+                            reasons=[{"code": "MCP_GRANT_ORPHAN", "message": server}],
+                        )
+                    )
+                    results.append(
+                        {"id": digest[:16], "name": server, "compliance": "mcp_grant_revoked"}
+                    )
+        return results
+
+    def _grant_current(self, digest, grant, environment, server, ref) -> bool:
+        identifier = grant.get("deployment")
+        if (
+            not isinstance(identifier, str)
+            or not re.fullmatch(r"[0-9a-f]{32}", identifier)
+            or grant.get("server") != server
+            or grant.get("environment") != environment
+        ):
+            return False
+        try:
+            record = self.store.get(identifier)
+        except DeploymentError:
+            return False
+        if record["state"] not in ("ready", "starting", "pending"):
+            return False
+        _, name = _mcp_secret(ref)
+        token_file = secret_files.deployment_dir(self.store.directory, identifier) / name
+        try:
+            return mcp_relay.token_hash(token_file.read_text().strip()) == digest
+        except (OSError, mcp_relay.McpError):
+            return False
 
     def _agents_network(self, name: str | None) -> str | None:
         """The operator environment's extra network (a `services up` stack), if any."""
@@ -956,6 +1113,7 @@ class DeploymentService:
                         self.boundary.teardown(record)
                     if self.runtime.inspect(record) is not None:
                         raise DeploymentError("Container removal could not be verified; retry")
+                    self._revoke_mcp(identifier)  # before success is reported
                     secret_files.cleanup(self.store.directory, identifier)
                     key = self._revoke_key(
                         self.store.manifest(identifier), identifier, attempt, actor
@@ -1087,6 +1245,7 @@ class DeploymentService:
                     self.boundary.teardown(record)
                 if self.runtime.inspect(record) is not None:
                     raise DeploymentError("Container stop could not be verified; retry reconcile")
+                self._revoke_mcp(identifier)
                 secret_files.cleanup(self.store.directory, identifier)
                 self._revoke_key(self.store.manifest(identifier), identifier, attempt, actor)
                 self.store.transition(
@@ -1299,6 +1458,7 @@ class DeploymentService:
                     {"id": record["id"], "name": record["name"], "compliance": compliance}
                 )
             results += self._revoke_orphan_keys(attempt, actor)
+            results += self._prune_mcp_grants(attempt, actor)
             self._audit(
                 self._event(
                     attempt,
@@ -1530,6 +1690,12 @@ class DeploymentService:
             ):
                 deny("HELD_NOT_PENDING", "Held call changed concurrently")
             return _held_view(self.store.held(held_id))
+
+
+def _mcp_secret(ref: str) -> tuple[str, str]:
+    """(ENV, file name) of a deployment's relay token for `mcp/<name>@X.Y.Z`."""
+    name = ref.split("/", 1)[1].split("@", 1)[0]
+    return f"AGENTBREEDER_MCP_{mcp_relay.env_name(name)}_TOKEN", f"mcp-{name}-token"
 
 
 def _authorization_props(principal) -> dict:
