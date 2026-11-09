@@ -53,6 +53,26 @@ Follow [the local image guide](docs/first-deployment.md). Supply a trusted state
 
 Local OS/Docker permissions are the control boundary. Production permissions, approvals and authenticated invocation are later work. Status shows the last recorded observation, not a live health guarantee.
 
+## Build an agent with its backing services (preview)
+
+`agentbreeder build` turns an `agent.yaml` (registry references for the runtime, prompt,
+knowledge, tools and evals; no agent code) into an image, and `agentbreeder release` deploys a
+candidate, runs its eval set and promotes it only if the gate passes. `agentbreeder services up`
+starts the services the agent needs from a `stack.yaml` (Postgres with pgvector, a LiteLLM
+gateway, Phoenix, project services) on local Docker and writes a demo operator config for them.
+`examples/northwind` runs this way end to end on macOS with Docker Desktop (61/61 evals,
+2026-11-08):
+
+```sh
+cd examples/northwind
+agentbreeder services up --environment dev --env-file ~/.env --yes
+agentbreeder release agent.yaml --stack . --environment dev
+agentbreeder services down --purge --yes   # after `agentbreeder remove ID --local --stack .`
+```
+
+Local-only preview: see [examples/northwind](examples/northwind/README.md),
+[agent.yaml](docs/agent-yaml.md) and [services](docs/services.md).
+
 ## Develop
 
 ```sh

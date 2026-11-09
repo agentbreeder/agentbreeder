@@ -42,6 +42,11 @@ const WORKS: { title: string; detail: string }[] = [
       'Versioned, hash-locked registries for runtimes, prompts, knowledge, tools and evals; an ADK runtime; per-deployment LiteLLM keys; an eval-gated release. Verified only with the Northwind example, which passed 61/61.',
   },
   {
+    title: 'Preview: local backing services from stack.yaml',
+    detail:
+      'agentbreeder services up starts Postgres with pgvector, a LiteLLM gateway, Phoenix and project services on local Docker, hardened and hash-locked, and writes a demo operator config. Local only; verified with the Northwind example (61/61).',
+  },
+  {
     title: 'MCP egress sidecar (opt-in)',
     detail:
       'Policy on every MCP Streamable HTTP tool call, with credential injection and held calls. STDIO and in-process tools are never mediated.',

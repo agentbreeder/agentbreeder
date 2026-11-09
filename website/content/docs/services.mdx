@@ -1,0 +1,103 @@
+---
+title: Backing services
+description: Preview. Declare the services an agent needs in stack.yaml; agentbreeder services up starts them on local Docker and writes a demo operator config.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Local-only preview">
+  Install from source. `agentbreeder services` runs on the local Docker engine only and is not
+  production infrastructure. Verified on macOS with Docker Desktop: the Northwind example started
+  from scratch with `services up`, and `agentbreeder release` passed its 61-case eval gate (61/61,
+  2026-11-08). MCP servers through a relay are designed but not implemented yet.
+</Callout>
+
+An agent built from `agent.yaml` needs services before it can run: Postgres, a model gateway, a
+trace collector, sometimes project helpers. A project declares them in `stack.yaml` next to
+`agent.yaml`, and one command starts them:
+
+```sh
+cd examples/northwind
+agentbreeder services up --environment dev --env-file ~/.env   # shows the grant; --yes confirms
+agentbreeder release agent.yaml --stack . --environment dev    # build, candidate, evals, promote
+agentbreeder services down --purge --yes                       # remove everything up made
+```
+
+`agent.yaml` doesn't change and still grants nothing. `services up` writes the operator config
+for a **local demo environment** outside the repo, under `~/.agentbreeder/stacks/`, and
+`--stack DIR` points `build`, `deploy`, `eval`, `release`, `status`, `remove` and `reconcile` at
+it.
+
+## stack.yaml
+
+```yaml
+kind: stack
+schema_version: 1
+name: northwind
+services:
+  postgres:
+    ref: service/postgres-pgvector@1.0.0
+    with:
+      databases: [support, litellm, phoenix]   # one database and one login role each
+      init_sql: stack/db/commerce.sql
+      init_sql_database: support
+  litellm:
+    ref: service/litellm@1.0.0
+    with: {config: stack/litellm/config.yaml}
+    wire: {database-url: postgres.databases.litellm}
+  phoenix:
+    ref: service/phoenix@1.0.0
+    wire: {database-url: postgres.databases.phoenix}
+environment:
+  gateway: litellm
+  models: [support-model, support-embedding, support-judge]
+  ceilings: {budget_usd: 50, rpm: 300}
+  bindings:
+    DATABASE_URL: {ref: postgres.databases.support}
+  eval_database: {ref: postgres.databases.support}
+  agents:
+    northwind-support: {sponsor: support-lead@example.com, review_by: "2027-06-30", candidate: true}
+```
+
+- `with` sets a service's params; `wire` connects its inputs to other services' outputs, so
+  services never name each other.
+- Secret outputs are only ever used whole: wired to a service, or bound into the agent as a
+  mounted file. They never appear in environment variables or labels.
+- `stack.lock` records the hash of every service version and file param; `--locked` refuses any
+  change.
+
+## What `services up` does
+
+1. Locks the service versions and checks params, wiring and the gateway's model aliases.
+2. Prints the **grant**: every service and its image (built-in or project), egress, which
+   networks can reach it, its `127.0.0.1` ports, imported variable names, what agents receive, the
+   gateway's models and where each provider key goes. It needs `--yes` the first time and
+   whenever the grant changes.
+3. Generates and imports secrets, builds project services, starts everything, waits for health,
+   and runs one-shot `init` and `bootstrap` steps (creating database roles, minting Phoenix's
+   ingest key).
+4. Writes the demo operator config and identities.
+
+Every service runs with a read-only root filesystem, no capabilities and `no-new-privileges`.
+Every HTTP port reachable outside the stack has a guard (a bearer key, LiteLLM auth, or Host and
+Origin checks). Agents join a separate network that reaches only the ports declared for them.
+
+## Built-in services
+
+| Service | Runs | Gives |
+|---|---|---|
+| `service/postgres-pgvector@1.0.0` | PostgreSQL 16 with pgvector | a URL per database, each with its own role |
+| `service/litellm@1.0.0` | the LiteLLM proxy as the model gateway | its URL; a master key only AgentBreeder uses |
+| `service/phoenix@1.0.0` | Arize Phoenix with auth on, data in Postgres | its URL; an ingest key only services may hold |
+
+Projects add their own versions under `registry/service/`, from a digest-pinned image or built
+from source with a strict Dockerfile subset.
+
+## Limits
+
+- Local Docker only; demo identities come from a generated static provider.
+- A deployed agent's endpoint is not authenticated.
+- MCP servers through a relay are not implemented yet.
+
+The canonical reference is
+[services.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md).

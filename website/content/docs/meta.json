@@ -5,6 +5,7 @@
     "index",
     "local-deployment",
     "agent-yaml",
+    "services",
     "manifest",
     "identity-gate",
     "---Older releases---",

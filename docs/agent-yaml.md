@@ -1,10 +1,11 @@
 # `agent.yaml` (authoring schema v1, preview)
 
 > Part of the `agent.yaml` build work (#725), preview. `validate` and `build` work today with the
-> ADK runtime (`runtime/adk@1.0.4`). Verified end to end on macOS + Docker Desktop with the
-> Northwind example (`examples/northwind/`): built from `agent.yaml`, deployed through the gate
-> and answering, and released through the 61-case eval gate with `agentbreeder release` (61/61,
-> 2026-11-07).
+> ADK runtime (`runtime/adk@1.0.5`). Verified end to end on macOS + Docker Desktop with the
+> Northwind example (`examples/northwind/`): its services started from `stack.yaml` with
+> `agentbreeder services up` (see `services.md`), then built from `agent.yaml`, deployed through
+> the gate and released through the 61-case eval gate with `agentbreeder release` (61/61,
+> 2026-11-08).
 
 An agent file says what an agent is made of: a runtime, a model alias, a prompt, knowledge, tools,
 memory and evals. Everything is a registry reference (`kind/name@X.Y.Z`, see `registry.md`). You
@@ -18,14 +19,14 @@ config for the environment you build for. Nothing in it can grant a permission o
 kind: agent                    # required; tells agent files apart from manifests and 2.x files
 schema_version: 1
 name: northwind-support        # DNS label, at most 53 characters
-runtime: runtime/adk@1.0.4
+runtime: runtime/adk@1.0.5
 model:
   alias: support-model         # a LiteLLM gateway alias
   reasoning: low               # none | low | medium | high
   max_model_calls: 4           # the last call has tools switched off
   budget_usd: 25               # optional; can only lower the operator's ceiling
   rpm: 120                     # optional; same rule
-prompt: {ref: prompt/northwind-support@1.0.0}   # or {path: ./prompts/dev.md} while iterating
+prompt: {ref: prompt/northwind-support@1.0.1}   # or {path: ./prompts/dev.md} while iterating
 knowledge:                     # runtime/adk 1.x: at most one knowledge set
   - {ref: knowledge/northwind-help@1.0.0, top_k: 5, extra_searches: 1}
 tools:
@@ -34,7 +35,7 @@ tools:
 memory: {sessions: postgres, notes: true}       # notes needs tool/customer-notes; postgres is the only session store
 agent_events: postgres         # the agent's own event log, not the deploy audit chain
 traces: otlp
-evals: {ref: eval/northwind-golden@1.0.0, threshold: 1.0, retries: 1}
+evals: {ref: eval/northwind-golden@1.0.1, threshold: 1.0, retries: 1}
 ```
 
 ## Validation rules
@@ -75,7 +76,9 @@ build arguments or secrets. `build` then writes:
 
 `build` never deploys and never reads secrets. Deploy the manifest with `agentbreeder deploy`.
 
-The operator environment has to grant what the build needs:
+The operator environment has to grant what the build needs. For a local demo,
+`agentbreeder services up` writes it from `stack.yaml` and `--stack .` uses it (see
+`services.md`); a hand-written operator config looks like this:
 
 ```yaml
 gateways:
@@ -97,13 +100,14 @@ environments:
         candidate_identity: {provider: demo, ref: support-agent-candidate, environment: dev}
 ```
 
-## The ADK runtime (`runtime/adk@1.0.4`)
+## The ADK runtime (`runtime/adk@1.0.5`)
 
 The runtime ships with AgentBreeder and is built on Google ADK 2.12. It reaches models through
 the LiteLLM gateway, using the `openai/<alias>` route with `reasoning_effort` set from
 `model.reasoning`.
 
-- **Sessions:** ADK sessions in Postgres.
+- **Sessions:** ADK sessions in Postgres, in an `adk_sessions` schema of the agent's own
+  database (`DATABASE_URL`), so the agent needs one database credential.
 - **Memory:** per-customer notes, injected into the prompt.
 - **Knowledge:** hybrid pgvector and BM25 retrieval, with embeddings through the gateway.
 - **Tools:** loaded from tool packages (`tool.yaml` plus `src/`). The customer comes from the
@@ -131,7 +135,7 @@ prompt.
 
 ```
 agentbreeder eval agent.yaml --endpoint URL [--environment ENV] [--only id,...] [--retries N] [--json]
-agentbreeder release agent.yaml --environment ENV [--threshold 1.0] [--retries N] [--json]
+agentbreeder release agent.yaml --environment ENV [--stack DIR] [--threshold 1.0] [--retries N] [--json]
 agentbreeder release agent.yaml --rollback [--environment ENV]   # gate-checked before anything is removed
 ```
 

@@ -41,7 +41,10 @@ agentbreeder release agent.yaml --stack . --environment dev    # build → candi
 `dev` there. Nothing is written into this directory except `stack.lock`. The agent joins the
 stack's agents network: it reaches Postgres, the gateway and the key proxy, but not Phoenix or the
 ops dashboard. `agentbreeder services status` lists each service's `127.0.0.1` port;
-`agentbreeder services down` stops the stack and keeps its data.
+`agentbreeder services down` stops the stack and keeps its data. To start over from scratch,
+remove the agent (`agentbreeder remove ID --local --stack .`), then
+`agentbreeder services down --purge --yes` deletes the volumes, the built service images and the
+stack's state (generated secrets, operator config, history).
 
 Or step by step: `agentbreeder build agent.yaml --stack . --environment dev`, then
 `agentbreeder deploy deploy/northwind-support.deploy.yaml --local --stack . --environment dev`.
