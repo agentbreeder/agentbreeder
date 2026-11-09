@@ -88,6 +88,21 @@ because the sidecar's network has no route to the model gateway.
 Tools run in the agent's process with its privileges. Customer scoping is enforced by the shipped
 tools' own code, not by an engine boundary.
 
+## MCP tools
+
+`runtime/adk@1.1.0` adds MCP tools. List the server and the tools the agent uses:
+`mcp: [{ref: mcp/github@1.0.0, tools: [list_issues]}]`.
+- **Calls:** they go through the stack's [MCP relay](/docs/services). The relay holds the
+  upstream credential and forwards only the tools the operator granted.
+- **Tool names:** the model sees them as `<server>_<tool>`, for example `github_list_issues`.
+- **Build refusals:** `build` refuses `mcp:` on a runtime without an MCP client
+  (`MCP_RUNTIME_UNSUPPORTED`), and tool names that would clash or that ADK reserves.
+- **Errors:** a relay that can't be reached when the tools are listed costs that turn its MCP
+  tools, and the turn result says so. A call the relay refuses reaches the model as an error.
+
+Verified in Docker only against a mock MCP server and a fake model gateway. It hasn't run through
+`deploy` with a real model, or against a built-in MCP server.
+
 ## Model access, secrets and keys
 
 The operator environment grants a gateway, a model allow-list and budget and rate ceilings. The

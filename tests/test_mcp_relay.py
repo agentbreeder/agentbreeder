@@ -1,4 +1,4 @@
-"""The built-in MCP relay (service/mcp-relay@1.0.0, relay/relay.py) against a mock upstream that
+"""The built-in MCP relay (service/mcp-relay@1.0.1, relay/relay.py) against a mock upstream that
 counts calls. Covers spec §7.4, §7.6 and §7.7 and acceptance criteria 10 and 11."""
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import pytest
 
 import agentbreeder
 
-ROOT = Path(agentbreeder.__file__).parent / "builtin_registry/service/mcp-relay/1.0.0"
+ROOT = Path(agentbreeder.__file__).parent / "builtin_registry/service/mcp-relay/1.0.1"
 CANARY = "ghp_CANARY_upstream_credential_0123456789"
 TOKEN_A = "a" * 64
 TOKEN_B = "b" * 64
@@ -1605,3 +1605,21 @@ def test_admin_connection_errors_are_logged_not_printed(harness, capfd):
         harness.admin.handle_error(None, ("127.0.0.1", 1))
     assert "Traceback" not in capfd.readouterr().err
     assert any(line.get("event") == "connection_error" for line in harness.logs())
+
+
+def test_unknown_session_is_a_bare_404(harness):
+    """No JSON-RPC body: the MCP Python SDK then reports "Session terminated", which is what makes
+    ADK discard the session and initialize again (relay 1.0.1, #746). With a body, ADK kept the
+    dead session and every later call failed."""
+    session, _ = harness.initialize()
+    harness.restart()
+    status, _, body = harness.rpc("ping", session=session)
+    assert status == 404 and body == b""
+    status, _, body = harness.request("DELETE", session=session)
+    assert status == 404 and body == b""
+    assert any(line.get("decision") == "SESSION_UNKNOWN" for line in harness.logs())
+
+
+def test_relay_reports_its_version():
+    assert relay_mod.VERSION == "1.0.1"
+    assert "version: 1.0.1" in (ROOT / "manifest.yaml").read_text()

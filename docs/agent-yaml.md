@@ -42,8 +42,39 @@ evals: {ref: eval/northwind-golden@1.0.1, threshold: 1.0, retries: 1}
 uses: `- {ref: mcp/github@1.0.0, tools: [list_issues]}`. `build` refuses tools the version's
 `mcp.yaml` doesn't declare (`MCP_TOOL_UNKNOWN`) and writes them into `agent.config.json` and the
 manifest's `mcp_access`. `agentbreeder services up` runs a relay for each stack `mcp:` entry
-(see [services.md](services.md#mcp-servers-through-a-relay)), but the ADK runtime has no MCP
-client yet (#746), so an agent built from `agent.yaml` can't call its tools yet.
+(see [services.md](services.md#mcp-servers-through-a-relay)). `runtime/adk@1.1.0` calls the
+tools through it: one ADK `McpToolset` per server, with tools named `<server>_<tool>` (for
+example `github_list_issues`). `build` refuses `mcp:` on a runtime without an MCP client, such
+as `runtime/adk@1.0.6` (`MCP_RUNTIME_UNSUPPORTED`). It also refuses MCP tool names that would
+clash: the same name from two servers, a function tool or knowledge search (`MCP_TOOL_CLASH`),
+or a name ADK reserves (`MCP_TOOL_RESERVED`).
+
+What happens at run time:
+- **Relay unreachable when the tools are listed:** the turn runs without that server's tools,
+  and the turn result and its audit events say so (`mcp_unavailable`). The runtime caches a
+  successful listing for 60 seconds. If the relay goes away after that, the tools stay declared,
+  and each call fails to the model and is audited as failed.
+- **A call the relay refuses** (for example, a tool that is no longer granted) reaches the model
+  as an error, and the audit records it as failed.
+- **After a relay restart,** the next tool call fails if the listing is still cached, and the one
+  after it reconnects. Once the cache has expired, the listing itself reconnects and no call
+  fails.
+- **Sharing:** every customer of a deployment shares one MCP session, and the relay's per-token
+  limits (4 concurrent calls, 60 requests a minute). Use only MCP servers whose session holds no
+  per-user state. Browser-type servers, which do, aren't supported yet (#747).
+- **Unauthenticated callers:** `POST /invoke` is not authenticated, so whoever can reach the
+  agent can make it call its granted MCP tools. That means loopback and, despite the `Host`
+  check, other containers on the agents network. Authenticated invocation is #780.
+- **Tool data:** MCP tool arguments go to the agent's audit events and traces, and tool results
+  to traces, as for registry tools.
+- **Timeouts:** connecting, initializing and listing tools each have 10 seconds, with one retry.
+  The relay's `tools/list` checks definitions against the upstream live, so a slow real upstream
+  may need more time. That hasn't been measured yet (#748).
+
+**What has been verified:** an agent built from `agent.yaml` called an MCP tool through the relay
+in Docker, against a mock MCP server and a fake LLM gateway (`tests/test_adk_mcp_docker.py`).
+Two things are not verified yet: the full `deploy` path with a real model, and the built-in MCP
+servers (#748).
 
 ## Validation rules
 

@@ -913,3 +913,91 @@ the admin listener logs connection errors as JSON too; the `--repin` prompt says
 drops pins of tools missing upstream; the 16 MiB streamed-reply cap is documented; ROADMAP.md
 updated. Noted for #746: each agent `tools/list` runs the live check (up to 20 upstream pages)
 and counts as one request against the per-token rate limit.
+
+r13 (slice 4c, #746, `runtime/adk@1.1.0`; plan docs/superpowers/plans/2026-11-09-adk-mcp-toolset.md,
+reviewed twice by claude-fable-5-1 before implementation). Corrections and decisions, checked
+against google-adk 2.12.0 and mcp 2.3.0:
+- **§7.7.7 prefix:** ADK joins the prefix with `_`, so the runtime passes `tool_name_prefix=<server>`
+  (not `<server>_`); the model sees `<server>_<tool>`.
+- **§7.7.10 names:** deploy derives `<NAME>` in `AGENTBREEDER_MCP_<NAME>_URL` / `_TOKEN` from the
+  `mcp/<name>` ref name (uppercased, `-` → `_`), not the stack.yaml key; duplicate refs are
+  `MCP_SERVER_AMBIGUOUS`, so it is well defined.
+- **Relay 1.0.1:** an unknown or expired session is a bare 404 with no body. With 1.0.0's JSON-RPC
+  error body, the MCP Python SDK reports that error instead of "Session terminated", ADK keeps the
+  dead session, and every call after a relay restart fails. `RELAY_REF` is now
+  `service/mcp-relay@1.0.1`; 1.0.0 is unchanged. A stack locked to 1.0.0 needs one `services up`
+  without `--locked`.
+- **Timeouts:** `timeout=10` bounds connect, initialize and `tools/list` (ADK retries once);
+  `tools/call` is bounded only by `sse_read_timeout=125`, just above the relay's 120 s. The turn
+  budget (`TURN_TIMEOUT=170`) is unchanged: one slow MCP call plus model calls can give a 504.
+- **Shared session:** a constant token means one pooled MCP session per deployment, shared by every
+  customer, and the relay's per-token limits (4 concurrent, 60 a minute) are shared too.
+- **Degrade:** ADK already runs a turn without a toolset whose listing fails. The runtime keeps
+  that, remembers the failure for the rest of the turn (no reconnect per model step), and records
+  it: `mcp_unavailable` in the turn result and one `mcp_unavailable` audit event.
+- **Results, not exceptions:** ADK returns MCP failures (every relay refusal) and `isError` results
+  as results, so the runtime marks the audit `ok: false` for them; `on_tool_error_callback` doesn't
+  fire for MCP tools.
+- **Restart:** after a relay restart the next tool call fails to the model (ADK doesn't retry
+  `tools/call`), and the one after re-initializes.
+- **Startup refusals** (`ConfigError`): missing or malformed relay URL, a token that isn't 64
+  lowercase hex (its value never in the error), a prefixed-name collision (across servers, with
+  function tools or `search_knowledge_base`), and ADK-reserved tool names (which ADK would skip).
+- **Redaction:** MCP tokens and the gateway key are replaced in stored and returned text
+  (`turn_failed`, tool errors, the 503 misconfiguration message).
+- **Shutdown:** SIGTERM closes the relay sessions (`DELETE`) within 5 s, then stops serving.
+- **`capabilities: [mcp]`** in the runtime manifest; `build` refuses `mcp:` on a runtime without it
+  (`MCP_RUNTIME_UNSUPPORTED`).
+- **Protocol pin:** the relay contract depends on ADK's `_MCP_MODERN_PROTOCOL` staying off (the
+  default in 2.12.0); a future default flip would send the stateless protocol the relay refuses.
+- **§7.6.13 claims, added:** MCP tool arguments go to the agent's audit detail and to OTLP spans,
+  and upstream results go to spans (Phoenix), as for registry tools.
+- **CI:** the runtime's own tests (its MCP client against the real relay) now run in a
+  `runtime-adk` job with the runtime's locked dependencies.
+- **Cross-repo:** agentbreeder-cloud has no references to `runtime/adk`, `mcp-relay@`,
+  `MCP_RUNTIME_UNSUPPORTED` or a runtime `capabilities` field (grep, 2026-11-09).
+- **Verified in Docker** (`tests/test_adk_mcp_docker.py`): an agent built from `agent.yaml` on
+  `runtime/adk@1.1.0` called `mock_list_issues` through the relay. The model was a fake gateway
+  that asks for the tool. Upstream counted one call, made with the relay's credential, and the
+  model was offered only the granted tool. The credential is absent from the agent's logs and
+  `docker inspect`, and the token from the relay's logs. Not through `deploy`, and not with a
+  real model.
+- **Test fix:** the relay Docker test's log assertions read only stdout. The relay logs to
+  stderr, so those checks were vacuous until both tests switched to a `logs()` helper that reads
+  both streams.
+- **Implementation review** (claude-fable-5-1, uncommitted diff; no blocking defects; it reran the
+  runtime tests, the repo tests and the Docker test). Fixed:
+  - `build` refuses reserved names (`MCP_TOOL_RESERVED`) and clashing names (`MCP_TOOL_CLASH`).
+    The runtime refuses them only at startup, after deploy's health check has already passed.
+  - `capabilities` is validated even for agents without `mcp:`.
+  - The degrade and restart docs are qualified by the 60 s tool-list cache.
+  - `docs/services.md` notes the `--locked` refusal after the relay bump.
+  - The website's agent-yaml page is updated.
+
+  Left for #748: the 10 s `tools/list` limit against a slow real upstream.
+- **Automated security review of fdf6ef0** raised two medium findings:
+  1. Failed spans exported unredacted exception text, a problem inherited from 1.0.6. Fixed: a
+     shared `redaction.py` is used by `agent.py`, `mcp_client.py` and `telemetry.py`. Spans keep
+     only the exception type and the redacted message. `set_status_on_exception=False` stops the
+     OpenTelemetry SDK writing the raw text back on exit. There is a runtime test for it.
+  2. `/invoke` is unauthenticated, so a caller can use the agent's MCP grants. Acknowledged, not
+     fixed here: authenticated invocation isn't shipped, and the `Host` check doesn't stop
+     another container on the agents network. The consequence for MCP is now stated in
+     docs/services.md and docs/agent-yaml.md. Authenticated invocation is #780, a sub-issue of epic
+     #742, filed at the owner's request on 2026-11-09.
+- **Push security review:** one MCP session is shared by all of a deployment's customers.
+  Acknowledged, not changed. For a server whose session holds no per-user state (every upstream
+  supported today) it adds no exposure, since the relay already holds one credential per
+  deployment.
+
+  Per-conversation sessions would cost a relay `initialize`, a `tools/list` and a live upstream
+  check for every new conversation, which runs into the 60-a-minute limit. Stateful
+  (browser-type) upstreams are already refused until #747, which must decide per-conversation
+  sessions. The constraint is documented in docs/services.md and docs/agent-yaml.md.
+- **Commit security review of ec7ac73:** redaction covered only the runtime's own spans, but
+  ADK's spans record exceptions with the SDK defaults: raw message and stacktrace. Fixed at the
+  export boundary: `telemetry.RedactingExporter` wraps the OTLP exporter and redacts every span's
+  status, its string attributes and its event attributes. There are runtime tests with a
+  default-configured library span, plus one checking that `setup()` uses the wrapper.
+- **Owner decision (2026-11-09):** one MCP session per deployment is accepted for #746.
+  Per-conversation sessions are decided with #747.
