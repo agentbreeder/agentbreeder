@@ -61,31 +61,28 @@ never claim runtime enforcement beyond MCP Streamable HTTP via the opt-in sideca
 2. **Spec it** — write a spec *before* code (problem, goal, scope, acceptance criteria, cross-repo split). Store under `docs/superpowers/specs/`. Use the `brainstorming` → `spec` skills.
 3. **Design-review the spec** through the required lenses, folding findings back in: **`/architect`** (architecture), **`frontend-design`** (visual/UX), **`ui-ux-pro-max`** (UI/UX Pro Max), and **`/security`**. For a user-facing/marketing surface also run **`marketing-ideas` / `seo-audit` / `ai-seo`**.
 4. **Plan it** — write the implementation details (tasks, sequencing, cross-repo split) under `docs/superpowers/plans/`.
-5. **Codex-reviews the plan/implementation** — hand it to **Codex** (`codex review`), apply valid findings, **re-review in a loop until it converges** (see *AI Harnesses & Code Review* below).
+5. **Self-review the plan/implementation on a different Claude model** — run the 100xprism review loop (`/pair-loop`, reviewer `claude` on a model other than the coder's, e.g. coder Opus → reviewer Fable or Sonnet), apply valid findings, **re-review in a loop until it converges** (see *AI Harnesses & Code Review* below).
 6. **Gate it** — after implementation run the **`/launch` quality gate** (tests ≥ threshold, security 0 critical/high, build, Docker, cloud-security). Enforced by the pre-commit gate hook — a commit/push is blocked until all gates pass for the exact tree.
-   - **Exception — internal docs/inert-tooling changes only** (`CLAUDE.md`/`AGENTS.md`/plan/spec markdown, `.gitignore`): skip the full multi-gate suite and instead get a `codex review --uncommitted` pass, then run `python3 ~/100xprism/hooks/gate-pass.py` to unblock the commit hook. **Never extend this exception to CI workflows (`.github/workflows/*.yml`), `Dockerfile`, `docker-compose.yml`, or anything else that controls build/test/deploy behavior** — those go through the full gate like application code, since a broken pipeline config is exactly what the gate exists to catch.
-   - **`.gitignore` specifically:** a bad ignore rule can hide secrets or drop tracked source, so treat any `.gitignore` edit as security-sensitive even under this exception — the Codex review must explicitly verify (a) no previously-committed pattern that protected a real secret was weakened, and (b) no newly-untracked file exposes one. A generic "looks fine" Codex pass is not enough; ask Codex (or the security workflow) to check both directions before recording the gate pass.
+   - **Exception — internal docs/inert-tooling changes only** (`CLAUDE.md`/`AGENTS.md`/plan/spec markdown, `.gitignore`): skip the full multi-gate suite and instead get a different-model self-review pass over the uncommitted diff, then run `python3 ~/100xprism/hooks/gate-pass.py` to unblock the commit hook. **Never extend this exception to CI workflows (`.github/workflows/*.yml`), `Dockerfile`, `docker-compose.yml`, or anything else that controls build/test/deploy behavior** — those go through the full gate like application code, since a broken pipeline config is exactly what the gate exists to catch.
+   - **`.gitignore` specifically:** a bad ignore rule can hide secrets or drop tracked source, so treat any `.gitignore` edit as security-sensitive even under this exception — the self-review must explicitly verify (a) no previously-committed pattern that protected a real secret was weakened, and (b) no newly-untracked file exposes one. A generic "looks fine" pass is not enough; ask the reviewer (or the security workflow) to check both directions before recording the gate pass.
 7. **Branch + PR** — conventional-named feature branch; open a PR (stack PRs when milestones build on each other).
-8. **Merge gate** — merge **only when CI is green AND Codex has approved.** Both are required.
+8. **Merge gate** — merge **only when CI is green AND the different-model self-review has approved** (the owner's approving review is still required). Both are required.
 9. **Auto-merge** — once (8) holds, enable **auto-merge** (squash) so it lands as soon as required checks pass.
 
 For changes spanning OSS/Cloud/Website, run this pipeline per the **Cross-Repo Sync Policy** below and keep issues, terminology, and PRs aligned across repos.
 
-## 🤖 AI Harnesses & Code Review (Claude + Codex)
+## 🤖 AI Harnesses & Code Review (Claude + Codex harnesses; different-model self-review)
 
 This repo is worked on by **two AI coding harnesses**, and both guidance files must stay in sync:
 - **Claude Code** reads `CLAUDE.md` (this file).
 - **Codex** reads `AGENTS.md` — a **100xprism-generated skills/command catalog** (source: `.agents/skills/*/SKILL.md`), **not** a copy of these rules. Never hand-edit it; refresh it with **`100xprism update`**. Repo rules live in `CLAUDE.md` (the source of truth for **both** harnesses) — Codex reads `CLAUDE.md` directly, so rules added here reach it. Note: `/update-claude` edits *`CLAUDE.md`*; it does **not** regenerate `AGENTS.md`.
 
-**Codex is available as a second reviewer.** The `codex` CLI is installed and logged in. Use it for an independent, non-interactive review of a branch/PR before merge:
+**Code review is a self-review on a different Claude model** (replaced the Codex review on 2026-11-09). The coder and the reviewer must run different Claude models, so the review isn't the same model grading its own work:
 
-```bash
-codex review --base main        # review current branch vs main
-codex review --uncommitted      # review staged/unstaged/untracked changes (use before the first commit of a docs/config-only fix — see gate exception above)
-# NOTE: do NOT pass a custom prompt string together with --base (they conflict).
-```
+- **Preferred — 100xprism `/pair-loop`**, configured in `~/.100xprism/config.json`: `"pair_loop": {"coder": "claude", "reviewer": "claude", "reviewer_model": "claude-fable-5-1"}`. The reviewer runs read-only (`claude -p --permission-mode plan --model <reviewer_model>`), loops via `HANDOFF.md`, and refuses a same-model `APPROVED`. `pair-loop start` needs a clean tree, so commit the work to the feature branch first.
+- **Ad hoc (uncommitted work, or a second opinion)** — spawn read-only reviewer subagents with a model override (e.g. `model: fable` or `sonnet`, different from the session's model). Give them the code and the spec, not your conclusions; split by area (e.g. security boundary vs. integration) when the diff is large.
 
-Recommended flow: **hand a PR to Codex, apply its valid findings, re-review, and loop until it converges** (no substantive findings left). Codex reviews are read-only. Prefer running Codex inside a subagent so its output is triaged and kept out of the main context.
+Recommended flow: **review, apply valid findings with tests, re-review, and loop until it converges** (no substantive findings left). Verify each finding yourself before fixing it; record what was found and fixed (e.g. in the spec's review log). The `codex` CLI may still be used as an *extra* opinion, but it is no longer required.
 
 ---
 
