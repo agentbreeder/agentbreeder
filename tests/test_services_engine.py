@@ -151,6 +151,13 @@ class FakeDocker(DockerCLI):
     def image_exists(self, tag):
         return tag in self.images
 
+    def stack_images(self, state):
+        return sorted(t for t in self.images if t.startswith(f"agentbreeder-svc/{state.id}-"))
+
+    def remove_image(self, tag):
+        self.events.append(("rm-image", tag))
+        self.images.discard(tag)
+
     def pull(self, image):
         self.events.append(("pull", image))
 
@@ -535,6 +542,38 @@ def test_down_refuses_with_active_deployments_and_scopes_volumes(env):
         instance.close()
 
 
+def test_down_purge_removes_everything_the_stack_made(env):
+    # A built service (fakegw) so there is a stack image to remove; another stack's image stays.
+    gateway = {k: v for k, v in FAKEGW.items() if k != "image"} | {"build": "Dockerfile"}
+    write_project(env, gateway=gateway)
+    version = env / "registry" / "service" / "fakegw" / "1.0.0"
+    (version / "Dockerfile").write_text(f"FROM {PY}\nCOPY files /files\n")
+    docker = FakeDocker()
+    result, _ = up(env, docker)
+    docker.images.add("agentbreeder-svc/other-12345678-gateway:0123456789abcdef")
+    state_dir = Path(result["state_dir"]).parents[2]
+    assert state_dir.is_dir()
+    instance = engine(env, docker)
+    try:
+        instance.active_deployments = lambda: ["dev/demo-agent"]
+        with pytest.raises(ServiceError, match="STACK_IN_USE"):
+            instance.down(purge=True)
+        assert state_dir.is_dir()  # refused before touching anything
+        del instance.active_deployments
+        removed = instance.down(purge=True)
+    finally:
+        instance.close()
+    assert removed["volumes_removed"] == [f"agentbreeder-{result['stack']}-echo-data"]
+    assert [t.split(":")[0] for t in removed["images_removed"]] == [
+        f"agentbreeder-svc/{result['stack']}-gateway"
+    ]
+    assert removed["state_removed"] == str(state_dir)
+    assert not state_dir.exists()  # generated secrets, operator config and history are gone
+    assert docker.images == {"agentbreeder-svc/other-12345678-gateway:0123456789abcdef"}
+    up(env, docker)  # and the next `up` starts from scratch
+    assert state_dir.is_dir()
+
+
 def test_active_deployments_reads_each_environment_store(env, monkeypatch):
     from agentbreeder.store import Store
 
@@ -677,6 +716,11 @@ def test_cli_up_status_env_logs_down(env, fake_docker, capsys, monkeypatch):
     assert "Removed volume" in capsys.readouterr().out
     assert cli.main(["services", "down", str(env), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["volumes_removed"] == []
+    assert cli.main(["services", "down", str(env), "--purge"]) == 2
+    assert "CONFIRM_REQUIRED" in capsys.readouterr().err
+    assert cli.main(["services", "down", str(env), "--purge", "--yes"]) == 0
+    out = capsys.readouterr().out
+    assert "Removed state " in out and "data and secrets kept" not in out
 
 
 def test_cli_logs_argument_count(env, capsys):

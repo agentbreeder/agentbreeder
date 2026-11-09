@@ -220,3 +220,24 @@ def test_copy_file_replaces_stale_staging(state, tmp_path):
     staging = state.directory / "files" / f".{digest[:16]}.tmp"
     staging.mkdir(parents=True)
     assert state.copy_file(source).read_text() == "x"
+
+
+def test_purge_deletes_only_its_own_state_dir(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    one = StackState("demo", project, tmp_path / "stacks")
+    sibling = tmp_path / "stacks" / "keep-me"
+    sibling.mkdir()
+    one.purge()
+    assert not one.directory.exists() and sibling.is_dir()
+
+    two = StackState("demo", project, tmp_path / "stacks")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    two.close()
+    moved = tmp_path / "moved"
+    two.directory.rename(moved)
+    two.directory.symlink_to(moved)  # the state dir swapped for a link: refuse
+    with pytest.raises(ServiceError, match="STATE_UNSAFE"):
+        two.purge()
+    assert moved.is_dir()

@@ -158,6 +158,23 @@ def test_volumes_images_and_builds(state, tmp_path):
     assert len(run.calls) == 8
 
 
+def test_stack_images_lists_only_this_stacks_builds(tmp_path):
+    state = StackState("demo", tmp_path, tmp_path / "stacks")
+    prefix = f"agentbreeder-svc/{state.id}-"
+    run = Recorder(
+        (0, f"{prefix}ops:abc\nagentbreeder-svc/other-1-ops:abc\n", ""),
+        (0, "", ""),
+    )
+    docker = DockerCLI(run=run)
+    try:
+        assert docker.stack_images(state) == [f"{prefix}ops:abc"]
+        assert run.calls[0][0][-2:] == ["--filter", f"reference={prefix}*"]
+        docker.remove_image(f"{prefix}ops:abc")
+        assert run.calls[1][0][-3:] == ["image", "rm", f"{prefix}ops:abc"]
+    finally:
+        state.close()
+
+
 class FakeProcess:
     def __init__(self, stdout=b"", code=0, hang=False):
         self.stdout = io.BytesIO(stdout)

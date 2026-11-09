@@ -201,6 +201,12 @@ def _parser() -> argparse.ArgumentParser:
     down = service_commands.add_parser("down", help="Stop the stack (keeps data and secrets)")
     down.add_argument("dir", nargs="?", type=Path, default=Path("."))
     down.add_argument("--volumes", action="store_true", help="Also delete the stack's volumes")
+    down.add_argument(
+        "--purge",
+        action="store_true",
+        help="Delete everything `up` made: volumes, built service images, generated secrets, "
+        "operator config and history (the next `up` starts from scratch)",
+    )
     down.add_argument("--yes", action="store_true")
     down.add_argument("--json", action="store_true")
     for command in (deploy, status, remove, reconcile, build, ev, rel):
@@ -301,8 +307,9 @@ def _services(args) -> int:
         name = args.target[-1]
     else:
         directory = args.dir
-    if command == "down" and args.volumes and not args.yes:
-        print("[CONFIRM_REQUIRED] down --volumes deletes data; add --yes", file=sys.stderr)
+    if command == "down" and (args.volumes or args.purge) and not args.yes:
+        flag = "--purge" if args.purge else "--volumes"
+        print(f"[CONFIRM_REQUIRED] down {flag} deletes data; add --yes", file=sys.stderr)
         return 2
     engine = None
     log = (
@@ -358,13 +365,18 @@ def _services(args) -> int:
         if command == "env":
             print("\n".join(engine.env_lines(args.environment)))
             return 0
-        result = engine.down(volumes=args.volumes)
+        result = engine.down(volumes=args.volumes, purge=args.purge)
         if args.json:
             print(json.dumps(result, indent=2))
         else:
-            print(f"Stopped stack {result['stack']} (data and secrets kept)")
+            kept = "" if result["state_removed"] else " (data and secrets kept)"
+            print(f"Stopped stack {result['stack']}{kept}")
             for volume in result["volumes_removed"]:
                 print(f"Removed volume {volume}")
+            for image in result["images_removed"]:
+                print(f"Removed image {image}")
+            if result["state_removed"]:
+                print(f"Removed state {result['state_removed']}")
         return 0
     except (
         ServiceError,

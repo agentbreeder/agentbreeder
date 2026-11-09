@@ -95,6 +95,7 @@ class StackState:
         self.id = stack_id(stack_name, project_dir)
         self.project = f"agentbreeder-{self.id}"  # Compose project and resource prefix
         base = private_dir(root or stacks_root())
+        self.root = base
         self.directory = private_dir(base / self.id)
         self.db = sqlite3.connect(self.directory / "stack.db", isolation_level=None)
         os.chmod(self.directory / "stack.db", 0o600)
@@ -112,6 +113,14 @@ class StackState:
 
     def close(self) -> None:
         self.db.close()
+
+    def purge(self) -> None:
+        """Delete this stack's state dir (secrets, config, history). Only ever this stack's own
+        directory under the stacks root, never a symlink."""
+        self.db.close()
+        if self.directory.is_symlink() or self.directory.resolve().parent != self.root.resolve():
+            raise ServiceError("STATE_UNSAFE", "the stack state dir is not where it should be")
+        shutil.rmtree(self.directory)
 
     # -- layout ---------------------------------------------------------------------------------
 

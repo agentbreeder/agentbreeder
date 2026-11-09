@@ -416,7 +416,11 @@ class Engine:
                 store.close()
         return active
 
-    def down(self, *, volumes: bool = False) -> dict:
+    def down(self, *, volumes: bool = False, purge: bool = False) -> dict:
+        """Stop the stack. `volumes` also deletes its data volumes; `purge` deletes everything
+        `up` made for it (volumes, built service images and the state dir: generated secrets,
+        operator config, deploy history), so the next `up` starts from scratch."""
+        volumes = volumes or purge
         active = self.active_deployments()
         if active:
             raise ServiceError(
@@ -431,7 +435,20 @@ class Engine:
             for name in self.docker.stack_volumes(self.state):
                 self.docker.remove_volume(name)
                 removed.append(name)
-        return {"stack": self.state.id, "volumes_removed": removed}
+        images: list[str] = []
+        state_removed = None
+        if purge:
+            for tag in self.docker.stack_images(self.state):
+                self.docker.remove_image(tag)
+                images.append(tag)
+            state_removed = str(self.state.directory)
+            self.state.purge()
+        return {
+            "stack": self.state.id,
+            "volumes_removed": removed,
+            "images_removed": images,
+            "state_removed": state_removed,
+        }
 
     def env_lines(self, environment: str | None) -> list[str]:
         resolved = context(self.project, environment, self.state.directory.parent)

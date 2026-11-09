@@ -201,6 +201,23 @@ class DockerCLI:
     def remove_volume(self, name: str) -> None:
         self.run("volume", "rm", name, what="removing a volume")
 
+    def stack_images(self, state: StackState) -> list[str]:
+        """Service images built for this stack (`agentbreeder-svc/<stack-id>-<service>:<hash>`)."""
+        prefix = f"agentbreeder-svc/{state.id}-"
+        output = self.run(
+            "image",
+            "ls",
+            "--format",
+            "{{.Repository}}:{{.Tag}}",
+            "--filter",
+            f"reference={prefix}*",
+            what="listing images",
+        )
+        return sorted(n for n in output.splitlines() if n.startswith(prefix))
+
+    def remove_image(self, tag: str) -> None:
+        self.run("image", "rm", tag, what="removing an image")
+
     def build(self, context: Path, tag: str) -> None:
         self.run(
             "build",
