@@ -293,7 +293,7 @@ What the relay does **not** do:
   authenticated. Its port is published on loopback only, but other containers on the agents
   network can reach it too: its `Host` check stops browser DNS rebinding, not another
   container. Whoever reaches the endpoint can make the agent call the MCP tools it was granted,
-  as any customer.
+  as any customer. Authenticated invocation is #780 (epic #742).
 
 ## State and secrets
 

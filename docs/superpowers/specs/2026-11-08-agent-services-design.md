@@ -983,7 +983,8 @@ against google-adk 2.12.0 and mcp 2.3.0:
   2. `/invoke` is unauthenticated, so a caller can use the agent's MCP grants. Acknowledged, not
      fixed here: authenticated invocation isn't shipped, and the `Host` check doesn't stop
      another container on the agents network. The consequence for MCP is now stated in
-     docs/services.md and docs/agent-yaml.md. Authenticated invocation needs its own issue.
+     docs/services.md and docs/agent-yaml.md. Authenticated invocation is #780, a sub-issue of epic
+     #742, filed at the owner's request on 2026-11-09.
 - **Push security review:** one MCP session is shared by all of a deployment's customers.
   Acknowledged, not changed. For a server whose session holds no per-user state (every upstream
   supported today) it adds no exposure, since the relay already holds one credential per
@@ -998,3 +999,5 @@ against google-adk 2.12.0 and mcp 2.3.0:
   export boundary: `telemetry.RedactingExporter` wraps the OTLP exporter and redacts every span's
   status, its string attributes and its event attributes. There are runtime tests with a
   default-configured library span, plus one checking that `setup()` uses the wrapper.
+- **Owner decision (2026-11-09):** one MCP session per deployment is accepted for #746.
+  Per-conversation sessions are decided with #747.

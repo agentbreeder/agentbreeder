@@ -64,7 +64,7 @@ What happens at run time:
   per-user state. Browser-type servers, which do, aren't supported yet (#747).
 - **Unauthenticated callers:** `POST /invoke` is not authenticated, so whoever can reach the
   agent can make it call its granted MCP tools. That means loopback and, despite the `Host`
-  check, other containers on the agents network.
+  check, other containers on the agents network. Authenticated invocation is #780.
 - **Tool data:** MCP tool arguments go to the agent's audit events and traces, and tool results
   to traces, as for registry tools.
 - **Timeouts:** connecting, initializing and listing tools each have 10 seconds, with one retry.
