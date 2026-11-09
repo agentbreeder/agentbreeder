@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ LAUNCHER = (
 
 @pytest.fixture
 def launcher(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)  # nothing written into the built-in
     spec = importlib.util.spec_from_file_location("litellm_start", LAUNCHER)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

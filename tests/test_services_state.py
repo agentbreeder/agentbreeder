@@ -197,6 +197,22 @@ def test_copy_file_keeps_the_executable_bit_and_hashes_it(state, tmp_path):
     assert stat.S_IMODE((executable / "data.sql").stat().st_mode) == 0o444
 
 
+def test_copy_file_leaves_out_pycache_like_the_registry_lock(state, tmp_path):
+    # The registry digest skips __pycache__, so bytecode there is not locked; it must not be
+    # mounted either (Python would load a matching .pyc instead of the locked source).
+    tree = tmp_path / "files"
+    (tree / "__pycache__").mkdir(parents=True)
+    (tree / "helper.py").write_text("X = 1\n")
+    (tree / "__pycache__" / "helper.cpython-312.pyc").write_bytes(b"tampered")
+    (tree / "loose.pyc").write_bytes(b"tampered")
+    copied = state.copy_file(tree)
+    assert (copied / "helper.py").exists()
+    assert not (copied / "__pycache__").exists()
+    assert not (copied / "loose.pyc").exists()
+    (tree / "__pycache__" / "helper.cpython-312.pyc").write_bytes(b"other")
+    assert state.copy_file(tree) == copied  # unlocked bytes don't change the address
+
+
 def test_copy_file_replaces_stale_staging(state, tmp_path):
     source = tmp_path / "f"
     source.write_text("x")

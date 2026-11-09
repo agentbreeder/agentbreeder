@@ -30,6 +30,9 @@ ROOT_ENV = "AGENTBREEDER_STACKS_DIR"
 _ENV = re.compile(r"[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?")
 _SECRET_FILE = re.compile(r"[a-z][a-z0-9_-]{0,30}(\.[a-z][a-z0-9_]{0,62})?")
 ORIGINS = ("generate", "import", "bootstrap")
+# As in registry.py: interpreter caches are never hashed into a version, so never copied.
+SKIPPED_DIRS = ("__pycache__",)
+SKIPPED_SUFFIXES = (".pyc", ".pyo")
 
 
 def stacks_root() -> Path:
@@ -288,7 +291,12 @@ class StackState:
             shutil.rmtree(staging)
         staging.mkdir(mode=0o755)
         if source.is_dir():
-            shutil.copytree(source, staging / source.name, symlinks=False)
+            shutil.copytree(
+                source,
+                staging / source.name,
+                symlinks=False,
+                ignore=shutil.ignore_patterns(*SKIPPED_DIRS, "*.pyc", "*.pyo"),
+            )
         else:
             shutil.copyfile(source, staging / source.name)
         # Read-only for everyone; a source file's executable bit is kept (it is hashed, as in the
@@ -306,7 +314,7 @@ class StackState:
 
 def _tree_digest(source: Path) -> str:
     digest = hashlib.sha256()
-    paths = [source] if source.is_file() else sorted(p for p in source.rglob("*") if p.is_file())
+    paths = [source] if source.is_file() else sorted(_tree_files(source))
     for path in paths:
         if path.is_symlink():
             raise ServiceError("STATE_UNSAFE", "service files must not contain symlinks")
@@ -314,6 +322,17 @@ def _tree_digest(source: Path) -> str:
         digest.update(hashlib.sha256(path.read_bytes()).digest())
         digest.update(b"x" if _executable(path) else b"-")
     return digest.hexdigest()
+
+
+def _tree_files(source: Path) -> list[Path]:
+    # Same skip rule as the registry digest: bytecode caches are never locked, so never mounted.
+    return [
+        p
+        for p in source.rglob("*")
+        if p.is_file()
+        and p.suffix not in SKIPPED_SUFFIXES
+        and not set(SKIPPED_DIRS).intersection(p.relative_to(source).parts)
+    ]
 
 
 def _executable(path: Path) -> bool:
