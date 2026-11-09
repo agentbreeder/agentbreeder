@@ -420,6 +420,13 @@ def test_ingress_proxies_to_agent_only():
         }
         assert _post(ingress, path="/invoke", body=b"{}", headers={})[0] == 200
         assert _post(ingress, path="/invoke", body=b"x" * 2048, headers={})[0] == 413
+        # DNS rebinding: the agent sees `Host: agent` from here, so the ingress (the part a
+        # browser reaches) must refuse any Host that isn't loopback before forwarding.
+        for host in ("evil.example", "evil.example:80", "agent", "127.0.0.1.evil.example", ""):
+            status, body, _ = _post(ingress, path="/invoke", body=b"{}", headers={"Host": host})
+            assert status == 403 and body["error"]["data"]["reason"] == "HOST_REFUSED", host
+        for host in ("localhost", "127.0.0.1:8080", "[::1]:8080"):
+            assert _post(ingress, path="/invoke", body=b"{}", headers={"Host": host})[0] == 200
     finally:
         agent.shutdown()
         ingress.shutdown()
