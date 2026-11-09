@@ -1,6 +1,6 @@
 """stack.yaml `mcp:` entries: one built-in relay container per entry (spec §7.2, §7.6, §7.7).
 
-- The relay version (`service/mcp-relay@1.0.0`) resolves from the built-in root only; stack.yaml
+- The relay version (`service/mcp-relay@1.0.1`) resolves from the built-in root only; stack.yaml
   can't name it (RELAY_RESERVED) and no project or AGENTBREEDER_REGISTRY_PATH root can shadow it.
 - Each entry's `mcp` version is locked like a service version, and `stack.lock` records its
   origin, its upstream origin and its `token_url` host. Any change needs consent again.
@@ -25,7 +25,7 @@ from agentbreeder.lock import BUILTIN_LABEL, Lock, materialise
 from agentbreeder.registry import Ref, RegistryError
 from agentbreeder.services.schema import SecretSource, ServiceError, ServiceSpec, Stack
 
-RELAY_REF = "service/mcp-relay@1.0.0"
+RELAY_REF = "service/mcp-relay@1.0.1"
 RELAY_PORT = "http"
 ADMIN_SECRET = "admin-token"
 CONFIG_NAME = "config"

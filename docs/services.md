@@ -5,9 +5,9 @@
 > writes a demo operator config for them. It is not production infrastructure. Verified on macOS
 > with Docker Desktop: `examples/northwind` started from scratch with `services up`, and
 > `agentbreeder release` passed its 61-case eval gate (61/61, 2026-11-08). MCP servers run behind
-> a built-in relay (see [MCP servers](#mcp-servers-through-a-relay)); no agent built from
-> `agent.yaml` calls one yet (the ADK client is #746) and no built-in MCP server is verified yet
-> (#748).
+> a built-in relay (see [MCP servers](#mcp-servers-through-a-relay)). An agent built from
+> `agent.yaml` on `runtime/adk@1.1.0` calls tools through it. That is verified in Docker against
+> a mock MCP server and a fake LLM gateway. No built-in MCP server is verified yet (#748).
 
 An agent built from `agent.yaml` needs backing services before it can run. A project declares
 them in `stack.yaml` next to `agent.yaml`:
@@ -173,11 +173,15 @@ outputs:
 
 ## MCP servers through a relay
 
-> **Preview (#745).** Verified on macOS with Docker Desktop against a mock MCP server packaged as
-> a stack service (`tests/test_mcp_relay_docker.py`), called by a test client on the agents
-> network. Remote https upstreams and OAuth refresh are covered by unit tests only. An agent built
-> from `agent.yaml` can't call the relay yet (runtime `adk@1.1.0`, #746), and no built-in MCP
-> server has been checked live (#748).
+> **Preview (#745, #746).** Verified on macOS with Docker Desktop against a mock MCP server
+> packaged as a stack service. Two tests cover it:
+> - `tests/test_mcp_relay_docker.py`, with a test client on the agents network;
+> - `tests/test_adk_mcp_docker.py`, with an agent built from `agent.yaml` on `runtime/adk@1.1.0`
+>   whose model is a fake gateway that asks for the tool. The agent's container is started with
+>   deploy's mounts, not by `deploy` itself.
+>
+> Remote https upstreams and OAuth refresh are covered by unit tests only. No built-in MCP server
+> has been checked live (#748).
 
 ```yaml
 mcp:
@@ -190,7 +194,11 @@ environment:
 
 Each `mcp:` entry gets its own relay container, `mcp-<name>` (with `_` in the name turned into
 `-`, so `mcp.my_tools` runs as `mcp-my-tools`), built from the built-in
-`service/mcp-relay@1.0.0` (standard-library Python on the pinned `python:3.12-slim`). Agents
+`service/mcp-relay@1.0.1` (standard-library Python on the pinned `python:3.12-slim`; 1.0.1 answers
+an unknown session with a bare 404, which the ADK client needs in order to reconnect after a
+relay restart). A `stack.lock` written before 1.0.1 still names `service/mcp-relay@1.0.0`, so
+`services up --locked` refuses it (`LOCK_STALE`). Run `services up` once without `--locked` to
+lock 1.0.1. Agents
 reach it at `http://mcp-<name>:8080/mcp` on the agents network. The relay holds the upstream
 credential as a 0400 file and runs as your uid. Agents hold only a per-deployment token, which
 deploy mints and the relay checks against a grant file named by the token's sha256. It re-reads
@@ -293,5 +301,6 @@ config can only describe a local demo environment, and `up` refuses to overwrite
 - Local Docker only; not a production deployment path.
 - Demo identities come from a generated static provider.
 - `customer_id` on an agent's `/invoke` is not authenticated (see the root README).
-- MCP relays: no agent built from `agent.yaml` calls one yet (#746), no built-in MCP server is
-  verified (#748), and browser-type service upstreams need the forward proxy (#747).
+- MCP relays: an agent's call through the relay is verified with a mock MCP server and a fake
+  gateway, not through `deploy` with a real model. No built-in MCP server is verified (#748), and
+  browser-type service upstreams need the forward proxy (#747).

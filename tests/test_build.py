@@ -57,7 +57,9 @@ def project(tmp_path, monkeypatch):
             "runtime/requirements.lock": "",
             "runtime/server.py": "x=1\n",
         },
-        extra="port: 9000\nhealth_path: /healthz\n",  # the manifest must take these from here
+        # The manifest must take port and health_path from here; `capabilities: [mcp]` lets
+        # agents with `mcp:` build (#746).
+        extra="port: 9000\nhealth_path: /healthz\ncapabilities: [mcp]\n",
     )
     version(root, "prompt", "helper", {"prompt.md": "Be helpful."})
     version(
@@ -303,3 +305,24 @@ def test_invalid_runtime_serving_fields_are_build_errors(project, extra):
     (runtime / "manifest.yaml").write_text("kind: runtime\nname: fake\nversion: 1.0.0\n" + extra)
     with pytest.raises(BuildError, match="invalid port or health_path"):
         _runtime_serving(runtime, "runtime/fake@1.0.0")
+
+
+@pytest.mark.parametrize(
+    "extra", ["capabilities: mcp\n", "capabilities: [1]\n", "capabilities: [mcp, mcp]\n"]
+)
+def test_invalid_runtime_capabilities_are_build_errors(project, extra):
+    from agentbreeder.build import BuildError, _runtime_capabilities
+
+    runtime = project / "registry/runtime/fake/1.0.0"
+    (runtime / "manifest.yaml").write_text("kind: runtime\nname: fake\nversion: 1.0.0\n" + extra)
+    with pytest.raises(BuildError, match="invalid capabilities"):
+        _runtime_capabilities(runtime, "runtime/fake@1.0.0")
+
+
+def test_unreadable_runtime_manifest_is_a_build_error_for_capabilities(project):
+    from agentbreeder.build import BuildError, _runtime_capabilities
+
+    runtime = project / "registry/runtime/fake/1.0.0"
+    (runtime / "manifest.yaml").write_text("kind: runtime\nkind: twice\n")
+    with pytest.raises(BuildError, match="ARTIFACT_INVALID"):
+        _runtime_capabilities(runtime, "runtime/fake@1.0.0")

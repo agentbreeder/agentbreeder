@@ -165,6 +165,47 @@ def _check_tool_modules(agent: AgentFile, placed: dict[str, Path]) -> None:
             owners[module] = tool.ref
 
 
+# ADK skips an MCP tool with one of these names, so runtime/adk@1.1.0 refuses them at startup.
+ADK_RESERVED_TOOLS = frozenset(
+    {
+        "transfer_to_agent",
+        "adk_request_credential",
+        "adk_request_confirmation",
+        "adk_request_input",
+        "set_model_response",
+    }
+)
+KNOWLEDGE_TOOL = "search_knowledge_base"
+
+
+def _check_mcp_names(agent: AgentFile, placed: dict[str, Path]) -> None:
+    """The model sees MCP tools as `<server>_<tool>` (`-` in the server name becomes `_`). The
+    runtime refuses, at startup, a reserved name or one that clashes across servers, with a
+    function tool or with knowledge search; deploy's health check can't see that, so every turn
+    would fail. Build has every input, so it refuses them here."""
+    taken: dict[str, str] = {KNOWLEDGE_TOOL: "knowledge search"} if agent.knowledge else {}
+    for tool in agent.tools:
+        spec = load_file(placed[tool.ref] / "tool.yaml")  # parsed by _check_tool_modules
+        for function in spec.get("functions") or []:
+            taken[str((function or {}).get("name", ""))] = tool.ref
+    for entry in agent.mcp:
+        prefix = registry.Ref.parse(entry.ref).name.replace("-", "_")
+        reserved = sorted(set(entry.tools) & ADK_RESERVED_TOOLS)
+        if reserved:
+            raise BuildError(
+                "MCP_TOOL_RESERVED",
+                f"{entry.ref}: {', '.join(reserved)} is reserved by the ADK runtime",
+            )
+        for tool in entry.tools:
+            name = f"{prefix}_{tool}"
+            if name in taken:
+                raise BuildError(
+                    "MCP_TOOL_CLASH",
+                    f"{entry.ref}: the model would see {name}, which {taken[name]} also defines",
+                )
+            taken[name] = entry.ref
+
+
 def _check_mcp_tools(agent: AgentFile, placed: dict[str, Path]) -> None:
     """Each `mcp:` entry asks only for tools its version declares (the relay grants a subset
     of those; the operator environment decides which)."""
@@ -197,6 +238,25 @@ def _runtime_serving(runtime_dir: Path, ref: str) -> dict:
     ):
         raise BuildError("ARTIFACT_INVALID", f"{ref} manifest.yaml: invalid port or health_path")
     return {"port": port, "health_path": health}
+
+
+def _runtime_capabilities(runtime_dir: Path, ref: str) -> frozenset[str]:
+    """What the runtime supports beyond serving an agent, from its manifest.yaml: `mcp` means it
+    has an MCP client for the stack relay (runtime/adk@1.1.0 and later)."""
+    try:
+        meta = load_file(runtime_dir / "manifest.yaml")
+    except StrictYamlError as error:
+        raise BuildError("ARTIFACT_INVALID", f"{ref} manifest.yaml: {error}") from error
+    values = meta.get("capabilities", [])
+    if (
+        not isinstance(values, list)
+        or not all(
+            isinstance(v, str) and re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", v) for v in values
+        )
+        or len(set(values)) != len(values)
+    ):
+        raise BuildError("ARTIFACT_INVALID", f"{ref} manifest.yaml: invalid capabilities")
+    return frozenset(values)
 
 
 def _manifest(agent, operator, environment, image, identity, aliases, name, serving) -> dict:
@@ -283,6 +343,13 @@ def build(
         )
         runtime_dir = artifacts / "runtime" / registry.Ref.parse(agent.runtime).name
         serving = _runtime_serving(runtime_dir, agent.runtime)
+        capabilities = _runtime_capabilities(runtime_dir, agent.runtime)
+        if agent.mcp and "mcp" not in capabilities:
+            raise BuildError(
+                "MCP_RUNTIME_UNSUPPORTED",
+                f"{agent.runtime} has no MCP client, so the agent's mcp: tools would never "
+                "appear; use runtime/adk@1.1.0 or later",
+            )
         for item in RUNTIME_FILES:
             if not (runtime_dir / item).exists():
                 raise BuildError("ARTIFACT_INVALID", f"{agent.runtime} is missing {item}")
@@ -295,6 +362,7 @@ def build(
         if agent.prompt.path:
             _prompt_as_prompt_md(placed[f"path:{Path(agent.prompt.path).as_posix()}"])
         _check_tool_modules(agent, placed)
+        _check_mcp_names(agent, placed)
         config = _config(agent, placed, context)
         (context / "agent.config.json").write_text(json.dumps(config, indent=2, sort_keys=True))
         _world_readable(context)  # the image runs as uid 65532; COPY keeps these modes

@@ -358,6 +358,84 @@ def test_build_checks_tools_and_writes_config_and_manifest(project, operator):  
         build(project / "agent.yaml", operator.load(), "dev", builder=FakeBuilder())
 
 
+def test_build_refuses_mcp_on_a_runtime_without_mcp_support(project, operator):  # noqa: F811
+    """An agent's MCP tools would silently never appear on a runtime without an MCP client
+    (runtime/adk@1.0.x), so build refuses it (#746)."""
+    version(project / "registry", "mcp", "github", {"mcp.yaml": yaml.safe_dump(GITHUB)})
+    runtime = project / "registry/runtime/fake/1.0.0/manifest.yaml"
+    runtime.write_text(runtime.read_text().replace("capabilities: [mcp]\n", ""))
+    agent = yaml.safe_load((project / "agent.yaml").read_text())
+    agent["mcp"] = [{"ref": "mcp/github@1.0.0", "tools": ["list_issues"]}]
+    (project / "agent.yaml").write_text(yaml.safe_dump(agent))
+    with pytest.raises(BuildError, match="MCP_RUNTIME_UNSUPPORTED"):
+        build(project / "agent.yaml", operator.load(), "dev", builder=FakeBuilder())
+    del agent["mcp"]  # without mcp: the same runtime is fine
+    (project / "agent.yaml").write_text(yaml.safe_dump(agent))
+    build(project / "agent.yaml", operator.load(), "dev", builder=FakeBuilder())
+
+
+def _mcp_version(project, name, tools):
+    spec = {**GITHUB, "tools": {tool: {"effect": "read"} for tool in tools}}
+    version(project / "registry", "mcp", name, {"mcp.yaml": yaml.safe_dump(spec)})
+
+
+@pytest.mark.parametrize(
+    "case, code, culprit",
+    [
+        ("reserved", "MCP_TOOL_RESERVED", "transfer_to_agent"),
+        ("function", "MCP_TOOL_CLASH", "github_list_issues"),
+        ("servers", "MCP_TOOL_CLASH", "a_b_c"),
+        ("knowledge", "MCP_TOOL_CLASH", "search_knowledge_base"),
+    ],
+)
+def test_build_refuses_mcp_tool_names_the_runtime_would_refuse(
+    project,
+    operator,
+    case,
+    code,
+    culprit,  # noqa: F811
+):
+    """The runtime refuses these at startup, after deploy saw a healthy container; build has
+    every input, so it refuses them first."""
+    agent = yaml.safe_load((project / "agent.yaml").read_text())
+    if case == "reserved":
+        _mcp_version(project, "github", ["transfer_to_agent"])
+        agent["mcp"] = [{"ref": "mcp/github@1.0.0", "tools": ["transfer_to_agent"]}]
+    if case == "function":
+        _mcp_version(project, "github", ["list_issues"])
+        tool_yaml = project / "registry/tool/orders/1.0.0/tool.yaml"
+        tool_yaml.write_text("functions:\n  - {name: github_list_issues, module: orders}\n")
+        agent["mcp"] = [{"ref": "mcp/github@1.0.0", "tools": ["list_issues"]}]
+    if case == "servers":
+        _mcp_version(project, "a", ["b_c"])
+        _mcp_version(project, "a-b", ["c"])
+        agent["mcp"] = [
+            {"ref": "mcp/a@1.0.0", "tools": ["b_c"]},
+            {"ref": "mcp/a-b@1.0.0", "tools": ["c"]},
+        ]
+    if case == "knowledge":  # the project's agent has knowledge: search_knowledge_base exists
+        _mcp_version(project, "search-knowledge", ["base"])
+        agent["mcp"] = [{"ref": "mcp/search-knowledge@1.0.0", "tools": ["base"]}]
+    (project / "agent.yaml").write_text(yaml.safe_dump(agent))
+    with pytest.raises(BuildError, match=f"{code}.*{culprit}"):
+        build(project / "agent.yaml", operator.load(), "dev", builder=FakeBuilder())
+
+
+def test_build_validates_runtime_capabilities_without_mcp(project, operator):  # noqa: F811
+    runtime = project / "registry/runtime/fake/1.0.0/manifest.yaml"
+    runtime.write_text(runtime.read_text().replace("capabilities: [mcp]", "capabilities: mcp"))
+    with pytest.raises(BuildError, match="invalid capabilities"):
+        build(project / "agent.yaml", operator.load(), "dev", builder=FakeBuilder())
+
+
+def test_builtin_adk_runtimes_declare_mcp_only_from_1_1_0():
+    from agentbreeder.build import _runtime_capabilities
+
+    root = registry.BUILTIN_ROOT / "runtime" / "adk"
+    assert "mcp" not in _runtime_capabilities(root / "1.0.6", "runtime/adk@1.0.6")
+    assert "mcp" in _runtime_capabilities(root / "1.1.0", "runtime/adk@1.1.0")
+
+
 def test_build_refuses_an_invalid_mcp_version(project, operator):  # noqa: F811
     version(project / "registry", "mcp", "github", {"mcp.yaml": "tools: {}\n"})
     agent = yaml.safe_load((project / "agent.yaml").read_text())

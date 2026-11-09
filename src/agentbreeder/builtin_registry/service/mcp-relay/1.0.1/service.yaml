@@ -1,0 +1,14 @@
+# One relay container per stack.yaml `mcp:` entry. `services up` derives each instance from this
+# version: the mcp version's secrets become 0400 files at /run/secrets, egress is on only for a
+# remote upstream, and the generated config (/run/params/config), the grants (/run/grants) and
+# the pins (/run/pins) are read-only bind mounts. It can't be named in stack.yaml.
+build: Dockerfile
+# The operator's uid: credential files are 0400 and owned by it (spec §7.6.10, §7.6.11).
+user: host
+ports:
+  http: {port: 8080, expose: agents, guard: bearer}
+env:
+  HOME: /tmp
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+health: {http: /healthz}

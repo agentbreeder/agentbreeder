@@ -9,9 +9,9 @@ import { Callout } from 'fumadocs-ui/components/callout';
   Install from source. `agentbreeder services` runs on the local Docker engine only and is not
   production infrastructure. Verified on macOS with Docker Desktop: the Northwind example started
   from scratch with `services up`, and `agentbreeder release` passed its 61-case eval gate (61/61,
-  2026-11-08). MCP servers run behind a built-in relay, verified only against a mock MCP server
-  in Docker: no agent built from `agent.yaml` calls one yet, and no built-in MCP server is
-  verified yet.
+  2026-11-08). MCP servers run behind a built-in relay. An agent built from `agent.yaml` on
+  `runtime/adk@1.1.0` calls tools through it. That is verified in Docker only against a mock MCP
+  server and a fake LLM gateway. No built-in MCP server is verified yet.
 </Callout>
 
 An agent built from `agent.yaml` needs services before it can run: Postgres, a model gateway, a
@@ -105,8 +105,8 @@ from source with a strict Dockerfile subset.
 - A deployed agent's endpoint is not authenticated.
 - MCP relay: it holds the upstream credential and forwards only granted, pinned tools, but tool
   arguments are unconstrained, results reach the agent unfiltered, and it is not policy
-  enforcement. Agents built from `agent.yaml` can't call it yet, and no built-in MCP server is
-  verified.
+  enforcement. A built agent's calls through it are verified only against a mock MCP server and a
+  fake gateway, and no built-in MCP server is verified.
 
 The canonical reference is
 [services.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md).

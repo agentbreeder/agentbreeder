@@ -98,6 +98,16 @@ def docker(*args: str, check: bool = True) -> str:
     return result.stdout
 
 
+def logs(container: str) -> str:
+    """A container's whole log: `docker logs` replays its stderr on stderr, not stdout."""
+    result = subprocess.run(
+        ["docker", "logs", container], capture_output=True, text=True, timeout=300
+    )
+    if result.returncode:
+        raise AssertionError(f"docker logs failed: {result.stderr[-500:]}")
+    return result.stdout + result.stderr
+
+
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     monkeypatch.delenv(registry.PATH_ENV, raising=False)
@@ -195,8 +205,10 @@ def test_relay_end_to_end(project):
     # The canary is only in the relay's 0400 mount: not in inspect, logs or generated files.
     relay = f"{engine.state.project}-mcp-mock-1"
     assert CANARY not in docker("inspect", relay)
-    assert CANARY not in docker("logs", relay) + docker("logs", relay, check=False)
-    assert token not in docker("logs", relay)
+    relay_log = logs(relay)
+    assert '"decision": "allow"' in relay_log  # stderr captured: the check below is real
+    assert CANARY not in relay_log
+    assert token not in relay_log
     assert CANARY not in engine.state.compose_path.read_text()
     networks = json.loads(
         docker(
