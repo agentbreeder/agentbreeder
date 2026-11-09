@@ -734,6 +734,11 @@ r3 (slice 2 implementation):
   `eval_database`: only AgentBreeder reads it, to mint per-agent keys.
 - **Operator-only follows the secret:** every output that exposes an operator-only secret, whole
   or inside a template, must itself be operator-only. The master key output must name its secret.
+- **Services-only outputs** (security review of slice 4): a secret output marked `services_only`
+  can be wired to another service's secret input, but never bound into an agent or used as
+  `eval_database` (`OUTPUT_SERVICES_ONLY`). Phoenix's `ingest_key` is one: it is a system key that
+  reads every trace, so only the trace proxy holds it and agents send traces through the proxy.
+  As with operator-only, every output exposing such a secret must be at least as restricted.
 - **No templated arguments:** commands, health checks and one-shot steps can't contain
   placeholders. Values reach a service through `env`, which is never parsed as a command line;
   this rules out re-parsing by interpreters and wrappers, which no denylist could. As defence in

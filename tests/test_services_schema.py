@@ -75,7 +75,7 @@ PHOENIX = {
     "bootstrap": {"command": ["python", "/files/mint.py"], "writes_secret": "ingest-key"},
     "outputs": {
         "url": {"type": "url", "port": "http"},
-        "ingest_key": {"type": "secret", "secret": "ingest-key"},
+        "ingest_key": {"type": "secret", "secret": "ingest-key", "services_only": True},
     },
 }
 STACK = {
@@ -314,6 +314,14 @@ def test_stack_schema_rejects(mutate, message):
         (
             lambda d: d["services"]["proxy"]["wire"].update(phoenix="phoenix.ingest_key"),
             "WIRE_TYPE",
+        ),
+        (
+            lambda d: d["environment"]["bindings"].update(KEY={"ref": "phoenix.ingest_key"}),
+            "OUTPUT_SERVICES_ONLY",
+        ),
+        (
+            lambda d: d["environment"].update(eval_database={"ref": "phoenix.ingest_key"}),
+            "OUTPUT_SERVICES_ONLY",
         ),
         (
             lambda d: d["environment"]["services"].update(key="{phoenix.ingest_key}"),
@@ -583,3 +591,41 @@ def test_every_builtin_service_loads():
             if command and command[0].startswith("/files/"):
                 script = path.parent / "files" / command[0].removeprefix("/files/")
                 assert script.is_file() and script.stat().st_mode & 0o100, script
+
+
+def test_services_only_secret_can_be_wired_to_a_service():
+    # A Phoenix system key reads every trace: the trace proxy may hold it, an agent may not.
+    proxy = copy.deepcopy(PROXY)
+    proxy["inputs"]["ingest-key"] = {"type": "secret"}
+    assert refs.check(
+        stack(
+            lambda d: d["services"]["proxy"]["wire"].update({"ingest-key": "phoenix.ingest_key"})
+        ),
+        specs(proxy=proxy),
+    )
+
+
+def test_services_only_rules():
+    data = copy.deepcopy(PHOENIX)
+    data["outputs"]["ingest_key"]["operator_only"] = True
+    with pytest.raises(ValueError, match="either operator_only or services_only"):
+        ServiceSpec.model_validate(data)
+    data = copy.deepcopy(PHOENIX)
+    data["outputs"]["url"]["services_only"] = True
+    with pytest.raises(ValueError, match="services_only applies to secret outputs"):
+        ServiceSpec.model_validate(data)
+    data = copy.deepcopy(PHOENIX)
+    data["outputs"]["also_key"] = {"type": "secret", "secret": "ingest-key"}
+    with pytest.raises(ValueError, match="exposes a services_only secret"):
+        ServiceSpec.model_validate(data)
+    data["outputs"]["also_key"]["services_only"] = True
+    assert ServiceSpec.model_validate(data)
+
+
+def test_builtin_phoenix_ingest_key_is_services_only():
+    from pathlib import Path
+
+    import agentbreeder
+
+    path = Path(agentbreeder.__file__).parent / "builtin_registry/service/phoenix/1.0.0"
+    assert load_service(path / "service.yaml").outputs["ingest_key"].services_only

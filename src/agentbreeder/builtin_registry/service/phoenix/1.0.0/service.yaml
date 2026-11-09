@@ -28,4 +28,4 @@ bootstrap:
   writes_secret: ingest-key
 outputs:
   url: {type: url, port: http}
-  ingest_key: {type: secret, secret: ingest-key}
+  ingest_key: {type: secret, secret: ingest-key, services_only: true}

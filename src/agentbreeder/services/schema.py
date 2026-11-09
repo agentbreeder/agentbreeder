@@ -167,9 +167,16 @@ class Output(_Strict):
     # Only AgentBreeder itself may use it (the gateway master key mints agent keys): never
     # wired to another service, bound into an agent or used as the eval database.
     operator_only: bool = False
+    # Only other services may receive it (wired to a secret input): never bound into an agent
+    # or used as the eval database (Phoenix's ingest key reads every trace; its proxy holds it).
+    services_only: bool = False
 
     @model_validator(mode="after")
     def shape(self):
+        if self.operator_only and self.services_only:
+            raise ValueError("an output is either operator_only or services_only")
+        if self.services_only and self.type != "secret":
+            raise ValueError("services_only applies to secret outputs")
         if self.type == "url":
             if self.port is None or self.secret is not None or self.template is not None:
                 raise ValueError("a url output names a port, and nothing secret")
@@ -305,13 +312,19 @@ class ServiceSpec(_Strict):
                 raise ValueError("gateway/litellm needs a `config` file param (its model list)")
         # Operator-only is a property of the secret, not of one output's name: every output that
         # exposes an operator-only secret (whole, or inside a template) must be operator-only.
-        guarded = {o.secret for o in self.outputs.values() if o.operator_only and o.secret}
-        for name, output in self.outputs.items():
-            exposes = {output.secret} if output.secret else set()
-            if output.template:
-                exposes |= {s for s in guarded if "{secret." + s + "}" in output.template}
-            if exposes & guarded and not output.operator_only:
-                raise ValueError(f"output {name} exposes an operator_only secret")
+        # services_only likewise: an output exposing such a secret is at least as restricted.
+        for flag, allowed in (
+            ("operator_only", ("operator_only",)),
+            ("services_only", ("services_only", "operator_only")),
+        ):
+            guarded = {o.secret for o in self.outputs.values() if getattr(o, flag) and o.secret}
+            for name, output in self.outputs.items():
+                exposes = {output.secret} if output.secret else set()
+                if output.template:
+                    exposes |= {s for s in guarded if "{secret." + s + "}" in output.template}
+                if exposes & guarded and not any(getattr(output, a) for a in allowed):
+                    article = "an" if flag == "operator_only" else "a"
+                    raise ValueError(f"output {name} exposes {article} {flag} secret")
         return self
 
     def mounted_secrets(self) -> set[str]:

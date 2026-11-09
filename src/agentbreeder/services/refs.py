@@ -9,7 +9,8 @@ declared `per:` a list param).
 
 Taint: a secret output, a secret input or a secret never appears inside a template. Secret
 outputs may only be wired to secret inputs, or used as a stack `bindings` / `eval_database`
-value, as a whole. This keeps values out of env, `docker inspect`, labels and generated files.
+value, as a whole (`services_only` ones only wired; `operator_only` ones never). This keeps
+values out of env, `docker inspect`, labels and generated files.
 """
 
 from __future__ import annotations
@@ -254,7 +255,13 @@ def check(stack: Stack, specs: dict[str, ServiceSpec]) -> Resolved:
     if env.eval_database is not None:
         bound.append(("environment.eval_database", env.eval_database.ref))
     for where, text in bound:
-        output = _output(specs, resolved.params, Reference.parse(text, where), where)
+        reference = Reference.parse(text, where)
+        output = _output(specs, resolved.params, reference, where)
         if output.type != "secret":
             raise ServiceError("BINDING_TYPE", f"{where}: bindings take a secret output")
+        if output.services_only:
+            raise ServiceError(
+                "OUTPUT_SERVICES_ONLY",
+                f"{where}: {reference.service}.{reference.output} may only be wired to a service",
+            )
     return resolved
