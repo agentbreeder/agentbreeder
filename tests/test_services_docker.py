@@ -200,3 +200,63 @@ def test_postgres_pgvector_roles_init_sql_and_hardening(tmp_path, monkeypatch):
             one.down(volumes=True)
         finally:
             one.close()
+
+
+def test_litellm_gateway_on_postgres(tmp_path, monkeypatch):
+    """The built-in litellm runs read-only as 65532 on its own postgres role, answers health, and
+    takes only the generated `sk-` master key, which never enters the container config."""
+    import urllib.error
+    import urllib.request
+
+    monkeypatch.delenv(registry.PATH_ENV, raising=False)
+    monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))
+    stack = json.loads(json.dumps(STACK))
+    stack["services"] = {
+        "postgres": {"ref": "service/postgres-pgvector@1.0.0", "with": {"databases": ["litellm"]}},
+        "gateway": {
+            "ref": "service/litellm@1.0.0",
+            "with": {"config": "gw/config.yaml"},
+            "wire": {"database-url": "postgres.databases.litellm"},
+        },
+    }
+    stack["environment"]["services"] = {}
+    stack["environment"]["bindings"] = {}
+    stack["environment"].pop("eval_database")
+    project = write_project(tmp_path / "gw", stack=stack)
+    one = Engine(project)
+    try:
+        assert up(one)["services"]["gateway"] == "created"
+        container = f"{one.state.project}-gateway-1"
+        inspect = json.loads(docker("inspect", container))[0]
+        assert (
+            inspect["HostConfig"]["ReadonlyRootfs"] and inspect["Config"]["User"] == "65532:65532"
+        )
+        assert inspect["Config"]["Entrypoint"] == ["/files/start.py"]
+        raw = docker("inspect", container)
+        for value in one.state.known_secrets():
+            assert value.decode() not in raw
+
+        master = (one.state.directory / "service-secrets" / "gateway" / "master-key").read_text()
+        assert master.startswith("sk-")
+        port = one.status()["services"]["gateway"]["host_ports"]["http"]
+        base = f"http://127.0.0.1:{port}"
+
+        def generate(token):
+            request = urllib.request.Request(
+                f"{base}/key/generate",
+                data=json.dumps({"models": ["m1"], "duration": "5m"}).encode(),
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read())
+
+        assert generate(master)["key"].startswith("sk-")
+        with pytest.raises(urllib.error.HTTPError) as denied:
+            generate("sk-" + "0" * 48)
+        assert denied.value.code in (400, 401, 403)
+    finally:
+        try:
+            one.active_deployments = lambda: []
+            one.down(volumes=True)
+        finally:
+            one.close()

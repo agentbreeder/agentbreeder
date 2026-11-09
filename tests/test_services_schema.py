@@ -366,10 +366,14 @@ def test_secrets_never_interpolated_into_service_env(env, code):
 
 
 def test_param_placeholder_without_value_and_optional_input():
+    # A required param must be given; an optional one with no value leaves its variable out
+    # (like an unwired optional input).
     proxy = copy.deepcopy(PROXY)
-    proxy["params"]["label"] = {"type": "string"}
-    with pytest.raises(ServiceError, match="has no value"):
+    proxy["params"]["label"] = {"type": "string", "required": True}
+    with pytest.raises(ServiceError, match="label is required"):
         refs.check(stack(), specs(proxy=proxy))
+    proxy["params"]["label"] = {"type": "string"}
+    assert "proxy" in refs.check(stack(), specs(proxy=proxy)).order
     proxy = copy.deepcopy(PROXY)
     proxy["inputs"]["phoenix"]["optional"] = True
     proxy["env"] = {}
@@ -544,3 +548,17 @@ def test_tmpfs_may_not_shadow_a_volume():
     data["tmpfs"] = [next(iter(data["volumes"].values()))]
     with pytest.raises(ValueError, match="volume"):
         ServiceSpec.model_validate(data)
+
+
+def test_generated_secret_prefix():
+    from agentbreeder.services.schema import SecretSource
+
+    assert SecretSource.model_validate({"generate": "token", "prefix": "sk-"}).prefix == "sk-"
+    for bad in (
+        {"generate": "token", "prefix": "SK-"},
+        {"generate": "token", "prefix": "sk"},
+        {"generate": "token", "prefix": "averylongp-"},
+        {"import": "X_KEY", "prefix": "sk-"},
+    ):
+        with pytest.raises(ValueError):
+            SecretSource.model_validate(bad)

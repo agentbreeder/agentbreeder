@@ -1,0 +1,28 @@
+image: ghcr.io/berriai/litellm-database@sha256:35f2cec3a14bb297e08bfab56c1fc377432bc4071aaf71978fdff043a5d91e79
+provides: gateway/litellm
+command: [/files/start.py]
+user: "65532:65532"
+ports:
+  http: {port: 4000, expose: [agents, host], guard: litellm-auth}
+params:
+  config: {type: file, required: true}
+env:
+  HOME: /tmp
+  LITELLM_LOG: WARNING
+  LITELLM_TELEMETRY: "False"
+  DISABLE_ADMIN_UI: "True"
+  NO_DOCS: "True"
+  STORE_MODEL_IN_DB: "False"
+secrets:
+  master-key: {generate: token, prefix: sk-}
+  gemini-api-key: {import: GEMINI_API_KEY, optional: true}
+  openrouter-api-key: {import: OPENROUTER_API_KEY, optional: true}
+  openai-api-key: {import: OPENAI_API_KEY, optional: true}
+  anthropic-api-key: {import: ANTHROPIC_API_KEY, optional: true}
+inputs:
+  database-url: {type: secret}
+health: {http: /health/liveliness}
+egress: true
+outputs:
+  url: {type: url, port: http}
+  master_key: {type: secret, secret: master-key, operator_only: true}

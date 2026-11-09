@@ -208,6 +208,8 @@ def test_up_writes_compose_operator_config_and_bindings(env, tmp_path):
     compose = yaml.safe_load((stack_dir / "compose.yaml").read_text())
     echo = compose["services"]["echo"]
     assert echo["read_only"] and echo["cap_drop"] == ["ALL"]
+    assert echo["entrypoint"] == ["python3"]  # command is the whole argv; image ENTRYPOINT unused
+    assert echo["command"][:2] == ["-m", "http.server"]
     assert echo["networks"] == ["stack", "agents", "edge"]
     assert echo["ports"][0]["host_ip"] == "127.0.0.1"
     assert echo["environment"] == {"ECHO_LABEL": "hello", "PYTHONDONTWRITEBYTECODE": "1"}
@@ -854,3 +856,13 @@ def test_dockerfile_subset_allows_pinned_multistage_builds(tmp_path):
         'CMD ["python3", "-m", "app"]\n\nFROM scratch\nCOPY --from=1 /z /z\n'
     )
     engine_module._check_dockerfile(path)
+
+
+def test_generated_secret_gets_its_prefix(env):
+    gateway = json.loads(json.dumps(FAKEGW))
+    gateway["secrets"]["master-key"]["prefix"] = "sk-"
+    write_project(env, gateway=gateway)
+    _, instance = up(env, FakeDocker())
+    value = (instance.state.directory / "service-secrets" / "gateway" / "master-key").read_bytes()
+    assert value.startswith(b"sk-") and len(value) == 3 + 48
+    assert all(c in b"0123456789abcdef" for c in value[3:])

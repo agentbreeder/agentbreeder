@@ -147,10 +147,8 @@ def _check_templates(name: str, spec: ServiceSpec, params: dict) -> None:
                 raise ServiceError(
                     "REFERENCE_UNKNOWN", f"service {name} {where}: unknown {{{placeholder}}}"
                 )
-            if placeholder.startswith("params.") and placeholder[7:] not in params:
-                raise ServiceError(
-                    "PARAM_MISSING", f"service {name} {where}: {placeholder} has no value"
-                )
+            # A declared optional param with no value leaves the variable out (plan.environment),
+            # like an unwired optional input; a required one fails at resolution.
 
 
 def _output(stack_specs, params, reference: Reference, where: str):

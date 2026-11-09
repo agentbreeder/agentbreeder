@@ -106,6 +106,9 @@ class SecretSource(_Strict):
     import_: str | None = Field(default=None, alias="import", pattern=IMPORT_NAME)
     optional: bool = False
     per: str | None = Field(default=None, pattern=KEY)  # one secret per item of a list param
+    # A fixed lowercase prefix for generated tokens a service expects in a known shape
+    # (LiteLLM keys are `sk-…`). The random part stays hex.
+    prefix: str | None = Field(default=None, pattern=r"^[a-z]{1,8}-$")
 
     @model_validator(mode="after")
     def one_source(self):
@@ -114,6 +117,8 @@ class SecretSource(_Strict):
             raise ValueError("a secret has exactly one of generate or import")
         if self.optional and self.import_ is None:
             raise ValueError("only imported secrets can be optional")
+        if self.prefix is not None and self.generate is None:
+            raise ValueError("`prefix` applies to generated secrets only")
         if self.per is not None and self.generate is None:
             raise ValueError("`per` applies to generated secrets only")
         return self

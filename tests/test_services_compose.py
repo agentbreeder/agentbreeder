@@ -214,7 +214,10 @@ def test_oneshot_argv_is_hardened(state, tmp_path):
     assert argv[argv.index("--pull") + 1] == "never"
     assert f"type=bind,src={tmp_path},dst=/run/secrets,readonly" in argv
     assert argv.index("--env=A=1") < argv.index("--env=B=2")
-    assert argv[-4:] == ["img", "python3", "-c", "print(1)"]
+    # The command is the whole argv: the image ENTRYPOINT never wraps it.
+    assert argv[-3:] == ["img", "-c", "print(1)"]
+    assert argv[argv.index("--entrypoint") + 1] == "python3"
+    assert argv.index("--entrypoint") < argv.index("img")
     assert argv[argv.index("--name") + 1].startswith(f"{state.project}-step-")
     assert seen["kwargs"]["stderr"] == subprocess.DEVNULL
     _, seen = oneshot(state, FakeProcess())

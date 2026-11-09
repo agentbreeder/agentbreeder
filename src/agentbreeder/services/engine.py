@@ -221,7 +221,7 @@ class Engine:
                 f"service {service}: secret {key} is gone but its data volume exists; restore "
                 "it or remove the data with `services down --volumes --yes`",
             )
-        data = secret_files.generate_token()
+        data = (source.prefix or "").encode() + secret_files.generate_token()
         self.state.write_secret(service, key, data, "generate")
         return data
 

@@ -175,7 +175,10 @@ class Plan:
         spec = self.spec(service)
         definition: dict = {"image": self.images[service]}
         if spec.command:
-            definition["command"] = list(spec.command)
+            # `command` is the whole argv: the image ENTRYPOINT (often a shell script) never
+            # wraps it. Without a command the image's own entrypoint and cmd run unchanged.
+            definition["entrypoint"] = [spec.command[0]]
+            definition["command"] = list(spec.command[1:])
         user = self.user(service)
         if user:
             definition["user"] = user

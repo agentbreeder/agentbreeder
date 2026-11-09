@@ -255,7 +255,8 @@ class DockerCLI:
             argv += ["--mount", f"type=bind,src={source},dst={target},readonly"]
         for key, value in sorted(env.items()):
             argv.append(f"--env={key}={value}")
-        return [*argv, image, *command]
+        # The command is the whole argv; the image ENTRYPOINT never wraps it.
+        return [*argv, "--entrypoint", command[0], image, *command[1:]]
 
     def oneshot(
         self,
