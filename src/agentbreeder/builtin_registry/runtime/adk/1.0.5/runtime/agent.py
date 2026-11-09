@@ -62,6 +62,14 @@ INFLIGHT: set[str] = set()
 INFLIGHT_LOCK = threading.Lock()
 
 
+_KEYISH = re.compile(r"(sk-|AIza|Bearer\s+)[A-Za-z0-9_.\-]{8,}")
+
+
+def redact(text: str) -> str:
+    """Key-shaped strings out of failure detail kept in the agent's own audit events."""
+    return _KEYISH.sub(lambda match: match.group(1) + "[redacted]", text)
+
+
 class ModelError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
@@ -229,7 +237,7 @@ class Runtime:
                     reply = await self.run_turn(turn, session, customer, message)
                     set_output(root, reply)
                 except Exception as failure:
-                    error = f"{type(failure).__name__}: {failure}"[:500]
+                    error = redact(f"{type(failure).__name__}: {failure}")[:500]
                     await run_to_completion(
                         memory.audit, turn, session, customer, "system", "turn_failed",
                         {"error": error},

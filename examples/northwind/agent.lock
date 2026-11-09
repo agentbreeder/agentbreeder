@@ -14,7 +14,7 @@
       "source": "registry"
     },
     "runtime/adk@1.0.5": {
-      "sha256": "sha256:aab135defc2f64ed73fd6bb1497a6eaca8a1973a591a8c8b4bdf3d65a8bdc557",
+      "sha256": "sha256:982eae453dc3e2b18f3e5f4e7bc5960bb0e59f0d1376f0d228c7e771fa5c4e95",
       "source": "builtin"
     },
     "tool/cancel-order@1.0.0": {

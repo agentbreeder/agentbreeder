@@ -375,3 +375,23 @@ def test_session_locks_are_evicted_when_idle(app):
         with server.session_lock(f"x{number}"):
             pass
     assert not server.LOCKS
+
+
+def test_model_errors_reach_callers_without_upstream_detail(app):
+    import server
+
+    leaky = agent_module.ModelError(401, "Incorrect API key sk-abcdef1234567890 at http://gw:4000")
+    for status, expected in ((429, 429), (401, 502), (500, 502)):
+        leaky.status = status
+        code, body = server.model_error_response(leaky)
+        assert code == expected
+        assert "sk-" not in body["error"] and "gw:4000" not in body["error"]
+
+
+def test_stored_failure_detail_redacts_key_shaped_strings():
+    text = agent_module.redact(
+        "AuthenticationError: bad key sk-abcdef1234567890, Bearer eyJhbGciOiJIUzI1NiJ9.x.y and "
+        "AIzaSyA1234567890abcdefghij"
+    )
+    assert "abcdef1234567890" not in text and "eyJhbGci" not in text and "SyA12345" not in text
+    assert text.startswith("AuthenticationError: bad key sk-[redacted]")

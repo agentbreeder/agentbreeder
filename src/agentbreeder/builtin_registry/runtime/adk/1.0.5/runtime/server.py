@@ -50,6 +50,14 @@ def session_lock(session: str, blocking: bool = True):
                 del LOCKS[session]
 
 
+def model_error_response(error: ModelError) -> tuple[int, dict]:
+    """A fixed message and coarse status: upstream text (URLs, key fragments) stays in the
+    turn's audit event, never in the reply to the caller."""
+    if error.status == 429:
+        return 429, {"error": "The model service is busy; please try again shortly"}
+    return 502, {"error": "The model service is unavailable; please try again"}
+
+
 def page() -> bytes:
     config = cfg.config()
     title = config["name"].replace("-", " ").title()
@@ -144,8 +152,7 @@ class Handler(BaseHTTPRequestHandler):
         except cfg.ConfigError as error:
             self.respond(503, {"error": f"Agent is misconfigured: {error}"})
         except ModelError as error:
-            status = 429 if error.status == 429 else 502
-            self.respond(status, {"error": f"Model API error {error.status}: {error}"})
+            self.respond(*model_error_response(error))
 
     def log_message(self, format: str, *args) -> None:
         pass  # never log customer messages
