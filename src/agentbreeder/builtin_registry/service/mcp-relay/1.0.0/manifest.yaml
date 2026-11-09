@@ -1,0 +1,11 @@
+kind: service
+name: mcp-relay
+version: 1.0.0
+description: >-
+  The MCP relay for stack.yaml `mcp:` entries (spec §7): it holds the upstream credential, and
+  agents hold only a per-deployment token. It forwards only granted tools, answers tools/list
+  from pinned definitions, filters server-to-client traffic and pins every upstream connection
+  (https on port 443, public addresses only). Standard-library Python on the pinned
+  python:3.12-slim image. Built-in only: stack.yaml, ./registry and AGENTBREEDER_REGISTRY_PATH
+  can't name, shadow or override it. It is not policy enforcement (no Cedar/OPA, approvals or
+  argument checks; that is #742).

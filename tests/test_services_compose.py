@@ -346,3 +346,26 @@ def test_oneshot_abort_tolerates_cleanup_failures(state):
         docker.oneshot(state, label="x", network="n", image="i", command=["true"], timeout=3)
     name = seen["argv"][seen["argv"].index("--name") + 1]
     assert run.calls[0][0][-3:] == ["rm", "--force", name]
+
+
+def test_relay_probe_passes_the_admin_token_on_stdin_only(state):
+    token = b"f" * 64
+    run = Recorder((0, '{"server": "github"}\n', ""), (1, "", f"bad {token.decode()}"))
+    docker = DockerCLI(run=run)
+    assert docker.relay_probe(state, "mcp-github", token) == '{"server": "github"}'
+    argv, kwargs = run.calls[0]
+    assert argv[-6:] == ["exec", "-T", "mcp-github", "python3", "/opt/relay/relay.py", "probe"]
+    assert token.decode() not in " ".join(argv)
+    assert kwargs["input"] == token + b"\n"
+    assert token.decode() not in json.dumps(kwargs["env"])
+    with pytest.raises(ServiceError) as error:
+        docker.relay_probe(state, "mcp-github", token)
+    assert token.decode() not in str(error.value)
+
+
+def test_remove_container(state):
+    run = Recorder((0, "", ""))
+    DockerCLI(run=run).remove_container("0123abcd")
+    assert run.calls[0][0][-3:] == ["rm", "--force", "0123abcd"]
+    with pytest.raises(ValueError):
+        DockerCLI(run=run).remove_container("--all")

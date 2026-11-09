@@ -28,6 +28,7 @@ from agentbreeder.services.schema import ServiceError
 
 ROOT_ENV = "AGENTBREEDER_STACKS_DIR"
 _ENV = re.compile(r"[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?")
+_SHARED_PART = re.compile(r"[a-z0-9][a-z0-9_-]{0,62}")
 _SECRET_FILE = re.compile(r"[a-z][a-z0-9_-]{0,30}(\.[a-z][a-z0-9_]{0,62})?")
 ORIGINS = ("generate", "import", "bootstrap")
 # As in registry.py: interpreter caches are never hashed into a version, so never copied.
@@ -257,10 +258,11 @@ class StackState:
 
     # -- mounts ---------------------------------------------------------------------------------
 
-    def mount_dir(self, purpose: str, values: dict[str, bytes]) -> Path:
+    def mount_dir(self, purpose: str, values: dict[str, bytes], mode: int = 0o444) -> Path:
         """A 0700 directory of 0444 copies for one container generation, bind-mounted read-only
         at /run/secrets. Per-item names (`role.support`) become `role/support`. The directory
-        name is an HMAC of the contents, so the same values give the same path (no recreate)."""
+        name is an HMAC of the contents, so the same values give the same path (no recreate).
+        `mode` 0o400 is for containers that run as the operator's uid (MCP relays)."""
         root = private_dir(self.directory / "mounts")
         target = root / f"{purpose}-{self.generation(values)}"
         if target.is_dir() and not target.is_symlink():
@@ -274,7 +276,7 @@ class StackState:
             path = staging / base / item if item else staging / base
             if item:
                 path.parent.mkdir(mode=0o755, exist_ok=True)
-            write_private(path, data, mode=0o444)
+            write_private(path, data, mode=mode)
         # Readable by the container's uid; the 0700 parent keeps other host users out.
         staging.chmod(0o755)
         os.replace(staging, target)
@@ -287,6 +289,20 @@ class StackState:
         for child in root.iterdir():
             if child not in keep and child.is_dir() and not child.is_symlink():
                 shutil.rmtree(child)
+
+    def shared_dir(self, *parts: str) -> Path:
+        """A 0755 directory under the stack dir (still behind its 0700 parent) whose 0444 files
+        a container bind-mounts read-only: MCP grants and pins (spec §7.7.4)."""
+        path = self.directory
+        for part in parts:
+            if not _SHARED_PART.fullmatch(part):
+                raise ServiceError("STATE_UNSAFE", "invalid state path")
+            path = path / part
+            if path.is_symlink():
+                raise ServiceError("STATE_UNSAFE", f"{path} must not be a symlink")
+            path.mkdir(mode=0o755, exist_ok=True)
+            path.chmod(0o755)
+        return path
 
     def copy_file(self, source: Path) -> Path:
         """Content-addressed copy (file or directory) under files/; same content, same path."""

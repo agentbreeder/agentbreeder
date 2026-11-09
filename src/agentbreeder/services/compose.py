@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import subprocess
 import threading
@@ -79,7 +80,9 @@ class DockerCLI:
     def _argv(self, arguments) -> list[str]:
         return ["docker", *(["--context", self.context] if self.context else []), *arguments]
 
-    def run(self, *arguments: str, timeout: int = 120, what: str | None = None) -> str:
+    def run(
+        self, *arguments: str, timeout: int = 120, what: str | None = None, stdin: bytes = b""
+    ) -> str:
         try:
             result = self._run(
                 self._argv(arguments),
@@ -87,6 +90,7 @@ class DockerCLI:
                 timeout=timeout,
                 check=False,
                 env=sanitised_environment(),
+                **({"input": stdin} if stdin else {}),
             )
         except (OSError, subprocess.TimeoutExpired):
             raise ServiceError(
@@ -128,6 +132,31 @@ class DockerCLI:
             what=what or f"docker compose {arguments[0]}",
         )
 
+    def relay_probe(self, state: StackState, service: str, admin_token: bytes) -> str:
+        """Run the MCP relay's probe inside its container (spec §7.7.1). The admin token goes
+        on stdin: never in argv, the environment or a label."""
+        self.redactions.append(admin_token)
+        return self.run(
+            "compose",
+            "-p",
+            state.project,
+            "-f",
+            str(state.compose_path),
+            "--project-directory",
+            str(state.directory),
+            "--env-file",
+            str(state.directory / "compose.env"),
+            "exec",
+            "-T",
+            service,
+            "python3",
+            "/opt/relay/relay.py",
+            "probe",
+            timeout=180,
+            what=f"probing {service}",
+            stdin=admin_token.strip() + b"\n",
+        )
+
     def up(self, state: StackState, service: str, timeout: int = 300) -> None:
         self.compose(
             state,
@@ -167,6 +196,13 @@ class DockerCLI:
                 "config": labels.get("io.agentbreeder.config", ""),
             }
         return result
+
+    def remove_container(self, container_id: str) -> None:
+        """Remove one container by id: a relay whose `mcp:` entry is gone, which compose can't
+        address once its service has left the compose file."""
+        if not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z_.-]{0,127}", container_id):
+            raise ValueError("invalid container id")
+        self.run("rm", "--force", container_id, what="removing a dropped relay")
 
     def down(self, state: StackState) -> None:
         if state.compose_path.exists():
