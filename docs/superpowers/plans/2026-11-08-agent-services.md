@@ -127,4 +127,11 @@ fix findings before the next slice.
   Docker's first-mount copy-up gives the empty named volume the image directory's owner (999), and
   a hardened start succeeded without any helper (re-tested). No cap_add fallback is needed.
 - **Phoenix bootstrap:** this needs Phoenix's GraphQL API. Pin the image, and test the mint step
-  in isolation.
+  in isolation. (DONE, verified with real Docker: v21.0.0 runs read-only as 65532 with auth on,
+  its data in a postgres role; `bootstrap.py` mints a system key Phoenix accepts. Phoenix has no
+  volume, so the bootstrap marker covers the volumes of every service it is wired to: a new
+  postgres volume mints again, and the old key is rejected. Phoenix reads secrets only from env,
+  so a locked launcher copies them in; prefixes `s1-`/`a1-` guarantee its digit+lowercase rule.
+  The UI's auth cookies are SameSite=Strict, and every API call needs a bearer key, so the host
+  port uses `guard: bearer`. Service file copies now skip `__pycache__`/`*.pyc`, as the registry
+  digest does, so unlocked bytecode is never mounted.)

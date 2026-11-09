@@ -170,6 +170,18 @@ class Plan:
             networks.append("edge")
         return networks
 
+    def upstream(self, service: str) -> list[str]:
+        """Services this one is wired to, directly or transitively (sorted)."""
+        seen: set[str] = set()
+        pending = [service]
+        while pending:
+            for text in self.locked.stack.services[pending.pop()].wire.values():
+                source = Reference.parse(text, "wire").service
+                if source not in seen and source != service:
+                    seen.add(source)
+                    pending.append(source)
+        return sorted(seen)
+
     def volume_name(self, service: str, volume: str) -> str:
         return f"{self.project}-{service}-{volume}"
 

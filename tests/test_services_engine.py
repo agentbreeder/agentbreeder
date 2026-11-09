@@ -337,6 +337,30 @@ def test_bootstrap_runs_again_for_a_new_volume(env):
     assert [e[1] for e in docker.events if e[0] == "oneshot"].count("echo.bootstrap") == 2
 
 
+def test_bootstrap_runs_again_when_a_wired_service_gets_a_new_volume(env):
+    # Phoenix keeps its data (and the ingest key it mints) in postgres: a new postgres volume
+    # invalidates the minted key even though Phoenix itself has no volume.
+    gateway = {
+        **FAKEGW,
+        "inputs": {"upstream": {"type": "secret"}},
+        "bootstrap": {"command": ["python3", "-c", "print(1)"], "writes_secret": "minted"},
+    }
+    stack = copy.deepcopy(STACK)
+    stack["services"]["gateway"]["wire"] = {"upstream": "echo.token"}
+    write_project(env, stack=stack, gateway=gateway)
+    docker = FakeDocker()
+    up(env, docker)
+    up(env, docker)
+    boots = [e[1] for e in docker.events if e[0] == "oneshot"]
+    assert boots.count("gateway.bootstrap") == 1  # same volumes: not minted again
+    instance = engine(env, docker)
+    instance.down(volumes=True)
+    instance.close()
+    up(env, docker)
+    boots = [e[1] for e in docker.events if e[0] == "oneshot"]
+    assert boots.count("gateway.bootstrap") == 2
+
+
 def test_operator_config_edits_are_refused(env):
     result, _ = up(env)
     path = Path(result["operator_config"])

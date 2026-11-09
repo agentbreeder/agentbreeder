@@ -260,3 +260,77 @@ def test_litellm_gateway_on_postgres(tmp_path, monkeypatch):
             one.down(volumes=True)
         finally:
             one.close()
+
+
+def test_phoenix_on_postgres_mints_an_ingest_key(tmp_path, monkeypatch):
+    """The built-in phoenix runs read-only as 65532 with auth on and its data in its own postgres
+    role; bootstrap mints a system key that Phoenix accepts, and mints again for a new volume."""
+    import urllib.error
+    import urllib.request
+
+    monkeypatch.delenv(registry.PATH_ENV, raising=False)
+    monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))
+    stack = json.loads(json.dumps(STACK))
+    stack["services"] = {
+        "postgres": {"ref": "service/postgres-pgvector@1.0.0", "with": {"databases": ["phoenix"]}},
+        "phoenix": {
+            "ref": "service/phoenix@1.0.0",
+            "wire": {"database-url": "postgres.databases.phoenix"},
+        },
+        "gateway": STACK["services"]["gateway"],
+    }
+    stack["environment"]["services"] = {}  # agents reach Phoenix only through a proxy
+    stack["environment"]["bindings"] = {}
+    stack["environment"].pop("eval_database")
+    project = write_project(tmp_path / "px", stack=stack)
+    one = Engine(project)
+
+    def projects_status(base, token):
+        request = urllib.request.Request(
+            f"{base}/v1/projects", headers={"Authorization": f"Bearer {token}"}
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code
+
+    try:
+        assert up(one)["services"]["phoenix"] == "created"
+        container = f"{one.state.project}-phoenix-1"
+        inspect = json.loads(docker("inspect", container))[0]
+        assert (
+            inspect["HostConfig"]["ReadonlyRootfs"] and inspect["Config"]["User"] == "65532:65532"
+        )
+        assert inspect["Config"]["Entrypoint"] == ["/files/start.py"]
+        raw = docker("inspect", container)
+        for value in one.state.known_secrets():
+            assert value.decode() not in raw
+
+        secrets = one.state.directory / "service-secrets" / "phoenix"
+        assert (secrets / "secret").read_text().startswith("s1-")
+        key = (secrets / "ingest-key").read_text().strip()
+        assert key.count(".") == 2
+        port = one.status()["services"]["phoenix"]["host_ports"]["http"]
+        base = f"http://127.0.0.1:{port}"
+        assert projects_status(base, key) == 200
+        assert projects_status(base, "x.y.z") == 401
+
+        assert up(one)["services"]["phoenix"] == "unchanged"  # same volume: same key
+        assert (secrets / "ingest-key").read_text().strip() == key
+
+        one.active_deployments = lambda: []
+        one.down(volumes=True)
+        up(one)
+        fresh = (secrets / "ingest-key").read_text().strip()
+        port = one.status()["services"]["phoenix"]["host_ports"]["http"]
+        base = f"http://127.0.0.1:{port}"
+        assert fresh != key
+        assert projects_status(base, fresh) == 200
+        assert projects_status(base, key) == 401  # the old database, and its key, are gone
+    finally:
+        try:
+            one.active_deployments = lambda: []
+            one.down(volumes=True)
+        finally:
+            one.close()

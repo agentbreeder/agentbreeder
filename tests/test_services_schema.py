@@ -554,11 +554,32 @@ def test_generated_secret_prefix():
     from agentbreeder.services.schema import SecretSource
 
     assert SecretSource.model_validate({"generate": "token", "prefix": "sk-"}).prefix == "sk-"
+    # A digit after the first letter lets a service's "at least one digit" rule always hold.
+    assert SecretSource.model_validate({"generate": "token", "prefix": "s1-"}).prefix == "s1-"
     for bad in (
         {"generate": "token", "prefix": "SK-"},
+        {"generate": "token", "prefix": "1s-"},
+        {"generate": "token", "prefix": "s_1-"},
         {"generate": "token", "prefix": "sk"},
         {"generate": "token", "prefix": "averylongp-"},
         {"import": "X_KEY", "prefix": "sk-"},
     ):
         with pytest.raises(ValueError):
             SecretSource.model_validate(bad)
+
+
+def test_every_builtin_service_loads():
+    from pathlib import Path
+
+    import agentbreeder
+
+    root = Path(agentbreeder.__file__).parent / "builtin_registry" / "service"
+    versions = sorted(root.glob("*/*/service.yaml"))
+    names = {path.parent.parent.name for path in versions}
+    assert {"echo", "postgres-pgvector", "litellm", "phoenix"} <= names
+    for path in versions:
+        spec = load_service(path)
+        for command in [spec.command, *(s.command for s in (spec.init, spec.bootstrap) if s)]:
+            if command and command[0].startswith("/files/"):
+                script = path.parent / "files" / command[0].removeprefix("/files/")
+                assert script.is_file() and script.stat().st_mode & 0o100, script

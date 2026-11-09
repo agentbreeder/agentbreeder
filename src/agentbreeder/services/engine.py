@@ -348,9 +348,12 @@ class Engine:
             self._step_run(plan, name, spec.init, "init", mounts, capture=False)
         if spec.bootstrap is None:
             return
+        # The minted value lives in data this service or anything it is wired to keeps (Phoenix's
+        # ingest key is in postgres): a new volume anywhere there means minting again.
         identities = sorted(
-            self.docker.volume_identity(plan.volume_name(name, volume)) or ""
-            for volume in spec.volumes
+            self.docker.volume_identity(plan.volume_name(owner, volume)) or ""
+            for owner in [name, *plan.upstream(name)]
+            for volume in plan.spec(owner).volumes
         )
         marker = "|".join(identities) or "no-volume"
         target = spec.bootstrap.writes_secret

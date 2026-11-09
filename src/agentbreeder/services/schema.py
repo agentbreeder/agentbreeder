@@ -107,8 +107,9 @@ class SecretSource(_Strict):
     optional: bool = False
     per: str | None = Field(default=None, pattern=KEY)  # one secret per item of a list param
     # A fixed lowercase prefix for generated tokens a service expects in a known shape
-    # (LiteLLM keys are `sk-…`). The random part stays hex.
-    prefix: str | None = Field(default=None, pattern=r"^[a-z]{1,8}-$")
+    # (LiteLLM keys are `sk-…`; Phoenix secrets need a digit and a letter, so `s1-…`). The random
+    # part stays hex.
+    prefix: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9]{0,7}-$")
 
     @model_validator(mode="after")
     def one_source(self):
