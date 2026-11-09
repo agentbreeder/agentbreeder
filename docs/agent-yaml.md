@@ -59,8 +59,9 @@ What happens at run time:
 - **After a relay restart,** the next tool call fails if the listing is still cached, and the one
   after it reconnects. Once the cache has expired, the listing itself reconnects and no call
   fails.
-- **Sharing:** every customer of a deployment shares one relay session, and so shares the relay's
-  per-token limits (4 concurrent calls, 60 requests a minute).
+- **Sharing:** every customer of a deployment shares one MCP session, and the relay's per-token
+  limits (4 concurrent calls, 60 requests a minute). Use only MCP servers whose session holds no
+  per-user state. Browser-type servers, which do, aren't supported yet (#747).
 - **Unauthenticated callers:** `POST /invoke` is not authenticated, so whoever can reach the
   agent can make it call its granted MCP tools. That means loopback and, despite the `Host`
   check, other containers on the agents network.

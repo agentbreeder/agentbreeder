@@ -286,6 +286,9 @@ What the relay does **not** do:
   calls (#742) must not rely on them.
 - **It is not policy enforcement:** no Cedar/OPA evaluation, approvals or hash-chained audit
   (#742).
+- **One MCP session per deployment.** `runtime/adk@1.1.0` keeps one session per server, shared by
+  every customer of the deployment. Only use upstreams whose session holds no per-user state;
+  stateful (browser-type) upstreams wait for #747, which decides per-conversation sessions.
 - **The relay authenticates the agent, not the agent's caller.** An agent's `POST /invoke` is not
   authenticated. Its port is published on loopback only, but other containers on the agents
   network can reach it too: its `Host` check stops browser DNS rebinding, not another

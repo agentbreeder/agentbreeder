@@ -984,3 +984,12 @@ against google-adk 2.12.0 and mcp 2.3.0:
      fixed here: authenticated invocation isn't shipped, and the `Host` check doesn't stop
      another container on the agents network. The consequence for MCP is now stated in
      docs/services.md and docs/agent-yaml.md. Authenticated invocation needs its own issue.
+- **Push security review:** one MCP session is shared by all of a deployment's customers.
+  Acknowledged, not changed. For a server whose session holds no per-user state (every upstream
+  supported today) it adds no exposure, since the relay already holds one credential per
+  deployment.
+
+  Per-conversation sessions would cost a relay `initialize`, a `tools/list` and a live upstream
+  check for every new conversation, which runs into the 60-a-minute limit. Stateful
+  (browser-type) upstreams are already refused until #747, which must decide per-conversation
+  sessions. The constraint is documented in docs/services.md and docs/agent-yaml.md.
