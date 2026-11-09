@@ -1,0 +1,8 @@
+# Installed with --require-hashes: every wheel is pinned for linux x86_64 and aarch64 (cp312).
+psycopg==3.3.8 \
+    --hash=sha256:ca50af6072ba9ea6866f33021975230c2555d7bfdb9d8f94ca3af5c3d1bf2167
+psycopg-binary==3.3.8 \
+    --hash=sha256:a7cdba018e4decf3837793c1e18dbe3dd71709adef54892ab83d81c00e866dc3 \
+    --hash=sha256:804041b79916b0e8021a1130650d724741eff1e81ccec8133abf357b4d284a24
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

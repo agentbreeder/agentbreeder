@@ -143,6 +143,17 @@
 </main>
 <script>
 const $ = s => document.querySelector(s);
+// The ops token arrives in the URL fragment (#token=...), which browsers never send to the
+// server. Keep it for this tab only and drop it from the address bar and history.
+const OPS_TOKEN = (() => {
+  const given = new URLSearchParams(location.hash.slice(1)).get("token");
+  try {
+    if (given) sessionStorage.setItem("ops-token", given);
+    if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+    return given || sessionStorage.getItem("ops-token") || "";
+  } catch (e) { return given || ""; }
+})();
+const auth = {"Authorization": "Bearer " + OPS_TOKEN};
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 let hours = 24, data = null, tab = "recent";
 const charts = {};
@@ -333,7 +344,7 @@ function renderTable() {
         if (!who) { $("#approver").focus(); $("#approver").placeholder = "enter your name first"; return; }
         b.disabled = true;
         const res = await fetch(`/api/cancellations/${encodeURIComponent(r.id)}/decision`, {
-          method: "POST", headers: {"Content-Type": "application/json", "X-Northwind-Ops": "1"},
+          method: "POST", headers: {...auth, "Content-Type": "application/json", "X-Northwind-Ops": "1"},
           body: JSON.stringify({decision, approver: who})});
         const out = await res.json().catch(() => ({}));
         $("#status").textContent = res.ok ? `${r.id}: ${out.status}${out.note ? " (" + out.note + ")" : ""}` : `${r.id}: ${out.error || res.status}`;
@@ -379,7 +390,8 @@ function renderTable() {
 
 async function load() {
   try {
-    const res = await fetch(`/api/summary?hours=${hours}`);
+    const res = await fetch(`/api/summary?hours=${hours}`, {headers: auth});
+    if (res.status === 401) throw new Error("open the dashboard with its #token=… link (see the Northwind README)");
     if (!res.ok) throw new Error("HTTP " + res.status);
     data = await res.json();
     $("#status").textContent = `Updated ${new Date().toLocaleTimeString()} · auto-refreshes every 15s`;

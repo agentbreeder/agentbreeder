@@ -1,7 +1,0 @@
-# Image for the key proxy and the ops dashboard / online-eval worker (Compose services).
-FROM python:3.12-slim
-RUN pip install --no-cache-dir "psycopg[binary]==3.3.8" certifi==2026.10.23
-WORKDIR /app
-COPY proxy.py /app/proxy.py
-COPY ops/ /app/ops/
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1

@@ -9,12 +9,12 @@
       "sha256": "sha256:e3fbd5ba636f66a80ba29ad23b63ff20a9b79484849fbaa926219fbbd3a1703e",
       "source": "registry"
     },
-    "prompt/northwind-support@1.0.0": {
-      "sha256": "sha256:2b41e4292bfeedd02ba47c8e21b5a8af1d65f892c46390b02c74ae37c0cb64d7",
+    "prompt/northwind-support@1.0.1": {
+      "sha256": "sha256:ee8174824f95b8506a458365b47983010b880d60ea364cd4e42500e4a2c5cb09",
       "source": "registry"
     },
-    "runtime/adk@1.0.4": {
-      "sha256": "sha256:28e51805a3fb385aebe3560679b5fbb191e10f13777f92101016150aeb2ce4c6",
+    "runtime/adk@1.0.5": {
+      "sha256": "sha256:aab135defc2f64ed73fd6bb1497a6eaca8a1973a591a8c8b4bdf3d65a8bdc557",
       "source": "builtin"
     },
     "tool/cancel-order@1.0.0": {

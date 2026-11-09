@@ -1,11 +1,17 @@
-"""Ops dashboard (http://127.0.0.1:8790) + the online-eval worker in a background thread.
+"""Ops dashboard + the online-eval worker in a background thread.
 
 Read-only over Postgres: KPIs, latency and eval trends, tool usage, recent turns with scores and
-Phoenix trace links, offline eval runs and the audit log.
+Phoenix trace links, offline eval runs and the audit log. Staff approve or reject cancellation
+requests here.
+
+Every /api/ request needs the generated ops token (`Authorization: Bearer`). Open the dashboard
+as http://127.0.0.1:<port>/#token=<token>: the page keeps the token from the URL fragment (never
+sent to the server or logged) for this tab only and sends it as a header.
 """
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import threading
@@ -21,6 +27,18 @@ from common import OPENER, PHOENIX, PHOENIX_PROJECT, PHOENIX_PUBLIC, connect, ph
 
 PAGE = Path(__file__).with_name("dashboard.html")
 PORT = int(os.getenv("OPS_PORT", "8790"))
+TOKEN_FILE = Path(os.getenv("OPS_TOKEN_FILE", "/run/secrets/ops-token"))
+LOOPBACK = ("127.0.0.1", "localhost")
+TOKEN = b""  # set from TOKEN_FILE at start; empty refuses every /api/ request
+
+
+def ops_token() -> bytes:
+    token = TOKEN_FILE.read_bytes().strip()
+    if len(token) < 32:
+        raise SystemExit("ops: the ops token is missing or too short")
+    return token
+
+
 _project_id: str | None = None
 
 
@@ -256,15 +274,27 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def authorized(self) -> bool:
+        """The ops token as a bearer header, compared in constant time."""
+        header = self.headers.get("Authorization") or ""
+        scheme, _, given = header.partition(" ")
+        if not TOKEN or scheme != "Bearer":
+            return False
+        return hmac.compare_digest(given.strip().encode(), TOKEN)
+
     def do_GET(self) -> None:
+        url = urlparse(self.path)
+        if url.path == "/healthz":  # AgentBreeder probes it on the stack network
+            self.send(200, b"ok", "text/plain")
+            return
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
-        if host not in ("127.0.0.1", "localhost"):
+        if host not in LOOPBACK:
             self.send(403, b"forbidden", "text/plain")
             return
-        url = urlparse(self.path)
-        if url.path == "/healthz":
-            self.send(200, b"ok", "text/plain")
-        elif url.path == "/":
+        if url.path.startswith("/api/") and not self.authorized():
+            self.send(401, b'{"error":"ops token required"}', "application/json")
+            return
+        if url.path == "/":
             self.send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
         elif url.path == "/api/summary":
             try:
@@ -284,15 +314,18 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         parts = urlparse(self.path).path.strip("/").split("/")
         if (
-            host not in ("127.0.0.1", "localhost")
+            host not in LOOPBACK
             or self.headers.get("X-Northwind-Ops") != "1"
             or (self.headers.get("Content-Type") or "").split(";")[0] != "application/json"
-            or (origin and urlparse(origin).hostname not in ("127.0.0.1", "localhost"))
+            or (origin and urlparse(origin).hostname not in LOOPBACK)
             or len(parts) != 4
             or parts[:2] != ["api", "cancellations"]
             or parts[3] != "decision"
         ):
             self.send(403, b'{"error":"forbidden"}', "application/json")
+            return
+        if not self.authorized():
+            self.send(401, b'{"error":"ops token required"}', "application/json")
             return
         try:
             size = int(self.headers.get("Content-Length", "0"))
@@ -315,6 +348,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    TOKEN = ops_token()
     threading.Thread(
         target=online_evals.run_forever,
         daemon=True,

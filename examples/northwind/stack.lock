@@ -1,0 +1,47 @@
+{
+  "lock_version": 1,
+  "entries": {
+    "path:stack/db/commerce.sql": {
+      "sha256": "sha256:2edf75d544889ac95058d51d81b30c392ff220483579fabf901543fc7598a109",
+      "source": "stack/db/commerce.sql"
+    },
+    "path:stack/litellm/config.yaml": {
+      "sha256": "sha256:25a7225019085aadd6a7743fd34af762a9e44bc114fc566659416c02ca50b38b",
+      "source": "stack/litellm/config.yaml"
+    },
+    "service/litellm@1.0.0": {
+      "sha256": "sha256:48d0754ba83e6302e653c77f26fb5eeb7a3adcf6ba957411d427d02921026341",
+      "source": "builtin"
+    },
+    "service/northwind-ops@1.0.0": {
+      "sha256": "sha256:0f2656dc555ac96ee4733ee61f329dc7029ce120b1933a37bbdd3aaf1186608a",
+      "source": "registry"
+    },
+    "service/northwind-proxy@1.0.0": {
+      "sha256": "sha256:53a3d6271270adaaa845bf3cb8c1b0d6ee15605f861360703ae2855c3b736c80",
+      "source": "registry"
+    },
+    "service/phoenix@1.0.0": {
+      "sha256": "sha256:3a7071f82aacc6ba76fd89c918ba3f6d08a3f7ad5793265014c9ba63777bc8d6",
+      "source": "builtin"
+    },
+    "service/postgres-pgvector@1.0.0": {
+      "sha256": "sha256:a1d15ca0f25a49c64aa354d6b0eea573231687b3c096958a40e7f3ed5d6ae780",
+      "source": "builtin"
+    }
+  },
+  "imports": {
+    "litellm": [
+      "ANTHROPIC_API_KEY",
+      "GEMINI_API_KEY",
+      "OPENAI_API_KEY",
+      "OPENROUTER_API_KEY"
+    ],
+    "ops": [
+      "GEMINI_API_KEY"
+    ],
+    "proxy": [
+      "TAVILY_API_KEY"
+    ]
+  }
+}

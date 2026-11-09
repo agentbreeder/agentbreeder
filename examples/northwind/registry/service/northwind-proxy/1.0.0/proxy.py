@@ -1,12 +1,12 @@
 """Key proxy: keeps the Tavily and Phoenix keys out of the agent image.
 
-The agent never holds these keys: it calls this proxy at http://host.docker.internal:8787 and
-the proxy adds them, so a compromised agent can use Tavily but cannot take the key elsewhere. It forwards only POST /tavily/search
-and POST /v1/traces (to Phoenix). Model calls do NOT go through here: the agent uses the LiteLLM
-gateway (port 4000) with a budget-capped virtual key, so there is no uncapped model route.
+The agent never holds these keys: it calls this proxy (the stack's `northwind-proxy` service,
+reachable from agent containers only) and the proxy adds them, so a compromised agent can use
+Tavily but cannot take the key elsewhere. It forwards only POST /tavily/search and POST
+/v1/traces (to Phoenix). Model calls do NOT go through here: the agent uses the LiteLLM gateway
+with a budget-capped virtual key, so there is no uncapped model route.
 
-Keys come from <NAME>_FILE (Compose secrets), then <NAME>, then ~/.env. In Compose it listens on
-0.0.0.0 inside its container and is published on the host's 127.0.0.1 only.
+Keys come from the files AgentBreeder mounts under /run/secrets (named by <NAME>_FILE).
 """
 
 from __future__ import annotations
@@ -19,38 +19,28 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-import certifi
-
 TAVILY = "https://api.tavily.com/search"
 MAX_BODY = 8 * 1024 * 1024
-ALLOWED_HOSTS = {"127.0.0.1", "localhost", "host.docker.internal", "proxy"}
-TLS = ssl.create_default_context(cafile=certifi.where())
+# Agents address this proxy by its stack service name, which AgentBreeder sets.
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", os.environ.get("AGENTBREEDER_SERVICE", "proxy")}
+TLS = ssl.create_default_context()  # the image's CA store
 
 
-def load_key(wanted: str, path: Path = Path.home() / ".env") -> str:
-    if os.getenv(wanted + "_FILE"):
+def load_key(wanted: str) -> str:
+    try:
         return Path(os.environ[wanted + "_FILE"]).read_text().strip()
-    if os.getenv(wanted):
-        return os.environ[wanted]
-    if not path.exists():
-        sys.exit(f"No {wanted}_FILE, {wanted} or {path}")
-    for line in path.read_text().splitlines():
-        name, sep, value = line.strip().removeprefix("export ").partition("=")
-        if sep and name.strip() == wanted:
-            return value.strip().strip("'\"")
-    sys.exit(f"No {wanted} in the environment or {path}")
+    except (KeyError, OSError):
+        sys.exit(f"No readable {wanted}_FILE")
 
 
 TAVILY_KEY = load_key("TAVILY_API_KEY")
 # Agent traces (OTLP/HTTP) go to the local Phoenix with its system API key added here.
 PHOENIX = os.getenv("PHOENIX_URL", "http://127.0.0.1:6006")
-PHOENIX_KEY_FILE = Path(
-    os.getenv("PHOENIX_API_KEY_FILE", Path(__file__).parent / ".secrets" / "phoenix-api-key")
-)
+PHOENIX_KEY_FILE = Path(os.getenv("PHOENIX_API_KEY_FILE", "/run/secrets/phoenix-ingest-key"))
 
 
 def phoenix_key() -> str:
-    """Read per request: the key may be created after the proxy starts (first `up`)."""
+    """Read per request: a new Phoenix database mints a new key, mounted on restart."""
     try:
         return PHOENIX_KEY_FILE.read_text().strip()
     except OSError:
@@ -67,7 +57,7 @@ class Proxy(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         # Browsers can send simple cross-site POSTs to loopback; require JSON (a preflighted
-        # content type for cross-origin pages) and a loopback/compose Host, so a web page cannot
+        # content type for cross-origin pages) and a known Host, so a web page cannot
         # spend the operator's Tavily credits through this proxy.
         host = (self.headers.get("Host") or "").split(":")[0]
         content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()

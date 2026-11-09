@@ -1,7 +1,8 @@
-"""Shared host-side helpers for ops: Postgres, the Gemini judge and Phoenix.
+"""Shared helpers for ops: Postgres, the Gemini judge and Phoenix.
 
-The judge is trusted host-side code, so it calls Gemini directly with the key file; the agent
-never can (it only reaches the LiteLLM gateway with its budget-capped virtual key).
+Ops runs as the stack's `northwind-ops` service; its keys and database URL are files AgentBreeder
+mounts under /run/secrets. The judge is trusted operator-side code, so it calls Gemini directly;
+the agent never can (it only reaches the LiteLLM gateway with its budget-capped virtual key).
 """
 
 from __future__ import annotations
@@ -13,20 +14,19 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
-import certifi
 import psycopg
 
-ROOT = Path(__file__).resolve().parent.parent
-DEPLOY = ROOT / ".secrets"
+SECRETS = Path("/run/secrets")
 GEMINI = "https://generativelanguage.googleapis.com"
-GEMINI_KEY_FILE = Path(os.getenv("GEMINI_API_KEY_FILE", DEPLOY / "secrets" / "gemini_api_key"))
+GEMINI_KEY_FILE = Path(os.getenv("GEMINI_API_KEY_FILE", SECRETS / "gemini-api-key"))
+DATABASE_URL_FILE = Path(os.getenv("DATABASE_URL_FILE", SECRETS / "database-url"))
 PHOENIX = os.getenv("PHOENIX_URL", "http://127.0.0.1:6006")
 PHOENIX_PUBLIC = os.getenv("PHOENIX_PUBLIC_URL", PHOENIX)  # for links opened in the browser
-PHOENIX_KEY_FILE = Path(os.getenv("PHOENIX_API_KEY_FILE", DEPLOY / "phoenix-api-key"))
+PHOENIX_KEY_FILE = Path(os.getenv("PHOENIX_API_KEY_FILE", SECRETS / "phoenix-ingest-key"))
 PHOENIX_PROJECT = os.getenv("PHOENIX_PROJECT", "northwind-support")
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gemini-3.1-pro-preview")
 OPENER = build_opener(ProxyHandler({}))
-TLS = ssl.create_default_context(cafile=certifi.where())
+TLS = ssl.create_default_context()  # the image's CA store
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS online_evals (
@@ -47,17 +47,9 @@ CREATE TABLE IF NOT EXISTS eval_results (
 
 
 def connect() -> psycopg.Connection:
-    password = Path(os.getenv("DB_PASSWORD_FILE", DEPLOY / "db-password")).read_text().strip()
-    host, port = os.getenv("DB_HOST", "127.0.0.1"), os.getenv("DB_PORT", "5433")
-    db = psycopg.connect(
-        host=host,
-        port=port,
-        dbname="support",
-        user="support",
-        password=password,
-        autocommit=True,
-        connect_timeout=5,
-    )
+    # The `support` database's own role (wired from postgres), not a superuser.
+    url = DATABASE_URL_FILE.read_text().strip()
+    db = psycopg.connect(url, autocommit=True, connect_timeout=5)
     db.execute(SCHEMA)
     return db
 
@@ -132,4 +124,4 @@ def annotate_span(
 
 
 def agent_endpoint() -> str:
-    return json.loads((DEPLOY / "last-deploy.json").read_text())["endpoint"]
+    raise SystemExit("pass --endpoint (the agent URL from `agentbreeder status`)")

@@ -1,0 +1,9 @@
+kind: service
+name: northwind-ops
+version: 1.0.0
+description: >-
+  Northwind's ops dashboard (staff approve cancellation requests; KPIs, eval trends, traces) and
+  its online-eval worker (a Gemini judge scores recent turns and annotates them in Phoenix).
+  Host-only, behind a generated bearer token: open http://127.0.0.1:<port>/#token=<token>. Uses
+  the `support` database's own role. Built from this directory (python:3.12-slim, digest-pinned;
+  psycopg installed with --require-hashes).

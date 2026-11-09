@@ -1,0 +1,45 @@
+# Northwind's local backing services. `agentbreeder services up --environment dev` starts them,
+# generates their secrets, and writes the operator config and demo identities for `dev`.
+# Keys are imported from the environment (or --env-file): GEMINI_API_KEY and TAVILY_API_KEY,
+# OPENROUTER_API_KEY optional. See README.md.
+kind: stack
+schema_version: 1
+name: northwind
+services:
+  postgres:
+    ref: service/postgres-pgvector@1.0.0
+    with:
+      databases: [support, litellm, phoenix]
+      init_sql: stack/db/commerce.sql          # commerce schema + seed data, as the support role
+      init_sql_database: support
+  litellm:
+    ref: service/litellm@1.0.0
+    with: {config: stack/litellm/config.yaml}  # Gemini direct, OpenRouter fallback
+    wire: {database-url: postgres.databases.litellm}
+  phoenix:
+    ref: service/phoenix@1.0.0
+    wire: {database-url: postgres.databases.phoenix}
+  proxy:                                       # Tavily + trace keys stay out of the agent
+    ref: service/northwind-proxy@1.0.0
+    wire: {phoenix: phoenix.url, phoenix-ingest-key: phoenix.ingest_key}
+  ops:                                         # staff approvals, online evals (host only)
+    ref: service/northwind-ops@1.0.0
+    wire:
+      phoenix: phoenix.url
+      phoenix-ingest-key: phoenix.ingest_key
+      database-url: postgres.databases.support
+environment:
+  gateway: litellm
+  models: [support-model, support-embedding, support-judge]
+  ceilings: {budget_usd: 50, rpm: 300}
+  services:
+    traces_url: "{proxy.url}/v1/traces"
+    tools_proxy_url: "{proxy.url}"
+  bindings:
+    DATABASE_URL: {ref: postgres.databases.support}
+  eval_database: {ref: postgres.databases.support}
+  agents:
+    northwind-support:
+      sponsor: support-lead@example.com
+      review_by: "2027-06-30"
+      candidate: true

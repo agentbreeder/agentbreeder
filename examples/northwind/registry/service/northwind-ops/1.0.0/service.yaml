@@ -1,0 +1,23 @@
+build: Dockerfile
+command: [python, /app/ops/server.py]
+user: "65532:65532"
+ports:
+  http: {port: 8790, expose: host, guard: bearer}
+env:
+  OPS_HOST: 0.0.0.0
+  OPS_PORT: "8790"
+  PHOENIX_URL: "{inputs.phoenix}"
+  ONLINE_EVAL_SAMPLE_RATE: "{params.online_eval_sample_rate}"
+params:
+  online_eval_sample_rate: {type: string, default: "1.0"}
+secrets:
+  ops-token: {generate: token}
+  gemini-api-key: {import: GEMINI_API_KEY}
+inputs:
+  phoenix: {type: url}
+  phoenix-ingest-key: {type: secret}
+  database-url: {type: secret}
+health: {http: /healthz}
+egress: true
+outputs:
+  url: {type: url, port: http}
