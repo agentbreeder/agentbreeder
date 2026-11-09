@@ -636,20 +636,3 @@ def test_stack_mcp_refusals(change, message):
     change(data, agent)
     with pytest.raises(ValidationError, match=message):
         Stack.model_validate(data)
-
-
-def test_services_up_refuses_mcp_until_the_relay_exists(tmp_path, monkeypatch):
-    from test_services_engine import FakeDocker, write_project
-
-    from agentbreeder.services.engine import Engine
-    from agentbreeder.services.state import ROOT_ENV
-
-    monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))
-    data, _ = stack_with_mcp()
-    project = write_project(tmp_path / "project", stack=data)
-    engine = Engine(project, docker=FakeDocker())
-    try:
-        with pytest.raises(ServiceError, match="MCP_RELAY_UNAVAILABLE"):
-            engine.up("dev", confirm=lambda grant: True)
-    finally:
-        engine.close()

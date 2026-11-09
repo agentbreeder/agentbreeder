@@ -9,6 +9,7 @@ must be exposed to the scope that uses it.
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
@@ -18,7 +19,7 @@ from urllib.parse import quote
 
 from agentbreeder import gateway_keys
 from agentbreeder.lock import BUILTIN_LABEL
-from agentbreeder.services import refs
+from agentbreeder.services import mcp_stack, refs
 from agentbreeder.services.lock import LockedStack
 from agentbreeder.services.refs import Reference
 from agentbreeder.services.schema import ServiceError, ServiceSpec
@@ -50,14 +51,49 @@ class Plan:
     images: dict[str, str] = field(default_factory=dict)  # service -> image to run
     files: dict[str, dict[str, Path]] = field(default_factory=dict)  # copies of file params
     service_files: dict[str, Path] = field(default_factory=dict)  # copies of files/ dirs
+    # Extra read-only binds (relays: grants and pins), service -> [(source, target)].
+    binds: dict[str, list[tuple[Path, str]]] = field(default_factory=dict)
+    # File modes of /run/secrets copies (relay credentials are 0400, spec §7.6.11).
+    secret_modes: dict[str, int] = field(default_factory=dict)
 
     @property
     def networks(self) -> dict[str, str]:
-        return {
+        networks = {
             "stack": self.project,
             "agents": f"{self.project}-agents",
             "edge": f"{self.project}-edge",
         }
+        # A service upstream and its relay share a private network nothing else joins (§7.6.8).
+        for server, entry in sorted(self.locked.mcp.items()):
+            if not entry.remote:
+                key = mcp_stack.network_key(server)
+                networks[key] = f"{self.project}-{key}"
+        return networks
+
+    def mcp_upstreams(self) -> dict[str, str]:
+        """service upstream name -> the server it serves."""
+        stack = self.locked.stack
+        result = {}
+        for server, entry in self.locked.mcp.items():
+            name = mcp_stack.upstream_service(stack, entry)
+            if name is not None:
+                result[name] = server
+        return result
+
+    def mcp_upstream_url(self, server: str) -> str:
+        entry = self.locked.mcp[server]
+        if entry.remote:
+            return entry.spec.upstream.remote.url
+        service = entry.spec.upstream.service
+        name = mcp_stack.upstream_service(self.locked.stack, entry)
+        return f"http://{self.address(name, service.port, 'internal')}{service.path}"
+
+    def relay_url(self, server: str) -> str:
+        relay = self.locked.mcp[server].relay
+        return f"http://{self.address(relay, mcp_stack.RELAY_PORT, 'agents')}/mcp"
+
+    def health_network(self, service: str) -> str:
+        return self.networks[self.joins(service)[0]]
 
     def spec(self, service: str) -> ServiceSpec:
         return self.locked.specs[service]
@@ -170,6 +206,16 @@ class Plan:
 
     def joins(self, service: str) -> list[str]:
         spec = self.spec(service)
+        if service in self.locked.relays:
+            server = self.locked.relays[service]
+            networks = ["agents"]
+            if not self.locked.mcp[server].remote:
+                networks.append(mcp_stack.network_key(server))
+            return networks + (["edge"] if spec.egress else [])
+        upstreams = self.mcp_upstreams()
+        if service in upstreams:
+            # Never the stack network: only its relay reaches it.
+            return [mcp_stack.network_key(upstreams[service])] + (["edge"] if spec.egress else [])
         scopes = set().union(*(p.scopes for p in spec.ports.values())) if spec.ports else set()
         networks = ["stack"]
         if "agents" in scopes:
@@ -240,6 +286,8 @@ class Plan:
             volumes.append(_bind(self.service_files[service], "/files"))
         for name, path in sorted(self.files.get(service, {}).items()):
             volumes.append(_bind(path, f"/run/params/{name}"))
+        for source, target in self.binds.get(service, []):
+            volumes.append(_bind(source, target))
         for name, target in sorted(spec.volumes.items()):
             volumes.append({"type": "volume", "source": f"{service}-{name}", "target": target})
         if volumes:
@@ -320,7 +368,7 @@ class Plan:
                 }
             )
         env = stack.environment
-        return {
+        grant = {
             "stack": self.stack_id,
             "environment": environment,
             "services": services,
@@ -340,6 +388,10 @@ class Plan:
             "gateway_config": self._gateway_config(),
             "models": list(env.models),
             "ceilings": env.ceilings.model_dump(),
+            # Per MCP server: origin, upstream, where each credential goes and the tools each
+            # agent gets (§7.2, §7.6.1). Pinned definition hashes are shown, but they are
+            # consented to in phase 2 and are not part of this digest.
+            "mcp": mcp_stack.grant_section(self.locked.mcp, stack, None),
             "demo_identities": [
                 {
                     "agent": agent,
@@ -350,6 +402,9 @@ class Plan:
                 for agent, spec in sorted(env.agents.items())
             ],
         }
+        if not grant["mcp"]:
+            del grant["mcp"]  # a stack without MCP keeps the grant digest it had before #745
+        return grant
 
 
 def _gateway_line(review: dict | None) -> list[str]:
@@ -369,6 +424,93 @@ def _project_gateway(grant: dict) -> list[str]:
         "  WARNING: this gateway is project code, not a built-in. The config review can't bind "
         "what its image does with the keys it imports."
     ]
+
+
+def _mcp_lines(grant: dict) -> list[str]:
+    servers = grant.get("mcp") or []
+    if not servers:
+        return []
+    pins = grant.get("mcp_pins") or {}
+    lines = ["MCP servers (each behind its own relay; agents never hold the credential):"]
+    for server in servers:
+        lines.append(
+            f"  {server['server']:<14} {server['ref']} ({server['origin']}); upstream "
+            f"{server['upstream']}; auth {server['auth']}; egress: {server['egress']}"
+        )
+        lines += [
+            f"  {'':<14} credential {c['variable']} will be sent to {c['destination']}"
+            for c in server["credentials"]
+        ]
+        for agent, tools in server["agents"].items():
+            hashes = pins.get(server["server"], {})
+            listed = ", ".join(
+                f"{tool} ({effect}, {hashes[tool][7:23] if tool in hashes else 'unpinned'})"
+                for tool, effect in tools.items()
+            )
+            lines.append(f"  {'':<14} {agent}: {listed}")
+        if server["origin"] != "built-in":
+            lines.append(
+                f"  {'':<14} WARNING: {server['origin']} code; its `effect` labels are untrusted"
+            )
+    return lines
+
+
+def _definition(definition) -> list[str]:
+    """A whole tool object, as hashed: every field, nothing truncated. ASCII-escaped, so
+    upstream text can't put control sequences on the operator's terminal."""
+    return json.dumps(definition, indent=2, sort_keys=True, ensure_ascii=True).splitlines()
+
+
+def pins_text(report: dict) -> str:
+    """Phase 2: the tool definitions found upstream, for the operator to pin (§7.7.1). The
+    whole definition is shown (the pin covers all of it); a changed one as a diff."""
+    pad = " " * 11
+    lines = [
+        f"Pin these tool definitions for mcp.{report['server']} ({report['origin']})? The first "
+        "pin trusts what the upstream serves now (trust on first use)."
+    ]
+    for name, item in sorted(report["new"].items()):
+        lines.append(f"  new      {name}  {item['sha256'][7:23]}")
+        lines.extend(pad + line for line in _definition(item["definition"]))
+    for name, item in sorted(report["changed"].items()):
+        lines.append(f"  changed  {name}  {item['pinned'][7:23]} -> {item['sha256'][7:23]}")
+        if not report.get("repin"):
+            lines.append(f"{pad}(hidden; not accepted without --repin)")
+        if item.get("previous") is None:
+            lines.append(f"{pad}(previous definition unavailable; the new one in full:)")
+            lines.extend(pad + line for line in _definition(item["definition"]))
+        else:
+            diff = difflib.unified_diff(
+                _definition(item["previous"]),
+                _definition(item["definition"]),
+                "pinned",
+                "upstream now",
+                lineterm="",
+            )
+            lines.extend(pad + line for line in diff)
+    for name in report["missing"]:
+        lines.append(f"  missing upstream  {name}")
+    if report["missing"] and report.get("repin"):
+        lines.append("  Tools missing upstream: answering yes drops these pins.")
+    return "\n".join(lines)
+
+
+def mcp_status_lines(mcp: dict) -> list[str]:
+    lines = []
+    for server, info in sorted(mcp.items()):
+        state = info.get("state", "")
+        detail = []
+        if info.get("changed"):
+            detail.append(f"changed (hidden): {', '.join(info['changed'])}")
+        if info.get("missing"):
+            detail.append(f"missing upstream: {', '.join(info['missing'])}")
+        if info.get("error"):
+            detail.append(info["error"])
+        suffix = f"  {'; '.join(detail)}" if detail else ""
+        lines.append(f"mcp.{server:<12} {state}{suffix}")
+        if info.get("changed"):
+            lines.append("  review with: agentbreeder services up --environment ENV --repin")
+    return lines
 
 
 def grant_text(grant: dict) -> str:
@@ -398,6 +540,7 @@ def grant_text(grant: dict) -> str:
         f"ceilings ${ceilings['budget_usd']:g}, {ceilings['rpm']} rpm",
         *_gateway_line(grant.get("gateway_config")),
         *_project_gateway(grant),
+        *_mcp_lines(grant),
         "Demo identities (static provider, written outside the repo):",
         *(
             f"  {i['agent']}{' (+ candidate)' if i['candidate'] else ''}  sponsor "
@@ -409,7 +552,8 @@ def grant_text(grant: dict) -> str:
 
 
 def grant_digest(grant: dict) -> str:
-    return hashlib.sha256(json.dumps(grant, sort_keys=True).encode()).hexdigest()
+    consented = {key: value for key, value in grant.items() if key != "mcp_pins"}
+    return hashlib.sha256(json.dumps(consented, sort_keys=True).encode()).hexdigest()
 
 
 def _bind(source: Path, target: str) -> dict:

@@ -4,7 +4,8 @@ It lives in `~/.agentbreeder/stacks/<stack-id>/<env>/`, never in the repo, and c
 `enforcement: enforce`, `targets: [local]`, one `static` provider (`demo`) whose principals are
 the stack's demo agents (enabled, sponsored, with a review date), the stack's gateway (master key
 as a `file:` ref into the stack's service secrets), models, ceilings, service URLs, bindings,
-`eval_database`, the agents network and the agents' identity references. Never `pdp`, `deployer`,
+`eval_database`, the agents network, MCP relays (`mcp_relays`) and the agents' identity
+references and MCP grants. Never `pdp`, `deployer`,
 `maker_checker`, `runtime_enforcement`, `mcp_egress` or another provider type.
 
 Digest rule: `up` records the digest of what it wrote. It overwrites a file only while its digest
@@ -28,6 +29,12 @@ from agentbreeder.services.state import StackState, private_dir, write_private
 
 PROVIDER = "demo"
 EVAL_SECRET = "eval-database"
+
+
+def grants_dir(state: StackState, environment: str, server: str) -> Path:
+    """~/.agentbreeder/stacks/<id>/grants/<env>/<server>/ (spec §7.7.2)."""
+    state.env_dir(environment)  # validates the name
+    return state.directory / "grants" / environment / server
 
 
 def binding_secret(env_name: str) -> str:
@@ -61,6 +68,8 @@ def documents(plan: Plan, state: StackState, environment: str) -> tuple[dict, di
         }
         identity = {"provider": PROVIDER, "ref": agent, "environment": environment}
         agents[agent] = {"identity": identity}
+        if demo.mcp:
+            agents[agent]["mcp"] = {server: sorted(tools) for server, tools in demo.mcp.items()}
         principals[agent] = dict(entry)
         if demo.candidate:
             agents[agent]["candidate_identity"] = {**identity, "ref": f"{agent}-candidate"}
@@ -81,6 +90,15 @@ def documents(plan: Plan, state: StackState, environment: str) -> tuple[dict, di
         }
     if env.eval_database is not None:
         environment_doc["eval_database"] = "secret://" + EVAL_SECRET
+    if plan.locked.mcp:
+        environment_doc["mcp_relays"] = {
+            server: {
+                "ref": entry.ref,
+                "url": plan.relay_url(server),
+                "grants_dir": str(grants_dir(state, environment, server)),
+            }
+            for server, entry in sorted(plan.locked.mcp.items())
+        }
     operator = {
         "enforcement": "enforce",
         "default_environment": environment,

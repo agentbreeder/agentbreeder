@@ -4,8 +4,10 @@
 > (Postgres, a model gateway, a trace collector, project helpers) on the local Docker engine and
 > writes a demo operator config for them. It is not production infrastructure. Verified on macOS
 > with Docker Desktop: `examples/northwind` started from scratch with `services up`, and
-> `agentbreeder release` passed its 61-case eval gate (61/61, 2026-11-08). MCP servers through a
-> relay are designed (spec §7) but not implemented yet.
+> `agentbreeder release` passed its 61-case eval gate (61/61, 2026-11-08). MCP servers run behind
+> a built-in relay (see [MCP servers](#mcp-servers-through-a-relay)); no agent built from
+> `agent.yaml` calls one yet (the ADK client is #746) and no built-in MCP server is verified yet
+> (#748).
 
 An agent built from `agent.yaml` needs backing services before it can run. A project declares
 them in `stack.yaml` next to `agent.yaml`:
@@ -169,6 +171,114 @@ outputs:
   strict subset: digest-pinned `FROM`, no `ARG`, `ADD`, build secrets or SSH. The image is tagged
   with the version hash.
 
+## MCP servers through a relay
+
+> **Preview (#745).** Verified on macOS with Docker Desktop against a mock MCP server packaged as
+> a stack service (`tests/test_mcp_relay_docker.py`), called by a test client on the agents
+> network. Remote https upstreams and OAuth refresh are covered by unit tests only. An agent built
+> from `agent.yaml` can't call the relay yet (runtime `adk@1.1.0`, #746), and no built-in MCP
+> server has been checked live (#748).
+
+```yaml
+mcp:
+  github: {ref: mcp/github@1.0.0}
+environment:
+  agents:
+    northwind-support:
+      mcp: {github: [list_issues]}       # per-agent tool grant
+```
+
+Each `mcp:` entry gets its own relay container, `mcp-<name>` (with `_` in the name turned into
+`-`, so `mcp.my_tools` runs as `mcp-my-tools`), built from the built-in
+`service/mcp-relay@1.0.0` (standard-library Python on the pinned `python:3.12-slim`). Agents
+reach it at `http://mcp-<name>:8080/mcp` on the agents network. The relay holds the upstream
+credential as a 0400 file and runs as your uid. Agents hold only a per-deployment token, which
+deploy mints and the relay checks against a grant file named by the token's sha256. It re-reads
+that file on every request. The relay version can't be named in `stack.yaml`, and `./registry`
+or `AGENTBREEDER_REGISTRY_PATH` can't override it. Nor can a `stack.lock` entry that records it
+from anywhere else, even with `--locked` (`RELAY_RESERVED`).
+
+What the relay does:
+
+- It accepts only `initialize`, `notifications/initialized`, `notifications/cancelled`, `ping`,
+  `tools/list` and `tools/call`. Batches, resources, prompts, sampling and `GET` streams are
+  refused.
+- It forwards only the tools granted to the deployment: the grant file's tools, intersected with
+  the agent's grant in `stack.yaml`. A narrowed grant takes effect at once. An ungranted call
+  gets a JSON-RPC error (`TOOL_NOT_GRANTED`) and never reaches upstream.
+- It answers `tools/list` from the pinned definitions, in one page, and checks them against
+  upstream.
+- It mints its own session ids, one set per token. Another token's session id, or an unknown
+  one, gets 404, so after a relay restart the client initializes again. `Last-Event-ID` is
+  dropped, and `DELETE` closes the upstream session.
+- It passes back only the response to the request, plus progress and log notifications.
+  Sampling, elicitation, roots and `list_changed` messages are dropped. It rewrites the
+  `initialize` capabilities to `{tools: {}}` and drops the upstream's `instructions`.
+- Remote upstreams must be https on port 443. Each connection resolves the host once, refuses
+  private, loopback and link-local addresses, and pins the address. Redirects are refused, and
+  proxy variables are removed. `oauth_refresh` access tokens are cached in memory only, and
+  providers that rotate refresh tokens are refused.
+- Limits per token: 4 concurrent requests, 60 upstream-bound requests a minute (`initialize`,
+  `tools/list`, `tools/call` and `notifications/cancelled`; `RATE_LIMITED`), 120 s per response,
+  1 MiB for buffered (rewritten) responses, and 16 MiB for a streamed `tools/call` reply
+  (`RESPONSE_TOO_LARGE`). Each relay takes at most 64 connections at once
+  (16 from one address), closes a connection that stalls for 30 s, and requires the whole
+  request (line, headers and body) to arrive within 30 s.
+- Sessions it drops (a 17th session for one token evicts the oldest, and sessions idle for an hour
+  expire) are closed upstream too.
+- It logs JSON lines with the deployment, method, tool, decision and latency. It never logs
+  arguments, results, upstream error bodies or credentials. An ungranted tool name is logged as
+  `ungranted` plus a hash.
+
+A service upstream (`upstream.service`) must be the stack service with that ref. Every port of it
+must be `expose: internal`, and nothing else may wire to it. It joins a private network shared
+with its relay, never the stack network (`MCP_UPSTREAM_EXPOSED`, `MCP_UPSTREAM_WIRED`). If it
+declares `egress: true` it also joins the edge network, so it can reach the internet unfiltered.
+Browser-type upstreams also need the filtering forward proxy (#747), so `mcp/playwright` isn't
+supported yet.
+
+**Consent, in two phases.** The grant you confirm shows each server's origin (built-in,
+project or registry-path), its upstream, `credential VAR will be sent to scheme://host:port`, and
+each agent's tools with their effect. A project or registry-path entry whose remote upstream
+carries a credential also needs `--allow-project-mcp NAME`; `--yes` alone never allows it
+(`MCP_PROJECT_CONSENT`). After the relays start, `up` runs a probe inside each relay: it uses a
+stack-only admin token passed on stdin, and the host never calls upstream itself. The probe
+shows each tool definition it found, whole (every field the pin covers, escaped), and asks you
+to pin them. `--yes` accepts first pins and new tools only for built-in servers, or for servers
+you named with `--allow-project-mcp`; accepting a changed definition always needs a person. The pins (a hash of each
+whole tool object) go in `stack.lock`; the relay reads the definitions from its pins file and
+reloads it without restarting. The first pin trusts what the upstream serves at that moment
+(trust on first use).
+
+**When a definition changes upstream,** the relay hides that tool and refuses calls to it
+(`TOOL_DEFINITION_CHANGED`); it keeps the pinned definition to compare against. A tool missing upstream is reported separately
+(`TOOL_MISSING_UPSTREAM`). `services status` lists both. `services up --repin` shows the diff
+and asks before accepting it, and `--locked` refuses either change (`LOCK_STALE`). A changed
+version, origin, upstream or token endpoint also needs consent again, and its pins are redone.
+
+`up` refuses to drop an `mcp:` entry, or narrow a grant, while an active deployment uses it
+(`MCP_GRANT_IN_USE`). Grant files live in `~/.agentbreeder/stacks/<id>/grants/<env>/<server>/`.
+A changed imported credential recreates the relay; open sessions then get 404 and initialize
+again. `--allow-project-mcp` must name an `mcp:` entry (`MCP_UNKNOWN`). `agentbreeder services
+logs mcp-<name>` shows a relay's log lines.
+
+Dropping an `mcp:` entry removes its relay container on the next `up` (it holds the
+credential), unless an active deployment still uses it (`MCP_GRANT_IN_USE`). Other services
+dropped from `stack.yaml` keep running until `agentbreeder services down`.
+
+What the relay does **not** do:
+
+- **Tool arguments are unconstrained.** A granted `list_issues` reaches any repository the
+  credential can see.
+- **Upstream results reach the agent unfiltered,** so prompt injection through tool output is not
+  mitigated.
+- **"The agent never holds the credential" says nothing about the credential's scope.** Use the
+  narrowest credential the provider offers.
+- **`effect` labels from project or registry-path entries are untrusted.** RBAC/ABAC on tool
+  calls (#742) must not rely on them.
+- **It is not policy enforcement:** no Cedar/OPA evaluation, approvals or hash-chained audit
+  (#742).
+
 ## State and secrets
 
 Everything lives under `~/.agentbreeder/stacks/<name>-<hash of the project path>/` (0700), so two
@@ -183,7 +293,5 @@ config can only describe a local demo environment, and `up` refuses to overwrite
 - Local Docker only; not a production deployment path.
 - Demo identities come from a generated static provider.
 - `customer_id` on an agent's `/invoke` is not authenticated (see the root README).
-- MCP servers through a relay (#744–#748) are not implemented yet. The `mcp` registry kind,
-  `stack.yaml` `mcp:` entries with per-agent tool grants, `agent.yaml` `mcp:` and the deploy-side
-  grant lifecycle exist (spec §7); `services up` refuses a stack with `mcp:` entries
-  (`MCP_RELAY_UNAVAILABLE`) until the relay ships.
+- MCP relays: no agent built from `agent.yaml` calls one yet (#746), no built-in MCP server is
+  verified (#748), and browser-type service upstreams need the forward proxy (#747).

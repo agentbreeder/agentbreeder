@@ -41,8 +41,9 @@ evals: {ref: eval/northwind-golden@1.0.1, threshold: 1.0, retries: 1}
 `mcp:` (optional, at most 10) lists MCP servers by registry ref only, with the tools the agent
 uses: `- {ref: mcp/github@1.0.0, tools: [list_issues]}`. `build` refuses tools the version's
 `mcp.yaml` doesn't declare (`MCP_TOOL_UNKNOWN`) and writes them into `agent.config.json` and the
-manifest's `mcp_access`. The stack-hosted relay that serves them is not implemented yet, so an
-agent with `mcp:` can't call its tools yet.
+manifest's `mcp_access`. `agentbreeder services up` runs a relay for each stack `mcp:` entry
+(see [services.md](services.md#mcp-servers-through-a-relay)), but the ADK runtime has no MCP
+client yet (#746), so an agent built from `agent.yaml` can't call its tools yet.
 
 ## Validation rules
 

@@ -194,7 +194,24 @@ def _parser() -> argparse.ArgumentParser:
         "published service version",
     )
     up.add_argument("--env-file", type=Path, help="KEY=value file for imported variables")
-    up.add_argument("--yes", action="store_true", help="Confirm a new or changed grant")
+    up.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm a new or changed grant (and new tool pins of built-in MCP servers)",
+    )
+    up.add_argument(
+        "--repin",
+        action="store_true",
+        help="Review MCP tool definitions that changed upstream and pin them again",
+    )
+    up.add_argument(
+        "--allow-project-mcp",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Allow a non-built-in mcp: entry that sends a credential upstream (repeatable); "
+        "with --yes it also accepts that server's new tool pins",
+    )
     up.add_argument("--json", action="store_true")
     sv_status = service_commands.add_parser("status", help="Show the stack's services")
     sv_status.add_argument("dir", nargs="?", type=Path, default=Path("."))
@@ -336,11 +353,22 @@ def _services(args) -> int:
                     return False
                 return input("Confirm this grant? [y/N] ").strip().lower() in ("y", "yes")
 
+            def confirm_pins(report: dict) -> bool:
+                print(stack_plan.pins_text(report), file=sys.stderr)
+                if args.yes and report["auto"]:
+                    return True
+                if not sys.stdin.isatty():
+                    return False
+                return input("Pin these? [y/N] ").strip().lower() in ("y", "yes")
+
             result = engine.up(
                 args.environment,
                 mode="locked" if args.locked else "update" if args.update else "plain",
                 env_file=args.env_file,
                 confirm=confirm,
+                confirm_pins=confirm_pins,
+                repin=args.repin,
+                allow_project_mcp=frozenset(args.allow_project_mcp),
             )
             for warning in result["warnings"]:
                 print(f"WARNING: {warning}", file=sys.stderr)
@@ -349,6 +377,10 @@ def _services(args) -> int:
             else:
                 for service, action in result["services"].items():
                     print(f"{service:<16} {action}")
+                for service in result.get("removed") or []:
+                    print(f"{service:<16} removed")
+                for line in stack_plan.mcp_status_lines(result.get("mcp") or {}):
+                    print(line)
                 print(f"Operator config: {result['operator_config']}")
                 print(
                     f"Next: agentbreeder release agent.yaml --stack {directory} "
@@ -365,6 +397,8 @@ def _services(args) -> int:
                     ports = ", ".join(f"{k} 127.0.0.1:{v}" for k, v in info["host_ports"].items())
                     health = f" ({info['health']})" if info["health"] else ""
                     print(f"{service:<16} {info['state']}{health}  {ports}")
+                for line in stack_plan.mcp_status_lines(result.get("mcp") or {}):
+                    print(line)
             return 0
         if command == "logs":
             print(engine.logs(name, args.tail))

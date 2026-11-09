@@ -835,3 +835,81 @@ r7 (slice 4a, #744, implementation decisions):
   look like working deploys. `mcp` versions aren't locked into `stack.lock` yet (4b).
 - Cross-repo grep (agentbreeder-cloud, 2026-11-08): no use of `mcp_access`, `model_access` or
   `mcp_relays`; no companion change.
+
+r8 (slice 4b, #745, implementation decisions; plan docs/superpowers/plans/2026-11-09-mcp-relay.md):
+- **Relay uid:** the relay runs as the operator's uid (`user: host`), so its 0400 credential
+  files are readable by it alone. That is the "fixed uid" of §7.6.10 on a local stack.
+- **Probe transport:** phase 2 runs `docker compose exec -T mcp-<server> python3
+  /opt/relay/relay.py probe` with the stack-only admin token on stdin. The admin listener is
+  bound to 127.0.0.1 inside the relay container and checks the token's sha256. The probe
+  returns only declared tools.
+- **Grants mount:** the stack's `grants/` root is mounted read-only. The relay reads only
+  `<env>/<its server>/<sha256>.json`, so one relay serves every environment of the stack.
+- **Live checks:** the relay re-checks definitions on every `tools/list`, and on `tools/call`
+  when the session's last check is older than 5 minutes. `ping` is answered locally. Upstream
+  `instructions` are dropped from the `initialize` result, and `serverInfo` is limited to a
+  printable name and version.
+- **Session cap:** 16 sessions per token (oldest evicted), and 1 hour idle expiry.
+- **Probe failure:** with existing pins, `up` warns and the relay keeps its last pins file. With
+  no pins, `--repin` or `--locked`, it fails (`MCP_PROBE_FAILED`).
+- **`--allow-project-mcp NAME`** with `--yes` also accepts that server's new pins. Otherwise
+  `--yes` accepts pins only for built-in origins.
+- **Service upstreams:** the service has no wires and nothing references it. All its ports are
+  internal. It joins only `<project>-mcp-<server>`, where its health probe also runs.
+
+r9 (slice 4b, #745, independent self-review on a second model, two reviewers: relay and stack
+integration; every finding below was reproduced and has a test):
+- **High, fixed:** `--locked` loaded a ref from the lock's recorded source, so a crafted
+  `stack.lock` entry `source: registry` plus `./registry/service/mcp-relay` replaced the relay.
+  Any lock entry for the relay not recorded as built-in is now `RELAY_RESERVED`, in every mode.
+- **Pins file:** before a relay (re)starts, its pins file is cut down to what `stack.lock` still
+  pins, so after an identity change nothing is served until phase 2. A changed or missing pinned
+  tool keeps its pinned definition, so the relay says `TOOL_DEFINITION_CHANGED` /
+  `TOOL_MISSING_UPSTREAM` rather than `TOOL_NOT_PINNED`.
+- **Relay limits (§7.4.6):** 60 upstream-bound requests per minute per token (`RATE_LIMITED`,
+  the sidecar default); a 30 s client socket timeout and at most 64 agent connections; each read
+  of an upstream reply may block only for the time left, and a timeout is `UPSTREAM_TIMEOUT`.
+- **Upstream sessions:** evicted, expired and failed-handshake sessions are closed upstream.
+- **Smaller fixes:** `notifications/cancelled` forwards only `{requestId, reason?}` and refuses
+  `relay-*` ids; `::a.b.c.d` IPv4-compatible addresses are unwrapped; a session's first call
+  always runs the live check; `tools/list` tolerates the pins file changing mid-request; the
+  probe client exits 0 with `{"error": CODE}` so `up` shows the relay's code; `services logs
+  mcp-<name>` works; `status` never mints an admin token (`MCP_ADMIN_TOKEN_MISSING`);
+  `--allow-project-mcp` must name an `mcp:` entry (`MCP_UNKNOWN`).
+- **Dropped relays:** `up` removes this stack's `mcp-*` containers that are no longer in the
+  stack (`docker rm --force <id>`; compose can't address a service that left the file). Other
+  dropped services still run until `services down`, as before.
+- **Accepted:** the OAuth refresh holds its lock across the token request, which makes it
+  single-flight; requests that wait on it need the new token anyway.
+
+r10 (slice 4b, #745, `/pair-loop` round 1, reviewer claude-fable-5-1, plus the automated
+security review of the commit; all fixed with tests):
+- **Pin prompt:** shows each definition whole (every hashed field, ASCII-escaped so upstream
+  text can't reach the terminal as control sequences) and a unified diff against the pinned
+  definition for changed tools. `--yes` never accepts a changed definition under `--repin`.
+- **Pins follow the file at once:** `tools/call` re-checks when the pins file changed since the
+  last check, so a re-pin or a removed pin applies to the next call.
+- **Relay robustness:** upstream JSON that can't be re-encoded (a lone surrogate) is
+  `UPSTREAM_INVALID`; the whole request must arrive within 30 s (a watchdog, not only a
+  per-read timeout); at most 16 connections per peer.
+- **Dropped relays** are identified by the relays the last `up` started (state meta
+  `mcp_relays`), not by an `mcp-` name prefix.
+- **Grant digest:** a stack without `mcp:` entries has no `mcp` key, so its digest is unchanged.
+- **Service upstream with `egress: true`** also joins edge; documented.
+- **Cross-repo:** agentbreeder-cloud has no references to `--repin`, `--allow-project-mcp`, the
+  `stack.lock` `mcp` section, `mcp_relays` or `mcp_access` (grep, 2026-11-09).
+
+r11 (`/pair-loop` round 2, claude-fable-5-1; all fixed with tests): the record of started relays
+(`mcp_relays`) is written before any service starts, so a relay a failed `up` left running is
+still removed when its entry is dropped; `--repin` is never automatic (`--yes` covers first pins
+and new tools only); the watchdog-closed connection logs one JSON line (`connection_error`), not
+a traceback; `check()` records the pins stamp it actually read (`Pins.snapshot`); the pin prompt
+marks changed tools "not accepted without --repin"; docs/agent-yaml.md and the limits bullet in
+docs/services.md updated.
+
+r12 (`/pair-loop` round 3, claude-fable-5-1: APPROVED with nits, all applied with tests):
+`stack.lock` is saved per server before that server's pins file is written (two-server test);
+the admin listener logs connection errors as JSON too; the `--repin` prompt says answering yes
+drops pins of tools missing upstream; the 16 MiB streamed-reply cap is documented; ROADMAP.md
+updated. Noted for #746: each agent `tools/list` runs the live check (up to 20 upstream pages)
+and counts as one request against the per-token rate limit.

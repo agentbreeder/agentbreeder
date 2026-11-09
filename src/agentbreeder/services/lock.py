@@ -7,6 +7,9 @@ was started from. Same format and modes as `agent.lock` (see lock.py), plus `imp
   when their hash matches: a stack's config files are part of the project, not work in progress.
 - Imported variable names are recorded per service, so a new service version can't start
   reading another variable from the operator's environment unnoticed (`--locked` refuses it).
+- `mcp` records, per stack.yaml `mcp:` entry, its ref, origin, upstream origin, `token_url` host
+  and the pinned tool definition hashes (spec §7.6.1, §7.6.5). The built-in relay version is an
+  ordinary entry.
 """
 
 from __future__ import annotations
@@ -17,15 +20,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agentbreeder import gateway_keys
-from agentbreeder.lock import LOCK_VERSION, Lock, materialise
+from agentbreeder.lock import BUILTIN_LABEL, LOCK_VERSION, Lock, materialise
 from agentbreeder.registry import Ref, RegistryError
-from agentbreeder.services import refs
-from agentbreeder.services.schema import ServiceError, ServiceSpec, Stack, load_service
+from agentbreeder.services import mcp_stack, refs
+from agentbreeder.services.schema import (
+    ServiceError,
+    ServiceSpec,
+    Stack,
+    StackService,
+    load_service,
+)
 
 
 @dataclass
 class StackLock(Lock):
     imports: dict[str, list[str]] = field(default_factory=dict)
+    mcp: dict[str, dict] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path) -> StackLock:
@@ -39,6 +49,18 @@ class StackLock(Lock):
             ):
                 raise RegistryError("LOCK_INVALID", f"{path}: imports must map services to names")
             imports = raw
+            mcp = data.get("mcp", {})
+            if not isinstance(mcp, dict) or not all(
+                isinstance(v, dict)
+                and isinstance(v.get("tools", {}), dict)
+                and all(
+                    isinstance(h, str) and h.startswith("sha256:")
+                    for h in v.get("tools", {}).values()
+                )
+                for v in mcp.values()
+            ):
+                raise RegistryError("LOCK_INVALID", f"{path}: mcp must map servers to pins")
+            return cls(base.entries, imports, mcp)
         return cls(base.entries, imports)
 
     def save(self, path: Path) -> None:
@@ -47,6 +69,11 @@ class StackLock(Lock):
             "entries": dict(sorted(self.entries.items())),
             "imports": {k: sorted(v) for k, v in sorted(self.imports.items())},
         }
+        if self.mcp:
+            body["mcp"] = {
+                server: {**entry, "tools": dict(sorted(entry.get("tools", {}).items()))}
+                for server, entry in sorted(self.mcp.items())
+            }
         temporary = path.with_name(f".{path.name}.tmp")
         temporary.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
         os.replace(temporary, path)
@@ -64,6 +91,8 @@ class LockedStack:
     changed: bool
     # service name -> "builtin" or the registry root it came from (lock.Materialised.source)
     origins: dict[str, str] = field(default_factory=dict)
+    mcp: dict = field(default_factory=dict)  # server -> mcp_stack.McpEntry
+    relays: dict[str, str] = field(default_factory=dict)  # relay service -> server
 
 
 def _imports(spec: ServiceSpec) -> list[str]:
@@ -81,6 +110,7 @@ def lock_stack(
 ) -> LockedStack:
     """Copy and hash every service version and file param into `context`, validate the stack
     against the hashed copies, and reconcile with `lock` (mode as for agent.lock)."""
+    mcp_stack.check_reserved(stack)
     service_refs = {name: entry.ref for name, entry in stack.services.items()}
     entries, changed = materialise(
         refs=sorted(set(service_refs.values())),
@@ -98,6 +128,12 @@ def lock_stack(
     service_dirs = {name: by_key[str(Ref.parse(ref))].path for name, ref in service_refs.items()}
     specs = {name: load_service(path / "service.yaml") for name, path in service_dirs.items()}
     resolved = refs.check(stack, specs)
+    locked_mcp = mcp_stack.lock_mcp(
+        stack, project_dir=project_dir, search=search, lock=lock, context=context, mode=mode
+    )
+    changed |= locked_mcp.changed
+    mcp_stack.check_grants(stack, locked_mcp.entries)
+    mcp_stack.check_service_upstreams(stack, specs, locked_mcp.entries)
 
     file_params = {
         name: {
@@ -128,7 +164,7 @@ def lock_stack(
         for name, p in file_params.items()
     }
 
-    used = set(by_key) | {entry.key for entry in path_entries}
+    used = set(by_key) | {entry.key for entry in path_entries} | locked_mcp.keys
     unused = sorted(set(lock.entries) - used)
     if unused:
         if mode == "locked":
@@ -139,6 +175,9 @@ def lock_stack(
             del lock.entries[key]
         changed = True
 
+    origins = {name: by_key[str(Ref.parse(ref))].source for name, ref in service_refs.items()}
+    # Relays import the mcp versions' credentials: recorded like any service's imports.
+    relays = _add_relays(stack, locked_mcp, specs, service_dirs, files, resolved, origins)
     imports = {name: _imports(spec) for name, spec in specs.items() if _imports(spec)}
     if imports != lock.imports:
         if mode == "locked":
@@ -151,10 +190,42 @@ def lock_stack(
 
     warnings = _gateway_aliases(stack, specs, files)
     hashes = {key: value["sha256"] for key, value in lock.entries.items()}
-    origins = {name: by_key[str(Ref.parse(ref))].source for name, ref in service_refs.items()}
-    return LockedStack(
-        stack, specs, service_dirs, files, resolved, hashes, warnings, changed, origins
+    stack = stack.model_copy(
+        update={
+            "services": {
+                **stack.services,
+                **{name: StackService(ref=mcp_stack.RELAY_REF) for name in relays},
+            }
+        }
     )
+    return LockedStack(
+        stack,
+        specs,
+        service_dirs,
+        files,
+        resolved,
+        hashes,
+        warnings,
+        changed,
+        origins,
+        locked_mcp.entries,
+        relays,
+    )
+
+
+def _add_relays(stack, locked_mcp, specs, service_dirs, files, resolved, origins) -> dict:
+    """One relay service per `mcp:` entry, after its service upstream in the start order."""
+    relays = {}
+    for server, entry in sorted(locked_mcp.entries.items()):
+        name = entry.relay
+        relays[name] = server
+        specs[name] = mcp_stack.relay_spec(locked_mcp.relay_spec, entry)
+        service_dirs[name] = locked_mcp.relay_dir
+        files[name] = {}
+        resolved.params[name] = {}
+        resolved.order.append(name)
+        origins[name] = BUILTIN_LABEL
+    return relays
 
 
 def _single_file(directory: Path) -> Path:
