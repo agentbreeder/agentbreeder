@@ -13,12 +13,12 @@
       "sha256": "sha256:ee8174824f95b8506a458365b47983010b880d60ea364cd4e42500e4a2c5cb09",
       "source": "registry"
     },
-    "runtime/adk@1.0.5": {
-      "sha256": "sha256:982eae453dc3e2b18f3e5f4e7bc5960bb0e59f0d1376f0d228c7e771fa5c4e95",
+    "runtime/adk@1.0.6": {
+      "sha256": "sha256:84f4ef39d26ee73f8180aa9faf8cabfebd2e3c0a039662d7d6482728c3591e48",
       "source": "builtin"
     },
-    "tool/cancel-order@1.0.0": {
-      "sha256": "sha256:8c9e2752f94e40f29bcb6c3b2b397c09a43f6183f0fcd9b3692267c6dd6e1cbb",
+    "tool/cancel-order@1.0.1": {
+      "sha256": "sha256:f719258f3508714da3aed57c4618e3d16b9ddce7a3ab1ddd38ca77e981dab3fa",
       "source": "registry"
     },
     "tool/customer-notes@1.0.0": {

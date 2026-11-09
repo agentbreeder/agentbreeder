@@ -790,3 +790,27 @@ security review (4 high, 6 medium, 2 low, now §7.6) and the architecture review
 8 should-fix, 2 nits, now §7.7). §7.7 overrides earlier §7 text where they differ. Postgres
 hardening was verified: it needs a `tmpfs:` field and a CHOWN-only one-off volume chown (see the
 plan's Risks section).
+
+r6 (#750, security review of #749): the agent and the ops service shared the `support` owner
+role, so a compromised agent process could approve its own cancellation request.
+- **`service/postgres-pgvector@1.1.0`:** `roles` + `roles_database` add login roles that can
+  connect only to that database, own only a schema named after themselves (so their unqualified
+  CREATEs land there; PostgreSQL 16 closes `public` to CREATE) and get nothing else until the
+  owner's `init_sql` grants it. The owner is a member of each, so it can grant to them and create
+  objects for them. `postgres` and `template1` lose CONNECT for PUBLIC. Output `roles.<name>`.
+- **Output templates** may use the service's own `{params.X}` (the role's database); every
+  template placeholder is now checked when `service.yaml` loads.
+- **`runtime/adk@1.0.6`:** no DDL when the owner pre-created all runtime tables (a partial set is
+  refused, since an unqualified CREATE would shadow them in the role's schema), and no
+  `CREATE SCHEMA` when the sessions schema exists.
+- **Why the owner creates the tables the agent writes:** the ops role must never touch objects
+  the agent owns. An agent-owned table could carry a trigger, or a column type with an implicit
+  cast, whose function would run with the ops role's rights.
+- **Northwind:** agent = `support_agent` (SELECT on orders/catalog, column-level INSERT of
+  pending requests, inserts into its runtime tables); ops = `support_ops` (decides requests,
+  eval tables in its own schema); the owner only resets eval fixtures. `tool/cancel-order@1.0.1`
+  drops `FOR UPDATE` (a row lock needs UPDATE rights). Verified from scratch: 61/61, and the
+  agent role is refused on approve, order change, forged insert, audit delete, trigger drop,
+  public CREATE, CREATE SCHEMA and reading customers; a staff approval through the ops API works.
+- **`services up --update`** accepts new hashes for edited project files (never a published
+  version); lock errors name the right lock file and command.

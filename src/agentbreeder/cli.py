@@ -185,7 +185,14 @@ def _parser() -> argparse.ArgumentParser:
     up = service_commands.add_parser("up", help="Start the stack and write its demo config")
     up.add_argument("dir", nargs="?", type=Path, default=Path("."))
     up.add_argument("--environment", required=True)
-    up.add_argument("--locked", action="store_true", help="Refuse any stack.lock change")
+    up_lock = up.add_mutually_exclusive_group()
+    up_lock.add_argument("--locked", action="store_true", help="Refuse any stack.lock change")
+    up_lock.add_argument(
+        "--update",
+        action="store_true",
+        help="Accept new hashes for edited project files (file params); never for a "
+        "published service version",
+    )
     up.add_argument("--env-file", type=Path, help="KEY=value file for imported variables")
     up.add_argument("--yes", action="store_true", help="Confirm a new or changed grant")
     up.add_argument("--json", action="store_true")
@@ -331,7 +338,7 @@ def _services(args) -> int:
 
             result = engine.up(
                 args.environment,
-                mode="locked" if args.locked else "plain",
+                mode="locked" if args.locked else "update" if args.update else "plain",
                 env_file=args.env_file,
                 confirm=confirm,
             )

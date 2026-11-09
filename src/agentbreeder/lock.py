@@ -80,6 +80,8 @@ def materialise(
     update: set[str] | None = None,
     prune: bool = True,
     locked_paths: bool = False,
+    lock_file: str = "agent.lock",
+    update_command: str = "build --update",
 ) -> tuple[list[Materialised], bool]:
     """Copy every ref/path into `context`, hash the copies and reconcile with `lock`.
 
@@ -94,6 +96,7 @@ def materialise(
         raise RegistryError(
             "REF_UNPINNED", f"--locked refuses path refs: {', '.join(sorted(paths))}"
         )
+    names = (lock_file, update_command)
     results: list[Materialised] = []
     seen: set[str] = set()
     changed = False
@@ -117,7 +120,7 @@ def materialise(
         target = context / ref.kind / ref.name
         digest = copy_and_hash(hit.path, target)
         source = _source_label(hit.root, project_dir)
-        changed |= _reconcile(lock, key, digest, source, locked, mode, update)
+        changed |= _reconcile(lock, key, digest, source, locked, mode, update, names)
         results.append(Materialised(key, target, digest, source))
     for text in paths:
         relative = Path(text)
@@ -136,7 +139,7 @@ def materialise(
             else _copy_file(source_path, target)
         )
         changed |= _reconcile(
-            lock, key, digest, relative.as_posix(), lock.entries.get(key), mode, update
+            lock, key, digest, relative.as_posix(), lock.entries.get(key), mode, update, names
         )
         results.append(Materialised(key, target, digest, relative.as_posix()))
     unused = sorted(set(lock.entries) - seen) if prune else []
@@ -151,11 +154,12 @@ def materialise(
     return results, changed
 
 
-def _reconcile(lock, key, digest, source, locked, mode, update) -> bool:
+def _reconcile(lock, key, digest, source, locked, mode, update, names) -> bool:
+    lock_file, update_command = names
     if locked is None:
         if mode == "locked":
             raise RegistryError(
-                "LOCK_STALE", f"{key} is not in agent.lock; run build without --locked"
+                "LOCK_STALE", f"{key} is not in {lock_file}; run without --locked"
             )
         lock.entries[key] = {"sha256": digest, "source": source}
         return True
@@ -174,9 +178,9 @@ def _reconcile(lock, key, digest, source, locked, mode, update) -> bool:
     if not allowed:
         raise RegistryError(
             "HASH_MISMATCH",
-            f"{key} ({source}): agent.lock {locked.get('sha256')}, found {digest}. Published "
+            f"{key} ({source}): {lock_file} {locked.get('sha256')}, found {digest}. Published "
             "versions are immutable: publish a new version and reference it"
-            + (", or run build --update for a path ref" if key.startswith("path:") else ""),
+            + (f", or run {update_command} for a path ref" if key.startswith("path:") else ""),
         )
     lock.entries[key] = {"sha256": digest, "source": source}
     return True

@@ -728,6 +728,21 @@ def test_cli_logs_argument_count(env, capsys):
         cli.main(["services", "logs", "a", "b", "c"])
 
 
+def test_cli_up_update_accepts_an_edited_file_param(env, fake_docker, capsys, monkeypatch):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    assert cli.main(["services", "up", str(env), "--environment", "dev", "--yes"]) == 0
+    config = env / "gw" / "config.yaml"
+    config.write_text(config.read_text().replace("model: x", "model: y"))
+    capsys.readouterr()
+    assert cli.main(["services", "up", str(env), "--environment", "dev", "--yes"]) == 2
+    assert "services up --update" in capsys.readouterr().err
+    args = ["services", "up", str(env), "--environment", "dev", "--yes"]
+    assert cli.main([*args, "--update"]) == 0
+    assert cli.main([*args, "--locked"]) == 0
+    with pytest.raises(SystemExit):
+        cli.main([*args, "--locked", "--update"])
+
+
 def test_cli_up_interactive_confirmation(env, fake_docker, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda prompt: "y")
@@ -785,7 +800,11 @@ DB = {
     "user": "image",
     "command": ["python3", "-m", "http.server", "5432"],
     "ports": {"pg": {"port": 5432, "protocol": "tcp", "expose": "agents"}},
-    "params": {"databases": {"type": "list", "item": "db_name", "default": []}},
+    "params": {
+        "databases": {"type": "list", "item": "db_name", "default": []},
+        "home": {"type": "db_name"},
+        "unset": {"type": "string"},
+    },
     "secrets": {"role": {"generate": "token", "per": "databases"}},
     "health": {"command": ["python3", "-c", "pass"]},
     "outputs": {
@@ -795,7 +814,13 @@ DB = {
             "port": "pg",
             "template": "postgresql://{item}:{secret.role}@{address}/{item}",
         },
-        "bad": {"type": "secret", "port": "pg", "template": "{nope}"},
+        "home": {
+            "type": "secret",
+            "per": "databases",
+            "port": "pg",
+            "template": "postgresql://{item}:{secret.role}@{address}/{params.home}",
+        },
+        "bad": {"type": "secret", "port": "pg", "template": "{params.unset}"},
         "addr": {"type": "url", "port": "pg"},
     },
 }
@@ -819,7 +844,10 @@ def test_plan_per_item_tcp_urls_and_inputs(env):
         (version / "manifest.yaml").write_text(f"kind: service\nname: {name}\nversion: 1.0.0\n")
         (version / "service.yaml").write_text(yaml.safe_dump(spec))
     stack = copy.deepcopy(STACK)
-    stack["services"]["db"] = {"ref": "service/db@1.0.0", "with": {"databases": ["support"]}}
+    stack["services"]["db"] = {
+        "ref": "service/db@1.0.0",
+        "with": {"databases": ["support"], "home": "shared"},
+    }
     stack["services"]["app"] = {
         "ref": "service/app@1.0.0",
         "wire": {"database-url": "db.databases.support", "addr": "db.addr"},
@@ -846,7 +874,10 @@ def test_plan_per_item_tcp_urls_and_inputs(env):
         instance.secrets(plan, None)
         from agentbreeder.services.refs import Reference
 
-        with pytest.raises(ServiceError, match="TEMPLATE_INVALID"):
+        assert plan.output(Reference("db", "home", "support"), "internal") == (
+            f"postgresql://support:{role}@db:5432/shared".encode()
+        )
+        with pytest.raises(ServiceError, match="TEMPLATE_INVALID.*has no value"):
             plan.output(Reference("db", "bad"), "internal")
     finally:
         instance.close()

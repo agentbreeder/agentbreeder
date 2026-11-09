@@ -1,0 +1,13 @@
+kind: service
+name: postgres-pgvector
+version: 1.1.0
+description: >-
+  PostgreSQL 16.15 with pgvector 0.8.7 (pgvector/pgvector, digest-pinned), run with a read-only
+  root, no capabilities and uid 999. Each name in `databases` gets its own login role that owns
+  that database and can't connect to the others; the generated superuser is used only by `init`
+  and is never an output. `init_sql` (optional) is applied to `init_sql_database` as that
+  database's role. New in 1.1.0: `roles` adds least-privilege login roles in `roles_database`.
+  Each one can connect only there, owns only a schema of its own name (where its unqualified
+  CREATEs land) and gets nothing else until `init_sql` grants it; the database's owner role is
+  a member of each, so `init_sql` can grant to them and create objects for them.
+  `postgres` and `template1` are no longer open to every role.

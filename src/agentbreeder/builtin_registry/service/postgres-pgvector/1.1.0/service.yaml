@@ -1,0 +1,37 @@
+image: pgvector/pgvector@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f
+user: "999:999"
+ports:
+  pg: {port: 5432, protocol: tcp, expose: [agents, host]}
+params:
+  databases: {type: list, item: db_name, default: []}
+  init_sql: {type: file}
+  init_sql_database: {type: db_name}
+  roles: {type: list, item: db_name, default: []}
+  roles_database: {type: db_name}
+env:
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD_FILE: /run/secrets/superuser
+  INIT_SQL_DATABASE: "{params.init_sql_database}"
+  ROLES_DATABASE: "{params.roles_database}"
+secrets:
+  superuser: {generate: token}
+  role: {generate: token, per: databases}
+  login: {generate: token, per: roles}
+volumes:
+  data: /var/lib/postgresql/data
+tmpfs: [/var/run/postgresql]
+health: {command: [pg_isready, -q, -U, postgres]}
+init:
+  command: [/files/init.sh]
+  secrets: [superuser, role, login]
+outputs:
+  databases:
+    type: secret
+    per: databases
+    port: pg
+    template: "postgresql://{item}:{secret.role}@{address}/{item}"
+  roles:
+    type: secret
+    per: roles
+    port: pg
+    template: "postgresql://{item}:{secret.login}@{address}/{params.roles_database}"

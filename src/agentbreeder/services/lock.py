@@ -91,6 +91,8 @@ def lock_stack(
         context=context / "services",
         mode=mode,
         prune=False,
+        lock_file="stack.lock",
+        update_command="services up --update",
     )
     by_key = {entry.key: entry for entry in entries}
     service_dirs = {name: by_key[str(Ref.parse(ref))].path for name, ref in service_refs.items()}
@@ -115,6 +117,8 @@ def lock_stack(
         context=context / "files",
         mode=mode,
         prune=False,
+        lock_file="stack.lock",
+        update_command="services up --update",
         locked_paths=True,
     )
     changed |= path_changed

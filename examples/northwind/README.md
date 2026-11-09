@@ -18,9 +18,9 @@ deployed the agent.
 |---|---|---|
 | Agent definition | `agent.yaml`, `agent.lock` | yours (about 35 lines of YAML) |
 | Prompt, knowledge, tools, eval set | `registry/<kind>/<name>/<version>/` | registry entries. The tools are small Python packages: that is where custom logic lives |
-| Runtime (ADK, memory, RAG, server) | `runtime/adk@1.0.5`, shipped with AgentBreeder | AgentBreeder |
+| Runtime (ADK, memory, RAG, server) | `runtime/adk@1.0.6`, shipped with AgentBreeder | AgentBreeder |
 | Backing services | `stack.yaml`, `stack.lock` | built-in `postgres-pgvector`, `litellm` and `phoenix`, plus this example's `northwind-proxy` and `northwind-ops` (`registry/service/`, built from source) |
-| Seed data and gateway models | `stack/db/commerce.sql`, `stack/litellm/config.yaml` | example data |
+| Schema, seed data, grants and gateway models | `stack/db/commerce.sql`, `stack/litellm/config.yaml` | example data |
 
 ## Run it
 
@@ -44,7 +44,16 @@ ops dashboard. `agentbreeder services status` lists each service's `127.0.0.1` p
 `agentbreeder services down` stops the stack and keeps its data. To start over from scratch,
 remove the agent (`agentbreeder remove ID --local --stack .`), then
 `agentbreeder services down --purge --yes` deletes the volumes, the built service images and the
-stack's state (generated secrets, operator config, history).
+stack's state (generated secrets, operator config, history). After editing `commerce.sql` or the
+gateway config, run `services up --update` to accept their new hashes in `stack.lock`.
+
+**Database roles.** The `support` database has three login roles (`postgres-pgvector@1.1.0`).
+`support` owns every table, and only the eval gate uses it, to reset fixtures. The agent runs
+as `support_agent`. It can read orders and the catalog, file cancellation *requests* (their
+status stays `pending`), and add notes, tickets, turns and audit events. It can't approve a
+request, change an order, alter a table or read customer records. The ops dashboard runs as
+`support_ops`. It decides requests and keeps its eval tables in its own schema. `commerce.sql`
+holds the grants.
 
 Or step by step: `agentbreeder build agent.yaml --stack . --environment dev`, then
 `agentbreeder deploy deploy/northwind-support.deploy.yaml --local --stack . --environment dev`.
@@ -76,7 +85,8 @@ password in `service-secrets/phoenix/admin-password`.
 ## Honest limits (preview)
 
 - **Customer scoping is tool code.** It holds in the shipped tools, but it is not an engine
-  boundary, and `customer_id` in `/invoke` is not authenticated.
+  boundary, and `customer_id` in `/invoke` is not authenticated. The agent's database role can
+  read every customer's orders; it can't approve or change them.
 - **Gateway image.** The stack's LiteLLM gateway image is pinned at v1.106.2, which still bundles
   filelock 3.x (local-user advisories). The agent runtime itself uses litellm 1.108.3 with
   filelock 4.x.

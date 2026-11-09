@@ -15,6 +15,7 @@ from test_services_engine import CANARY, PY, STACK, write_project
 
 from agentbreeder import registry
 from agentbreeder.services.engine import Engine
+from agentbreeder.services.refs import Reference
 from agentbreeder.services.schema import ServiceError
 from agentbreeder.services.state import ROOT_ENV
 
@@ -194,6 +195,99 @@ def test_postgres_pgvector_roles_init_sql_and_hardening(tmp_path, monkeypatch):
         assert up(one)["services"]["postgres"] == "created"
         with psycopg.connect(f"{dsn}/alpha", connect_timeout=10) as conn:
             assert conn.execute("SELECT count(*) FROM items").fetchone() == (1,)
+    finally:
+        try:
+            one.active_deployments = lambda: []
+            one.down(volumes=True)
+        finally:
+            one.close()
+
+
+def test_postgres_pgvector_least_privilege_roles(tmp_path, monkeypatch):
+    """1.1.0 `roles`: each extra role connects only to roles_database, creates only in its own
+    schema, and gets nothing on the owner's tables until init_sql grants it (#750)."""
+    import psycopg
+
+    monkeypatch.delenv(registry.PATH_ENV, raising=False)
+    monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))
+    stack = json.loads(json.dumps(STACK))
+    stack["services"] = {
+        "postgres": {
+            "ref": "service/postgres-pgvector@1.1.0",
+            "with": {
+                "databases": ["alpha", "beta"],
+                "init_sql": "db/seed.sql",
+                "init_sql_database": "alpha",
+                "roles": ["alpha_agent", "alpha_ops"],
+                "roles_database": "alpha",
+            },
+        },
+        "gateway": stack["services"]["gateway"],
+    }
+    stack["environment"]["services"] = {}
+    stack["environment"]["bindings"] = {"DATABASE_URL": {"ref": "postgres.roles.alpha_agent"}}
+    stack["environment"]["eval_database"] = {"ref": "postgres.databases.alpha"}
+    project = write_project(tmp_path / "pg", stack=stack)
+    (project / "db").mkdir()
+    (project / "db" / "seed.sql").write_text(
+        "CREATE TABLE IF NOT EXISTS requests (id int PRIMARY KEY, "
+        "status text NOT NULL DEFAULT 'pending');\n"
+        "INSERT INTO requests VALUES (1, 'pending') ON CONFLICT DO NOTHING;\n"
+        "GRANT SELECT ON requests TO alpha_agent;\n"
+        "GRANT INSERT (id) ON requests TO alpha_agent;\n"
+        "GRANT SELECT, UPDATE (status) ON requests TO alpha_ops;\n"
+        "CREATE SCHEMA IF NOT EXISTS sessions AUTHORIZATION alpha_agent;\n"
+    )
+    one = Engine(project)
+    try:
+        assert up(one)["services"]["postgres"] == "created"
+        assert up(one)["services"]["postgres"] == "unchanged"  # init is idempotent
+        port = one.status()["services"]["postgres"]["host_ports"]["pg"]
+        plan = one.plan()
+        one.secrets(plan, None)
+        agent = one.state.read_secret("postgres", "login.alpha_agent").decode()
+        ops = one.state.read_secret("postgres", "login.alpha_ops").decode()
+        bound = plan.output(Reference("postgres", "roles", "alpha_agent"), "internal").decode()
+        assert bound == f"postgresql://alpha_agent:{agent}@postgres:5432/alpha"
+        agent_url = f"postgresql://alpha_agent:{agent}@127.0.0.1:{port}/alpha"
+        ops_url = f"postgresql://alpha_ops:{ops}@127.0.0.1:{port}/alpha"
+
+        with psycopg.connect(agent_url, connect_timeout=10, autocommit=True) as conn:
+            assert conn.execute("SELECT status FROM requests").fetchone() == ("pending",)
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("UPDATE requests SET status = 'approved'")
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("INSERT INTO requests (id, status) VALUES (2, 'approved')")
+            conn.execute("INSERT INTO requests (id) VALUES (2)")  # status defaults to pending
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("CREATE TABLE public.x (id int)")
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("CREATE SCHEMA alpha_ops2")
+            conn.execute("CREATE TABLE IF NOT EXISTS notes (id int)")
+            assert conn.execute(
+                "SELECT schemaname FROM pg_tables WHERE tablename = 'notes'"
+            ).fetchone() == ("alpha_agent",)
+            conn.execute("CREATE TABLE IF NOT EXISTS sessions.events (id int)")
+            assert conn.execute(
+                "SELECT rolsuper OR rolcreaterole OR rolcreatedb FROM pg_roles "
+                "WHERE rolname = 'alpha_agent'"
+            ).fetchone() == (False,)
+        base = agent_url.rsplit("/", 1)[0]
+        for other in ("beta", "postgres", "template1"):
+            with pytest.raises(psycopg.OperationalError):
+                psycopg.connect(f"{base}/{other}", connect_timeout=10).close()
+        with psycopg.connect(ops_url, connect_timeout=10, autocommit=True) as conn:
+            conn.execute("UPDATE requests SET status = 'approved' WHERE id = 1")
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("SELECT * FROM alpha_agent.notes")
+
+        # A role named like a database is refused.
+        stack["services"]["postgres"]["with"]["roles"] = ["alpha_agent", "beta"]
+        write_project(project, stack=stack)
+        one.close()
+        one = Engine(project)  # an engine reads stack.yaml once
+        with pytest.raises(ServiceError, match="postgres.init exited"):
+            up(one)
     finally:
         try:
             one.active_deployments = lambda: []

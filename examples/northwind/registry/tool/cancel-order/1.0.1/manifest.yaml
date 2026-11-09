@@ -1,0 +1,5 @@
+kind: tool
+name: cancel-order
+version: 1.0.1
+description: Files an order cancellation request for staff approval. Never cancels anything itself.
+  1.0.1 takes no row lock on orders, so its database role needs no UPDATE right there.

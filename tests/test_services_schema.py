@@ -180,6 +180,28 @@ def test_valid_stack_resolves_params_and_dependency_order():
         (lambda s: s["outputs"].update(s={"type": "secret", "template": "x"}), "needs the port"),
         (lambda s: s["outputs"].update(s={"type": "secret", "secret": "nope"}), "unknown secret"),
         (
+            lambda s: s["outputs"].update(s={"type": "secret", "port": "pg", "template": "{x}"}),
+            r"unknown \{x\}",
+        ),
+        (
+            lambda s: s["outputs"].update(
+                s={"type": "secret", "port": "pg", "template": "{item}@{address}"}
+            ),
+            r"unknown \{item\}",
+        ),
+        (
+            lambda s: s["outputs"].update(
+                s={"type": "secret", "port": "pg", "template": "{params.init_sql}"}
+            ),
+            r"unknown \{params.init_sql\}",
+        ),
+        (
+            lambda s: s["outputs"].update(
+                s={"type": "secret", "port": "pg", "template": "{secret.nope}"}
+            ),
+            r"unknown \{secret.nope\}",
+        ),
+        (
             lambda s: s["outputs"].update(s={"type": "secret", "secret": "role", "per": "x"}),
             "per names a list",
         ),

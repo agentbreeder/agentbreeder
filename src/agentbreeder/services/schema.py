@@ -8,6 +8,7 @@ is limited to a local demo environment.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -22,6 +23,7 @@ SERVICE_NAME = r"^[a-z][a-z0-9-]{0,30}$"
 ENV_NAME = r"^[A-Z][A-Z0-9_]{0,63}$"
 IMPORT_NAME = r"^[A-Z_][A-Z0-9_]{0,127}$"
 DB_NAME = r"^[a-z][a-z0-9_]{0,62}$"
+TEMPLATE_PART = re.compile(r"\{\{|\}\}|\{([^{}]*)\}")  # same grammar as refs.PLACEHOLDER
 IMAGE = r"^[a-z0-9][a-z0-9./_-]{0,254}(:[A-Za-z0-9._-]{1,128})?@sha256:[a-f0-9]{64}$"
 ABS_PATH = r"^/[A-Za-z0-9._/-]{1,255}$"
 RESERVED = frozenset({"params", "ports", "secrets", "self", "item", "address"})
@@ -280,6 +282,8 @@ class ServiceSpec(_Strict):
                 raise ValueError(f"output {name}: unknown secret {output.secret}")
             if output.per is not None and output.per not in lists:
                 raise ValueError(f"output {name}: per names a list param")
+            if output.template is not None:
+                self._check_output_template(name, output)
         if self.health is not None and self.health.http is not None:
             port = self.health.port or next(iter(self.ports), None)
             if port is None or port not in self.ports or self.ports[port].protocol != "http":
@@ -326,6 +330,19 @@ class ServiceSpec(_Strict):
                     article = "an" if flag == "operator_only" else "a"
                     raise ValueError(f"output {name} exposes {article} {flag} secret")
         return self
+
+    def _check_output_template(self, name: str, output: Output) -> None:
+        """A secret template names only its address, its item (per outputs), the service's own
+        secrets and its own string/db_name params (e.g. the database a role connects to)."""
+        written = {self.bootstrap.writes_secret} if self.bootstrap else set()
+        allowed = {"address"} | {f"secret.{s}" for s in set(self.secrets) | written}
+        scalars = {k for k, p in self.params.items() if p.type in ("string", "db_name")}
+        allowed |= {f"params.{k}" for k in scalars}
+        if output.per is not None:
+            allowed.add("item")
+        for match in TEMPLATE_PART.finditer(output.template or ""):
+            if match.group(1) is not None and match.group(1) not in allowed:
+                raise ValueError(f"output {name}: unknown {{{match.group(1)}}} in template")
 
     def mounted_secrets(self) -> set[str]:
         """Secret names the service's container may receive (own, secret inputs, bootstrap's)."""

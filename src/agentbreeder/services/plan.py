@@ -98,6 +98,13 @@ class Plan:
                 values[placeholder] = self.address(service, output.port, scope)
             elif placeholder == "item" and reference.item is not None:
                 values[placeholder] = reference.item
+            elif placeholder.startswith("params."):
+                value = self.locked.resolved.params[service].get(placeholder[7:])
+                if not isinstance(value, str):
+                    raise ServiceError(
+                        "TEMPLATE_INVALID", f"{where}: {{{placeholder}}} has no value"
+                    )
+                values[placeholder] = quote(value, safe="")
             elif placeholder.startswith("secret."):
                 data = self._secret(service, placeholder[7:], reference.item)
                 values[placeholder] = quote(data.decode("utf-8", "strict"), safe="")

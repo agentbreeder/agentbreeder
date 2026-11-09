@@ -294,3 +294,20 @@ def test_config_review_accepts_valid_fallbacks(tmp_path):
         "router_settings": {"num_retries": 1, "routing_strategy": "simple-shuffle"},
     }
     assert _review(tmp_path, data).aliases == {"a", "b"}
+
+
+def test_update_mode_accepts_edited_file_params_only(project, tmp_path):
+    _, lock = run(project, tmp_path)
+    before = lock.entries["path:db/seed.sql"]["sha256"]
+    (project / "db/seed.sql").write_text("CREATE TABLE t (id int, v text);\n")
+    with pytest.raises(RegistryError, match=r"stack\.lock .*services up --update") as caught:
+        run(project, tmp_path, "plain", lock)
+    assert "agent.lock" not in str(caught.value) and "build --update" not in str(caught.value)
+    updated, lock2 = run(project, tmp_path, "update", lock)
+    assert updated.changed and lock2.entries["path:db/seed.sql"]["sha256"] != before
+
+    service = project / "registry/service/litellm/1.0.0/service.yaml"
+    service.write_text(service.read_text().replace("False", "True"))
+    with pytest.raises(RegistryError, match="HASH_MISMATCH") as caught:
+        run(project, tmp_path, "update", lock2)  # a published version never changes
+    assert "--update" not in str(caught.value)

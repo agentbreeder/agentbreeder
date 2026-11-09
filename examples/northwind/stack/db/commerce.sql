@@ -1,6 +1,8 @@
 -- Commerce data for the Northwind support agent: customers, product catalog, orders.
--- Applied by the Compose `db-init` service on every `up`; idempotent (seed rows use
--- ON CONFLICT DO NOTHING, so edits you make in the database are kept).
+-- Applied by postgres's init step on every `services up`, as the `support` role that owns the
+-- database; idempotent (seed rows use ON CONFLICT DO NOTHING, so edits you make in the database
+-- are kept). The end of the file creates the agent runtime's tables and grants the two
+-- least-privilege roles (`support_agent`, `support_ops`) only what they use.
 -- Money is stored in integer cents (USD). Prices match the help-center articles in agent/kb/.
 
 CREATE TABLE IF NOT EXISTS customers (
@@ -126,3 +128,59 @@ INSERT INTO order_items (order_id, sku, quantity, unit_price_cents) VALUES
   ('NW-90003', 'PEN-001', 2, 7900),
   ('NW-90004', 'PEN-DOCK', 1, 2900)
 ON CONFLICT (order_id, sku) DO NOTHING;
+
+-- ---------------------------------------------------------------- agent runtime tables
+-- The same tables runtime/adk creates, created here by the owner so the agent's role can't alter
+-- them, drop the audit trigger or add triggers of its own. runtime/adk@1.0.6 runs no DDL when
+-- they all exist. Keep in step with the runtime's memory.py.
+CREATE TABLE IF NOT EXISTS notes (
+  id BIGSERIAL PRIMARY KEY, customer TEXT NOT NULL, note TEXT NOT NULL,
+  created TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS notes_customer ON notes (customer, created);
+CREATE TABLE IF NOT EXISTS tickets (
+  id TEXT PRIMARY KEY, customer TEXT NOT NULL, session TEXT NOT NULL, priority TEXT NOT NULL,
+  summary TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open',
+  created TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS turns (
+  id TEXT PRIMARY KEY, session TEXT NOT NULL, customer TEXT NOT NULL, message TEXT NOT NULL,
+  reply TEXT NOT NULL, trace_id TEXT, span_id TEXT, latency_ms INTEGER NOT NULL,
+  model_calls INTEGER NOT NULL, tools JSONB NOT NULL, sources JSONB NOT NULL,
+  evidence JSONB NOT NULL, retrieval TEXT NOT NULL, prompt_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL, error TEXT, created TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS turns_created ON turns (created);
+CREATE TABLE IF NOT EXISTS audit_events (
+  id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(), turn_id TEXT,
+  session TEXT, customer TEXT, actor TEXT NOT NULL, action TEXT NOT NULL,
+  detail JSONB NOT NULL DEFAULT '{}');
+CREATE INDEX IF NOT EXISTS audit_events_at ON audit_events (at);
+CREATE OR REPLACE FUNCTION audit_events_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'audit_events is append-only'; END $$;
+CREATE OR REPLACE TRIGGER audit_events_no_update BEFORE UPDATE OR DELETE ON audit_events
+  FOR EACH ROW EXECUTE FUNCTION audit_events_append_only();
+CREATE OR REPLACE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON audit_events
+  FOR EACH STATEMENT EXECUTE FUNCTION audit_events_append_only();
+-- ADK's session tables live here; the agent's role owns this schema (and its own `support_agent`
+-- schema, where the knowledge index goes) and nothing else.
+CREATE SCHEMA IF NOT EXISTS adk_sessions AUTHORIZATION support_agent;
+
+-- ---------------------------------------------------------------- least-privilege grants
+-- The agent (DATABASE_URL): reads orders and the catalog, files cancellation REQUESTS (status
+-- stays at its 'pending' default: it has no right to that column or to UPDATE), keeps notes,
+-- tickets, turns and audit events. It can't approve a request or change an order (#750).
+GRANT SELECT ON products, orders, order_items, cancellation_requests TO support_agent;
+GRANT INSERT (id, order_id, customer_id, reason, session, turn_id)
+  ON cancellation_requests TO support_agent;
+GRANT SELECT, INSERT ON notes TO support_agent;
+GRANT INSERT ON tickets, turns, audit_events TO support_agent;
+GRANT USAGE ON SEQUENCE notes_id_seq, audit_events_id_seq TO support_agent;
+
+-- Staff (the ops dashboard): reads everything it shows, decides requests, resets the eval
+-- customers' orders for offline evals, and records its decisions in the audit trail. Its own
+-- eval tables go in its `support_ops` schema.
+GRANT SELECT ON customers, products, orders, order_items, cancellation_requests, turns,
+  audit_events TO support_ops;
+GRANT UPDATE (status) ON orders TO support_ops;
+GRANT UPDATE (status, decided_at, decided_by, decision_note), DELETE
+  ON cancellation_requests TO support_ops;
+GRANT INSERT ON audit_events TO support_ops;
+GRANT USAGE ON SEQUENCE audit_events_id_seq TO support_ops;

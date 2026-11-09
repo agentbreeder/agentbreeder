@@ -2,7 +2,7 @@
   "lock_version": 1,
   "entries": {
     "path:stack/db/commerce.sql": {
-      "sha256": "sha256:2edf75d544889ac95058d51d81b30c392ff220483579fabf901543fc7598a109",
+      "sha256": "sha256:274ac48ce2df1ceba0d04154fc060881284212df3ff121a15a8f3c11798c39d4",
       "source": "stack/db/commerce.sql"
     },
     "path:stack/litellm/config.yaml": {
@@ -25,8 +25,8 @@
       "sha256": "sha256:3a7071f82aacc6ba76fd89c918ba3f6d08a3f7ad5793265014c9ba63777bc8d6",
       "source": "builtin"
     },
-    "service/postgres-pgvector@1.0.0": {
-      "sha256": "sha256:a1d15ca0f25a49c64aa354d6b0eea573231687b3c096958a40e7f3ed5d6ae780",
+    "service/postgres-pgvector@1.1.0": {
+      "sha256": "sha256:b8eb6826b25bfaf1cda0eb93214b1e4803da53c872054d5287c953ab7090914b",
       "source": "builtin"
     }
   },

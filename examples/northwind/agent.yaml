@@ -4,7 +4,7 @@
 kind: agent
 schema_version: 1
 name: northwind-support
-runtime: runtime/adk@1.0.5
+runtime: runtime/adk@1.0.6
 description: Customer support for Northwind Notes and the Northwind Pen.
 
 model:
@@ -23,7 +23,7 @@ tools:
   - {ref: tool/customer-notes@1.0.0}
   - {ref: tool/escalate-to-human@1.0.0}
   - {ref: tool/orders@1.0.0}
-  - {ref: tool/cancel-order@1.0.0}      # files a request; staff approve in the ops dashboard
+  - {ref: tool/cancel-order@1.0.1}      # files a request; staff approve in the ops dashboard
   - {ref: tool/web-search@1.0.0}
 
 memory: {sessions: postgres, notes: true}

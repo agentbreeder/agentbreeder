@@ -36,11 +36,13 @@ schema_version: 1
 name: northwind
 services:
   postgres:
-    ref: service/postgres-pgvector@1.0.0
+    ref: service/postgres-pgvector@1.1.0
     with:
       databases: [support, litellm, phoenix]   # one database and one login role each
-      init_sql: stack/db/commerce.sql
+      init_sql: stack/db/commerce.sql          # schema, seed data and grants
       init_sql_database: support
+      roles: [support_agent, support_ops]      # least-privilege roles in `support`
+      roles_database: support
   litellm:
     ref: service/litellm@1.0.0
     with: {config: stack/litellm/config.yaml}
@@ -53,7 +55,7 @@ environment:
   models: [support-model, support-embedding, support-judge]
   ceilings: {budget_usd: 50, rpm: 300}
   bindings:
-    DATABASE_URL: {ref: postgres.databases.support}
+    DATABASE_URL: {ref: postgres.roles.support_agent}   # can't approve its own requests
   eval_database: {ref: postgres.databases.support}
   agents:
     northwind-support: {sponsor: support-lead@example.com, review_by: "2027-06-30", candidate: true}
@@ -64,7 +66,9 @@ environment:
 - Secret outputs are only ever used whole: wired to a service, or bound into the agent as a
   mounted file. They never appear in environment variables or labels.
 - `stack.lock` records the hash of every service version and file param; `--locked` refuses any
-  change.
+  change, and `up --update` accepts an edited project file (never a changed published version).
+- Give the agent the narrowest database role that works. In Northwind the agent can file
+  cancellation requests but can't approve one or change an order; only the ops role can.
 
 ## What `services up` does
 
@@ -86,7 +90,7 @@ Origin checks). Agents join a separate network that reaches only the ports decla
 
 | Service | Runs | Gives |
 |---|---|---|
-| `service/postgres-pgvector@1.0.0` | PostgreSQL 16 with pgvector | a URL per database, each with its own role |
+| `service/postgres-pgvector@1.1.0` | PostgreSQL 16 with pgvector | a URL per database, each with its own role; least-privilege `roles` with nothing but their own schema until `init_sql` grants more |
 | `service/litellm@1.0.0` | the LiteLLM proxy as the model gateway | its URL; a master key only AgentBreeder uses |
 | `service/phoenix@1.0.0` | Arize Phoenix with auth on, data in Postgres | its URL; an ingest key only services may hold |
 

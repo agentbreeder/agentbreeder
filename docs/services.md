@@ -29,11 +29,13 @@ schema_version: 1
 name: northwind
 services:
   postgres:
-    ref: service/postgres-pgvector@1.0.0
+    ref: service/postgres-pgvector@1.1.0
     with:
       databases: [support, litellm, phoenix]   # one database and one login role each
-      init_sql: stack/db/commerce.sql          # run as the support role
+      init_sql: stack/db/commerce.sql          # schema, seed data and grants, as the support role
       init_sql_database: support
+      roles: [support_agent, support_ops]      # least-privilege roles in `support`
+      roles_database: support
   litellm:
     ref: service/litellm@1.0.0
     with: {config: stack/litellm/config.yaml}
@@ -44,6 +46,9 @@ services:
   proxy:
     ref: service/northwind-proxy@1.0.0             # a project service, built from source
     wire: {phoenix: phoenix.url, phoenix-ingest-key: phoenix.ingest_key}
+  ops:
+    ref: service/northwind-ops@1.0.0
+    wire: {database-url: postgres.roles.support_ops, ...}   # staff decisions
 environment:
   gateway: litellm                       # a service that provides gateway/litellm
   models: [support-model, support-embedding, support-judge]
@@ -52,8 +57,8 @@ environment:
     traces_url: "{proxy.url}/v1/traces"
     tools_proxy_url: "{proxy.url}"
   bindings:                              # secret files mounted into the agent
-    DATABASE_URL: {ref: postgres.databases.support}
-  eval_database: {ref: postgres.databases.support}   # host-side fixture resets for release
+    DATABASE_URL: {ref: postgres.roles.support_agent}  # can't approve its own requests
+  eval_database: {ref: postgres.databases.support}   # host-side fixture resets, as the owner
   agents:
     northwind-support:
       sponsor: support-lead@example.com
@@ -71,12 +76,19 @@ environment:
   ingest key reads every trace, so only the trace proxy holds it). **`operator_only` outputs**
   (the gateway master key) are used only by AgentBreeder itself, to mint per-agent keys.
 - **`stack.lock`** records the hash of every service version and file param and the imported
-  variable names. `--locked` refuses any change.
+  variable names. `--locked` refuses any change. After you edit a project file param (an
+  `init_sql`, a gateway config), `up --update` accepts its new hash; a published service version
+  never changes (publish a new version instead).
+- **Least privilege in Postgres.** Give the agent and each service the narrowest role that works.
+  `postgres-pgvector@1.1.0`'s `roles` creates login roles that own nothing but a schema named
+  after themselves; the database owner's `init_sql` grants them exactly what they use. In
+  Northwind the agent can read orders and file cancellation requests but can't approve one or
+  change an order: only the ops role can.
 
 ## Commands
 
 ```
-agentbreeder services up     [DIR] --environment ENV [--locked] [--env-file FILE] [--yes] [--json]
+agentbreeder services up     [DIR] --environment ENV [--locked | --update] [--env-file FILE] [--yes] [--json]
 agentbreeder services status [DIR] [--json]
 agentbreeder services logs   [DIR] NAME [--tail N]       # known secret values are redacted
 agentbreeder services env    [DIR] [--environment ENV]   # prints the two export lines
@@ -103,6 +115,7 @@ agentbreeder services down   [DIR] [--volumes | --purge] [--yes] [--json]
 
 | Service | What it runs | Params | Outputs |
 |---|---|---|---|
+| `service/postgres-pgvector@1.1.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.0.0, plus `roles` (list) and `roles_database` | as 1.0.0, plus `roles.<name>`: a URL for a role that can connect only to `roles_database`, owns only a schema of its own name and has no other rights until `init_sql` grants them. `postgres` and `template1` are closed to applications. |
 | `service/postgres-pgvector@1.0.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | `databases` (list), `init_sql` (file, ≤ 64 KiB, no `\` meta-commands), `init_sql_database` | `databases.<name>`: a URL with that database's own role (never the superuser) |
 | `service/litellm@1.0.0` | LiteLLM 1.106.2 proxy, `provides: gateway/litellm` | `config` (file, required; reviewed: allow-listed keys, each provider key only to its provider) | `url`; `master_key` (operator only) |
 | `service/phoenix@1.0.0` | Arize Phoenix 21.0.0 with auth on, data in a wired Postgres database | none | `url` (host only); `ingest_key` (services only, minted by `bootstrap`) |
@@ -136,6 +149,8 @@ health: {http: /healthz}
 egress: true                        # outbound internet; shown in the grant
 outputs:
   url: {type: url, port: http}
+  # A secret output built from parts names only {address}, {item} (with `per:`), the service's
+  # own {secret.X} and its own {params.X}; checked when the service.yaml is loaded.
 ```
 
 - **Reachability (`expose`).** `internal` (default): other services only. `agents`: also agent
