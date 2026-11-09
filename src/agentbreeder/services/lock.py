@@ -62,6 +62,8 @@ class LockedStack:
     hashes: dict[str, str]  # lock key -> sha256
     warnings: list[str]
     changed: bool
+    # service name -> "builtin" or the registry root it came from (lock.Materialised.source)
+    origins: dict[str, str] = field(default_factory=dict)
 
 
 def _imports(spec: ServiceSpec) -> list[str]:
@@ -145,7 +147,10 @@ def lock_stack(
 
     warnings = _gateway_aliases(stack, specs, files)
     hashes = {key: value["sha256"] for key, value in lock.entries.items()}
-    return LockedStack(stack, specs, service_dirs, files, resolved, hashes, warnings, changed)
+    origins = {name: by_key[str(Ref.parse(ref))].source for name, ref in service_refs.items()}
+    return LockedStack(
+        stack, specs, service_dirs, files, resolved, hashes, warnings, changed, origins
+    )
 
 
 def _single_file(directory: Path) -> Path:

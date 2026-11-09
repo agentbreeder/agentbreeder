@@ -11,6 +11,7 @@ The key value goes only into the deployment's private secret file; the audit rec
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -199,6 +200,8 @@ _PARAMS = {
     "drop_params",
     "reasoning_effort",
 }
+_MODEL_NAME = re.compile(r"[A-Za-z0-9._:/-]{1,128}")
+_FALLBACKS = {"fallbacks", "context_window_fallbacks"}
 _GENERAL_ENV = {"master_key": _ENV + "LITELLM_MASTER_KEY", "database_url": _ENV + "DATABASE_URL"}
 
 
@@ -224,6 +227,26 @@ def _env_strings(value, where: str):
     elif isinstance(value, list):
         for index, item in enumerate(value):
             yield from _env_strings(item, f"{where}[{index}]")
+
+
+def _scalar(value) -> bool:
+    return value is None or isinstance(value, (bool, int, float, str))
+
+
+def _fallbacks(path: Path, where: str, value, aliases: set[str]) -> None:
+    """`[{alias: [alias, ...]}, ...]` naming declared models only (no inline deployments)."""
+    if not isinstance(value, list):
+        raise _unsafe(path, where)
+    for item in value:
+        if not isinstance(item, dict) or len(item) != 1:
+            raise _unsafe(path, where)
+        ((source, targets),) = item.items()
+        if (
+            source not in aliases
+            or not isinstance(targets, list)
+            or any(not isinstance(t, str) or t not in aliases for t in targets)
+        ):
+            raise _unsafe(path, f"{where} (fallbacks name declared model_names only)")
 
 
 def config_review(path: Path) -> ConfigReview:
@@ -272,11 +295,16 @@ def config_review(path: Path) -> ConfigReview:
         if not isinstance(name, str) or not name:
             raise GatewayError("GATEWAY_CONFIG", f"{path.name}: every model needs a model_name")
         where = f"model_list[{index}]"
+        if not _MODEL_NAME.fullmatch(name):  # printed in the grant: no control characters
+            raise _unsafe(path, f"{where}.model_name (use letters, digits and ._:/-)")
         if set(entry) - _ENTRY:
             raise _unsafe(path, f"{where} key")
         params = entry.get("litellm_params") or {}
         if not isinstance(params, dict) or set(params) - _PARAMS:
             raise _unsafe(path, f"{where}.litellm_params key (custom endpoints are refused)")
+        info = entry.get("model_info") or {}
+        if not isinstance(info, dict) or not all(map(_scalar, [*params.values(), *info.values()])):
+            raise _unsafe(path, f"{where} value (plain values only)")
         model = params.get("model")
         provider = model.split("/", 1)[0] if isinstance(model, str) and "/" in model else None
         key = params.get("api_key")
@@ -288,6 +316,12 @@ def config_review(path: Path) -> ConfigReview:
         label = provider if provider in PROVIDER_KEYS else "unknown"
         providers[name] = f"{label} ({key[len(_ENV) :] if key else 'no key'})"
         aliases.add(name)
+    for section, keys in _SECTIONS.items():
+        for key, value in (data.get(section) or {}).items() if keys else ():
+            if key in _FALLBACKS:
+                _fallbacks(path, f"{section}.{key}", value, aliases)
+            elif not _scalar(value):
+                raise _unsafe(path, f"{section}.{key} value (plain values only)")
     for where, _ in _env_strings(data, "config"):
         if where.removeprefix("config.") not in allowed_env:
             raise _unsafe(path, f"os.environ reference at {where.removeprefix('config.')}")

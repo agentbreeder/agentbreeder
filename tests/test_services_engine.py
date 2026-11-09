@@ -816,6 +816,10 @@ def test_changing_a_binding_needs_reconfirmation(env):
         text = grant_text(grant)
         assert "secret ECHO_TOKEN <- echo.minted" in text and "Eval database" in text
         assert "keys go only to their provider" in text and "m1: unknown (no key)" in text
+        origins = {svc["name"]: svc["origin"] for svc in grant["services"]}
+        assert origins == {"echo": "built-in", "gateway": "project"}
+        # A project gateway is project code: the config review can't bind what it does.
+        assert "gateway is project code" in text.replace("\n", " ")
         assert "keys go only" not in grant_text({**grant, "gateway_config": None})
     finally:
         instance.close()

@@ -249,6 +249,21 @@ def _model(**params):
         {**_model(), "general_settings": {"alerting": ["slack"]}},
         {**_model(), "environment_variables": {"X": "y"}},
         {**_model(), "router_settings": {"redis_host": "evil.example"}},
+        # Allow-listed settings take plain values: no nested deployment params.
+        {
+            **_model(),
+            "litellm_settings": {"fallbacks": [{"m": [{"model": "x", "api_base": "h"}]}]},
+        },
+        {**_model(), "litellm_settings": {"fallbacks": [{"m": ["undeclared"]}]}},
+        {**_model(), "litellm_settings": {"fallbacks": [{"m": ["m"], "n": ["m"]}]}},
+        {**_model(), "litellm_settings": {"fallbacks": {"m": ["m"]}}},
+        {**_model(), "litellm_settings": {"drop_params": {"api_base": "h"}}},
+        {**_model(), "router_settings": {"timeout": [1]}},
+        {**_model(), "general_settings": {"disable_spend_logs": {"x": 1}}},
+        _model(timeout={"api_base": "h"}),
+        # Model names are printed in the grant: no control characters or spoofed lines.
+        {"model_list": [{"model_name": "m\nGateway ok", "litellm_params": {"model": "x"}}]},
+        {"model_list": [{"model_name": "m\x1b[2K", "litellm_params": {"model": "x"}}]},
         {"model_list": [{"model_name": "m", "litellm_params": {"model": "x"}, "extra": 1}]},
         {"model_list": [{"model_name": "m", "model_info": {"k": "os.environ/GEMINI_API_KEY"}}]},
     ],
@@ -267,3 +282,15 @@ def test_config_review_shape_errors(tmp_path, text):
     with pytest.raises(gateway_keys.GatewayError) as caught:
         gateway_keys.config_review(path)
     assert caught.value.code == "GATEWAY_CONFIG"
+
+
+def test_config_review_accepts_valid_fallbacks(tmp_path):
+    data = {
+        "model_list": [
+            {"model_name": "a", "litellm_params": {"model": "gemini/x"}},
+            {"model_name": "b", "litellm_params": {"model": "openrouter/y"}},
+        ],
+        "litellm_settings": {"fallbacks": [{"a": ["b"]}], "drop_params": True},
+        "router_settings": {"num_retries": 1, "routing_strategy": "simple-shuffle"},
+    }
+    assert _review(tmp_path, data).aliases == {"a", "b"}

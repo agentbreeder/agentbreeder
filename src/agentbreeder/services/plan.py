@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from agentbreeder import gateway_keys
+from agentbreeder.lock import BUILTIN_LABEL
 from agentbreeder.services import refs
 from agentbreeder.services.lock import LockedStack
 from agentbreeder.services.refs import Reference
@@ -286,6 +287,9 @@ class Plan:
                 {
                     "name": name,
                     "ref": stack.services[name].ref,
+                    "origin": (
+                        "built-in" if self.locked.origins.get(name) == BUILTIN_LABEL else "project"
+                    ),
                     "image": spec.image or f"built from {stack.services[name].ref}",
                     "egress": "declared" if spec.egress else "host port" if published else "no",
                     "agents": any("agents" in p.scopes for p in spec.ports.values()),
@@ -335,6 +339,16 @@ def _gateway_line(review: dict | None) -> list[str]:
     ]
 
 
+def _project_gateway(grant: dict) -> list[str]:
+    origin = {s["name"]: s.get("origin") for s in grant["services"]}.get(grant["gateway"])
+    if origin != "project":
+        return []
+    return [
+        "  WARNING: this gateway is project code, not a built-in. The config review can't bind "
+        "what its image does with the keys it imports."
+    ]
+
+
 def grant_text(grant: dict) -> str:
     lines = [
         f"Stack {grant['stack']}, environment {grant['environment']} (local demo only)",
@@ -343,7 +357,7 @@ def grant_text(grant: dict) -> str:
     for service in grant["services"]:
         ports = ", ".join(f"{k} 127.0.0.1:{v}" for k, v in service["host_ports"].items())
         lines.append(
-            f"  {service['name']:<14} {service['image']}\n"
+            f"  {service['name']:<14} {service['image']} ({service.get('origin', 'project')})\n"
             f"  {'':<14} egress: {service['egress']}; agents: "
             f"{'yes' if service['agents'] else 'no'}; host: {ports or 'no'}; imports: "
             f"{', '.join(service['imports']) or 'none'}"
@@ -361,6 +375,7 @@ def grant_text(grant: dict) -> str:
         f"Gateway {grant['gateway']}: models {', '.join(grant['models'])}; "
         f"ceilings ${ceilings['budget_usd']:g}, {ceilings['rpm']} rpm",
         *_gateway_line(grant.get("gateway_config")),
+        *_project_gateway(grant),
         "Demo identities (static provider, written outside the repo):",
         *(
             f"  {i['agent']}{' (+ candidate)' if i['candidate'] else ''}  sponsor "
