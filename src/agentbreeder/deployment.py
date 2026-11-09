@@ -428,7 +428,7 @@ class DeploymentService:
             )
         except DeploymentError as error:
             secret_files.cleanup(self.store.directory, identifier)
-            self._revoke_mcp(identifier)
+            self._revoke_mcp(identifier)  # best effort here; reconcile retries what remains
             # Always revoke on failure: a key from an earlier generation may still be live even
             # when this attempt minted nothing (container gone, or inspect failed). Revoking a
             # key that doesn't exist is a no-op at the gateway.
@@ -572,8 +572,10 @@ class DeploymentService:
         relays = env.mcp_relays if env else {}
         # The grant belongs to the agent whose identity (or candidate identity) this is.
         granted: dict[str, list[str]] = {}
-        for agent in (env.agents if env else {}).values():
-            if manifest.identity in (agent.identity, agent.candidate_identity):
+        identity = manifest.identity
+        for agent in (env.agents if env else {}).values() if identity is not None else ():
+            candidate = agent.candidate_identity
+            if identity == agent.identity or (candidate is not None and identity == candidate):
                 granted = agent.mcp
                 break
         result = []
@@ -632,15 +634,17 @@ class DeploymentService:
         environments = self.operator.model.environments.values()
         return [Path(r.grants_dir) for env in environments for r in env.mcp_relays.values()]
 
-    def _revoke_mcp(self, identifier: str) -> None:
-        """Delete every grant file of a deployment, in every relay this installation knows."""
-        try:
-            for directory in self._relay_dirs():
+    def _revoke_mcp(self, identifier: str) -> bool:
+        """Delete every grant file of a deployment, in every relay this installation knows.
+        Tries every relay even if one fails; False means some grant may remain (reconcile
+        retries). Callers finish their other cleanup before acting on it."""
+        ok = True
+        for directory in self._relay_dirs():
+            try:
                 mcp_relay.revoke(directory, deployment=identifier)
-        except OSError as error:
-            raise DeploymentError(
-                f"[MCP_GRANT_CLEANUP] grant files not deleted; retry ({type(error).__name__})"
-            ) from error
+            except OSError:
+                ok = False
+        return ok
 
     def _prune_mcp_grants(self, attempt, actor) -> list[dict]:
         """Delete grant files with no active deployment, or whose hash isn't that deployment's
@@ -1113,11 +1117,15 @@ class DeploymentService:
                         self.boundary.teardown(record)
                     if self.runtime.inspect(record) is not None:
                         raise DeploymentError("Container removal could not be verified; retry")
-                    self._revoke_mcp(identifier)  # before success is reported
+                    grants_ok = self._revoke_mcp(identifier)
                     secret_files.cleanup(self.store.directory, identifier)
                     key = self._revoke_key(
                         self.store.manifest(identifier), identifier, attempt, actor
                     )
+                    if not grants_ok:  # never report success while a grant may remain
+                        raise DeploymentError(
+                            "[MCP_GRANT_CLEANUP] MCP grant files not deleted; retry remove"
+                        )
                     removed = self.store.transition(identifier, "removed", audit=event("removed"))
                     return {**removed, "gateway_key": key} if key else removed
                 except DeploymentError as error:
@@ -1245,9 +1253,13 @@ class DeploymentService:
                     self.boundary.teardown(record)
                 if self.runtime.inspect(record) is not None:
                     raise DeploymentError("Container stop could not be verified; retry reconcile")
-                self._revoke_mcp(identifier)
+                grants_ok = self._revoke_mcp(identifier)
                 secret_files.cleanup(self.store.directory, identifier)
                 self._revoke_key(self.store.manifest(identifier), identifier, attempt, actor)
+                if not grants_ok:
+                    raise DeploymentError(
+                        "[MCP_GRANT_CLEANUP] MCP grant files not deleted; retry reconcile"
+                    )
                 self.store.transition(
                     identifier,
                     "disabled",

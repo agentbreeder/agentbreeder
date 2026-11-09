@@ -267,7 +267,7 @@ def test_manifest_mcp_access_contract():
     ):
         with pytest.raises(ValidationError):
             Manifest.model_validate(v2_manifest_data(model_access=MODEL, mcp_access=access))
-    with pytest.raises(ValidationError, match="needs model_access"):
+    with pytest.raises(ValidationError, match="and model_access"):
         Manifest.model_validate(
             v2_manifest_data(mcp_access=[{"ref": "mcp/github@1.0.0", "tools": ["a"]}])
         )
@@ -548,6 +548,53 @@ def test_remove_fails_when_grants_cannot_be_deleted(
     runtime.inspect.return_value = None
     removed = service.remove(result["id"], local=True)
     assert removed["state"] == "failed" and "MCP_GRANT_CLEANUP" in removed["error"]
+    # the other credentials were still cleaned up before the failure was reported
+    assert not (state.directory / "deployments" / result["id"]).exists() or not any(
+        (state.directory / "deployments" / result["id"]).rglob("mcp-*")
+    )
+
+
+def test_cleanup_failure_on_a_failed_deploy_still_revokes_the_rest(
+    identity_env, state, runtime, tmp_path, monkeypatch
+):
+    relay_env(identity_env, tmp_path)
+    runtime.inspect.side_effect = [None, RUNNING, RUNNING, RUNNING]
+    runtime.healthy.return_value = False
+    service = DeploymentService(state, runtime, identity_env.load())
+    revoked = []
+    monkeypatch.setattr(service, "_revoke_key", lambda *a, **k: revoked.append(a[1]))
+    real = mcp.revoke
+    calls = []
+
+    def flaky(directory, **kwargs):
+        calls.append(directory)
+        if len(calls) > 1:  # the pre-mint cleanup works; the failure-path one doesn't
+            raise PermissionError("denied")
+        return real(directory, **kwargs)
+
+    monkeypatch.setattr(mcp, "revoke", flaky)
+    result = service.deploy(mcp_manifest(), local=True, environment="dev")
+    assert result["state"] == "failed" and "Health check failed" in result["error"]
+    assert revoked == [result["id"]]  # the gateway key revoke still ran
+
+
+def test_identityless_manifest_gets_no_grant(identity_env, tmp_path, state, runtime):
+    relay_env(identity_env, tmp_path)
+    with pytest.raises(ValidationError, match="schema_version 2"):
+        Manifest.model_validate(
+            {
+                "schema_version": 1,
+                "name": "helper",
+                "image": IMAGE,
+                "model_access": MODEL,
+                "mcp_access": [{"ref": "mcp/github@1.0.0", "tools": ["list_issues"]}],
+            }
+        )
+    # and the lookup itself never matches an unset candidate identity
+    service = DeploymentService(state, runtime, identity_env.load())
+    manifest = mcp_manifest().model_copy(update={"identity": None})
+    problem, _ = service._mcp_servers(manifest, "dev")
+    assert problem[0] == "MCP_TOOL_NOT_GRANTED"
 
 
 # -- stack.yaml ------------------------------------------------------------------------------

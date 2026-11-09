@@ -192,8 +192,10 @@ class Manifest(BaseModel):
         if self.schema_version == 2 and self.identity is None:
             raise ValueError("schema_version 2 requires an identity block")
         if self.mcp_access is not None:
-            if self.model_access is None:
-                raise ValueError("mcp_access is for built agents: it needs model_access")
+            if self.model_access is None or self.schema_version != 2:
+                raise ValueError(
+                    "mcp_access is for built agents: it needs schema_version 2 and model_access"
+                )
             refs = [entry.ref.split("@")[0] for entry in self.mcp_access]
             if len(set(refs)) != len(refs):
                 raise ValueError("mcp_access names each MCP server once")
