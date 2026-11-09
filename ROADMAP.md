@@ -29,13 +29,13 @@ order.
 | Identity gate, policy, approvals, kill switch, audit chain, MCP egress sidecar | #701 |
 | `agent.yaml` → build → eval-gated release; registries and `agent.lock` | #725, #733 |
 | Backing services from `stack.yaml`; least-privilege database roles | #734, #749, #750 |
-| MCP registry kind, contracts and per-deployment grants (relay not yet) | #744 |
+| MCP registry kind, contracts and per-deployment grants; the built-in relay (`services up`) | #744, #745 |
 
 ## Priorities
 
 | Priority | Epic | Why |
 |---|---|---|
-| **P0** | MCP relay and runtime client (#745, #746; #734) | Enforced tool access with the credential outside the agent; already specced and started |
+| **P0** | MCP runtime client (#746; relay #745 done) | Enforced tool access with the credential outside the agent; already specced and started |
 | **P0** | Installable preview release (#751) | Nobody can try the rebuild without a source checkout |
 | **P1** | Governed onboarding of existing agents (#756) | Bring existing agents, in any framework, under the same controls without code changes |
 | **P1** | Release bundle and component lifecycle (#762) | Links ownership, dependencies, approval, deployment and revocation |

@@ -13,7 +13,6 @@ import json
 import os
 import shutil
 import subprocess
-import time
 from pathlib import Path
 
 import pytest
@@ -77,6 +76,18 @@ try:
     print(urllib.request.urlopen(request, timeout=30).status)
 except urllib.error.HTTPError as error:
     print(error.code)
+"""
+HEALTHY = r"""
+import sys, time, urllib.request
+for _ in range(60):
+    try:
+        urllib.request.urlopen(sys.argv[1], timeout=2).read()
+        print("ok")
+        break
+    except Exception:
+        time.sleep(0.5)
+else:
+    print("not listening")
 """
 
 
@@ -204,12 +215,8 @@ def test_relay_end_to_end(project):
     # Restart mid-run: the old session is unknown (404); initialize again recovers.
     mcp.write_grant(grants, token, grant)
     docker("restart", relay)
-    for _ in range(30):
-        health = docker("inspect", "--format", "{{.State.Running}}", relay).strip()
-        if health == "true":
-            break
-        time.sleep(1)
-    time.sleep(2)
+    # Wait until it listens on the agents network, not just until the container runs.
+    assert run_client(engine, HEALTHY, "http://mcp-mock:8080/healthz") == "ok"
     assert run_client(engine, PING, url, token, out["session"]) == "404"
     again = json.loads(run_client(engine, CLIENT, url, token, other))
     assert again["tools"] == ["list_issues"]

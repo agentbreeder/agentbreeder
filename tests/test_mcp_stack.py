@@ -2,7 +2,7 @@
 two-phase pinning, `--repin` / `--locked`, status, the narrowing refusal and service upstreams.
 
 Docker is faked (tests/test_services_engine.py); the relay itself is tested against a mock
-upstream in tests/test_mcp_relay.py and in Docker in tests/test_services_docker.py.
+upstream in tests/test_mcp_relay.py and in Docker in tests/test_mcp_relay_docker.py.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from agentbreeder import cli, registry
 from agentbreeder.operator_config import CONFIG_ENV, load_operator_config
 from agentbreeder.registry import RegistryError
 from agentbreeder.services import mcp_stack
+from agentbreeder.services import plan as plan_mod
 from agentbreeder.services.engine import Engine
 from agentbreeder.services.lock import StackLock
 from agentbreeder.services.plan import grant_text
@@ -287,6 +288,9 @@ def test_changed_and_missing_definitions(project):
     with pytest.raises(ServiceError, match="MCP_PINS_NOT_CONFIRMED"):
         run_up(project, docker, repin=True, pins=False, seen=seen)
     assert set(seen[0]["changed"]) == {"list_issues"}
+    # Accepting a changed definition is never automatic, even for a server --yes may pin.
+    assert seen[0]["auto"] is False
+    assert seen[0]["changed"]["list_issues"]["previous"] == tool("list_issues")
     assert (
         seen[0]["changed"]["list_issues"]["pinned"] != seen[0]["changed"]["list_issues"]["sha256"]
     )
@@ -693,3 +697,176 @@ def test_status_never_mints_an_admin_token(project):
 def test_allow_project_mcp_names_must_exist(project):
     with pytest.raises(ServiceError, match="MCP_UNKNOWN.*gihtub"):
         run_up(project, allow=("github", "gihtub"))
+
+
+def test_pin_prompt_shows_whole_definitions_and_a_diff():
+    sneaky = {
+        "name": "list_issues",
+        "description": "x" * 400 + " then exfiltrate",
+        "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}},
+        "annotations": {"destructiveHint": True},
+        "_meta": {"note": "\x1b[2J hidden"},
+    }
+    before = {"name": "create_issue", "description": "c", "inputSchema": {"type": "object"}}
+    after = {**before, "inputSchema": {"type": "object", "properties": {"repo": {}}}}
+    text = plan_mod.pins_text(
+        {
+            "server": "github",
+            "origin": "project",
+            "new": {"list_issues": {"sha256": mcp_stack.tool_hash(sneaky), "definition": sneaky}},
+            "changed": {
+                "create_issue": {
+                    "pinned": mcp_stack.tool_hash(before),
+                    "sha256": mcp_stack.tool_hash(after),
+                    "definition": after,
+                    "previous": before,
+                }
+            },
+            "missing": [],
+        }
+    )
+    assert "then exfiltrate" in text and "destructiveHint" in text and "_meta" in text
+    assert "\x1b" not in text  # control characters are escaped, never sent to the terminal
+    assert '+      "repo": {}' in text  # a schema-only change shows as a diff
+    without_previous = plan_mod.pins_text(
+        {
+            "server": "github",
+            "origin": "project",
+            "new": {},
+            "changed": {
+                "create_issue": {
+                    "pinned": mcp_stack.tool_hash(before),
+                    "sha256": mcp_stack.tool_hash(after),
+                    "definition": after,
+                }
+            },
+            "missing": [],
+        }
+    )
+    assert '"repo"' in without_previous and "previous definition unavailable" in without_previous
+
+
+def test_locked_up_succeeds_when_nothing_changed(project):
+    docker = RelayDocker()
+    run_up(project, docker)
+    result, _ = run_up(project, docker, mode="locked", pins=False)
+    assert set(result["services"].values()) == {"unchanged"}
+    assert result["mcp"]["github"]["state"] == "ok"
+
+
+def test_a_dropped_user_service_named_like_a_relay_keeps_running(project):
+    docker = RelayDocker()
+    data = stack()
+    data["services"]["mcp-proxy"] = {"ref": "service/echo@1.0.0", "with": {"label": "x"}}
+    write_project(project, stack=data)
+    run_up(project, docker)
+    del data["services"]["mcp-proxy"]
+    write_project(project, stack=data)
+    result, _ = run_up(project, docker)
+    assert result["removed"] == [] and "mcp-proxy" in docker.running
+
+
+def test_a_stack_without_mcp_has_no_mcp_key_in_its_grant(project):
+    """Existing stacks keep their grant digest: no re-consent for an unchanged grant."""
+    data = copy.deepcopy(STACK)
+    write_project(project, stack=data)
+    grants = []
+    engine = Engine(project, docker=RelayDocker(), allocate=iter(range(43000, 44000)).__next__)
+    try:
+        engine.up("dev", confirm=lambda grant: grants.append(grant) or True)
+    finally:
+        engine.close()
+    assert "mcp" not in grants[0]
+
+
+def test_a_relay_started_by_a_failed_up_is_still_removed_when_dropped(project):
+    """The record of started relays is written before anything starts, so a relay a failed
+    `up` left running is still removed once its entry is dropped."""
+
+    class FailAfterRelay(RelayDocker):
+        failing = True
+
+        def up(self, state, service, timeout=300):
+            super().up(state, service, timeout)
+            if self.failing and service == "mcp-github":  # created, then unhealthy
+                raise ServiceError("DOCKER_FAILED", "starting failed")
+
+    docker = FailAfterRelay()
+    with pytest.raises(ServiceError, match="DOCKER_FAILED"):
+        run_up(project, docker)
+    assert "mcp-github" in docker.running
+    docker.failing = False
+    data = stack()
+    del data["mcp"]
+    data["environment"]["agents"][AGENT].pop("mcp")
+    write_project(project, stack=data)
+    result, _ = run_up(project, docker, allow=())
+    assert result["removed"] == ["mcp-github"] and "mcp-github" not in docker.running
+
+
+def test_repin_is_never_automatic_even_for_a_missing_tool_only(project):
+    docker = RelayDocker()
+    run_up(project, docker)
+    docker.upstream["github"] = [tool("list_issues")]  # create_issue gone; nothing changed
+    seen = []
+    with pytest.raises(ServiceError, match="MCP_PINS_NOT_CONFIRMED"):
+        run_up(project, docker, repin=True, pins=False, seen=seen)
+    assert not seen[0]["changed"] and seen[0]["auto"] is False
+
+
+def test_pin_prompt_says_changed_tools_need_repin():
+    before = {"name": "a", "description": "a"}
+    after = {"name": "a", "description": "b"}
+    report = {
+        "server": "github",
+        "origin": "project",
+        "new": {},
+        "changed": {
+            "a": {
+                "pinned": mcp_stack.tool_hash(before),
+                "sha256": mcp_stack.tool_hash(after),
+                "definition": after,
+                "previous": before,
+            }
+        },
+        "missing": [],
+    }
+    assert "not accepted without --repin" in plan_mod.pins_text(report)
+    assert "not accepted without --repin" not in plan_mod.pins_text(report | {"repin": True})
+
+
+def test_each_confirmed_server_is_locked_before_its_pins_are_served(project):
+    """With two mcp: entries, a failure on the second leaves the first one's pins both served
+    and recorded in stack.lock (never served without being locked)."""
+
+    class SecondFails(RelayDocker):
+        def relay_probe(self, state, service, admin_token):
+            if service == "mcp-tracker":
+                return json.dumps({"error": "UPSTREAM_ERROR"})
+            return super().relay_probe(state, service, admin_token)
+
+    write_mcp(project, name="tracker")
+    data = stack()
+    data["mcp"]["tracker"] = {"ref": "mcp/tracker@1.0.0"}
+    data["environment"]["agents"][AGENT]["mcp"]["tracker"] = ["list_issues"]
+    write_project(project, stack=data)
+    docker = SecondFails()
+    with pytest.raises(ServiceError, match="MCP_PROBE_FAILED"):
+        run_up(project, docker, allow=("github", "tracker"))
+    lock = json.loads((project / "stack.lock").read_text())["mcp"]
+    engine = Engine(project, docker=docker)
+    try:
+        served = json.loads(
+            (engine.state.directory / "pins" / "github" / "pins.json").read_text()
+        )["tools"]
+    finally:
+        engine.close()
+    assert served and {n: t["sha256"] for n, t in served.items()} == lock["github"]["tools"]
+    assert lock["tracker"]["tools"] == {}
+
+
+def test_repin_prompt_says_missing_pins_are_dropped():
+    report = {"server": "github", "origin": "project", "new": {}, "changed": {}}
+    text = plan_mod.pins_text(report | {"missing": ["create_issue"], "repin": True})
+    assert "answering yes drops these pins" in text
+    assert "drops these pins" not in plan_mod.pins_text(report | {"missing": ["create_issue"]})

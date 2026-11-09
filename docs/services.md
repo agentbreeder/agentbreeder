@@ -220,8 +220,10 @@ What the relay does:
   providers that rotate refresh tokens are refused.
 - Limits per token: 4 concurrent requests, 60 upstream-bound requests a minute (`initialize`,
   `tools/list`, `tools/call` and `notifications/cancelled`; `RATE_LIMITED`), 120 s per response,
-  and 1 MiB for buffered (rewritten) responses. Each relay takes at most 64 connections at once,
-  and closes a connection that stalls for 30 s mid-request.
+  1 MiB for buffered (rewritten) responses, and 16 MiB for a streamed `tools/call` reply
+  (`RESPONSE_TOO_LARGE`). Each relay takes at most 64 connections at once
+  (16 from one address), closes a connection that stalls for 30 s, and requires the whole
+  request (line, headers and body) to arrive within 30 s.
 - Sessions it drops (a 17th session for one token evicts the oldest, and sessions idle for an hour
   expire) are closed upstream too.
 - It logs JSON lines with the deployment, method, tool, decision and latency. It never logs
@@ -229,8 +231,9 @@ What the relay does:
   `ungranted` plus a hash.
 
 A service upstream (`upstream.service`) must be the stack service with that ref. Every port of it
-must be `expose: internal`, and nothing else may wire to it. It joins only a private network
-shared with its relay, never the stack network (`MCP_UPSTREAM_EXPOSED`, `MCP_UPSTREAM_WIRED`).
+must be `expose: internal`, and nothing else may wire to it. It joins a private network shared
+with its relay, never the stack network (`MCP_UPSTREAM_EXPOSED`, `MCP_UPSTREAM_WIRED`). If it
+declares `egress: true` it also joins the edge network, so it can reach the internet unfiltered.
 Browser-type upstreams also need the filtering forward proxy (#747), so `mcp/playwright` isn't
 supported yet.
 
@@ -240,8 +243,9 @@ each agent's tools with their effect. A project or registry-path entry whose rem
 carries a credential also needs `--allow-project-mcp NAME`; `--yes` alone never allows it
 (`MCP_PROJECT_CONSENT`). After the relays start, `up` runs a probe inside each relay: it uses a
 stack-only admin token passed on stdin, and the host never calls upstream itself. The probe
-shows the tool definitions it found and asks you to pin them. `--yes` accepts pins only for
-built-in servers, or for servers you named with `--allow-project-mcp`. The pins (a hash of each
+shows each tool definition it found, whole (every field the pin covers, escaped), and asks you
+to pin them. `--yes` accepts first pins and new tools only for built-in servers, or for servers
+you named with `--allow-project-mcp`; accepting a changed definition always needs a person. The pins (a hash of each
 whole tool object) go in `stack.lock`; the relay reads the definitions from its pins file and
 reloads it without restarting. The first pin trusts what the upstream serves at that moment
 (trust on first use).

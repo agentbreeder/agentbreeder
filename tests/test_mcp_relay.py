@@ -770,6 +770,8 @@ def test_ungranted_call_never_reaches_upstream_and_logs_a_hash(harness, upstream
     status, _, body = harness.rpc("tools/call", {"name": "secret_tool_name"}, session=session)
     assert json.loads(body)["error"]["data"]["reason"] == "TOOL_NOT_GRANTED"
     assert upstream.calls == {}
+    # Log lines follow the response: wait for both.
+    assert eventually(lambda: sum(1 for x in harness.logs() if x.get("tool") == "ungranted") == 2)
     text = harness.log.getvalue()
     assert "delete_repo" not in text and "secret_tool_name" not in text
     ungranted = [line for line in harness.logs() if line.get("tool") == "ungranted"]
@@ -798,6 +800,7 @@ def test_granted_call_passes_only_its_response_progress_and_logs(harness, upstre
     assert upstream.calls == {"list_issues": 1}
     call = upstream.headers[-1]
     assert call["Mcp-Method"] == "tools/call" and call["Mcp-Name"] == "list_issues"
+    assert eventually(lambda: any(x.get("method") == "tools/call" for x in harness.logs()))
     text = harness.log.getvalue()
     assert "SECRET-ARG" not in text and "ran list_issues" not in text and CANARY not in text
     assert TOKEN_A not in text
@@ -982,8 +985,7 @@ def test_tools_list_survives_pins_changing_mid_request(harness, monkeypatch):
     def current():
         calls.append(1)
         pins = dict(real())
-        if len(calls) > 1:  # replaced between the check and the listing
-            pins.pop("list_issues", None)
+        pins.pop("list_issues", None)  # replaced after the check (which reads a snapshot)
         return pins
 
     monkeypatch.setattr(harness.relay.pins, "current", current)
@@ -1492,3 +1494,114 @@ def test_agent_connections_are_capped(tmp_path, upstream, monkeypatch):
         assert status == 200
     finally:
         h.stop()
+
+
+def test_upstream_text_that_cant_be_encoded_is_upstream_invalid(harness, upstream):
+    """A lone surrogate parses as JSON but can't be re-encoded: refused, logged, no traceback."""
+    session, _ = harness.initialize()
+    upstream.tools = [tool("list_issues") | {"description": "\ud800"}] + upstream.tools[1:]
+    status, _, body = harness.rpc("tools/list", session=session)
+    assert status == 502 and b"UPSTREAM_INVALID" in body
+    # The log line follows the response, so wait for it.
+    assert eventually(lambda: '"decision": "UPSTREAM_INVALID"' in harness.log.getvalue())
+    status, body = _admin_probe(harness)
+    assert status == 502 and b"UPSTREAM_INVALID" in body
+
+
+def _admin_probe(harness):
+    connection = http.client.HTTPConnection("127.0.0.1", harness.admin_port, timeout=30)
+    connection.request("POST", "/probe", headers={"Authorization": "Bearer " + "c" * 64})
+    response = connection.getresponse()
+    body = response.read()
+    connection.close()
+    return response.status, body
+
+
+def test_calls_follow_the_pins_file_at_once(harness, upstream):
+    """A re-pin, or a removed pin, applies to the next call, not after the 5-minute check."""
+    session, _ = harness.initialize()
+    assert harness.rpc("tools/list", session=session)[0] == 200
+    write_pins(harness.pins, [tool("create_issue"), tool("delete_repo")])  # list_issues unpinned
+    status, _, body = harness.rpc("tools/call", {"name": "list_issues"}, session=session)
+    assert b"TOOL_NOT_PINNED" in body and upstream.calls.get("list_issues") is None
+    changed = tool("list_issues", "changed upstream")
+    upstream.tools = [changed, tool("create_issue"), tool("delete_repo")]
+    write_pins(harness.pins, [tool("list_issues"), tool("create_issue"), tool("delete_repo")])
+    status, _, body = harness.rpc("tools/call", {"name": "list_issues"}, session=session)
+    assert b"TOOL_DEFINITION_CHANGED" in body
+    write_pins(harness.pins, [changed, tool("create_issue"), tool("delete_repo")])  # --repin
+    status, _, body = harness.rpc("tools/call", {"name": "list_issues"}, session=session)
+    assert status == 200 and b"ran list_issues" in body
+
+
+def test_a_request_must_arrive_within_its_deadline(tmp_path, upstream, monkeypatch, capfd):
+    """Trickling a byte at a time can't keep a connection past the read deadline."""
+    monkeypatch.setattr(relay_mod, "CLIENT_TIMEOUT", 5.0)
+    monkeypatch.setattr(relay_mod, "REQUEST_DEADLINE", 1.0)
+    h = Harness(tmp_path, upstream)
+    try:
+        client = socket.create_connection(("127.0.0.1", h.port), timeout=5)
+        started = time.monotonic()
+        closed = False
+        for byte in b"POST /mcp HTTP/1.1\r\nHost: x\r\nX-Slow: " + b"a" * 40:
+            try:
+                client.sendall(bytes([byte]))
+            except OSError:
+                closed = True
+                break
+            time.sleep(0.1)
+            if time.monotonic() - started > 3:
+                break
+        if not closed:
+            try:
+                closed = client.recv(1024) == b""
+            except OSError:
+                closed = True
+        assert closed and time.monotonic() - started < 3
+        client.close()
+        time.sleep(0.3)
+    finally:
+        h.stop()
+    # A connection the watchdog shut is one JSON log line, not a traceback on stderr.
+    assert "Traceback" not in capfd.readouterr().err
+    assert any(line.get("event") == "connection_error" for line in h.logs())
+
+
+def test_connections_are_capped_per_peer(tmp_path, upstream, monkeypatch):
+    monkeypatch.setattr(relay_mod, "MAX_PER_PEER", 2)
+    h = Harness(tmp_path, upstream)
+    try:
+        held = [socket.create_connection(("127.0.0.1", h.port), timeout=5) for _ in range(2)]
+        time.sleep(0.2)
+        extra = socket.create_connection(("127.0.0.1", h.port), timeout=5)
+        try:
+            extra.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n")
+            refused = extra.recv(1024) == b""
+        except ConnectionResetError:
+            refused = True
+        assert refused
+        extra.close()
+        for sock in held:
+            sock.close()
+        assert eventually(lambda: not h.agents.peers)
+        assert h.request("GET", path="/healthz", token=None)[0] == 200
+    finally:
+        h.stop()
+
+
+def test_check_records_the_stamp_of_the_pins_it_used(harness, monkeypatch):
+    session, _ = harness.initialize()
+    real = harness.relay.pins.snapshot
+    monkeypatch.setattr(harness.relay.pins, "snapshot", lambda: (real()[0], ("old", 1, 2)))
+    harness.relay.check(harness.relay.sessions[session], harness.relay.clock() + 30)
+    assert harness.relay.live.pins == ("old", 1, 2)
+
+
+def test_admin_connection_errors_are_logged_not_printed(harness, capfd):
+    error = OSError("client went away")
+    try:
+        raise error
+    except OSError:
+        harness.admin.handle_error(None, ("127.0.0.1", 1))
+    assert "Traceback" not in capfd.readouterr().err
+    assert any(line.get("event") == "connection_error" for line in harness.logs())

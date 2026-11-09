@@ -9,6 +9,7 @@ must be exposed to the scope that uses it.
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
@@ -367,7 +368,7 @@ class Plan:
                 }
             )
         env = stack.environment
-        return {
+        grant = {
             "stack": self.stack_id,
             "environment": environment,
             "services": services,
@@ -401,6 +402,9 @@ class Plan:
                 for agent, spec in sorted(env.agents.items())
             ],
         }
+        if not grant["mcp"]:
+            del grant["mcp"]  # a stack without MCP keeps the grant digest it had before #745
+        return grant
 
 
 def _gateway_line(review: dict | None) -> list[str]:
@@ -451,22 +455,43 @@ def _mcp_lines(grant: dict) -> list[str]:
     return lines
 
 
+def _definition(definition) -> list[str]:
+    """A whole tool object, as hashed: every field, nothing truncated. ASCII-escaped, so
+    upstream text can't put control sequences on the operator's terminal."""
+    return json.dumps(definition, indent=2, sort_keys=True, ensure_ascii=True).splitlines()
+
+
 def pins_text(report: dict) -> str:
-    """Phase 2: the tool definitions found upstream, for the operator to pin (§7.7.1)."""
+    """Phase 2: the tool definitions found upstream, for the operator to pin (§7.7.1). The
+    whole definition is shown (the pin covers all of it); a changed one as a diff."""
+    pad = " " * 11
     lines = [
         f"Pin these tool definitions for mcp.{report['server']} ({report['origin']})? The first "
         "pin trusts what the upstream serves now (trust on first use)."
     ]
     for name, item in sorted(report["new"].items()):
-        definition = item["definition"]
         lines.append(f"  new      {name}  {item['sha256'][7:23]}")
-        lines.append(f"           {str(definition.get('description', ''))[:300]!r}")
-        lines.append(f"           input schema {json.dumps(definition.get('inputSchema'))[:300]}")
+        lines.extend(pad + line for line in _definition(item["definition"]))
     for name, item in sorted(report["changed"].items()):
         lines.append(f"  changed  {name}  {item['pinned'][7:23]} -> {item['sha256'][7:23]}")
-        lines.append(f"           {str(item['definition'].get('description', ''))[:300]!r}")
+        if not report.get("repin"):
+            lines.append(f"{pad}(hidden; not accepted without --repin)")
+        if item.get("previous") is None:
+            lines.append(f"{pad}(previous definition unavailable; the new one in full:)")
+            lines.extend(pad + line for line in _definition(item["definition"]))
+        else:
+            diff = difflib.unified_diff(
+                _definition(item["previous"]),
+                _definition(item["definition"]),
+                "pinned",
+                "upstream now",
+                lineterm="",
+            )
+            lines.extend(pad + line for line in diff)
     for name in report["missing"]:
         lines.append(f"  missing upstream  {name}")
+    if report["missing"] and report.get("repin"):
+        lines.append("  Tools missing upstream: answering yes drops these pins.")
     return "\n".join(lines)
 
 

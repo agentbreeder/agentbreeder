@@ -71,6 +71,8 @@ CALLS_PER_MINUTE = 60  # the egress sidecar's default
 METERED = frozenset({"initialize", "tools/list", "tools/call", "notifications/cancelled"})
 CLIENT_TIMEOUT = 30.0  # an agent connection idle this long mid-request is closed
 MAX_CONNECTIONS = 64
+MAX_PER_PEER = 16  # one agent container can't take the whole pool
+REQUEST_DEADLINE = 30.0  # the request line, headers and body must all arrive within this
 CLOSE_DEADLINE = 30.0
 SESSIONS_PER_TOKEN = 16
 SESSION_IDLE = 3600.0
@@ -127,6 +129,18 @@ def loads(data: bytes):
 
 def dumps(value) -> bytes:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+
+
+def _encodable(message):
+    """Upstream JSON that parses but can't be re-encoded (a lone surrogate) is refused here,
+    not later as an unhandled error in a handler."""
+    try:
+        canonical(message)
+    except (UnicodeError, ValueError, RecursionError):
+        raise RelayError(
+            "UPSTREAM_INVALID", "Upstream sent text that can't be encoded", 502, -32005
+        ) from None
+    return message
 
 
 def canonical(value) -> bytes:
@@ -345,6 +359,10 @@ class Pins:
         self.lock = threading.Lock()
 
     def current(self) -> dict[str, dict]:
+        return self.snapshot()[0]
+
+    def snapshot(self) -> tuple[dict[str, dict], object]:
+        """The pins and the file stamp they were loaded from, read together."""
         try:
             info = os.stat(self.path)
             stamp = (info.st_mtime_ns, info.st_size, info.st_ino)
@@ -354,7 +372,7 @@ class Pins:
             if stamp != self.stamp:
                 self.stamp = stamp
                 self.tools = self._load() if stamp else {}
-            return self.tools
+            return self.tools, self.stamp
 
     def _load(self) -> dict[str, dict]:
         data = read_limited(self.path, 4 * 1024 * 1024)
@@ -390,6 +408,7 @@ class Live:
 
     status: dict[str, str] = field(default_factory=dict)
     at: float = 0.0
+    pins: object = None  # the pins file stamp the status was computed against
 
 
 # -- the relay ----------------------------------------------------------------------------------
@@ -751,7 +770,7 @@ class Relay:
                 raise RelayError(
                     "UPSTREAM_INVALID", "Upstream sent invalid JSON", 502, -32005
                 ) from None
-            yield message
+            yield _encodable(message)
             return
         if content_type != "text/event-stream":
             raise RelayError(
@@ -820,7 +839,7 @@ class Relay:
 
     def _event(self, data: list[bytes]):
         try:
-            return loads(b"\n".join(data))
+            return _encodable(loads(b"\n".join(data)))
         except (UnicodeError, ValueError, RecursionError):
             raise RelayError(
                 "UPSTREAM_INVALID", "Upstream sent an invalid event", 502, -32005
@@ -908,7 +927,7 @@ class Relay:
     def check(self, session: Session, deadline: float) -> dict[str, str]:
         """Compare live definitions with the pins; tools that differ are hidden and refused."""
         live = self.upstream_tools(session, deadline)
-        pins = self.pins.current()
+        pins, stamp = self.pins.snapshot()
         status = {}
         for name in sorted(self.declared):
             if name not in pins:
@@ -920,7 +939,7 @@ class Relay:
             else:
                 status[name] = "ok"
         with self.live_lock:
-            self.live = Live(status, self.clock())
+            self.live = Live(status, self.clock(), stamp)
         session.checked = self.clock()
         for name, state in status.items():
             if state in ("changed", "missing"):
@@ -1055,7 +1074,11 @@ class Relay:
             raise RelayError(
                 "TOOL_NOT_GRANTED", "Tool is not granted to this deployment", 200, -32602
             )
-        if session.checked is None or self.clock() - session.checked > CHECK_AGE:
+        _, stamp = self.pins.snapshot()  # reloads a changed pins file
+        with self.live_lock:
+            stale = self.live.pins != stamp
+        if stale or session.checked is None or self.clock() - session.checked > CHECK_AGE:
+            # A re-pin or a removed pin applies to this call, not after CHECK_AGE.
             self.check(session, deadline)
         with self.live_lock:
             state = self.live.status.get(request.tool)
@@ -1142,6 +1165,30 @@ def agent_handler(relay: Relay):
         sys_version = ""
         timeout = CLIENT_TIMEOUT  # a stalled client can't hold a thread (or a slot) forever
 
+        def setup(self):
+            super().setup()
+            # A per-read timeout alone lets a client trickle bytes forever: the whole request
+            # must arrive within REQUEST_DEADLINE, or the connection is shut down.
+            self._received = False
+            self._watchdog = threading.Timer(REQUEST_DEADLINE, self._too_slow)
+            self._watchdog.daemon = True
+            self._watchdog.start()
+
+        def _too_slow(self):
+            if not self._received:
+                try:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+        def _arrived(self):
+            self._received = True
+            self._watchdog.cancel()
+
+        def finish(self):
+            self._watchdog.cancel()
+            super().finish()
+
         def log_message(self, format, *args):  # noqa: A002 - stdlib signature
             pass  # the relay writes its own JSON lines
 
@@ -1149,6 +1196,7 @@ def agent_handler(relay: Relay):
             return self.path.split("?", 1)[0]
 
         def do_GET(self):  # noqa: N802 - stdlib naming
+            self._arrived()
             if self._path() == "/healthz":
                 return _send(self, 200, dumps({"status": "ok"}))
             # No standalone server stream: server-initiated messages are never relayed.
@@ -1156,6 +1204,7 @@ def agent_handler(relay: Relay):
             _send(self, 405, rpc_error(None, error), {"Allow": "POST, DELETE"})
 
         def do_DELETE(self):  # noqa: N802
+            self._arrived()
             if self._path() != "/mcp":
                 return _send(self, 404, b"")
             started = relay.clock()
@@ -1186,7 +1235,9 @@ def agent_handler(relay: Relay):
                 fields.update(deployment=grant.deployment, agent=grant.agent)
                 relay.acquire(grant.token_hash)
                 acquired = True
-                request = parse_request(_read_body(self), self.headers)
+                body = _read_body(self)
+                self._arrived()
+                request = parse_request(body, self.headers)
                 request_id = request.id
                 fields["method"] = request.method
                 if request.tool is not None:
@@ -1323,20 +1374,52 @@ def load_config(path: str) -> dict:
     return loads(data)
 
 
-class BoundedServer(ThreadingHTTPServer):
-    """At most MAX_CONNECTIONS connections at once; more are closed on accept."""
+class QuietServer(ThreadingHTTPServer):
+    """A connection error is one JSON log line, never a stdlib traceback (§7.6.12)."""
+
+    relay = None
+
+    def handle_error(self, request, client_address):
+        error = sys.exc_info()[1]
+        if self.relay is not None:
+            self.relay.log(event="connection_error", error=type(error).__name__)
+
+
+class BoundedServer(QuietServer):
+    """At most MAX_CONNECTIONS connections at once (MAX_PER_PEER from one address); more are
+    closed on accept."""
 
     def __init__(self, *args, **kwargs):
         self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self.peers: dict[str, int] = {}
+        self.peers_lock = threading.Lock()
         super().__init__(*args, **kwargs)
+
+    def _peer(self, client_address, change: int) -> bool:
+        host = client_address[0] if client_address else ""
+        with self.peers_lock:
+            count = self.peers.get(host, 0)
+            if change > 0 and count >= MAX_PER_PEER:
+                return False
+            count += change
+            if count:
+                self.peers[host] = count
+            else:
+                self.peers.pop(host, None)
+        return True
 
     def process_request(self, request, client_address):
         if not self.slots.acquire(blocking=False):
             self.shutdown_request(request)
             return
+        if not self._peer(client_address, 1):
+            self.slots.release()
+            self.shutdown_request(request)
+            return
         try:
             super().process_request(request, client_address)
         except BaseException:
+            self._peer(client_address, -1)
             self.slots.release()
             raise
 
@@ -1344,12 +1427,15 @@ class BoundedServer(ThreadingHTTPServer):
         try:
             super().process_request_thread(request, client_address)
         finally:
+            self._peer(client_address, -1)
             self.slots.release()
 
 
 def serve(relay: Relay, agent_port: int = AGENT_PORT, admin_port: int = ADMIN_PORT):
     agents = BoundedServer(("0.0.0.0", agent_port), agent_handler(relay))
-    admin = ThreadingHTTPServer(("127.0.0.1", admin_port), admin_handler(relay))
+    agents.relay = relay
+    admin = QuietServer(("127.0.0.1", admin_port), admin_handler(relay))
+    admin.relay = relay
     agents.daemon_threads = admin.daemon_threads = True
     return agents, admin
 

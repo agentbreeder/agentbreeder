@@ -881,3 +881,35 @@ integration; every finding below was reproduced and has a test):
   dropped services still run until `services down`, as before.
 - **Accepted:** the OAuth refresh holds its lock across the token request, which makes it
   single-flight; requests that wait on it need the new token anyway.
+
+r10 (slice 4b, #745, `/pair-loop` round 1, reviewer claude-fable-5-1, plus the automated
+security review of the commit; all fixed with tests):
+- **Pin prompt:** shows each definition whole (every hashed field, ASCII-escaped so upstream
+  text can't reach the terminal as control sequences) and a unified diff against the pinned
+  definition for changed tools. `--yes` never accepts a changed definition under `--repin`.
+- **Pins follow the file at once:** `tools/call` re-checks when the pins file changed since the
+  last check, so a re-pin or a removed pin applies to the next call.
+- **Relay robustness:** upstream JSON that can't be re-encoded (a lone surrogate) is
+  `UPSTREAM_INVALID`; the whole request must arrive within 30 s (a watchdog, not only a
+  per-read timeout); at most 16 connections per peer.
+- **Dropped relays** are identified by the relays the last `up` started (state meta
+  `mcp_relays`), not by an `mcp-` name prefix.
+- **Grant digest:** a stack without `mcp:` entries has no `mcp` key, so its digest is unchanged.
+- **Service upstream with `egress: true`** also joins edge; documented.
+- **Cross-repo:** agentbreeder-cloud has no references to `--repin`, `--allow-project-mcp`, the
+  `stack.lock` `mcp` section, `mcp_relays` or `mcp_access` (grep, 2026-11-09).
+
+r11 (`/pair-loop` round 2, claude-fable-5-1; all fixed with tests): the record of started relays
+(`mcp_relays`) is written before any service starts, so a relay a failed `up` left running is
+still removed when its entry is dropped; `--repin` is never automatic (`--yes` covers first pins
+and new tools only); the watchdog-closed connection logs one JSON line (`connection_error`), not
+a traceback; `check()` records the pins stamp it actually read (`Pins.snapshot`); the pin prompt
+marks changed tools "not accepted without --repin"; docs/agent-yaml.md and the limits bullet in
+docs/services.md updated.
+
+r12 (`/pair-loop` round 3, claude-fable-5-1: APPROVED with nits, all applied with tests):
+`stack.lock` is saved per server before that server's pins file is written (two-server test);
+the admin listener logs connection errors as JSON too; the `--repin` prompt says answering yes
+drops pins of tools missing upstream; the 16 MiB streamed-reply cap is documented; ROADMAP.md
+updated. Noted for #746: each agent `tools/list` runs the live check (up to 20 upstream pages)
+and counts as one request against the per-token rate limit.

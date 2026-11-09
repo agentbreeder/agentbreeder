@@ -8,6 +8,7 @@ value stays in the stack state dir; nothing is written to the repo except `stack
 
 from __future__ import annotations
 
+import json
 import shlex
 import socket
 import tempfile
@@ -353,12 +354,17 @@ class Engine:
         (other dropped services keep running until `services down`). `containers` is this
         stack's only; `_check_in_use` already refused dropping an entry a deployment uses."""
         keep = set(plan.locked.resolved.order)
+        # The relays the last `up` started (by record, not by name: a user service may be
+        # called mcp-something).
+        started = set(json.loads(self.state.get("mcp_relays") or "[]"))
         removed = []
         for name, info in sorted(containers.items()):
-            if name.startswith("mcp-") and name not in keep:
+            if name in started and name not in keep:
                 self.log(f"Removing {name}: its mcp: entry is gone")
                 self.docker.remove_container(info["id"])
                 removed.append(name)
+        # Recorded before anything starts, so a relay a failed `up` leaves running is known.
+        self.state.put("mcp_relays", json.dumps(sorted(set(plan.locked.relays))))
         return removed
 
     def _admin_token(self, relay: str, create: bool = True) -> bytes:
@@ -412,7 +418,6 @@ class Engine:
         missing pinned tool stays hidden (the relay refuses it) until `--repin` accepts it."""
         lock, lock_path = self._lock_state
         reports = {}
-        changed = False
         for server, entry in sorted(plan.locked.mcp.items()):
             pinned = mcp_stack.lock_tools(lock, server)
             try:
@@ -429,6 +434,17 @@ class Engine:
                 )
                 continue
             report = mcp_stack.compare(pinned, probe)
+            pins = self.state.shared_dir("pins", server) / "pins.json"
+            previous = mcp_stack.read_pins(pins)
+            for name, item in report["changed"].items():
+                old = previous.get(name)
+                if (
+                    isinstance(old, dict)
+                    and old.get("sha256") == pinned.get(name)
+                    and isinstance(old.get("definition"), dict)
+                    and mcp_stack.tool_hash(old["definition"]) == pinned.get(name)
+                ):
+                    item["previous"] = old["definition"]  # so the prompt can show a diff
             drift = sorted(report["changed"]) + [m for m in report["missing"] if m in pinned]
             accept = dict(report["new"]) | (
                 {name: report["changed"][name] for name in report["changed"]} if repin else {}
@@ -442,7 +458,10 @@ class Engine:
                 details = {
                     "server": server,
                     "origin": entry.origin,
-                    "auto": entry.origin == "built-in" or server in allowed,
+                    # --yes covers first pins and new tools only; --repin (accepting a
+                    # changed definition or dropping a pin) always needs a person.
+                    "auto": (entry.origin == "built-in" or server in allowed) and not repin,
+                    "repin": repin,
                     "first": not pinned,
                     **report,
                 }
@@ -455,14 +474,14 @@ class Engine:
                     pinned = {k: v for k, v in pinned.items() if k not in report["missing"]}
                 pinned.update({name: item["sha256"] for name, item in accept.items()})
                 lock.mcp[server]["tools"] = pinned
-                changed = True
+                # Locked before its pins file is served: a later server failing can't leave
+                # this relay serving pins stack.lock never recorded.
+                lock.save(lock_path)
             elif drift and mode == "locked":
                 raise RegistryError(
                     "LOCK_STALE",
                     f"mcp.{server}: pinned tool definitions changed upstream ({', '.join(drift)})",
                 )
-            pins = self.state.shared_dir("pins", server) / "pins.json"
-            previous = mcp_stack.read_pins(pins)
             document = mcp_stack.pins_document(server, pinned, probe, previous)
             write_private(pins, document, mode=0o444)
             hidden = [] if repin else drift
@@ -472,8 +491,6 @@ class Engine:
                 "changed": [] if repin else sorted(report["changed"]),
                 "missing": report["missing"],
             }
-        if changed:
-            lock.save(lock_path)
         return reports
 
     def _image(self, plan: Plan, name: str) -> None:
