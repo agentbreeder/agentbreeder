@@ -975,3 +975,12 @@ against google-adk 2.12.0 and mcp 2.3.0:
   - The website's agent-yaml page is updated.
 
   Left for #748: the 10 s `tools/list` limit against a slow real upstream.
+- **Automated security review of fdf6ef0** raised two medium findings:
+  1. Failed spans exported unredacted exception text, a problem inherited from 1.0.6. Fixed: a
+     shared `redaction.py` is used by `agent.py`, `mcp_client.py` and `telemetry.py`. Spans keep
+     only the exception type and the redacted message. `set_status_on_exception=False` stops the
+     OpenTelemetry SDK writing the raw text back on exit. There is a runtime test for it.
+  2. `/invoke` is unauthenticated, so a caller can use the agent's MCP grants. Acknowledged, not
+     fixed here: authenticated invocation isn't shipped, and the `Host` check doesn't stop
+     another container on the agents network. The consequence for MCP is now stated in
+     docs/services.md and docs/agent-yaml.md. Authenticated invocation needs its own issue.

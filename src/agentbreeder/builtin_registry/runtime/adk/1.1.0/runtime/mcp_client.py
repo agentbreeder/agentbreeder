@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 import config as cfg
+import redaction
 from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 
@@ -40,17 +41,15 @@ CONNECT_TIMEOUT = 10.0
 READ_TIMEOUT = 125.0  # per read while a tools/call reply streams; the relay's own cap is 120 s
 TOOL_LIST_TTL = 60  # each tools/list counts against the relay's per-token rate limit
 
-_SECRETS: set[str] = set()
-
 
 def remember_secret(value: str) -> None:
-    """Values `redact()` replaces wherever the runtime stores or returns text."""
-    if value and len(value) >= 16:
-        _SECRETS.add(value)
+    """Values `redaction.redact()` replaces wherever the runtime stores, returns or exports
+    text."""
+    redaction.remember(value)
 
 
 def redaction_values() -> frozenset[str]:
-    return frozenset(_SECRETS)
+    return redaction.values()
 
 
 @dataclass(frozen=True)

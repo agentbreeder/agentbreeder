@@ -286,6 +286,11 @@ What the relay does **not** do:
   calls (#742) must not rely on them.
 - **It is not policy enforcement:** no Cedar/OPA evaluation, approvals or hash-chained audit
   (#742).
+- **The relay authenticates the agent, not the agent's caller.** An agent's `POST /invoke` is not
+  authenticated. Its port is published on loopback only, but other containers on the agents
+  network can reach it too: its `Host` check stops browser DNS rebinding, not another
+  container. Whoever reaches the endpoint can make the agent call the MCP tools it was granted,
+  as any customer.
 
 ## State and secrets
 

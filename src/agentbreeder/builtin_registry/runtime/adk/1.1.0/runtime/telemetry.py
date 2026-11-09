@@ -16,6 +16,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Status, StatusCode
+from redaction import redact
 
 tracer = trace.get_tracer("agentbreeder-adk-runtime")
 
@@ -40,7 +41,10 @@ def as_text(value) -> str:
 @contextmanager
 def span(name: str, kind: str, input=None, **attributes):
     """Start an OpenInference span (kind: AGENT, LLM, TOOL, RETRIEVER, EMBEDDING, CHAIN)."""
-    with tracer.start_as_current_span(name, record_exception=False) as current:
+    # The SDK would otherwise set the status from the raw exception text on the way out.
+    with tracer.start_as_current_span(
+        name, record_exception=False, set_status_on_exception=False
+    ) as current:
         current.set_attribute("openinference.span.kind", kind)
         if input is not None:
             current.set_attribute("input.value", as_text(input))
@@ -53,8 +57,13 @@ def span(name: str, kind: str, input=None, **attributes):
         try:
             yield current
         except Exception as error:
-            current.set_status(Status(StatusCode.ERROR, str(error)[:300]))
-            current.record_exception(error)
+            # Redacted like stored text; the type and message only (no traceback frames).
+            message = redact(str(error))[:300]
+            current.set_status(Status(StatusCode.ERROR, message))
+            current.add_event(
+                "exception",
+                {"exception.type": type(error).__name__, "exception.message": message},
+            )
             raise
 
 

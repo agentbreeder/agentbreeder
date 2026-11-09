@@ -263,3 +263,31 @@ def test_sigterm_closes_relay_sessions_then_stops_serving(runtime, relay, monkey
     while relay.relay.sessions and time.monotonic() < deadline:
         time.sleep(0.05)
     assert not relay.relay.sessions
+
+
+def test_failed_spans_never_export_a_secret():
+    """Exception text in a failed span (status and events) is redacted like stored text."""
+    import telemetry
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    secret = "e" * 64
+    mcp_client.remember_secret(secret)
+    original = telemetry.tracer
+    telemetry.tracer = provider.get_tracer("test")
+    try:
+        with pytest.raises(RuntimeError):
+            with telemetry.span("turn", "AGENT"):
+                raise RuntimeError(f"relay said Bearer {secret} was bad: {secret}")
+    finally:
+        telemetry.tracer = original
+    (finished,) = exporter.get_finished_spans()
+    exported = json.dumps(
+        [finished.status.description, [dict(e.attributes) for e in finished.events]]
+    )
+    assert secret not in exported and "[redacted]" in exported
+    assert "RuntimeError" in exported

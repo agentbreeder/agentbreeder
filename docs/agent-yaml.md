@@ -61,6 +61,9 @@ What happens at run time:
   fails.
 - **Sharing:** every customer of a deployment shares one relay session, and so shares the relay's
   per-token limits (4 concurrent calls, 60 requests a minute).
+- **Unauthenticated callers:** `POST /invoke` is not authenticated, so whoever can reach the
+  agent can make it call its granted MCP tools. That means loopback and, despite the `Host`
+  check, other containers on the agents network.
 - **Tool data:** MCP tool arguments go to the agent's audit events and traces, and tool results
   to traces, as for registry tools.
 - **Timeouts:** connecting, initializing and listing tools each have 10 seconds, with one retry.

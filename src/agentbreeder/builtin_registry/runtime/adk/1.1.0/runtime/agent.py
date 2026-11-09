@@ -27,6 +27,7 @@ import config as cfg
 import mcp_client
 import psycopg
 import psycopg.sql
+import redaction
 import telemetry
 from google.adk.agents import LlmAgent
 from google.adk.agents.invocation_context import LlmCallsLimitExceededError
@@ -64,15 +65,7 @@ INFLIGHT: set[str] = set()
 INFLIGHT_LOCK = threading.Lock()
 
 
-_KEYISH = re.compile(r"(sk-|AIza|Bearer\s+)[A-Za-z0-9_.\-]{8,}")
-
-
-def redact(text: str) -> str:
-    """Known secret values (MCP tokens, the gateway key) and key-shaped strings out of text the
-    runtime stores or returns."""
-    for value in mcp_client.redaction_values():
-        text = text.replace(value, "[redacted]")
-    return _KEYISH.sub(lambda match: match.group(1) + "[redacted]", text)
+redact = redaction.redact  # MCP tokens, the gateway key and key-shaped strings
 
 
 class ModelError(Exception):
