@@ -150,8 +150,10 @@ class Engine:
                 plan.service_files[name] = files
             spec = locked.specs[name]
             ref_hash = locked.hashes[str(registry.Ref.parse(self.stack.services[name].ref))]
+            # A Docker tag can't hold the hash's `sha256:` prefix: use its hex.
+            digest = ref_hash.rpartition(":")[2]
             plan.images[name] = spec.image or (
-                f"agentbreeder-svc/{self.state.id}-{name}:{ref_hash[:16]}"
+                f"agentbreeder-svc/{self.state.id}-{name}:{digest[:16]}"
             )
         return plan
 
@@ -337,7 +339,7 @@ class Engine:
             user=plan.user(name),
             mounts=binds,
             # Set last, so it always wins; the schema also reserves the AGENTBREEDER_ prefix.
-            env={**plan.environment(name), "AGENTBREEDER_SERVICE": name},
+            env=plan.environment(name),
             capture=capture,
         )
 

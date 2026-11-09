@@ -212,7 +212,11 @@ def test_up_writes_compose_operator_config_and_bindings(env, tmp_path):
     assert echo["command"][:2] == ["-m", "http.server"]
     assert echo["networks"] == ["stack", "agents", "edge"]
     assert echo["ports"][0]["host_ip"] == "127.0.0.1"
-    assert echo["environment"] == {"ECHO_LABEL": "hello", "PYTHONDONTWRITEBYTECODE": "1"}
+    assert echo["environment"] == {
+        "ECHO_LABEL": "hello",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "AGENTBREEDER_SERVICE": "echo",
+    }
     assert echo["labels"]["io.agentbreeder.stack"] == result["stack"]
     assert compose["networks"]["stack"]["internal"] is True
     assert compose["networks"]["agents"]["internal"] is True
@@ -245,6 +249,11 @@ def test_up_writes_compose_operator_config_and_bindings(env, tmp_path):
     assert host_link.startswith(f"http://echo:{token.decode()}@127.0.0.1:")
     principals = yaml.safe_load((stack_dir / "envs" / "dev" / "principals.yaml").read_text())
     assert principals["principals"]["demo-agent"]["sponsors"][0]["active"] is True
+    # Read the way the identity gate reads them: anchors and aliases are refused there.
+    from agentbreeder.operator_config import parse_yaml
+
+    for name in ("operator.yaml", "principals.yaml"):
+        assert parse_yaml((stack_dir / "envs" / "dev" / name).read_bytes(), name)
     for name in ("operator.yaml", "principals.yaml"):
         assert stat.S_IMODE((stack_dir / "envs" / "dev" / name).stat().st_mode) == 0o600
 
@@ -262,6 +271,9 @@ def test_up_writes_compose_operator_config_and_bindings(env, tmp_path):
     assert labels[0][3]["AGENTBREEDER_SERVICE"] == "echo"
     assert labels[1][3]["AGENTBREEDER_SERVICE"] == "echo"
     assert ("probe", "http://echo:8080/index.html") in docker.events
+    # The running service gets it too (a Host allowlist can name the service's own address).
+    compose = yaml.safe_load((stack_dir / "compose.yaml").read_text())
+    assert compose["services"]["echo"]["environment"]["AGENTBREEDER_SERVICE"] == "echo"
 
 
 def test_second_up_recreates_nothing_and_needs_no_confirmation(env):
@@ -556,6 +568,8 @@ def test_built_services_check_their_dockerfile(env):
     result, _ = up(env, docker)
     built = [e[1] for e in docker.events if e[0] == "build"]
     assert len(built) == 1 and built[0].startswith(f"agentbreeder-svc/{result['stack']}-gateway:")
+    # A valid Docker reference: one colon, then a tag of [A-Za-z0-9_.-] (the version's hash hex).
+    assert re.fullmatch(r"agentbreeder-svc/[a-z0-9-]+:[0-9a-f]{16}", built[0])
     up(env, docker)
     assert len([e for e in docker.events if e[0] == "build"]) == 1  # image reused
 
@@ -773,7 +787,8 @@ def test_plan_per_item_tcp_urls_and_inputs(env):
     compose = yaml.safe_load((stack_dir / "compose.yaml").read_text())
     app = compose["services"]["app"]
     assert app["user"] == f"{os.getuid()}:{os.getgid()}"
-    assert app["environment"] == {"DB_ADDR": "db:5432"}  # optional unwired input left out
+    # an optional unwired input is left out
+    assert app["environment"] == {"DB_ADDR": "db:5432", "AGENTBREEDER_SERVICE": "app"}
     assert "user" not in compose["services"]["db"]
     assert compose["services"]["db"]["healthcheck"]["test"] == ["CMD", "python3", "-c", "pass"]
     secrets_dir = Path(next(v for v in app["volumes"] if v["target"] == "/run/secrets")["source"])

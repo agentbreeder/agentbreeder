@@ -123,8 +123,8 @@ def write(plan: Plan, state: StackState, environment: str) -> Path:
         "changed file.\n"
     )
     files = {
-        "operator.yaml": (header + yaml.safe_dump(operator, sort_keys=False)).encode(),
-        "principals.yaml": (header + yaml.safe_dump(principals, sort_keys=False)).encode(),
+        "operator.yaml": (header + _dump(operator)).encode(),
+        "principals.yaml": (header + _dump(principals)).encode(),
     }
     for name in files:
         path = directory / name
@@ -152,3 +152,15 @@ def write(plan: Plan, state: StackState, environment: str) -> Path:
         write_private(directory / name, data)
         state.put(f"written:{environment}:{name}", _digest(data))
     return directory / "operator.yaml"
+
+
+class _NoAliases(yaml.SafeDumper):
+    """The operator config loader refuses anchors and aliases, which safe_dump emits for an
+    object used twice (an agent and its candidate share sponsors)."""
+
+    def ignore_aliases(self, data) -> bool:
+        return True
+
+
+def _dump(document: dict) -> str:
+    return yaml.dump(document, Dumper=_NoAliases, sort_keys=False)

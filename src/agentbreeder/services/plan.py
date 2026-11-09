@@ -148,6 +148,9 @@ class Plan:
             needed = refs.placeholders(template, f"service {service} env.{key}")
             if all(name in values for name in needed):
                 result[key] = refs.expand(template, values)
+        # Its own name on the stack network (one-shots reach their service by it; a Host
+        # allowlist accepts it). Set by AgentBreeder: service env can't use the prefix.
+        result["AGENTBREEDER_SERVICE"] = service
         return result
 
     def user(self, service: str) -> str | None:
