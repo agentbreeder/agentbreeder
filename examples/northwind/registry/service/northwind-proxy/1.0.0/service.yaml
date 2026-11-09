@@ -1,0 +1,20 @@
+build: Dockerfile
+command: [python, /app/proxy.py]
+user: "65532:65532"
+ports:
+  http: {port: 8787, expose: agents, guard: host-allowlist}
+env:
+  PROXY_HOST: 0.0.0.0
+  PROXY_PORT: "8787"
+  PHOENIX_URL: "{inputs.phoenix}"
+  TAVILY_API_KEY_FILE: /run/secrets/tavily-api-key
+  PHOENIX_API_KEY_FILE: /run/secrets/phoenix-ingest-key
+secrets:
+  tavily-api-key: {import: TAVILY_API_KEY}
+inputs:
+  phoenix: {type: url}
+  phoenix-ingest-key: {type: secret}
+health: {http: /healthz}
+egress: true
+outputs:
+  url: {type: url, port: http}

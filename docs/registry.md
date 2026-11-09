@@ -4,8 +4,9 @@
 > `agentbreeder build` (see `agent-yaml.md`) work today; verified with `examples/northwind`.
 
 A registry is a directory of **immutable, versioned building blocks**: prompts, tools,
-knowledge sources, eval sets and runtimes. You reference each one as `kind/name@X.Y.Z`, for
-example `tool/orders@1.0.0`. Only exact versions are accepted.
+knowledge sources, eval sets, runtimes and local backing `service`s (preview, see `services.md`). You
+reference each one as `kind/name@X.Y.Z`, for example `tool/orders@1.0.0`. Only exact versions
+are accepted.
 
 ```
 registry/

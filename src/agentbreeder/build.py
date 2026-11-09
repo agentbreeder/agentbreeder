@@ -110,6 +110,14 @@ def _config(agent: AgentFile, placed: dict[str, Path], context: Path) -> dict:
             }
             for t in agent.tools
         ],
+        "mcp": [
+            {
+                "name": registry.Ref.parse(m.ref).name,
+                "version": registry.Ref.parse(m.ref).version,
+                "tools": list(m.tools),
+            }
+            for m in agent.mcp
+        ],
         "memory": agent.memory.model_dump(),
         "agent_events": agent.agent_events,
         "traces": agent.traces,
@@ -157,6 +165,22 @@ def _check_tool_modules(agent: AgentFile, placed: dict[str, Path]) -> None:
             owners[module] = tool.ref
 
 
+def _check_mcp_tools(agent: AgentFile, placed: dict[str, Path]) -> None:
+    """Each `mcp:` entry asks only for tools its version declares (the relay grants a subset
+    of those; the operator environment decides which)."""
+    from agentbreeder.mcp import load_mcp
+    from agentbreeder.services.schema import ServiceError
+
+    for entry in agent.mcp:
+        try:
+            declared = set(load_mcp(placed[entry.ref]).tools)
+        except ServiceError as error:
+            raise BuildError("ARTIFACT_INVALID", f"{entry.ref}: {error}") from error
+        unknown = sorted(set(entry.tools) - declared)
+        if unknown:
+            raise BuildError("MCP_TOOL_UNKNOWN", f"{entry.ref} declares no tools {unknown}")
+
+
 def _runtime_serving(runtime_dir: Path, ref: str) -> dict:
     """The port and health path the runtime serves on, from its own manifest.yaml."""
     try:
@@ -193,6 +217,8 @@ def _manifest(agent, operator, environment, image, identity, aliases, name, serv
     if agent.model.rpm is not None:
         access["rpm"] = agent.model.rpm
     data["model_access"] = access
+    if agent.mcp:
+        data["mcp_access"] = [{"ref": m.ref, "tools": list(m.tools)} for m in agent.mcp]
     try:
         Manifest.model_validate(data)  # generated manifests must satisfy the deploy contract
     except ValidationError as error:
@@ -264,6 +290,8 @@ def build(
         shutil.rmtree(artifacts / "runtime")
         shutil.rmtree(artifacts / "eval", ignore_errors=True)
         placed = {entry.key: entry.path for entry in entries}
+        _check_mcp_tools(agent, placed)
+        shutil.rmtree(artifacts / "mcp", ignore_errors=True)  # for the relay, not the image
         if agent.prompt.path:
             _prompt_as_prompt_md(placed[f"path:{Path(agent.prompt.path).as_posix()}"])
         _check_tool_modules(agent, placed)

@@ -164,3 +164,43 @@ def test_preflight_applies_the_deploy_requirements(identity_env, state, runtime)
     decision = service.preflight(Manifest.model_validate(data), "dev", actor("dave"))
     assert not decision.allowed and decision.code == "SECRET_MISSING"
     runtime.create.assert_not_called()
+
+
+def test_environment_network_joins_agents_to_the_stack_network(identity_env, state, runtime):
+    grant(identity_env, network="agentbreeder-northwind-1a2b3c4d-agents")
+    running = {"Id": "c", "State": {"Running": True}}
+    runtime.inspect.side_effect = [None, running, running, running]
+    assert deploy(identity_env, state, runtime)["state"] == "ready"
+    kwargs = runtime.create.call_args.kwargs
+    assert kwargs["agents_network"] == "agentbreeder-northwind-1a2b3c4d-agents"
+
+
+def test_environment_network_applies_without_model_access(identity_env, state, runtime):
+    grant(identity_env, network="stack-agents")
+    running = {"Id": "c", "State": {"Running": True}}
+    runtime.inspect.side_effect = [None, running, running, running]
+    service = DeploymentService(state, runtime, identity_env.load())
+    service.deploy(Manifest.model_validate(v2_manifest_data()), local=True)
+    assert runtime.create.call_args.kwargs == {"mounts": [], "agents_network": "stack-agents"}
+
+
+def test_unset_network_keeps_the_existing_create_call(identity_env, state, runtime):
+    grant(identity_env)
+    running = {"Id": "c", "State": {"Running": True}}
+    runtime.inspect.side_effect = [None, running, running, running]
+    deploy(identity_env, state, runtime)
+    assert "agents_network" not in runtime.create.call_args.kwargs
+
+
+@pytest.mark.parametrize("name", ["", "-bad", "a b", "x" * 200, "bridge", "host", "none"])
+def test_environment_network_name_is_validated(identity_env, name):
+    grant(identity_env, network=name)
+    with pytest.raises(OperatorConfigError):
+        identity_env.load()
+
+
+def test_environment_network_refused_with_runtime_enforcement(identity_env):
+    grant(identity_env, network="stack-agents")
+    identity_env.config["runtime_enforcement"] = {"mode": "mcp_http"}
+    with pytest.raises(OperatorConfigError):
+        identity_env.load()

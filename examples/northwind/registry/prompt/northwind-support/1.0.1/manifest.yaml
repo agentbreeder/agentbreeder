@@ -1,0 +1,4 @@
+kind: prompt
+name: northwind-support
+version: 1.0.1
+description: System prompt for the Northwind Notes customer support agent.

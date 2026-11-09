@@ -1,0 +1,7 @@
+kind: service
+name: northwind-proxy
+version: 1.0.0
+description: >-
+  Northwind's key proxy: adds the Tavily key to web searches and Phoenix's ingest key to agent
+  traces, so neither key enters the agent. Reachable from agent containers only. Built from this
+  directory (python:3.12-slim, digest-pinned; standard library only).

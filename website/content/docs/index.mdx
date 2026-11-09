@@ -33,6 +33,10 @@ agent's identity, and deploys it.
   deploy manifest. Deploys get local secret files and their own LiteLLM key, and
   `agentbreeder release` promotes only after the eval set passes. Verified only with the Northwind
   example (61/61). See [Build from agent.yaml](/docs/agent-yaml).
+- **Preview: local backing services.** `agentbreeder services up` starts the services an agent
+  needs from a `stack.yaml` (Postgres with pgvector, a LiteLLM gateway, Phoenix, project services)
+  on local Docker and writes a demo operator config. Local only. See
+  [Backing services](/docs/services).
 - **Opt-in runtime tool enforcement.** Operators can put a deployment behind an MCP egress sidecar
   that applies policy to every MCP Streamable HTTP tool call. STDIO and in-process tools are never
   mediated.

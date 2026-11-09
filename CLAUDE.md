@@ -25,6 +25,9 @@ and only after a **deploy-time identity gate** confirms the agent in your identi
 - Preview: building ADK agents from `agent.yaml` with versioned, hash-locked registries
   (`agentbreeder build`), local secret files, per-deployment LiteLLM keys, and an eval-gated
   `agentbreeder release`. Verified only with `examples/northwind`, which passed 61/61.
+- Local-only preview: backing services from `stack.yaml` (`agentbreeder services up|status|logs|
+  env|down`, built-in postgres-pgvector, litellm and phoenix, project services built from source;
+  see `docs/services.md`). Verified with `examples/northwind` from scratch (61/61, 2026-11-08).
 
 **Not shipped:** cloud/production deploy targets, a management API or UI, authenticated
 invocation, a PyPI release. 2.x (PyPI ≤ 2.7.3) is unmaintained and has known functional and

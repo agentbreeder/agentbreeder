@@ -53,11 +53,43 @@ class Ceilings(_Strict):
     rpm: int = Field(ge=1, le=100000)
 
 
+_MCP_SERVER = r"^[a-z][a-z0-9_]{0,31}$"
+_MCP_TOOL = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"
+
+
 class AgentIdentities(_Strict):
     """Identity references `agentbreeder build` writes into generated manifests."""
 
     identity: IdentityReference
     candidate_identity: IdentityReference | None = None
+    # MCP tools granted to this agent (both identities), per relay: {server: [tools]}.
+    mcp: dict[str, list[str]] = Field(default_factory=dict, max_length=10)
+
+    @field_validator("mcp")
+    @classmethod
+    def mcp_grants(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        for server, tools in value.items():
+            if not re.fullmatch(_MCP_SERVER, server) or not 1 <= len(tools) <= 100:
+                raise ValueError("mcp grants map a relay name to 1-100 tools")
+            if any(not re.fullmatch(_MCP_TOOL, t) for t in tools) or len(set(tools)) != len(tools):
+                raise ValueError("mcp grants list unique tool names")
+        return value
+
+
+class McpRelay(_Strict):
+    """A stack-hosted MCP relay (`services up` writes it): the `mcp` version it serves, the
+    URL agents call on the stack's agents network, and the directory of grant files it reads."""
+
+    ref: str = Field(pattern=r"^mcp/[a-z0-9][a-z0-9-]{0,62}@[0-9]+\.[0-9]+\.[0-9]+$")
+    url: str = Field(max_length=512, pattern=_SERVICE_URL)
+    grants_dir: str = Field(max_length=1024)
+
+    @field_validator("grants_dir")
+    @classmethod
+    def absolute(cls, value: str) -> str:
+        if not Path(value).is_absolute() or ".." in Path(value).parts:
+            raise ValueError("grants_dir must be an absolute path")
+        return value
 
 
 class Environment(_Strict):
@@ -73,6 +105,18 @@ class Environment(_Strict):
     agents: dict[str, AgentIdentities] = Field(default_factory=dict, max_length=200)
     # Host-reachable database for eval fixture resets (`agentbreeder eval` / `release`).
     eval_database: str | None = Field(default=None, pattern=r"^secret://[a-z0-9][a-z0-9_-]{0,62}$")
+    # A Docker network agent containers also join (`services up` writes the stack's agents
+    # network). Unset: deployments are created exactly as before.
+    network: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_.-]{0,127}$")
+    # Stack MCP relays agents in this environment may be granted (spec §7).
+    mcp_relays: dict[str, McpRelay] = Field(default_factory=dict, max_length=20)
+
+    @field_validator("network")
+    @classmethod
+    def user_network(cls, value: str | None) -> str | None:
+        if value in ("bridge", "host", "none"):
+            raise ValueError("network names a user-defined network")
+        return value
 
     @model_validator(mode="after")
     def gateway_needs_ceilings(self):
@@ -80,6 +124,15 @@ class Environment(_Strict):
         # the minted key would carry it: an environment that grants a gateway caps it.
         if self.gateway is not None and self.ceilings is None:
             raise ValueError("an environment with a gateway must set ceilings (budget_usd, rpm)")
+        for name in self.mcp_relays:
+            if not re.fullmatch(_MCP_SERVER, name):
+                raise ValueError("invalid mcp relay name")
+        dirs = [relay.grants_dir for relay in self.mcp_relays.values()]
+        if len(set(dirs)) != len(dirs):
+            raise ValueError("each mcp relay has its own grants_dir")
+        for agent in self.agents.values():
+            if not set(agent.mcp) <= set(self.mcp_relays):
+                raise ValueError("an agent's mcp grant names a relay the environment lacks")
         return self
 
     @field_validator("models")
@@ -242,6 +295,10 @@ class OperatorModel(_Strict):
         for environment in self.environments.values():
             if environment.gateway and environment.gateway not in self.gateways:
                 raise ValueError("environment gateway is not defined in gateways")
+            # The egress boundary puts agents on its own internal network only; a stack network
+            # would be silently dropped, so refuse the combination instead.
+            if environment.network and self.runtime_enforcement.mode != "none":
+                raise ValueError("environment network is not supported with runtime_enforcement")
         return self
 
     @field_validator("environments")

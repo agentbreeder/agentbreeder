@@ -18,6 +18,13 @@
     the exact evaluated image.
   - Verified end to end with `examples/northwind`. See `docs/agent-yaml.md` and
     `docs/registry.md`.
+- Local backing services (#734, local-only preview): `services/` reads `stack.yaml` and
+  `service.yaml` (`schema.py`), checks references and taint rules (`refs.py`), locks versions
+  (`lock.py`), plans a hardened Compose file (`plan.py`, `compose.py`), keeps secrets and state
+  under `~/.agentbreeder/stacks/` (`state.py`) and writes a demo operator config (`operator.py`);
+  `engine.py` runs `agentbreeder services up|status|logs|env|down`. Built-ins live in
+  `builtin_registry/service/` (postgres-pgvector, litellm, phoenix, echo). Verified with
+  `examples/northwind` (61/61). See `docs/services.md`.
 
 ## Next implementation
 

@@ -86,6 +86,32 @@
       "title": "IdentityReference",
       "type": "object"
     },
+    "McpAccess": {
+      "additionalProperties": false,
+      "description": "Tools of one MCP server (an `mcp/<name>@X.Y.Z` registry version) this deployment uses\nthrough its stack's relay. The operator environment grants them; the relay holds the\nupstream credential, never the agent.",
+      "properties": {
+        "ref": {
+          "pattern": "^mcp/[a-z0-9][a-z0-9-]{0,62}@[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "title": "Ref",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ref",
+        "tools"
+      ],
+      "title": "McpAccess",
+      "type": "object"
+    },
     "ModelAccess": {
       "additionalProperties": false,
       "description": "Model gateway access this deployment requests. The operator's environment grants it:\nthe gate checks the gateway, the alias allow-list and the budget/rate ceilings.",
@@ -347,6 +373,23 @@
         }
       ],
       "default": null
+    },
+    "mcp_access": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/McpAccess"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mcp Access"
     }
   },
   "required": [

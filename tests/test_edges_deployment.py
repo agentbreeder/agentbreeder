@@ -764,8 +764,15 @@ def test_cli_doctor_plain_output(monkeypatch, capsys):
         "check_docker",
         lambda: [doctor.Check("Docker", True, "1.0"), doctor.Check("Engine", False, "down")],
     )
+    monkeypatch.setattr(
+        cli, "check_compose", lambda: [doctor.Check("Compose", False, "old", required=False)]
+    )
     assert cli.main(["doctor"]) == 1
-    assert capsys.readouterr().out.splitlines() == ["PASS Docker: 1.0", "FAIL Engine: down"]
+    assert capsys.readouterr().out.splitlines() == [
+        "PASS Docker: 1.0",
+        "FAIL Engine: down",
+        "WARN Compose: old",
+    ]
 
 
 def test_cli_login_success(monkeypatch, capsys):

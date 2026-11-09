@@ -1,0 +1,8 @@
+kind: service
+name: echo
+version: 1.0.0
+description: >-
+  Test fixture for `agentbreeder services`: a static file server on the pinned python:3.12-slim
+  image, with a generated secret, an optional imported canary, an init step, a bootstrap step and
+  a data volume. Its guard is declarative only (the file server checks nothing); never use it to
+  serve anything real.

@@ -7,8 +7,8 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Preview">
   Install from source. Verified end to end only with the Northwind example on macOS with Docker
-  Desktop: built from `agent.yaml`, deployed through the identity gate, and released through a
-  61-case eval gate (61/61, 2026-11-07). There is no authenticated invocation: an agent's
+  Desktop: services started from `stack.yaml`, built from `agent.yaml`, deployed through the
+  identity gate, and released through a 61-case eval gate (61/61, 2026-11-08). There is no authenticated invocation: an agent's
   endpoint trusts whatever caller reaches it, and is published on loopback only.
 </Callout>
 
@@ -25,14 +25,14 @@ operator config, and nothing in the file can grant a permission or raise a limit
 kind: agent
 schema_version: 1
 name: northwind-support
-runtime: runtime/adk@1.0.4
+runtime: runtime/adk@1.0.6
 model:
   alias: support-model         # a LiteLLM gateway alias
   reasoning: low
   max_model_calls: 4           # the last call has tools switched off
   budget_usd: 25               # can only lower the operator's ceiling
   rpm: 120
-prompt: {ref: prompt/northwind-support@1.0.0}
+prompt: {ref: prompt/northwind-support@1.0.1}
 knowledge:
   - {ref: knowledge/northwind-help@1.0.0, top_k: 5, extra_searches: 1}
 tools:
@@ -76,10 +76,11 @@ manifest when the environment has a candidate identity) and never deploys.
 
 ## The ADK runtime
 
-`runtime/adk@1.0.4` ships with AgentBreeder and is built on Google ADK 2.12. It reaches models
+`runtime/adk@1.0.6` ships with AgentBreeder and is built on Google ADK 2.12. It reaches models
 only through a LiteLLM gateway. It keeps sessions in Postgres, injects per-customer notes, runs
 hybrid pgvector and BM25 retrieval, and loads tool packages. It emits OpenInference traces and
-reads secrets only from mounted files.
+reads secrets only from mounted files. If the database owner has already created its tables, it
+runs no DDL, so its database role can be limited to the reads and inserts it makes.
 
 Agents built this way can't yet run behind the opt-in MCP egress sidecar: the deploy is refused,
 because the sidecar's network has no route to the model gateway.
@@ -123,9 +124,16 @@ Limits:
 [`examples/northwind`](https://github.com/agentbreeder/agentbreeder/tree/main/examples/northwind)
 is a customer support agent with knowledge search, memory, order lookup, staff-approved
 cancellations, web search and escalation. It's about 35 lines of `agent.yaml` plus registry
-entries. Its stack (Postgres with pgvector, LiteLLM, Phoenix, an ops dashboard) is example
-infrastructure, not part of AgentBreeder. It needs `GEMINI_API_KEY` and `TAVILY_API_KEY`. With
-Gemini Flash as both agent and judge, a release measured about $0.24.
+entries. Its services (Postgres with pgvector, LiteLLM, Phoenix, a key proxy and an ops
+dashboard) come from its `stack.yaml` (see [Backing services](/docs/services)). It needs
+`GEMINI_API_KEY` and `TAVILY_API_KEY`. With Gemini Flash as both agent and judge, a release
+measured about $0.24.
+
+```sh
+cd examples/northwind
+agentbreeder services up --environment dev --env-file ~/.env --yes
+agentbreeder release agent.yaml --stack . --environment dev
+```
 
 The canonical docs are
 [agent-yaml.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/agent-yaml.md) and

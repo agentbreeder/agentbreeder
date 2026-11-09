@@ -1,0 +1,27 @@
+image: python:3.12-slim@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54
+command: [python3, -m, http.server, "8080", --bind, 0.0.0.0, --directory, /files]
+user: "65532:65532"
+ports:
+  http: {port: 8080, expose: [agents, host], guard: host-allowlist}
+params:
+  label: {type: string, default: echo}
+env:
+  ECHO_LABEL: "{params.label}"
+  PYTHONDONTWRITEBYTECODE: "1"
+secrets:
+  token: {generate: token}
+  canary: {import: ECHO_CANARY, optional: true}
+volumes:
+  data: /data
+health: {http: /index.html}
+init:
+  command: [python3, -c, "import os, sys; sys.exit(0 if os.path.isfile('/run/secrets/token') else 3)"]
+  secrets: [token]
+bootstrap:
+  command: [python3, -c, "import secrets; print(secrets.token_hex(16))"]
+  writes_secret: minted
+outputs:
+  url: {type: url, port: http}
+  token: {type: secret, secret: token}
+  minted: {type: secret, secret: minted}
+  link: {type: secret, port: http, template: "http://echo:{secret.token}@{address}/index.html"}

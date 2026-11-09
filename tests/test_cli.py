@@ -104,3 +104,28 @@ def test_docker_unreachable_engine_with_zero_exit_is_not_a_pass(monkeypatch):
         lambda command, **options: subprocess.CompletedProcess(command, 0, "\n", "error"),
     )
     assert doctor.check_docker()[0].passed is False
+
+
+@pytest.mark.parametrize(
+    "which,result,passed,text",
+    [
+        (None, None, False, "Install Docker Compose"),
+        ("/usr/bin/docker", OSError("x"), False, "timed out"),
+        ("/usr/bin/docker", (1, ""), False, "not installed"),
+        ("/usr/bin/docker", (0, "Usage: up [--detach]"), False, "Upgrade"),
+        ("/usr/bin/docker", (0, "  --wait   Wait for services"), True, "available"),
+    ],
+)
+def test_doctor_compose_check(monkeypatch, which, result, passed, text):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(doctor.shutil, "which", lambda _: which)
+
+    def run(*args, **kwargs):
+        if isinstance(result, Exception):
+            raise result
+        return SimpleNamespace(returncode=result[0], stdout=result[1])
+
+    monkeypatch.setattr(doctor.subprocess, "run", run)
+    check = doctor.check_compose()[0]
+    assert check.passed is passed and text in check.message and check.required is False

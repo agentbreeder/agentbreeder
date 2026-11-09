@@ -1,0 +1,31 @@
+image: arizephoenix/phoenix@sha256:1f9a144a5357b4973e93a15718f050247cb7a4ee7b7c6c06ecb91b5eed3fbaad
+command: [/files/start.py]
+user: "65532:65532"
+ports:
+  http: {port: 6006, expose: host, guard: bearer}
+env:
+  HOME: /tmp
+  PHOENIX_WORKING_DIR: /tmp/phoenix
+  PHOENIX_ENABLE_AUTH: "true"
+  PHOENIX_TELEMETRY_ENABLED: "false"
+  PHOENIX_DISABLE_MODEL_COST_AUTO_UPDATE: "true"
+  PHOENIX_DISABLE_AGENT_ASSISTANT: "true"
+  PHOENIX_AGENTS_DISABLE_BASH: "true"
+  PHOENIX_AGENTS_DISABLE_WEB_ACCESS: "true"
+  PHOENIX_AGENTS_DISABLE_GITHUB: "true"
+  PHOENIX_ALLOWED_SANDBOX_PROVIDERS: NONE
+  PYTHONDONTWRITEBYTECODE: "1"
+secrets:
+  secret: {generate: token, prefix: s1-}
+  admin-secret: {generate: token, prefix: a1-}
+  admin-password: {generate: token}
+inputs:
+  database-url: {type: secret}
+health: {http: /healthz}
+bootstrap:
+  command: [/files/bootstrap.py]
+  secrets: [admin-secret]
+  writes_secret: ingest-key
+outputs:
+  url: {type: url, port: http}
+  ingest_key: {type: secret, secret: ingest-key, services_only: true}

@@ -328,6 +328,19 @@ def gateway_handler(sidecar: Sidecar):
     return Gateway
 
 
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]"})
+
+
+def loopback_host(value: str) -> bool:
+    """The ingress port is published on loopback only. Upstream, the agent sees `Host: agent`,
+    so a DNS-rebinding page (Host: its own name) must be refused here, before forwarding."""
+    if value.startswith("["):
+        name = value.partition("]")[0] + "]"
+    else:
+        name = value.rpartition(":")[0] if ":" in value else value
+    return name in LOOPBACK_HOSTS
+
+
 def ingress_handler(agent_host: str, agent_port: int, max_body: int):
     class Ingress(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -339,6 +352,8 @@ def ingress_handler(agent_host: str, agent_port: int, max_body: int):
 
         def _proxy(self):
             try:
+                if not loopback_host(self.headers.get("Host") or ""):
+                    raise PepError("HOST_REFUSED", "Address the agent as 127.0.0.1 or localhost")
                 body = _read_body(self, max_body) if self.command == "POST" else None
                 connection = http.client.HTTPConnection(agent_host, agent_port, timeout=60)
                 try:

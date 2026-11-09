@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import shutil
 import stat
 from dataclasses import dataclass
@@ -59,6 +60,15 @@ def _private_dir(path: Path) -> None:
         raise SecretError("SECRET_MODE", f"{path} must be a directory owned by you")
     if info.st_mode & 0o077:
         path.chmod(0o700)
+
+
+def generate_token(nbytes: int = 24) -> bytes:
+    """A random hex token (`nbytes` of entropy). Hex is safe in URLs, env files and YAML."""
+    return secrets.token_hex(nbytes).encode()
+
+
+def exists(state: Path, name: str) -> bool:
+    return (_store(state) / name).exists() or (_store(state) / name).is_symlink()
 
 
 def set_secret(state: Path, name: str, data: bytes) -> Path:

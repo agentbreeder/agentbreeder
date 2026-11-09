@@ -1,0 +1,10 @@
+kind: service
+name: litellm
+version: 1.0.0
+description: >-
+  LiteLLM proxy 1.106.2 (litellm-database, digest-pinned) as the stack's model gateway
+  (provides gateway/litellm): read-only root, no capabilities, uid 65532. Its config is a file
+  param; provider keys are optional imports (Gemini, OpenRouter, OpenAI, Anthropic) and the
+  master key is generated (`sk-…`) and operator-only. A locked launcher (files/start.py) copies
+  the mounted secret files into LiteLLM's own process environment, which its `os.environ/…`
+  config references read; they never enter the container config.

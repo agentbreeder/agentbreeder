@@ -1,0 +1,12 @@
+kind: service
+name: phoenix
+version: 1.0.0
+description: >-
+  Arize Phoenix 21.0.0 (digest-pinned) for agent traces, with auth on and its data in Postgres
+  (wire `database-url`): read-only root, no capabilities, uid 65532, no egress (model-cost
+  updates, the agent assistant and its sandboxes are off). Its signing secrets and the initial
+  admin password are generated; a locked launcher (files/start.py) copies them from the mounted
+  files into Phoenix's process environment. A `bootstrap` step (files/bootstrap.py) mints a
+  system API key through Phoenix's GraphQL API as the `ingest_key` output, and mints again when
+  Phoenix's database volume is new. Sign in to the UI as `admin` with the password in the stack
+  state at service-secrets/phoenix/admin-password.
