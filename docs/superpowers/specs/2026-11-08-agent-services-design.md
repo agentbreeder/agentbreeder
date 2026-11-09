@@ -993,3 +993,8 @@ against google-adk 2.12.0 and mcp 2.3.0:
   check for every new conversation, which runs into the 60-a-minute limit. Stateful
   (browser-type) upstreams are already refused until #747, which must decide per-conversation
   sessions. The constraint is documented in docs/services.md and docs/agent-yaml.md.
+- **Commit security review of ec7ac73:** redaction covered only the runtime's own spans, but
+  ADK's spans record exceptions with the SDK defaults: raw message and stacktrace. Fixed at the
+  export boundary: `telemetry.RedactingExporter` wraps the OTLP exporter and redacts every span's
+  status, its string attributes and its event attributes. There are runtime tests with a
+  default-configured library span, plus one checking that `setup()` uses the wrapper.

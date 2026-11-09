@@ -13,12 +13,65 @@ from contextlib import contextmanager
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace import Event, ReadableSpan, TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
 from opentelemetry.trace import Status, StatusCode
 from redaction import redact
 
 tracer = trace.get_tracer("agentbreeder-adk-runtime")
+
+
+def _clean(attributes):
+    """String values (and strings in sequences) redacted; other values unchanged."""
+    result = {}
+    for key, value in (attributes or {}).items():
+        if isinstance(value, str):
+            value = redact(value)
+        elif isinstance(value, (list, tuple)):
+            value = type(value)(redact(v) if isinstance(v, str) else v for v in value)
+        result[key] = value
+    return result
+
+
+class RedactingExporter(SpanExporter):
+    """Redacts every span on its way out: status, string attributes and event attributes
+    (`exception.message`, `exception.stacktrace`). ADK's own spans record exceptions with the
+    SDK defaults, so redacting only the runtime's spans would not be enough."""
+
+    def __init__(self, inner: SpanExporter):
+        self.inner = inner
+
+    def export(self, spans):
+        return self.inner.export([self._redacted(span) for span in spans])
+
+    @staticmethod
+    def _redacted(span: ReadableSpan) -> ReadableSpan:
+        status = span.status
+        if status.description:
+            status = Status(status.status_code, redact(status.description))
+        events = [
+            Event(event.name, _clean(event.attributes), event.timestamp) for event in span.events
+        ]
+        return ReadableSpan(
+            name=span.name,
+            context=span.context,
+            parent=span.parent,
+            resource=span.resource,
+            attributes=_clean(span.attributes),
+            events=events,
+            links=span.links,
+            kind=span.kind,
+            status=status,
+            start_time=span.start_time,
+            end_time=span.end_time,
+            instrumentation_scope=span.instrumentation_scope,
+        )
+
+    def shutdown(self):
+        return self.inner.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000):
+        return self.inner.force_flush(timeout_millis)
 
 
 def setup(project: str, endpoint: str, enabled: bool = True) -> None:
@@ -29,7 +82,7 @@ def setup(project: str, endpoint: str, enabled: bool = True) -> None:
     )
     if enabled and endpoint:
         provider.add_span_processor(
-            BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, timeout=5))
+            BatchSpanProcessor(RedactingExporter(OTLPSpanExporter(endpoint=endpoint, timeout=5)))
         )
     trace.set_tracer_provider(provider)
 

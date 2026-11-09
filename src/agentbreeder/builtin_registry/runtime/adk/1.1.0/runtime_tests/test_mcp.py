@@ -291,3 +291,46 @@ def test_failed_spans_never_export_a_secret():
     )
     assert secret not in exported and "[redacted]" in exported
     assert "RuntimeError" in exported
+
+
+def test_every_exported_span_is_redacted_including_library_spans():
+    """ADK opens its own spans and records exceptions with the SDK defaults (raw message and
+    stacktrace). The exporter wrapper redacts every span on its way out."""
+    import telemetry
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    inner = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(telemetry.RedactingExporter(inner)))
+    secret = "f" * 64
+    mcp_client.remember_secret(secret)
+    library = provider.get_tracer("google.adk")  # defaults: record_exception, set_status
+    with pytest.raises(ValueError):
+        with library.start_as_current_span("call_llm") as current:
+            current.set_attribute("input.value", f"Authorization: Bearer {secret}")
+            current.set_attribute("count", 3)
+            raise ValueError(f"upstream rejected {secret}")
+    (finished,) = inner.get_finished_spans()
+    exported = json.dumps(
+        [
+            finished.name,
+            finished.status.description,
+            dict(finished.attributes),
+            [[e.name, dict(e.attributes)] for e in finished.events],
+        ]
+    )
+    assert secret not in exported
+    assert "exception.stacktrace" in exported and "ValueError" in exported
+    assert finished.attributes["count"] == 3  # non-strings untouched
+
+
+def test_setup_exports_through_the_redacting_exporter(monkeypatch):
+    import telemetry
+
+    captured = []
+    monkeypatch.setattr(telemetry.trace, "set_tracer_provider", captured.append)
+    telemetry.setup("demo", "http://127.0.0.1:1/v1/traces")
+    (processor,) = captured[0]._active_span_processor._span_processors
+    assert isinstance(processor.span_exporter, telemetry.RedactingExporter)
