@@ -142,13 +142,14 @@
   `files` allowlist, no scripts), `npm/bin/agentbreeder.js`, `npm/release.json`
   (`pypi_version`, `exclude_newer`, `min_uv`), `npm/constraints.txt`, `npm/README.md`.
 - argv: `uvx --exclude-newer <exclude_newer> --exclude-newer-package agentbreeder=<window_end> -c <constraints.txt> --from agentbreeder[eval]==<ver> agentbreeder <args…>`. `exclude_newer`
-  is the release commit time, which bounds dependencies; the package override lets the
+  is the time the constraints are resolved at release prep (`sync_npm.py --write`; r10: the
+  release commit time is unknown until merge), which bounds dependencies; the package override lets the
   later-uploaded `agentbreeder` file resolve (verified with uv 0.11.6). `window_end` = release
   commit time + 30 days, committed in `release.json`; the `==` pin already fixes the version, so the
   window only bounds files added later to that version. `min_uv` = 0.11.6 (verified flags); the launcher
   runs `uvx --version` and refuses an older uv with an upgrade message.
-- `uvx` lookup: absolute path from `PATH` with `node_modules` entries removed; refuse a match under
-  cwd; `shell: false`; forward stdio, SIGINT/SIGTERM, exit code. Missing → 127 + install command.
+- `uvx` lookup: absolute path from `PATH` with `node_modules` entries (and links into
+  `node_modules`) removed; refuse a match from cwd (empty/relative entry or cwd itself; r10); `shell: false`; forward stdio, SIGINT/SIGTERM, exit code. Missing → 127 + install command.
 - `npm/constraints.txt` comes from a committed `uv pip compile --universal` of the `[eval]` extra at
   release time; `scripts/sync_npm.py --check` compares versions and `release.json` without
   re-resolving (no network).
@@ -160,7 +161,9 @@
 ### S8. Release workflow, CI and pre-tag docs (#752, #755 first half)
 - `.github/workflows/release.yml` (§5.2), triggered by `v3.*` tags:
   - **verify**: `fetch-depth: 0`; tag commit is an ancestor of `origin/main`; tag (via `env:`)
-    == `v` + `__version__`; `git status --porcelain` empty; full test suite.
+    == `v` + `__version__`; `git status --porcelain` empty; full test suite; `sync_npm --check`;
+    `npm/release.json` `exclude_newer` at most 7 days before the tag commit and `window_end`
+    after it (r10).
   - **build**: umask 022, `SOURCE_DATE_EPOCH`; build deps from hashed `build-requirements.txt`;
     sdist + wheel twice and compare; packaging tests; `npm pack` in `npm/`; smoke install (below);
     `uv pip compile --generate-hashes` → `requirements-3.0.0a1.txt`; upload all with sha256 outputs.

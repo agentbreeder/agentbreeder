@@ -1,0 +1,25 @@
+{
+  "name": "agentbreeder",
+  "version": "3.0.0-alpha.1",
+  "description": "npx launcher for AgentBreeder (preview): runs the pinned PyPI release with uv's uvx.",
+  "license": "Apache-2.0",
+  "homepage": "https://www.agentbreeder.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentbreeder/agentbreeder.git",
+    "directory": "npm"
+  },
+  "bin": {
+    "agentbreeder": "bin/agentbreeder.js"
+  },
+  "files": [
+    "bin/agentbreeder.js",
+    "release.json",
+    "constraints.txt",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

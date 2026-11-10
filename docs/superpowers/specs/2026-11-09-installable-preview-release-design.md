@@ -151,7 +151,10 @@ failure is caught before the tag.
   enforced only on the documented `uv pip install --require-hashes -r <release requirements>`
   path, which uses a hashed requirements file attached to the GitHub release.
 - **Finding `uvx`:** resolve it to an absolute path from `PATH` after removing entries that
-  contain a `node_modules` segment, and refuse a match inside the current directory. Spawn with
+  contain a `node_modules` segment (or whose resolved file is under `node_modules`), and refuse
+  a match that comes from the current directory: an empty or relative `PATH` entry, or the
+  current directory itself (r10; absolute entries below it, e.g. `~/.local/bin` from `$HOME`,
+  are allowed). On a terminal, SIGINT is left to the terminal, which already signals uvx. Spawn with
   `shell: false` and an argv array; never fall back to a shell (Windows `.cmd` shims are
   unsupported, and Windows is documented as not verified). Forward stdio, SIGINT/SIGTERM and the
   exit code.
@@ -160,7 +163,9 @@ failure is caught before the tag.
   `uv.toml`), which is how corporate mirrors and the TestPyPI rehearsal (§5.6) work, and that the
   exact pin is then satisfied by that index.
 - `npx agentbreeder --launcher-version` prints the npm and PyPI versions, the resolved `uvx` path,
-  and a warning when a non-default index is configured. It does not start Python.
+  and a warning when a uv variable that changes the source or resolution is set (index variables,
+  `UV_INDEX_STRATEGY`, `UV_PRERELEASE`, `UV_OVERRIDE`, `UV_CONSTRAINT`, `UV_CONFIG_FILE`; r10).
+  It does not start Python.
 - Tests (node's built-in test runner, in CI): a stub `uvx` on `PATH` records its argv and env;
   assertions on the exact argv, on the `node_modules` and current-directory refusals, on exit 127
   with install guidance when `uvx` is missing, and on signal and exit-code forwarding.
@@ -358,3 +363,22 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
   description, so its relative links became absolute (`twine check --strict` passes on both
   dists). Deferred: "a bare `pip install agentbreeder` still installs 2.7.3" is reasoned from
   PEP 440 pre-release rules and is checked end to end by `upgrade-guard` at P4.
+- r10 2026-11-10: Fable review of the S7 launcher (3 medium, 7 low; each checked, all fixed):
+  the npm README claimed CI runs and a hashed-requirements file that do not exist yet and lacked
+  "verification pending" (reworded); on a terminal, Ctrl-C reached uvx twice (the launcher now
+  forwards SIGINT only when neither stdin nor stderr is a terminal; a `kill -INT` of the launcher
+  alone on a terminal is therefore not forwarded, SIGTERM always is; the terminal path is reasoned, not run against real uv);
+  the signal re-raise path was untested (test added, plus test timeouts); "uvx missing" tests
+  depended on no system `/usr/bin/uvx` (private tool directory); `--launcher-version` warned only
+  for index variables (now also `UV_INDEX_STRATEGY`, `UV_PRERELEASE`, `UV_OVERRIDE`,
+  `UV_CONSTRAINT`; README lists them); a `uvx` link into `node_modules` was accepted (resolved
+  path checked too); `sync_npm --check` compared only exact pins (now every pyproject
+  requirement's specifier, offline, and the README's version and `min_uv`). Interpretation
+  recorded in §5.3: "a match inside the current directory" means one that comes from it; the
+  literal subtree reading refuses uv's default `~/.local/bin` whenever the user runs from
+  `$HOME`. `exclude_newer` is the time the constraints are resolved at release prep
+  (`sync_npm.py --write`), not the release commit time, which is unknown until merge; the S8
+  verify job checks it is fresh and that `window_end` is after the tag. Verified: the launcher
+  with real uvx 0.11.6 and the locally built wheel (`UV_FIND_LINKS`) ran `--version`,
+  `example list`, `registry verify` and `quickstart --dry-run` (macOS). Node 18 not run locally
+  (CI matrix in S8).
