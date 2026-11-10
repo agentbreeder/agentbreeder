@@ -13,7 +13,7 @@ from pathlib import Path
 from agentbreeder import __version__, agentfile, env_import, registry, secret_files
 from agentbreeder.deployer import DeployerError, device_login, os_deployer, resolve_deployer
 from agentbreeder.deployment import DeploymentService
-from agentbreeder.doctor import check_compose, check_docker
+from agentbreeder.doctor import check_compose, check_docker, check_legacy
 from agentbreeder.gate import GateDenied
 from agentbreeder.manifest import ManifestError, load_manifest
 from agentbreeder.operator_config import OperatorConfigError, load_operator_config
@@ -504,12 +504,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     if args.command == "doctor":
-        checks = check_docker() + check_compose()
+        checks = check_docker() + check_compose() + check_legacy()
         if args.json:
             print(json.dumps([asdict(check) for check in checks], indent=2))
         else:
             for check in checks:
-                mark = "PASS" if check.passed else "FAIL" if check.required else "WARN"
+                mark = (
+                    "INFO"
+                    if check.info
+                    else "PASS"
+                    if check.passed
+                    else "FAIL"
+                    if check.required
+                    else "WARN"
+                )
                 print(f"{mark} {check.name}: {check.message}")
         return 0 if all(check.passed or not check.required for check in checks) else 1
     if args.command == "example":

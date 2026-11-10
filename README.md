@@ -1,10 +1,36 @@
 # AgentBreeder
 
+> **3.x is a rebuild, not an upgrade from 2.x.** No 2.x command, config or data carries over,
+> and 3.x neither reads nor changes 2.x state in
+> `~/.agentbreeder` (`agentbreeder doctor` reports when it finds some). If you use 2.x, pin
+> `agentbreeder<3`. Until 3.x has a final release, a bare `pip install agentbreeder` still
+> installs 2.7.3, which is unmaintained and has known functional and security issues; see
+> [Legacy 2.x](https://www.agentbreeder.io/docs/legacy-2x).
+
 **Focused rebuild — development baseline, not a production release.**
 
 AgentBreeder is being rebuilt around deploying existing agents into customer-controlled infrastructure. This branch provides manifest validation, Docker diagnostics, a local deployment lifecycle with SQLite history, and a real HTTP sample service.
 
-Deploys pass a **deploy-time identity gate**: the agent must already exist in your identity provider (Entra, Keycloak, Okta (experimental), AWS or a static file), with an active sponsor, a valid review date and the required scoped grants. Optional controls are a Cedar/OPA/AuthZEN policy check, second-person approval, a kill switch and a hash-chained local audit log; see [docs/identity-gate.md](docs/identity-gate.md). Operators can also put local deployments behind an MCP egress boundary that enforces policy on every MCP Streamable-HTTP tool call. Production deployment and the operational UI are **not implemented yet**. The local sample lifecycle and fresh-install demo have been verified against Docker Desktop on macOS. There are no simulated deployments or placeholder production endpoints.
+Deploys pass a **deploy-time identity gate**: the agent must already exist in your identity provider (Entra, Keycloak, Okta (experimental), AWS or a static file), with an active sponsor, a valid review date and the required scoped grants. Optional controls are a Cedar/OPA/AuthZEN policy check, second-person approval, a kill switch and a hash-chained local audit log; see [docs/identity-gate.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/identity-gate.md). Operators can also put local deployments behind an MCP egress boundary that enforces policy on every MCP Streamable-HTTP tool call. Production deployment and the operational UI are **not implemented yet**. The local sample lifecycle and fresh-install demo have been verified against Docker Desktop on macOS. There are no simulated deployments or placeholder production endpoints.
+
+## Install the preview
+
+`3.0.0a1` is a preview; clean-machine verification is pending. Each command pins the exact
+version. If one reports that the version is not found, it is not published there yet: install
+from a checkout as shown below. A bare `pip install agentbreeder` installs 2.x (see the notice
+above).
+
+```sh
+pip install "agentbreeder[eval]==3.0.0a1"                               # in a virtual environment
+uvx --from "agentbreeder[eval]==3.0.0a1" agentbreeder quickstart --dry-run   # needs uv
+npx agentbreeder@3.0.0-alpha.1 quickstart --dry-run                       # needs Node 18+ and uv
+```
+
+The npm package is a launcher that runs the same PyPI release through `uvx`; see
+[npm/README.md](https://github.com/agentbreeder/agentbreeder/blob/main/npm/README.md).
+The `v3.0.0a1` GitHub release carries a hashed requirements file for
+`uv pip install --require-hashes -r requirements-3.0.0a1.txt` (or `pip install --require-hashes
+-r …`), once it is published.
 
 ## Try the complete local demo
 
@@ -51,7 +77,7 @@ If no ID was printed, retry `deploy DEMO_DIRECTORY/agent.yaml --state-dir DEMO_D
 
 ## Bring your own agent
 
-Follow [the local image guide](docs/first-deployment.md). Supply a trusted stateless HTTP container, a real immutable image ID/digest, and a health path returning HTTP 200. Containers run as UID 65532 with a read-only filesystem and publish only to loopback. Images declaring volumes are unsupported. Secrets are local files mounted read-only (`agentbreeder secret set`; see [local deployment](docs/local-deployment.md)).
+Follow [the local image guide](https://github.com/agentbreeder/agentbreeder/blob/main/docs/first-deployment.md). Supply a trusted stateless HTTP container, a real immutable image ID/digest, and a health path returning HTTP 200. Containers run as UID 65532 with a read-only filesystem and publish only to loopback. Images declaring volumes are unsupported. Secrets are local files mounted read-only (`agentbreeder secret set`; see [local deployment](https://github.com/agentbreeder/agentbreeder/blob/main/docs/local-deployment.md)).
 
 Local OS/Docker permissions are the control boundary. Production permissions, approvals and authenticated invocation are later work. Status shows the last recorded observation, not a live health guarantee.
 
@@ -72,8 +98,8 @@ agentbreeder release agent.yaml --stack . --environment dev
 agentbreeder services down --purge --yes   # after `agentbreeder remove ID --local --stack .`
 ```
 
-Local-only preview: see [src/agentbreeder/examples/northwind](src/agentbreeder/examples/northwind/README.md),
-[agent.yaml](docs/agent-yaml.md) and [services](docs/services.md).
+Local-only preview: see [src/agentbreeder/examples/northwind](https://github.com/agentbreeder/agentbreeder/blob/main/src/agentbreeder/examples/northwind/README.md),
+[agent.yaml](https://github.com/agentbreeder/agentbreeder/blob/main/docs/agent-yaml.md) and [services](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md).
 
 ## Develop
 
@@ -85,7 +111,7 @@ Local-only preview: see [src/agentbreeder/examples/northwind](src/agentbreeder/e
 .venv/bin/python -m build
 ```
 
-Read [the manifest contract](docs/manifest.md), [architecture](ARCHITECTURE.md), [contributing guide](CONTRIBUTING.md), and [security policy](SECURITY.md).
+Read [the manifest contract](https://github.com/agentbreeder/agentbreeder/blob/main/docs/manifest.md), [architecture](https://github.com/agentbreeder/agentbreeder/blob/main/ARCHITECTURE.md), [contributing guide](https://github.com/agentbreeder/agentbreeder/blob/main/CONTRIBUTING.md), and [security policy](https://github.com/agentbreeder/agentbreeder/blob/main/SECURITY.md).
 
 ## Compatibility
 

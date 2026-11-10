@@ -26,8 +26,13 @@
   exactly; only the executable bit is meaningful (as `copy_and_hash` already treats it).
 - 3.x home state (`local/`, `stacks/`, `operator.yaml`, `oidc-token`) does not collide with 2.x
   names at `v2.7.3` (`workspace.yaml`, `infra-state.json`, `context.json`, `registry/`,
-  `providers.local.yaml`, `layout.json`, `evals/`, `.env`, compose files). `doctor` markers:
-  `workspace.yaml`, `infra-state.json`, `context.json`.
+  `providers.local.yaml`, `layout.json`, `evals/`, `.env`, compose files). `doctor` markers
+  (S6 correction, review r9): every 2.x name written directly under `~/.agentbreeder` (`.env`,
+  `builders/`, `context.json`, `docker-compose*.yml`, `evals/`, `providers.json`,
+  `providers.local.yaml`, `quickstart-runtime.json`, `registry/`, `state.json`,
+  `workspace.yaml`). `infra-state.json` and `layout.json` are dropped: 2.x wrote them in each
+  project's `.agentbreeder/`, not in the home directory. The first list would have missed a real
+  2.x home (`state.json`, `registry/`, `evals/`, `builders/`, `docker-compose.ui.yml`).
 - One tracked dotfile under examples: `northwind/stack/.dockerignore`.
 
 ## Code slices
@@ -129,19 +134,22 @@
 ### S6. 2.x notice (#753)
 - README top block + PyPI long description (§5.6). `doctor` INFO line when any marker exists:
   "2.x state found in ~/.agentbreeder; 3.x does not read or change it". Tests with a temp HOME.
+  The README is the PyPI long description, so its relative links (which 404 on PyPI) become
+  absolute; a test keeps them absolute, and `twine check --strict` passes on both dists.
 
 ### S7. npx launcher (#782)
 - `npm/package.json` (`agentbreeder`, version via `npm_version()`, `bin`, `engines.node >=18`,
   `files` allowlist, no scripts), `npm/bin/agentbreeder.js`, `npm/release.json`
   (`pypi_version`, `exclude_newer`, `min_uv`), `npm/constraints.txt`, `npm/README.md`.
 - argv: `uvx --exclude-newer <exclude_newer> --exclude-newer-package agentbreeder=<window_end> -c <constraints.txt> --from agentbreeder[eval]==<ver> agentbreeder <args…>`. `exclude_newer`
-  is the release commit time, which bounds dependencies; the package override lets the
+  is the time the constraints are resolved at release prep (`sync_npm.py --write`; r10: the
+  release commit time is unknown until merge), which bounds dependencies; the package override lets the
   later-uploaded `agentbreeder` file resolve (verified with uv 0.11.6). `window_end` = release
   commit time + 30 days, committed in `release.json`; the `==` pin already fixes the version, so the
   window only bounds files added later to that version. `min_uv` = 0.11.6 (verified flags); the launcher
   runs `uvx --version` and refuses an older uv with an upgrade message.
-- `uvx` lookup: absolute path from `PATH` with `node_modules` entries removed; refuse a match under
-  cwd; `shell: false`; forward stdio, SIGINT/SIGTERM, exit code. Missing → 127 + install command.
+- `uvx` lookup: absolute path from `PATH` with `node_modules` entries (and links into
+  `node_modules`) removed; refuse a match from cwd (empty/relative entry or cwd itself; r10); `shell: false`; forward stdio, SIGINT/SIGTERM, exit code. Missing → 127 + install command.
 - `npm/constraints.txt` comes from a committed `uv pip compile --universal` of the `[eval]` extra at
   release time; `scripts/sync_npm.py --check` compares versions and `release.json` without
   re-resolving (no network).
@@ -153,12 +161,15 @@
 ### S8. Release workflow, CI and pre-tag docs (#752, #755 first half)
 - `.github/workflows/release.yml` (§5.2), triggered by `v3.*` tags:
   - **verify**: `fetch-depth: 0`; tag commit is an ancestor of `origin/main`; tag (via `env:`)
-    == `v` + `__version__`; `git status --porcelain` empty; full test suite.
+    == `v` + `__version__`; `git status --porcelain` empty; full test suite; `sync_npm --check`;
+    `npm/release.json` `exclude_newer` at most 7 days before the tag commit and `window_end`
+    after it (r10).
   - **build**: umask 022, `SOURCE_DATE_EPOCH`; build deps from hashed `build-requirements.txt`;
     sdist + wheel twice and compare; packaging tests; `npm pack` in `npm/`; smoke install (below);
     `uv pip compile --generate-hashes` → `requirements-3.0.0a1.txt`; upload all with sha256 outputs.
   - **attest** (`id-token`, `attestations: write`): checks sha256s, attests wheel, sdist, npm tgz.
-  - **github-release** (`contents: write`): attaches the hashed requirements file and artifacts.
+  - **github-release** (`contents: write`): attaches the hashed requirements file and artifacts
+    (r11: runs after publish-pypi).
   - **publish-testpypi** → **publish-pypi** (environments, owner approval).
   - **publish-npm** only `if: vars.NPM_TRUSTED_PUBLISHING == 'true'` (false for 3.0.0-alpha.1,
     which the owner publishes manually from the attested tgz).
@@ -168,8 +179,11 @@
   > 1` on a built-in file, then `--version`, `registry verify`, `example northwind`, `validate`,
   the stub-builder locked build, `quickstart --dry-run`); `npm-launcher`; `content_manifest
   --check`; `sync_npm --check`; `upgrade-guard` (after publish only; before that against TestPyPI):
-  install `agentbreeder==2.7.3`, run `pip install -U agentbreeder`, assert 2.7.3. `actionlint` and
-  `zizmor` on workflow files.
+  install `agentbreeder==2.7.3`, run `pip install -U agentbreeder`, assert 2.7.3; and a bare
+  `pip install agentbreeder` in a fresh venv installs 2.7.3 (the README's S6 claim). `actionlint` and
+  `zizmor` on workflow files. (r11: the pre-publish proof is a local index with 2.7.3 and the
+  built wheel, `scripts/upgrade_guard.py --wheel`, in the build job and `install-smoke`; the
+  PyPI `upgrade-guard` is the post-publish check. See spec §10 r11.)
 - References to update (re-check each): `.github/dependabot.yml`, `ci.yml` (ruff paths, validate
   path), `.gitignore`, `.gitleaks.toml`, `pyproject.toml` (ruff `extend-exclude`), `AGENT.md`,
   `ARCHITECTURE.md`, `CHANGELOG.md`, `CLAUDE.md`, `MANIFEST.in`, `README.md`,
@@ -200,7 +214,9 @@
   (otherwise cut `3.0.0a2`); owner publishes npm `3.0.0-alpha.1` manually with 2FA from the
   attested tgz (sha256 checked). That version has no npm provenance: a recorded exception to
   criterion 1, citing §3.5.4. Owner then sets up npm trusted publishing and
-  `NPM_TRUSTED_PUBLISHING=true`. `upgrade-guard` switches to PyPI.
+  `NPM_TRUSTED_PUBLISHING=true`. `upgrade-guard` switches to PyPI; its pass is the end-to-end
+  check of the README's "a bare `pip install agentbreeder` still installs 2.7.3" (S6), and if it
+  fails the README notice is corrected before anything else.
 - **P5 #754** clean-machine run, all three paths, Northwind 61/61 (owner's model keys; about $0.24
   per release for the judge, measured 2026-11-08); steps, times, admin vs developer effort,
   redacted transcripts. Then the second half of #755 in a follow-up PR: website install page,

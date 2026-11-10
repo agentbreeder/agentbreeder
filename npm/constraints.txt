@@ -1,0 +1,24 @@
+# Resolved for the npm launcher by scripts/sync_npm.py:
+#   uv pip compile pyproject.toml --extra eval --universal --only-binary :all: --exclude-newer 2026-11-10T17:43:14Z
+annotated-types==0.8.0
+    # via pydantic
+psycopg==3.3.6
+    # via agentbreeder (pyproject.toml)
+psycopg-binary==3.3.6 ; implementation_name != 'pypy'
+    # via psycopg
+pydantic==2.14.3
+    # via agentbreeder (pyproject.toml)
+pydantic-core==2.50.4
+    # via pydantic
+pyyaml==6.0.3
+    # via agentbreeder (pyproject.toml)
+typing-extensions==4.16.0
+    # via
+    #   psycopg
+    #   pydantic
+    #   pydantic-core
+    #   typing-inspection
+typing-inspection==0.4.5
+    # via pydantic
+tzdata==2026.6 ; sys_platform == 'win32'
+    # via psycopg

@@ -11,14 +11,17 @@ jobs:
       matrix:
         python: ['3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -e '.[dev]'
       - run: ruff check src tests scripts
       - run: ruff format --check src tests scripts
       - run: python scripts/content_manifest.py --check
+      - run: python scripts/sync_npm.py --check
       - run: python -m pytest
       - run: AGENTBREEDER_PACKAGING_TEST=1 python -m pytest tests/test_packaging.py -q
       - run: python -m build
@@ -29,8 +32,10 @@ jobs:
     # runtime's locked dependencies, so they run apart from the repo suite (testpaths = tests).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - run: >-
@@ -40,3 +45,95 @@ jobs:
       - run: >-
           python -m pytest -q -p no:cacheprovider
           src/agentbreeder/builtin_registry/runtime/adk/1.1.0/runtime_tests
+  install-smoke:
+    # The installed wheel, not the checkout (#754-class failures): uv from the hashed
+    # requirements file the release attaches, and uv in hardlink mode, which must leave every
+    # built-in file hardlinked (st_nlink > 1) and still pass `registry verify`. Then the README's
+    # 2.x claim against a local index that offers this pre-release.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.11.6'
+          enable-cache: false
+      - name: Build from hashed build dependencies
+        run: |
+          python -m venv "$RUNNER_TEMP/build-venv"
+          "$RUNNER_TEMP/build-venv/bin/pip" install --require-hashes --only-binary=:all: -r scripts/build-requirements.txt
+          "$RUNNER_TEMP/build-venv/bin/python" -m build --no-isolation --outdir dist
+      - name: Hashed requirements file
+        run: |
+          VERSION="$(python -c 'import sys; sys.path.insert(0, "src"); import agentbreeder; print(agentbreeder.__version__)')"
+          python scripts/release_check.py requirements --wheel dist/*.whl --sdist dist/*.tar.gz --out "dist/requirements-$VERSION.txt"
+      - name: uv pip install --require-hashes (the documented command; the release job uses pip)
+        run: |
+          VERSION="$(python -c 'import sys; sys.path.insert(0, "src"); import agentbreeder; print(agentbreeder.__version__)')"
+          export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
+          uv venv --python 3.12 "$RUNNER_TEMP/hashed-venv"
+          uv pip install --python "$RUNNER_TEMP/hashed-venv/bin/python" --require-hashes --only-binary :all: --find-links dist -r "dist/requirements-$VERSION.txt"
+          cd "$RUNNER_TEMP" && "$RUNNER_TEMP/hashed-venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/install_smoke.py" --version "$VERSION"
+      - name: uv pip install, hardlink mode
+        env:
+          UV_LINK_MODE: hardlink
+        run: |
+          VERSION="$(python -c 'import sys; sys.path.insert(0, "src"); import agentbreeder; print(agentbreeder.__version__)')"
+          export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
+          uv venv --python 3.12 "$RUNNER_TEMP/uv-venv"
+          uv pip install --only-binary :all: --python "$RUNNER_TEMP/uv-venv/bin/python" "agentbreeder[eval] @ file://$(ls "$PWD"/dist/*.whl)"
+          cd "$RUNNER_TEMP" && "$RUNNER_TEMP/uv-venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/install_smoke.py" --version "$VERSION" --hardlinked
+      - name: pip still installs 2.7.3 with this pre-release on the index
+        run: python scripts/upgrade_guard.py --wheel dist/*.whl
+  npm-launcher:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['18', '22']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: node --test
+        working-directory: npm
+  upgrade-guard:
+    # The same claim against PyPI itself. Before 3.0.0a1 is published it holds trivially; the
+    # pre-publish proof is install-smoke's local index. After publishing it is the real check.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - run: python scripts/upgrade_guard.py
+  workflow-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - run: >-
+          python -m pip install --require-hashes --only-binary=:all:
+          -r scripts/lint-requirements.txt
+      - name: actionlint 1.7.12 (release binary, sha256 pinned)
+        env:
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/actionlint.tgz" https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/actionlint.tgz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint"
+      - run: zizmor --offline .github/workflows

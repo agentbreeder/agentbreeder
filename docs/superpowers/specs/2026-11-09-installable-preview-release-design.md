@@ -151,7 +151,10 @@ failure is caught before the tag.
   enforced only on the documented `uv pip install --require-hashes -r <release requirements>`
   path, which uses a hashed requirements file attached to the GitHub release.
 - **Finding `uvx`:** resolve it to an absolute path from `PATH` after removing entries that
-  contain a `node_modules` segment, and refuse a match inside the current directory. Spawn with
+  contain a `node_modules` segment (or whose resolved file is under `node_modules`), and refuse
+  a match that comes from the current directory: an empty or relative `PATH` entry, or the
+  current directory itself (r10; absolute entries below it, e.g. `~/.local/bin` from `$HOME`,
+  are allowed). On a terminal, SIGINT is left to the terminal, which already signals uvx. Spawn with
   `shell: false` and an argv array; never fall back to a shell (Windows `.cmd` shims are
   unsupported, and Windows is documented as not verified). Forward stdio, SIGINT/SIGTERM and the
   exit code.
@@ -160,7 +163,9 @@ failure is caught before the tag.
   `uv.toml`), which is how corporate mirrors and the TestPyPI rehearsal (§5.6) work, and that the
   exact pin is then satisfied by that index.
 - `npx agentbreeder --launcher-version` prints the npm and PyPI versions, the resolved `uvx` path,
-  and a warning when a non-default index is configured. It does not start Python.
+  and a warning when a uv variable that changes the source or resolution is set (index variables,
+  `UV_INDEX_STRATEGY`, `UV_PRERELEASE`, `UV_OVERRIDE`, `UV_CONSTRAINT`, `UV_CONFIG_FILE`; r10).
+  It does not start Python.
 - Tests (node's built-in test runner, in CI): a stub `uvx` on `PATH` records its argv and env;
   assertions on the exact argv, on the `node_modules` and current-directory refusals, on exit 127
   with install guidance when `uvx` is missing, and on signal and exit-code forwarding.
@@ -277,6 +282,12 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
 
 - `agentbreeder-cloud`: grep for `agentbreeder` version pins, `pip install agentbreeder` and
   `0.0.0.dev0` before the tag; record the result here.
+  - Result 2026-11-10 (cloud `main` at 8185882): no version pin and no `0.0.0.dev0`. Cloud
+    installs the OSS package editable from a local checkout (`pyproject.toml:15`, a comment).
+    `pip install agentbreeder` appears only in historical strategy/spec docs
+    (`docs/strategy/2026-04-30-week2-launch-pack.md`,
+    `docs/superpowers/specs/2026-04-18-graphrag-design.md`), which describe 2.x. No companion
+    cloud PR is needed for the tag. Re-check before P2 if cloud `main` moves.
 - `website/`: §5.8. #783 consumes `example`, `quickstart` and `_content.json`.
 
 ## 10. Review log
@@ -348,3 +359,81 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
   restored); dry-run tests that prove `validate` ran and fail on a copy, validate or workdir error;
   the shipped sample README points at `agentbreeder quickstart`; unexpected in-process exceptions
   print only their type (their text can carry local details); docstring timeouts corrected.
+- r9 2026-11-10: Fable review of the S6 code (1 medium, 4 low, 3 nits; each checked; 7 fixed,
+  1 deferred to its check): `doctor`'s exact-output test failed on a machine with 2.x home state,
+  so tests stub the legacy check by default; the doctor markers are the 2.x names written under
+  `~/.agentbreeder` at `v2.7.3` (`layout.json` dropped as project-local like `infra-state.json`;
+  `.env`, 2.x's fallback secrets file, added); the no-collision test scans the package source for
+  every 3.x home path instead of a hard-coded list; globbed compose files are reported as the
+  pattern, never as raw names; README links are checked to exist. The README is the PyPI long
+  description, so its relative links became absolute (`twine check --strict` passes on both
+  dists). Deferred: "a bare `pip install agentbreeder` still installs 2.7.3" is reasoned from
+  PEP 440 pre-release rules and is checked end to end by `upgrade-guard` at P4.
+- r10 2026-11-10: Fable review of the S7 launcher (3 medium, 7 low; each checked, all fixed):
+  the npm README claimed CI runs and a hashed-requirements file that do not exist yet and lacked
+  "verification pending" (reworded); on a terminal, Ctrl-C reached uvx twice (the launcher now
+  forwards SIGINT only when neither stdin nor stderr is a terminal; a `kill -INT` of the launcher
+  alone on a terminal is therefore not forwarded, SIGTERM always is; the terminal path is reasoned, not run against real uv);
+  the signal re-raise path was untested (test added, plus test timeouts); "uvx missing" tests
+  depended on no system `/usr/bin/uvx` (private tool directory); `--launcher-version` warned only
+  for index variables (now also `UV_INDEX_STRATEGY`, `UV_PRERELEASE`, `UV_OVERRIDE`,
+  `UV_CONSTRAINT`; README lists them); a `uvx` link into `node_modules` was accepted (resolved
+  path checked too); `sync_npm --check` compared only exact pins (now every pyproject
+  requirement's specifier, offline, and the README's version and `min_uv`). Interpretation
+  recorded in §5.3: "a match inside the current directory" means one that comes from it; the
+  literal subtree reading refuses uv's default `~/.local/bin` whenever the user runs from
+  `$HOME`. `exclude_newer` is the time the constraints are resolved at release prep
+  (`sync_npm.py --write`), not the release commit time, which is unknown until merge; the S8
+  verify job checks it is fresh and that `window_end` is after the tag. Verified: the launcher
+  with real uvx 0.11.6 and the locally built wheel (`UV_FIND_LINKS`) ran `--version`,
+  `example list`, `registry verify` and `quickstart --dry-run` (macOS). Node 18 not run locally
+  (CI matrix in S8).
+- r11 2026-11-10: Fable review of the S8 workflows and scripts (5 medium, 10 low; each checked,
+  all addressed). Changes from §5.2 and the plan:
+  - **npm publishing:** the publish-npm job uses Node 24, because trusted publishing needs
+    npm ≥ 11.5.1 and Node 22 bundles npm 10. The job checks the npm version before publishing.
+  - **2.x install claim before publish:** the claim is proved against a local index that holds
+    2.7.3 and the built pre-release wheel: a bare install and an upgrade give 2.7.3, and an exact
+    pin gives the pre-release. `scripts/upgrade_guard.py` runs this in the release build job and
+    in `install-smoke`. This replaces "against TestPyPI before publish". The `upgrade-guard`
+    job checks PyPI itself, which is the real check after publishing.
+  - **Hashed requirements file:** the release build now installs it with pip
+    (`--require-hashes`); `install-smoke` does the same. It is resolved wheels-only (as is
+    `npm/constraints.txt`), and the two must pin the same versions.
+  - **Artifact hashes:** the built files are hashed before any other code runs in the build job.
+    That digest is a step output, re-checked before the final SHA256SUMS. Later jobs refuse any
+    file not listed in SHA256SUMS. The smoke installs and the resolution use binaries only.
+  - **Allowlist on the published files:** `tests/test_release_dist.py` runs against the
+    release's own `dist/`.
+  - **Second build:** it comes from a clean `git archive` export. Sdists are compared on members,
+    bytes and exec bits, and duplicate members are refused.
+  - **GitHub release:** the pre-release is created after PyPI, so it never advertises an install
+    that does not work yet.
+  - **Environments:** the verify job fails unless the `testpypi` and `pypi` environments (and
+    `npm` when enabled) require a reviewer. A missing environment would otherwise be created
+    unprotected on first use. On 2026-11-10 `testpypi` and `npm` did not exist.
+  - **Dependabot:** a 14-day cooldown, covering `scripts/` too.
+  - **Wording:** CHANGELOG and README no longer claim what has not run.
+  - **Verified locally (macOS):**
+    - `install_smoke.py`: pip and uv-hardlink installs pass, with 86/86 built-ins hardlinked;
+    - two builds from the hashed build dependencies: identical wheels, matching sdists;
+    - a pip `--require-hashes` install from the generated file;
+    - `test_release_dist.py` on those dists;
+    - `upgrade_guard.py` in both modes;
+    - actionlint 1.7.12 (with shellcheck) and zizmor 1.31.1 online audits, all clean.
+  - **Not run yet:** the release workflow itself (it needs a tag) and the CI jobs (they run on
+    push).
+  - **Re-review:** approved. Its four low notes were folded in:
+    - the requirements file is now generated before the early hash;
+    - CI installs it with uv (the documented command) and the release job with pip; the README
+      gives both;
+    - the environment check also requires admin bypass off and a custom (tag) policy (live
+      `pypi` passes);
+    - a failed `pip download` in `upgrade_guard.py` is now a clean error.
+- r11 follow-up 2026-11-10 (automated security review of dc490c4, medium): the early hash
+  re-check ran in the same job as unhashed test and smoke dependencies. On GitHub runners that
+  job's user has sudo, so code run there could also tamper with the checker. The release now has
+  a `build` job (hash-pinned build tools, `npm pack --ignore-scripts`, the wheels-only uv resolve)
+  that records the sha256s and uploads, and a separate `check` job (needs `build`) that downloads,
+  verifies the sums and then runs the dist tests, the smoke installs and the upgrade guard.
+  `attest` needs both, and the publish jobs take the sums only from `build`.
