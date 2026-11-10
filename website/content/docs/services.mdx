@@ -6,10 +6,10 @@ description: Preview. Declare the services an agent needs in stack.yaml; agentbr
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Local-only preview">
-  Install from source. `agentbreeder services` runs on the local Docker engine only and is not
-  production infrastructure. Verified on macOS with Docker Desktop: the Northwind example started
-  from scratch with `services up`, and `agentbreeder release` passed its 61-case eval gate (61/61,
-  2026-11-08). MCP servers run behind a built-in relay. An agent built from `agent.yaml` on
+  [Install the alpha preview](/docs/install). `agentbreeder services` runs on the local Docker
+  engine only and is not production infrastructure. Verified on macOS with Docker Desktop: the
+  Northwind example started from scratch with `services up`, and `agentbreeder release` passed its
+  61-case eval gate (61/61, 2026-11-08 from a checkout, 2026-11-10 from PyPI). MCP servers run behind a built-in relay. An agent built from `agent.yaml` on
   `runtime/adk@1.1.0` calls tools through it. Through a real `deploy`, a deployed agent called the
   built-in `mcp/github` and `mcp/playwright` this way (2026-11-09), with a scripted fake LLM
   gateway rather than a real model.
@@ -20,7 +20,8 @@ trace collector, sometimes project helpers. A project declares them in `stack.ya
 `agent.yaml`, and one command starts them:
 
 ```sh
-cd src/agentbreeder/examples/northwind
+agentbreeder example northwind   # copies it to ./northwind
+cd northwind
 agentbreeder services up --environment dev --env-file ~/.env   # shows the grant; --yes confirms
 agentbreeder release agent.yaml --stack . --environment dev    # build, candidate, evals, promote
 agentbreeder services down --purge --yes                       # remove everything up made

@@ -1,6 +1,6 @@
 ---
 title: Legacy 2.x
-description: AgentBreeder 2.x is what pip installs today. It is unmaintained, superseded by the focused rebuild, and has known functional and security issues.
+description: AgentBreeder 2.x is what a bare pip install gives you today. It is unmaintained, superseded by the focused rebuild, and has known functional and security issues.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -43,9 +43,11 @@ These were reproduced on a fresh install. They are not exhaustive.
 
 - Keep it to local, single-user experiments, and keep the API server off shared networks.
 - Pin the version you have; there will be no 2.7.4.
-- To try the rebuild, install it from source in a **fresh** virtual environment (see the
-  [overview](/docs)). It is not an upgrade path: there is no migration from 2.x data or `agent.yaml`
-  files.
+- A bare `pip install agentbreeder` installs 2.7.3. To stay on 2.x explicitly, pin
+  `agentbreeder<3`.
+- To try the rebuild, [install the `3.0.0a1` preview](/docs/install) with its exact version, in a
+  **fresh** virtual environment. It is not an upgrade path: there is no migration from 2.x data or
+  `agent.yaml` files.
 
 ## 2.x documentation
 

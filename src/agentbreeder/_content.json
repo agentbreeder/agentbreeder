@@ -350,7 +350,7 @@
   },
   "examples/http-agent/README.md": {
    "exec": false,
-   "sha256": "6df4aca9760ed9514068b24795d8dae4da7ae3125e630e97390c29a876675e8e"
+   "sha256": "33dfae9c01e41e9b5cb4718e0aba554213ba27e25d186f440072bbc171bd64f0"
   },
   "examples/http-agent/agent.yaml": {
    "exec": false,
@@ -366,7 +366,7 @@
   },
   "examples/northwind/README.md": {
    "exec": false,
-   "sha256": "622536aacd394fd3f85df1b887bb236840d08812f94dcc400f2532792bc3a1f7"
+   "sha256": "52321d95de2f8cc79961f784406a8969f7b3f7d49d158134eeee963e2d92b605"
   },
   "examples/northwind/agent.lock": {
    "exec": false,

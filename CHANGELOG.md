@@ -8,7 +8,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
-### Installable preview, 3.0.0a1 (#751; not yet published)
+## [3.0.0a1] — 2026-11-10
+
+The first installable preview of the focused rebuild, and not an upgrade from 2.x:
+[PyPI `3.0.0a1`](https://pypi.org/project/agentbreeder/3.0.0a1/),
+[npm `3.0.0-alpha.1`](https://www.npmjs.com/package/agentbreeder/v/3.0.0-alpha.1),
+[GitHub pre-release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a1).
+A bare `pip install agentbreeder` still installs 2.7.3.
+
+Verified from the public registries on 2026-11-10: on macOS with Docker Desktop, `quickstart` on
+pip, uvx and npx, and Northwind `services up` and `release` at 61/61 with a live `/invoke` and a
+full teardown. On Linux (Ubuntu 24.04 in a container), install, `--version` and `doctor` on all
+three paths only. See #754.
+
+### Installable preview (#751)
 - Version `3.0.0a1` from `agentbreeder.__version__`. The npm launcher is `3.0.0-alpha.1`.
 - The examples ship in the package (`src/agentbreeder/examples/`). Built-in content is checked
   against `_content.json` (a corruption check), and uv hardlink installs are supported.
@@ -20,10 +33,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
   `--exclude-newer` and a constraints file. It looks `uvx` up on PATH, skipping `node_modules`
   directories and refusing a match from the current directory. It has no dependencies or install
   scripts, and has `--launcher-version`.
-- `.github/workflows/release.yml` for `v3.*` tags (not yet run). It is set up to verify, build
-  twice and compare, attest, publish to TestPyPI and then PyPI through OIDC trusted publishing
-  behind environment approval, then create the GitHub pre-release. npm publishing stays off until
-  trusted publishing is set up.
+- `.github/workflows/release.yml` for `v3.*` tags. It verifies, builds twice and compares,
+  attests, publishes to TestPyPI and then PyPI through OIDC trusted publishing behind environment
+  approval, then creates the GitHub pre-release. `v3.0.0a1` shipped through it (run 42891188083).
+  Its npm job stays off until trusted publishing is set up: `3.0.0-alpha.1` was published manually,
+  without npm provenance (#794 tracks provenance for the next release).
 - New CI jobs:
   - `install-smoke`: from the built wheel, pip from the hashed requirements file and uv in
     hardlink mode, plus the 2.7.3 checks against a local index offering the pre-release;

@@ -8,10 +8,13 @@ import { Logo } from '@/components/logo';
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <>
-      <Banner id="rebuild-docs-2026-11">
+      <Banner id="preview-3-0-0a1">
         <span>
-          Preview, install from source. <code>pip install agentbreeder</code> still installs the
-          unmaintained 2.x:{' '}
+          Alpha preview: pin <code>3.0.0a1</code> when you{' '}
+          <Link href="/docs/install" className="underline underline-offset-4">
+            install
+          </Link>
+          . A bare <code>pip install agentbreeder</code> still installs the unmaintained 2.x:{' '}
           <Link href="/docs/legacy-2x" className="underline underline-offset-4">
             known issues
           </Link>

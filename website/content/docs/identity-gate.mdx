@@ -6,7 +6,7 @@ description: The rebuild's deploy-time identity gate, optional policy and approv
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Guarantee boundary">
-  Preview, install from source. The gate is a **deploy-time** check. Tool calls are mediated at
+  [Alpha preview](/docs/install). The gate is a **deploy-time** check. Tool calls are mediated at
   runtime only when the operator sets `runtime_enforcement.mode: mcp_http`, and only for MCP
   Streamable HTTP servers reached through the MCP egress sidecar. STDIO and in-process tools are
   never mediated. Anyone with Docker-socket or state-directory access can bypass local controls.

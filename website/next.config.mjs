@@ -18,7 +18,6 @@ const config = {
       { source: '/docs/preview/:slug', destination: '/docs/:slug', permanent: true },
       { source: '/docs/migrations', destination: '/docs/legacy-2x', permanent: false },
       { source: '/docs/a2a-protocol', destination: '/docs/legacy-2x', permanent: false },
-      { source: '/docs/agent-yaml', destination: '/docs/legacy-2x', permanent: false },
       { source: '/docs/api-stability', destination: '/docs/legacy-2x', permanent: false },
       { source: '/docs/authentication', destination: '/docs/legacy-2x', permanent: false },
       { source: '/docs/cli-reference', destination: '/docs/legacy-2x', permanent: false },

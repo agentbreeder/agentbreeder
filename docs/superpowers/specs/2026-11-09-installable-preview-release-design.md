@@ -288,6 +288,9 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
     (`docs/strategy/2026-04-30-week2-launch-pack.md`,
     `docs/superpowers/specs/2026-04-18-graphrag-design.md`), which describe 2.x. No companion
     cloud PR is needed for the tag. Re-check before P2 if cloud `main` moves.
+  - Re-check 2026-11-10 after the release (cloud `main` still at 8185882): same result, no pin and
+    no `0.0.0.dev0`. The only Cloud change is a `CLAUDE.md` note recording the release (a separate
+    PR linked to #755).
 - `website/`: §5.8. #783 consumes `example`, `quickstart` and `_content.json`.
 
 ## 10. Review log
@@ -437,3 +440,45 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
   that records the sha256s and uploads, and a separate `check` job (needs `build`) that downloads,
   verifies the sums and then runs the dist tests, the smoke installs and the upgrade guard.
   `attest` needs both, and the publish jobs take the sums only from `build`.
+- Release outcomes 2026-11-10 (P2–P5). Tag `v3.0.0a1` at `7c593c8`; release run 42891188083.
+  - **P2/P3, tag and TestPyPI.** verify, build, check and attest passed; TestPyPI upload 21:29Z.
+    The rehearsal passed on macOS and in a clean Ubuntu 24.04 container: pip, `--require-hashes`
+    with pip and uv (each with `install_smoke`), uvx, and npx from the attested tarball.
+  - **P4, publish.** PyPI upload 21:44:53Z, inside the launcher's `window_end`. GitHub pre-release
+    with wheel, sdist, tarball, `requirements-3.0.0a1.txt` and `SHA256SUMS`. npm
+    `3.0.0-alpha.1` published by the owner by hand with 2FA (tags `latest`, `next`), the recorded
+    exception to criterion 1: no npm provenance on this version. #794 tracks CI provenance for the
+    next release. From PyPI on macOS: pip and `--require-hashes` with `install_smoke`, uvx and
+    npx `quickstart --dry-run`; a bare install and an upgrade from 2.7.3 both give 2.7.3.
+  - **P5, #754.** Clean macOS sandbox (fresh `HOME`, no checkout, empty package caches; Docker
+    images and build layers on the host were not cleared): a real `quickstart` on pip, uvx and
+    npx; Northwind `services up` and `release` 61/61 from the pip install, with a live `/invoke`
+    and a full teardown. Timings are in the #754 comments and on the website install page.
+  - **Criterion 4 is met on macOS only.** Linux reached install, `--version` and `doctor` on all
+    three paths (Ubuntu 24.04 container, Node 18.19.1), not a real `quickstart` or Northwind: a
+    container sharing the Docker socket cannot reach the `127.0.0.1` ports it publishes. The owner
+    accepted this and closed #754; the docs claim Linux only to that extent. A real Linux host run
+    remains open.
+- r12 2026-11-10: Fable review of the #755 docs and website diff (3 high, 4 medium, 8 low; each
+  checked; fixed unless noted):
+  - `/docs/agent-yaml` still redirected to Legacy 2.x (`next.config.mjs`), so the page and its new
+    links were unreachable. Redirect removed.
+  - The install page's Northwind commands assumed `agentbreeder` on `PATH`; it now says how, and
+    covers uvx and npx.
+  - The install page said uvx bounds resolution with `--exclude-newer`. Only the npm launcher does;
+    reworded.
+  - Checkout-only paths on install-facing pages now use `agentbreeder example`. `docs/commands.md`
+    (in #755's scope) updated.
+  - The copy of the Northwind README inside the published `3.0.0a1` predates the release and cannot
+    change; the install page says so. The source tree at `3.0.0a1` now differs from the published
+    `3.0.0a1` in those README files only. No version bump in a docs PR: the next release takes it.
+  - The #754 record listed narrower Linux checks per path than the summary. Re-run the same day
+    from the public registries in a fresh Ubuntu 24.04 container (Node 18.19.1, uv 0.11.6, Docker
+    socket shared): install, `--version` and `doctor` passed on pip, uvx and npx, all exit 0.
+  - "macOS or Linux" wording narrowed; the docs banner id changed so a dismissed banner reappears;
+    pre-release README wording updated.
+  - Not changed: the homepage's copyable `git clone` command (a product choice for the owner; it
+    still works); `ROADMAP.md` P0 (updates when #751 closes); CHANGELOG link definitions (an older
+    pattern).
+  - Re-review: approved. Its one code nit (mixed command prefixes in a code block) was fixed; the
+    Linux re-run evidence goes in the PR description.
