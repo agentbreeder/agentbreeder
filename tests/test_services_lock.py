@@ -201,7 +201,9 @@ def test_gateway_needs_config_param():
         ServiceSpec.model_validate(data)
 
 
-NORTHWIND_GATEWAY = Path(__file__).parents[1] / "examples/northwind/stack/litellm/config.yaml"
+NORTHWIND_GATEWAY = (
+    Path(__file__).parents[1] / "src/agentbreeder/examples/northwind/stack/litellm/config.yaml"
+)
 
 
 def _review(tmp_path, data):

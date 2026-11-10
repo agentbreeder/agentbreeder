@@ -13,7 +13,7 @@ Requires macOS or Linux, Python 3.11+, and a running Docker engine with a local 
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install .
-.venv/bin/python examples/http-agent/quickstart.py
+.venv/bin/python src/agentbreeder/examples/http-agent/quickstart.py
 ```
 
 The demo builds a real sample image, deploys it, invokes its HTTP endpoint, retries the same deployment, verifies saved history, and removes its container and temporary image tag. It prints progress and the private directory containing its history and recovery files. No model account or API key is needed. Initial image downloads need internet access.
@@ -36,7 +36,7 @@ Run `.venv/bin/agentbreeder doctor` first. Start Docker Desktop or your local Do
 |---|---|
 | Docker cannot connect | Start the engine, check `docker context show`, then rerun doctor. |
 | Remote Docker context or `DOCKER_HOST` override | Choose a local Unix-socket context and unset the override. |
-| Image build fails | Run `docker build examples/http-agent` to see the build error; check registry access. |
+| Image build fails | Run `docker build src/agentbreeder/examples/http-agent` to see the build error; check registry access. |
 | Deployment or cleanup fails | Keep the printed state directory. Follow the printed removal command, or use the recovery commands below. |
 
 ```sh
@@ -60,17 +60,17 @@ knowledge, tools and evals; no agent code) into an image, and `agentbreeder rele
 candidate, runs its eval set and promotes it only if the gate passes. `agentbreeder services up`
 starts the services the agent needs from a `stack.yaml` (Postgres with pgvector, a LiteLLM
 gateway, Phoenix, project services) on local Docker and writes a demo operator config for them.
-`examples/northwind` runs this way end to end on macOS with Docker Desktop (61/61 evals,
+`src/agentbreeder/examples/northwind` runs this way end to end on macOS with Docker Desktop (61/61 evals,
 2026-11-08):
 
 ```sh
-cd examples/northwind
+cd src/agentbreeder/examples/northwind
 agentbreeder services up --environment dev --env-file ~/.env --yes
 agentbreeder release agent.yaml --stack . --environment dev
 agentbreeder services down --purge --yes   # after `agentbreeder remove ID --local --stack .`
 ```
 
-Local-only preview: see [examples/northwind](examples/northwind/README.md),
+Local-only preview: see [src/agentbreeder/examples/northwind](src/agentbreeder/examples/northwind/README.md),
 [agent.yaml](docs/agent-yaml.md) and [services](docs/services.md).
 
 ## Develop
@@ -78,8 +78,8 @@ Local-only preview: see [examples/northwind](examples/northwind/README.md),
 ```sh
 .venv/bin/python -m pip install -e '.[dev]'
 .venv/bin/python -m pytest
-.venv/bin/ruff check src tests examples/http-agent
-.venv/bin/ruff format --check src tests examples/http-agent
+.venv/bin/ruff check src tests scripts
+.venv/bin/ruff format --check src tests scripts
 .venv/bin/python -m build
 ```
 

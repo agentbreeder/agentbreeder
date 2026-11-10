@@ -15,6 +15,8 @@ from agentbreeder.manifest import Manifest
 from agentbreeder.runtime import Docker
 from agentbreeder.store import Store
 
+SAMPLE = Path(__file__).parents[1] / "src/agentbreeder/examples/http-agent"
+
 
 @pytest.mark.skipif(os.getenv("AGENTBREEDER_DOCKER_TEST") != "1", reason="Opt-in real Docker test")
 def test_real_docker_lifecycle(tmp_path):
@@ -39,7 +41,7 @@ def test_real_docker_lifecycle(tmp_path):
                 str(image_file),
                 "--tag",
                 tag,
-                str(Path(__file__).parents[1] / "examples/http-agent"),
+                str(SAMPLE),
             ],
             check=True,
             timeout=180,
@@ -92,7 +94,7 @@ def test_real_docker_secret_file(tmp_path):
     try:
         subprocess.run(
             ["docker", "--context", runtime.context, "build", "--iidfile", str(image_file),
-             "--tag", tag, str(Path(__file__).parents[1] / "examples/http-agent")],
+             "--tag", tag, str(SAMPLE)],
             check=True, timeout=180, capture_output=True,
         )  # fmt: skip
         manifest = Manifest.model_validate(

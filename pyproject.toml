@@ -52,7 +52,28 @@ agentbreeder = [
     # separately; build.py copies only the runtime's Dockerfile and runtime/ into a build
     # context, so they never reach an image (they are still part of the hashed version).
     "builtin_registry/**/*",
+    # Shipped examples (spec 5.4): explicit subtrees only. `**/*` skips dotfiles and
+    # dot-directories, so local state (.agentbreeder/, stack/.secrets/) never matches, and
+    # deploy/ is never listed. tests/test_packaging.py compares the wheel with _content.json.
+    "examples/http-agent/Dockerfile",
+    "examples/http-agent/README.md",
+    "examples/http-agent/agent.yaml",
+    "examples/http-agent/quickstart.py",
+    "examples/http-agent/server.py",
+    "examples/northwind/README.md",
+    "examples/northwind/agent.yaml",
+    "examples/northwind/agent.lock",
+    "examples/northwind/stack.yaml",
+    "examples/northwind/stack.lock",
+    "examples/northwind/registry/**/*",
+    "examples/northwind/stack/**/*",
+    "examples/northwind/stack/.dockerignore",
+    # Expected sha256 and exec bit of every shipped non-Python file (scripts/content_manifest.py).
+    "_content.json",
 ]
+
+[tool.setuptools.exclude-package-data]
+agentbreeder = ["__pycache__/*", "**/__pycache__/*", "*.pyc", "**/*.pyc", ".DS_Store", "**/.DS_Store"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -70,8 +91,8 @@ extend-exclude = [
     ".agents",
     ".codex",
     ".cursor",
-    # Example infrastructure copied from the reference agent (not AgentBreeder product code).
-    "examples/northwind/stack",
+    # Published Northwind registry versions are hashed in its locks; never reformat them.
+    "src/agentbreeder/examples/northwind",
 ]
 
 [tool.ruff.lint]

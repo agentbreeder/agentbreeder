@@ -1,7 +1,7 @@
 # Registries and `agent.lock` (preview)
 
 > Part of the `agent.yaml` build work (#725), preview. Registries, the lock file and
-> `agentbreeder build` (see `agent-yaml.md`) work today; verified with `examples/northwind`.
+> `agentbreeder build` (see `agent-yaml.md`) work today; verified with `src/agentbreeder/examples/northwind`.
 
 A registry is a directory of **immutable, versioned building blocks**: prompts, tools,
 knowledge sources, eval sets, runtimes and local backing `service`s (preview, see `services.md`). You

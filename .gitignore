@@ -112,6 +112,7 @@ docs/superpowers/private/
 /examples/go-agent/
 
 # Northwind example: generated secrets, operator state and build output (never commit)
-examples/northwind/stack/.secrets/
-examples/northwind/.agentbreeder/
-examples/northwind/deploy/
+# Local state of an example run in place (never tracked, never packaged).
+src/agentbreeder/examples/*/stack/.secrets/
+src/agentbreeder/examples/*/.agentbreeder/
+src/agentbreeder/examples/*/deploy/

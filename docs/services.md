@@ -3,7 +3,7 @@
 > **Local-only preview (#734).** `agentbreeder services` starts the services an agent needs
 > (Postgres, a model gateway, a trace collector, project helpers) on the local Docker engine and
 > writes a demo operator config for them. It is not production infrastructure. Verified on macOS
-> with Docker Desktop: `examples/northwind` started from scratch with `services up`, and
+> with Docker Desktop: `src/agentbreeder/examples/northwind` started from scratch with `services up`, and
 > `agentbreeder release` passed its 61-case eval gate (61/61, 2026-11-08). MCP servers run behind
 > a built-in relay (see [MCP servers](#mcp-servers-through-a-relay)). An agent built from
 > `agent.yaml` on `runtime/adk@1.1.0` calls tools through it. That is verified in Docker against
@@ -14,7 +14,7 @@ An agent built from `agent.yaml` needs backing services before it can run. A pro
 them in `stack.yaml` next to `agent.yaml`:
 
 ```
-cd examples/northwind
+cd src/agentbreeder/examples/northwind
 agentbreeder services up --environment dev --env-file ~/.env   # shows the grant; --yes confirms
 agentbreeder release agent.yaml --stack . --environment dev    # build → candidate → evals → promote
 agentbreeder services down --purge --yes                       # remove everything up made

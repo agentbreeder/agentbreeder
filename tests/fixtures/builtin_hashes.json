@@ -1,0 +1,16 @@
+{
+ "mcp/github@1.0.0": "sha256:fce1fd92f814b228dea8f31c8e661086e64ae3d8a6097c05fb8b6e919cb7b405",
+ "mcp/playwright@1.0.0": "sha256:1c9ef6f1c832fe9e2e8d1b207d3fea09203ae5d024d65f2d0fab2abb7c496f31",
+ "runtime/adk@1.0.4": "sha256:28e51805a3fb385aebe3560679b5fbb191e10f13777f92101016150aeb2ce4c6",
+ "runtime/adk@1.0.5": "sha256:982eae453dc3e2b18f3e5f4e7bc5960bb0e59f0d1376f0d228c7e771fa5c4e95",
+ "runtime/adk@1.0.6": "sha256:84f4ef39d26ee73f8180aa9faf8cabfebd2e3c0a039662d7d6482728c3591e48",
+ "runtime/adk@1.1.0": "sha256:313ec0c2ae61b2a260879738c32c1be98384399ce27d88d54d12c9e6fb403b68",
+ "service/echo@1.0.0": "sha256:39b4c22ce82d53ee7b3f9732ab5a250b46e623230bbd6aa09c1eb31b58a835b3",
+ "service/litellm@1.0.0": "sha256:48d0754ba83e6302e653c77f26fb5eeb7a3adcf6ba957411d427d02921026341",
+ "service/mcp-relay@1.0.0": "sha256:fc587fe2beb5230561b22777f99f0288b35bc118f4bfea34a4e630bfb0371cbe",
+ "service/mcp-relay@1.0.1": "sha256:1af7120eed33ad03fbb3dbe370dfb01ef82b8534c76c534f3a408df0b4033a58",
+ "service/phoenix@1.0.0": "sha256:3a7071f82aacc6ba76fd89c918ba3f6d08a3f7ad5793265014c9ba63777bc8d6",
+ "service/playwright-mcp@1.0.0": "sha256:5b13f7867ef164fa26ed9dfebb082f928f315673771e79debefe535e0dad8ec3",
+ "service/postgres-pgvector@1.0.0": "sha256:a1d15ca0f25a49c64aa354d6b0eea573231687b3c096958a40e7f3ed5d6ae780",
+ "service/postgres-pgvector@1.1.0": "sha256:b8eb6826b25bfaf1cda0eb93214b1e4803da53c872054d5287c953ab7090914b"
+}

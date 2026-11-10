@@ -6,7 +6,7 @@
 - `src/agentbreeder/doctor.py`: read-only local Docker diagnostic with a timeout.
 - `src/agentbreeder/cli.py`: validate, doctor, deploy, status, remove, approve/reject, approve-call/reject-call, disable/enable, reconcile, audit list/verify and login.
 - Identity gate (#701): `operator_config.py` (operator enforcement/environments), `identity/` (read-only IdP adapters), `deployer.py` (OIDC-verified deployers), `policy/` (Cedar/OPA/AuthZEN PDP), `gate.py` (deploy-time checks), `audit.py` (hash-chained attempt log). See `docs/identity-gate.md`.
-- `examples/http-agent`: real health/invocation sample; not an AI agent or production service.
+- `src/agentbreeder/examples/http-agent`: real health/invocation sample; not an AI agent or production service.
 - Agent building (#725, preview):
   - `agentfile.py` reads `agent.yaml` (authoring schema, `kind: agent`).
   - `registry.py` and `lock.py` handle versioned, content-hashed registries and `agent.lock`.
@@ -16,7 +16,7 @@
   - `gateway_keys.py` mints a LiteLLM virtual key per deployment.
   - `evals.py` and `release.py` (`agentbreeder eval` / `release`) run the eval gate and promote
     the exact evaluated image.
-  - Verified end to end with `examples/northwind`. See `docs/agent-yaml.md` and
+  - Verified end to end with `src/agentbreeder/examples/northwind`. See `docs/agent-yaml.md` and
     `docs/registry.md`.
 - Local backing services (#734, local-only preview): `services/` reads `stack.yaml` and
   `service.yaml` (`schema.py`), checks references and taint rules (`refs.py`), locks versions
@@ -24,7 +24,7 @@
   under `~/.agentbreeder/stacks/` (`state.py`) and writes a demo operator config (`operator.py`);
   `engine.py` runs `agentbreeder services up|status|logs|env|down`. Built-ins live in
   `builtin_registry/service/` (postgres-pgvector, litellm, phoenix, echo). Verified with
-  `examples/northwind` (61/61). See `docs/services.md`.
+  `src/agentbreeder/examples/northwind` (61/61). See `docs/services.md`.
 
 ## Next implementation
 

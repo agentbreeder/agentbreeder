@@ -16,11 +16,13 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -e '.[dev]'
-      - run: ruff check src tests examples/http-agent
-      - run: ruff format --check src tests examples/http-agent
+      - run: ruff check src tests scripts
+      - run: ruff format --check src tests scripts
+      - run: python scripts/content_manifest.py --check
       - run: python -m pytest
+      - run: AGENTBREEDER_PACKAGING_TEST=1 python -m pytest tests/test_packaging.py -q
       - run: python -m build
-      - run: agentbreeder validate examples/http-agent/agent.yaml
+      - run: agentbreeder validate src/agentbreeder/examples/http-agent/agent.yaml
       - run: AGENTBREEDER_DOCKER_TEST=1 python -m pytest tests/test_local_integration.py -q
   runtime-adk:
     # The ADK runtime's own tests (its MCP client against the real relay, #746) need the

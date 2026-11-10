@@ -136,7 +136,7 @@ Limits:
 
 ## Try it: Northwind
 
-[`examples/northwind`](https://github.com/agentbreeder/agentbreeder/tree/main/examples/northwind)
+[`src/agentbreeder/examples/northwind`](https://github.com/agentbreeder/agentbreeder/tree/main/src/agentbreeder/examples/northwind)
 is a customer support agent with knowledge search, memory, order lookup, staff-approved
 cancellations, web search and escalation. It's about 35 lines of `agent.yaml` plus registry
 entries. Its services (Postgres with pgvector, LiteLLM, Phoenix, a key proxy and an ops
@@ -145,7 +145,7 @@ dashboard) come from its `stack.yaml` (see [Backing services](/docs/services)). 
 measured about $0.24.
 
 ```sh
-cd examples/northwind
+cd src/agentbreeder/examples/northwind
 agentbreeder services up --environment dev --env-file ~/.env --yes
 agentbreeder release agent.yaml --stack . --environment dev
 ```

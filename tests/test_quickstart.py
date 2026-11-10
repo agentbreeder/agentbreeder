@@ -8,7 +8,7 @@ from agentbreeder.store import Store
 
 
 def load_demo(tmp_path, monkeypatch):
-    path = Path(__file__).parents[1] / "examples/http-agent/quickstart.py"
+    path = Path(__file__).parents[1] / "src/agentbreeder/examples/http-agent/quickstart.py"
     spec = importlib.util.spec_from_file_location("quickstart", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

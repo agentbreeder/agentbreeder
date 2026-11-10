@@ -9,6 +9,6 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: docker
-    directory: /examples/http-agent
+    directory: /src/agentbreeder/examples/http-agent
     schedule:
       interval: weekly
