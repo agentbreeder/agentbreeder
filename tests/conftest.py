@@ -14,6 +14,14 @@ AUTHORITY = "tenant-a"
 IMAGE = "sha256:" + "a" * 64
 
 
+@pytest.fixture(autouse=True)
+def _no_real_legacy_home(monkeypatch):
+    """`doctor` must not see the developer's real ~/.agentbreeder (2.x state adds an INFO line)."""
+    from agentbreeder import cli
+
+    monkeypatch.setattr(cli, "check_legacy", lambda: [])
+
+
 def principal_entry(**overrides) -> dict:
     entry = {
         "kind": "agent",

@@ -26,8 +26,13 @@
   exactly; only the executable bit is meaningful (as `copy_and_hash` already treats it).
 - 3.x home state (`local/`, `stacks/`, `operator.yaml`, `oidc-token`) does not collide with 2.x
   names at `v2.7.3` (`workspace.yaml`, `infra-state.json`, `context.json`, `registry/`,
-  `providers.local.yaml`, `layout.json`, `evals/`, `.env`, compose files). `doctor` markers:
-  `workspace.yaml`, `infra-state.json`, `context.json`.
+  `providers.local.yaml`, `layout.json`, `evals/`, `.env`, compose files). `doctor` markers
+  (S6 correction, review r9): every 2.x name written directly under `~/.agentbreeder` (`.env`,
+  `builders/`, `context.json`, `docker-compose*.yml`, `evals/`, `providers.json`,
+  `providers.local.yaml`, `quickstart-runtime.json`, `registry/`, `state.json`,
+  `workspace.yaml`). `infra-state.json` and `layout.json` are dropped: 2.x wrote them in each
+  project's `.agentbreeder/`, not in the home directory. The first list would have missed a real
+  2.x home (`state.json`, `registry/`, `evals/`, `builders/`, `docker-compose.ui.yml`).
 - One tracked dotfile under examples: `northwind/stack/.dockerignore`.
 
 ## Code slices
@@ -129,6 +134,8 @@
 ### S6. 2.x notice (#753)
 - README top block + PyPI long description (§5.6). `doctor` INFO line when any marker exists:
   "2.x state found in ~/.agentbreeder; 3.x does not read or change it". Tests with a temp HOME.
+  The README is the PyPI long description, so its relative links (which 404 on PyPI) become
+  absolute; a test keeps them absolute, and `twine check --strict` passes on both dists.
 
 ### S7. npx launcher (#782)
 - `npm/package.json` (`agentbreeder`, version via `npm_version()`, `bin`, `engines.node >=18`,
@@ -168,7 +175,8 @@
   > 1` on a built-in file, then `--version`, `registry verify`, `example northwind`, `validate`,
   the stub-builder locked build, `quickstart --dry-run`); `npm-launcher`; `content_manifest
   --check`; `sync_npm --check`; `upgrade-guard` (after publish only; before that against TestPyPI):
-  install `agentbreeder==2.7.3`, run `pip install -U agentbreeder`, assert 2.7.3. `actionlint` and
+  install `agentbreeder==2.7.3`, run `pip install -U agentbreeder`, assert 2.7.3; and a bare
+  `pip install agentbreeder` in a fresh venv installs 2.7.3 (the README's S6 claim). `actionlint` and
   `zizmor` on workflow files.
 - References to update (re-check each): `.github/dependabot.yml`, `ci.yml` (ruff paths, validate
   path), `.gitignore`, `.gitleaks.toml`, `pyproject.toml` (ruff `extend-exclude`), `AGENT.md`,
@@ -200,7 +208,9 @@
   (otherwise cut `3.0.0a2`); owner publishes npm `3.0.0-alpha.1` manually with 2FA from the
   attested tgz (sha256 checked). That version has no npm provenance: a recorded exception to
   criterion 1, citing §3.5.4. Owner then sets up npm trusted publishing and
-  `NPM_TRUSTED_PUBLISHING=true`. `upgrade-guard` switches to PyPI.
+  `NPM_TRUSTED_PUBLISHING=true`. `upgrade-guard` switches to PyPI; its pass is the end-to-end
+  check of the README's "a bare `pip install agentbreeder` still installs 2.7.3" (S6), and if it
+  fails the README notice is corrected before anything else.
 - **P5 #754** clean-machine run, all three paths, Northwind 61/61 (owner's model keys; about $0.24
   per release for the judge, measured 2026-11-08); steps, times, admin vs developer effort,
   redacted transcripts. Then the second half of #755 in a follow-up PR: website install page,

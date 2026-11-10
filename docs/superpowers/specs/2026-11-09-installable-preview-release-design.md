@@ -348,3 +348,13 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
   restored); dry-run tests that prove `validate` ran and fail on a copy, validate or workdir error;
   the shipped sample README points at `agentbreeder quickstart`; unexpected in-process exceptions
   print only their type (their text can carry local details); docstring timeouts corrected.
+- r9 2026-11-10: Fable review of the S6 code (1 medium, 4 low, 3 nits; each checked; 7 fixed,
+  1 deferred to its check): `doctor`'s exact-output test failed on a machine with 2.x home state,
+  so tests stub the legacy check by default; the doctor markers are the 2.x names written under
+  `~/.agentbreeder` at `v2.7.3` (`layout.json` dropped as project-local like `infra-state.json`;
+  `.env`, 2.x's fallback secrets file, added); the no-collision test scans the package source for
+  every 3.x home path instead of a hard-coded list; globbed compose files are reported as the
+  pattern, never as raw names; README links are checked to exist. The README is the PyPI long
+  description, so its relative links became absolute (`twine check --strict` passes on both
+  dists). Deferred: "a bare `pip install agentbreeder` still installs 2.7.3" is reasoned from
+  PEP 440 pre-release rules and is checked end to end by `upgrade-guard` at P4.
