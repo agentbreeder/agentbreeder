@@ -1,0 +1,7 @@
+kind: mcp
+name: playwright
+version: 1.0.0
+description: >-
+  A headless browser (Microsoft Playwright MCP) as a stack service behind the relay. stack.yaml
+  needs a service with ref service/playwright-mcp@1.0.0. No egress until #747: the agent can
+  open data: pages it builds, not the web. Tools: navigate, snapshot, click, type, close.

@@ -1,0 +1,29 @@
+image: mcr.microsoft.com/playwright/mcp@sha256:690763cbb437ee7233f538a953bb5390bf03791eb5c965b471e59d17a6132fcb
+command:
+  - /usr/bin/tini
+  - -s
+  - --
+  - node
+  - /app/cli.js
+  - --headless
+  - --browser
+  - chromium
+  - --no-sandbox
+  - --isolated
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8931"
+  - --allowed-hosts
+  - "*"
+  - --output-dir
+  - /tmp/output
+  - --output-max-size
+  - "16777216"
+  - --image-responses
+  - omit
+  - --no-webmcp
+env:
+  HOME: /tmp
+ports:
+  http: {port: 8931, expose: internal}

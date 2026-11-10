@@ -1001,3 +1001,47 @@ against google-adk 2.12.0 and mcp 2.3.0:
   default-configured library span, plus one checking that `setup()` uses the wrapper.
 - **Owner decision (2026-11-09):** one MCP session per deployment is accepted for #746.
   Per-conversation sessions are decided with #747.
+
+r14 (slice 4e, #748, narrowed to GitHub and Playwright by the 2026-11-09 roadmap):
+- **Shipped:** `mcp/github@1.0.0` (remote `https://api.githubcopilot.com/mcp/`, bearer from
+  `GITHUB_MCP_TOKEN`), and `mcp/playwright@1.0.0` with its upstream
+  `service/playwright-mcp@1.0.0` (Microsoft Playwright MCP v0.0.83, published 2026-10-09,
+  digest-pinned; `--headless --isolated --no-webmcp --image-responses omit`, image user `node`).
+  Slack, Supabase, Google Workspace and Stripe are not shipped at all, rather than shipped as
+  `unverified`; they wait for design-partner demand and owner credentials.
+- **Tool lists (§7.5):** only what the live run exercised. GitHub: five read tools (`get_me`,
+  `list_issues`, `issue_read`, `search_repositories`, `get_file_contents`) of the 46 the server
+  lists; no write tools until the owner approves them. Playwright: `browser_navigate`,
+  `browser_snapshot`, `browser_click`, `browser_type`, `browser_close`. Never declared:
+  `browser_evaluate`, `browser_run_code_unsafe`, `browser_file_upload` and the network-request
+  tools (a unit test refuses them).
+- **Playwright without #747 (§7.6.8, AC 12):** the forward proxy isn't built, so the service has
+  no egress at all. It joins only its relay's private internal network, so it opens `data:` pages
+  the agent supplies and resolves no outside names (the live run checks
+  `ERR_NAME_NOT_RESOLVED`). That is the default hardening, so AC 12 holds without an exception.
+  The one-session-per-deployment decision (r13) means every customer of a deployment shares the
+  browser. That is documented, and per-conversation sessions stay with #747. `--allowed-hosts *`
+  is needed because the relay addresses the service by its stack name; only the relay reaches
+  the port. Chromium's process sandbox is off (`--no-sandbox`, the image default: it can't start
+  under `cap_drop: ALL`), so the container hardening and the missing egress are the boundary;
+  docs say so.
+- **Review (claude-fable-5-1, ad hoc, uncommitted diff):** no blocking findings. Fixed: the live
+  test always runs `services down` even when `remove` fails, uses a distinct stack per case, and
+  extends the credential check to the relay's `docker inspect` and the Compose file (§7.6.11);
+  docs name the disabled Chromium sandbox and word the DNS claim as "no route" (outside names
+  don't resolve on Docker 27.5, an implementation detail). Deferred: GitHub's `X-MCP-Readonly`
+  header needs an extra-headers field in `mcp.yaml` (follow-up); the grant filter already blocks
+  write tools.
+- **Live verification (AC 10), 2026-11-09, macOS, Docker 27.5:** `tests/test_mcp_builtins_live.py`
+  (opt-in `AGENTBREEDER_LIVE_MCP=1`) drives the CLI: `services up --yes`, `build`, a real
+  `deploy` (identity gate, per-deployment LLM key, relay token and grant), `POST /invoke`, then
+  `remove` and `services down --purge`. The model is a scripted fake gateway; the agent,
+  runtime, relay and upstream are real. Every scripted tool call returned real upstream data
+  (the GitHub profile, issue 1, the README; the Playwright page, the click and the typing), the
+  model was offered only granted tools, the relay logged each call `allow`, the GitHub token is
+  absent from the agent's `docker inspect` and logs and from the relay's logs, and `remove`
+  deleted the grant. Two runs, both green. Measured relay latency to GitHub: initialize about
+  0.8 s, `tools/list` about 0.7 s, calls 0.6 to 1.4 s. These are well inside the runtime's 10 s
+  timeouts.
+- **Test fixtures:** the unit tests' project-local `mcp/github@1.0.0` now conflicts with the
+  built-in (`REF_CONFLICT`, as designed), so `tests/test_mcp_stack.py` uses `mcp/github@0.1.0`.

@@ -1,0 +1,11 @@
+kind: service
+name: playwright-mcp
+version: 1.0.0
+description: >-
+  Microsoft Playwright MCP v0.0.83 (digest-pinned) as the upstream of `mcp/playwright`: headless
+  Chromium with an in-memory profile, Streamable HTTP on an internal port only its relay reaches.
+  No egress until the filtering forward proxy (#747) ships: the browser can open pages the agent
+  supplies (data: URLs) but has no route outside its private network. Read-only root, no
+  capabilities, image user `node`, image responses off. Chromium's own sandbox is off
+  (--no-sandbox; it can't start without capabilities), so the container hardening and the
+  missing egress are the boundary.

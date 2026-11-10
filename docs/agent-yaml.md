@@ -61,20 +61,23 @@ What happens at run time:
   fails.
 - **Sharing:** every customer of a deployment shares one MCP session, and the relay's per-token
   limits (4 concurrent calls, 60 requests a minute). Use only MCP servers whose session holds no
-  per-user state. Browser-type servers, which do, aren't supported yet (#747).
+  per-user state, or accept the sharing: with `mcp/playwright`, every customer drives the same
+  browser. Per-conversation sessions are #747.
 - **Unauthenticated callers:** `POST /invoke` is not authenticated, so whoever can reach the
   agent can make it call its granted MCP tools. That means loopback and, despite the `Host`
   check, other containers on the agents network. Authenticated invocation is #780.
 - **Tool data:** MCP tool arguments go to the agent's audit events and traces, and tool results
   to traces, as for registry tools.
 - **Timeouts:** connecting, initializing and listing tools each have 10 seconds, with one retry.
-  The relay's `tools/list` checks definitions against the upstream live, so a slow real upstream
-  may need more time. That hasn't been measured yet (#748).
+  The relay's `tools/list` checks definitions against the upstream live. Measured through the
+  relay to GitHub's hosted server: about 0.8 s to initialize and 0.7 s to list tools (#748).
 
 **What has been verified:** an agent built from `agent.yaml` called an MCP tool through the relay
 in Docker, against a mock MCP server and a fake LLM gateway (`tests/test_adk_mcp_docker.py`).
-Two things are not verified yet: the full `deploy` path with a real model, and the built-in MCP
-servers (#748).
+Through a real `deploy` (identity gate, relay token and grant file), a deployed agent called
+every tool of the built-in `mcp/github` and `mcp/playwright` through the relay to the real
+upstream, with a fake gateway asking for the tools (`tests/test_mcp_builtins_live.py`, #748,
+2026-11-09). The full `deploy` path with a real model is not verified yet.
 
 ## Validation rules
 

@@ -91,7 +91,7 @@ class RelayDocker(FakeDocker):
         return next(v["source"] for v in volumes if v["target"] == "/run/params/config")
 
 
-def write_mcp(project: Path, name="github", version="1.0.0", spec=None):
+def write_mcp(project: Path, name="github", version="0.1.0", spec=None):
     directory = project / "registry" / "mcp" / name / version
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "manifest.yaml").write_text(f"kind: mcp\nname: {name}\nversion: {version}\n")
@@ -101,7 +101,7 @@ def write_mcp(project: Path, name="github", version="1.0.0", spec=None):
 
 def stack(tools=("list_issues", "create_issue")) -> dict:
     data = copy.deepcopy(STACK)
-    data["mcp"] = {"github": {"ref": "mcp/github@1.0.0"}}
+    data["mcp"] = {"github": {"ref": "mcp/github@0.1.0"}}
     data["environment"]["agents"][AGENT]["mcp"] = {"github": list(tools)}
     return data
 
@@ -195,7 +195,7 @@ def test_up_starts_a_relay_and_writes_mcp_relays(project, tmp_path):
     dev = operator.model.environments["dev"]
     assert dev.mcp_relays["github"].url == "http://mcp-github:8080/mcp"
     assert dev.mcp_relays["github"].grants_dir == str(grants)
-    assert dev.mcp_relays["github"].ref == "mcp/github@1.0.0"
+    assert dev.mcp_relays["github"].ref == "mcp/github@0.1.0"
     assert dev.agents[AGENT].mcp == {"github": ["create_issue", "list_issues"]}
     assert result["mcp"]["github"]["state"] == "ok"
     # The canary is nowhere but its 0400 mount and the state's own copy.
@@ -228,7 +228,7 @@ def test_grant_text_names_origin_destination_and_tools(project):
         engine.close()
     text = grant_text(grants[0])
     assert "credential GITHUB_MCP_TOKEN will be sent to https://api.example.com:443" in text
-    assert "mcp/github@1.0.0 (project)" in text
+    assert "mcp/github@0.1.0 (project)" in text
     assert "create_issue (write, unpinned), list_issues (read, unpinned)" in text
     assert "effect` labels are untrusted" in text
 
@@ -847,7 +847,7 @@ def test_each_confirmed_server_is_locked_before_its_pins_are_served(project):
 
     write_mcp(project, name="tracker")
     data = stack()
-    data["mcp"]["tracker"] = {"ref": "mcp/tracker@1.0.0"}
+    data["mcp"]["tracker"] = {"ref": "mcp/tracker@0.1.0"}
     data["environment"]["agents"][AGENT]["mcp"]["tracker"] = ["list_issues"]
     write_project(project, stack=data)
     docker = SecondFails()

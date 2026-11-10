@@ -1,0 +1,13 @@
+upstream:
+  remote: {url: "https://api.githubcopilot.com/mcp/"}
+auth:
+  type: bearer
+  secret: token
+secrets:
+  token: {import: GITHUB_MCP_TOKEN}
+tools:
+  get_me: {effect: read}
+  list_issues: {effect: read}
+  issue_read: {effect: read}
+  search_repositories: {effect: read}
+  get_file_contents: {effect: read}

@@ -30,12 +30,12 @@ order.
 | `agent.yaml` → build → eval-gated release; registries and `agent.lock` | #725, #733 |
 | Backing services from `stack.yaml`; least-privilege database roles | #734, #749, #750 |
 | MCP registry kind, contracts and per-deployment grants; the built-in relay (`services up`); the ADK runtime's MCP client (`runtime/adk@1.1.0`) | #744, #745, #746 |
+| Built-in `mcp/github` and `mcp/playwright` (no egress), verified live through `deploy` | #748 |
 
 ## Priorities
 
 | Priority | Epic | Why |
 |---|---|---|
-| **P0** | Live-verified MCP built-in (#748; relay #745 and runtime client #746 done) | Enforced tool access with the credential outside the agent; already specced and started |
 | **P0** | Installable preview release (#751) | Nobody can try the rebuild without a source checkout |
 | **P1** | Governed onboarding of existing agents (#756) | Bring existing agents, in any framework, under the same controls without code changes |
 | **P1** | Release bundle and component lifecycle (#762) | Links ownership, dependencies, approval, deployment and revocation |
@@ -45,8 +45,9 @@ order.
 | **P2** | Data-routing policy and internal-only mode (#776) | Makes "data stays inside" checkable; moves to P1 for air-gapped users |
 | **P3** | Hosted control plane (agentbreeder-cloud#97) | Consumes the control-center API |
 
-Deferred: the browser forward proxy (#747) and the MCP built-ins beyond GitHub (#748; the
-Playwright built-in needs #747). Identity-gate follow-ups (#703, #705, #707) wait on live
+Next in lane A, unprioritised: the browser forward proxy and per-conversation MCP sessions
+(#747; until then `mcp/playwright` has no egress). Deferred: the Slack, Supabase, Google Workspace and Stripe built-ins,
+which wait for demand and test credentials. Identity-gate follow-ups (#703, #705, #707) wait on live
 identity-provider checks.
 
 ## Sequence and parallel work
@@ -58,7 +59,7 @@ Work is organised in **lanes**. Items in one lane run in order; lanes run in par
 
 | Lane | Order | Needs |
 |---|---|---|
-| A: MCP | #745 relay → #746 runtime client → #748 GitHub built-in, live-verified | — |
+| A: MCP | #745 relay → #746 runtime client → #748 GitHub and Playwright built-ins (all done) → #747 forward proxy | — |
 | B: Release | #752 packaging and PyPI → #753 2.x notice and #755 install docs (parallel) → #754 clean-machine verification | — |
 
 ### Milestone 2 (P1, governance core)
@@ -93,7 +94,7 @@ Work is organised in **lanes**. Items in one lane run in order; lanes run in par
 ```mermaid
 flowchart LR
   subgraph M1["Milestone 1 - P0"]
-    I745["#745 relay"] --> I746["#746 runtime MCP"] --> I748["#748 GitHub built-in"]
+    I745["#745 relay"] --> I746["#746 runtime MCP"] --> I748["#748 GitHub + Playwright built-ins"]
     I752["#752 PyPI"] --> I753["#753 2.x notice"]
     I752 --> I755["#755 install docs"]
     I752 --> I754["#754 clean-machine run"]

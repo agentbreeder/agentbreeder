@@ -1,0 +1,10 @@
+upstream:
+  service: {ref: service/playwright-mcp@1.0.0, port: http, path: /mcp}
+auth:
+  type: none
+tools:
+  browser_navigate: {effect: write}
+  browser_snapshot: {effect: read}
+  browser_click: {effect: write}
+  browser_type: {effect: write}
+  browser_close: {effect: write}
