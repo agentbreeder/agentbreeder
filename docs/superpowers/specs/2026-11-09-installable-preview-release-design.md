@@ -339,3 +339,12 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
   now `COPY_FAILED` / `DESTINATION_NOT_EMPTY` / `DESTINATION_UNSAFE`; a failed copy left created
   parent directories, now removed. Nits taken: directory modes ignore the umask, manifest paths are
   checked with `_safe_name`, an entry appearing mid-copy is refused and kept, more tests.
+- r8 2026-11-09: Fable review of the S5 code (no high findings; 1 medium, 4 low, 2 nits; each
+  checked, all fixed): the in-process path was only covered by the Docker-gated test, so a
+  no-Docker test now runs the real `cli.main`, static-adapter gate and SQLite store with only
+  Docker faked, and the real run is recorded (the Docker test, and `agentbreeder quickstart` from a
+  non-editable `pip install .` in a fresh venv: all five steps, exit 0, no demo container or image
+  left; macOS + Docker Desktop). Also: a Ctrl-C test (cleanup in `finally`, environment
+  restored); dry-run tests that prove `validate` ran and fail on a copy, validate or workdir error;
+  the shipped sample README points at `agentbreeder quickstart`; unexpected in-process exceptions
+  print only their type (their text can carry local details); docstring timeouts corrected.

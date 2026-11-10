@@ -350,7 +350,7 @@
   },
   "examples/http-agent/README.md": {
    "exec": false,
-   "sha256": "8abdc45b718bd9999c65613cc87be68f9b40f42c47105846be7ca1f372321e8f"
+   "sha256": "6df4aca9760ed9514068b24795d8dae4da7ae3125e630e97390c29a876675e8e"
   },
   "examples/http-agent/agent.yaml": {
    "exec": false,
@@ -358,7 +358,7 @@
   },
   "examples/http-agent/quickstart.py": {
    "exec": false,
-   "sha256": "4ecb08b01a1cf58018736757dfa3a920b219d9be2e57818cbaa8f83d60fd0f27"
+   "sha256": "fc564086ffe929ca4cc4db87a64885bd7db4e5d7298c913679a62968da4e9f04"
   },
   "examples/http-agent/server.py": {
    "exec": false,

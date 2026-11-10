@@ -2,7 +2,7 @@
 
 Requires macOS or Linux, a running local Docker context, and a trusted stateless image. The service uses your local Docker permissions; it does not provide enterprise RBAC. Containers bind only to loopback and run as UID 65532 with a read-only filesystem. Image-declared volumes and secret injection are rejected.
 
-Every deploy passes the identity gate (`identity-gate.md`), so you need an operator config and an onboarded agent principal first. Without them the deploy fails closed (`CONTEXT_ENVIRONMENT_UNKNOWN`). For a local trial, use the static adapter as `src/agentbreeder/examples/http-agent/quickstart.py` does; real operators point a provider at their IdP instead. Both files must be private (mode 0600).
+Every deploy passes the identity gate (`identity-gate.md`), so you need an operator config and an onboarded agent principal first. Without them the deploy fails closed (`CONTEXT_ENVIRONMENT_UNKNOWN`). For a local trial, use the static adapter as `agentbreeder quickstart` does; real operators point a provider at their IdP instead. Both files must be private (mode 0600).
 
 ```sh
 mkdir -p ~/agentbreeder-trial && cd ~/agentbreeder-trial

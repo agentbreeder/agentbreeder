@@ -13,8 +13,10 @@ Requires macOS or Linux, Python 3.11+, and a running Docker engine with a local 
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install .
-.venv/bin/python src/agentbreeder/examples/http-agent/quickstart.py
+.venv/bin/agentbreeder quickstart
 ```
+
+`agentbreeder quickstart --dry-run` runs `doctor` and validates the sample without building or deploying anything.
 
 The demo builds a real sample image, deploys it, invokes its HTTP endpoint, retries the same deployment, verifies saved history, and removes its container and temporary image tag. It prints progress and the private directory containing its history and recovery files. No model account or API key is needed. Initial image downloads need internet access.
 

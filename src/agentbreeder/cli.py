@@ -70,6 +70,18 @@ def _parser() -> argparse.ArgumentParser:
     )
     example.add_argument("name", help="Example name, or `list`")
     example.add_argument("dir", nargs="?", type=Path, help="Destination (default ./NAME)")
+    quick = commands.add_parser(
+        "quickstart",
+        help="Build, gate, deploy, invoke and remove the sample (needs Docker)",
+        description=(
+            "Build the shipped http-agent sample, pass it through a demo identity gate (static "
+            "adapter), deploy it locally, invoke it, then remove it. History is kept in a "
+            "temporary directory that is printed first."
+        ),
+    )
+    quick.add_argument(
+        "--dry-run", action="store_true", help="Run doctor and validate only; no Docker changes"
+    )
 
     def stateful(name, help_text, positional=None, local=False):
         command = commands.add_parser(name, help=help_text)
@@ -502,6 +514,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if all(check.passed or not check.required for check in checks) else 1
     if args.command == "example":
         return _example(args)
+    if args.command == "quickstart":
+        from agentbreeder import quickstart
+
+        return quickstart.main(dry_run=args.dry_run)
     if args.command == "registry":
         return _registry(args)
     if args.command == "build":
