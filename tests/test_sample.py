@@ -13,7 +13,7 @@ import pytest
 
 @pytest.fixture
 def server():
-    path = Path(__file__).parents[1] / "examples/http-agent/server.py"
+    path = Path(__file__).parents[1] / "src/agentbreeder/examples/http-agent/server.py"
     spec = importlib.util.spec_from_file_location("sample", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

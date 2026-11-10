@@ -4,12 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentbreeder"
-version = "0.0.0.dev0"
-description = "Development foundation for deploying existing agents in customer infrastructure"
+dynamic = ["version"]
+description = "Preview: build, gate and deploy agents with a deploy-time identity gate and audit trail"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = ["pydantic>=2.13.4,<3", "PyYAML>=6.0.3,<7"]
 
 [project.optional-dependencies]
@@ -17,10 +28,19 @@ cedar = ["cedarpy==4.12.2"]
 aws = ["boto3>=1.40,<2"]
 # `agentbreeder eval` / `release` fixture resets (eval sets with fixtures.sql).
 eval = ["psycopg[binary]==3.3.6"]
-dev = ["pytest>=8,<10", "pytest-cov>=5,<8", "ruff>=0.11,<1", "build>=1,<2", "cryptography>=44", "cedarpy==4.12.2", "psycopg[binary]==3.3.6"]
+dev = ["pytest>=8,<10", "pytest-cov>=5,<8", "ruff>=0.11,<1", "build>=1,<2", "packaging>=24", "cryptography>=44", "cedarpy==4.12.2", "psycopg[binary]==3.3.6"]
+
+[project.urls]
+Homepage = "https://www.agentbreeder.io"
+Documentation = "https://www.agentbreeder.io/docs"
+Source = "https://github.com/agentbreeder/agentbreeder"
+"Legacy 2.x" = "https://www.agentbreeder.io/docs/legacy-2x"
 
 [project.scripts]
 agentbreeder = "agentbreeder.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "agentbreeder.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -32,7 +52,32 @@ agentbreeder = [
     # separately; build.py copies only the runtime's Dockerfile and runtime/ into a build
     # context, so they never reach an image (they are still part of the hashed version).
     "builtin_registry/**/*",
+    # Shipped examples (spec 5.4): explicit files, plus the immutable registry trees. `**/*`
+    # skips dotfiles and dot-directories, so local state (.agentbreeder/, stack/.secrets/) never
+    # matches, and deploy/ is never listed. The registry globs would take a stray untracked file;
+    # scripts/content_manifest.py --check (CI, release) refuses those, and an installed extra
+    # file fails the built-in content check. tests/test_packaging.py plants local state.
+    "examples/http-agent/Dockerfile",
+    "examples/http-agent/README.md",
+    "examples/http-agent/agent.yaml",
+    "examples/http-agent/quickstart.py",
+    "examples/http-agent/server.py",
+    "examples/northwind/README.md",
+    "examples/northwind/agent.yaml",
+    "examples/northwind/agent.lock",
+    "examples/northwind/stack.yaml",
+    "examples/northwind/stack.lock",
+    "examples/northwind/registry/**/*",
+    # stack/ is listed file by file: a glob would also take local run output (logs, dumps).
+    "examples/northwind/stack/.dockerignore",
+    "examples/northwind/stack/db/commerce.sql",
+    "examples/northwind/stack/litellm/config.yaml",
+    # Expected sha256 and exec bit of every shipped file (scripts/content_manifest.py).
+    "_content.json",
 ]
+
+[tool.setuptools.exclude-package-data]
+agentbreeder = ["__pycache__/*", "**/__pycache__/*", "*.pyc", "**/*.pyc", ".DS_Store", "**/.DS_Store"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -50,8 +95,8 @@ extend-exclude = [
     ".agents",
     ".codex",
     ".cursor",
-    # Example infrastructure copied from the reference agent (not AgentBreeder product code).
-    "examples/northwind/stack",
+    # Published Northwind registry versions are hashed in its locks; never reformat them.
+    "src/agentbreeder/examples/northwind",
 ]
 
 [tool.ruff.lint]

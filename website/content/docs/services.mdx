@@ -20,7 +20,7 @@ trace collector, sometimes project helpers. A project declares them in `stack.ya
 `agent.yaml`, and one command starts them:
 
 ```sh
-cd examples/northwind
+cd src/agentbreeder/examples/northwind
 agentbreeder services up --environment dev --env-file ~/.env   # shows the grant; --yes confirms
 agentbreeder release agent.yaml --stack . --environment dev    # build, candidate, evals, promote
 agentbreeder services down --purge --yes                       # remove everything up made

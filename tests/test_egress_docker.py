@@ -63,6 +63,8 @@ for key, step in plan.items():
 print(json.dumps(out))
 """
 
+SAMPLE = Path(__file__).parents[1] / "src/agentbreeder/examples/http-agent"
+
 
 def _exec(runtime, container, plan) -> dict:
     output = runtime.command(
@@ -87,7 +89,7 @@ def test_real_boundary_end_to_end(tmp_path, identity_env, monkeypatch):
     try:
         subprocess.run(
             ["docker", "--context", runtime.context, "build", "--iidfile", str(image_file),
-             "--tag", tag, str(Path(__file__).parents[1] / "examples/http-agent")],
+             "--tag", tag, str(SAMPLE)],
             check=True, timeout=180, capture_output=True,
         )  # fmt: skip
         image = image_file.read_text().strip()
@@ -185,7 +187,7 @@ def _deploy(tmp_path, identity_env, monkeypatch, runtime):
     image_file = tmp_path / "image-id"
     subprocess.run(
         ["docker", "--context", runtime.context, "build", "--iidfile", str(image_file),
-         str(Path(__file__).parents[1] / "examples/http-agent")],
+         str(SAMPLE)],
         check=True, timeout=180, capture_output=True,
     )  # fmt: skip
     manifest = Manifest.model_validate(

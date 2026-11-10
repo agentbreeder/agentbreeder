@@ -2,7 +2,7 @@
 
 > Part of the `agent.yaml` build work (#725), preview. `validate` and `build` work today with the
 > ADK runtime (`runtime/adk@1.0.6`). Verified end to end on macOS + Docker Desktop with the
-> Northwind example (`examples/northwind/`): its services started from `stack.yaml` with
+> Northwind example (`src/agentbreeder/examples/northwind/`): its services started from `stack.yaml` with
 > `agentbreeder services up` (see `services.md`), then built from `agent.yaml`, deployed through
 > the gate and released through the 61-case eval gate with `agentbreeder release` (61/61,
 > 2026-11-08).
@@ -158,7 +158,7 @@ the LiteLLM gateway, using the `openai/<alias>` route with `reasoning_effort` se
 - **Secrets:** read only from `*_FILE` mounts.
 - **Least privilege (1.0.6):** if the database owner has already created the runtime's tables
   (`notes`, `tickets`, `turns`, `audit_events`) and the sessions schema, the runtime runs no DDL
-  on them, so its role needs only the grants it uses (see `examples/northwind/stack/db/commerce.sql`).
+  on them, so its role needs only the grants it uses (see `src/agentbreeder/examples/northwind/stack/db/commerce.sql`).
 
 Agents built from `agent.yaml` can't yet run behind the opt-in MCP egress sidecar
 (`runtime_enforcement: mcp_http`): the deploy is refused with `MODEL_ACCESS_UNSUPPORTED`, because

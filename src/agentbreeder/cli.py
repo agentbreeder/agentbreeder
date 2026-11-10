@@ -63,6 +63,25 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("--json", action="store_true", help="Print the validated manifest")
     doctor = commands.add_parser("doctor", help="Check local Docker prerequisites without changes")
     doctor.add_argument("--json", action="store_true")
+    example = commands.add_parser(
+        "example",
+        help="Copy a shipped example project (`example list` shows them)",
+        description="Copy a shipped example to DIR (default ./NAME). `example list` lists them.",
+    )
+    example.add_argument("name", help="Example name, or `list`")
+    example.add_argument("dir", nargs="?", type=Path, help="Destination (default ./NAME)")
+    quick = commands.add_parser(
+        "quickstart",
+        help="Build, gate, deploy, invoke and remove the sample (needs Docker)",
+        description=(
+            "Build the shipped http-agent sample, pass it through a demo identity gate (static "
+            "adapter), deploy it locally, invoke it, then remove it. History is kept in a "
+            "temporary directory that is printed first."
+        ),
+    )
+    quick.add_argument(
+        "--dry-run", action="store_true", help="Run doctor and validate only; no Docker changes"
+    )
 
     def stateful(name, help_text, positional=None, local=False):
         command = commands.add_parser(name, help=help_text)
@@ -457,6 +476,21 @@ def main(argv: list[str] | None = None) -> int:
                 "Build it with `agentbreeder build`."
             )
             return 0
+        if kind == "stack":
+            from agentbreeder.services.schema import ServiceError, load_stack
+
+            try:
+                stack = load_stack(args.manifest)
+            except ServiceError as error:
+                print(f"Validation failed: {error}", file=sys.stderr)
+                return 2
+            print(
+                stack.model_dump_json(indent=2)
+                if args.json
+                else f"Stack file schema is valid: {len(stack.services)} services. "
+                "`agentbreeder services up` checks references and starts them."
+            )
+            return 0
         try:
             manifest = load_manifest(args.manifest)
         except ManifestError as error:
@@ -478,6 +512,12 @@ def main(argv: list[str] | None = None) -> int:
                 mark = "PASS" if check.passed else "FAIL" if check.required else "WARN"
                 print(f"{mark} {check.name}: {check.message}")
         return 0 if all(check.passed or not check.required for check in checks) else 1
+    if args.command == "example":
+        return _example(args)
+    if args.command == "quickstart":
+        from agentbreeder import quickstart
+
+        return quickstart.main(dry_run=args.dry_run)
     if args.command == "registry":
         return _registry(args)
     if args.command == "build":
@@ -499,9 +539,27 @@ def main(argv: list[str] | None = None) -> int:
     return _stateful(args)
 
 
+def _example(args) -> int:
+    from agentbreeder import example
+
+    try:
+        if args.name == "list" and args.dir is None:
+            for name in example.names():
+                print(f"{name:12} {example.DESCRIPTIONS.get(name, '')}".rstrip())
+            return 0
+        destination = example.copy(args.name, args.dir or Path(args.name))
+    except example.ExampleError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    print(f"Copied {args.name} to {destination}")
+    print(f"Next: read {destination / 'README.md'}")
+    return 0
+
+
 def _file_kind(path: Path) -> str:
     try:
-        return agentfile.read(path)[0]
+        kind, data = agentfile.read(path)
+        return "stack" if kind == "unknown" and data.get("kind") == "stack" else kind
     except agentfile.AgentFileError:
         return "unknown"  # let the manifest loader report the precise problem
 
@@ -675,7 +733,10 @@ def _registry(args) -> int:
         for problem in problems:
             print(f"FAIL {problem['ref']}: {problem['error']}", file=sys.stderr)
         if not problems and not args.json:
-            print("OK: every registry version is intact")
+            print("OK: every registry version passed its safety and manifest checks")
+            builtin = registry.BUILTIN_ROOT
+            if builtin in search and builtin.is_dir() and registry.trusted_root(builtin):
+                print("Built-in content matches the shipped manifest (corruption check).")
         return 2 if problems else 0
     except registry.RegistryError as error:
         print(str(error), file=sys.stderr)

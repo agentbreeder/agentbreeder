@@ -26,7 +26,9 @@ def test_v2_round_trip_and_schema_doc_in_sync():
 
 
 def test_example_manifest_validates():
-    assert load_manifest(ROOT / "examples/http-agent/agent.yaml").schema_version == 2
+    assert (
+        load_manifest(ROOT / "src/agentbreeder/examples/http-agent/agent.yaml").schema_version == 2
+    )
 
 
 @pytest.mark.parametrize(

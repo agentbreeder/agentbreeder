@@ -31,7 +31,7 @@ enables the gateway's fallback route.
 ```
 python3 -m venv .venv && .venv/bin/pip install -e ".[eval]"   # at the repo root; there is no PyPI release. [eval] lets the eval gate reset fixtures in Postgres
 export PATH=$PWD/.venv/bin:$PATH
-cd examples/northwind
+cd src/agentbreeder/examples/northwind
 agentbreeder services up --environment dev --env-file ~/.env   # shows what it will run and grant; --yes confirms
 agentbreeder release agent.yaml --stack . --environment dev    # build → candidate → 61 evals → promote
 ```

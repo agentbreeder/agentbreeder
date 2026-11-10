@@ -1,7 +1,7 @@
 # Registries and `agent.lock` (preview)
 
 > Part of the `agent.yaml` build work (#725), preview. Registries, the lock file and
-> `agentbreeder build` (see `agent-yaml.md`) work today; verified with `examples/northwind`.
+> `agentbreeder build` (see `agent-yaml.md`) work today; verified with `src/agentbreeder/examples/northwind`.
 
 A registry is a directory of **immutable, versioned building blocks**: prompts, tools,
 knowledge sources, eval sets, runtimes and local backing `service`s (preview, see `services.md`). You
@@ -42,6 +42,12 @@ agentbreeder registry verify [--json]                 # exit 2 if any version is
   (`VERSION_EXISTS`).
 - **What a version may contain.** Only regular files and directories. Symlinks, hardlinks,
   FIFOs and devices are rejected (`ENTRY_UNSAFE`), as are `..` paths and non-UTF-8 names.
+- **Versions shipped with AgentBreeder** (the built-in registry and the shipped examples) may be
+  hardlinked, because installers such as uv hardlink installed files from their cache. They are
+  compared with the package's `_content.json` instead: same bytes, same executable bit, no extra
+  or missing files (`CONTENT_MISMATCH`; `CONTENT_MANIFEST_MISSING` if the manifest is unreadable).
+  This is a corruption check, not provenance: anyone who can write the install can rewrite the
+  manifest too. `publish` refuses these trees (`REGISTRY_READ_ONLY`).
 - **What the hash covers.** Each version is hashed (`sha256:…`) over its file paths, contents and
   executable bits. At build time the version is copied first and the copy is hashed, so the hash
   matches exactly what is built.
