@@ -174,8 +174,9 @@ failure is caught before the tag.
   out. The repo-root `examples/README.md` points to the new location.
 - `agentbreeder example list` and `agentbreeder example <name> [DIR]` (default `./<name>`). `DIR`
   must not exist, or must be an empty real directory (checked with `lstat`, not a symlink). The
-  copy reuses `registry.copy_and_hash` (`O_NOFOLLOW`, exclusive create) into a `mkdtemp` sibling,
-  then renames into place; it skips `__pycache__` and writes modes `0644`/`0755` from
+  copy reads each manifest-listed file with `O_NOFOLLOW` and writes with exclusive create into a
+  hidden staging directory inside the destination, then moves the entries into place (r7: renaming
+  a sibling over an empty destination replaced the caller's working directory); it skips `__pycache__` and writes modes `0644`/`0755` from
   the exec bit in `_content.json` (installs under umask 077 give 0600/0700, so only the exec bit
   is compared). The source is checked against `_content.json` first.
 - Tests: the copied Northwind validates (`agent.yaml`, `stack.yaml`) and `build --locked` passes
@@ -332,3 +333,9 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
   (`git add`, `scripts/content_manifest.py`); malformed manifest entries are a `RegistryError`,
   not a raw exception; `docs/registry.md` and the website document the built-in exception; the
   CLI's corruption-check line prints only when the trusted built-in root was searched.
+- r7 2026-11-09: Fable review of the S4 code (3 should-fix, nits; each checked, all fixed):
+  `example NAME .` renamed a sibling over the working directory, leaving the shell in an unlinked
+  directory, so staging moved inside the destination; filesystem errors were raw tracebacks and are
+  now `COPY_FAILED` / `DESTINATION_NOT_EMPTY` / `DESTINATION_UNSAFE`; a failed copy left created
+  parent directories, now removed. Nits taken: directory modes ignore the umask, manifest paths are
+  checked with `_safe_name`, an entry appearing mid-copy is refused and kept, more tests.

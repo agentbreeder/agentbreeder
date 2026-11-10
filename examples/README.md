@@ -8,5 +8,8 @@ checkout they live under [`src/agentbreeder/examples/`](../src/agentbreeder/exam
 - [`northwind`](../src/agentbreeder/examples/northwind/README.md): the Northwind support agent
   built from `agent.yaml`, with its backing services from `stack.yaml`.
 
+`agentbreeder example list` lists them and `agentbreeder example NAME [DIR]` copies one out
+(default `./NAME`). Only the shipped files are copied, never local state from a run in place.
+
 Published registry versions inside `northwind/registry/` are hashed in its locks. Don't edit
 them in place; publish a new version instead.

@@ -88,6 +88,19 @@
   `AGENTBREEDER_REGISTRY_PATH` pointing at the built-in root resolves to the same manifest check.
 
 ### S4. `agentbreeder example` (#752)
+- As built (supersedes the bullets below where they differ): the module is
+  `src/agentbreeder/example.py` (singular, so it does not read as the `examples/` data directory)
+  with `names()` and `copy()`. It does not reuse `copy_and_hash`: it reads each manifest file with
+  `O_NOFOLLOW` and checks sha256 + exec bit (once before writing, again for the bytes written),
+  stages in a hidden directory **inside** the destination and moves entries into place, so an
+  existing empty destination (even the working directory) keeps its inode and attributes; files
+  0644/0755 and directories inside the destination 0755 regardless of umask (parents it creates
+  follow the umask, like `mkdir -p`); the move is per entry, not one atomic rename (a tiny
+  check-to-rename window remains for a file created at the same path); on failure it removes staged and moved
+  entries and any directories it created; `OSError` becomes `COPY_FAILED` or
+  `DESTINATION_NOT_EMPTY`. `validate` also accepts a `stack.yaml` (schema only). The checks from
+  an installed wheel (copy, validate, `build --locked`) run in the S5/S8 install-smoke job; the S4
+  tests use the checkout and a simulated installed package.
 - `src/agentbreeder/examples.py`: `examples_root()` = the packaged directory; `list()`; `copy(name,
   dest)`. `dest` must be absent, or an empty real directory (`lstat`). The source is checked
   against `_content.json` first. The copy iterates the manifest's file list (never walks the
