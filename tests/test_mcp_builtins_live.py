@@ -45,6 +45,18 @@ PAGE = (
     "<button onclick=\"document.querySelector('h1').textContent='Clicked ok'\">Go</button>"
     "<input aria-label=Note>"
 )
+# A page that tries to call its own MCP server, past the relay's tool grant. A synchronous XHR,
+# so the result is on the page before the navigation returns. Chromium's Private Network Access
+# refuses it (a non-secure page reaching loopback or private addresses); this guards that.
+# The markers are split so the page source echoed in tool results never matches them.
+SELF_CALL = (
+    "data:text/html,<p id=r></p><script>"
+    "for (const u of ['http://localhost:8931/mcp','http://127.0.0.1:8931/mcp',"
+    "'http://browser:8931/mcp']) { const x = new XMLHttpRequest();"
+    " try { x.open('POST', u, false); x.setRequestHeader('Content-Type', 'text/plain');"
+    " x.send('{}'); document.getElementById('r').append(' SELF-' + 'REACHED ' + u); }"
+    " catch (e) { document.getElementById('r').append(' SELF-' + 'BLOCKED'); } }</script>"
+)
 
 
 def _github_case() -> dict:
@@ -104,13 +116,22 @@ def _playwright_case() -> dict:
                 "arguments": {"element": "Note textbox", "target": "e4", "text": "Typed ok"},
             },
             {"tool": "playwright_browser_snapshot", "arguments": {}},
+            {"tool": "playwright_browser_navigate", "arguments": {"url": SELF_CALL}},
+            {"tool": "playwright_browser_snapshot", "arguments": {}},
             {"tool": "playwright_browser_navigate", "arguments": {"url": "https://example.com/"}},
             {"tool": "playwright_browser_close", "arguments": {}},
         ],
         "offered": {f"playwright_{tool}" for tool in tools},
         # The page rendered, the click and the typing took effect; with no egress, outside
         # names don't resolve.
-        "expect": ["Hello from the relay", "Clicked ok", "Typed ok", "ERR_NAME_NOT_RESOLVED"],
+        "expect": [
+            "Hello from the relay",
+            "Clicked ok",
+            "Typed ok",
+            "SELF-BLOCKED SELF-BLOCKED SELF-BLOCKED",
+            "ERR_NAME_NOT_RESOLVED",
+        ],
+        "never": ["SELF-REACHED"],
         "credential": None,
         "needs": [],
     }
@@ -180,7 +201,7 @@ def write_case(root: Path, case: dict, name: str) -> None:
         "schema_version": 1,
         "name": "demo-agent",
         "runtime": "runtime/adk@1.1.0",
-        "model": {"alias": "m1", "reasoning": "none", "max_model_calls": 10},
+        "model": {"alias": "m1", "reasoning": "none", "max_model_calls": 12},
         "prompt": {"path": "prompt.md"},
         "mcp": case["agent_mcp"],
         "agent_events": "none",
@@ -247,6 +268,8 @@ def test_deployed_agent_calls_a_built_in_through_the_relay(name, tmp_path):
         assert reply["mcp_unavailable"] == []
         for text in case["expect"]:
             assert text.lower() in reply["reply"].lower(), (text, reply["reply"][:2000])
+        for text in case.get("never", []):
+            assert text not in reply["reply"], reply["reply"][:2000]
         if case.get("errors") is False:
             assert '"iserror": true' not in reply["reply"].lower(), reply["reply"][:2000]
 

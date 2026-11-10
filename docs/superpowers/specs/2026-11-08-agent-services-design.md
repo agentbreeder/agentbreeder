@@ -1032,6 +1032,15 @@ r14 (slice 4e, #748, narrowed to GitHub and Playwright by the 2026-11-09 roadmap
   don't resolve on Docker 27.5, an implementation detail). Deferred: GitHub's `X-MCP-Readonly`
   header needs an extra-headers field in `mcp.yaml` (follow-up); the grant filter already blocks
   write tools.
+- **Commit security review (automated):** flagged `--allowed-hosts *` as a relay bypass, because a
+  page in the browser could call its own MCP server and use tools the relay doesn't grant, such as
+  `browser_evaluate`. Checked live: Chromium 1.64 refuses every attempt (fetch, `no-cors`, sync
+  XHR to `localhost`, `127.0.0.1` and the service name) under Private Network Access, because a
+  non-secure page can't reach loopback or private address space. Pinning `--allowed-hosts` to
+  the stack name wouldn't help: a page using that name sends the same Host as the relay. The
+  live test now asserts the refusal, so an image upgrade can't silently drop it. #747 must keep
+  it with egress: Chromium bypasses a proxy for loopback, and a public https page is a secure
+  context, so the forward proxy work has to block or re-check self-access.
 - **Live verification (AC 10), 2026-11-09, macOS, Docker 27.5:** `tests/test_mcp_builtins_live.py`
   (opt-in `AGENTBREEDER_LIVE_MCP=1`) drives the CLI: `services up --yes`, `build`, a real
   `deploy` (identity gate, per-deployment LLM key, relay token and grant), `POST /invoke`, then

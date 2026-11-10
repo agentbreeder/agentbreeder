@@ -284,7 +284,12 @@ environment:
   #747:** it opens pages the agent supplies (`data:` URLs) and has no route outside its private
   network (on Docker 27.5 outside names don't even resolve), so it can't browse the web yet. Every customer of a deployment shares one browser (one MCP
   session per deployment), so use it only where that's acceptable, such as a single-user demo.
-  The tools that run code, upload files or read network traffic aren't declared.
+  The tools that run code, upload files or read network traffic aren't declared. The relay is
+  the only tool boundary: the server itself would serve every tool, and its Host check is off
+  (`--allowed-hosts *`, because the relay addresses it by its stack name). A page in the browser
+  can't call the server directly past the relay: Chromium's Private Network Access refuses a
+  non-secure page's requests to loopback and private addresses. The live test checks this for
+  `localhost`, `127.0.0.1` and the service's own name.
 
 Slack, Supabase, Google Workspace and Stripe aren't shipped; they wait for demand and test
 credentials.
