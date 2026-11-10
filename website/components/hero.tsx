@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
-const CLONE_CMD = 'git clone https://github.com/agentbreeder/agentbreeder';
+// Pinned: keep in step with the released version (docs/cross-repo-sync.md).
+const INSTALL_CMD = 'npx agentbreeder@3.0.0-alpha.1 quickstart';
 
 // A real schema-2 manifest: it validates with `agentbreeder validate` on main. The image digest
 // is shortened for display only.
@@ -90,9 +91,9 @@ export function Hero() {
   const [copied, setCopied] = useState(false);
   const shown = useSessionReplay(SESSION.length);
 
-  function copyCloneCmd() {
+  function copyInstallCmd() {
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(CLONE_CMD).then(() => {
+      navigator.clipboard.writeText(INSTALL_CMD).then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       });
@@ -185,7 +186,7 @@ export function Hero() {
               style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-hover)' }}
             >
               <span style={{ color: 'var(--accent)' }}>$</span>
-              <span className="text-xs sm:text-sm text-white flex-1 truncate">{CLONE_CMD}</span>
+              <span className="text-xs sm:text-sm text-white flex-1 truncate">{INSTALL_CMD}</span>
               <button
                 className="ml-2 rounded-md border px-2.5 py-0.5 font-sans text-xs transition-colors flex-shrink-0"
                 style={{
@@ -193,14 +194,14 @@ export function Hero() {
                   borderColor: 'var(--border)',
                   color: copied ? 'var(--accent)' : 'var(--text-muted)',
                 }}
-                onClick={copyCloneCmd}
+                onClick={copyInstallCmd}
               >
                 {copied ? 'copied!' : 'copy'}
               </button>
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
               <Link
-                href="/docs"
+                href="/docs/install"
                 className="rounded-lg px-5 py-2.5 text-sm font-bold no-underline text-center transition-opacity hover:opacity-90"
                 style={{ background: 'var(--accent)', color: '#000' }}
               >

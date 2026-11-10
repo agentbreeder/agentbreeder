@@ -477,8 +477,12 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
     socket shared): install, `--version` and `doctor` passed on pip, uvx and npx, all exit 0.
   - "macOS or Linux" wording narrowed; the docs banner id changed so a dismissed banner reappears;
     pre-release README wording updated.
-  - Not changed: the homepage's copyable `git clone` command (a product choice for the owner; it
-    still works); `ROADMAP.md` P0 (updates when #751 closes); CHANGELOG link definitions (an older
+  - Not changed: `ROADMAP.md` P0 (updates when #751 closes); CHANGELOG link definitions (an older
     pattern).
   - Re-review: approved. Its one code nit (mixed command prefixes in a code block) was fixed; the
     Linux re-run evidence goes in the PR description.
+  - After that re-review, on the owner's decision, the homepage's copyable command changed from
+    `git clone` to `npx agentbreeder@3.0.0-alpha.1 quickstart`, and the demo button now opens the
+    install page. Fable reviewed this separately: approved. Its notes: the command has no
+    prerequisites caption beside it (left as is; the button leads to them), and `sync_npm.py` does
+    not check the homepage pin, so `docs/cross-repo-sync.md` lists it as a release step.

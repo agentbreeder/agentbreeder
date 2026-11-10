@@ -34,7 +34,7 @@ Edit `brand.css` here first, then re-vendor in Cloud and let the drift check con
 |---|---|---|---|
 | Manifest field or CLI flag | `docs/manifest.md`, `docs/manifest.schema.json`, tests | Search for the field; today nothing consumes it | Update `website/content/docs/manifest.mdx` |
 | Identity gate or runtime enforcement | `docs/identity-gate.md` | Note in Cloud `CLAUDE.md` if Cloud should expose it | Update `website/content/docs/identity-gate.mdx` (and `what-ships.tsx` if a capability changes) |
-| New rebuild release (PyPI/npm) | `CHANGELOG.md`; the pins in `README.md`, `npm/README.md` and the Northwind README; `scripts/sync_npm.py --check` | Grep for version pins; companion PR if needed; note it in Cloud `CLAUDE.md` | Footer badge in `website/components/footer.tsx` shows the exact released version; pins and verified scope in `website/content/docs/install.mdx`; `what-ships.tsx` |
+| New rebuild release (PyPI/npm) | `CHANGELOG.md`; the pins in `README.md`, `npm/README.md` and the Northwind README; `scripts/sync_npm.py --check` | Grep for version pins; companion PR if needed; note it in Cloud `CLAUDE.md` | Footer badge in `website/components/footer.tsx` shows the exact released version; pins and verified scope in `website/content/docs/install.mdx`; the npx pin in `website/components/hero.tsx`; `what-ships.tsx` |
 | `brand.css` | Edit `website/brand.css` | Re-vendor `tokens.css`; run `tokens:check` | Adopt once visually reviewed |
 
 The release rows may claim only what has been run from the published packages. As of `3.0.0a1`
