@@ -1,7 +1,9 @@
 # Release (spec 5.2, plan S8). Runs only for v3.* tags; publishing waits on environment approval.
 # Actions are pinned by commit SHA to releases at least two weeks old; no caches; the tag name
-# reaches `run:` only through `env:`. Jobs with `id-token: write` check out no code and run no
-# build tool: they check the artifacts against the build job's recorded sha256s and upload.
+# reaches `run:` only through `env:`. The build job runs only hash-pinned tools and records the
+# sha256s; tests and smoke installs run in a separate `check` job. Jobs with `id-token: write`
+# check out no code and run no build tool: they check the artifacts against the build job's
+# recorded sha256s and upload.
 name: Release
 on:
   push:
@@ -98,14 +100,51 @@ jobs:
         run: |
           VERSION="$(python -c 'import sys; sys.path.insert(0, "src"); import agentbreeder; print(agentbreeder.__version__)')"
           python scripts/release_check.py requirements --wheel dist/*.whl --sdist dist/*.tar.gz --out "dist/requirements-$VERSION.txt"
-      - name: Record the built files' sha256s before any other code runs
-        id: built
+      - name: Record sha256s (only hash-pinned build tools have run in this job)
+        id: sums
         run: |
-          {
-            echo 'sums<<EOF'
-            (cd dist && sha256sum -- *)
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
+          cd dist
+          sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
+          cat SHA256SUMS
+          echo "sums=$(sha256sum SHA256SUMS | cut -c1-64)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  check:
+    # Tests and smoke installs pull unhashed dependencies and run them, so they run here, apart
+    # from the build: nothing in this job can change the uploaded artifact or the build's sums.
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.11.6'
+          enable-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Check the artifacts are exactly the ones built
+        env:
+          SUMS: ${{ needs.build.outputs.sums }}
+        run: |
+          cd dist
+          echo "$SUMS  SHA256SUMS" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
+          diff <(find . -mindepth 1 ! -name SHA256SUMS -printf '%P\n' | sort) <(awk '{print $2}' SHA256SUMS | sort)
       - name: The release artifacts are exactly the allowlist
         run: |
           python -m venv "$RUNNER_TEMP/test-venv"
@@ -128,26 +167,9 @@ jobs:
           cd "$RUNNER_TEMP" && "$RUNNER_TEMP/uv-venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/install_smoke.py" --version "$VERSION" --hardlinked
       - name: pip still installs 2.7.3 with this pre-release on the index
         run: python scripts/upgrade_guard.py --wheel dist/*.whl
-      - name: Check the built files are unchanged, then record all sha256s
-        id: sums
-        env:
-          BUILT: ${{ steps.built.outputs.sums }}
-        run: |
-          cd dist
-          printf '%s\n' "$BUILT" | sha256sum --check --strict
-          sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS"
-          mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
-          cat SHA256SUMS
-          echo "sums=$(sha256sum SHA256SUMS | cut -c1-64)" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: dist
-          path: dist/
-          if-no-files-found: error
-          retention-days: 30
 
   attest:
-    needs: build
+    needs: [build, check]
     runs-on: ubuntu-24.04
     permissions:
       contents: read

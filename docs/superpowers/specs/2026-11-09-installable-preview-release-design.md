@@ -430,3 +430,10 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
     - the environment check also requires admin bypass off and a custom (tag) policy (live
       `pypi` passes);
     - a failed `pip download` in `upgrade_guard.py` is now a clean error.
+- r11 follow-up 2026-11-10 (automated security review of dc490c4, medium): the early hash
+  re-check ran in the same job as unhashed test and smoke dependencies. On GitHub runners that
+  job's user has sudo, so code run there could also tamper with the checker. The release now has
+  a `build` job (hash-pinned build tools, `npm pack --ignore-scripts`, the wheels-only uv resolve)
+  that records the sha256s and uploads, and a separate `check` job (needs `build`) that downloads,
+  verifies the sums and then runs the dist tests, the smoke installs and the upgrade guard.
+  `attest` needs both, and the publish jobs take the sums only from `build`.
