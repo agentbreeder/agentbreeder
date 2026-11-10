@@ -113,7 +113,8 @@ been verified, and only the owner can check it.
   URLs to the repo, the rebuild docs and the Legacy 2.x page.
 - **Reproducibility (wording: "two builds on the same runner match"):** pinned, hash-locked build
   dependencies (`setuptools`, `build`), `SOURCE_DATE_EPOCH` from the tag commit, fixed umask. Two
-  builds must produce identical sha256s. This proves determinism, not that the build tools were
+  builds must produce byte-identical wheels and sdists with identical contents (setuptools does
+  not apply `SOURCE_DATE_EPOCH` to sdist tar entries, so sdist archive bytes differ). This proves determinism, not that the build tools were
   honest; provenance attestation (§5.2) covers where it was built.
 
 ### 5.2 Release workflow (#752; build/deploy config, so it takes the full gate)
@@ -238,7 +239,7 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
 1. `3.0.0a1` on PyPI and `3.0.0-alpha.1` on npm (dist-tag `latest`), published from CI on a
    protected tag after owner approval, with build-provenance attestations; §3.5 prerequisites
    verified through the API first.
-2. Two builds on the same runner give identical sha256s; wheel and sdist file lists exactly equal
+2. Two builds on the same runner give byte-identical wheels and content-identical sdists; wheel and sdist file lists exactly equal
    the expected set.
 3. `pip install -U agentbreeder` on a 2.7.3 install leaves 2.7.3 (CI, against PyPI after publish
    and TestPyPI before).
@@ -314,3 +315,20 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
   `_content.json` (§5.1); trust is pinned to the import-time package root, not the patchable
   `BUILTIN_ROOT`; the launcher's `agentbreeder` window is release time + 30 days, and P4 checks the
   PyPI upload falls inside it. The rest are plan edits (plan r3).
+- r5 2026-11-09: Fable review of the S1 + S2 code (4 should-fix, 4 nits; each checked, all fixed):
+  the old-path `.gitignore` rules for Northwind state are kept beside the new ones (an older
+  checkout's state would otherwise be untracked and unignored, and `.gitleaks.toml` allowlists
+  `examples/`); the packaging test plants local-state sentinels so its leak check is not vacuous on
+  a clean runner, which caught `examples/northwind/stack/**/*` shipping an untracked log, so
+  `stack/` is now listed file by file; two stale `docker build` paths; installed metadata and the
+  built wheel's `Version` are checked against `__version__`; `npm_version` uses `fullmatch`.
+  Recorded limits: sdists are compared by content, not archive bytes (§5.1); the two registry
+  globs would still take a stray untracked file in a local build, which `content_manifest.py
+  --check` (CI, release) refuses and the installed content check rejects.
+- r6 2026-11-09: Fable review of the S3 code (trust boundary holds; 2 should-fix, 4 nits; each
+  checked, all fixed): `registry publish` into a shipped tree failed with a misleading
+  `CONTENT_MISMATCH` (staging sits inside the tree) and now refuses up front
+  (`REGISTRY_READ_ONLY`, naming the manual steps); `CONTENT_MISMATCH` names the checkout remedy
+  (`git add`, `scripts/content_manifest.py`); malformed manifest entries are a `RegistryError`,
+  not a raw exception; `docs/registry.md` and the website document the built-in exception; the
+  CLI's corruption-check line prints only when the trusted built-in root was searched.

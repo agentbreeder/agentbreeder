@@ -59,7 +59,8 @@ agentbreeder registry verify
 ```
 
 Each version is hashed over its paths, contents and executable bits; symlinks, hardlinks and `..`
-paths are refused. `agent.lock` records every ref's hash. `build --locked` (for CI) refuses any
+paths are refused. Versions shipped with AgentBreeder may be hardlinked by the installer and are
+compared with the package's content manifest instead (a corruption check). `agent.lock` records every ref's hash. `build --locked` (for CI) refuses any
 change and any unpinned path ref. Hashes detect a change after a version is first locked; they
 don't vouch for that first lock.
 

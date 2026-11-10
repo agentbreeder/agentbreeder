@@ -11,11 +11,18 @@ so what is hashed is exactly what is built. Only regular files and directories a
 symlinks, hardlinks, devices, absolute or `..` paths, or non-UTF-8 names. The hash covers
 length-prefixed (type, path, executable bit, size, bytes) records in sorted path order. Hashes
 detect tampering after a version has been locked; they cannot vouch for the first lock.
+
+The installed package's own built-in registry and examples are the one exception to the hardlink
+rule (installers such as uv hardlink from their cache): their files are compared with the shipped
+`_content.json` instead (bytes, exec bit, no extra or missing files). That is a corruption check,
+not provenance: whoever can write site-packages can rewrite the manifest too.
 """
 
 from __future__ import annotations
 
+import functools
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -32,6 +39,11 @@ VERSION = re.compile(r"(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0
 REF = re.compile(rf"(?P<kind>{'|'.join(KINDS)})/(?P<name>{NAME.pattern})@(?P<version>[0-9.]+)")
 PATH_ENV = "AGENTBREEDER_REGISTRY_PATH"
 BUILTIN_ROOT = Path(__file__).parent / "builtin_registry"
+# The installed package, fixed at import. Unlike BUILTIN_ROOT (tests point it at a temp dir), this
+# names the shipped trees whose files are checked against `_content.json` instead of being refused
+# for hardlinks: package installers such as uv hardlink installed files from their cache.
+_PACKAGED_ROOT = Path(__file__).resolve().parent
+_SHIPPED_TREES = ("builtin_registry", "examples")
 MAX_FILES = 2000
 MAX_BYTES = 50 * 1024 * 1024
 
@@ -101,10 +113,83 @@ def _safe_name(part: str) -> None:
         raise RegistryError("ENTRY_UNSAFE", f"unsafe path component {part!r}")
 
 
+_CHECKOUT_HINT = "in a checkout: git add the change, then run scripts/content_manifest.py"
+
+
+@functools.lru_cache(maxsize=4)
+def _shipped_manifest(package: Path) -> dict[str, dict]:
+    path = package / "_content.json"
+    try:
+        files = json.loads(path.read_text())["files"]
+        valid = isinstance(files, dict) and all(
+            isinstance(entry, dict)
+            and isinstance(entry.get("sha256"), str)
+            and isinstance(entry.get("exec"), bool)
+            for entry in files.values()
+        )
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise RegistryError(
+            "CONTENT_MANIFEST_MISSING", f"cannot read the shipped content manifest {path}"
+        ) from error
+    if not valid:
+        raise RegistryError("CONTENT_MANIFEST_MISSING", f"malformed content manifest {path}")
+    return files
+
+
+def _shipped_prefix(source: Path) -> str | None:
+    """The package-relative path of `source` when it lies in a shipped tree, else None."""
+    package = _PACKAGED_ROOT.resolve()
+    resolved = source.resolve()
+    for tree in _SHIPPED_TREES:
+        if resolved.is_relative_to(package / tree):
+            return resolved.relative_to(package).as_posix()
+    return None
+
+
+def trusted_root(path: Path) -> bool:
+    """True for the installed built-in registry and shipped examples (checked by manifest)."""
+    return _shipped_prefix(path) is not None
+
+
+def _mismatch(message: str) -> RegistryError:
+    return RegistryError("CONTENT_MISMATCH", f"{message} ({_CHECKOUT_HINT})")
+
+
+def _check_shipped(
+    manifest: dict, prefix: str, relative: str, path: Path, info: os.stat_result
+) -> None:
+    """Corruption check for one shipped file: same bytes and exec bit as `_content.json`."""
+    entry = manifest.get(f"{prefix}/{relative}")
+    if entry is None:
+        raise _mismatch(f"not in the shipped manifest: {relative}")
+    if hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
+        raise _mismatch(f"differs from the shipped manifest: {relative}")
+    if bool(info.st_mode & 0o111) != entry["exec"]:
+        raise _mismatch(f"exec bit differs from the manifest: {relative}")
+
+
+def _check_shipped_complete(
+    manifest: dict, prefix: str, found: list[tuple[str, Path, os.stat_result]]
+) -> None:
+    expected = {key.removeprefix(prefix + "/") for key in manifest if key.startswith(prefix + "/")}
+    files = {relative for relative, _, info in found if stat.S_ISREG(info.st_mode)}
+    if missing := sorted(expected - files):
+        raise _mismatch(f"missing shipped files: {', '.join(missing)}")
+    parents = {parent.as_posix() for name in expected for parent in Path(name).parents}
+    for relative, _, info in found:
+        if stat.S_ISDIR(info.st_mode) and relative not in parents:
+            raise _mismatch(f"not in the shipped manifest: {relative}/")
+
+
 def _entries(source: Path) -> list[tuple[str, Path, os.stat_result]]:
-    """Every entry under `source`, validated, sorted by POSIX relative path."""
+    """Every entry under `source`, validated, sorted by POSIX relative path.
+
+    Files in the installed package's shipped trees may be hardlinked (installer caches) and are
+    instead compared with `_content.json`; every other root refuses hardlinks."""
     found = []
     total = 0
+    shipped = _shipped_prefix(source)
+    manifest = _shipped_manifest(_PACKAGED_ROOT.resolve()) if shipped is not None else {}
     for directory, dirnames, filenames in os.walk(source, followlinks=False):
         # Interpreter caches are never part of a version: skipped for hashing and copying.
         dirnames[:] = [d for d in dirnames if d != "__pycache__"]
@@ -117,7 +202,9 @@ def _entries(source: Path) -> list[tuple[str, Path, os.stat_result]]:
             if stat.S_ISLNK(info.st_mode):
                 raise RegistryError("ENTRY_UNSAFE", f"symlinks are not allowed: {relative}")
             if stat.S_ISREG(info.st_mode):
-                if info.st_nlink > 1:
+                if shipped is not None:
+                    _check_shipped(manifest, shipped, relative, path, info)
+                elif info.st_nlink > 1:
                     raise RegistryError("ENTRY_UNSAFE", f"hardlinks are not allowed: {relative}")
                 total += info.st_size
             elif not stat.S_ISDIR(info.st_mode):
@@ -125,6 +212,8 @@ def _entries(source: Path) -> list[tuple[str, Path, os.stat_result]]:
             found.append((relative, path, info))
             if len(found) > MAX_FILES or total > MAX_BYTES:
                 raise RegistryError("ENTRY_UNSAFE", "registry version is too large")
+    if shipped is not None:
+        _check_shipped_complete(manifest, shipped, found)
     return sorted(found, key=lambda item: item[0])
 
 
@@ -203,6 +292,13 @@ def resolve(ref: Ref, search: list[Path]) -> Resolved:
 
 def publish(source: Path, root: Path) -> tuple[Ref, str, Path]:
     """Copy a prepared version directory into a registry root. Versions are immutable."""
+    if trusted_root(root):
+        raise RegistryError(
+            "REGISTRY_READ_ONLY",
+            f"{root} is shipped inside AgentBreeder and checked against its content manifest; "
+            "add the version directory by hand, git add it, run scripts/content_manifest.py "
+            "and record it in tests/fixtures/builtin_hashes.json",
+        )
     data = read_manifest(source)
     ref = Ref.parse(f"{data['kind']}/{data['name']}@{data['version']}")
     target = root / ref.relative()

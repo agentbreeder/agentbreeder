@@ -675,7 +675,10 @@ def _registry(args) -> int:
         for problem in problems:
             print(f"FAIL {problem['ref']}: {problem['error']}", file=sys.stderr)
         if not problems and not args.json:
-            print("OK: every registry version is intact")
+            print("OK: every registry version passed its safety and manifest checks")
+            builtin = registry.BUILTIN_ROOT
+            if builtin in search and builtin.is_dir() and registry.trusted_root(builtin):
+                print("Built-in content matches the shipped manifest (corruption check).")
         return 2 if problems else 0
     except registry.RegistryError as error:
         print(str(error), file=sys.stderr)
