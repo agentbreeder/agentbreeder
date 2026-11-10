@@ -10,8 +10,9 @@ import { Callout } from 'fumadocs-ui/components/callout';
   production infrastructure. Verified on macOS with Docker Desktop: the Northwind example started
   from scratch with `services up`, and `agentbreeder release` passed its 61-case eval gate (61/61,
   2026-11-08). MCP servers run behind a built-in relay. An agent built from `agent.yaml` on
-  `runtime/adk@1.1.0` calls tools through it. That is verified in Docker only against a mock MCP
-  server and a fake LLM gateway. No built-in MCP server is verified yet.
+  `runtime/adk@1.1.0` calls tools through it. Through a real `deploy`, a deployed agent called the
+  built-in `mcp/github` and `mcp/playwright` this way (2026-11-09), with a scripted fake LLM
+  gateway rather than a real model.
 </Callout>
 
 An agent built from `agent.yaml` needs services before it can run: Postgres, a model gateway, a
@@ -99,14 +100,31 @@ Origin checks). Agents join a separate network that reaches only the ports decla
 Projects add their own versions under `registry/service/`, from a digest-pinned image or built
 from source with a strict Dockerfile subset.
 
+### Built-in MCP servers
+
+Each `mcp:` entry in `stack.yaml` runs behind its own relay, which holds the credential. Both
+built-ins are verified live through a real `deploy` (2026-11-09):
+
+| Ref | Upstream | Tools |
+|---|---|---|
+| `mcp/github@1.0.0` | GitHub's hosted MCP server, with a fine-grained token from `GITHUB_MCP_TOKEN` | `get_me`, `list_issues`, `issue_read`, `search_repositories`, `get_file_contents` (read-only) |
+| `mcp/playwright@1.0.0` | headless Chromium in `service/playwright-mcp@1.0.0`, reachable only by its relay | `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_close` |
+
+A granted GitHub tool reaches every repository the token can see, so scope the token narrowly.
+The browser has no egress until the filtering forward proxy ships, so it can't browse the web
+yet. Chromium's own sandbox is off (it can't start without container capabilities), so the
+container hardening and the missing egress are the boundary.
+
 ## Limits
 
 - Local Docker only; demo identities come from a generated static provider.
 - A deployed agent's endpoint is not authenticated.
 - MCP relay: it holds the upstream credential and forwards only granted, pinned tools, but tool
   arguments are unconstrained, results reach the agent unfiltered, and it is not policy
-  enforcement. A built agent's calls through it are verified only against a mock MCP server and a
-  fake gateway, and no built-in MCP server is verified.
+  enforcement. A deployed agent's calls through it are verified against the built-in
+  `mcp/github` and `mcp/playwright` with a scripted fake gateway, not with a real model.
+- `mcp/playwright` has no egress yet: its browser opens pages the agent supplies, not the web.
+  Every customer of a deployment shares one browser.
 
 The canonical reference is
 [services.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md).

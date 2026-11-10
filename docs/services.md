@@ -7,7 +7,8 @@
 > `agentbreeder release` passed its 61-case eval gate (61/61, 2026-11-08). MCP servers run behind
 > a built-in relay (see [MCP servers](#mcp-servers-through-a-relay)). An agent built from
 > `agent.yaml` on `runtime/adk@1.1.0` calls tools through it. That is verified in Docker against
-> a mock MCP server and a fake LLM gateway. No built-in MCP server is verified yet (#748).
+> a mock MCP server and a fake LLM gateway. The built-in `mcp/github` and `mcp/playwright` are
+> verified live through a real `deploy`, with a scripted model (#748, 2026-11-09).
 
 An agent built from `agent.yaml` needs backing services before it can run. A project declares
 them in `stack.yaml` next to `agent.yaml`:
@@ -180,8 +181,12 @@ outputs:
 >   whose model is a fake gateway that asks for the tool. The agent's container is started with
 >   deploy's mounts, not by `deploy` itself.
 >
-> Remote https upstreams and OAuth refresh are covered by unit tests only. No built-in MCP server
-> has been checked live (#748).
+> The built-ins `mcp/github` and `mcp/playwright` are checked live (#748, 2026-11-09):
+> `tests/test_mcp_builtins_live.py` runs `services up`, `build` and a real `deploy` (identity
+> gate, per-deployment relay token and grant file), invokes the agent, which calls each granted
+> tool through the relay to the real upstream, then `remove` (the grant is deleted). The model is
+> a fake gateway that asks for a fixed list of tools; a real model through `deploy` isn't checked
+> yet. OAuth refresh is covered by unit tests only.
 
 ```yaml
 mcp:
@@ -242,8 +247,52 @@ A service upstream (`upstream.service`) must be the stack service with that ref.
 must be `expose: internal`, and nothing else may wire to it. It joins a private network shared
 with its relay, never the stack network (`MCP_UPSTREAM_EXPOSED`, `MCP_UPSTREAM_WIRED`). If it
 declares `egress: true` it also joins the edge network, so it can reach the internet unfiltered.
-Browser-type upstreams also need the filtering forward proxy (#747), so `mcp/playwright` isn't
-supported yet.
+A browser-type upstream with `egress: true` could reach private addresses, so the built-in
+`mcp/playwright` ships with no egress until the filtering forward proxy (#747) exists.
+
+### Built-in MCP servers
+
+Two built-ins are verified live (2026-11-09, macOS, Docker Desktop):
+
+| Ref | Upstream | Credential | Tools (all granted only per agent) |
+|---|---|---|---|
+| `mcp/github@1.0.0` | GitHub's hosted server, `https://api.githubcopilot.com/mcp/` | `GITHUB_MCP_TOKEN` (bearer) | `get_me`, `list_issues`, `issue_read`, `search_repositories`, `get_file_contents` (all `read`) |
+| `mcp/playwright@1.0.0` | `service/playwright-mcp@1.0.0` in the stack | none | `browser_navigate`, `browser_click`, `browser_type`, `browser_close` (`write`); `browser_snapshot` (`read`) |
+
+```yaml
+services:
+  browser: {ref: service/playwright-mcp@1.0.0}   # the upstream mcp/playwright needs
+mcp:
+  github: {ref: mcp/github@1.0.0}
+  playwright: {ref: mcp/playwright@1.0.0}
+environment:
+  agents:
+    my-agent:
+      mcp: {github: [list_issues, issue_read], playwright: [browser_navigate, browser_snapshot]}
+```
+
+- **GitHub.** Use a fine-grained personal access token, read-only and limited to the
+  repositories the agent needs: a granted `list_issues` reaches every repository the token can
+  see. `GITHUB_TOKEN` and `GH_TOKEN` can't be imported, so the token is read from
+  `GITHUB_MCP_TOKEN`. Measured through the relay: about 0.8 s to initialize, 0.7 s for
+  `tools/list` and 0.6 to 1.4 s per call.
+- **Playwright.** Microsoft's Playwright MCP v0.0.83, digest-pinned: headless Chromium with an
+  in-memory profile, a read-only root, no capabilities, image responses off and no tools a page
+  registers itself. Chromium's own process sandbox is off (`--no-sandbox`, the image default;
+  it can't start without capabilities), so the container hardening and the missing egress are
+  the boundary. Its port is internal and only its relay reaches it. **It has no egress until
+  #747:** it opens pages the agent supplies (`data:` URLs) and has no route outside its private
+  network (on Docker 27.5 outside names don't even resolve), so it can't browse the web yet. Every customer of a deployment shares one browser (one MCP
+  session per deployment), so use it only where that's acceptable, such as a single-user demo.
+  The tools that run code, upload files or read network traffic aren't declared. The relay is
+  the only tool boundary: the server itself would serve every tool, and its Host check is off
+  (`--allowed-hosts *`, because the relay addresses it by its stack name). A page in the browser
+  can't call the server directly past the relay: Chromium's Private Network Access refuses a
+  non-secure page's requests to loopback and private addresses. The live test checks this for
+  `localhost`, `127.0.0.1` and the service's own name.
+
+Slack, Supabase, Google Workspace and Stripe aren't shipped; they wait for demand and test
+credentials.
 
 **Consent, in two phases.** The grant you confirm shows each server's origin (built-in,
 project or registry-path), its upstream, `credential VAR will be sent to scheme://host:port`, and
@@ -287,8 +336,8 @@ What the relay does **not** do:
 - **It is not policy enforcement:** no Cedar/OPA evaluation, approvals or hash-chained audit
   (#742).
 - **One MCP session per deployment.** `runtime/adk@1.1.0` keeps one session per server, shared by
-  every customer of the deployment. Only use upstreams whose session holds no per-user state;
-  stateful (browser-type) upstreams wait for #747, which decides per-conversation sessions.
+  every customer of the deployment. Only use upstreams whose session holds no per-user state,
+  or accept the sharing (as with `mcp/playwright`); per-conversation sessions are #747.
 - **The relay authenticates the agent, not the agent's caller.** An agent's `POST /invoke` is not
   authenticated. Its port is published on loopback only, but other containers on the agents
   network can reach it too: its `Host` check stops browser DNS rebinding, not another
@@ -309,6 +358,6 @@ config can only describe a local demo environment, and `up` refuses to overwrite
 - Local Docker only; not a production deployment path.
 - Demo identities come from a generated static provider.
 - `customer_id` on an agent's `/invoke` is not authenticated (see the root README).
-- MCP relays: an agent's call through the relay is verified with a mock MCP server and a fake
-  gateway, not through `deploy` with a real model. No built-in MCP server is verified (#748), and
-  browser-type service upstreams need the forward proxy (#747).
+- MCP relays: a deployed agent's calls through the relay are verified against the built-in
+  `mcp/github` and `mcp/playwright` with a scripted model, not with a real model. The browser
+  has no egress until the forward proxy (#747).

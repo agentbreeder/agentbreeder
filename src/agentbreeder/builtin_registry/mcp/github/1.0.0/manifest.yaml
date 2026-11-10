@@ -1,0 +1,9 @@
+kind: mcp
+name: github
+version: 1.0.0
+description: >-
+  GitHub's hosted MCP server (https://api.githubcopilot.com/mcp/) through the relay, which holds
+  the credential: a fine-grained personal access token imported from GITHUB_MCP_TOKEN (never
+  GITHUB_TOKEN or GH_TOKEN). Read-only tools: get_me, list_issues, issue_read, search_repositories, get_file_contents. Tool
+  arguments are unconstrained: a granted tool reaches anything the token can see, so scope the
+  token to the repositories the agent needs.

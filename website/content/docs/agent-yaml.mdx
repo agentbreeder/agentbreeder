@@ -100,8 +100,8 @@ tools' own code, not by an engine boundary.
 - **Errors:** a relay that can't be reached when the tools are listed costs that turn its MCP
   tools, and the turn result says so. A call the relay refuses reaches the model as an error.
 
-Verified in Docker only against a mock MCP server and a fake model gateway. It hasn't run through
-`deploy` with a real model, or against a built-in MCP server.
+Verified through a real `deploy` against the built-in `mcp/github` and `mcp/playwright`, with a
+fake model gateway that asks for the tools. It hasn't run with a real model yet.
 
 ## Model access, secrets and keys
 
