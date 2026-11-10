@@ -168,7 +168,8 @@
     sdist + wheel twice and compare; packaging tests; `npm pack` in `npm/`; smoke install (below);
     `uv pip compile --generate-hashes` → `requirements-3.0.0a1.txt`; upload all with sha256 outputs.
   - **attest** (`id-token`, `attestations: write`): checks sha256s, attests wheel, sdist, npm tgz.
-  - **github-release** (`contents: write`): attaches the hashed requirements file and artifacts.
+  - **github-release** (`contents: write`): attaches the hashed requirements file and artifacts
+    (r11: runs after publish-pypi).
   - **publish-testpypi** → **publish-pypi** (environments, owner approval).
   - **publish-npm** only `if: vars.NPM_TRUSTED_PUBLISHING == 'true'` (false for 3.0.0-alpha.1,
     which the owner publishes manually from the attested tgz).
@@ -180,7 +181,9 @@
   --check`; `sync_npm --check`; `upgrade-guard` (after publish only; before that against TestPyPI):
   install `agentbreeder==2.7.3`, run `pip install -U agentbreeder`, assert 2.7.3; and a bare
   `pip install agentbreeder` in a fresh venv installs 2.7.3 (the README's S6 claim). `actionlint` and
-  `zizmor` on workflow files.
+  `zizmor` on workflow files. (r11: the pre-publish proof is a local index with 2.7.3 and the
+  built wheel, `scripts/upgrade_guard.py --wheel`, in the build job and `install-smoke`; the
+  PyPI `upgrade-guard` is the post-publish check. See spec §10 r11.)
 - References to update (re-check each): `.github/dependabot.yml`, `ci.yml` (ruff paths, validate
   path), `.gitignore`, `.gitleaks.toml`, `pyproject.toml` (ruff `extend-exclude`), `AGENT.md`,
   `ARCHITECTURE.md`, `CHANGELOG.md`, `CLAUDE.md`, `MANIFEST.in`, `README.md`,

@@ -1,13 +1,25 @@
 version: 2
 updates:
+  # cooldown: release workflows pin actions and tools to releases at least two weeks old
+  # (installable preview plan S8); Dependabot must not propose anything newer.
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: pip
+    directory: /scripts
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
   - package-ecosystem: docker
     directory: /src/agentbreeder/examples/http-agent
     schedule:

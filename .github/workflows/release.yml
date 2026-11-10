@@ -1,0 +1,287 @@
+# Release (spec 5.2, plan S8). Runs only for v3.* tags; publishing waits on environment approval.
+# Actions are pinned by commit SHA to releases at least two weeks old; no caches; the tag name
+# reaches `run:` only through `env:`. Jobs with `id-token: write` check out no code and run no
+# build tool: they check the artifacts against the build job's recorded sha256s and upload.
+name: Release
+on:
+  push:
+    tags: ['v3.*']
+permissions: {}
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read # read the environments' protection rules
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Tag commit is on main and the tree is clean
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          test -z "$(git status --porcelain)"
+      - name: Publishing environments exist and require a reviewer
+        # GitHub creates a missing environment unprotected on first use (spec 3.5).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NPM_TRUSTED_PUBLISHING: ${{ vars.NPM_TRUSTED_PUBLISHING }}
+        run: |
+          environments="testpypi pypi"
+          if [ "$NPM_TRUSTED_PUBLISHING" = true ]; then environments="$environments npm"; fi
+          for name in $environments; do
+            state="$(gh api "repos/$GITHUB_REPOSITORY/environments/$name" --jq '"\([.protection_rules[].type] | join(",")) bypass=\(.can_admins_bypass) custom=\(.deployment_branch_policy.custom_branch_policies)"')"
+            echo "$name: $state"
+            case ",$state" in
+              *,required_reviewers*" bypass=false custom=true") ;;
+              *) echo "environment $name needs a required reviewer, admin bypass off and a v3.* tag policy (spec 3.5)"; exit 1 ;;
+            esac
+          done
+      - run: python -m pip install -e '.[dev]'
+      - name: Tag matches the package version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python scripts/release_check.py tag "$TAG"
+      - name: npm launcher window covers the tag
+        run: python scripts/release_check.py npm-window --tag-time "$(git show -s --format=%cI "$GITHUB_SHA")"
+      - run: ruff check src tests scripts
+      - run: ruff format --check src tests scripts
+      - run: python scripts/content_manifest.py --check
+      - run: python scripts/sync_npm.py --check
+      - run: AGENTBREEDER_PACKAGING_TEST=1 python -m pytest
+
+  build:
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      sums: ${{ steps.sums.outputs.sums }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.11.6'
+          enable-cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Build from hashed build dependencies, twice (second from a clean export), compare
+        run: |
+          umask 022
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
+          python -m venv "$RUNNER_TEMP/build-venv"
+          "$RUNNER_TEMP/build-venv/bin/pip" install --require-hashes --only-binary=:all: -r scripts/build-requirements.txt
+          "$RUNNER_TEMP/build-venv/bin/python" -m build --no-isolation --outdir dist
+          mkdir "$RUNNER_TEMP/export"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/export"
+          "$RUNNER_TEMP/build-venv/bin/python" -m build --no-isolation --outdir "$RUNNER_TEMP/dist2" "$RUNNER_TEMP/export"
+          cmp dist/*.whl "$RUNNER_TEMP"/dist2/*.whl
+          python scripts/release_check.py compare-sdists dist/*.tar.gz "$RUNNER_TEMP"/dist2/*.tar.gz
+      - name: Pack the npm launcher
+        run: cd npm && npm pack --ignore-scripts --pack-destination ../dist
+      - name: Hashed requirements for the GitHub release (wheels-only resolve, runs no package code)
+        run: |
+          VERSION="$(python -c 'import sys; sys.path.insert(0, "src"); import agentbreeder; print(agentbreeder.__version__)')"
+          python scripts/release_check.py requirements --wheel dist/*.whl --sdist dist/*.tar.gz --out "dist/requirements-$VERSION.txt"
+      - name: Record the built files' sha256s before any other code runs
+        id: built
+        run: |
+          {
+            echo 'sums<<EOF'
+            (cd dist && sha256sum -- *)
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+      - name: The release artifacts are exactly the allowlist
+        run: |
+          python -m venv "$RUNNER_TEMP/test-venv"
+          "$RUNNER_TEMP/test-venv/bin/pip" install --only-binary=:all: -e '.[dev]'
+          AGENTBREEDER_RELEASE_DIST=dist "$RUNNER_TEMP/test-venv/bin/python" -m pytest tests/test_release_dist.py -q
+      - name: Smoke-install with pip from the hashed requirements file
+        run: |
+          VERSION="$(python -c 'import sys; sys.path.insert(0, "src"); import agentbreeder; print(agentbreeder.__version__)')"
+          python -m venv "$RUNNER_TEMP/pip-venv"
+          "$RUNNER_TEMP/pip-venv/bin/pip" install --require-hashes --only-binary=:all: --find-links dist -r "dist/requirements-$VERSION.txt"
+          cd "$RUNNER_TEMP" && "$RUNNER_TEMP/pip-venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/install_smoke.py" --version "$VERSION"
+      - name: Smoke-install with uv in hardlink mode
+        env:
+          UV_LINK_MODE: hardlink
+        run: |
+          VERSION="$(python -c 'import sys; sys.path.insert(0, "src"); import agentbreeder; print(agentbreeder.__version__)')"
+          export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
+          uv venv --python 3.12 "$RUNNER_TEMP/uv-venv"
+          uv pip install --only-binary :all: --python "$RUNNER_TEMP/uv-venv/bin/python" "agentbreeder[eval] @ file://$(ls "$PWD"/dist/*.whl)"
+          cd "$RUNNER_TEMP" && "$RUNNER_TEMP/uv-venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/install_smoke.py" --version "$VERSION" --hardlinked
+      - name: pip still installs 2.7.3 with this pre-release on the index
+        run: python scripts/upgrade_guard.py --wheel dist/*.whl
+      - name: Check the built files are unchanged, then record all sha256s
+        id: sums
+        env:
+          BUILT: ${{ steps.built.outputs.sums }}
+        run: |
+          cd dist
+          printf '%s\n' "$BUILT" | sha256sum --check --strict
+          sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
+          cat SHA256SUMS
+          echo "sums=$(sha256sum SHA256SUMS | cut -c1-64)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  attest:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Check the artifacts are exactly the ones built
+        env:
+          SUMS: ${{ needs.build.outputs.sums }}
+        run: |
+          cd dist
+          echo "$SUMS  SHA256SUMS" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
+          diff <(find . -mindepth 1 ! -name SHA256SUMS -printf '%P\n' | sort) <(awk '{print $2}' SHA256SUMS | sort)
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.tgz
+            dist/requirements-*.txt
+
+  publish-testpypi:
+    needs: [build, attest]
+    runs-on: ubuntu-24.04
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Check the artifacts and keep only the Python distributions
+        env:
+          SUMS: ${{ needs.build.outputs.sums }}
+        run: |
+          cd dist
+          echo "$SUMS  SHA256SUMS" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
+          diff <(find . -mindepth 1 ! -name SHA256SUMS -printf '%P\n' | sort) <(awk '{print $2}' SHA256SUMS | sort)
+          mkdir ../python-dist && mv -- *.whl *.tar.gz ../python-dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: python-dist/
+
+  publish-pypi:
+    needs: [build, publish-testpypi]
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Check the artifacts and keep only the Python distributions
+        env:
+          SUMS: ${{ needs.build.outputs.sums }}
+        run: |
+          cd dist
+          echo "$SUMS  SHA256SUMS" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
+          diff <(find . -mindepth 1 ! -name SHA256SUMS -printf '%P\n' | sort) <(awk '{print $2}' SHA256SUMS | sort)
+          mkdir ../python-dist && mv -- *.whl *.tar.gz ../python-dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: python-dist/
+
+  github-release:
+    # After PyPI, so the release never advertises an install that does not work yet.
+    needs: [build, publish-pypi]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Check the artifacts are exactly the ones built
+        env:
+          SUMS: ${{ needs.build.outputs.sums }}
+        run: |
+          cd dist
+          echo "$SUMS  SHA256SUMS" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
+          diff <(find . -mindepth 1 ! -name SHA256SUMS -printf '%P\n' | sort) <(awk '{print $2}' SHA256SUMS | sort)
+      - name: Create the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
+            --title "$TAG (preview)" \
+            --notes "Preview release; see CHANGELOG.md. Hash-checked install: uv pip install --require-hashes -r requirements-$VERSION.txt"
+
+  publish-npm:
+    # Off until npm trusted publishing is set up (spec 3.5.4): the owner publishes
+    # 3.0.0-alpha.1 by hand from the attested tgz, after PyPI.
+    if: vars.NPM_TRUSTED_PUBLISHING == 'true'
+    needs: [build, publish-pypi]
+    runs-on: ubuntu-24.04
+    environment: npm
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Check the artifacts are exactly the ones built
+        env:
+          SUMS: ${{ needs.build.outputs.sums }}
+        run: |
+          cd dist
+          echo "$SUMS  SHA256SUMS" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
+          diff <(find . -mindepth 1 ! -name SHA256SUMS -printf '%P\n' | sort) <(awk '{print $2}' SHA256SUMS | sort)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # npm trusted publishing (OIDC) needs npm >= 11.5.1; Node 22 bundles npm 10.
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: npm supports trusted publishing
+        run: |
+          npm --version
+          node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$(npm --version)"
+      - run: npm publish dist/agentbreeder-*.tgz --provenance --access public --tag latest --ignore-scripts

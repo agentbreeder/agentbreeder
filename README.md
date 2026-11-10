@@ -13,6 +13,25 @@ AgentBreeder is being rebuilt around deploying existing agents into customer-con
 
 Deploys pass a **deploy-time identity gate**: the agent must already exist in your identity provider (Entra, Keycloak, Okta (experimental), AWS or a static file), with an active sponsor, a valid review date and the required scoped grants. Optional controls are a Cedar/OPA/AuthZEN policy check, second-person approval, a kill switch and a hash-chained local audit log; see [docs/identity-gate.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/identity-gate.md). Operators can also put local deployments behind an MCP egress boundary that enforces policy on every MCP Streamable-HTTP tool call. Production deployment and the operational UI are **not implemented yet**. The local sample lifecycle and fresh-install demo have been verified against Docker Desktop on macOS. There are no simulated deployments or placeholder production endpoints.
 
+## Install the preview
+
+`3.0.0a1` is a preview; clean-machine verification is pending. Each command pins the exact
+version. If one reports that the version is not found, it is not published there yet: install
+from a checkout as shown below. A bare `pip install agentbreeder` installs 2.x (see the notice
+above).
+
+```sh
+pip install "agentbreeder[eval]==3.0.0a1"                               # in a virtual environment
+uvx --from "agentbreeder[eval]==3.0.0a1" agentbreeder quickstart --dry-run   # needs uv
+npx agentbreeder@3.0.0-alpha.1 quickstart --dry-run                       # needs Node 18+ and uv
+```
+
+The npm package is a launcher that runs the same PyPI release through `uvx`; see
+[npm/README.md](https://github.com/agentbreeder/agentbreeder/blob/main/npm/README.md).
+The `v3.0.0a1` GitHub release carries a hashed requirements file for
+`uv pip install --require-hashes -r requirements-3.0.0a1.txt` (or `pip install --require-hashes
+-r …`), once it is published.
+
 ## Try the complete local demo
 
 Requires macOS or Linux, Python 3.11+, and a running Docker engine with a local context. From this checkout:

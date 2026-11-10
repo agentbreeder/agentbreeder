@@ -156,6 +156,8 @@ def write(exclude_newer: str) -> None:
             "--extra",
             "eval",
             "--universal",
+            "--only-binary",
+            ":all:",
             "--exclude-newer",
             exclude_newer,
             "--no-header",
@@ -169,7 +171,7 @@ def write(exclude_newer: str) -> None:
     body = CONSTRAINTS.read_text()
     header = (
         "# Resolved for the npm launcher by scripts/sync_npm.py:\n"
-        "#   uv pip compile pyproject.toml --extra eval --universal"
+        "#   uv pip compile pyproject.toml --extra eval --universal --only-binary :all:"
         f" --exclude-newer {exclude_newer}\n"
     )
     CONSTRAINTS.write_text(header + body)

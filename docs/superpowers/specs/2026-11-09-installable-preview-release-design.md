@@ -282,6 +282,12 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
 
 - `agentbreeder-cloud`: grep for `agentbreeder` version pins, `pip install agentbreeder` and
   `0.0.0.dev0` before the tag; record the result here.
+  - Result 2026-11-10 (cloud `main` at 8185882): no version pin and no `0.0.0.dev0`. Cloud
+    installs the OSS package editable from a local checkout (`pyproject.toml:15`, a comment).
+    `pip install agentbreeder` appears only in historical strategy/spec docs
+    (`docs/strategy/2026-04-30-week2-launch-pack.md`,
+    `docs/superpowers/specs/2026-04-18-graphrag-design.md`), which describe 2.x. No companion
+    cloud PR is needed for the tag. Re-check before P2 if cloud `main` moves.
 - `website/`: §5.8. #783 consumes `example`, `quickstart` and `_content.json`.
 
 ## 10. Review log
@@ -382,3 +388,45 @@ TestPyPI rehearsal → owner approves PyPI publish → owner's manual first npm 
   with real uvx 0.11.6 and the locally built wheel (`UV_FIND_LINKS`) ran `--version`,
   `example list`, `registry verify` and `quickstart --dry-run` (macOS). Node 18 not run locally
   (CI matrix in S8).
+- r11 2026-11-10: Fable review of the S8 workflows and scripts (5 medium, 10 low; each checked,
+  all addressed). Changes from §5.2 and the plan:
+  - **npm publishing:** the publish-npm job uses Node 24, because trusted publishing needs
+    npm ≥ 11.5.1 and Node 22 bundles npm 10. The job checks the npm version before publishing.
+  - **2.x install claim before publish:** the claim is proved against a local index that holds
+    2.7.3 and the built pre-release wheel: a bare install and an upgrade give 2.7.3, and an exact
+    pin gives the pre-release. `scripts/upgrade_guard.py` runs this in the release build job and
+    in `install-smoke`. This replaces "against TestPyPI before publish". The `upgrade-guard`
+    job checks PyPI itself, which is the real check after publishing.
+  - **Hashed requirements file:** the release build now installs it with pip
+    (`--require-hashes`); `install-smoke` does the same. It is resolved wheels-only (as is
+    `npm/constraints.txt`), and the two must pin the same versions.
+  - **Artifact hashes:** the built files are hashed before any other code runs in the build job.
+    That digest is a step output, re-checked before the final SHA256SUMS. Later jobs refuse any
+    file not listed in SHA256SUMS. The smoke installs and the resolution use binaries only.
+  - **Allowlist on the published files:** `tests/test_release_dist.py` runs against the
+    release's own `dist/`.
+  - **Second build:** it comes from a clean `git archive` export. Sdists are compared on members,
+    bytes and exec bits, and duplicate members are refused.
+  - **GitHub release:** the pre-release is created after PyPI, so it never advertises an install
+    that does not work yet.
+  - **Environments:** the verify job fails unless the `testpypi` and `pypi` environments (and
+    `npm` when enabled) require a reviewer. A missing environment would otherwise be created
+    unprotected on first use. On 2026-11-10 `testpypi` and `npm` did not exist.
+  - **Dependabot:** a 14-day cooldown, covering `scripts/` too.
+  - **Wording:** CHANGELOG and README no longer claim what has not run.
+  - **Verified locally (macOS):**
+    - `install_smoke.py`: pip and uv-hardlink installs pass, with 86/86 built-ins hardlinked;
+    - two builds from the hashed build dependencies: identical wheels, matching sdists;
+    - a pip `--require-hashes` install from the generated file;
+    - `test_release_dist.py` on those dists;
+    - `upgrade_guard.py` in both modes;
+    - actionlint 1.7.12 (with shellcheck) and zizmor 1.31.1 online audits, all clean.
+  - **Not run yet:** the release workflow itself (it needs a tag) and the CI jobs (they run on
+    push).
+  - **Re-review:** approved. Its four low notes were folded in:
+    - the requirements file is now generated before the early hash;
+    - CI installs it with uv (the documented command) and the release job with pip; the README
+      gives both;
+    - the environment check also requires admin bypass off and a custom (tag) policy (live
+      `pypi` passes);
+    - a failed `pip download` in `upgrade_guard.py` is now a clean error.
