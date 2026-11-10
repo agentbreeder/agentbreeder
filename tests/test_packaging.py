@@ -43,9 +43,26 @@ _COPY_SKIP = shutil.ignore_patterns(
 )
 
 
+# Local state an example run leaves behind. Planted in the copy so the leak check means
+# something on a clean CI runner too, not only in a checkout that happens to have state.
+SENTINELS = (
+    "examples/northwind/stack/.secrets/zz-sentinel",
+    "examples/northwind/.agentbreeder/zz-sentinel.yaml",
+    "examples/northwind/deploy/zz-sentinel.json",
+    "examples/northwind/stack/zz-sentinel.log",
+    "examples/northwind/registry/prompt/__pycache__/x.cpython-312.pyc",
+    "examples/http-agent/__pycache__/server.cpython-312.pyc",
+    "builtin_registry/.DS_Store",
+)
+
+
 def _source_copy(tmp: Path) -> Path:
     source = tmp / "source"
     shutil.copytree(ROOT, source, ignore=_COPY_SKIP, symlinks=True)
+    for relative in SENTINELS:
+        sentinel = source / "src" / "agentbreeder" / relative
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("sentinel: must never be packaged\n")
     return source
 
 
@@ -106,6 +123,30 @@ def test_wheel_from_sdist_is_exactly_the_allowlist(builds):
     names = _wheel_files(wheel)
     _assert_clean(names)
     assert names == _expected_wheel()
+
+
+def test_no_planted_local_state_ships(builds):
+    first, _, tree = builds
+    (sdist,) = first.glob("*.tar.gz")
+    with tarfile.open(sdist) as archive:
+        packed = {Path(*Path(name).parts[1:]).as_posix() for name in archive.getnames()}
+    for wheel in (*first.glob("*.whl"), *tree.glob("*.whl")):
+        names = _wheel_files(wheel)
+        for relative in SENTINELS:
+            assert f"agentbreeder/{relative}" not in names, (wheel.name, relative)
+    for relative in SENTINELS:
+        assert f"src/agentbreeder/{relative}" not in packed, relative
+
+
+def test_built_metadata_carries_the_package_version(builds):
+    from agentbreeder import __version__
+
+    first, _, _ = builds
+    (wheel,) = first.glob("*.whl")
+    assert wheel.name.startswith(f"agentbreeder-{__version__}-")
+    with zipfile.ZipFile(wheel) as archive:
+        (metadata,) = [n for n in archive.namelist() if n.endswith(".dist-info/METADATA")]
+        assert f"Version: {__version__}\n" in archive.read(metadata).decode()
 
 
 def test_wheel_from_tree_matches_wheel_from_sdist(builds):

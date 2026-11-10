@@ -1,7 +1,8 @@
 """Write or check src/agentbreeder/_content.json (spec 5.1, plan S2).
 
-The manifest lists every shipped non-module file under the built-in registry and the shipped
-examples, with its sha256 and executable bit, taken from tracked files only (`git ls-files`).
+The manifest lists every shipped file (Python files included) under the built-in registry and
+the shipped examples, with its sha256 and executable bit, taken from tracked files only
+(`git ls-files`).
 The installed package checks itself against it: a corruption check, not tamper-evidence.
 
     python scripts/content_manifest.py           # rewrite the manifest
@@ -36,7 +37,10 @@ def build() -> dict:
         mode = meta.split()[0]
         if mode not in {"100644", "100755"}:
             raise SystemExit(f"only regular files may ship: {path} (mode {mode})")
-        data = (ROOT / path).read_bytes()
+        try:
+            data = (ROOT / path).read_bytes()
+        except FileNotFoundError:
+            raise SystemExit(f"tracked file is missing from the work tree: {path}") from None
         relative = Path(path).relative_to("src/agentbreeder").as_posix()
         files[relative] = {
             "sha256": hashlib.sha256(data).hexdigest(),

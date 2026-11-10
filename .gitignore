@@ -116,3 +116,7 @@ docs/superpowers/private/
 src/agentbreeder/examples/*/stack/.secrets/
 src/agentbreeder/examples/*/.agentbreeder/
 src/agentbreeder/examples/*/deploy/
+# The examples' former location: state left behind by an older checkout stays ignored.
+examples/northwind/stack/.secrets/
+examples/northwind/.agentbreeder/
+examples/northwind/deploy/

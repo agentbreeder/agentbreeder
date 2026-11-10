@@ -7,12 +7,12 @@ rather than guessed.
 
 import re
 
-_PEP440 = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:(a|b|rc)(\d+))?$")
+_PEP440 = re.compile(r"(\d+)\.(\d+)\.(\d+)(?:(a|b|rc)(\d+))?")
 _NPM_PRE = {"a": "alpha", "b": "beta", "rc": "rc"}
 
 
 def npm_version(pypi: str) -> str:
-    match = _PEP440.match(pypi)
+    match = _PEP440.fullmatch(pypi)
     if not match:
         raise ValueError(f"cannot map {pypi!r} to an npm version (expected X.Y.Z[a|b|rcN])")
     major, minor, patch, pre, number = match.groups()

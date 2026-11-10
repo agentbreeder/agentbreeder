@@ -32,6 +32,12 @@ def test_pyproject_reads_the_version_from_the_package():
     assert dynamic == {"attr": "agentbreeder.__version__"}
 
 
+def test_installed_metadata_matches():
+    from importlib.metadata import version
+
+    assert version("agentbreeder") == __version__
+
+
 def test_cli_version_matches(capsys):
     with pytest.raises(SystemExit) as raised:
         main(["--version"])
@@ -54,7 +60,7 @@ def test_npm_version_mapping(pypi, npm):
 
 
 @pytest.mark.parametrize(
-    "bad", ["3.0", "3.0.0.dev0", "3.0.0a1.post1", "3.0.0+local", "v3.0.0", ""]
+    "bad", ["3.0", "3.0.0.dev0", "3.0.0a1.post1", "3.0.0+local", "v3.0.0", "", "3.0.0a1\n"]
 )
 def test_npm_version_refuses_what_it_cannot_map(bad):
     with pytest.raises(ValueError):

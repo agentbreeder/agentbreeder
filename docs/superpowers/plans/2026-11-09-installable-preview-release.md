@@ -45,8 +45,8 @@
 - `pyproject.toml` package-data lists exact subtrees, never a bare `**/*` over examples:
   `examples/http-agent/{*.py,*.md,*.yaml,Dockerfile}`, `examples/northwind/{agent.yaml,agent.lock,
   stack.yaml,stack.lock,README.md}`, `examples/northwind/registry/**/*`,
-  `examples/northwind/stack/**/*` (recursive: `stack/db/commerce.sql` and
-  `stack/litellm/config.yaml` are nested), `examples/northwind/stack/.dockerignore`, plus the built-in
+  the three tracked `stack/` files one by one (`.dockerignore`, `db/commerce.sql`,
+  `litellm/config.yaml`; a `stack/**/*` glob took local run output, review r5), plus the built-in
   registry, `policy/cedar_schema.json` and `_content.json`. `deploy/`, `.agentbreeder/` and
   `.secrets/` are never matched (dotfiles and dot-directories are skipped by `**/*`; verified).
   Brace forms above are shorthand: `pyproject.toml` gets one pattern per entry.

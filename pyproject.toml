@@ -28,7 +28,7 @@ cedar = ["cedarpy==4.12.2"]
 aws = ["boto3>=1.40,<2"]
 # `agentbreeder eval` / `release` fixture resets (eval sets with fixtures.sql).
 eval = ["psycopg[binary]==3.3.6"]
-dev = ["pytest>=8,<10", "pytest-cov>=5,<8", "ruff>=0.11,<1", "build>=1,<2", "cryptography>=44", "cedarpy==4.12.2", "psycopg[binary]==3.3.6"]
+dev = ["pytest>=8,<10", "pytest-cov>=5,<8", "ruff>=0.11,<1", "build>=1,<2", "packaging>=24", "cryptography>=44", "cedarpy==4.12.2", "psycopg[binary]==3.3.6"]
 
 [project.urls]
 Homepage = "https://www.agentbreeder.io"
@@ -52,9 +52,11 @@ agentbreeder = [
     # separately; build.py copies only the runtime's Dockerfile and runtime/ into a build
     # context, so they never reach an image (they are still part of the hashed version).
     "builtin_registry/**/*",
-    # Shipped examples (spec 5.4): explicit subtrees only. `**/*` skips dotfiles and
-    # dot-directories, so local state (.agentbreeder/, stack/.secrets/) never matches, and
-    # deploy/ is never listed. tests/test_packaging.py compares the wheel with _content.json.
+    # Shipped examples (spec 5.4): explicit files, plus the immutable registry trees. `**/*`
+    # skips dotfiles and dot-directories, so local state (.agentbreeder/, stack/.secrets/) never
+    # matches, and deploy/ is never listed. The registry globs would take a stray untracked file;
+    # scripts/content_manifest.py --check (CI, release) refuses those, and an installed extra
+    # file fails the built-in content check. tests/test_packaging.py plants local state.
     "examples/http-agent/Dockerfile",
     "examples/http-agent/README.md",
     "examples/http-agent/agent.yaml",
@@ -66,9 +68,11 @@ agentbreeder = [
     "examples/northwind/stack.yaml",
     "examples/northwind/stack.lock",
     "examples/northwind/registry/**/*",
-    "examples/northwind/stack/**/*",
+    # stack/ is listed file by file: a glob would also take local run output (logs, dumps).
     "examples/northwind/stack/.dockerignore",
-    # Expected sha256 and exec bit of every shipped non-Python file (scripts/content_manifest.py).
+    "examples/northwind/stack/db/commerce.sql",
+    "examples/northwind/stack/litellm/config.yaml",
+    # Expected sha256 and exec bit of every shipped file (scripts/content_manifest.py).
     "_content.json",
 ]
 

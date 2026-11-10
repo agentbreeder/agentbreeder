@@ -52,7 +52,7 @@ providers:
 YAML
 export AGENTBREEDER_OPERATOR_CONFIG="$PWD/operator.yaml"
 
-docker build --iidfile image-id PATH/TO/agentbreeder/examples/http-agent
+docker build --iidfile image-id PATH/TO/agentbreeder/src/agentbreeder/examples/http-agent
 cat > agent.yaml <<YAML
 schema_version: 2
 name: http-sample
