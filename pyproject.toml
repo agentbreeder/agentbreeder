@@ -4,12 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentbreeder"
-version = "0.0.0.dev0"
-description = "Development foundation for deploying existing agents in customer infrastructure"
+dynamic = ["version"]
+description = "Preview: build, gate and deploy agents with a deploy-time identity gate and audit trail"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = ["pydantic>=2.13.4,<3", "PyYAML>=6.0.3,<7"]
 
 [project.optional-dependencies]
@@ -19,8 +30,17 @@ aws = ["boto3>=1.40,<2"]
 eval = ["psycopg[binary]==3.3.6"]
 dev = ["pytest>=8,<10", "pytest-cov>=5,<8", "ruff>=0.11,<1", "build>=1,<2", "cryptography>=44", "cedarpy==4.12.2", "psycopg[binary]==3.3.6"]
 
+[project.urls]
+Homepage = "https://www.agentbreeder.io"
+Documentation = "https://www.agentbreeder.io/docs"
+Source = "https://github.com/agentbreeder/agentbreeder"
+"Legacy 2.x" = "https://www.agentbreeder.io/docs/legacy-2x"
+
 [project.scripts]
 agentbreeder = "agentbreeder.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "agentbreeder.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
