@@ -33,6 +33,11 @@ uvx --exclude-newer <release time> --exclude-newer-package agentbreeder=<release
   satisfied from, and `UV_PRERELEASE`, `UV_OVERRIDE` and `UV_CONSTRAINT` change what resolves.
 - `npx agentbreeder --launcher-version` prints the npm and PyPI versions, the `uvx` it would run,
   and a warning when one of those variables is set. It does not start Python.
+- `npx` does not leave an `agentbreeder` command on your `PATH`. Repeat the prefix for each
+  command (`npx agentbreeder@3.0.0-alpha.2 up`), or install the command with
+  `uv tool install "agentbreeder[eval]==3.0.0a2"`. A bare `agentbreeder` that fails with
+  `No module named 'cli'` or is not `3.0.0a2` comes from an older install earlier on your `PATH`;
+  see <https://www.agentbreeder.io/docs/install#an-older-agentbreeder-on-your-path>.
 - Windows is not supported.
 
 AgentBreeder 2.x (PyPI ≤ 2.7.3) is unmaintained and has known functional and security issues.

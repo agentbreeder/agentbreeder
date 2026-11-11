@@ -24,7 +24,9 @@ npx agentbreeder@3.0.0-alpha.2 up      # or: uvx --from "agentbreeder[eval]==3.0
 ```
 
 The cluster steps need `kind` 0.33 or newer and `kubectl` on `PATH`. Without the UI, with
-`agentbreeder` on your `PATH` (a pip install or a checkout; run from a checkout on 2026-11-10):
+`agentbreeder` on your `PATH` (a pip install, `uv tool install` or a checkout). `npx` and `uvx` do
+not install that command; see [Run more commands](/docs/install#run-more-commands). These ran from a
+checkout on 2026-11-10:
 
 ```
 agentbreeder cluster up --stack DIR --environment dev --yes

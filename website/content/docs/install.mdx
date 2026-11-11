@@ -48,11 +48,42 @@ or API key. The sample echoes JSON; it is not an AI agent. Add `--dry-run` to ru
 validate the sample without building or deploying anything. If it stops, run
 `agentbreeder doctor` first.
 
+## Run more commands
+
+`npx` and `uvx` run the CLI without installing an `agentbreeder` command. After either, a bare
+`agentbreeder` is either not found or an older install. Repeat the prefix for every command
+(`npx agentbreeder@3.0.0-alpha.2 up`), or install the command with uv:
+
+```sh
+uv tool install "agentbreeder[eval]==3.0.0a2"
+agentbreeder --version   # 3.0.0a2
+```
+
+This puts `agentbreeder` in uv's executable directory (`~/.local/bin` in our run), which must be on
+your `PATH` ahead of any older install. `uv tool uninstall agentbreeder` removes it. Run on macOS on
+2026-11-11 in a clean sandbox: `--version`, `doctor` and a real `quickstart` (5/5); `up` and
+Northwind have not been run this way.
+
+### An older `agentbreeder` on your `PATH`
+
+If a bare `agentbreeder` fails with `ModuleNotFoundError: No module named 'cli'`, or does not report
+`3.0.0a2`, an older install comes first on your `PATH`:
+
+1. `which -a agentbreeder` lists every copy, in `PATH` order.
+2. Run each one by its full path with `--version`. The one that fails or reports another version is
+   the old one; leave the `3.0.0a2` copy alone.
+3. Remove the old one with the tool that installed it: `pipx uninstall agentbreeder`,
+   `brew uninstall agentbreeder`, or for a pip install `PYTHON -m pip uninstall agentbreeder`, where
+   `PYTHON` is the interpreter on the first line of that script. If pip says it is not installed
+   (a leftover from a deleted editable install), delete that script file.
+4. Run `hash -r` or open a new shell.
+
 ## Try Northwind
 
 Northwind is a customer support agent built from an `agent.yaml`. It needs `GEMINI_API_KEY` and
 `TAVILY_API_KEY`, in the environment or in an env file. These commands need `agentbreeder` on your
-`PATH`: after the pip install above, run `export PATH=$PWD/.venv/bin:$PATH` first.
+`PATH`: after the pip install above, run `export PATH=$PWD/.venv/bin:$PATH` first, or use
+`uv tool install` ([Run more commands](#run-more-commands)).
 
 ```sh
 agentbreeder example northwind   # copies it to ./northwind
@@ -83,6 +114,9 @@ To tear it down, run `agentbreeder remove ID --local --stack .`, then
 | **macOS:** `agentbreeder up` starts, sign-in, UI served | Not run | Passed | Passed |
 | **macOS:** Northwind through `up`'s API (scripted, no browser): release 61/61, `kind` promote 61/61, full teardown | Not run | Not run | Passed |
 | **Linux:** anything | Not run | Not run | Not run |
+
+`uv tool install` on macOS, 2026-11-11: `--version`, `doctor` and a real `quickstart` (5/5); `up` and Northwind
+not run.
 
 `3.0.0a1`, installed from the public registries on 2026-11-10:
 
