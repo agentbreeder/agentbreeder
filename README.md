@@ -116,6 +116,10 @@ agentbreeder release agent.yaml --stack . --environment dev
 agentbreeder services down --purge --yes   # after `agentbreeder remove ID --local --stack .`
 ```
 
+To write your own agent step by step (prompt, evals, services, build, try, release, change, clean
+up; run with `npx` on macOS, Gemini only), see
+[Your own agent](https://www.agentbreeder.io/docs/your-own-agent).
+
 Local-only preview: see [src/agentbreeder/examples/northwind](https://github.com/agentbreeder/agentbreeder/blob/main/src/agentbreeder/examples/northwind/README.md),
 [agent.yaml](https://github.com/agentbreeder/agentbreeder/blob/main/docs/agent-yaml.md) and [services](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md).
 
