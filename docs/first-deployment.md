@@ -28,10 +28,11 @@ YAML
 export AGENTBREEDER_OPERATOR_CONFIG="$PWD/operator.yaml"
 ```
 
-Build your image (here, the repository's HTTP sample), then write a `schema_version: 2` manifest that names the principal:
+Build your image (here, the packaged HTTP sample), then write a `schema_version: 2` manifest that names the principal:
 
 ```sh
-docker build --iidfile image-id PATH/TO/agentbreeder/src/agentbreeder/examples/http-agent
+PATH/TO/.venv/bin/agentbreeder example http-agent   # copies the sample to ./http-agent
+docker build --iidfile image-id http-agent
 cat > agent.yaml <<YAML
 schema_version: 2
 name: http-sample

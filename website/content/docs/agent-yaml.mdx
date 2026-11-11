@@ -6,9 +6,10 @@ description: Preview. Describe an agent as versioned registry references, build 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Preview">
-  Install from source. Verified end to end only with the Northwind example on macOS with Docker
-  Desktop: services started from `stack.yaml`, built from `agent.yaml`, deployed through the
-  identity gate, and released through a 61-case eval gate (61/61, 2026-11-08). There is no authenticated invocation: an agent's
+  [Install the alpha preview](/docs/install). Verified end to end only with the Northwind example
+  on macOS with Docker Desktop: services started from `stack.yaml`, built from `agent.yaml`,
+  deployed through the identity gate, and released through a 61-case eval gate (61/61, 2026-11-08
+  from a checkout, 2026-11-10 from PyPI). There is no authenticated invocation: an agent's
   endpoint trusts whatever caller reaches it, and is published on loopback only.
 </Callout>
 
@@ -146,7 +147,8 @@ dashboard) come from its `stack.yaml` (see [Backing services](/docs/services)). 
 measured about $0.24.
 
 ```sh
-cd src/agentbreeder/examples/northwind
+agentbreeder example northwind   # copies it to ./northwind
+cd northwind
 agentbreeder services up --environment dev --env-file ~/.env --yes
 agentbreeder release agent.yaml --stack . --environment dev
 ```

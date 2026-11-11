@@ -16,7 +16,7 @@ and only after a **deploy-time identity gate** confirms the agent in your identi
 
 **Tagline (site):** Know the agent. Gate the deploy. Audit every attempt.
 
-**What ships today (source-only, `0.0.0.dev0`; verified end to end on macOS + Docker Desktop):**
+**What ships today (`3.0.0a1` preview on PyPI, `3.0.0-alpha.1` on npm; a bare `pip install agentbreeder` still gets 2.7.3; verified end to end on macOS + Docker Desktop). From the public registries, `quickstart` on pip/uvx/npx and Northwind 61/61 ran on macOS; on Linux only install, `--version` and `doctor` ran:**
 - `validate` and `doctor`; a local Docker `deploy`/`status`/`remove` lifecycle with SQLite history
 - The identity gate (Entra, Keycloak, Okta (experimental), AWS, static file; only the static
   adapter is live-verified), Cedar/OPA/AuthZEN policy, second-person approval, a kill switch,
@@ -30,7 +30,7 @@ and only after a **deploy-time identity gate** confirms the agent in your identi
   see `docs/services.md`). Verified with `src/agentbreeder/examples/northwind` from scratch (61/61, 2026-11-08).
 
 **Not shipped:** cloud/production deploy targets, a management API or UI, authenticated
-invocation, a PyPI release. 2.x (PyPI ≤ 2.7.3) is unmaintained and has known functional and
+invocation, a final 3.0.0. 2.x (PyPI ≤ 2.7.3) is unmaintained and has known functional and
 security issues; it is summarised on the website's Legacy 2.x page.
 
 **Claim rule:** README, docs and the website claim only what has been run end to end. Never
@@ -110,6 +110,12 @@ Since 2026-11-07 the website documents the focused rebuild (`website/content/doc
 is unmaintained and summarised on one page, `website/content/docs/legacy-2x.mdx` (2.x docs
 live at the `v2.7.3` tag). Claim only what has been run end to end; see
 `website/components/what-ships.tsx`.
+
+**3.0.0a1 release (2026-11-10, #755), per side.** OSS: published to PyPI, npm and GitHub; a new
+version also updates the footer badge (`website/components/footer.tsx`) and the pins in the install
+docs. Website: `website/content/docs/install.mdx` holds the install commands and the verified
+scope. Cloud: no code change, because it has no OSS version pin and installs a local editable
+checkout; its `CLAUDE.md` now records the release.
 
 ## 🎯 When Adding a New Feature
 

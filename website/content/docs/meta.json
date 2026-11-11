@@ -3,6 +3,7 @@
   "pages": [
     "---Preview---",
     "index",
+    "install",
     "local-deployment",
     "agent-yaml",
     "services",

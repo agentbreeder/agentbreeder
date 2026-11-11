@@ -14,7 +14,8 @@ An agent built from `agent.yaml` needs backing services before it can run. A pro
 them in `stack.yaml` next to `agent.yaml`:
 
 ```
-cd src/agentbreeder/examples/northwind
+agentbreeder example northwind   # copies it to ./northwind
+cd northwind
 agentbreeder services up --environment dev --env-file ~/.env   # shows the grant; --yes confirms
 agentbreeder release agent.yaml --stack . --environment dev    # build → candidate → evals → promote
 agentbreeder services down --purge --yes                       # remove everything up made

@@ -4,6 +4,7 @@ import { Logo } from './logo';
 const LINKS = {
   Docs: [
     { label: 'Overview', href: '/docs' },
+    { label: 'Install', href: '/docs/install' },
     { label: 'Local deployment', href: '/docs/local-deployment' },
     { label: 'Manifest', href: '/docs/manifest' },
     { label: 'Identity gate', href: '/docs/identity-gate' },
@@ -83,7 +84,7 @@ export function Footer() {
               color: 'var(--accent)',
             }}
           >
-            preview · source only
+            preview · 3.0.0a1
           </span>
         </div>
       </div>

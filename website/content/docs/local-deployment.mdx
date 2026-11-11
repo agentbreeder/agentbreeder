@@ -6,8 +6,9 @@ description: Deploy, inspect and remove a trusted HTTP container on a local Dock
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn">
-  Preview, install from source. This is a development-only, single-user runtime for macOS and
-  Linux. There is no management HTTP API or UI, and no production deployment target.
+  [Alpha preview](/docs/install). This is a development-only, single-user runtime. From the
+  published package it has run end to end on macOS; on Linux only the install and `doctor` have
+  been checked. There is no management HTTP API or UI, and no production deployment target.
 </Callout>
 
 ## Requirements for your image
@@ -52,7 +53,8 @@ providers:
 YAML
 export AGENTBREEDER_OPERATOR_CONFIG="$PWD/operator.yaml"
 
-docker build --iidfile image-id PATH/TO/agentbreeder/src/agentbreeder/examples/http-agent
+.venv/bin/agentbreeder example http-agent   # copies the sample to ./http-agent
+docker build --iidfile image-id http-agent
 cat > agent.yaml <<YAML
 schema_version: 2
 name: http-sample

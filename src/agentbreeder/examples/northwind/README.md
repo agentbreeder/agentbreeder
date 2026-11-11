@@ -11,8 +11,10 @@ and **no agent Python**. It has:
 - **escalation** to a human.
 
 Verified on macOS with Docker Desktop: `agentbreeder services up` started the stack from
-`stack.yaml`, and `agentbreeder release` passed the 61-case eval gate (61/61, 2026-11-08) and
-deployed the agent.
+`stack.yaml`, and `agentbreeder release` passed the 61-case eval gate and deployed the agent. That
+was 61/61 from a source checkout on 2026-11-08, and 61/61 again on 2026-11-10 from
+`agentbreeder[eval]==3.0.0a1` installed from PyPI in a clean sandbox, with a live `/invoke` and a
+full teardown. It has not been run on Linux.
 
 | What | Where | Whose code |
 |---|---|---|
@@ -24,17 +26,24 @@ deployed the agent.
 
 ## Run it
 
-You need Docker, a source checkout of AgentBreeder, and `GEMINI_API_KEY` and `TAVILY_API_KEY` in
-the environment or in an env file (`--env-file ~/.env`). `OPENROUTER_API_KEY` is optional; it
-enables the gateway's fallback route.
+You need Docker, and `GEMINI_API_KEY` and `TAVILY_API_KEY` in the environment or in an env file
+(`--env-file ~/.env`). `OPENROUTER_API_KEY` is optional; it enables the gateway's fallback route.
 
 ```
-python3 -m venv .venv && .venv/bin/pip install -e ".[eval]"   # at the repo root; there is no PyPI release. [eval] lets the eval gate reset fixtures in Postgres
+python3 -m venv .venv && .venv/bin/pip install "agentbreeder[eval]==3.0.0a1"   # [eval] lets the eval gate reset fixtures in Postgres
 export PATH=$PWD/.venv/bin:$PATH
-cd src/agentbreeder/examples/northwind
+agentbreeder example northwind   # copies this example to ./northwind
+cd northwind
 agentbreeder services up --environment dev --env-file ~/.env   # shows what it will run and grant; --yes confirms
 agentbreeder release agent.yaml --stack . --environment dev    # build → candidate → 61 evals → promote
 ```
+
+The pinned version matters: a bare `pip install agentbreeder` installs the unmaintained 2.x.
+
+Without pip, replace `agentbreeder` above with `uvx --from "agentbreeder[eval]==3.0.0a1" agentbreeder`
+(needs uv) or `npx agentbreeder@3.0.0-alpha.1` (needs Node 18+ and uv). Those two paths have run
+`agentbreeder quickstart`, but not this example. From a checkout, install with
+`pip install -e ".[eval]"` at the repo root and `cd src/agentbreeder/examples/northwind`.
 
 `services up` generates every service secret, keeps all state under
 `~/.agentbreeder/stacks/northwind-<id>/`, and writes the operator config and demo identities for

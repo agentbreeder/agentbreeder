@@ -1,0 +1,137 @@
+---
+title: Install
+description: Install the AgentBreeder 3.0.0a1 preview from PyPI or npm with an exact version pin, and see what has been verified on macOS and Linux.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Always pin the version">
+  `3.0.0a1` is an alpha preview. A bare `pip install agentbreeder`, `uvx agentbreeder` or
+  `pipx run agentbreeder` installs **2.7.3**, which is unmaintained and has known functional and
+  security issues (see [Legacy 2.x](/docs/legacy-2x)). 3.x is a rebuild: no 2.x command, config or
+  data carries over.
+</Callout>
+
+## Requirements
+
+- macOS (verified end to end) or Linux (install, `--version` and `doctor` only; see
+  [what has been verified](#what-has-been-verified)). Windows is not supported.
+- A running Docker engine with a local context.
+- For pip: Python 3.11 or newer.
+- For uvx: [uv](https://docs.astral.sh/uv/) 0.11.6 or newer.
+- For npx: Node.js 18 or newer, and uv 0.11.6 or newer.
+
+## Install and run the demo
+
+Pick one path. Each runs the same PyPI release.
+
+```sh title="pip, in a virtual environment"
+python3 -m venv .venv
+.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a1"
+.venv/bin/agentbreeder quickstart
+```
+
+```sh title="uvx"
+uvx --from "agentbreeder[eval]==3.0.0a1" agentbreeder quickstart
+```
+
+```sh title="npx"
+npx agentbreeder@3.0.0-alpha.1 quickstart
+```
+
+The npm package is a launcher with no Python code of its own. It runs the pinned PyPI release
+through `uvx`, and exits with install guidance if `uvx` is missing.
+
+`quickstart` builds a sample image, deploys it through a demo identity gate, invokes it, retries
+the same deployment, checks the saved history and removes the container. It needs no model account
+or API key. The sample echoes JSON; it is not an AI agent. Add `--dry-run` to run `doctor` and
+validate the sample without building or deploying anything. If it stops, run
+`agentbreeder doctor` first.
+
+## Try Northwind
+
+Northwind is a customer support agent built from an `agent.yaml`. It needs `GEMINI_API_KEY` and
+`TAVILY_API_KEY`, in the environment or in an env file. These commands need `agentbreeder` on your
+`PATH`: after the pip install above, run `export PATH=$PWD/.venv/bin:$PATH` first.
+
+```sh
+agentbreeder example northwind   # copies it to ./northwind
+cd northwind
+agentbreeder services up --environment dev --env-file ~/.env --yes
+agentbreeder release agent.yaml --stack . --environment dev
+```
+
+With uvx or npx, replace `agentbreeder` with the full command from the section above. Those two
+paths have run `quickstart`, but not Northwind.
+
+The README inside the `3.0.0a1` copy of the example predates the release and still describes a
+source checkout. Follow this page instead.
+
+To tear it down, run `agentbreeder remove ID --local --stack .`, then
+`agentbreeder services down --purge --yes`. See [Backing services](/docs/services) and
+[Build from agent.yaml](/docs/agent-yaml).
+
+## What has been verified
+
+All of this installed `3.0.0a1` from the public registries on 2026-11-10.
+
+| | pip | uvx | npx |
+|---|---|---|---|
+| **macOS:** real `quickstart` (5/5) | Passed | Passed | Passed |
+| **macOS:** Northwind to 61/61, live `/invoke`, full teardown | Passed | Not run | Not run |
+| **Linux:** install, `--version`, `doctor` | Passed | Passed | Passed |
+| **Linux:** real `quickstart` or Northwind | Not run | Not run | Not run |
+
+- macOS means macOS 13 with Docker Desktop, in a clean sandbox: a fresh `HOME`, empty package
+  caches and no checkout.
+- Linux means Ubuntu 24.04 in a container, with Node 18.19.1.
+
+Installing from the hashed requirements file also passed the install smoke test, with pip and
+with `uv pip`: on macOS from PyPI, and on macOS and Ubuntu in the TestPyPI rehearsal.
+
+## How long it took
+
+Measured once on macOS, in the same sandbox. Docker images and build layers already on the machine
+were not cleared, so a first run on a new machine will take longer.
+
+| Step | Time |
+|---|---|
+| Create a virtual environment and `pip install` | 9 s |
+| `agentbreeder quickstart`, cold sample build | 62 s |
+| `agentbreeder services up` (5 services) | 175 s |
+| `agentbreeder release` (build, 61 evals, promote) | 178 s |
+| `agentbreeder remove` and `services down --purge` | 16 s |
+
+Not measured: installing Docker, Python, uv or Node, or getting the API keys.
+
+## Install with hashes
+
+The [`v3.0.0a1` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a1)
+carries `requirements-3.0.0a1.txt`, with a hash for every package, and a `SHA256SUMS` file.
+
+```sh
+uv pip install --require-hashes -r requirements-3.0.0a1.txt
+# or
+pip install --require-hashes -r requirements-3.0.0a1.txt
+```
+
+Neither uvx nor npx enforces hashes. The npx launcher bounds what resolves with `--exclude-newer`
+and a constraints file. The uvx command above pins only `agentbreeder` itself, so its dependencies
+resolve to the newest versions allowed. On both paths, your uv index settings decide where the
+packages come from.
+
+## Install from a checkout
+
+Use a fresh virtual environment: an older install can expose the 2.x CLI.
+
+```sh
+git clone https://github.com/agentbreeder/agentbreeder.git
+cd agentbreeder
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+```
+
+## Using 2.x
+
+If you need 2.x, pin `agentbreeder<3` and read [Legacy 2.x](/docs/legacy-2x) first. There is no
+migration path between 2.x and 3.x.

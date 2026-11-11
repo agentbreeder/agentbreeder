@@ -1,8 +1,12 @@
 # agentbreeder (npx launcher)
 
-**Preview; clean-machine verification pending.** This package runs the AgentBreeder CLI from
-PyPI through [uv](https://docs.astral.sh/uv/). It contains no Python code and has no dependencies
-or install scripts.
+**Preview.** This package runs the AgentBreeder CLI from PyPI through
+[uv](https://docs.astral.sh/uv/). It contains no Python code and has no dependencies or install
+scripts.
+
+Verified from the public registries on 2026-11-10: a real `quickstart` on macOS with Docker
+Desktop, and `--version` and `doctor` on Linux (Ubuntu 24.04 in a container, Node 18.19.1). A real
+`quickstart` has not been run on Linux.
 
 ```sh
 npx agentbreeder@3.0.0-alpha.1 quickstart --dry-run

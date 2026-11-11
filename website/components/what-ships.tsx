@@ -5,6 +5,11 @@ import Link from 'next/link';
 // content/docs/index.mdx and ARCHITECTURE.md: claim nothing here that a test run hasn't shown.
 const WORKS: { title: string; detail: string }[] = [
   {
+    title: 'Preview: install from PyPI and npm',
+    detail:
+      '3.0.0a1 with pip, uvx or npx, pinned to the exact version. Run from the public registries on 2026-11-10: quickstart on all three and Northwind (61/61, pip) on macOS; install, --version and doctor only on Linux.',
+  },
+  {
     title: 'Manifest validation and doctor',
     detail: 'Strict, size-bounded agent.yaml checks with no side effects; a read-only Docker diagnostic.',
   },
@@ -57,8 +62,8 @@ const NOT_YET: string[] = [
   'Cloud or production deploy targets (AWS, GCP, Azure, Kubernetes)',
   'A management API or web UI',
   'Authenticated invocation of deployed agents',
-  'A PyPI release: install from source',
-  'Verified Linux support: only macOS with Docker Desktop has been tested (Windows is unsupported)',
+  'A final 3.0.0: 3.0.0a1 is an alpha, with no stability promise',
+  'Verified Linux runs: install and doctor pass on Ubuntu 24.04, but quickstart and Northwind have only run on macOS with Docker Desktop (Windows is unsupported)',
 ];
 
 export function WhatShips() {
@@ -72,8 +77,11 @@ export function WhatShips() {
           Only what we have run end to end
         </h2>
         <p className="mb-12 max-w-[620px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
-          AgentBreeder is a focused rebuild, source-only for now. This is the complete list of what it
-          does, and what it doesn&apos;t do yet.
+          AgentBreeder is a focused rebuild, available as the{' '}
+          <Link href="/docs/install" style={{ color: 'var(--text)' }}>
+            3.0.0a1 alpha preview
+          </Link>
+          . This is the complete list of what it does, and what it doesn&apos;t do yet.
         </p>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

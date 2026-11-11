@@ -7,18 +7,17 @@
 > installs 2.7.3, which is unmaintained and has known functional and security issues; see
 > [Legacy 2.x](https://www.agentbreeder.io/docs/legacy-2x).
 
-**Focused rebuild — development baseline, not a production release.**
+**Alpha preview of a focused rebuild, not a production release.**
 
-AgentBreeder is being rebuilt around deploying existing agents into customer-controlled infrastructure. This branch provides manifest validation, Docker diagnostics, a local deployment lifecycle with SQLite history, and a real HTTP sample service.
+AgentBreeder is being rebuilt around deploying existing agents into customer-controlled infrastructure. This preview provides manifest validation, Docker diagnostics, a local deployment lifecycle with SQLite history, and a real HTTP sample service.
 
 Deploys pass a **deploy-time identity gate**: the agent must already exist in your identity provider (Entra, Keycloak, Okta (experimental), AWS or a static file), with an active sponsor, a valid review date and the required scoped grants. Optional controls are a Cedar/OPA/AuthZEN policy check, second-person approval, a kill switch and a hash-chained local audit log; see [docs/identity-gate.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/identity-gate.md). Operators can also put local deployments behind an MCP egress boundary that enforces policy on every MCP Streamable-HTTP tool call. Production deployment and the operational UI are **not implemented yet**. The local sample lifecycle and fresh-install demo have been verified against Docker Desktop on macOS. There are no simulated deployments or placeholder production endpoints.
 
 ## Install the preview
 
-`3.0.0a1` is a preview; clean-machine verification is pending. Each command pins the exact
-version. If one reports that the version is not found, it is not published there yet: install
-from a checkout as shown below. A bare `pip install agentbreeder` installs 2.x (see the notice
-above).
+`3.0.0a1` is an alpha preview, on [PyPI](https://pypi.org/project/agentbreeder/3.0.0a1/) and
+[npm](https://www.npmjs.com/package/agentbreeder/v/3.0.0-alpha.1). Each command pins the exact
+version. A bare `pip install agentbreeder` installs 2.x (see the notice above).
 
 ```sh
 pip install "agentbreeder[eval]==3.0.0a1"                               # in a virtual environment
@@ -28,21 +27,31 @@ npx agentbreeder@3.0.0-alpha.1 quickstart --dry-run                       # need
 
 The npm package is a launcher that runs the same PyPI release through `uvx`; see
 [npm/README.md](https://github.com/agentbreeder/agentbreeder/blob/main/npm/README.md).
-The `v3.0.0a1` GitHub release carries a hashed requirements file for
-`uv pip install --require-hashes -r requirements-3.0.0a1.txt` (or `pip install --require-hashes
--r …`), once it is published.
+The [`v3.0.0a1` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a1)
+carries a hashed requirements file for `uv pip install --require-hashes -r
+requirements-3.0.0a1.txt` (or `pip install --require-hashes -r …`).
+
+What has been verified, installing `3.0.0a1` from the public registries on 2026-11-10:
+
+- **macOS with Docker Desktop, end to end.** In a clean sandbox (fresh `HOME`, no checkout), pip,
+  uvx and npx each ran a real `agentbreeder quickstart`. From the pip install, Northwind ran
+  `services up` and `release` (61/61 evals), answered a live `/invoke` and was fully torn down.
+- **Linux, install and `doctor` only.** On Ubuntu 24.04 in a container (Node 18.19.1), each of the
+  three paths installed and ran `--version` and `doctor`. A real `quickstart` and Northwind have
+  not been run on Linux.
 
 ## Try the complete local demo
 
-Requires macOS or Linux, Python 3.11+, and a running Docker engine with a local context. From this checkout:
+Requires Python 3.11+ and a running Docker engine with a local context. The demo has been run on
+macOS; on Linux only the install and `doctor` have been checked.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install .
+.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a1"
 .venv/bin/agentbreeder quickstart
 ```
 
-`agentbreeder quickstart --dry-run` runs `doctor` and validates the sample without building or deploying anything.
+To work from a checkout instead, see Develop below. `agentbreeder quickstart --dry-run` runs `doctor` and validates the sample without building or deploying anything.
 
 The demo builds a real sample image, deploys it, invokes its HTTP endpoint, retries the same deployment, verifies saved history, and removes its container and temporary image tag. It prints progress and the private directory containing its history and recovery files. No model account or API key is needed. Initial image downloads need internet access.
 
@@ -54,7 +63,7 @@ A successful run ends with:
 5/5 Sample container removed. History retained.
 ```
 
-This sample echoes JSON; it is not an AI agent. Use a fresh environment: an older editable installation may expose the previous CLI, and PyPI does not install this branch.
+This sample echoes JSON; it is not an AI agent. Use a fresh environment: an older installation may expose the 2.x CLI.
 
 ## If the demo stops
 
@@ -64,7 +73,7 @@ Run `.venv/bin/agentbreeder doctor` first. Start Docker Desktop or your local Do
 |---|---|
 | Docker cannot connect | Start the engine, check `docker context show`, then rerun doctor. |
 | Remote Docker context or `DOCKER_HOST` override | Choose a local Unix-socket context and unset the override. |
-| Image build fails | Run `docker build src/agentbreeder/examples/http-agent` to see the build error; check registry access. |
+| Image build fails | Run `.venv/bin/agentbreeder example http-agent`, then `docker build http-agent`, to see the build error; check registry access. |
 | Deployment or cleanup fails | Keep the printed state directory. Follow the printed removal command, or use the recovery commands below. |
 
 ```sh
@@ -88,11 +97,13 @@ knowledge, tools and evals; no agent code) into an image, and `agentbreeder rele
 candidate, runs its eval set and promotes it only if the gate passes. `agentbreeder services up`
 starts the services the agent needs from a `stack.yaml` (Postgres with pgvector, a LiteLLM
 gateway, Phoenix, project services) on local Docker and writes a demo operator config for them.
-`src/agentbreeder/examples/northwind` runs this way end to end on macOS with Docker Desktop (61/61 evals,
-2026-11-08):
+The Northwind example runs this way end to end on macOS with Docker Desktop (61/61 evals, from a
+checkout on 2026-11-08 and from PyPI on 2026-11-10). It has not been run on Linux. With
+`agentbreeder` on your `PATH`:
 
 ```sh
-cd src/agentbreeder/examples/northwind
+agentbreeder example northwind   # copies it to ./northwind
+cd northwind
 agentbreeder services up --environment dev --env-file ~/.env --yes
 agentbreeder release agent.yaml --stack . --environment dev
 agentbreeder services down --purge --yes   # after `agentbreeder remove ID --local --stack .`
@@ -103,7 +114,10 @@ Local-only preview: see [src/agentbreeder/examples/northwind](https://github.com
 
 ## Develop
 
+From a checkout of this repository:
+
 ```sh
+python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
 .venv/bin/python -m pytest
 .venv/bin/ruff check src tests scripts
@@ -115,6 +129,6 @@ Read [the manifest contract](https://github.com/agentbreeder/agentbreeder/blob/m
 
 ## Compatibility
 
-This is a clean, incompatible development baseline. Do not use it to upgrade an existing AgentBreeder installation. No data migration or production deployment path exists yet. The legacy implementation remains in Git history at `7b086d9`; existing deployments and published packages are unaffected by changes to this branch.
+This is a clean rebuild, incompatible with 2.x. Do not use it to upgrade an existing AgentBreeder installation. No data migration or production deployment path exists yet. The legacy implementation remains in Git history at `7b086d9`; existing 2.x deployments and published 2.x packages are unaffected.
 
 Engineering tracking: [#648](https://github.com/agentbreeder/agentbreeder/issues/648). Apache 2.0; see LICENSE and TRADEMARK.md.
