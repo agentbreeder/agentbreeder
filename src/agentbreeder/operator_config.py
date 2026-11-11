@@ -92,8 +92,33 @@ class McpRelay(_Strict):
         return value
 
 
+_CIDR = r"^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$"
+
+
+class KubernetesTarget(_Strict):
+    """The cluster agents in this environment deploy to. `KUBECONFIG` and `current-context` are
+    never used, and `cluster_uid` (the UID of `kube-system`) must match the cluster."""
+
+    kubeconfig: str = Field(max_length=1024, pattern=r"^/[^|\s]*$")
+    context: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$")
+    cluster_uid: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    namespace: str = Field(pattern=r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+    registry: str = Field(pattern=r"^[a-z0-9.-]+(:[0-9]{1,5})?(/[a-z0-9._-]+)+$", max_length=256)
+    # Pod, service and node ranges, and metadata: egress the agent's NetworkPolicy denies.
+    blocked_cidrs: list[str] = Field(min_length=1, max_length=32)
+
+    @field_validator("blocked_cidrs")
+    @classmethod
+    def cidrs(cls, value: list[str]) -> list[str]:
+        if any(not re.fullmatch(_CIDR, cidr) for cidr in value):
+            raise ValueError("blocked_cidrs are IPv4 CIDR blocks")
+        return value
+
+
 class Environment(_Strict):
     targets: list[Literal["local", "kubernetes"]] = Field(min_length=1)
+    # Required to deploy `target: kubernetes` in this environment.
+    kubernetes: KubernetesTarget | None = None
     # Model gateway grant for agents in this environment (agent.yaml builds, spec §10).
     gateway: str | None = Field(default=None, pattern=_GATEWAY)
     models: list[str] = Field(default_factory=list, max_length=50)

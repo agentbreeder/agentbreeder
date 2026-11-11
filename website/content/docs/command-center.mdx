@@ -1,0 +1,27 @@
+---
+title: Local command center
+description: A loopback, single-user UI and a Kubernetes target for local clusters (preview).
+---
+
+`agentbreeder up` starts a web UI on `127.0.0.1` for one person on one machine. It onboards an
+agent project, starts its backing services after a grant review, runs the eval-gated release to
+local Docker, and deploys that same image by digest to a local `kind` cluster.
+
+**What has been run.** From a source checkout on macOS with Docker Desktop on 2026-11-10, with
+`kind` 0.33: Northwind passed 61/61 on local Docker and 61/61 on the cluster. This is not in the
+published `3.0.0a1`, it has not run on Linux, and no production cluster has been tested.
+
+Every action runs the same CLI command you would type, so the identity gate, policy, audit and the
+eval gate still apply. The UI has no approve button: a second person's verified identity is what a
+single-user session cannot provide.
+
+```
+agentbreeder up
+agentbreeder cluster up --stack DIR --environment dev --yes
+agentbreeder promote DIR/agent.yaml --stack DIR --environment dev --to kubernetes
+```
+
+**Limits.** Whoever controls local Docker has full control. The gate prevents mistakes and policy
+drift, not a local admin. Backing services stay in Docker, the local registry is unauthenticated,
+and Secrets are unencrypted in `kind`. This shows the deployer working; it is not a production
+design.

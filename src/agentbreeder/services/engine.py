@@ -24,7 +24,7 @@ from agentbreeder.services import operator as operator_writer
 from agentbreeder.services.compose import PROBE_IMAGE, DockerCLI
 from agentbreeder.services.dockerfile import check as _check_dockerfile
 from agentbreeder.services.lock import LockedStack, StackLock, lock_stack
-from agentbreeder.services.plan import Plan, grant_digest
+from agentbreeder.services.plan import Plan, grant_digest, grant_text
 from agentbreeder.services.schema import ServiceError, Stack, load_stack
 from agentbreeder.services.state import StackState, stacks_root, write_private
 
@@ -247,6 +247,7 @@ class Engine:
         confirm_pins: Callable[[dict], bool] = lambda report: False,
         repin: bool = False,
         allow_project_mcp: frozenset[str] = frozenset(),
+        expect_grant: str | None = None,
     ) -> dict:
         self.state.env_dir(environment)  # validates the name before anything runs
         plan = self.plan(mode)
@@ -265,11 +266,12 @@ class Engine:
                     "(--yes alone never allows it)",
                 )
         self._check_in_use(plan)
-        grant = plan.grant(environment)
-        grant["mcp_pins"] = {
-            server: mcp_stack.lock_tools(self._lock_state[0], server) for server in plan.locked.mcp
-        }
+        grant = self._grant(plan, environment)
         digest = grant_digest(grant)
+        if expect_grant is not None and digest != expect_grant:
+            raise ServiceError(
+                "GRANT_CHANGED", "the grant differs from the one reviewed; review it again"
+            )
         if self.state.get("grant") != digest and not confirm(grant):
             raise ServiceError(
                 "GRANT_NOT_CONFIRMED",
@@ -296,6 +298,7 @@ class Engine:
             self._steps(plan, name, rendered, mounts)
         self.state.prune_mounts(mounts)
         self.state.put("grant", digest)
+        self._attach_cluster(plan)
         mcp = self._pin(plan, mode, repin, confirm_pins, allow_project_mcp)
         config = operator_writer.write(plan, self.state, environment)
         after = self.docker.containers(self.state)
@@ -320,6 +323,80 @@ class Engine:
             "mcp": mcp,
             "removed": removed,
         }
+
+    def _grant(self, plan: Plan, environment: str) -> dict:
+        grant = plan.grant(environment)
+        grant["mcp_pins"] = {
+            server: mcp_stack.lock_tools(self._lock_state[0], server) for server in plan.locked.mcp
+        }
+        cluster = json.loads(self.state.get("kubernetes") or "null")
+        if cluster:
+            grant["kubernetes"] = {
+                key: cluster[key] for key in ("context", "cluster_uid", "namespace", "registry")
+            }
+        return grant
+
+    def preview(self, environment: str) -> dict:
+        """What `up` would ask to confirm. Records the chosen host ports so the digest holds;
+        copies content-addressed files into the state; starts nothing."""
+        self.state.env_dir(environment)
+        plan = self.plan("plain")
+        for service, ports in plan.host_ports.items():
+            for port_name, number in ports.items():
+                self.state.record_port(service, port_name, number)
+        grant = self._grant(plan, environment)
+        digest = grant_digest(grant)
+        needed: dict[str, dict] = {}
+        for name in plan.locked.resolved.order:
+            for secret, source in sorted(plan.spec(name).secrets.items()):
+                if source.import_:
+                    key = needed.setdefault(
+                        source.import_,
+                        {"name": source.import_, "optional": True, "stored": True},
+                    )
+                    key["optional"] = key["optional"] and bool(source.optional)
+                    key["stored"] = (
+                        key["stored"] and self.state.read_secret(name, secret) is not None
+                    )
+        return {
+            "digest": digest,
+            "text": grant_text(grant),
+            "grant": grant,
+            "confirmed": self.state.get("grant") == digest,
+            "keys": sorted(needed.values(), key=lambda key: key["name"]),
+            "mcp": sorted(plan.locked.mcp),
+        }
+
+    def _attach_cluster(self, plan: Plan) -> None:
+        """Compose recreates the agents network, so the kind node is attached again here."""
+        cluster = json.loads(self.state.get("kubernetes") or "null")
+        if not cluster:
+            return
+        from agentbreeder import cluster as local_cluster
+
+        network = plan.networks["agents"]
+        local_cluster.connect(local_cluster.NODE, network)
+        cluster["blocked_cidrs"] = local_cluster.blocked_cidrs(network)
+        self.state.put("kubernetes", json.dumps(cluster))
+
+    def active_cluster_deployments(self) -> list[str]:
+        from agentbreeder.store import Store
+
+        active = []
+        for environment in self.state.environments():
+            directory = self.state.deploy_state(environment)
+            if not (directory / "deployments.sqlite3").exists():
+                continue
+            store = Store(directory)
+            try:
+                active += [
+                    f"{environment}/{row['name']}"
+                    for row in store.active_all()
+                    if store.manifest(row["id"]).get("target") == "kubernetes"
+                ]
+            finally:
+                store.close()
+        return active
 
     # -- MCP relays (spec §7) ---------------------------------------------------------------------
 
@@ -661,10 +738,25 @@ class Engine:
         if active:
             raise ServiceError(
                 "STACK_IN_USE",
-                f"remove these deployments first (agentbreeder remove ID --local --stack .): "
+                f"remove these deployments first (agentbreeder remove ID --local or --cluster "
+                f"--stack .): "
                 f"{', '.join(active)}",
             )
         self.docker.authorize()
+        if self.state.get("kubernetes"):
+            from agentbreeder import cluster as local_cluster
+
+            try:  # compose cannot remove a network with the kind node still attached
+                self.docker.run(
+                    "network",
+                    "disconnect",
+                    "--force",
+                    self.state.project + "-agents",
+                    local_cluster.NODE,
+                    what="detaching the kind node",
+                )
+            except ServiceError:
+                self.log("The kind node was not attached to the agents network")
         self.docker.down(self.state)
         removed = []
         if volumes:

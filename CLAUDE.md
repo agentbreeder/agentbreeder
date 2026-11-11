@@ -25,11 +25,15 @@ and only after a **deploy-time identity gate** confirms the agent in your identi
 - Preview: building ADK agents from `agent.yaml` with versioned, hash-locked registries
   (`agentbreeder build`), local secret files, per-deployment LiteLLM keys, and an eval-gated
   `agentbreeder release`. Verified only with `src/agentbreeder/examples/northwind`, which passed 61/61.
+- Preview, source checkout only (#783; not in `3.0.0a1`): `agentbreeder up`, a loopback single-user
+  command center that runs CLI child processes, and a Kubernetes target for local `kind` clusters
+  (`cluster`, `promote`, `deploy --cluster`, `forward`). Northwind 61/61 on both targets, macOS,
+  2026-11-10. No production cluster has been tested; see `docs/command-center.md`.
 - Local-only preview: backing services from `stack.yaml` (`agentbreeder services up|status|logs|
   env|down`, built-in postgres-pgvector, litellm and phoenix, project services built from source;
   see `docs/services.md`). Verified with `src/agentbreeder/examples/northwind` from scratch (61/61, 2026-11-08).
 
-**Not shipped:** cloud/production deploy targets, a management API or UI, authenticated
+**Not shipped:** cloud/production deploy targets, a multi-user control center or versioned API, authenticated
 invocation, a final 3.0.0. 2.x (PyPI ≤ 2.7.3) is unmaintained and has known functional and
 security issues; it is summarised on the website's Legacy 2.x page.
 
@@ -116,6 +120,10 @@ version also updates the footer badge (`website/components/footer.tsx`) and the 
 docs. Website: `website/content/docs/install.mdx` holds the install commands and the verified
 scope. Cloud: no code change, because it has no OSS version pin and installs a local editable
 checkout; its `CLAUDE.md` now records the release.
+
+**`agentbreeder up` (#783), per side.** OSS: `center/`, `kubernetes.py`, `cluster.py`, `promote.py`; the
+operator config gains `Environment.kubernetes`. Website: `what-ships` and `command-center.mdx`. Cloud: no
+code; it has no OSS version pin, and the center's API is private and unversioned, not the #775 contract.
 
 ## 🎯 When Adding a New Feature
 

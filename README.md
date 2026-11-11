@@ -11,7 +11,7 @@
 
 AgentBreeder is being rebuilt around deploying existing agents into customer-controlled infrastructure. This preview provides manifest validation, Docker diagnostics, a local deployment lifecycle with SQLite history, and a real HTTP sample service.
 
-Deploys pass a **deploy-time identity gate**: the agent must already exist in your identity provider (Entra, Keycloak, Okta (experimental), AWS or a static file), with an active sponsor, a valid review date and the required scoped grants. Optional controls are a Cedar/OPA/AuthZEN policy check, second-person approval, a kill switch and a hash-chained local audit log; see [docs/identity-gate.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/identity-gate.md). Operators can also put local deployments behind an MCP egress boundary that enforces policy on every MCP Streamable-HTTP tool call. Production deployment and the operational UI are **not implemented yet**. The local sample lifecycle and fresh-install demo have been verified against Docker Desktop on macOS. There are no simulated deployments or placeholder production endpoints.
+Deploys pass a **deploy-time identity gate**: the agent must already exist in your identity provider (Entra, Keycloak, Okta (experimental), AWS or a static file), with an active sponsor, a valid review date and the required scoped grants. Optional controls are a Cedar/OPA/AuthZEN policy check, second-person approval, a kill switch and a hash-chained local audit log; see [docs/identity-gate.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/identity-gate.md). Operators can also put local deployments behind an MCP egress boundary that enforces policy on every MCP Streamable-HTTP tool call. Production deployment is **not implemented yet**; a local single-user command center and a Kubernetes target for local clusters are a preview ([docs/command-center.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/command-center.md)). The local sample lifecycle and fresh-install demo have been verified against Docker Desktop on macOS. There are no simulated deployments or placeholder production endpoints.
 
 ## Install the preview
 
@@ -111,6 +111,10 @@ agentbreeder services down --purge --yes   # after `agentbreeder remove ID --loc
 
 Local-only preview: see [src/agentbreeder/examples/northwind](https://github.com/agentbreeder/agentbreeder/blob/main/src/agentbreeder/examples/northwind/README.md),
 [agent.yaml](https://github.com/agentbreeder/agentbreeder/blob/main/docs/agent-yaml.md) and [services](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md).
+
+## Local command center (preview, from a checkout)
+
+`agentbreeder up` starts a web UI on `127.0.0.1` for one person. It onboards a project, starts its services after a grant review, runs the eval-gated release, and deploys that same image by digest to a local `kind` cluster. Every action runs the CLI, so the identity gate, policy, audit and eval gate still apply. Northwind passed 61/61 on both local Docker and `kind` on macOS on 2026-11-10. It is not in `3.0.0a1`, and no production cluster has been tested. See [docs/command-center.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/command-center.md).
 
 ## Develop
 

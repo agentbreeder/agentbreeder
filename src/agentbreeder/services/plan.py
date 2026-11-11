@@ -513,6 +513,16 @@ def mcp_status_lines(mcp: dict) -> list[str]:
     return lines
 
 
+def _cluster_lines(grant: dict) -> list[str]:
+    cluster = grant.get("kubernetes")
+    if not cluster:
+        return []
+    return [
+        f"Kubernetes target: context {cluster['context']}, namespace {cluster['namespace']}, "
+        f"cluster {cluster['cluster_uid']}, images pushed to {cluster['registry']}"
+    ]
+
+
 def grant_text(grant: dict) -> str:
     lines = [
         f"Stack {grant['stack']}, environment {grant['environment']} (local demo only)",
@@ -541,6 +551,7 @@ def grant_text(grant: dict) -> str:
         *_gateway_line(grant.get("gateway_config")),
         *_project_gateway(grant),
         *_mcp_lines(grant),
+        *_cluster_lines(grant),
         "Demo identities (static provider, written outside the repo):",
         *(
             f"  {i['agent']}{' (+ candidate)' if i['candidate'] else ''}  sponsor "

@@ -20,6 +20,7 @@ from agentbreeder.deployer import Deployer, os_deployer
 from agentbreeder.egress.boundary import Boundary, BoundaryUnverified
 from agentbreeder.gate import GateDecision, GateDenied, IdentityGate, image_digest
 from agentbreeder.identity import ProviderError
+from agentbreeder.kubernetes import Kubernetes
 from agentbreeder.manifest import Manifest
 from agentbreeder.operator_config import (
     ContextError,
@@ -71,13 +72,21 @@ class DeploymentService:
         runtime: Docker,
         operator: OperatorConfig | None = None,
         gate: IdentityGate | None = None,
+        kubernetes: Kubernetes | None = None,
     ):
         self.store = store
         self.runtime = runtime
         self.operator = operator or load_operator_config()
         self.gate = gate or IdentityGate(self.operator)
+        self.kubernetes = kubernetes if kubernetes is not None else Kubernetes(self.operator)
         self.boundary = Boundary(runtime, store.directory, self.operator)
         self.enforcing = self.operator.model.runtime_enforcement.mode == "mcp_http"
+
+    def _runtime_for(self, target: str):
+        return self.kubernetes if target == "kubernetes" else self.runtime
+
+    def _target_of(self, identifier: str) -> str:
+        return self.store.manifest(identifier).get("target", "local")
 
     # -- audit helpers -----------------------------------------------------------------------
 
@@ -161,8 +170,12 @@ class DeploymentService:
         environment: str | None = None,
         deployer: Deployer | None = None,
     ) -> dict:
-        if not local or manifest.target != "local":
-            raise DeploymentError("Deployment requires --local and target: local")
+        if local != (manifest.target == "local"):
+            raise DeploymentError(
+                "Deployment requires --local and target: local, or --cluster and target: "
+                "kubernetes"
+            )
+        runtime = self._runtime_for(manifest.target)
         deployer = deployer or os_deployer()
         digest = manifest.digest()
         with self.store.lock():
@@ -226,7 +239,7 @@ class DeploymentService:
                 "obligations": list(decision.obligations),
                 "warnings": decision.warnings,
             }
-            record = self.store.active(manifest.name)
+            record = self.store.active(manifest.name, manifest.target)
             if record and record["digest"] != digest:
                 self._audit(
                     self._event(
@@ -266,7 +279,14 @@ class DeploymentService:
             if not overridden:
                 self._audit(self._event(attempt, "deploy", "allow", deployer, **fields))
             try:
-                self.runtime.authorize(record["context"] if record else None)
+                if manifest.target == "kubernetes":
+                    runtime.select(context.environment)
+                    if record and record["context"] != runtime.context:
+                        raise DeploymentError(
+                            "[KUBERNETES_BINDING_CHANGED] This deployment is on another cluster "
+                            "or namespace; remove it first"
+                        )
+                runtime.authorize(record["context"] if record else None)
             except DeploymentError as error:
                 self._audit(
                     self._event(
@@ -296,7 +316,7 @@ class DeploymentService:
                             identifier,
                             manifest.model_dump(),
                             digest,
-                            self.runtime.context,
+                            runtime.context,
                             approval_id=approval["id"] if approval else None,
                             audit=self._event(
                                 attempt, "deployment_created", "allow", deployer, **fields
@@ -359,8 +379,9 @@ class DeploymentService:
                 attempt, "transition", state, deployer, deployment_id=identifier, **fields
             )
 
+        runtime = self._runtime_for(manifest.target)
         try:
-            info = self.runtime.inspect(record)
+            info = runtime.inspect(record)
             state = self.store.directory
             minting = self._minting(manifest)
             generated = {GATEWAY_KEY_ENV: "secret://" + GATEWAY_KEY_FILE} if minting else {}
@@ -377,7 +398,7 @@ class DeploymentService:
                 # Secret copies belong to one container generation. Without them (a failed
                 # attempt cleaned up), recreate the container rather than start it against
                 # missing or stale files.
-                self.runtime.remove(info)
+                runtime.remove(info)
                 info = None
             if info is None:
                 mounts = []
@@ -406,20 +427,20 @@ class DeploymentService:
                 network = self._agents_network((fields.get("context") or {}).get("environment"))
                 if network is not None:
                     options["agents_network"] = network
-                self.runtime.create(record, manifest, mounts=mounts, **options)
-                info = self.runtime.inspect(record)
+                runtime.create(record, manifest, mounts=mounts, **options)
+                info = runtime.inspect(record)
             if info is None:
                 raise DeploymentError(
                     "Container creation could not be verified; retry to reconcile"
                 )
             self.store.transition(identifier, "starting", resource=info["Id"])
             if not info["State"]["Running"]:
-                self.runtime.start(info)
-            info = self.runtime.inspect(record)
+                runtime.start(info)
+            info = runtime.inspect(record)
             if info is None:
                 raise DeploymentError("Container disappeared before health verification")
-            endpoint = self.runtime.endpoint(info, manifest)
-            if not self.runtime.healthy(endpoint, manifest.health_path):
+            endpoint = runtime.endpoint(info, manifest)
+            if not runtime.healthy(endpoint, manifest.health_path):
                 raise DeploymentError(
                     "Health check failed; fix the image or remove the deployment"
                 )
@@ -445,6 +466,10 @@ class DeploymentService:
         """Checks after the gate that need no side effects: what this installation can run.
         `deploy` and `preflight` share them, so `release --rollback` learns of a deny before it
         removes production."""
+        if manifest.target == "kubernetes":
+            problem = self._kubernetes_requirements(manifest, environment)
+            if problem is not None:
+                return problem
         if manifest.mcp_access is not None:
             if self.enforcing:
                 return (
@@ -476,6 +501,20 @@ class DeploymentService:
                 secret_files.preflight(self.store.directory, manifest.secrets)
             except SecretError as error:
                 return error.code, str(error)
+        return None
+
+    def _kubernetes_requirements(self, manifest, environment) -> tuple[str, str] | None:
+        """What the cluster target cannot do yet is refused, never silently weakened."""
+        config = self.operator.model.environments.get(environment or "")
+        if config is None or config.kubernetes is None:
+            return "KUBERNETES_UNCONFIGURED", f"Environment {environment} has no kubernetes block"
+        if self.enforcing:
+            return (
+                "KUBERNETES_ENFORCEMENT_UNSUPPORTED",
+                "Runtime enforcement is not supported on the Kubernetes target",
+            )
+        if manifest.mcp_access is not None:
+            return "KUBERNETES_MCP_UNSUPPORTED", "mcp_access is not supported on Kubernetes yet"
         return None
 
     def _minting(self, manifest: Manifest) -> bool:
@@ -1069,8 +1108,12 @@ class DeploymentService:
     # -- remove ------------------------------------------------------------------------------
 
     def remove(self, identifier: str, *, local: bool, actor: Deployer | None = None) -> dict:
-        if not local:
-            raise DeploymentError("Removal requires --local")
+        target = self._target_of(identifier)
+        if local != (target == "local"):
+            raise DeploymentError(
+                "Removal requires --local for a local deployment, --cluster for a Kubernetes one"
+            )
+        runtime = self._runtime_for(target)
         actor = actor or os_deployer()
         with self.store.lock():
             record = self.store.get(identifier)
@@ -1086,7 +1129,7 @@ class DeploymentService:
             )
             self._audit(self._event(attempt, "remove", "allow", actor, deployment_id=identifier))
             try:
-                self.runtime.authorize(record["context"])
+                runtime.authorize(record["context"])
             except DeploymentError as error:
                 self._audit(
                     self._event(
@@ -1101,7 +1144,8 @@ class DeploymentService:
                 # Removal must run against the context the container was created in; never
                 # fall back to another engine, which could miss (and orphan) the container.
                 raise DeploymentError(
-                    f"{error}. This deployment was created in Docker context "
+                    f"{error}. This deployment was created in "
+                    f"{'cluster' if target == 'kubernetes' else 'Docker context'} "
                     f"{record['context']!r}; make that context reachable and retry"
                 ) from error
             try:
@@ -1110,12 +1154,14 @@ class DeploymentService:
                 raise AuditUnavailable("nothing was removed") from error
             try:
                 try:
-                    info = self.runtime.inspect(record)
+                    info = runtime.inspect(record)
                     if info:
-                        self.runtime.remove(info)
+                        runtime.remove(info)
+                    elif target == "kubernetes":
+                        runtime.sweep(record)  # a failed create can leave a Secret behind
                     if self.boundary.enforced(record):
                         self.boundary.teardown(record)
-                    if self.runtime.inspect(record) is not None:
+                    if runtime.inspect(record) is not None:
                         raise DeploymentError("Container removal could not be verified; retry")
                     grants_ok = self._revoke_mcp(identifier)
                     secret_files.cleanup(self.store.directory, identifier)
@@ -1147,7 +1193,9 @@ class DeploymentService:
         try:
             record = self.store.get(target)
         except DeploymentError:
-            record = self.store.active(target)
+            # The kill switch finds every record of the principal in `_affected`; either target
+            # is enough to resolve it.
+            record = self.store.active(target) or self.store.active(target, "kubernetes")
         if not record or not record.get("principal_key"):
             raise DeploymentError(
                 "No identity-bound deployment found; use --provider, --ref and --environment"
@@ -1244,14 +1292,18 @@ class DeploymentService:
         stopped, failed = [], []
         for record in self._affected(key, env, provider, ref):
             identifier = record["id"]
+            target = self._target_of(identifier)
+            runtime = self._runtime_for(target)
             try:
-                self.runtime.authorize(record["context"])
-                info = self.runtime.inspect(record)
+                runtime.authorize(record["context"])
+                info = runtime.inspect(record)
                 if info:
-                    self.runtime.remove(info)
+                    runtime.remove(info)
+                elif target == "kubernetes":
+                    runtime.sweep(record)
                 if self.boundary.enforced(record):
                     self.boundary.teardown(record)
-                if self.runtime.inspect(record) is not None:
+                if runtime.inspect(record) is not None:
                     raise DeploymentError("Container stop could not be verified; retry reconcile")
                 grants_ok = self._revoke_mcp(identifier)
                 secret_files.cleanup(self.store.directory, identifier)

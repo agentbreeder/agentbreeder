@@ -7,7 +7,7 @@ parallel. What has shipped and been verified is in [`README.md`](README.md) and
 [`ARCHITECTURE.md`](ARCHITECTURE.md). The 2.x roadmap is kept, unmaintained, in
 [`docs/history/ROADMAP-2x.md`](docs/history/ROADMAP-2x.md).
 
-Updated 2026-11-09. Issues are the source of truth for scope and status; this page is the
+Updated 2026-11-10. Issues are the source of truth for scope and status; this page is the
 order.
 
 ## Principles
@@ -37,6 +37,7 @@ order.
 | Priority | Epic | Why |
 |---|---|---|
 | **P0** | Installable preview release (#751) | Nobody can try the rebuild without a source checkout |
+| **P0, after #751** | `agentbreeder up`: local command center, then Kubernetes on a local cluster (#783) | One place to take an agent from onboarding to a release on two targets |
 | **P1** | Governed onboarding of existing agents (#756) | Bring existing agents, in any framework, under the same controls without code changes |
 | **P1** | Release bundle and component lifecycle (#762) | Links ownership, dependencies, approval, deployment and revocation |
 | **P1** | RBAC/ABAC and authenticated invocation (#742) | Multi-team use; closes the unauthenticated `customer_id` gap |
@@ -44,6 +45,8 @@ order.
 | **P2** | Control center: `agentbreeder server` and UI (#775) | One place to approve, revoke and trace impact, over the APIs above |
 | **P2** | Data-routing policy and internal-only mode (#776) | Makes "data stays inside" checkable; moves to P1 for air-gapped users |
 | **P3** | Hosted control plane (agentbreeder-cloud#97) | Consumes the control-center API |
+
+**How #783 relates to other epics.** It pulls a loopback, single-user slice of #775 forward; its API is private and unversioned, and #775 remains the multi-user control center. It delivers the deployer (#771) and secrets and network policy (#773) for a local `kind` cluster only; #772 (Helm) and #774 (real cluster, imported agent) stay in #770.
 
 Next in lane A, unprioritised: the browser forward proxy and per-conversation MCP sessions
 (#747; until then `mcp/playwright` has no egress). Deferred: the Slack, Supabase, Google Workspace and Stripe built-ins,

@@ -1016,3 +1016,107 @@ def test_generated_secret_gets_its_prefix(env):
     value = (instance.state.directory / "service-secrets" / "gateway" / "master-key").read_bytes()
     assert value.startswith(b"sk-") and len(value) == 3 + 48
     assert all(c in b"0123456789abcdef" for c in value[3:])
+
+
+# -- grant preview and the Kubernetes block (#783) ------------------------------------
+
+
+CLUSTER = {
+    "kubeconfig": "/k/kubeconfig",
+    "context": "kind-agentbreeder",
+    "cluster_uid": "11111111-2222-3333-4444-555555555555",
+    "namespace": "agentbreeder",
+    "registry": "localhost:5001/agentbreeder",
+    "blocked_cidrs": ["10.244.0.0/16"],
+}
+
+
+def test_preview_digest_matches_up_and_starts_nothing(env):
+    docker = FakeDocker()
+    instance = engine(env, docker)
+    try:
+        preview = instance.preview("dev")
+    finally:
+        instance.close()
+    assert preview["confirmed"] is False and preview["digest"] and "echo" in preview["text"]
+    assert not any(event[0] == "start" for event in docker.events)
+    result, _ = up(env, docker, expect_grant=preview["digest"])
+    assert result["services"]["echo"] == "created"
+
+
+def test_expect_grant_refuses_a_changed_grant(env):
+    with pytest.raises(ServiceError, match="GRANT_CHANGED"):
+        up(env, FakeDocker(), expect_grant="0" * 64)
+
+
+def test_preview_reports_imported_keys_by_name_only(env):
+    instance = engine(env)
+    try:
+        preview = instance.preview("dev")
+    finally:
+        instance.close()
+    assert CANARY not in json.dumps(preview)
+    assert all(set(key) == {"name", "optional", "stored"} for key in preview["keys"])
+
+
+def test_cluster_block_reaches_the_grant_and_operator_config(env, monkeypatch):
+    from agentbreeder import cluster as local_cluster
+
+    connected = []
+    monkeypatch.setattr(local_cluster, "connect", lambda *pair: connected.append(pair))
+    monkeypatch.setattr(local_cluster, "blocked_cidrs", lambda network: ["10.0.0.0/8"])
+    docker = FakeDocker()
+    first, instance = up(env, docker)
+    stored = engine(env, docker)
+    try:
+        before = stored.preview("dev")["digest"]
+        stored.state.put("kubernetes", json.dumps(CLUSTER))
+        preview = stored.preview("dev")
+    finally:
+        stored.close()
+    assert (
+        preview["digest"] != before
+        and preview["grant"]["kubernetes"]["context"] == CLUSTER["context"]
+    )
+    assert "Kubernetes target" in preview["text"]
+    result, _ = up(env, docker, expect_grant=preview["digest"])
+    config = yaml.safe_load(Path(result["operator_config"]).read_text())["environments"]["dev"]
+    assert config["targets"] == ["local", "kubernetes"]
+    assert config["kubernetes"]["blocked_cidrs"] == ["10.0.0.0/8"]
+    assert connected and connected[-1][0] == local_cluster.NODE
+
+
+def test_cluster_grant_needs_confirmation(env, monkeypatch):
+    from agentbreeder import cluster as local_cluster
+
+    monkeypatch.setattr(local_cluster, "connect", lambda *pair: None)
+    monkeypatch.setattr(local_cluster, "blocked_cidrs", lambda network: ["10.0.0.0/8"])
+    docker = FakeDocker()
+    up(env, docker)
+    instance = engine(env, docker)
+    instance.state.put("kubernetes", json.dumps(CLUSTER))
+    instance.close()
+    with pytest.raises(ServiceError, match="GRANT_NOT_CONFIRMED"):
+        up(env, docker, confirm=False)
+
+
+def test_down_detaches_the_kind_node(env):
+    docker = FakeDocker()
+    up(env, docker)
+    instance = engine(env, docker)
+    instance.state.put("kubernetes", json.dumps(CLUSTER))
+    instance.close()
+    calls = []
+    docker.run = lambda *arguments, **kwargs: calls.append(arguments) or ""
+    instance = engine(env, docker)
+    try:
+        instance.down()
+    finally:
+        instance.close()
+    assert any(call[:2] == ("network", "disconnect") for call in calls)
+
+
+def test_cli_services_plan(env, monkeypatch, capsys):
+    monkeypatch.setattr(engine_module, "DockerCLI", FakeDocker)
+    assert cli.main(["services", "plan", str(env), "--environment", "dev"]) == 0
+    assert "Services:" in capsys.readouterr().out

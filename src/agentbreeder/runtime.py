@@ -232,33 +232,37 @@ class Docker:
             ) from error
 
     def healthy(self, endpoint: str, path: str, timeout: float = 30) -> bool:
-        deadline = time.monotonic() + timeout
-        port = int(endpoint.rsplit(":", 1)[1])
-        while time.monotonic() < deadline:
-            probe_deadline = min(deadline, time.monotonic() + 2)
-            try:
-                with socket.create_connection(
-                    ("127.0.0.1", port), timeout=max(0.001, probe_deadline - time.monotonic())
-                ) as connection:
-                    connection.sendall(
-                        f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
-                        "Connection: close\r\n\r\n".encode("ascii")
-                    )
-                    response = b""
-                    while b"\r\n\r\n" not in response and len(response) < 16384:
-                        remaining = probe_deadline - time.monotonic()
-                        if remaining <= 0:
-                            break
-                        connection.settimeout(remaining)
-                        chunk = connection.recv(min(1024, 16384 - len(response)))
-                        if not chunk:
-                            break
-                        response += chunk
-                    if b"\r\n\r\n" in response and re.fullmatch(
-                        rb"HTTP/1\.[01] 200(?: [^\r\n]*)?", response.split(b"\r\n", 1)[0]
-                    ):
-                        return True
-            except OSError:
-                pass
-            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
-        return False
+        return probe_http(int(endpoint.rsplit(":", 1)[1]), path, timeout)
+
+
+def probe_http(port: int, path: str, timeout: float = 30) -> bool:
+    """Whether a loopback HTTP server answers `path` with 200 before the timeout."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        probe_deadline = min(deadline, time.monotonic() + 2)
+        try:
+            with socket.create_connection(
+                ("127.0.0.1", port), timeout=max(0.001, probe_deadline - time.monotonic())
+            ) as connection:
+                connection.sendall(
+                    f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+                    "Connection: close\r\n\r\n".encode("ascii")
+                )
+                response = b""
+                while b"\r\n\r\n" not in response and len(response) < 16384:
+                    remaining = probe_deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    connection.settimeout(remaining)
+                    chunk = connection.recv(min(1024, 16384 - len(response)))
+                    if not chunk:
+                        break
+                    response += chunk
+                if b"\r\n\r\n" in response and re.fullmatch(
+                    rb"HTTP/1\.[01] 200(?: [^\r\n]*)?", response.split(b"\r\n", 1)[0]
+                ):
+                    return True
+        except OSError:
+            pass
+        time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+    return False
