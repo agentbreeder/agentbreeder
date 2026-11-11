@@ -16,15 +16,25 @@ AgentBreeder spans this repo (OSS, including `website/`) and `agentbreeder-cloud
 
 ## Design system (`brand.css`, #583)
 
-`website/brand.css` is the single source of truth for the brand: the `.dark` palette, the Tailwind
-v4 `@theme` mapping, keyframes and utilities. Changes flow **OSS → Cloud**, never the reverse.
+`website/brand.css` is the single source of truth for the brand: the light `:root` and dark
+`.dark` palettes (the light one since #817), the Tailwind v4 `@theme` mapping, keyframes and
+utilities. Changes flow **OSS → Cloud**, never the reverse. `.dark` follows `:root` with the same
+specificity, so a page with `class="dark"` on `<html>` gets the dark palette.
 
-- **Cloud** vendors a snapshot at `dashboard/app/tokens.css` and drift-checks it against this file
-  with `npm run tokens:check` (`dashboard/scripts/check-token-drift.mjs`) when both repos are
-  checked out side by side.
-- **Website** does not import `brand.css` yet. Its `@theme inline` block hard-codes font family
-  names and redefines radii and colour utilities, which would override the site's `next/font`
-  families. Adopting it needs a visual review.
+- **Cloud** vendors a snapshot at `dashboard/app/tokens.css` and drift-checks it (`:root`, `.dark`
+  and `@theme`) against this file with `npm run tokens:check`
+  (`dashboard/scripts/check-token-drift.mjs`) when both repos are checked out side by side.
+- **Website** imports `brand.css` from `app/globals.css` and overrides the font families and radii
+  in its own `@theme inline` block. It renders forced dark (`app/layout.tsx`). Its own later
+  `:root` block in `globals.css` overrides `--border`, `--accent` and `--text-muted`, so the site
+  will not follow future `brand.css` changes to those three tokens.
+- **Local console** (`agentbreeder up`) ships a copy of the `:root` and `.dark` blocks at
+  `src/agentbreeder/center/static/brand.css`, with vendored Geist and Geist Mono woff2 files under
+  `center/static/fonts/`. `tests/test_brand_tokens.py` fails on drift, checks WCAG contrast
+  (AA for text tokens, 3:1 for `--control-border` and `--ring`) and pins the font hashes.
+
+New UI uses `--text-muted` for secondary text: the dark `--muted-foreground` (3.36:1) is kept as is so
+existing pages look the same.
 
 Edit `brand.css` here first, then re-vendor in Cloud and let the drift check confirm parity.
 
@@ -35,7 +45,7 @@ Edit `brand.css` here first, then re-vendor in Cloud and let the drift check con
 | Manifest field or CLI flag | `docs/manifest.md`, `docs/manifest.schema.json`, tests | Search for the field; today nothing consumes it | Update `website/content/docs/manifest.mdx` |
 | Identity gate or runtime enforcement | `docs/identity-gate.md` | Note in Cloud `CLAUDE.md` if Cloud should expose it | Update `website/content/docs/identity-gate.mdx` (and `what-ships.tsx` if a capability changes) |
 | New rebuild release (PyPI/npm) | `CHANGELOG.md`; the pins in `README.md`, `npm/README.md` and the Northwind README; `scripts/sync_npm.py --check` | Grep for version pins; companion PR if needed; note it in Cloud `CLAUDE.md` | Footer badge in `website/components/footer.tsx` shows the exact released version; pins and verified scope in `website/content/docs/install.mdx`; the npx pin in `website/components/hero.tsx`; `what-ships.tsx` |
-| `brand.css` | Edit `website/brand.css` | Re-vendor `tokens.css`; run `tokens:check` | Adopt once visually reviewed |
+| `brand.css` | Edit `website/brand.css`; re-copy the `:root` and `.dark` blocks to `center/static/brand.css` | Re-vendor `tokens.css`; run `tokens:check` | Check home and docs look unchanged (forced dark) |
 
 The release rows may claim only what has been run from the published packages. As of `3.0.0a2`
 that is macOS end to end, including `agentbreeder up` with Northwind on local Docker and `kind`
