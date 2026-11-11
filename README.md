@@ -27,6 +27,14 @@ npx agentbreeder@3.0.0-alpha.2 quickstart --dry-run                       # need
 
 The npm package is a launcher that runs the same PyPI release through `uvx`; see
 [npm/README.md](https://github.com/agentbreeder/agentbreeder/blob/main/npm/README.md).
+
+`npx` and `uvx` do not install an `agentbreeder` command, so repeat the prefix for each command
+(`npx agentbreeder@3.0.0-alpha.2 up`), or install the command with
+`uv tool install "agentbreeder[eval]==3.0.0a2"` (run on macOS on 2026-11-11: `--version`, `doctor`,
+`quickstart`). If a bare `agentbreeder` fails with `No module named 'cli'` or is not `3.0.0a2`, an
+older install comes first on your `PATH`: find it with `which -a agentbreeder` and see
+[removing an older install](https://www.agentbreeder.io/docs/install#an-older-agentbreeder-on-your-path).
+
 The [`v3.0.0a2` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a2)
 carries a hashed requirements file for `uv pip install --require-hashes -r
 requirements-3.0.0a2.txt` (or `pip install --require-hashes -r …`).

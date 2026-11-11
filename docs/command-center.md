@@ -44,8 +44,10 @@ the grant and starts its services. Stopping the server leaves services and deplo
 `agentbreeder services down` and `agentbreeder remove`.
 
 The same steps work without the UI, with `agentbreeder` on your `PATH` (a pip install or a
-checkout). These commands ran from a checkout on 2026-11-10; on `3.0.0a2` they ran only as
-command-center jobs.
+checkout; `uv tool install "agentbreeder[eval]==3.0.0a2"` also adds the command, but only
+`--version`, `doctor` and `quickstart` have been run that way). `npx` and `uvx` do not install that
+command; with them, repeat the prefix for each command. These commands ran from a checkout on
+2026-11-10; on `3.0.0a2` they ran only as command-center jobs.
 
 ```
 agentbreeder services up DIR --environment dev --env-file ~/.env
