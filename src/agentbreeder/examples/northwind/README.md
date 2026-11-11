@@ -30,7 +30,7 @@ You need Docker, and `GEMINI_API_KEY` and `TAVILY_API_KEY` in the environment or
 (`--env-file ~/.env`). `OPENROUTER_API_KEY` is optional; it enables the gateway's fallback route.
 
 ```
-python3 -m venv .venv && .venv/bin/pip install "agentbreeder[eval]==3.0.0a1"   # [eval] lets the eval gate reset fixtures in Postgres
+python3 -m venv .venv && .venv/bin/pip install "agentbreeder[eval]==3.0.0a2"   # [eval] lets the eval gate reset fixtures in Postgres
 export PATH=$PWD/.venv/bin:$PATH
 agentbreeder example northwind   # copies this example to ./northwind
 cd northwind
@@ -40,8 +40,8 @@ agentbreeder release agent.yaml --stack . --environment dev    # build → candi
 
 The pinned version matters: a bare `pip install agentbreeder` installs the unmaintained 2.x.
 
-Without pip, replace `agentbreeder` above with `uvx --from "agentbreeder[eval]==3.0.0a1" agentbreeder`
-(needs uv) or `npx agentbreeder@3.0.0-alpha.1` (needs Node 18+ and uv). Those two paths have run
+Without pip, replace `agentbreeder` above with `uvx --from "agentbreeder[eval]==3.0.0a2" agentbreeder`
+(needs uv) or `npx agentbreeder@3.0.0-alpha.2` (needs Node 18+ and uv). With `3.0.0a1` those two paths ran
 `agentbreeder quickstart`, but not this example. From a checkout, install with
 `pip install -e ".[eval]"` at the repo root and `cd src/agentbreeder/examples/northwind`.
 

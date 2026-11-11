@@ -19,7 +19,7 @@ def _pyproject() -> dict:
 def test_the_preview_version_sorts_above_2x():
     from packaging.version import Version
 
-    assert __version__ == "3.0.0a1"
+    assert __version__ == "3.0.0a2"
     assert Version(__version__) > Version("2.7.3")
     assert Version(__version__).is_prerelease
 

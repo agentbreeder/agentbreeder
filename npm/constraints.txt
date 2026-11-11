@@ -1,5 +1,5 @@
 # Resolved for the npm launcher by scripts/sync_npm.py:
-#   uv pip compile pyproject.toml --extra eval --universal --only-binary :all: --exclude-newer 2026-11-10T17:43:14Z
+#   uv pip compile pyproject.toml --extra eval --universal --only-binary :all: --exclude-newer 2026-11-11T05:50:49Z
 annotated-types==0.8.0
     # via pydantic
 psycopg==3.3.6
