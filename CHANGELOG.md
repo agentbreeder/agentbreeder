@@ -8,6 +8,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+On `main`, not in a published preview.
+
+### Internal
+
+- CLI commands split into modules (no behaviour change) (#813). Each command's parser and handler
+  moved from `cli.py` to `src/agentbreeder/commands/<name>.py`; a golden test checks every
+  command's `--help` output byte for byte.
+
 ## [3.0.0a2] — 2026-11-11
 
 ### Added

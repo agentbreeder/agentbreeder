@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from agentbreeder import cli, quickstart
+from agentbreeder.commands import doctor as doctor_command
 from agentbreeder.doctor import Check
 from agentbreeder.runtime import Docker
 from agentbreeder.store import Store
@@ -200,9 +201,9 @@ def test_cli_output_is_not_leaked_to_the_terminal(demo, monkeypatch, capsys):
 
 def test_dry_run_checks_without_docker_changes(demo, monkeypatch, capsys):
     monkeypatch.setattr(
-        quickstart.cli, "check_docker", lambda: [Check("docker", True, "ok", True)]
+        doctor_command, "check_docker", lambda: [Check("docker", True, "ok", True)]
     )
-    monkeypatch.setattr(quickstart.cli, "check_compose", lambda: [])
+    monkeypatch.setattr(doctor_command, "check_compose", lambda: [])
     monkeypatch.setattr(
         quickstart, "run", lambda *a, **k: pytest.fail("dry run must not call docker")
     )
@@ -215,9 +216,9 @@ def test_dry_run_checks_without_docker_changes(demo, monkeypatch, capsys):
 
 def test_dry_run_reports_doctor_failure(demo, monkeypatch, capsys):
     monkeypatch.setattr(
-        quickstart.cli, "check_docker", lambda: [Check("docker", False, "not running", True)]
+        doctor_command, "check_docker", lambda: [Check("docker", False, "not running", True)]
     )
-    monkeypatch.setattr(quickstart.cli, "check_compose", lambda: [])
+    monkeypatch.setattr(doctor_command, "check_compose", lambda: [])
     assert quickstart.main(dry_run=True) == 1
     assert "FAIL docker" in capsys.readouterr().out
 
@@ -355,8 +356,8 @@ def test_unexpected_error_text_is_not_printed(demo, monkeypatch, capsys):
 
 
 def test_dry_run_fails_when_sample_is_invalid(demo, monkeypatch, capsys):
-    monkeypatch.setattr(quickstart.cli, "check_docker", lambda: [])
-    monkeypatch.setattr(quickstart.cli, "check_compose", lambda: [])
+    monkeypatch.setattr(doctor_command, "check_docker", lambda: [])
+    monkeypatch.setattr(doctor_command, "check_compose", lambda: [])
 
     def broken(name, destination):
         raise quickstart.example.ExampleError("CONTENT_MISMATCH", "tampered")
@@ -367,8 +368,8 @@ def test_dry_run_fails_when_sample_is_invalid(demo, monkeypatch, capsys):
 
 
 def test_dry_run_fails_when_validate_fails(demo, monkeypatch, capsys):
-    monkeypatch.setattr(quickstart.cli, "check_docker", lambda: [])
-    monkeypatch.setattr(quickstart.cli, "check_compose", lambda: [])
+    monkeypatch.setattr(doctor_command, "check_docker", lambda: [])
+    monkeypatch.setattr(doctor_command, "check_compose", lambda: [])
 
     def copy(name, destination):
         destination.mkdir()
@@ -381,8 +382,8 @@ def test_dry_run_fails_when_validate_fails(demo, monkeypatch, capsys):
 
 
 def test_dry_run_reports_workdir_failure(monkeypatch, capsys):
-    monkeypatch.setattr(quickstart.cli, "check_docker", lambda: [])
-    monkeypatch.setattr(quickstart.cli, "check_compose", lambda: [])
+    monkeypatch.setattr(doctor_command, "check_docker", lambda: [])
+    monkeypatch.setattr(doctor_command, "check_compose", lambda: [])
 
     def fail():
         raise OSError("no space")

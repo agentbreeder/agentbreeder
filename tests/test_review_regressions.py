@@ -9,6 +9,7 @@ from conftest import actor, enable_cedar, principal_entry, v2_manifest_data, wri
 
 from agentbreeder import cli
 from agentbreeder.audit import AuditError, AuditEvent
+from agentbreeder.commands import reconcile
 from agentbreeder.deployment import AuditIncomplete, DeploymentService
 from agentbreeder.gate import GateDenied
 from agentbreeder.identity import ProviderError
@@ -422,4 +423,4 @@ def test_remove_audit_failure_before_docker_says_nothing_removed(
 def test_reconcile_exit_code_precedence(compliance, code):
     # Regression: reconcile used to exit 0 for noncompliant/unverifiable deployments.
     results = [{"id": str(i), "name": "n", "compliance": c} for i, c in enumerate(compliance)]
-    assert cli._reconcile_exit_code(results) == code
+    assert reconcile._reconcile_exit_code(results) == code

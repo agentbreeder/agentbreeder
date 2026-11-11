@@ -78,6 +78,13 @@ def test_every_golden_file_is_a_command():
     assert len(PATHS) > 40  # every command and nested command, not just the top level
 
 
+def test_command_modules_declare_exactly_the_commands_they_register():
+    """`main` dispatches on each module's NAMES; a parser missing from NAMES would crash."""
+    declared = [name for module in cli._modules() for name in module.NAMES]
+    registered = [path[0] for path in PATHS if len(path) == 1]
+    assert declared == registered
+
+
 def test_help_end_to_end_matches_golden():
     environment = {**os.environ, "COLUMNS": "80", "NO_COLOR": "1"}
     for path in [(), ("services", "up"), ("registry", "publish"), ("deploy",)]:

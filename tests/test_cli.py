@@ -4,6 +4,7 @@ import subprocess
 import pytest
 
 from agentbreeder import cli, doctor
+from agentbreeder.commands import doctor as doctor_command
 
 
 def test_missing_docker(monkeypatch):
@@ -41,7 +42,7 @@ def test_docker_failure_is_safe(monkeypatch, failure):
 
 def test_doctor_json_failure(monkeypatch, capsys):
     monkeypatch.setattr(
-        cli, "check_docker", lambda: [doctor.Check("Docker", False, "Unavailable")]
+        doctor_command, "check_docker", lambda: [doctor.Check("Docker", False, "Unavailable")]
     )
     assert cli.main(["doctor", "--json"]) == 1
     assert json.loads(capsys.readouterr().out)[0]["passed"] is False

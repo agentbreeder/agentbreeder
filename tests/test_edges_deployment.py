@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 from unittest.mock import Mock
 
@@ -760,12 +761,12 @@ def test_cli_validate_success_plain_and_json(tmp_path, capsys):
 
 def test_cli_doctor_plain_output(monkeypatch, capsys):
     monkeypatch.setattr(
-        cli,
-        "check_docker",
+        "agentbreeder.commands.doctor.check_docker",
         lambda: [doctor.Check("Docker", True, "1.0"), doctor.Check("Engine", False, "down")],
     )
     monkeypatch.setattr(
-        cli, "check_compose", lambda: [doctor.Check("Compose", False, "old", required=False)]
+        "agentbreeder.commands.doctor.check_compose",
+        lambda: [doctor.Check("Compose", False, "old", required=False)],
     )
     assert cli.main(["doctor"]) == 1
     assert capsys.readouterr().out.splitlines() == [
@@ -782,7 +783,7 @@ def test_cli_login_success(monkeypatch, capsys):
         seen["issuer"] = issuer
         return CAROL
 
-    monkeypatch.setattr(cli, "device_login", login)
+    monkeypatch.setattr("agentbreeder.commands.login.device_login", login)
     assert cli.main(["login", "--issuer", "https://issuer.example.com"]) == 0
     assert capsys.readouterr().out.strip() == f"Signed in as {CAROL.label}"
     assert seen["issuer"] == "https://issuer.example.com"
@@ -813,6 +814,44 @@ def test_cli_reconcile_json_remove_and_audit_verify_json(cli_docker, capsys):
     assert cli.main(["audit", "verify", *state, "--json"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["ok"] is True and report["incomplete_attempts"] == []
+
+
+def test_cli_list_empty_then_plain_and_json(cli_docker, capsys):
+    fake, manifest, state = cli_docker
+    assert cli.main(["list", *state]) == 0
+    assert capsys.readouterr().out == "No deployments\n"
+    assert cli.main(["list", *state, "--json"]) == 0
+    assert capsys.readouterr().out == "[]\n"
+    fake.inspect.side_effect = itertools.chain([None], itertools.repeat(RUNNING))
+    assert cli.main(["deploy", str(manifest), "--local", *state, "--json"]) == 0
+    identifier = json.loads(capsys.readouterr().out)["id"]
+    assert cli.main(["list", *state]) == 0
+    assert capsys.readouterr().out == f"{identifier}  sample  local  ready\n"
+    assert cli.main(["list", *state, "--json"]) == 0
+    [row] = json.loads(capsys.readouterr().out)
+    assert row["id"] == identifier and row["target"] == "local" and row["state"] == "ready"
+
+
+def test_cli_forward_prints_the_loopback_url_until_interrupted(monkeypatch, capsys):
+    from contextlib import contextmanager
+
+    from agentbreeder.commands import forward
+
+    service = Mock()
+    service.store.get.return_value = {"state": "ready", "context": "ctx", "endpoint": "svc"}
+    service.store.manifest.return_value = {"target": "kubernetes"}
+
+    @contextmanager
+    def tunnel(endpoint, port):
+        assert (endpoint, port) == ("svc", 0)
+        yield 4321
+
+    service.kubernetes.forward = tunnel
+    # A stub module, not the process-wide time.sleep, so no other thread sees the interrupt.
+    monkeypatch.setattr(forward, "time", Mock(sleep=Mock(side_effect=KeyboardInterrupt)))
+    assert forward._forward(service, Mock(id="abc", port=0)) == 0
+    service.kubernetes.authorize.assert_called_once_with("ctx")
+    assert capsys.readouterr().out.startswith("http://127.0.0.1:4321  (unauthenticated")
 
 
 def test_cli_unusable_state_dir_exits_2(tmp_path, capsys):
