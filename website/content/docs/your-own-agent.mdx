@@ -1,0 +1,228 @@
+---
+title: Your own agent
+description: Create an agent from agent.yaml, start its services, build it, test it, release it through an eval gate and call it, on local Docker with 3.0.0a2.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn">
+  Every command on this page was run on 2026-11-11 with `3.0.0a2` from npm, on macOS
+  with Docker Desktop, in a fresh `HOME`, with a Gemini key only. Other model providers and Linux
+  have not been run. Local only: nothing here deploys to a cloud or a production cluster.
+</Callout>
+
+You will write a small help-desk agent (a prompt and two eval cases, no code), start its database
+and model gateway, build it, try it, release it through an eval gate, change it, and remove it.
+The whole sequence, including both changes in step 6, took about four minutes in one run on a
+machine that had pulled these images before.
+
+## Before you start
+
+- Docker running locally, Node.js 18 or newer, and [uv](https://docs.astral.sh/uv/) 0.11.6 or newer.
+- A Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
+- `npx agentbreeder@3.0.0-alpha.2 quickstart` has passed (see [Install](/docs/install)).
+
+`npx` installs no `agentbreeder` command, so define a short one for this shell:
+
+```sh
+ab() { npx --yes agentbreeder@3.0.0-alpha.2 "$@"; }
+```
+
+## 1. Create the project
+
+```sh
+mkdir hello && cd hello
+ab registry new prompt hello-prompt     # creates prompt-hello-prompt/ to edit
+ab registry new eval hello-evals        # creates eval-hello-evals/ to edit
+mkdir -p stack/litellm
+```
+
+Write these files:
+
+```md title="prompt-hello-prompt/prompt.md"
+You are Hello, a concise assistant for the Acme help desk. Answer in one or two sentences.
+Acme's support hours are 9am to 5pm Pacific, Monday to Friday. If you don't know something, say so.
+```
+
+```yaml title="eval-hello-evals/manifest.yaml"
+kind: eval
+name: hello-evals
+version: 0.1.0
+description: Starter cases for the hello agent.
+judge: {alias: judge}
+cases: golden.jsonl
+```
+
+```json title="eval-hello-evals/golden.jsonl"
+{"id": "hours", "turns": ["When is support open?"], "expect": {"must_match": ["9"]}, "reference": "Support is open 9am to 5pm Pacific, Monday to Friday."}
+{"id": "unknown", "turns": ["What is Acme's stock price today?"], "expect": {}, "reference": "The agent says it does not know rather than inventing a number."}
+```
+
+A case passes when its checks pass (here, the reply contains `9`) and an LLM judge rates the reply
+correct against `reference`.
+
+```yaml title="stack/litellm/config.yaml"
+model_list:
+  - model_name: chat
+    litellm_params: {model: gemini/gemini-3.8-flash, api_key: os.environ/GEMINI_API_KEY}
+  - model_name: judge
+    litellm_params: {model: gemini/gemini-3.8-flash, api_key: os.environ/GEMINI_API_KEY}
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+```
+
+```yaml title="stack.yaml"
+kind: stack
+schema_version: 1
+name: hello
+services:
+  postgres:
+    ref: service/postgres-pgvector@1.1.0
+    with: {databases: [app, litellm]}
+  litellm:
+    ref: service/litellm@1.0.0
+    with: {config: stack/litellm/config.yaml}
+    wire: {database-url: postgres.databases.litellm}
+environment:
+  gateway: litellm
+  models: [chat, judge]
+  ceilings: {budget_usd: 5, rpm: 60}
+  bindings:
+    DATABASE_URL: {ref: postgres.databases.app}
+  eval_database: {ref: postgres.databases.app}
+  agents:
+    hello:
+      sponsor: you@example.com
+      review_by: "2027-05-01"     # the gate refuses deploys after this date
+      candidate: true             # release tests a candidate before production
+```
+
+```yaml title="agent.yaml"
+kind: agent
+schema_version: 1
+name: hello
+runtime: runtime/adk@1.0.6
+model: {alias: chat, reasoning: low, max_model_calls: 2}
+prompt: {ref: prompt/hello-prompt@0.1.0}
+evals: {ref: eval/hello-evals@0.1.0, threshold: 1.0, retries: 1}
+```
+
+Publish the prompt and evals as versions, then check the files:
+
+```sh
+ab registry publish prompt-hello-prompt   # prompt/hello-prompt@0.1.0 …
+ab registry publish eval-hello-evals      # eval/hello-evals@0.1.0 …
+ab validate agent.yaml                    # Valid agent file: hello (3 registry refs)
+ab validate stack.yaml
+```
+
+## 2. Add your key and start the services
+
+Create `~/gemini.env` with one line, `GEMINI_API_KEY=` followed by your key, readable only by you
+(mode 0600). Then:
+
+```sh
+ab services up --environment dev --env-file ~/gemini.env --yes
+```
+
+This starts Postgres and the LiteLLM gateway on local Docker. It stores a copy of the key under
+`~/.agentbreeder` for the gateway container; the agent gets its own gateway key, not your Gemini
+key. It prints `Operator config: …` and then `Next: … release …`: build first (step 3).
+
+From here on, pass `--stack . --environment dev` to `build`, `deploy`, `eval`, `release` and
+`list`. Without it they look for a different operator config and fail.
+
+## 3. Build
+
+```sh
+ab build agent.yaml --stack . --environment dev
+```
+
+You should see `Built hello: sha256:…` and `Candidate manifest: …/deploy/hello-candidate.deploy.yaml`.
+Ignore the `Next: agentbreeder deploy …/deploy/hello.deploy.yaml --local …` line it prints:
+deploying that file puts it in production without the eval gate, and a later `release` then
+reports "already in production" without running the evals.
+
+## 4. Try it before releasing
+
+Deploy the candidate, ask it something, run the evals against it, then remove it:
+
+```sh
+ab deploy deploy/hello-candidate.deploy.yaml --local --stack . --environment dev
+#   <ID>  ready
+#   http://127.0.0.1:<PORT>
+curl -s -X POST http://127.0.0.1:PORT/invoke -H 'content-type: application/json' \
+  -d '{"message":"When is support open?"}'
+ab eval agent.yaml --endpoint http://127.0.0.1:PORT --stack . --environment dev   # 2/2 passed
+ab remove ID --local --stack .
+```
+
+The deploy prints two `WARNING` lines and `unavailable checks: policy, approval,
+deployer_verification`. That is expected with the demo identities `services up` creates; a real
+setup adds those checks (see [Identity gate](/docs/identity-gate)).
+
+## 5. Release
+
+```sh
+ab release agent.yaml --stack . --environment dev
+```
+
+`release` builds, deploys a candidate, runs the evals and, only if they all pass, replaces
+production with the exact image it tested:
+
+```text
+Released sha256:…: 2/2 evals passed
+Production: http://127.0.0.1:PORT (ID)
+Eval report: …/deploy/hello.eval-….json
+```
+
+Call it with the same `curl` as in step 4, using this port.
+
+## 6. Change the agent
+
+Published versions are immutable. To change the prompt, edit `prompt-hello-prompt/prompt.md`, then:
+
+```sh
+# 1. bump `version:` in prompt-hello-prompt/manifest.yaml, e.g. 0.1.0 -> 0.1.1
+ab registry publish prompt-hello-prompt
+# 2. change the ref in agent.yaml to prompt/hello-prompt@0.1.1
+ab build agent.yaml --stack . --environment dev      # always build before release
+ab release agent.yaml --stack . --environment dev
+```
+
+If the change breaks a case, `release` exits with code 5 and production keeps running the previous
+version:
+
+```text
+Eval gate failed: 1/2 passed, needs 100%; production unchanged
+Eval report: …/deploy/hello.eval-….json
+```
+
+The report says which case failed, which check, the judge's explanation and the agent's reply
+(`failed`, then `results`). Fix the prompt or the case, publish a new version, and release again.
+
+## 7. Clean up
+
+```sh
+ab list --stack . --environment dev        # shows the production ID
+ab remove ID --local --stack .
+ab services down --purge --yes             # removes the services, their data and the stored key copy
+```
+
+`~/gemini.env` is yours to delete.
+
+## Rough edges in 3.0.0a2
+
+Planned for the next preview ([#807](https://github.com/agentbreeder/agentbreeder/issues/807)):
+`agentbreeder next` (checks where you are and prints the next command), `agentbreeder new agent`
+(writes these files for you), `agentbreeder invoke`, and clearer `--stack` hints and gate messages.
+Until then:
+
+- Run `build` before the first `release` and after changing any ref; otherwise `release` fails with
+  `LOCK_STALE … run without --locked` (`release` has no such option).
+- `release` refuses `prompt: {path: …}`; publish the prompt as a version.
+- A failed gate prints only the count; read the report for the reasons.
+
+Reference: [agent.yaml](/docs/agent-yaml), [Backing services](/docs/services),
+[Identity gate](/docs/identity-gate), [Local command center](/docs/command-center).
