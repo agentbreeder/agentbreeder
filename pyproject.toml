@@ -49,6 +49,8 @@ where = ["src"]
 agentbreeder = [
     "policy/cedar_schema.json",
     "center/static/*",
+    # Vendored Geist / Geist Mono woff2 and their OFL licence (#817); no font network at runtime.
+    "center/static/fonts/*",
     # Shipped registry versions (the ADK runtime). Its runtime_tests need google-adk and run
     # separately; build.py copies only the runtime's Dockerfile and runtime/ into a build
     # context, so they never reach an image (they are still part of the hashed version).

@@ -8,6 +8,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+On main, not in a published preview.
+
+### Added
+
+- Brand tokens (#817): `website/brand.css` gains a light `:root` palette and, in both palettes,
+  `--text-muted` (AA on every surface; `#a1a1aa` on dark), a 3:1 `--control-border`, and
+  `--success`, `--warning` and `--info` with `-subtle` backgrounds. Existing token names and
+  values are unchanged, so the website (forced dark) and the Cloud console look the same; the
+  dark `--muted-foreground` therefore stays below AA (3.36:1), and new UI uses `--text-muted`.
+- The local console ships a copy of the two palettes at `center/static/brand.css` and vendored
+  Geist and Geist Mono variable woff2 files (geist 1.7.0, SIL OFL 1.1) under
+  `center/static/fonts/`; the console does not use them yet. `tests/test_brand_tokens.py` checks
+  the copy against `website/brand.css`, computes WCAG contrast for both palettes and pins the font
+  hashes.
+
 ## [3.0.0a2] — 2026-11-11
 
 ### Added

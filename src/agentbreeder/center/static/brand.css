@@ -1,0 +1,102 @@
+/* AgentBreeder brand tokens: a COPY of the `:root` (light) and `.dark` blocks of
+ * website/brand.css, the design-system source of truth (#583, #817).
+ *
+ * The console has no build step and cannot import the website's Tailwind file, so it
+ * ships this copy. Do not edit values here: change website/brand.css, then copy the two
+ * blocks across. tests/test_brand_tokens.py fails when they drift and checks contrast.
+ * Light is the default; class="dark" on <html> selects the dark palette.
+ */
+
+:root {
+    --background: #fafafa;                       /* zinc-50 */
+    --card: #ffffff;
+    --card-foreground: #18181b;                  /* zinc-900 */
+    --popover: #ffffff;
+    --popover-foreground: #18181b;
+    --foreground: #18181b;
+    --primary: #15803d;                          /* green-700, 5.0:1 with white */
+    --primary-foreground: #ffffff;
+    --secondary: #f4f4f5;                        /* zinc-100 */
+    --secondary-foreground: #18181b;
+    --muted: #f4f4f5;
+    --muted-foreground: #52525b;                 /* zinc-600 */
+    --accent: #f4f4f5;
+    --accent-foreground: #18181b;
+    --destructive: #b91c1c;                      /* red-700 */
+    --border: #e4e4e7;                           /* zinc-200, decorative dividers */
+    --input: #e4e4e7;
+    --ring: #15803d;
+    --chart-1: #16a34a;                          /* green-600 */
+    --chart-2: #7c3aed;                          /* violet-600 */
+    --chart-3: #2563eb;                          /* blue-600 */
+    --chart-4: #1d4ed8;                          /* blue-700 */
+    --chart-5: #1e3a8a;                          /* blue-900 */
+    --sidebar: #f4f4f5;
+    --sidebar-foreground: #18181b;
+    --sidebar-primary: #15803d;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #e4e4e7;
+    --sidebar-accent-foreground: #18181b;
+    --sidebar-border: #e4e4e7;
+    --sidebar-ring: #15803d;
+    /* Added in #817 (both palettes) */
+    --text-muted: #52525b;                       /* secondary text, AA on every surface */
+    --control-border: #71717a;                   /* zinc-500, 3:1 boundary for inputs and controls */
+    /* Status text: on --background, --card, --secondary and its -subtle; not on --sidebar-accent */
+    --success: #15803d;                          /* green-700 */
+    --success-subtle: #f0fdf4;                   /* green-50 */
+    --warning: #b45309;                          /* amber-700 */
+    --warning-subtle: #fffbeb;                   /* amber-50 */
+    --info: #1d4ed8;                             /* blue-700 */
+    --info-subtle: #eff6ff;                      /* blue-50 */
+}
+
+.dark {
+    /* #09090b — zinc-950, the website's true background */
+    --background: oklch(0.085 0 0);
+    /* #111113 — slightly elevated surface */
+    --card: oklch(0.11 0 0);
+    --card-foreground: oklch(0.914 0 0);         /* #e4e4e7 zinc-200 */
+    --popover: oklch(0.11 0 0);
+    --popover-foreground: oklch(0.914 0 0);
+    --foreground: oklch(0.914 0 0);              /* #e4e4e7 zinc-200 */
+    /* Green-500 as primary — matches website's --accent */
+    --primary: oklch(0.723 0.219 142.5);         /* #22c55e */
+    --primary-foreground: oklch(0.085 0 0);      /* dark text on green */
+    /* #1a1a1e — elevated bg for secondary/hover states */
+    --secondary: oklch(0.155 0 0);
+    --secondary-foreground: oklch(0.914 0 0);
+    --muted: oklch(0.155 0 0);
+    --muted-foreground: oklch(0.493 0 0);        /* #71717a zinc-500 */
+    --accent: oklch(0.155 0 0);                  /* #1a1a1e for hover surfaces */
+    --accent-foreground: oklch(0.914 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 7%);                 /* rgba(255,255,255,0.07) */
+    --input: oklch(1 0 0 / 10%);
+    --ring: oklch(0.723 0.219 142.5);            /* green focus ring */
+    /* Charts — green/violet brand palette */
+    --chart-1: oklch(0.723 0.219 142.5);         /* green-500  #22c55e */
+    --chart-2: oklch(0.702 0.183 296.6);         /* violet-400 #a78bfa */
+    --chart-3: oklch(0.623 0.214 259.815);
+    --chart-4: oklch(0.488 0.243 264.376);
+    --chart-5: oklch(0.424 0.199 265.638);
+    /* Sidebar — matches --bg-surface on the website */
+    --sidebar: oklch(0.11 0 0);                  /* #111113 */
+    --sidebar-foreground: oklch(0.914 0 0);
+    --sidebar-primary: oklch(0.723 0.219 142.5); /* green active state */
+    --sidebar-primary-foreground: oklch(0.085 0 0);
+    --sidebar-accent: oklch(0.155 0 0);          /* hover bg */
+    --sidebar-accent-foreground: oklch(0.914 0 0);
+    --sidebar-border: oklch(1 0 0 / 7%);
+    --sidebar-ring: oklch(0.723 0.219 142.5);
+    /* Added in #817. --muted-foreground above is 3.36:1 on --background and is kept
+       so existing pages look unchanged; new UI uses --text-muted for secondary text. */
+    --text-muted: #a1a1aa;                       /* zinc-400, AA on every dark surface */
+    --control-border: #71717a;                   /* zinc-500, 3:1 boundary for inputs and controls */
+    --success: #4ade80;                          /* green-400 */
+    --success-subtle: #0c1c13;                   /* green-500 at 10% over #09090b (the website's --bg) */
+    --warning: #fbbf24;                          /* amber-400 */
+    --warning-subtle: #21180b;                   /* amber-500 at 10% over #09090b (the website's --bg) */
+    --info: #60a5fa;                             /* blue-400 */
+    --info-subtle: #0e1523;                      /* blue-500 at 10% over #09090b (the website's --bg) */
+}

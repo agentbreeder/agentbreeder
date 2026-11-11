@@ -128,6 +128,11 @@ yet) and GitHub; footer, install pins and `up` claims updated after the public-r
 `install.mdx` carries separate a2 and a1 verification tables. Cloud: no code change; its `CLAUDE.md`
 records the version.
 
+**Brand tokens (#817), per side.** OSS: `website/brand.css` gains a light `:root` palette and new
+tokens (`--text-muted`, `--control-border`, status colours), copied to `center/static/brand.css`
+and checked by `tests/test_brand_tokens.py`. Website: no visual change (forced dark). Cloud:
+re-vendors `tokens.css`; `tokens:check` now also compares `:root`.
+
 **`agentbreeder up` (#783), per side.** OSS: `center/`, `kubernetes.py`, `cluster.py`, `promote.py`; the
 operator config gains `Environment.kubernetes`. Website: `what-ships` and `command-center.mdx`. Cloud: no
 code; it has no OSS version pin, and the center's API is private and unversioned, not the #775 contract.
