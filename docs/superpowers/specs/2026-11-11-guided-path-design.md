@@ -398,6 +398,11 @@ The owner requests in §10–§12 roughly double the scope of §9.2 #10. Proposa
 
 ### 14.1 Schedule
 
+
+**Superseded scope (2026-11-11):** §14.1's schedule and the build order are replaced by the master
+plan `docs/superpowers/plans/2026-11-11-console-epic.md` (epic #812), which wins where it differs
+from §9 or §14.
+
 **Owner decision (2026-11-11): everything below ships in 3.0.0a3**, one preview and one
 verification run (the review recommended splitting; the owner chose one release). The table is now
 the build order inside a3, each row merged behind the gate before the next starts; "Later" stays
