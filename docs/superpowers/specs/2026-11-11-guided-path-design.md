@@ -1,7 +1,7 @@
 # One guided path: quickstart → your own agent → release (CLI, command center, docs)
 
-Status: draft r2, 2026-11-11. Epic: #807. **r2 supersedes §3–§8 where §9 says so** (Fable design
-review r1: CHANGES REQUESTED, 3 blocking; owner decisions in §9.1). Owner request (2026-11-11): a user runs
+Status: draft r3, 2026-11-11. Epic: #807. **§9 supersedes §3–§8; §14 supersedes §9–§13** (Fable
+design reviews r1 and r2: CHANGES REQUESTED; owner decisions in §9.1). Owner request (2026-11-11): a user runs
 `npx agentbreeder@3.0.0-alpha.2 quickstart`, and from there the CLI's help leads them, step by
 step, through keys, services, creating an agent with `agent.yaml`, build, evals, release, a local
 deploy and a test call; it checks their state, says what is wrong and how to fix it. The command
@@ -243,3 +243,296 @@ the exact commands from §1, including the `--stack .` and "build before release
     registries (like #803 → #804). The drift test matches subcommand tails. Linux stays "Not run"
     unless a container with a Docker socket runs it.
 14. **Stale reads** during jobs: show the stale note; refresh on job end.
+
+## 10. Logs for every service and agent (owner request, 2026-11-11)
+
+Owner: "In command center we should show all the detailed logs for all services and agents." Today
+`agentbreeder services logs [DIR] NAME --tail N` returns a service's logs, redacted with every value
+the stack stored (`services/engine.py:706-715`, cap 10 000 lines). There is no logs command for a
+deployed agent and no logs view in the command center. Scheduled by §14 (not 3.0.0a3).
+
+**CLI**
+
+- `agentbreeder logs ID [--tail N] [--since 10m] [--stack DIR] [--json]` for a deployment (agent or
+  candidate). Local target: `docker logs` of the container, after the same ownership-label check
+  `remove` uses. Kubernetes target: the pod's logs through the existing `kubernetes.py` client for the
+  stack's `kind` cluster. `--tail` default 200, max 10 000.
+- Redaction: the stack's stored values (as `services logs`), the deployment's own secret file values
+  and its gateway key, applied before anything is printed. Control characters are stripped. Logs
+  can still contain customer messages and model output; the docs say so.
+- `services logs` gains `--since` and `--json` so both commands return the same shape:
+  `{"source": "service|agent", "name", "lines": [...], "truncated": bool}`.
+
+**Command center**
+
+- A **Logs** view listing every service of the stack (from `services status`) and every active
+  deployment (from `list`), each with its state. Selecting one shows the last 200 lines; a
+  **Follow** toggle re-reads every 3 s while the view is open; a client-side text filter; a
+  "Load more" that raises `--tail` up to the cap.
+- Each read is a fixed argv through `runner.read` (`services logs PATH NAME --tail N --json` or
+  `logs ID --stack PATH --tail N --json`). Names and IDs are accepted only if they appear in the
+  current lists; `N` is an integer from a fixed set. No free text reaches argv.
+- Lines are placed with `textContent`; the view keeps at most 10 000 lines in memory.
+- Job logs (services up, release, promote) stay where they are. Each job's panel links to the logs
+  of the service or deployment it touched.
+- Errors are shown plainly ("can't reach the command center at this address; press Enter in the
+  terminal running `up` for a new link", per the #807 comment).
+
+**Verification**: on macOS, Northwind through the center: every service and both deployments
+(local and `kind`) show logs, follow works during a release, and a leak scan of what the API
+returned finds no `~/.env` value.
+
+## 11. Error and warning notifications (owner request, 2026-11-11)
+
+Owner: "also error and warnings notifications". The command center shows a notification for every
+error and warning, from the same sources as the guide (§3) and the Logs view (§10), so the three
+never disagree. Scheduled and reduced by §14.
+
+**Sources** (each notification records source, severity, time, a short message and a link):
+
+| Source | Error | Warning |
+|---|---|---|
+| Jobs | a job failed or was cancelled (exit code, last stderr line) | job finished with `WARNING:` lines (e.g. the gate's demo-identity warnings, once per kind) |
+| Release | eval gate failed (exit 5) with the failed case ids and the judge's one-line reason (§9.2 #12) | production deployed without the gate (§9.2 #5) |
+| Services | a service exited or is unhealthy in `services status` | a service restarted since the last check |
+| Deployments | a deployment is `failed`, or `status` reports `noncompliant:` | `unverifiable:`, or a review date within 14 days (`REVIEW_EXPIRED` ahead) |
+| Guide | a step is `blocked` (e.g. a missing key, `IMPORT_DENIED`) | an advisory check fails (e.g. old `agentbreeder` on `PATH`) |
+| Logs | lines at level `ERROR`/`CRITICAL`/`Traceback` in a service or agent log | lines at level `WARNING`/`WARN` |
+
+Log levels are matched per known format (Python logging, LiteLLM, Postgres `ERROR:`/`WARNING:`,
+Phoenix); unknown formats are not classified. This is a heuristic and the UI says so.
+
+**How**
+
+- The center server polls the cheap reads every 10 s while a browser session is open (`services
+  status`, `list`, job states, guide, the last 200 log lines per running service and deployment
+  since the last poll), all through `runner.read` with fixed argv. Identical messages within 10
+  minutes are folded into one with a count.
+- Stored in `center.sqlite3`, newest 500 kept, redacted like logs, each with read/unread state.
+- UI: a bell with the unread error and warning counts on every screen; a Notifications panel
+  (filter by severity and source, mark read, "show in logs"/"open job"); errors also appear as a
+  dismissible banner. Optional desktop notifications through the browser's Notification API, only
+  after the user turns them on, with the message text only (no log excerpt).
+- CLI, same data: `agentbreeder next` lists the current errors and warnings from the guide's
+  checks; `agentbreeder logs`/`services logs` accept `--level warning|error` to show only
+  classified lines. No background daemon outside `up`.
+
+**Security**: messages are untrusted text (`textContent`, control characters stripped, 300 chars
+max); no secret value is stored or shown (same redaction as logs); desktop notifications carry no
+log content; nothing is sent off the machine.
+
+**Verification**: on macOS with Northwind through the center: stop a service by hand (error
+appears, then clears after restart), break an eval case (gate failure with reasons), let a job
+emit the gate warnings (one folded warning), and leak-scan the stored notifications.
+
+## 12. All agents, registry browser, agent.yaml generator (owner request, 2026-11-11)
+
+Owner, with a screenshot of the center on Northwind: "we should show all agents running and we
+should have capabilities to see all the registries, generate agent.yaml". Today the center is
+scoped to one selected project (top-right picker); agents appear only in that project's
+Deployments view, and the registry appears only as a count ("N versions available") on the
+Services panel (`center/static/app.js:267-273`).
+
+Same-path rule: every center capability below is a fixed CLI command with `--json`, and the CLI
+command ships first.
+
+**12.1 All agents (home screen)**
+
+- A **Agents** home view, shown before any project is picked: every active deployment across all
+  registered projects and environments, one row each: agent name, project, role (production or
+  candidate), target (local Docker or `kind`), state (recorded), image digest (short), released by
+  the gate or not (§9.2 #5 evidence), endpoint (loopback) or "use forward" for `kind`, last
+  release time and result. Row actions: open project, logs (§10), status, remove (confirm).
+- Candidates are labelled **temporary: removed when the release finishes**, and job logs mark
+  candidate URLs the same way (the owner opened a release's candidate URL after it was removed and
+  got "Failed to fetch").
+- CLI: `agentbreeder list --all [--json]` reads every stack's state directory under
+  `~/.agentbreeder/stacks/` plus the default state, without changing any of them (open each store
+  only if its database exists, as `next` does).
+
+**12.2 Registry browser**
+
+- A **Registry** view per project: every version the project can resolve (project `./registry`,
+  `AGENTBREEDER_REGISTRY_PATH` entries, built-ins), grouped by kind (runtime, prompt, knowledge,
+  tool, mcp, eval, service): name, version, source root, hash, verify status, and which agents in
+  the project reference it. Selecting a version shows its manifest and files read-only (text files
+  up to 256 KiB, `textContent`; binaries listed, not shown). Eval sets show their case count and
+  ids; prompts show the prompt text.
+- CLI: `registry list --project DIR --json` (exists) and a new `registry show REF --project DIR
+  [--json]` (manifest, file list, hash, verify result, text of small files).
+- Read-only in this slice. Publishing new versions stays CLI-only until a later slice designs
+  editing.
+
+**12.3 Generate agent.yaml**
+
+- A **New agent** form: name, model (Gemini only, §9.1), prompt (pick a published prompt or start
+  from the starter text), evals (pick an eval set or start from starter cases), tools, knowledge and
+  MCP servers picked from the registry browser's lists. It shows the resulting `agent.yaml` and
+  `stack.yaml` as a read-only preview before writing.
+- It runs one CLI command with fixed flags: `agentbreeder new agent NAME --model gemini
+  [--prompt REF] [--evals REF] [--tool REF]… [--knowledge REF] [--mcp REF:tool,…] --dir
+  ~/agentbreeder-projects/NAME`. Every REF is accepted only if it is in the registry listing
+  just read; NAME matches `agentfile.NAME_PATTERN`; the destination is fixed; then the project is
+  registered as `onboard_example` does (§9.2 #6). Validation errors come from `new agent` itself,
+  so the CLI and UI show the same messages.
+- Editing an existing `agent.yaml` from the UI is out of scope for this slice.
+
+**Verification**: with Northwind and a generated starter agent both running, the Agents view lists
+both projects' production deployments; the registry browser lists Northwind's 30-odd versions plus
+built-ins and opens a prompt and an eval set; the form generates a starter that passes `validate`,
+`services up`, `release` and appears in the Agents view. macOS; the UI clicked through in a real
+browser, not only scripted.
+
+## 13. Proposed release split (to confirm with the owner)
+
+**Superseded by §14.1:** the owner chose to ship everything in 3.0.0a3.
+
+The owner requests in §10–§12 roughly double the scope of §9.2 #10. Proposal:
+
+- **3.0.0a3: guided path.** Slices 1–4 and the center checklist (§9.2 #10), plus §12.1's candidate
+  labelling (small).
+- **3.0.0a4: command center.** All agents (§12.1), registry browser (§12.2), agent.yaml generator
+  (§12.3), logs (§10), notifications (§11).
+
+## 14. r3: review r2 applied (binding over §9–§13)
+
+### 14.1 Schedule
+
+**Owner decision (2026-11-11): everything below ships in 3.0.0a3**, one preview and one
+verification run (the review recommended splitting; the owner chose one release). The table is now
+the build order inside a3, each row merged behind the gate before the next starts; "Later" stays
+out of a3.
+
+Build order (originally proposed as separate previews):
+
+| Build step | Contents |
+|---|---|
+| **1. Guided path** | §9.2 #10 (guided path: `next`, hint helper, launcher rule, `new agent` gemini, `invoke`, F3–F6, F9, center checklist), candidate labelling, failed-candidate log tail (14.3 #3), and the #811 bugs (audit time, verify wording, kind guidance) |
+| **2. Command center** | `logs` CLI + Logs view (14.3), all agents (14.5), registry browser (14.6), notifications as conditions + events (14.4), #811 UX items |
+| **Later** | log-level notifications, desktop notifications, the generator beyond name/model/prompt/starter evals |
+
+### 14.2 Residuals on §9
+
+- `promote._evidence` raises `RELEASE_THRESHOLD_LOWERED` / `RELEASE_EVALSET_CHANGED`; in `release`
+  these mean "not released, evaluate again", in `guide.py` state `next` with the reason.
+- **Read-only opens.** `Store()` creates and migrates the DB under `BEGIN IMMEDIATE`, and
+  `StackState()` creates the stack directory (`store.py:84-149`, `services/state.py:98-103`). `next`,
+  `list`, `list --all` and `logs` open `deployments.sqlite3` and `stack.db` with
+  `file:…?mode=ro` (no mkdir, no migration, no write lock), so they never create phantom stacks or
+  block a job's audit write.
+- `invoke --candidate` only reaches a hand-deployed candidate (`release` removes its own); the
+  failed-gate route is the saved log tail (14.3 #3) and the eval report.
+
+### 14.3 Logs (replaces §10's mechanics)
+
+1. A dedicated `Docker.logs(info, tail, since)` with `stderr` merged into stdout, `--timestamps`,
+   addressed by container ID, a 4 MiB cap (`truncated`), after `authorize(record["context"])` and
+   `inspect(record)`; the existing `command()` drops stderr. Kubernetes: `kubectl logs -l
+   io.agentbreeder/deployment=<id> -c agent` through the recorded binding after `inspect`, never
+   listing the shared namespace; `--previous` for crash loops; a pending pod returns no lines plus
+   its failure reason. Claim: local kind only. Sidecar/egress containers are shown as separate
+   sources, labelled (they see MCP call content).
+2. **One redactor** (`redaction.py`) used by `logs`, `services logs` and job output: the stack's
+   stored values, every non-removed deployment's secret copies (a new reader for the 0444 copies:
+   `O_NOFOLLOW`, owner and 0700-parent checks), and for deployments without copies the
+   `<state>/secrets/<name>` values its manifest names; literal, per-line (≥ 8 chars) for multi-line
+   values, base64, URL-quoted and JSON-escaped forms, and the password part of URLs. The short-lived
+   eval judge key is not covered; docs say "best effort".
+3. **Failed candidate tail (a3).** When a candidate fails to start or fails the gate, `release`
+   saves its last 500 redacted lines in the 0700 state directory beside the release journal and
+   prints the path; `logs` and the job panel link to it.
+4. **Follow:** `logs --follow` / `services logs --follow`; the center holds one pumped read-only
+   child per open log (job pattern, `?after=`), an in-memory ring buffer (never `center.sqlite3`),
+   killed 15 s after the last poll; `--since` strictly validated. Log reads are not cached by the
+   runner (`cache=False`).
+5. `services down --purge` also deletes anything log-derived the center kept for that stack.
+
+### 14.4 Notifications (replaces §11's mechanics)
+
+- **Conditions** are computed live and never stored, and clear themselves: exactly what `next`
+  prints (blocked steps, failed or noncompliant deployments as *recorded*, services down or
+  unhealthy, production not released through the gate). Guide steps in `todo`/`next` are not
+  notifications. CLI and center show the same set (one function).
+- **Events** are stored (500 kept): job failed (fixed template, exit code, error code matching
+  `\[[A-Z0-9_]{3,40}\]`), container died with code N / OOM / health became unhealthy / restarted
+  (not during a services-up job), eval gate failed (case ids and counts, link to the report).
+  No free text from logs, stderr or models is stored.
+- **Source:** one long-lived `agentbreeder watch --stack DIR --json` child per project while a
+  client heartbeat arrived in the last 30 s: `docker events` filtered on the stack and deployment
+  labels, a `compose ps` resync every 60 s, deployment rows re-read (read-only) when
+  `deployments.sqlite3` changes; the guide is recomputed on job end and on events. Heartbeats and
+  notification reads do not refresh the session idle timer. `Runner.read` gets single-flight per
+  key and a small concurrency limit.
+- `status` (re-verifies at the IdP, writes) is never polled; compliance shown is "as of last
+  reconcile". The review-date warning is dropped until `review_by` is recorded at verify time.
+- Log levels are a **filter and highlight** in the Logs view and `--level`, via one parser module
+  keyed by built-in service ref, tested on fixtures captured from a Northwind run; continuation
+  lines group with their record; project services stay unclassified. Not a notification source.
+- Desktop notifications: later; fixed templates only; docs say "AgentBreeder sends nothing; your OS
+  keeps notification history".
+- One status function backs the guide, the Services view and `watch`.
+
+### 14.5 All agents (replaces §12.1's mechanics)
+
+`services up` records the project path in the stack's meta. The center lists registered projects
+with `list --stack` (read-only); stacks without a recorded project show as "not registered".
+`list --all` validates directory names, refuses symlinks, honours `AGENTBREEDER_STACKS_DIR`, and
+skips (and reports) a store with an unsupported schema. One environment per center project, as
+today. The row's "status" action is the reconcile job. Columns include the identity check, as the
+Deployments table has.
+
+### 14.6 Registry browser (replaces §12.2's mechanics)
+
+`registry show REF` goes through `Ref.parse`, `resolve` and `_entries` (symlink, hardlink and size
+checks), reads with `O_NOFOLLOW`, caps the response, strips control and bidi characters. Hash and
+verify status come from `verify()`, cached per project until a job ends. Its own route; the roots
+in use (including `AGENTBREEDER_REGISTRY_PATH` as `up` inherited it) are shown.
+
+### 14.7 Generator (replaces §12.3; later)
+
+When scheduled: name, model, prompt text and starter evals only; preview from
+`new agent --dry-run --json` (the UI never renders YAML); prompt text through a private temp file,
+not argv; errors through `--json` via `read` (the `onboard_example` pattern drops them). Picks of
+existing versions only from roots the new project resolves (built-ins, `AGENTBREEDER_REGISTRY_PATH`),
+or `new agent` re-publishes them into the new registry. Tools, knowledge and MCP are added per
+combination after a run (the center also refuses `services-up` for MCP stacks today).
+
+### 14.8 Owner walkthrough findings (#811)
+
+Audit time blank (`app.js:335` reads `timestamp`, rows carry `at`); verify card in words; audit rows
+with agent, mode and reasons; kind guidance with install command and "restart `up`"; collapse the
+job drawer after a finished job and link its report and production URL; explain service rows with
+no host port; Logs and Try-it entry points. Evidence: the owner's release through the center in a
+real browser passed 61/61 (2026-11-11).
+
+### 14.9 Re-review r3 applied
+
+- **R1 Container stops are not "died" events.** A `die` is an event only when no `kill`, `stop` or
+  `destroy` for that container precedes it in the same window, and never for a container the
+  running job touches (release removing candidate/previous production, `remove`, `services down`,
+  rollback). Verification: a clean release and a `services down` store zero events.
+- **R2 Redactor split.** `redact(text, values)` (all encodings) is a pure function shared by the CLI
+  and the center. Collecting values (`redaction_values(stack)`) is CLI-only and covers deployments
+  in every environment of the stack. The center keeps redacting job output with the form's keys
+  only; it still holds no secret and opens no deployment state.
+- **R3 Build order.** The failed-candidate tail needs local `Docker.logs` and the redactor with its
+  fallback path, so those land in build step 1. The tail is captured before the candidate is removed
+  on every run and discarded on a pass; one per agent, overwritten, mode 0600, redacted before
+  truncating; the center reads it through a fixed-argv CLI read, never by opening the state directory.
+- **R4** 14.3 #5 is replaced by a docs sentence: job logs and events live in
+  `~/.agentbreeder/center`, survive `--purge`, and how to delete them.
+- **R5 `watch`:** agent containers carry no stack label, so events are matched against this stack's
+  deployment IDs; container events cover local targets only, and kind deployments show recorded
+  state plus a pod check in the 60 s resync; the run confirms whether two `label=` filters combine
+  as OR, otherwise two streams; the center's shutdown kills watch and follow children too.
+- **R6** Read-only opens "take no write lock" (without WAL a reader can briefly delay a commit). A
+  read-only open cannot migrate or recover a hot journal: `next`, `list` and `logs` report that the
+  state needs an upgrade and name the CLI command that does it, instead of failing.
+- **R7** Log-follow polls, heartbeats and notification reads do not refresh the session idle timer
+  (`session_valid` gains a parameter).
+- **R8** The gate-failed event shows the report path as text and offers a fixed-argv CLI read of
+  the report summary; case ids are capped at 80 characters with control characters stripped.
+- **R9 Evidence.** The owner's 61/61 release in a real browser used the published
+  `npx agentbreeder@3.0.0-alpha.2 up` (process list, 2026-11-11 12:37), not a checkout. Docs and
+  CLAUDE.md change only when a3's verification records its own browser run. The `pods/log`
+  requirement for a non-admin Kubernetes target belongs in #770/#772 (Helm RBAC).
