@@ -1,7 +1,9 @@
 # M0c verification: brand tokens (#817)
 
-Status: **branch run** (`feat/817-brand-tokens` off `main` f7b521f, 2026-11-11, macOS). The
-post-merge run from a wheel built from `main` is still to do; repeat the "Wheel" section then.
+Status: **wheel, token and drift checks verified from `main`** (92ba8fc, after #838 and
+agentbreeder-cloud#102 merged, 2026-11-11, macOS); see "Wheel from main". The full gate, website
+build and visual diffs in the sections before it are the branch run (`feat/817-brand-tokens` off
+`main` f7b521f).
 
 ## What changed
 
@@ -89,6 +91,29 @@ and `…/console-snapshot-dark.png` in the same folder.
 Fresh `HOME` and uv cache, Python 3.12 venv, wheel from the branch: installed in 3 s;
 `agentbreeder --version` 3.0.0a2; installed `center/static/brand.css` and both fonts match the
 checkout's sha256. No containers or services started, so no teardown; no secrets read.
+
+## Wheel from main (post-merge)
+
+`main` at 92ba8fc. Wheel built in the checkout's venv with `python -m build --wheel`; then
+installed with `pip --no-cache-dir` into a fresh Python 3.12 venv under `env -i` with an empty
+`HOME` (build + install 17 s).
+
+- `agentbreeder --version`: `3.0.0a2`
+- Installed files against the checkout, sha256:
+  - `center/static/brand.css` `cbc1ec42…5dcea7`: match
+  - `fonts/Geist-Variable.woff2` `e24cec10…5b1505`: match
+  - `fonts/GeistMono-Variable.woff2` `5f687a5d…aa8c87`: match
+  - `fonts/OFL.txt` `930853ee…9d9137`: match
+- `tests/test_brand_tokens.py` in the `main` checkout (editable venv, not the installed wheel):
+  12 passed (drift, contrast, font hashes).
+- Cloud: `dashboard/app/tokens.css` on agentbreeder-cloud `main`, fetched with `gh api`, is
+  byte-identical (`cmp`) to the agentbreeder-cloud#102 branch worktree copy;
+  `check-token-drift.mjs` against OSS `main`'s `website/brand.css`: 140 tokens match.
+- Leak scan: grep of the sandbox `HOME` for two key patterns (`sk-…`, `AIza…`): 0 files. The
+  venv and wheel were not scanned.
+- Teardown: no containers or services were started; the sandbox directory was removed, and the
+  gitignored `build/` and `src/agentbreeder.egg-info/` the build left in the checkout were
+  deleted.
 
 ## Review
 
