@@ -1,0 +1,11 @@
+usage: agentbreeder cluster up [-h] [--stack DIR] [--json]
+                               --environment ENVIRONMENT [--yes]
+                               [--expect-grant SHA256]
+
+options:
+  -h, --help            show this help message and exit
+  --stack DIR
+  --json
+  --environment ENVIRONMENT
+  --yes                 Confirm the changed grant
+  --expect-grant SHA256

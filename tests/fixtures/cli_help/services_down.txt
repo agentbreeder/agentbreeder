@@ -1,0 +1,14 @@
+usage: agentbreeder services down [-h] [--volumes] [--purge] [--yes] [--json]
+                                  [dir]
+
+positional arguments:
+  dir
+
+options:
+  -h, --help  show this help message and exit
+  --volumes   Also delete the stack's volumes
+  --purge     Delete everything `up` made: volumes, built service images,
+              generated secrets, operator config and history (the next `up`
+              starts from scratch)
+  --yes
+  --json

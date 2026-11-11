@@ -1,0 +1,12 @@
+usage: agentbreeder cluster [-h] {up,status,down} ...
+
+positional arguments:
+  {up,status,down}
+    up              Create the cluster and registry, and add them to the
+                    stack's grant
+    status          Show the cluster, the registry and the tools they need
+    down            Delete the cluster and registry (refused while something
+                    is deployed there)
+
+options:
+  -h, --help        show this help message and exit

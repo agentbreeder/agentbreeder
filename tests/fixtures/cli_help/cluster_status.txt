@@ -1,0 +1,6 @@
+usage: agentbreeder cluster status [-h] [--stack DIR] [--json]
+
+options:
+  -h, --help   show this help message and exit
+  --stack DIR
+  --json

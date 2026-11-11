@@ -1,0 +1,10 @@
+usage: agentbreeder example [-h] name [dir]
+
+Copy a shipped example to DIR (default ./NAME). `example list` lists them.
+
+positional arguments:
+  name        Example name, or `list`
+  dir         Destination (default ./NAME)
+
+options:
+  -h, --help  show this help message and exit

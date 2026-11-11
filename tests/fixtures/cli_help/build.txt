@@ -1,0 +1,18 @@
+usage: agentbreeder build [-h] [--environment ENVIRONMENT]
+                          [--locked | --update [REF ...]] [--output OUTPUT]
+                          [--json] [--stack DIR]
+                          agent
+
+positional arguments:
+  agent
+
+options:
+  -h, --help            show this help message and exit
+  --environment ENVIRONMENT
+                        Operator environment to build the manifest for
+  --locked              Refuse any agent.lock change
+  --update [REF ...]    Accept new hashes for path refs (all or listed)
+  --output OUTPUT       Where to write manifests (default ./deploy)
+  --json
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR

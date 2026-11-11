@@ -1,0 +1,10 @@
+usage: agentbreeder services plan [-h] --environment ENVIRONMENT [--json]
+                                  [dir]
+
+positional arguments:
+  dir
+
+options:
+  -h, --help            show this help message and exit
+  --environment ENVIRONMENT
+  --json

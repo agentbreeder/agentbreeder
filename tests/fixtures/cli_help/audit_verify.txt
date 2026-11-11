@@ -1,0 +1,6 @@
+usage: agentbreeder audit verify [-h] [--state-dir STATE_DIR] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json

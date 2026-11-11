@@ -1,0 +1,5 @@
+usage: agentbreeder login [-h] [--issuer ISSUER]
+
+options:
+  -h, --help       show this help message and exit
+  --issuer ISSUER

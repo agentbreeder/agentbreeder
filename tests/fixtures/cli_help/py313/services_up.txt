@@ -1,0 +1,27 @@
+usage: agentbreeder services up [-h] --environment ENVIRONMENT [--locked |
+                                --update] [--env-file ENV_FILE] [--yes]
+                                [--repin] [--allow-project-mcp NAME] [--json]
+                                [--expect-grant SHA256]
+                                [dir]
+
+positional arguments:
+  dir
+
+options:
+  -h, --help            show this help message and exit
+  --environment ENVIRONMENT
+  --locked              Refuse any stack.lock change
+  --update              Accept new hashes for edited project files (file
+                        params); never for a published service version
+  --env-file ENV_FILE   KEY=value file for imported variables
+  --yes                 Confirm a new or changed grant (and new tool pins of
+                        built-in MCP servers)
+  --repin               Review MCP tool definitions that changed upstream and
+                        pin them again
+  --allow-project-mcp NAME
+                        Allow a non-built-in mcp: entry that sends a
+                        credential upstream (repeatable); with --yes it also
+                        accepts that server's new tool pins
+  --json
+  --expect-grant SHA256
+                        Refuse unless the grant has this digest

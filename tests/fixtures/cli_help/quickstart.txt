@@ -1,0 +1,9 @@
+usage: agentbreeder quickstart [-h] [--dry-run]
+
+Build the shipped http-agent sample, pass it through a demo identity gate
+(static adapter), deploy it locally, invoke it, then remove it. History is
+kept in a temporary directory that is printed first.
+
+options:
+  -h, --help  show this help message and exit
+  --dry-run   Run doctor and validate only; no Docker changes

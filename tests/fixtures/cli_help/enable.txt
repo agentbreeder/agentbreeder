@@ -1,0 +1,15 @@
+usage: agentbreeder enable [-h] [--state-dir STATE_DIR] [--json]
+                           [--environment ENVIRONMENT] [--provider PROVIDER]
+                           [--ref REF]
+                           target
+
+positional arguments:
+  target
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json
+  --environment ENVIRONMENT
+  --provider PROVIDER   Provider connection (with --ref)
+  --ref REF             Principal reference (with --provider)

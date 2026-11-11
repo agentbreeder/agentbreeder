@@ -1,0 +1,8 @@
+usage: agentbreeder services env [-h] [--environment ENVIRONMENT] [dir]
+
+positional arguments:
+  dir
+
+options:
+  -h, --help            show this help message and exit
+  --environment ENVIRONMENT

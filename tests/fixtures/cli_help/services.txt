@@ -1,0 +1,14 @@
+usage: agentbreeder services [-h] {up,plan,status,logs,env,down} ...
+
+positional arguments:
+  {up,plan,status,logs,env,down}
+    up                  Start the stack and write its demo config
+    plan                Show the grant `up` would ask to confirm (starts
+                        nothing)
+    status              Show the stack's services
+    logs                Show a service's logs (redacted)
+    env                 Print exports for the stack's config
+    down                Stop the stack (keeps data and secrets)
+
+options:
+  -h, --help            show this help message and exit

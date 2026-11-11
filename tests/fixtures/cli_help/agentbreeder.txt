@@ -1,0 +1,51 @@
+usage: agentbreeder [-h] [--version]
+                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login}
+                    ...
+
+Local development: validate, gate and deploy trusted HTTP containers. The
+identity gate runs at deploy time; status and reconcile re-verify principals.
+Opt-in runtime enforcement covers MCP Streamable HTTP tool calls through the
+egress sidecar only.
+
+positional arguments:
+  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login}
+    validate            Validate a deploy manifest or an agent file (kind:
+                        agent)
+    doctor              Check local Docker prerequisites without changes
+    example             Copy a shipped example project (`example list` shows
+                        them)
+    quickstart          Build, gate, deploy, invoke and remove the sample
+                        (needs Docker)
+    deploy              Gate and deploy a manifest
+    status              Show a deployment and re-verify its principal
+    remove              Remove a deployment
+    forward             Open a loopback port to a Kubernetes deployment
+    list                List deployments that are not removed (read-only, no
+                        IdP calls)
+    approve             Approve a pending approval as a second person
+    reject              Reject a pending approval as a second person
+    approve-call        Approve one held MCP tool call as a second person
+    reject-call         Reject one held MCP tool call as a second person
+    disable             Persist a principal blocker and stop its workloads
+    enable              Clear a principal blocker (starts nothing)
+    reconcile           Re-verify principals and retry blocked cleanup
+    audit               Inspect and verify the local audit chain
+    build               Build an agent file into an image and a deploy
+                        manifest (never deploys)
+    eval                Run an agent's eval set against a running endpoint
+    release             Build, deploy a candidate, run the eval gate, promote
+                        the exact image if it passes
+    registry            Author and inspect registry versions
+    secret              Manage local secret files (secret:// refs)
+    services            Local backing services from stack.yaml (local-only
+                        preview)
+    promote             Deploy the released image to Kubernetes, without
+                        rebuilding it
+    cluster             A local kind cluster for one stack (preview)
+    up                  Start the local command center on 127.0.0.1 (single
+                        user, preview)
+    login               Sign in with the operator's OIDC device flow
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit

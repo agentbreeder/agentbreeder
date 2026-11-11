@@ -1,0 +1,18 @@
+usage: agentbreeder disable [-h] [--state-dir STATE_DIR] [--json] --local
+                            [--environment ENVIRONMENT] [--provider PROVIDER]
+                            [--ref REF] [--reason REASON] [--idp]
+                            target
+
+positional arguments:
+  target
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json
+  --local
+  --environment ENVIRONMENT
+  --provider PROVIDER   Provider connection (with --ref)
+  --ref REF             Principal reference (with --provider)
+  --reason REASON
+  --idp                 Also disable in the IdP (opt-in write)

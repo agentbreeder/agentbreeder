@@ -1,0 +1,18 @@
+usage: agentbreeder deploy [-h] [--state-dir STATE_DIR] [--json] (--local |
+                           --cluster) [--environment ENVIRONMENT]
+                           [--stack DIR]
+                           manifest
+
+positional arguments:
+  manifest
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json
+  --local               Target: local Docker
+  --cluster             Target: Kubernetes
+  --environment ENVIRONMENT
+                        Operator-defined environment name
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR

@@ -1,0 +1,8 @@
+usage: agentbreeder validate [-h] [--json] manifest
+
+positional arguments:
+  manifest
+
+options:
+  -h, --help  show this help message and exit
+  --json      Print the validated manifest
