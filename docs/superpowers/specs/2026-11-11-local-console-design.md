@@ -354,3 +354,433 @@ every PR, **website only at the release**; short-term memory **view and delete**
 and roles **last** (with #742/#775). §4.1 and §5's "cookie" are struck: the session is the
 header-bearer token (§8.1 #1). The guide's steps leave the nav (console §8.5 wins over guided
 §9.2 #6). A `/security` design review of this spec runs before M0a.
+
+## 10. Security review (S, #814)
+
+Status: r2, 2026-11-11, design review only (no code changed). Reviewed: this spec (§4–§9), the
+plan of record `docs/superpowers/plans/2026-11-11-console-epic.md` r3 (wins where it differs),
+guided-path §6, §14.3–§14.4 and §14.9, and the code on `main` at `f7b521f`:
+`center/server.py`, `center/jobs.py`, `center/static/app.js`, `cli.py`, `secret_files.py`,
+`services/`, `release.py`, `evals.py`, `registry.py`, `lock.py`, `store.py`, `operator_config.py`,
+`runtime.py` and the runtime under `builtin_registry/runtime/adk/1.1.0/runtime/`. Method: STRIDE
+per surface, with the local adversaries named in #814: other OS users, other local processes,
+browser pages on other `127.0.0.1` ports, containers reaching the host's loopback, and prompt
+injection through agent output into the UI. Line numbers refer to `f7b521f`.
+
+**Scope.** The ten surfaces #814 names (§10.2). Not reviewed here: M9b, M13 and M19 get their own
+`/security` reviews under the plan ("How every milestone is run" #1); M15 (grant edits,
+`services-up` for MCP stacks) and M17 (`new agent --from-spec`) get a security delta review as a
+task on their issues (S-34).
+
+### 10.1 Threat model and invariants
+
+- **Trusted:** the OS account that runs `up` and every process running as it. They can read
+  `~/.agentbreeder`, run the CLI and attach to Docker; the console does not defend against them
+  and the docs say so (§8.2).
+- **Untrusted:** other OS users; browser pages on any origin, including the other `127.0.0.1`
+  ports this product opens (agent chat pages, Phoenix, LiteLLM, project services); any process
+  inside a container (agent tool code, MCP servers, project services), all of which prompt
+  injection can steer; every byte of agent output, model output, log line, registry file, note,
+  eval case and knowledge document.
+- **I1. A console session is code execution as the owner.** A session can register a project and
+  run `services up`, `build` and `release`, which build and run project code. Every bug that
+  leaks or mints a session for someone else (XSS, a token in a log or argv, claiming the first
+  password) is code execution; the browser-side guards (CSP with Trusted Types, the source guard,
+  no HTML sinks; plan M0b) are a primary control, not hardening.
+- **I2. Browser checks are not authentication.** `Host`, `Origin`, `Sec-Fetch-Site` and
+  `X-AgentBreeder-Center` (`center/server.py:269-289`) stop browsers (DNS rebinding, cross-site
+  and same-site pages); any non-browser client sets them freely. Only the session token and the
+  password stand between a local process or a container and the API.
+- **I3. The server holds no secret value** (§8.1 #3, R2). Key values pass through it once on
+  their way to a 0600 env file; everything that reads secrets, Docker, state or an agent DB is a
+  CLI child.
+- **I4. Audit rows are evidence, not proof.** The deploy chain detects corruption but its owner
+  can recompute it; the runtime's `audit_events` is append-only for the application role
+  (runtime `memory.py:39-40`) and its database owner can drop the trigger. Nothing here is
+  tamper-evident, and the docs never say so.
+
+Severity: **High**: a realistic path, without a further precondition, to code execution, a
+secret or customer data for an untrusted party. **Medium**: the same with a precondition (the
+owner acts on untrusted input, a particular platform, a race), or a control the plan relies on
+that is missing. **Low**: defence in depth, hygiene, or a path that only a session holder (who
+already has code execution, I1) can use. **Info**: checked; the plan already resolves it.
+
+### 10.2 Surface × STRIDE
+
+| Surface | Spoofing | Tampering | Repudiation | Info disclosure | DoS | Elevation |
+|---|---|---|---|---|---|---|
+| Password auth and session (M2) | S-28, S-29, S-02 | S-24 | S-30, S-31 | S-15 | S-14, S-24 | S-28 (first password = I1) |
+| Memory edits (M16) | S-31 (actor self-asserted) | S-07, S-12 | S-30, S-32 | S-19, S-35 | none: per-note cap (S-07) and LIMIT reads (§8.3) | S-32 (role writes audit rows) |
+| Tool-code edits (M12) | none: only the owner's session edits (I1) | S-04, S-06 | S-30 (registry writes unaudited) | S-22, S-35 | none: publish caps `registry.py:47-48` | S-06, S-33 |
+| Policy edits (M18) | none: session-gated (I1) | S-04, S-21 | S-30 (audited in the default chain, M18) | S-20 | none: atomic replace | S-20 (Low, I1) |
+| Registry import and code-bearing onboarding (M9a, M7) | S-01 (planted project) | S-01, S-04 | S-30 | S-27 | none: `MAX_FILES`/`MAX_BYTES` | S-05 |
+| Knowledge upload (M14) | none: session-gated | S-03, S-13 | S-30 | S-13 (git-tracked), S-35 | S-13 | none: documents are data, steering only (S-05) |
+| Try it (M7) | S-12(c) (any `customer_id`, #780) | S-12(b) | none: turns recorded by the runtime | S-12(a), S-35 | none: one in-flight message per tab, runtime caps | none: loopback-only `invoke` (guided §6) |
+| Log viewer and redaction (M5) | none: read-only | S-08, S-35 | none: reads | S-09 | S-10 | none: text only (S-23) |
+| Long-lived children (M5, M6, M11) | none: fixed argv | none: fixed argv | none | S-17 | S-10, S-18 | none: no free text in argv |
+| Lock scopes (M0a) | none | S-11 | none | none | S-11 (busy errors) | none |
+
+### 10.3 Findings
+
+"Carried by" is the milestone issue that gets the task line; a finding closes when that
+milestone's verification shows it.
+
+| ID | Sev | Surface | Finding | Carried by |
+|---|---|---|---|---|
+| S-28 | High | Sign-in | Whoever reaches the setup route first sets the first password | M2 #818 |
+| S-01 | Medium | Onboarding | Registration accepts paths other OS users control | M0a #815, M7 #823 |
+| S-02 | Medium | Sign-in | Containers reach the console through `host.docker.internal` on Docker Desktop | M2 #818 |
+| S-03 | Medium | Routing | Guards are per-method code; new PUT/DELETE routes could skip them | M0a #815 |
+| S-04 | Medium | Edits | Reviewed bytes are not bound to written bytes (publish, import, set-ref, policy save) | M9a #825, M10 #826, M12 #828, M18 #834 |
+| S-05 | Medium | Import/onboarding | The code-bearing kind list omits `mcp` and `runtime` | M9a #825 |
+| S-06 | Medium | Tools | Signatures must be read with `ast`, never by import | M12 #828 |
+| S-07 | Medium | Memory | A note edit is an ungated write into the agent's instructions | M16 #832 |
+| S-08 | Medium | Logs | Container output reaches the terminal raw (escape injection) | M5 #821, M3 #819 |
+| S-09 | Medium | Job output | Job lines are stored with only the form's keys redacted | M3 #819, M5 #821 |
+| S-10 | Medium | Children | Children outlive a killed console | M5 #821 (+M6, M11) |
+| S-11 | Medium | Lock scopes | Console locks are in-process; `services` and `cluster` have no file lock | M0a #815, M3 #819, M6 #822 |
+| S-12 | Medium | Try it, editors | Free text in argv; links from agent output; any `customer_id` | M7 #823, M10 #826, M16 #832 |
+| S-13 | Medium | Knowledge upload | Names, sizes, disk, archives, serving, git-tracked destination | M14 #830 |
+| S-29 | Medium | Sign-in | Another OS user squats the preferred port and serves a fake sign-in | M0a #815, M2 #818 |
+| S-32 | Medium | Memory, tools | The console role's `audit_events` INSERT lets its holder forge runtime rows | M12 #828 |
+| S-33 | Medium | Tools | Dependency re-lock could build sdists on the host | M12 #828 |
+| S-14 | Low | Sign-in | The global backoff lets anyone local lock the owner out | M2 #818 |
+| S-15 | Low | Sign-in | Link and password channels when not on a TTY | M2 #818 |
+| S-16 | Low | Files at rest | Key env files and editor temp files survive a crash | M0a #815 |
+| S-17 | Low | Errors | Read failures return the CLI's last stderr line verbatim | M0a #815 |
+| S-18 | Low | Cancel/shutdown | SIGINT reaches only the direct child | M0a #815 |
+| S-19 | Low | Memory | `forget` is not erasure | M16 #832 |
+| S-20 | Low | Policy | A policy edit can repoint credential files and provider URLs | M18 #834 |
+| S-21 | Low | Policy | Config read more than once per command could mix versions | M18 #834 |
+| S-22 | Low | Tools | The console role's credential handling is unspecified | M12 #828 |
+| S-30 | Low | All writes | Which console writes are audited is unspecified | M0a #815, M2 #818, M10 #826 |
+| S-31 | Low | Memory, policy | The actor `console:admin@localhost` is asserted by a CLI child | M16 #832 |
+| S-35 | Low | Rendering | Control and bidi characters in every text view and in copy | M0b #816 |
+| S-23 | Info | Browser | XSS / HTML sinks: resolved by M0b's CSP, Trusted Types and source guard | M0b #816 |
+| S-24 | Info | Sign-in | Scrypt exhaustion, enumeration, fixation, idle refresh: resolved by M2 and R7 | M2 #818 |
+| S-25 | Info | Same-site pages | Other `127.0.0.1` ports: blocked; keep a regression test | M0a #815 |
+| S-26 | Info | Notifications | Stored events carry fixed templates only | M11 #827 |
+| S-27 | Info | Registry show | Control/bidi, symlinks, size caps: resolved by M8, plus file names | M8 #824 |
+| S-34 | Info | Out of scope | M15 and M17 need a security delta review | M15 #831, M17 #833 |
+
+Counts: High 1, Medium 16, Low 12, Info 6 (35 findings).
+
+### 10.4 Detail per surface
+
+**Sign-in and session (M2).**
+
+- **S-28 (High; Spoofing, Elevation).** M2 has a setup page that sets the first password for
+  `admin@localhost`, and an a2-upgrade path (state without a password goes to setup). If that
+  route accepts any caller, a container (S-02) or another OS user that reaches the port before the
+  owner sets the password, or while an upgraded a2 state has none, becomes the console user, which
+  is code execution as the owner (I1). Not a narrow race: the window lasts as long as `up` runs
+  without a password, including any time an a2-upgraded state is being served. **Resolution (M2):** setting a password requires a session
+  minted from the one-time terminal link (or `up --set-password` on the terminal); once a password
+  exists, changing it requires the current password, and `--reset-password` is terminal-only. Tests:
+  a setup request without a link-minted session gets 401; with a password set, a change without the
+  current password is refused; the a2-upgrade path behaves the same.
+- **S-29 (Medium; Spoofing).** The port scan (plan M0a: 8080–8099, today `make_server` falls back
+  to any free port, `center/server.py:392-404`) lets another OS user bind 8080 first, so `up` moves
+  to 8081 while a bookmarked or stale tab on `127.0.0.1:8080` shows the squatter's fake sign-in
+  form, which collects the password. A squatter on the old origin is also same-origin with the old
+  tab's `sessionStorage` (drafts; the token is per tab and the old server's sessions die with it).
+  **Resolution:** once a password exists, `up` refuses to scan past a taken preferred port and
+  prints which port is busy and `--port` (M0a, M2); the first run may scan. This amends plan M0a's
+  task ("Port scan 8080–8099") and acceptance ("picks 8081 when 8080 is taken"): the scan runs only
+  in first-run state (owner decision §10.5 #5). Docs: open only the URL
+  `up` prints. Drafts in `sessionStorage` are restored only after sign-in succeeds against the
+  current server (M2).
+- **S-02 (Medium; Spoofing, DoS).** On Docker Desktop, `host.docker.internal` forwards to the
+  host's loopback, so every container can reach the console port; the egress code already says so
+  (`egress/host.py:416-418`). Per I2, a client that sends the expected headers passes
+  `_host_ok`/`_api_ok`. **Resolution (M2):** the password and token are the boundary: keep the
+  ≥ 12-character policy, the common-password list and the backoff. M2's verification, on macOS,
+  from inside a Northwind container: `curl -H 'Host: 127.0.0.1:<port>' -H
+  'X-AgentBreeder-Center: 1' http://host.docker.internal:<port>/api/overview` returns 401; a
+  `POST /api/session` with those headers plus `Origin: http://127.0.0.1:<port>` and
+  `Content-Type: application/json` and a wrong password hits the backoff; a bare `curl` gets 403
+  from `_host_ok` (`center/server.py:269-270`). On Linux, agents get `host-gateway`
+  (`runtime.py:158-164`), which does not reach a `127.0.0.1` listener: recorded as by design, not
+  run. Docs state that local containers can reach the sign-in form.
+- **S-14 (Low; DoS).** The global backoff (plan M2) lets any local process or container keep the
+  owner waiting up to 5 minutes per attempt. **Accepted:** the terminal link always works; the
+  sign-in page says "too many attempts; press Enter in the terminal running `up` for a one-time
+  link".
+- **S-15 (Low; Information disclosure).** One-time links are bearer credentials; printed to a
+  redirected stdout they land in log files. **Resolution (M2):** print a link only when stdout is a
+  TTY, otherwise write it to the 0600 `login.html` (as `mint_login` does,
+  `center/server.py:88-100`) and print that path; `--set-password`/`--reset-password` read with
+  `getpass` on a TTY, or one stdin line otherwise; never argv, never echoed.
+- **S-24 (Info).** Resolved by plan M2: backoff checked before hashing, single-flight hashing,
+  dummy hash for unknown emails, constant-time compare, a new token per sign-in, credential
+  version re-read per request, polls not refreshing the idle timer (R7; today `session_valid`
+  refreshes on every call, `center/server.py:132`).
+
+**Onboarding and project registration (M0a, M7).**
+
+- **S-01 (Medium; Tampering, Elevation).** `Center.register` (`center/server.py:137-150`) resolves
+  any path and only checks that `agent.yaml` and `stack.yaml` are regular files. Precondition: the
+  owner registers a directory another OS user controls (a shared or `/tmp` path from a link or a
+  doc). That user's code then runs as the owner at `services up` (project services built from
+  source) and `release`, and the user can swap files between the grant review and the job.
+  **Resolution:** registration and every job start require the project directory, `agent.yaml`
+  and `stack.yaml` to be owned by the current uid and not group- or world-writable, and each
+  ancestor up to `/` to be owned by the current uid or root and not group- or world-writable,
+  except a sticky directory (mode `+t`, such as `/tmp`), which cannot rename entries it does not
+  own. Refused with a message naming the path. M0a for `register`, job start and
+  `onboard_example`'s destination; M7 for `new agent --stack-for`. On macOS volumes mounted with
+  "Ignore ownership on this volume", every file reports the current uid, so the check passes; the
+  docs say to keep projects on the system volume. Tests: a 0777 directory, a non-sticky writable
+  ancestor and another uid (patched `os.stat`) are refused; a user-owned directory under `/tmp`
+  passes.
+
+**Routing and request handling (M0a, M14).**
+
+- **S-03 (Medium; Tampering).** Only `do_GET` and `do_POST` exist, and each applies the guards in
+  its own code (`center/server.py:291-317`); body limits and `Origin` live in `_body`
+  (`:277-289`). M14 adds a streamed `PUT`. **Resolution (M0a):** the route table applies host, API
+  header, `Sec-Fetch-Site`, session and, for every non-GET method, `Origin` and content-type checks
+  before dispatch; unknown methods get 405; a table-driven test sends every route with each guard
+  missing.
+- **S-25 (Info).** A page on another `127.0.0.1` port is `same-site`, so `_api_ok`
+  (`center/server.py:272-275`) rejects it, and the custom header forces a preflight the server
+  never approves. **M0a:** keep a regression test for `Sec-Fetch-Site: same-site` with a valid
+  session and header.
+
+**Rendering and prompt injection into the UI (M0b, M5, M7, M12, M16).**
+
+- **S-23 (Info).** Agent replies, log lines, notes, case text and file contents are hostile.
+  Plan M0b's CSP with `require-trusted-types-for 'script'`, the source guard and text-only
+  rendering resolve DOM injection; I1 is why they are mandatory. Today's UI keeps the token in
+  `sessionStorage` and drops the `#t=` fragment with `replaceState`
+  (`center/static/app.js:17-18`, `:352-354`).
+- **S-35 (Low; Tampering, Spoofing).** Text-only rendering still shows bidi overrides (a log line
+  or note that reads differently from its bytes) and keeps raw ESC sequences, which a "Copy"
+  button then puts on the clipboard for a terminal. **Resolution (M0b):** one shared text component
+  for the log viewer (M5), Try it (M7), the tool execution log (M12) and notes (M16) that shows C0/C1
+  controls and bidi controls as visible escapes (`\x1b`, `U+202E`) and copies the escaped form.
+- **S-12 (Medium; Information disclosure, Tampering).** (a) Free text goes by stdin or a private
+  0600 temp file, never argv, which every local user can read through `ps`: Try it messages
+  (`invoke NAME -`, M7), notes (`memory notes add|edit`, M16), eval cases (M10's edit flow) and the
+  policy text (M18's `operator-config save FILE` names a private temp file, already a path). Try it
+  turns are kept only in memory, not as job lines in `center.sqlite3`, which survives `--purge`
+  (R4). Today's `Runner.read` does not fit: it sets `stdin=DEVNULL` (`center/jobs.py:354`), caches
+  by argv and returns the last good answer on failure (`:361-364`), and times out at 30 s. M7 adds a
+  read variant with `input=` (the message), `cache=False`, no stale fallback, and a 180 s timeout
+  (matching `invoke`). (b) Agent output never becomes a link
+  target: no Markdown rendering or auto-linking in a3; a trace link is built only from a
+  `[0-9a-f]{32}` trace id and the stack's recorded Phoenix origin; sources show as registry refs or
+  document names. (c) Try it can name any `customer_id`, because the endpoint is unauthenticated
+  (runtime `server.py:120-127`, #780); the panel says so. **Carried by M7, M10, M16.**
+
+**Logs and redaction (M3, M5).**
+
+- **S-08 (Medium; Tampering).** Existing: `services logs` prints `engine.logs` output raw
+  (`cli.py:488-490`, `services/engine.py:706-715`). Planned: `agentbreeder logs` (M5) and
+  `logs --failed` (M3). A customer message or tool result echoed into a log can carry ESC/OSC
+  sequences: OSC 52 writes the clipboard, OSC 8 forges links, CSI rewrites earlier lines.
+  **Resolution:** on a TTY the CLI shows C0 (except tab) and C1 controls, ESC included, as visible
+  escapes; `--raw` keeps bytes; `--json` escapes by construction. M5 for `logs` and the existing
+  `services logs`, M3 for `logs --failed`.
+- **S-09 (Medium; Information disclosure).** The job pump redacts only the keys typed in the form
+  (`center/jobs.py:318-324`) and stores up to 20 000 lines per job in `center.sqlite3`. Any secret a
+  job's CLI child prints is stored. Today's redactors differ: `compose.redact` is literal, ≥ 4
+  characters (`services/compose.py:42-51`); `jobs.redact` adds base64 and URL forms
+  (`center/jobs.py:81-92`). Checked on `f7b521f`: the CLI's Docker and compose children capture or
+  discard their output (`runtime.py:38-45`, `services/compose.py:346-351`); none inherits the job's
+  stdout. **Resolution:** M3's `redaction.py` is applied by the CLI to every child stream it
+  prints, with a test that job commands start no child with inherited stdio; the server-side pump
+  keeps redacting the form's keys as a second pass. M5's verification seeds known secrets, runs a
+  Northwind release and services-up through the console, and scans `center.sqlite3` and API output
+  for literal, base64, URL and JSON forms. Docs keep "best effort".
+
+**Long-lived children (M5, M6, M11).**
+
+- **S-10 (Medium; DoS).** Children run with `start_new_session=True` (`center/jobs.py:293`), so a
+  console killed with SIGKILL leaves `docker logs -f`, `docker stats` and `docker events` running;
+  shutdown cancels only the current job (`center/server.py:461-466`). **Resolution:** CLI (M5,
+  lane A): `logs --follow`, `services logs --follow`, `watch` and `services usage --follow` exit on
+  stdin EOF and kill their own Docker or kubectl grandchildren. Console (M5): those children get
+  `stdin=PIPE`; `up` records child PIDs and start times in a 0600 file and kills matching leftovers
+  at start; caps of 8 follows per session, 16 overall, one `watch` per project and one usage child.
+  M6 and M11 use M5's pattern.
+
+**Lock scopes (M0a, M3, M6, M18).**
+
+- **S-11 (Medium; Tampering).** The console's locks (plan M0a) live in the server process, so a
+  terminal `services up` or `cluster down` runs alongside a console job. Existing file locks: only
+  the store (`store.py:167`, `worker.lock`) and `release` (`release.py:121`, `release.lock`);
+  `services up/down` and `cluster up/down` take none, and the planned `services
+  restart|stop|start` (M6) need one. **Resolution:** M0a documents that console locks order the
+  console's own jobs and correctness comes from CLI file locks. The console runs cluster jobs from
+  M0a, so the machine-wide `flock` for `cluster up/down` goes in M3 (lane A, earliest); M6 adds
+  the per-stack `flock` (stack state directory) to every `services` write command, with an
+  "another services operation is running" error the console shows.
+- **S-21 (Low; Tampering).** Policy save is refused while a console engine job runs, but a
+  terminal deploy can overlap. **Resolution (M18):** the atomic replace keeps readers whole; a test
+  asserts each command loads the operator config once and records that digest
+  (`operator_config.py:418-434`) in its audit rows.
+
+**Edits, import and code-bearing kinds (M9a, M10, M12, M18, M7).**
+
+- **S-04 (Medium; Tampering).** Each edit shows a diff, then a separate request writes. Between
+  the two, the source (import path, temp copy, live `agent.yaml`, live operator config) can change,
+  so the bytes written are not the bytes reviewed, or overwrite a newer file. `publish` copies and
+  hashes in one pass (`registry.py:293-316`). **Resolution:** the preview returns digests; the
+  write fails on mismatch, as `services up --expect-grant` does today (`center/jobs.py:213-226`).
+  `registry import`/`publish` take `--expect-digest` of the staged copy (M9a, M10, M12 for tool
+  saves); `agent set-ref` takes `--expect-base` (the reviewed `agent.yaml` digest) (M10);
+  `operator-config save` takes `--expect-digest` (reviewed new bytes) and `--expect-base` (the live
+  config's digest) (M18).
+- **S-05 (Medium; Elevation).** Plan M9a applies the "this code runs in agents" confirm to tool,
+  service and eval imports. Also code-bearing: `mcp` (relay containers run as the operator's uid,
+  `services/state.py:261-265`) and `runtime` (the agent server itself). Medium, not Low like S-20,
+  because the precondition is the owner importing untrusted content without a warning, not an
+  attacker who already holds a session. **Resolution (M9a):** add `mcp` and `runtime` to the confirm
+  list; prompts and knowledge get a lighter "this text steers the agent" note. The confirm is a UX
+  control, not a boundary (I1).
+- **S-06 (Medium; Elevation).** Importing a tool module on the host to read its function
+  signatures would run its top-level code. **Resolution (M12):** signatures come from `ast.parse` of
+  the stored source, size-capped; a test with a module whose top level raises proves it is never
+  imported.
+- **S-33 (Medium; Elevation).** §4.3 says a tool's dependency change re-locks. Resolving Python
+  dependencies on the host can build an sdist, which runs its `setup.py` or build backend as the
+  owner: code execution the confirm does not describe. The runtime image already installs with
+  `--require-hashes --only-binary=:all:` inside Docker (`runtime/adk/1.1.0/Dockerfile:7`).
+  **Resolution (M12):** re-lock is wheels-only and hash-only on the host, or runs inside a
+  container; an sdist-only dependency is refused with a message.
+- **S-22 (Low; Information disclosure).** **Resolution (M12):** the console role's credential is a
+  stack secret, read only by CLI children, included in `redaction_values`, never in the server
+  process (guard test of §8.1 #3), never shown.
+
+**Repudiation (all writes).**
+
+- **S-30 (Low; Repudiation).** On `f7b521f`, deploy, release, promote and remove write rows to the
+  deployment audit chain (writers `deployment.py`, `promote.py` and `egress/host.py`; `store.py`
+  only holds the chain); `services up/down`, `cluster up/down` and
+  registry publish write none, and console sign-in does not log. **Resolution:** the console's job
+  history in `center.sqlite3` (not chained) is the record for services and cluster jobs (M0a);
+  sign-in, failed sign-in, password set/change/reset and sign-out-everywhere are written to a
+  `security_events` table there with time and outcome, no secrets (M2); registry edits and
+  `set-ref` leave their record in the project's files and git (M10 docs); memory edits go to the
+  agent DB's `audit_events` (M16); policy saves to the default state's chain (M18). Docs list this.
+- **S-31 (Low; Repudiation).** The actor `console:admin@localhost` is a string the CLI child
+  passes; any process running as the owner can write the same. **Resolution (M16):** shown as
+  unverified (§8.3); docs say console rows record that the console asked, not who sat at it.
+- **S-32 (Medium; Repudiation, Elevation).** M12's console role gets INSERT on `audit_events` so
+  memory edits can be audited. Whoever holds that credential can insert rows that look like the
+  runtime's own (`actor`, `action`, `detail` are free columns, `memory.py:34-37`). **Resolution
+  (M12):** the new `runtime/adk` version adds a column the database fills (`db_role TEXT NOT NULL
+  DEFAULT current_user`, the INSERT grant excluding that column, or a trigger that sets it), so
+  console-role rows are distinguishable from runtime rows; the console shows it. Medium as "a
+  control the plan relies on that is missing": §8.3 and M16 rely on `audit_events` to attribute
+  memory edits, and without this column the attribution does not hold.
+
+**Memory (M16).**
+
+- **S-07 (Medium; Tampering).** Long-term notes are put into the model's instructions (runtime
+  `agent.py:192-206`), only with `<`/`>` neutralised. A console note edit changes the agent's
+  behaviour for that customer without the eval gate, and notes the agent saved from customer
+  conversation are hostile text in the console. **Resolution (M16):** the editor says "notes are
+  added to this customer's prompt"; per-note cap (proposal 2 000 characters) and control characters
+  stripped on write; display through S-35's component; the audit row (hashes, not text).
+- **S-19 (Low; Information disclosure).** `memory forget` deletes notes, sessions, turns and
+  tickets, but `audit_events` is append-only for the application role (`memory.py:39-40`) and keeps
+  customer ids and runtime-written details; Phoenix traces, eval reports and console job logs may
+  also hold content. **Resolution (M16 docs):** list what `forget` does not delete; never called
+  erasure.
+
+**Knowledge upload (M14).**
+
+- **S-13 (Medium; DoS, Tampering, Information disclosure).** **Resolution (M14):** the streamed
+  `PUT` goes through S-03's guards; a per-kind cap and a free-disk check before writing; file names
+  validated (one path component, NFC, no leading dot, no control or bidi characters, an extension
+  allow-list); archives (zip, tar) refused, never unpacked; written into a private temp version
+  directory, never into the registry tree directly; file content is returned only inside JSON
+  (with `nosniff`, `center/server.py:54`), never served as a raw response; documents are steering
+  text (S-05); the warning that they land in a git-tracked registry adds "do not upload customer
+  data".
+
+**Identity and policy editing (M18).**
+
+- **S-20 (Low; Information disclosure).** Credentials in the operator config are `env:` or `file:`
+  references (`operator_config.py:437-450`); a `file:` reference can name any 0600 file the owner
+  has, and the provider URL is editable, so an edit can send a private file's contents to another
+  host. Low: only a session holder can do it, who already has code execution (I1).
+  **Resolution (M18):** the save diff calls out every changed credential reference and provider
+  URL, and saving them needs the typed confirm; §8.6's separation-of-duties note stays.
+
+**Files at rest, errors, shutdown (M0a).**
+
+- **S-16 (Low).** Key env files (`center/jobs.py:308-316`) are removed only when the pump ends
+  (`:326-328`); a crash leaves provider keys in a 0600 file; editor temp files (§5) likewise.
+  **Resolution (M0a):** at start, only after the single-instance `flock` is acquired (so a
+  second `up` never deletes a running console's files), `up` deletes `env-*` and editor temp files
+  in the center directory.
+- **S-17 (Low).** `Runner.read` returns the last stderr line of a failed read to the browser
+  (`center/jobs.py:362-364`). **Resolution (M0a):** the envelope's `error` carries the CLI's
+  `[CODE]` and message from `--json` errors; free stderr is not forwarded.
+- **S-18 (Low; DoS).** `Runner.cancel` signals only the CLI child (`center/jobs.py:338-344`).
+  **Resolution (M0a):** keep SIGINT to the child for graceful release and promote steps; shutdown
+  sends SIGTERM to each child's process group after a grace period.
+
+**Notifications and the registry browser (M11, M8).**
+
+- **S-26 (Info).** Stored events carry fixed templates, exit codes, `[CODE]`s matching
+  `\[[A-Z0-9_]{3,40}\]` and capped case ids, never free text from logs, stderr or models (guided
+  §14.4, R8; plan M11). Nothing to add.
+- **S-27 (Info).** Plan M8 already routes `registry show` through `Ref.parse`, `resolve` and
+  `_entries` with `O_NOFOLLOW`, size caps and control/bidi stripping of content. The M8 task line
+  adds the same stripping for **file names** in the listing (registry rejects non-UTF-8 names but
+  not bidi characters in them).
+
+**Not reviewed here.**
+
+- **S-34 (Info).** M15 edits grants and allows `services-up` for MCP stacks (which the center
+  refuses today, `center/server.py:234-238`); M17 writes projects from a JSON spec. Each gets a
+  security delta review task on its issue.
+
+### 10.5 Owner decisions (2026-11-11)
+
+All five decided by the owner as proposed:
+
+1. S-01: **refuse** registration on wrong ownership or mode (not warn).
+2. S-05: **yes**, `mcp` and `runtime` are code-bearing.
+3. S-14: **accept** the global backoff lockout with the terminal-link recovery.
+4. S-12(b): **yes**, no Markdown or auto-linking of agent output in a3.
+5. S-29: **refuse** to scan past a taken preferred port once a password exists. This amends plan
+   M0a's task and acceptance: the 8080–8099 scan runs only in first-run state.
+
+### 10.6 Review log
+
+- **r1:** written by Claude Opus 5.5.
+- **Round 1 review, Claude Fable 5.2: CHANGES REQUESTED.** Each point checked against the code by
+  the author. Applied: (1) S-02 verification now sends the `Host`, API, `Origin` and content-type
+  headers (a bare `curl` gets 403 from `_host_ok`, `center/server.py:269-270`); Linux recorded as
+  by design, not run. (2) New S-28 (first password needs a link-minted session). (3) New S-29 (port
+  squatting; `make_server` already falls back to another port, `center/server.py:392-404`). (4)
+  Surface × STRIDE matrix (§10.2); new S-30, S-31, S-32; "append-only for the application role"
+  wording (I4). (5) S-01 lowered to Medium with its precondition, the circular vector dropped,
+  sticky ancestors allowed, the macOS "Ignore ownership" behaviour stated. (6) S-10 CLI tasks on M5
+  (lane A). (7) S-12(a) extended to notes, eval cases and policy text; Try it turns are in-memory
+  reads (`center/jobs.py:346-370`). (8) S-04 extended to `set-ref` and policy save with
+  `--expect-base`; M12 added. (9) New S-33 (dependency re-lock). (11) New S-35 (shared text
+  component, M0b). (12) Scope paragraph and S-34. (13) S-05/S-20 reasoning aligned; the M9a line
+  adds only `mcp` and `runtime`. (14) Citations corrected. (15) S-08 and S-11 separate existing
+  from planned commands (`cli.py:488-490`). (16) S-26 and S-27 detail added. (17) The `cluster`
+  flock moved to M3, since console cluster jobs exist from M0a. (18) S-13 states JSON-only serving
+  and refused archives.
+  Applied in part: (10) checked on `f7b521f`: no CLI child inherits stdio (Docker runs capture
+  output, `runtime.py:38-45`; compose one-shots pipe or discard, `services/compose.py:346-351`),
+  so the bypass does not exist today; kept as a guard test on M3 plus the server-side pump as a
+  second pass.
+  Rejected: none.
+- **Round 2 review, Claude Fable 5.2: APPROVED** (point-10 counter-claim confirmed). Last items,
+  each checked against the code and plan by the author, all applied: S-29 and §10.5 #5 state that
+  they amend plan M0a's port-scan task and acceptance (`plan:105`, `:107`); S-12(a) specifies a
+  Try it read variant (`input=`, `cache=False`, no stale fallback, 180 s), since `Runner.read` uses
+  `stdin=DEVNULL` and a stale-answer cache (`center/jobs.py:354`, `:361-364`); S-32 keeps Medium
+  with its justification; S-28 states the window is not a narrow race; S-30 names the audit
+  writers (`deployment.py`, `promote.py`, `egress/host.py`); S-16 deletes leftovers only after the
+  single-instance `flock`. Different-model approval recorded.
+- **Owner (2026-11-11):** decided §10.5 #1–#5 as proposed.
