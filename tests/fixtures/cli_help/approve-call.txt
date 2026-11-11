@@ -1,0 +1,9 @@
+usage: agentbreeder approve-call [-h] [--state-dir STATE_DIR] [--json] held_id
+
+positional arguments:
+  held_id
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json

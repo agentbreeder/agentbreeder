@@ -1,0 +1,20 @@
+usage: agentbreeder release [-h] [--environment ENVIRONMENT]
+                            [--threshold THRESHOLD] [--retries RETRIES]
+                            [--rollback] [--state-dir STATE_DIR]
+                            [--output OUTPUT] [--json] [--stack DIR]
+                            agent
+
+positional arguments:
+  agent
+
+options:
+  -h, --help            show this help message and exit
+  --environment ENVIRONMENT
+  --threshold THRESHOLD
+  --retries RETRIES
+  --rollback            Redeploy the previous production
+  --state-dir STATE_DIR
+  --output OUTPUT
+  --json
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR

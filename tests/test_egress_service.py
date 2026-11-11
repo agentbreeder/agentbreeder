@@ -645,7 +645,9 @@ def test_cli_approve_call(boundary_env, tmp_path, runtime, monkeypatch, capsys):
         directory / "pin.json", service.boundary.pin(store.get(result["id"]))
     )
     store.close()
-    monkeypatch.setattr("agentbreeder.cli.resolve_deployer", lambda operator: actor("carol"))
+    monkeypatch.setattr(
+        "agentbreeder.commands.approve.resolve_deployer", lambda operator: actor("carol")
+    )
     monkeypatch.setattr("agentbreeder.cli.Docker", lambda: runtime)
     code = main(["approve-call", held, "--state-dir", str(tmp_path / "cli-state")])
     assert code == 0 and "approved by" in capsys.readouterr().out

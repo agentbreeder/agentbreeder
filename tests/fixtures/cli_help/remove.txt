@@ -1,0 +1,18 @@
+usage: agentbreeder remove [-h] [--state-dir STATE_DIR] [--json]
+                           (--local | --cluster) [--stack DIR]
+                           [--environment ENVIRONMENT]
+                           id
+
+positional arguments:
+  id
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json
+  --local               Target: local Docker
+  --cluster             Target: Kubernetes
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR
+  --environment ENVIRONMENT
+                        With --stack: the stack environment

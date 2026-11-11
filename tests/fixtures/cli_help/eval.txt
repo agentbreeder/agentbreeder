@@ -1,0 +1,18 @@
+usage: agentbreeder eval [-h] --endpoint ENDPOINT [--environment ENVIRONMENT]
+                         [--only ONLY] [--retries RETRIES]
+                         [--state-dir STATE_DIR] [--json] [--stack DIR]
+                         agent
+
+positional arguments:
+  agent
+
+options:
+  -h, --help            show this help message and exit
+  --endpoint ENDPOINT
+  --environment ENVIRONMENT
+  --only ONLY           Comma-separated case IDs
+  --retries RETRIES
+  --state-dir STATE_DIR
+  --json
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR

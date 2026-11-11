@@ -1,0 +1,12 @@
+usage: agentbreeder reconcile [-h] [--state-dir STATE_DIR] [--json] --local
+                              [--stack DIR] [--environment ENVIRONMENT]
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json
+  --local
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR
+  --environment ENVIRONMENT
+                        With --stack: the stack environment

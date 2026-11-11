@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from agentbreeder import cli, doctor
+from agentbreeder.commands import doctor as doctor_command
 
 ROOT = Path(__file__).parents[1]
 
@@ -16,9 +17,10 @@ ROOT = Path(__file__).parents[1]
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(cli, "check_legacy", doctor.check_legacy)  # undo the conftest guard
-    monkeypatch.setattr(cli, "check_docker", lambda: [])
-    monkeypatch.setattr(cli, "check_compose", lambda: [])
+    # undo the conftest guard
+    monkeypatch.setattr(doctor_command, "check_legacy", doctor.check_legacy)
+    monkeypatch.setattr(doctor_command, "check_docker", lambda: [])
+    monkeypatch.setattr(doctor_command, "check_compose", lambda: [])
     return tmp_path
 
 

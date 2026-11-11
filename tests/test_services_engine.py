@@ -773,7 +773,7 @@ def test_cli_stack_flag_points_commands_at_the_stack(env, fake_docker, capsys, m
         seen["environment"] = getattr(args, "environment", None)
         return 0
 
-    monkeypatch.setattr(cli, "_stateful", stateful)
+    monkeypatch.setattr("agentbreeder.commands.status.run", stateful)
     assert cli.main(["status", "abc", "--stack", str(env)]) == 0
     resolved = context(env, "dev")
     assert seen == {
@@ -788,7 +788,9 @@ def test_cli_stack_flag_points_commands_at_the_stack(env, fake_docker, capsys, m
         cli.main(["status", "abc", "--environment", "dev"])
     assert cli.main(["status", "abc", "--stack", str(env), "--environment", "prod"]) == 2
     assert "STACK_NOT_UP" in capsys.readouterr().err
-    monkeypatch.setattr(cli, "_build", lambda args: seen.update(build=args.environment) or 0)
+    monkeypatch.setattr(
+        "agentbreeder.commands.build.run", lambda args: seen.update(build=args.environment) or 0
+    )
     assert cli.main(["build", "agent.yaml", "--stack", str(env)]) == 0
     assert seen["build"] == "dev"
 

@@ -1,6 +1,6 @@
 include README.md LICENSE CONTRIBUTING.md SECURITY.md ARCHITECTURE.md
 include docs/manifest.md docs/local-deployment.md docs/manifest.schema.json docs/first-deployment.md docs/identity-gate.md docs/command-center.md
 recursive-include tests *.py
-recursive-include tests/fixtures *.json *.rego .manifest
+recursive-include tests/fixtures *.json *.rego .manifest *.txt
 global-exclude *.py[cod] .DS_Store
 prune **/__pycache__

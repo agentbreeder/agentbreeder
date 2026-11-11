@@ -1,0 +1,10 @@
+usage: agentbreeder registry new [-h] [--dir DIR]
+                                 {eval,knowledge,mcp,prompt,service,tool} name
+
+positional arguments:
+  {eval,knowledge,mcp,prompt,service,tool}
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --dir DIR

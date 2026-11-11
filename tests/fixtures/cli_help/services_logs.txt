@@ -1,0 +1,9 @@
+usage: agentbreeder services logs [-h] [--tail TAIL]
+                                  [DIR] NAME [[DIR] NAME ...]
+
+positional arguments:
+  [DIR] NAME
+
+options:
+  -h, --help   show this help message and exit
+  --tail TAIL

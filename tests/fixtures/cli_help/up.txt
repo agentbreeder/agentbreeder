@@ -1,0 +1,13 @@
+usage: agentbreeder up [-h] [--environment ENVIRONMENT] [--port PORT]
+                       [--no-browser] [--yes]
+                       [dir]
+
+positional arguments:
+  dir                   A project with agent.yaml, stack.yaml
+
+options:
+  -h, --help            show this help message and exit
+  --environment ENVIRONMENT
+  --port PORT
+  --no-browser
+  --yes                 With DIR: confirm the grant and start its services

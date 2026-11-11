@@ -1,0 +1,7 @@
+usage: agentbreeder audit [-h] {verify,list} ...
+
+positional arguments:
+  {verify,list}
+
+options:
+  -h, --help     show this help message and exit

@@ -23,6 +23,12 @@ On main, not in a published preview.
   the copy against `website/brand.css`, computes WCAG contrast for both palettes and pins the font
   hashes.
 
+### Internal
+
+- CLI commands split into modules (no behaviour change) (#813). Each command's parser and handler
+  moved from `cli.py` to `src/agentbreeder/commands/<name>.py`; a golden test checks every
+  command's `--help` output byte for byte.
+
 ## [3.0.0a2] — 2026-11-11
 
 ### Added

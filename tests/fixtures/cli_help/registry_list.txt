@@ -1,0 +1,9 @@
+usage: agentbreeder registry list [-h] [--json] [--project PROJECT] [prefix]
+
+positional arguments:
+  prefix
+
+options:
+  -h, --help         show this help message and exit
+  --json
+  --project PROJECT

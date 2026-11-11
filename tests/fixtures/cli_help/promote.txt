@@ -1,0 +1,19 @@
+usage: agentbreeder promote [-h] [--environment ENVIRONMENT] --to {kubernetes}
+                            [--skip-cluster-evals] [--state-dir STATE_DIR]
+                            [--output OUTPUT] [--json] [--stack DIR]
+                            agent
+
+positional arguments:
+  agent
+
+options:
+  -h, --help            show this help message and exit
+  --environment ENVIRONMENT
+  --to {kubernetes}
+  --skip-cluster-evals  Skip the evals on the cluster (recorded in the audit
+                        log; the release gate stands)
+  --state-dir STATE_DIR
+  --output OUTPUT
+  --json
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR

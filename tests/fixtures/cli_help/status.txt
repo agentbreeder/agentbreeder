@@ -1,0 +1,16 @@
+usage: agentbreeder status [-h] [--state-dir STATE_DIR] [--json] [--no-verify]
+                           [--stack DIR] [--environment ENVIRONMENT]
+                           id
+
+positional arguments:
+  id
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json
+  --no-verify           Skip principal re-resolution
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR
+  --environment ENVIRONMENT
+                        With --stack: the stack environment

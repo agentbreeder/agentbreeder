@@ -1,0 +1,6 @@
+usage: agentbreeder registry verify [-h] [--json] [--project PROJECT]
+
+options:
+  -h, --help         show this help message and exit
+  --json
+  --project PROJECT
