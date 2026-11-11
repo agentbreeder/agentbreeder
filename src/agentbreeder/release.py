@@ -23,9 +23,12 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import signal
 import tempfile
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -88,6 +91,23 @@ def _journal_path(state: Path, name: str) -> Path:
     directory = state / "releases"
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     return directory / f"{name}.json"
+
+
+@contextmanager
+def defer_interrupt() -> Iterator[None]:
+    """Hold SIGINT across replace-production steps: an interrupt there must not leave nothing
+    running. Delivered as KeyboardInterrupt when the block ends."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    pending: list[int] = []
+    previous = signal.signal(signal.SIGINT, lambda number, frame: pending.append(number))
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+    if pending:
+        raise KeyboardInterrupt
 
 
 class _ReleaseLock:
@@ -210,6 +230,15 @@ def release(
                 "message": f"{report.run_id} {summary['passed']}/{summary['cases']}",
             },
             {"code": "RELEASE_IMAGE", "message": built.image},
+            # What `promote` checks before it accepts this image as released.
+            {"code": "RELEASE_MANIFEST", "message": production.digest()},
+            {"code": "RELEASE_THRESHOLD", "message": str(needed)},
+            {
+                "code": "RELEASE_EVALSET",
+                "message": Lock.load(project / "agent.lock")
+                .entries.get(str(registry.Ref.parse(agent.evals.ref)), {})
+                .get("sha256", ""),
+            },
         ]
         if report.pass_rate < needed:
             service.record("release", "eval_failed", deployer, reasons)
@@ -251,32 +280,36 @@ def release(
             )
             + "\n"
         )
-        if current:
-            log(f"Replacing production {current['id']} ...")
-            _removed_or_raise(service, current["id"], deployer, "the previous production")
-        denied = False
-        try:
-            promoted = service.deploy(production, local=True, environment=env, deployer=deployer)
-        except (AuditUnavailable, AuditIncomplete):
-            raise  # never continue (or restore) when the attempt cannot be audited
-        except (GateDenied, DeploymentError) as error:
-            denied = isinstance(error, GateDenied)
-            leftover = service.store.active(production.name)
-            ours = leftover and leftover["digest"] == production.digest()
-            promoted = {
-                "state": "failed",
-                "error": str(error),
-                "id": leftover["id"] if ours else None,
-            }
-        if promoted["state"] != "ready":
-            rolled = _restore(service, previous, deployer, promoted)
-            service.record("release", "failed", deployer, reasons)
-            return Outcome(
-                EXIT_DENIED if denied else EXIT_RUNTIME,
-                f"Production deploy failed ({promoted.get('error')}); {rolled}",
-                details,
-            )
-        service.record("release", "promoted", deployer, reasons)
+        with defer_interrupt():
+            if current:
+                log(f"Replacing production {current['id']} ...")
+                _removed_or_raise(service, current["id"], deployer, "the previous production")
+            denied = False
+            try:
+                promoted = service.deploy(
+                    production, local=True, environment=env, deployer=deployer
+                )
+            except (AuditUnavailable, AuditIncomplete):
+                raise  # never continue (or restore) when the attempt cannot be audited
+            except (GateDenied, DeploymentError) as error:
+                denied = isinstance(error, GateDenied)
+                leftover = service.store.active(production.name)
+                ours = leftover and leftover["digest"] == production.digest()
+                promoted = {
+                    "state": "failed",
+                    "error": str(error),
+                    "id": leftover["id"] if ours else None,
+                }
+            if promoted["state"] != "ready":
+                rolled = _restore(service, previous, deployer, promoted)
+                service.record("release", "failed", deployer, reasons)
+                return Outcome(
+                    EXIT_DENIED if denied else EXIT_RUNTIME,
+                    f"Production deploy failed ({promoted.get('error')}); {rolled}",
+                    details,
+                )
+            # Inside the deferred block: an interrupt must not lose the record `promote` needs.
+            service.record("release", "promoted", deployer, reasons)
         details |= {"production": {"id": promoted["id"], "endpoint": promoted["endpoint"]}}
         return Outcome(
             EXIT_OK,
@@ -285,10 +318,10 @@ def release(
         )
 
 
-def _removed_or_raise(service, identifier: str, deployer, what: str) -> None:
+def _removed_or_raise(service, identifier: str, deployer, what: str, *, local=True) -> None:
     """`remove` reports a failed teardown as state `failed` instead of raising; a release must
     not carry on (promote, or exit 0) while a container it meant to remove keeps running."""
-    result = service.remove(identifier, local=True, actor=deployer)
+    result = service.remove(identifier, local=local, actor=deployer)
     if result.get("state") != "removed":
         raise ReleaseError(
             "REMOVE_FAILED",
@@ -297,15 +330,15 @@ def _removed_or_raise(service, identifier: str, deployer, what: str) -> None:
         )
 
 
-def _restore(service, previous, deployer, failed) -> str:
+def _restore(service, previous, deployer, failed, *, local=True) -> str:
     try:
         if failed.get("id"):
-            service.remove(failed["id"], local=True, actor=deployer)
+            service.remove(failed["id"], local=local, actor=deployer)
         if previous is None:
             return "there was no previous production to restore"
         manifest = Manifest.model_validate(previous["manifest"])
         restored = service.deploy(
-            manifest, local=True, environment=previous["environment"], deployer=deployer
+            manifest, local=local, environment=previous["environment"], deployer=deployer
         )
         return f"previous production restored ({restored['state']})"
     except (AuditUnavailable, AuditIncomplete):

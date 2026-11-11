@@ -52,6 +52,16 @@ const WORKS: { title: string; detail: string }[] = [
       'agentbreeder services up starts Postgres with pgvector, a LiteLLM gateway, Phoenix and project services on local Docker, hardened and hash-locked, and writes a demo operator config. Local only; verified with the Northwind example (61/61).',
   },
   {
+    title: 'Preview: local command center',
+    detail:
+      'agentbreeder up serves a loopback, single-user UI that runs the same CLI commands, so the gate and audit still apply. From a source checkout on macOS on 2026-11-10; not in 3.0.0a1.',
+  },
+  {
+    title: 'Preview: Kubernetes on a local cluster',
+    detail:
+      'promote deploys an audited release by digest to a local kind cluster. Northwind passed 61/61 there, under the restricted Pod Security level, with network policy measured. No production cluster has been tested.',
+  },
+  {
     title: 'MCP egress sidecar (opt-in)',
     detail:
       'Policy on every MCP Streamable HTTP tool call, with credential injection and held calls. STDIO and in-process tools are never mediated.',
@@ -59,8 +69,8 @@ const WORKS: { title: string; detail: string }[] = [
 ];
 
 const NOT_YET: string[] = [
-  'Cloud or production deploy targets (AWS, GCP, Azure, Kubernetes)',
-  'A management API or web UI',
+  'Cloud or production deploy targets (AWS, GCP, Azure, a real Kubernetes cluster)',
+  'A multi-user control center or a versioned management API',
   'Authenticated invocation of deployed agents',
   'A final 3.0.0: 3.0.0a1 is an alpha, with no stability promise',
   'Verified Linux runs: install and doctor pass on Ubuntu 24.04, but quickstart and Northwind have only run on macOS with Docker Desktop (Windows is unsupported)',

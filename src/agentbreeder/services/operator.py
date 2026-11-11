@@ -15,6 +15,7 @@ still matches; a hand-edited or pre-seeded file stops `up` with OPERATOR_CONFIG_
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import yaml
@@ -84,6 +85,10 @@ def documents(plan: Plan, state: StackState, environment: str) -> tuple[dict, di
     }
     if services:
         environment_doc["services"] = services
+    cluster = json.loads(state.get("kubernetes") or "null")
+    if cluster:
+        environment_doc["targets"] = ["local", "kubernetes"]
+        environment_doc["kubernetes"] = cluster
     if env.bindings:
         environment_doc["bindings"] = {
             name: "secret://" + binding_secret(name) for name in sorted(env.bindings)

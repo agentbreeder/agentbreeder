@@ -7,6 +7,7 @@
     "local-deployment",
     "agent-yaml",
     "services",
+    "command-center",
     "manifest",
     "identity-gate",
     "---Older releases---",

@@ -85,6 +85,7 @@ def _expected_wheel() -> set[str]:
     manifest = json.loads((PACKAGE / "_content.json").read_text())["files"]
     expected = {f"agentbreeder/{path}" for path in manifest}
     expected |= {"agentbreeder/_content.json", "agentbreeder/policy/cedar_schema.json"}
+    expected |= {f"agentbreeder/center/static/{n}" for n in ("index.html", "app.js", "style.css")}
     for path in _tracked("src/agentbreeder"):
         relative = Path(path).relative_to("src/agentbreeder")
         if relative.parts[0] in SHIPPED_TREES or relative.suffix != ".py":

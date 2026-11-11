@@ -7,7 +7,7 @@ This contract is under development. Validation does not deploy resources or chec
 | `schema_version` | Required integer `1` or `2`. Under operator `enforce` mode, deploy requires `2` |
 | `name` | Required lowercase DNS label, 1–63 characters |
 | `image` | Required image reference ending in `@sha256:` and 64 lowercase hexadecimal characters, or local-only `sha256:<64 hex>` image ID |
-| `target` | `local` (default) or `kubernetes`; only the local adapter is implemented |
+| `target` | `local` (default) or `kubernetes` (preview, local clusters only; see `command-center.md`) |
 | `port` | Integer 1–65535; default 8080 |
 | `health_path` | Absolute HTTP path containing letters, digits, `/`, `_`, `-`; default `/health`; no query string |
 | `secrets` | Optional map of uppercase environment names to `secret://name` references; no literal values. Locally, values come from secret files (below) |
@@ -59,4 +59,4 @@ policy:
 
 Exit codes: validation success 0; invalid input/usage 2. The CLI supports `validate agent.yaml --json` for normalized output. The new manifest intentionally omits framework, prompt, RAG and orchestration definitions: supply agent behavior in your container.
 
-The local deploy command applies the identity gate (`identity-gate.md`), mounts local secret files and rejects Kubernetes targets. A local image ID is invalid with a Kubernetes target. See `local-deployment.md` for runtime limitations.
+Deploy applies the identity gate (`identity-gate.md`) and mounts secret files. `deploy --local` takes a `local` manifest and `deploy --cluster` a `kubernetes` one. A local image ID is invalid with a Kubernetes target. See `local-deployment.md` for runtime limitations.

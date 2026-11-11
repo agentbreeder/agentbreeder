@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -41,6 +42,8 @@ _STATEFUL = {
     "disable",
     "enable",
     "reconcile",
+    "forward",
+    "list",
 }
 
 
@@ -83,21 +86,28 @@ def _parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="Run doctor and validate only; no Docker changes"
     )
 
-    def stateful(name, help_text, positional=None, local=False):
+    def stateful(name, help_text, positional=None, local=False, cluster=False):
         command = commands.add_parser(name, help=help_text)
         if positional:
             command.add_argument(positional)
         command.add_argument("--state-dir", type=Path, default=DEFAULT_STATE)
         command.add_argument("--json", action="store_true")
-        if local:
+        if cluster:
+            where = command.add_mutually_exclusive_group(required=True)
+            where.add_argument("--local", action="store_true", help="Target: local Docker")
+            where.add_argument("--cluster", action="store_true", help="Target: Kubernetes")
+        elif local:
             command.add_argument("--local", action="store_true", required=True)
         return command
 
-    deploy = stateful("deploy", "Gate and deploy a manifest", "manifest", local=True)
+    deploy = stateful("deploy", "Gate and deploy a manifest", "manifest", cluster=True)
     deploy.add_argument("--environment", help="Operator-defined environment name")
     status = stateful("status", "Show a deployment and re-verify its principal", "id")
     status.add_argument("--no-verify", action="store_true", help="Skip principal re-resolution")
-    remove = stateful("remove", "Remove a deployment", "id", local=True)
+    remove = stateful("remove", "Remove a deployment", "id", cluster=True)
+    forward = stateful("forward", "Open a loopback port to a Kubernetes deployment", "id")
+    forward.add_argument("--port", type=int, default=0, help="Local port (default: any free)")
+    listing = stateful("list", "List deployments that are not removed (read-only, no IdP calls)")
     for name in ("approve", "reject"):
         stateful(name, f"{name.title()} a pending approval as a second person", "approval_id")
     for name in ("approve-call", "reject-call"):
@@ -232,6 +242,15 @@ def _parser() -> argparse.ArgumentParser:
         "with --yes it also accepts that server's new tool pins",
     )
     up.add_argument("--json", action="store_true")
+    up.add_argument(
+        "--expect-grant", metavar="SHA256", help="Refuse unless the grant has this digest"
+    )
+    sv_plan = service_commands.add_parser(
+        "plan", help="Show the grant `up` would ask to confirm (starts nothing)"
+    )
+    sv_plan.add_argument("dir", nargs="?", type=Path, default=Path("."))
+    sv_plan.add_argument("--environment", required=True)
+    sv_plan.add_argument("--json", action="store_true")
     sv_status = service_commands.add_parser("status", help="Show the stack's services")
     sv_status.add_argument("dir", nargs="?", type=Path, default=Path("."))
     sv_status.add_argument("--json", action="store_true")
@@ -252,14 +271,52 @@ def _parser() -> argparse.ArgumentParser:
     )
     down.add_argument("--yes", action="store_true")
     down.add_argument("--json", action="store_true")
-    for command in (deploy, status, remove, reconcile, build, ev, rel):
+    pro = commands.add_parser(
+        "promote", help="Deploy the released image to Kubernetes, without rebuilding it"
+    )
+    pro.add_argument("agent")
+    pro.add_argument("--environment")
+    pro.add_argument("--to", choices=["kubernetes"], required=True)
+    pro.add_argument(
+        "--skip-cluster-evals",
+        action="store_true",
+        help="Skip the evals on the cluster (recorded in the audit log; the release gate stands)",
+    )
+    pro.add_argument("--state-dir", type=Path, default=DEFAULT_STATE)
+    pro.add_argument("--output", type=Path)
+    pro.add_argument("--json", action="store_true")
+    cluster = commands.add_parser("cluster", help="A local kind cluster for one stack (preview)")
+    cluster_commands = cluster.add_subparsers(dest="cluster_command", required=True)
+    for name, text in (
+        ("up", "Create the cluster and registry, and add them to the stack's grant"),
+        ("status", "Show the cluster, the registry and the tools they need"),
+        ("down", "Delete the cluster and registry (refused while something is deployed there)"),
+    ):
+        item = cluster_commands.add_parser(name, help=text)
+        item.add_argument("--stack", type=Path, default=Path("."), metavar="DIR")
+        item.add_argument("--json", action="store_true")
+        if name == "up":
+            item.add_argument("--environment", required=True)
+            item.add_argument("--yes", action="store_true", help="Confirm the changed grant")
+            item.add_argument("--expect-grant", metavar="SHA256")
+    center = commands.add_parser(
+        "up", help="Start the local command center on 127.0.0.1 (single user, preview)"
+    )
+    center.add_argument("dir", nargs="?", type=Path, help="A project with agent.yaml, stack.yaml")
+    center.add_argument("--environment", default="dev")
+    center.add_argument("--port", type=int, default=None)
+    center.add_argument("--no-browser", action="store_true")
+    center.add_argument(
+        "--yes", action="store_true", help="With DIR: confirm the grant and start its services"
+    )
+    for command in (deploy, status, remove, reconcile, build, ev, rel, forward, listing, pro):
         command.add_argument(
             "--stack",
             type=Path,
             metavar="DIR",
             help="Use the operator config and state that `services up` wrote for DIR",
         )
-    for command in (status, remove, reconcile):
+    for command in (status, remove, reconcile, forward, listing):
         command.add_argument("--environment", help="With --stack: the stack environment")
     login = commands.add_parser("login", help="Sign in with the operator's OIDC device flow")
     login.add_argument("--issuer")
@@ -313,8 +370,12 @@ def _use_stack(args) -> int | None:
     from agentbreeder.services import engine
     from agentbreeder.services.schema import ServiceError
 
+    if args.command == "cluster":
+        return None  # its --stack names the project; it needs no operator config
     if getattr(args, "stack", None) is None:
-        if args.command in ("status", "remove", "reconcile") and args.environment:
+        if args.command in ("status", "remove", "reconcile", "forward", "list") and (
+            args.environment
+        ):
             _parser().error("--environment needs --stack for this command")
         return None
     if getattr(args, "state_dir", DEFAULT_STATE) != DEFAULT_STATE:
@@ -388,6 +449,7 @@ def _services(args) -> int:
                 confirm_pins=confirm_pins,
                 repin=args.repin,
                 allow_project_mcp=frozenset(args.allow_project_mcp),
+                expect_grant=args.expect_grant,
             )
             for warning in result["warnings"]:
                 print(f"WARNING: {warning}", file=sys.stderr)
@@ -405,6 +467,10 @@ def _services(args) -> int:
                     f"Next: agentbreeder release agent.yaml --stack {directory} "
                     f"--environment {args.environment}"
                 )
+            return 0
+        if command == "plan":
+            preview = engine.preview(args.environment)
+            print(json.dumps(preview, indent=2) if args.json else preview["text"])
             return 0
         if command == "status":
             result = engine.status()
@@ -534,6 +600,14 @@ def main(argv: list[str] | None = None) -> int:
         return _eval(args)
     if args.command == "release":
         return _release(args)
+    if args.command == "promote":
+        return _promote(args)
+    if args.command == "cluster":
+        return _cluster(args)
+    if args.command == "up":
+        from agentbreeder.center.server import main as center_main
+
+        return center_main(args)
     if args.command == "secret":
         return _secret_set(args)
     if args.command == "login":
@@ -715,6 +789,87 @@ def _release(args) -> int:
     return outcome.code
 
 
+def _promote(args) -> int:
+    from agentbreeder import evals
+    from agentbreeder.build import BuildError
+    from agentbreeder.promote import promote
+    from agentbreeder.release import ReleaseError
+
+    store = None
+    try:
+        operator = load_operator_config()
+        store = Store(args.state_dir)
+        service = DeploymentService(store, Docker(), operator)
+        try:
+            deployer = resolve_deployer(operator)
+        except DeployerError as error:
+            service.record_denial("promote", os_deployer(), error.code, str(error))
+            raise
+        outcome = promote(
+            Path(args.agent),
+            operator,
+            service,
+            deployer,
+            args.environment,
+            skip_cluster_evals=args.skip_cluster_evals,
+            output=args.output,
+            log=(lambda message: None)
+            if args.json
+            else (lambda message: print(message, file=sys.stderr)),
+        )
+    except (
+        BuildError,
+        ReleaseError,
+        evals.EvalError,
+        agentfile.AgentFileError,
+        registry.RegistryError,
+        OperatorConfigError,
+        DeployerError,
+        GateDenied,
+        DeploymentError,
+        secret_files.SecretError,
+    ) as error:
+        print(_message(error), file=sys.stderr)
+        return 2
+    finally:
+        if store:
+            store.close()
+    print(json.dumps(outcome.as_json(), indent=2) if args.json else outcome.message)
+    return outcome.code
+
+
+def _cluster(args) -> int:
+    from agentbreeder import cluster
+    from agentbreeder.services import plan as stack_plan
+    from agentbreeder.services.schema import ServiceError
+
+    command = args.cluster_command
+    log = (lambda message: None) if args.json else (lambda text: print(text, file=sys.stderr))
+    try:
+        if command == "up":
+
+            def confirm(grant: dict) -> bool:
+                print(stack_plan.grant_text(grant), file=sys.stderr)
+                return True
+
+            result = cluster.up(
+                args.stack,
+                args.environment,
+                confirm=confirm if args.yes else None,
+                expect_grant=args.expect_grant,
+                log=log,
+            )
+        elif command == "status":
+            result = cluster.status(args.stack)
+        else:
+            result = cluster.down(args.stack)
+    except (ServiceError, registry.RegistryError) as error:
+        print(_message(error), file=sys.stderr)
+        return 2
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def _registry(args) -> int:
     try:
         if args.registry_command == "new":
@@ -770,6 +925,7 @@ _NEEDS_EXISTING_STATE = frozenset(
         "enable",
         "reconcile",
         "audit",
+        "forward",
     }
 )
 
@@ -783,6 +939,9 @@ def _stateful(args) -> int:
                 f"`agentbreeder build {args.manifest}` and deploy the manifest it writes"
             )
         manifest = load_manifest(Path(args.manifest)) if args.command == "deploy" else None
+        if args.command == "list" and not (args.state_dir / "deployments.sqlite3").exists():
+            print("[]" if args.json else "No deployments")
+            return 0
         if (
             args.command in _NEEDS_EXISTING_STATE
             and not (args.state_dir / "deployments.sqlite3").exists()
@@ -837,6 +996,10 @@ def _stateful(args) -> int:
                 result = service.enable(args.target, actor, **options)
             print(json.dumps(result, indent=2) if args.json else _summary(result))
             return 1 if result["state"] == "failed" else 0
+        if args.command == "forward":
+            return _forward(service, args)
+        if args.command == "list":
+            return _list(store, args)
         if args.command == "reconcile":
             results = service.reconcile(resolve_deployer(operator))
             if args.json:
@@ -872,6 +1035,49 @@ def _stateful(args) -> int:
     finally:
         if store:
             store.close()
+
+
+def _list(store: Store, args) -> int:
+    rows = [
+        {
+            **{
+                key: row[key]
+                for key in (
+                    "id",
+                    "name",
+                    "state",
+                    "endpoint",
+                    "environment",
+                    "compliance",
+                    "error",
+                )
+            },
+            "target": (manifest := store.manifest(row["id"])).get("target", "local"),
+            "image": manifest.get("image"),
+            "updated": row["updated"],
+        }
+        for row in store.active_all()
+    ]
+    if args.json:
+        print(json.dumps(rows, indent=2))
+    else:
+        for row in rows:
+            print(f"{row['id']}  {row['name']}  {row['target']}  {row['state']}")
+    return 0
+
+
+def _forward(service: DeploymentService, args) -> int:
+    record = service.store.get(args.id)
+    if service.store.manifest(args.id).get("target") != "kubernetes" or record["state"] != "ready":
+        raise DeploymentError("forward needs a ready Kubernetes deployment")
+    service.kubernetes.authorize(record["context"])
+    with service.kubernetes.forward(record["endpoint"], args.port) as port:
+        print(f"http://127.0.0.1:{port}  (unauthenticated; Ctrl-C to stop)", flush=True)
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            return 0
 
 
 def _reconcile_exit_code(results: list[dict]) -> int:

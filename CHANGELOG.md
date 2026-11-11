@@ -8,6 +8,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Added
+
+- `agentbreeder up`: a loopback, single-user command center (#783, preview). Each action runs the
+  CLI in a child process.
+- A Kubernetes runtime for local clusters: `deploy --cluster`, `remove --cluster`, `forward`,
+  `cluster up|status|down` and `promote`, which deploys an audited release by digest.
+- `services plan`, `services up --expect-grant` and `list`.
+
+### Changed
+
+- `release` records the manifest digest, threshold and eval-set hash in its audit event, and defers
+  SIGINT while it replaces production.
+
 ## [3.0.0a1] — 2026-11-10
 
 The first installable preview of the focused rebuild, and not an upgrade from 2.x:

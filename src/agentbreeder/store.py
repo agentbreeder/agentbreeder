@@ -200,6 +200,14 @@ class Store:
             rows = self.db.execute("SELECT * FROM audit ORDER BY seq DESC LIMIT ?", (limit,))
         return [audit_log.decode(row) for row in rows]
 
+    def audit_matching(self, action: str, decision: str) -> list[dict]:
+        """Every row with this action and decision, newest first."""
+        rows = self.db.execute(
+            "SELECT * FROM audit WHERE action=? AND decision=? ORDER BY seq DESC",
+            (action, decision),
+        )
+        return [audit_log.decode(row) for row in rows]
+
     def verify_audit(self) -> dict:
         return audit_log.verify(self.db)
 
@@ -229,9 +237,12 @@ class Store:
             raise DeploymentError("Deployment not found in this state directory")
         return json.loads(row[0])
 
-    def active(self, name: str) -> dict | None:
+    def active(self, name: str, target: str = "local") -> dict | None:
+        """One name is active once per target: a release can run locally and on a cluster."""
         row = self.db.execute(
-            "SELECT * FROM deployments WHERE name=? AND state!='removed'", (name,)
+            "SELECT * FROM deployments WHERE name=? AND state!='removed' "
+            "AND COALESCE(json_extract(manifest,'$.target'),'local')=?",
+            (name, target),
         ).fetchone()
         return dict(row) if row else None
 

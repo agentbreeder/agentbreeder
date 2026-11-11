@@ -1,0 +1,107 @@
+# Local command center and the Kubernetes target (preview)
+
+`agentbreeder up` starts a web UI on `127.0.0.1` for one person on one machine. From it you onboard
+an agent project, start its backing services, run the eval-gated release to local Docker, and deploy
+that same image to a local Kubernetes cluster.
+
+**What has been run.** From a source checkout on macOS with Docker Desktop, on 2026-11-10, against
+`kind` 0.33 and Kubernetes 1.37: Northwind onboarded through the command center's API, services
+started after a grant review, the release passed 61/61, and `promote` deployed the image by digest
+and passed 61/61 on the cluster. Remove, the kill switch, `reconcile`, network policy and secret
+handling were measured on that run (below). After code review the whole walkthrough ran again from
+an empty command center, 61/61 on both targets, through full teardown. A headless browser rendered
+sign-in, the Project page and the Deployments page; the other panels were driven through the same
+API but not clicked through. This is **not** in the
+published `3.0.0a1`, it has not run on Linux, and **no production cluster has been tested**.
+
+## Run it
+
+```
+pip install -e ".[eval]"     # from a checkout; the Northwind eval gate needs [eval]
+agentbreeder up              # prints a one-time link and opens it
+```
+
+Follow the steps in the left column. If the browser did not open or the link expired (5 minutes,
+single use), press Enter in the terminal for a new one. `--port`, `--no-browser` and
+`--environment` are available; with a project directory, `agentbreeder up DIR --yes` also confirms
+the grant and starts its services. Stopping the server leaves services and deployments running; use
+`agentbreeder services down` and `agentbreeder remove`.
+
+The same steps work without the UI:
+
+```
+agentbreeder services up DIR --environment dev --env-file ~/.env
+agentbreeder release DIR/agent.yaml --stack DIR --environment dev
+agentbreeder cluster up --stack DIR --environment dev --yes      # needs kind >= 0.33 and kubectl
+agentbreeder promote DIR/agent.yaml --stack DIR --environment dev --to kubernetes
+agentbreeder list --stack DIR --environment dev
+agentbreeder forward ID --stack DIR --environment dev            # loopback port to a cluster deployment
+agentbreeder remove ID --cluster --stack DIR --environment dev
+agentbreeder cluster down --stack DIR
+```
+
+`deploy` and `remove` take `--local` or `--cluster`, which must match the manifest's target.
+
+## How it stays the same engine
+
+Every action starts the CLI in a child process, with a fixed argument list. The UI does not open the
+deployment database. The identity gate, policy, approval, audit and the eval gate run exactly as
+they do for a CLI user.
+
+- **The eval gate is orchestration.** Someone with deploy rights can still run a plain `deploy`.
+  `promote` refuses any image without an audited release at the threshold in `agent.yaml`, but that
+  does not stop a person deploying a manifest by hand.
+- **Approvals are not in the UI.** A second person's verified identity is what a single-user session
+  cannot provide. A job that needs one shows the command.
+- **Stacks with MCP servers** are refused from the UI, so their tools are reviewed with the CLI.
+
+## What protects the local server
+
+It binds `127.0.0.1` only, checks the exact `Host`, needs a per-tab session from the one-time link
+(a header, because browsers send cookies to every port on `127.0.0.1`), and on every request a
+custom header, same-origin `Origin` for writes, JSON bodies and a strict content
+security policy. Provider keys go to a private file for the one job that needs it. Job logs replace a
+key's value, base64 and URL-encoded forms; another encoding of a value echoed by a tool would not be
+caught.
+
+**The limits.** Anyone who controls the local Docker has full control: the gate prevents mistakes and
+policy drift, not a local admin. A project is code. Building it runs its Dockerfile in Docker, so add
+only projects you trust. Local endpoints are unauthenticated.
+
+## The Kubernetes target
+
+Local clusters only. `kind` is the verified path.
+
+- `kubectl` always gets a dedicated kubeconfig and context; `KUBECONFIG` and `current-context` are
+  ignored. The kubeconfig must be private, must use static credentials, must have no proxy, and
+  must point at a loopback API server. The cluster's `kube-system` UID must match the operator config. That UID identifies a
+  cluster, it does not authenticate one.
+- The namespace must be labelled for AgentBreeder and enforce the `restricted` Pod Security level.
+- The agent runs as UID 65532 with a read-only root filesystem, no capabilities, resource limits and
+  no service account token. Secrets are mounted read-only and go to `kubectl` on stdin. Images are
+  referenced by digest.
+- Refused rather than weakened: `mcp_access` and runtime enforcement.
+
+### Measured on the 2026-11-10 run
+
+| Check | Result |
+|---|---|
+| Agent pod to API server (service address, node addresses), kubelet, local registry | Blocked; a control pod with no policy could reach each one |
+| Agent to the model gateway | Reachable |
+| Another pod to the agent | Blocked |
+| Privileged pod in the namespace | Refused by Pod Security admission |
+| 15 stack secrets and provider keys in the Deployment, job logs, terminal log, `ps`, `docker inspect`, generated manifest | None found |
+| `remove` | No labelled object left; gateway key revoked |
+| Kill switch (`disable`) | Stopped the local and cluster workloads |
+
+The metadata address is blocked by policy too, but a `kind` cluster has no metadata service, so the
+control pod could not reach it either and that row proves nothing.
+
+### Limits of this topology
+
+The stack's services stay in Docker. The `kind` node is attached to the stack's agents network, so
+pods use the same service names as a local container. Attaching it also exposes the node's API
+server and kubelet ports to agents on that network; both require credentials. The local registry on
+`127.0.0.1:5001` is unauthenticated. Secrets are unencrypted in `kind`'s etcd. `kubectl port-forward`
+is the only way in: there is no public endpoint. This shows the deployer working, it is not a
+production design. Helm, external secret stores and real-cluster certification are tracked in #770.

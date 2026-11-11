@@ -20,7 +20,7 @@ class Check:
 
 
 # Names that AgentBreeder 2.x (up to the v2.7.3 tag) wrote directly under ~/.agentbreeder. 3.x
-# uses only local/, stacks/, operator.yaml and oidc-token there, so none of these collide
+# uses only local/, stacks/, center/, operator.yaml and oidc-token there, so none of these collide
 # (tests/test_legacy_notice.py scans the source). 2.x's infra-state.json and layout.json lived in
 # each project's .agentbreeder/, not in the home directory. .env is 2.x's fallback secrets file.
 LEGACY_MARKERS = (
