@@ -9,7 +9,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
   [Install the alpha preview](/docs/install). `agentbreeder services` runs on the local Docker
   engine only and is not production infrastructure. Verified on macOS with Docker Desktop: the
   Northwind example started from scratch with `services up`, and `agentbreeder release` passed its
-  61-case eval gate (61/61, 2026-11-08 from a checkout, 2026-11-10 from PyPI). MCP servers run behind a built-in relay. An agent built from `agent.yaml` on
+  61-case eval gate (61/61, 2026-11-08 from a checkout, 2026-11-10 from PyPI `3.0.0a1`). MCP servers run behind a built-in relay. An agent built from `agent.yaml` on
   `runtime/adk@1.1.0` calls tools through it. Through a real `deploy`, a deployed agent called the
   built-in `mcp/github` and `mcp/playwright` this way (2026-11-09), with a scripted fake LLM
   gateway rather than a real model.

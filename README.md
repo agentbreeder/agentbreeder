@@ -31,14 +31,20 @@ The [`v3.0.0a2` GitHub release](https://github.com/agentbreeder/agentbreeder/rel
 carries a hashed requirements file for `uv pip install --require-hashes -r
 requirements-3.0.0a2.txt` (or `pip install --require-hashes -r …`).
 
-What has been verified, installing `3.0.0a1` from the public registries on 2026-11-10:
+What has been verified, installing `3.0.0a2` from the public registries on 2026-11-11, on macOS
+with Docker Desktop, in a clean sandbox (fresh `HOME` with `~/.docker` linked in for the Docker context, empty package caches, no checkout; Docker images on the host were not cleared):
 
-- **macOS with Docker Desktop, end to end.** In a clean sandbox (fresh `HOME`, no checkout), pip,
-  uvx and npx each ran a real `agentbreeder quickstart`. From the pip install, Northwind ran
-  `services up` and `release` (61/61 evals), answered a live `/invoke` and was fully torn down.
-- **Linux, install and `doctor` only.** On Ubuntu 24.04 in a container (Node 18.19.1), each of the
-  three paths installed and ran `--version` and `doctor`. A real `quickstart` and Northwind have
-  not been run on Linux.
+- pip, uvx and npx each ran a real `agentbreeder quickstart`.
+- `agentbreeder up` started through uvx and npx. Through npx, a script drove Northwind through the
+  command center's API as the UI does, with no browser: services, `release` (61/61 evals) on local
+  Docker, a local `kind` cluster, `promote` by digest (61/61 on the cluster), then removal of both
+  deployments, the cluster and the services.
+- With `3.0.0a1` on 2026-11-10, Northwind also ran through the CLI commands below from a pip
+  install (61/61, a live `/invoke`, full teardown). Those CLI commands have not been run on
+  `3.0.0a2`.
+- **Linux, install and `doctor` only, and on `3.0.0a1`.** On Ubuntu 24.04 in a container (Node
+  18.19.1), each path installed and ran `--version` and `doctor`. Nothing has been run on Linux
+  with `3.0.0a2`, and a real `quickstart` or Northwind has never been run on Linux.
 
 ## Try the complete local demo
 
@@ -98,7 +104,8 @@ candidate, runs its eval set and promotes it only if the gate passes. `agentbree
 starts the services the agent needs from a `stack.yaml` (Postgres with pgvector, a LiteLLM
 gateway, Phoenix, project services) on local Docker and writes a demo operator config for them.
 The Northwind example runs this way end to end on macOS with Docker Desktop (61/61 evals, from a
-checkout on 2026-11-08 and from PyPI on 2026-11-10). It has not been run on Linux. With
+checkout on 2026-11-08 and from PyPI `3.0.0a1` on 2026-11-10; on `3.0.0a2` it has run through the
+command center, not these commands). It has not been run on Linux. With
 `agentbreeder` on your `PATH`:
 
 ```sh
@@ -112,9 +119,9 @@ agentbreeder services down --purge --yes   # after `agentbreeder remove ID --loc
 Local-only preview: see [src/agentbreeder/examples/northwind](https://github.com/agentbreeder/agentbreeder/blob/main/src/agentbreeder/examples/northwind/README.md),
 [agent.yaml](https://github.com/agentbreeder/agentbreeder/blob/main/docs/agent-yaml.md) and [services](https://github.com/agentbreeder/agentbreeder/blob/main/docs/services.md).
 
-## Local command center (preview, from a checkout)
+## Local command center (preview)
 
-`agentbreeder up` starts a web UI on `127.0.0.1` for one person. It onboards a project, starts its services after a grant review, runs the eval-gated release, and deploys that same image by digest to a local `kind` cluster. Every action runs the CLI, so the identity gate, policy, audit and eval gate still apply. Northwind passed 61/61 on both local Docker and `kind` on macOS on 2026-11-10. It is not in `3.0.0a1`, and no production cluster has been tested. See [docs/command-center.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/command-center.md).
+`agentbreeder up` starts a web UI on `127.0.0.1` for one person. It onboards a project, starts its services after a grant review, runs the eval-gated release, and deploys that same image by digest to a local `kind` cluster. Every action runs the CLI, so the identity gate, policy, audit and eval gate still apply. Run `npx agentbreeder@3.0.0-alpha.2 up` or `uvx --from "agentbreeder[eval]==3.0.0a2" agentbreeder up`. From the published `3.0.0a2` on macOS on 2026-11-11, Northwind passed 61/61 on local Docker and 61/61 on `kind`, driven by a script through the command center's API, with no browser. It has not run on Linux, and no production cluster has been tested. See [docs/command-center.md](https://github.com/agentbreeder/agentbreeder/blob/main/docs/command-center.md).
 
 ## Develop
 

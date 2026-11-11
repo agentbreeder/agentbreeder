@@ -84,7 +84,7 @@ export function Footer() {
               color: 'var(--accent)',
             }}
           >
-            preview · 3.0.0a1
+            preview · 3.0.0a2
           </span>
         </div>
       </div>

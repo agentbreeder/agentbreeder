@@ -7,16 +7,26 @@ description: A loopback, single-user UI and a Kubernetes target for local cluste
 agent project, starts its backing services after a grant review, runs the eval-gated release to
 local Docker, and deploys that same image by digest to a local `kind` cluster.
 
-**What has been run.** From a source checkout on macOS with Docker Desktop on 2026-11-10, with
-`kind` 0.33: Northwind passed 61/61 on local Docker and 61/61 on the cluster. This is not in the
-published `3.0.0a1`, it has not run on Linux, and no production cluster has been tested.
+**What has been run.** From the published `3.0.0a2` on macOS with Docker Desktop on 2026-11-11, in
+a clean sandbox: `up` started through uvx and npx, and through npx Northwind passed 61/61 on local
+Docker and 61/61 on a `kind` 0.33 cluster, driven by a script through the command center's API with
+no browser, then was fully torn down. The same walkthrough passed from a source checkout on
+2026-11-10, when a headless browser also rendered sign-in, the Project page and the Deployments
+page. It has not run on Linux, no panel was clicked through on `3.0.0a2`, and no production cluster
+has been tested.
 
 Every action runs the same CLI command you would type, so the identity gate, policy, audit and the
 eval gate still apply. The UI has no approve button: a second person's verified identity is what a
 single-user session cannot provide.
 
 ```
-agentbreeder up
+npx agentbreeder@3.0.0-alpha.2 up      # or: uvx --from "agentbreeder[eval]==3.0.0a2" agentbreeder up
+```
+
+The cluster steps need `kind` 0.33 or newer and `kubectl` on `PATH`. Without the UI, with
+`agentbreeder` on your `PATH` (a pip install or a checkout; run from a checkout on 2026-11-10):
+
+```
 agentbreeder cluster up --stack DIR --environment dev --yes
 agentbreeder promote DIR/agent.yaml --stack DIR --environment dev --to kubernetes
 ```

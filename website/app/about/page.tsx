@@ -141,7 +141,7 @@ export default function AboutPage() {
           </h2>
           <ul className="space-y-3 text-[15px] leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
             <li>
-              <strong className="text-white">Open-source preview</strong> — Apache 2.0, 3.0.0a1 on
+              <strong className="text-white">Open-source preview</strong> — Apache 2.0, 3.0.0a2 on
               PyPI and npm. Local Docker deploys behind an identity gate; see{' '}
               <Link href="/docs" className="underline" style={{ color: 'var(--accent)' }}>what works today</Link>.
               The older 2.x on PyPI is unmaintained.

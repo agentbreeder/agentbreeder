@@ -16,7 +16,7 @@ and only after a **deploy-time identity gate** confirms the agent in your identi
 
 **Tagline (site):** Know the agent. Gate the deploy. Audit every attempt.
 
-**What ships today (`3.0.0a1` preview on PyPI, `3.0.0-alpha.1` on npm; a bare `pip install agentbreeder` still gets 2.7.3; verified end to end on macOS + Docker Desktop). From the public registries, `quickstart` on pip/uvx/npx and Northwind 61/61 ran on macOS; on Linux only install, `--version` and `doctor` ran:**
+**What ships today (`3.0.0a2` preview on PyPI, `3.0.0-alpha.2` on npm; a bare `pip install agentbreeder` still gets 2.7.3; verified end to end on macOS + Docker Desktop). From the public registries on macOS, `quickstart` ran on pip/uvx/npx (a1 and a2), Northwind 61/61 from pip (a1), and `up` with Northwind 61/61 on local Docker and `kind` through npx (a2); on Linux only install, `--version` and `doctor` ran (a1):**
 - `validate` and `doctor`; a local Docker `deploy`/`status`/`remove` lifecycle with SQLite history
 - The identity gate (Entra, Keycloak, Okta (experimental), AWS, static file; only the static
   adapter is live-verified), Cedar/OPA/AuthZEN policy, second-person approval, a kill switch,
@@ -25,10 +25,12 @@ and only after a **deploy-time identity gate** confirms the agent in your identi
 - Preview: building ADK agents from `agent.yaml` with versioned, hash-locked registries
   (`agentbreeder build`), local secret files, per-deployment LiteLLM keys, and an eval-gated
   `agentbreeder release`. Verified only with `src/agentbreeder/examples/northwind`, which passed 61/61.
-- Preview, source checkout only (#783; not in `3.0.0a1`): `agentbreeder up`, a loopback single-user
+- Preview, in `3.0.0a2` (#783): `agentbreeder up`, a loopback single-user
   command center that runs CLI child processes, and a Kubernetes target for local `kind` clusters
   (`cluster`, `promote`, `deploy --cluster`, `forward`). Northwind 61/61 on both targets, macOS,
-  2026-11-10. No production cluster has been tested; see `docs/command-center.md`.
+  from a checkout 2026-11-10 and from `npx agentbreeder@3.0.0-alpha.2 up` 2026-11-11 (driven
+  through its API by a script, no browser). No production cluster has been tested; see
+  `docs/command-center.md`.
 - Local-only preview: backing services from `stack.yaml` (`agentbreeder services up|status|logs|
   env|down`, built-in postgres-pgvector, litellm and phoenix, project services built from source;
   see `docs/services.md`). Verified with `src/agentbreeder/examples/northwind` from scratch (61/61, 2026-11-08).
@@ -120,6 +122,11 @@ version also updates the footer badge (`website/components/footer.tsx`) and the 
 docs. Website: `website/content/docs/install.mdx` holds the install commands and the verified
 scope. Cloud: no code change, because it has no OSS version pin and installs a local editable
 checkout; its `CLAUDE.md` now records the release.
+
+**3.0.0a2 release (2026-11-11, #802), per side.** OSS: PyPI, npm (published by hand, no npm provenance
+yet) and GitHub; footer, install pins and `up` claims updated after the public-registry run. Website:
+`install.mdx` carries separate a2 and a1 verification tables. Cloud: no code change; its `CLAUDE.md`
+records the version.
 
 **`agentbreeder up` (#783), per side.** OSS: `center/`, `kubernetes.py`, `cluster.py`, `promote.py`; the
 operator config gains `Environment.kubernetes`. Website: `what-ships` and `command-center.mdx`. Cloud: no

@@ -7,7 +7,7 @@ const WORKS: { title: string; detail: string }[] = [
   {
     title: 'Preview: install from PyPI and npm',
     detail:
-      '3.0.0a1 with pip, uvx or npx, pinned to the exact version. Run from the public registries on 2026-11-10: quickstart on all three and Northwind (61/61, pip) on macOS; install, --version and doctor only on Linux.',
+      '3.0.0a2 with pip, uvx or npx, pinned to the exact version. Run from the public registries on macOS on 2026-11-11: quickstart on all three, and Northwind through the command center, driven through its API (npx, scripted). On Linux, only install, --version and doctor, on 3.0.0a1.',
   },
   {
     title: 'Manifest validation and doctor',
@@ -54,12 +54,12 @@ const WORKS: { title: string; detail: string }[] = [
   {
     title: 'Preview: local command center',
     detail:
-      'agentbreeder up serves a loopback, single-user UI that runs the same CLI commands, so the gate and audit still apply. From a source checkout on macOS on 2026-11-10; not in 3.0.0a1.',
+      'agentbreeder up serves a loopback, single-user UI that runs the same CLI commands, so the gate and audit still apply. From the published 3.0.0a2 via npx on macOS on 2026-11-11, Northwind passed 61/61, driven through its API.',
   },
   {
     title: 'Preview: Kubernetes on a local cluster',
     detail:
-      'promote deploys an audited release by digest to a local kind cluster. Northwind passed 61/61 there, under the restricted Pod Security level, with network policy measured. No production cluster has been tested.',
+      'promote deploys an audited release by digest to a local kind cluster. Northwind passed 61/61 there from a checkout on 2026-11-10, under the restricted Pod Security level, with network policy measured, and 61/61 again from 3.0.0a2 on 2026-11-11. No production cluster has been tested.',
   },
   {
     title: 'MCP egress sidecar (opt-in)',
@@ -72,8 +72,8 @@ const NOT_YET: string[] = [
   'Cloud or production deploy targets (AWS, GCP, Azure, a real Kubernetes cluster)',
   'A multi-user control center or a versioned management API',
   'Authenticated invocation of deployed agents',
-  'A final 3.0.0: 3.0.0a1 is an alpha, with no stability promise',
-  'Verified Linux runs: install and doctor pass on Ubuntu 24.04, but quickstart and Northwind have only run on macOS with Docker Desktop (Windows is unsupported)',
+  'A final 3.0.0: 3.0.0a2 is an alpha, with no stability promise',
+  'Verified Linux runs: install and doctor passed on Ubuntu 24.04 with 3.0.0a1, but quickstart and Northwind have only run on macOS with Docker Desktop (Windows is unsupported)',
 ];
 
 export function WhatShips() {
@@ -89,7 +89,7 @@ export function WhatShips() {
         <p className="mb-12 max-w-[620px] text-base leading-[1.7]" style={{ color: 'var(--text-muted)' }}>
           AgentBreeder is a focused rebuild, available as the{' '}
           <Link href="/docs/install" style={{ color: 'var(--text)' }}>
-            3.0.0a1 alpha preview
+            3.0.0a2 alpha preview
           </Link>
           . This is the complete list of what it does, and what it doesn&apos;t do yet.
         </p>
