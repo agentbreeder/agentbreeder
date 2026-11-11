@@ -36,8 +36,7 @@ order.
 
 | Priority | Epic | Why |
 |---|---|---|
-| **P0** | Installable preview release (#751) | Nobody can try the rebuild without a source checkout |
-| **P0, after #751** | `agentbreeder up`: local command center, then Kubernetes on a local cluster (#783) | One place to take an agent from onboarding to a release on two targets |
+| **P0** | `agentbreeder up`: local command center, then Kubernetes on a local cluster (#783) | One place to take an agent from onboarding to a release on two targets |
 | **P1** | Governed onboarding of existing agents (#756) | Bring existing agents, in any framework, under the same controls without code changes |
 | **P1** | Release bundle and component lifecycle (#762) | Links ownership, dependencies, approval, deployment and revocation |
 | **P1** | RBAC/ABAC and authenticated invocation (#742) | Multi-team use; closes the unauthenticated `customer_id` gap |
@@ -63,13 +62,13 @@ Work is organised in **lanes**. Items in one lane run in order; lanes run in par
 | Lane | Order | Needs |
 |---|---|---|
 | A: MCP | #745 relay → #746 runtime client → #748 GitHub and Playwright built-ins (all done) → #747 forward proxy | — |
-| B: Release | #752 packaging and PyPI → #753 2.x notice and #755 install docs (parallel) → #754 clean-machine verification | — |
+| B: Release | #752 packaging and PyPI → #753 2.x notice and #755 install docs (parallel) → #754 clean-machine verification (all done) | — |
 
 ### Milestone 2 (P1, governance core)
 
 | Lane | Order | Needs |
 |---|---|---|
-| C: Onboarding | #758 agent protocol v1 → #759 conformance kit → #757 `import` → #760 second framework; #761 bring-your-own gateway and tracing at any point | #757 benefits from #751 |
+| C: Onboarding | #758 agent protocol v1 → #759 conformance kit → #757 `import` → #760 second framework; #761 bring-your-own gateway and tracing at any point | — |
 | D: Lifecycle | #763 release bundle → #764 owners and approvals → #765 registry graph → #767 revocation and #768 evidence export (parallel); #766 RAG lineage after #765; #769 `new agent` at any point | — |
 | E: Access | #742 spec at the start of M2; implementation after #764 (owners and teams) | #764 |
 

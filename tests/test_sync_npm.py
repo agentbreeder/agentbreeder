@@ -125,7 +125,9 @@ def test_constraints_must_pin_every_dependency(npm_copy):
     assert any("pyyaml" in error for error in sync_npm.check())
 
 
-@pytest.mark.parametrize("stale", ["agentbreeder@3.0.0-alpha.1", "uv 0.11.6"])
+@pytest.mark.parametrize(
+    "stale", [f"agentbreeder@{sync_npm.npm_version(sync_npm.__version__)}", "uv 0.11.6"]
+)
 def test_readme_names_the_current_versions(npm_copy, stale):
     path = npm_copy / "README.md"
     path.write_text(path.read_text().replace(stale, "OLD"))

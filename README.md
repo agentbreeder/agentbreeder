@@ -15,21 +15,21 @@ Deploys pass a **deploy-time identity gate**: the agent must already exist in yo
 
 ## Install the preview
 
-`3.0.0a1` is an alpha preview, on [PyPI](https://pypi.org/project/agentbreeder/3.0.0a1/) and
-[npm](https://www.npmjs.com/package/agentbreeder/v/3.0.0-alpha.1). Each command pins the exact
+`3.0.0a2` is an alpha preview, on [PyPI](https://pypi.org/project/agentbreeder/3.0.0a2/) and
+[npm](https://www.npmjs.com/package/agentbreeder/v/3.0.0-alpha.2). Each command pins the exact
 version. A bare `pip install agentbreeder` installs 2.x (see the notice above).
 
 ```sh
-pip install "agentbreeder[eval]==3.0.0a1"                               # in a virtual environment
-uvx --from "agentbreeder[eval]==3.0.0a1" agentbreeder quickstart --dry-run   # needs uv
-npx agentbreeder@3.0.0-alpha.1 quickstart --dry-run                       # needs Node 18+ and uv
+pip install "agentbreeder[eval]==3.0.0a2"                               # in a virtual environment
+uvx --from "agentbreeder[eval]==3.0.0a2" agentbreeder quickstart --dry-run   # needs uv
+npx agentbreeder@3.0.0-alpha.2 quickstart --dry-run                       # needs Node 18+ and uv
 ```
 
 The npm package is a launcher that runs the same PyPI release through `uvx`; see
 [npm/README.md](https://github.com/agentbreeder/agentbreeder/blob/main/npm/README.md).
-The [`v3.0.0a1` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a1)
+The [`v3.0.0a2` GitHub release](https://github.com/agentbreeder/agentbreeder/releases/tag/v3.0.0a2)
 carries a hashed requirements file for `uv pip install --require-hashes -r
-requirements-3.0.0a1.txt` (or `pip install --require-hashes -r …`).
+requirements-3.0.0a2.txt` (or `pip install --require-hashes -r …`).
 
 What has been verified, installing `3.0.0a1` from the public registries on 2026-11-10:
 
@@ -47,7 +47,7 @@ macOS; on Linux only the install and `doctor` have been checked.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a1"
+.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a2"
 .venv/bin/agentbreeder quickstart
 ```
 

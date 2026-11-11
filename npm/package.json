@@ -1,6 +1,6 @@
 {
   "name": "agentbreeder",
-  "version": "3.0.0-alpha.1",
+  "version": "3.0.0-alpha.2",
   "description": "npx launcher for AgentBreeder (preview): runs the pinned PyPI release with uv's uvx.",
   "license": "Apache-2.0",
   "homepage": "https://www.agentbreeder.io",

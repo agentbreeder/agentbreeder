@@ -4,12 +4,12 @@
 [uv](https://docs.astral.sh/uv/). It contains no Python code and has no dependencies or install
 scripts.
 
-Verified from the public registries on 2026-11-10: a real `quickstart` on macOS with Docker
+Verified with `3.0.0-alpha.1` from the public registries on 2026-11-10: a real `quickstart` on macOS with Docker
 Desktop, and `--version` and `doctor` on Linux (Ubuntu 24.04 in a container, Node 18.19.1). A real
 `quickstart` has not been run on Linux.
 
 ```sh
-npx agentbreeder@3.0.0-alpha.1 quickstart --dry-run
+npx agentbreeder@3.0.0-alpha.2 quickstart --dry-run
 ```
 
 Each launcher version runs one exact PyPI version:

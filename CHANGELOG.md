@@ -8,6 +8,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+## [3.0.0a2] — 2026-11-11
+
 ### Added
 
 - `agentbreeder up`: a loopback, single-user command center (#783, preview). Each action runs the
