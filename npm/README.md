@@ -4,9 +4,10 @@
 [uv](https://docs.astral.sh/uv/). It contains no Python code and has no dependencies or install
 scripts.
 
-Verified with `3.0.0-alpha.1` from the public registries on 2026-11-10: a real `quickstart` on macOS with Docker
-Desktop, and `--version` and `doctor` on Linux (Ubuntu 24.04 in a container, Node 18.19.1). A real
-`quickstart` has not been run on Linux.
+Verified with `3.0.0-alpha.2` from the public registries on 2026-11-11, on macOS with Docker
+Desktop: a real `quickstart`, and `agentbreeder up` with the Northwind example (61/61 on local
+Docker and on a local `kind` cluster, driven through its API). Nothing has run on Linux with this
+version; `3.0.0-alpha.1` ran `--version` and `doctor` on Ubuntu 24.04 (Node 18.19.1).
 
 ```sh
 npx agentbreeder@3.0.0-alpha.2 quickstart --dry-run

@@ -11,15 +11,31 @@ and passed 61/61 on the cluster. Remove, the kill switch, `reconcile`, network p
 handling were measured on that run (below). After code review the whole walkthrough ran again from
 an empty command center, 61/61 on both targets, through full teardown. A headless browser rendered
 sign-in, the Project page and the Deployments page; the other panels were driven through the same
-API but not clicked through. This is **not** in the
-published `3.0.0a1`, it has not run on Linux, and **no production cluster has been tested**.
+API but not clicked through.
+
+**From the published `3.0.0a2`**, on macOS with Docker Desktop on 2026-11-11, in a clean sandbox
+(fresh `HOME` with `~/.docker` linked in for the Docker context, empty package caches, no checkout; Docker images on the host were not cleared): `up` started through both uvx and npx. Through
+`npx agentbreeder@3.0.0-alpha.2 up`, driven by a script through the command center's API as the UI
+does, with no browser,
+Northwind onboarded from the packaged example, services started after the grant review, the release
+passed 61/61, `kind` 0.33 was connected and its grant change reviewed, and `promote` passed 61/61 on
+the cluster. Both deployments, the cluster and the services were then removed through the same API,
+leaving no containers running, and no provider key value appeared in any job or server log. It has
+not run on Linux, and **no production cluster has been tested**.
 
 ## Run it
 
 ```
-pip install -e ".[eval]"     # from a checkout; the Northwind eval gate needs [eval]
-agentbreeder up              # prints a one-time link and opens it
+npx agentbreeder@3.0.0-alpha.2 up                               # needs Node 18+ and uv
+uvx --from "agentbreeder[eval]==3.0.0a2" agentbreeder up        # needs uv
 ```
+
+Each prints a one-time link and opens it. Pin the version: a bare `pip install agentbreeder` installs
+the unmaintained 2.x. With pip, install `"agentbreeder[eval]==3.0.0a2"` in a virtual environment
+and run `agentbreeder up` (on `3.0.0a2` this path has run only in the TestPyPI rehearsal, with
+`--no-browser`); from a checkout, `pip install -e ".[eval]"`. The Northwind eval gate
+needs the `[eval]` extra, which the uvx and npx commands include. The cluster steps also need
+`kind` 0.33 or newer and `kubectl` on `PATH`.
 
 Follow the steps in the left column. If the browser did not open or the link expired (5 minutes,
 single use), press Enter in the terminal for a new one. `--port`, `--no-browser` and
@@ -27,7 +43,9 @@ single use), press Enter in the terminal for a new one. `--port`, `--no-browser`
 the grant and starts its services. Stopping the server leaves services and deployments running; use
 `agentbreeder services down` and `agentbreeder remove`.
 
-The same steps work without the UI:
+The same steps work without the UI, with `agentbreeder` on your `PATH` (a pip install or a
+checkout). These commands ran from a checkout on 2026-11-10; on `3.0.0a2` they ran only as
+command-center jobs.
 
 ```
 agentbreeder services up DIR --environment dev --env-file ~/.env

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 // Pinned: keep in step with the released version (docs/cross-repo-sync.md).
-const INSTALL_CMD = 'npx agentbreeder@3.0.0-alpha.1 quickstart';
+const INSTALL_CMD = 'npx agentbreeder@3.0.0-alpha.2 quickstart';
 
 // A real schema-2 manifest: it validates with `agentbreeder validate` on main. The image digest
 // is shortened for display only.

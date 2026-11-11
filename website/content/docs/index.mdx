@@ -1,12 +1,12 @@
 ---
 title: Overview
-description: AgentBreeder deploys existing agent containers to local Docker behind a deploy-time identity gate. Open-source preview, 3.0.0a1 on PyPI and npm.
+description: AgentBreeder deploys existing agent containers to local Docker behind a deploy-time identity gate. Open-source preview, 3.0.0a2 on PyPI and npm.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="warn" title="Alpha preview: not a production release">
-  These docs cover the focused rebuild, published as the `3.0.0a1` alpha preview. It is not a
+  These docs cover the focused rebuild, published as the `3.0.0a2` alpha preview. It is not a
   production release. A bare `pip install agentbreeder` still installs the older **2.x** platform,
   which is unmaintained and has known issues (see [Legacy 2.x](/docs/legacy-2x)), so
   [install](/docs/install) with the exact version. The rebuild is incompatible with 2.x: don't use
@@ -63,7 +63,7 @@ install exposes the 2.x CLI.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a1"
+.venv/bin/python -m pip install "agentbreeder[eval]==3.0.0a2"
 .venv/bin/agentbreeder quickstart
 ```
 
@@ -77,7 +77,7 @@ JSON; it is not an AI agent.
 
 If it stops, run `.venv/bin/agentbreeder doctor` first.
 
-For policy checks with Cedar, add the extra: `pip install "agentbreeder[eval,cedar]==3.0.0a1"`. Configuring any policy
+For policy checks with Cedar, add the extra: `pip install "agentbreeder[eval,cedar]==3.0.0a2"`. Configuring any policy
 engine also requires a verified deployer (an OIDC token from an operator-trusted issuer); the
 unverified OS user is then denied with `DEPLOYER_UNVERIFIED`.
 
