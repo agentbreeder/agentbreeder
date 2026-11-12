@@ -49,6 +49,7 @@ SESSION_IDLE = 3600
 MAX_BODY = 64 * 1024  # JSON requests
 MAX_EDITOR_BODY = 1024 * 1024  # editor payloads (prompts, evals, tools; later milestones)
 MAX_DISCARD = 16 * 1024 * 1024  # an over-cap body read and dropped so the 413 arrives
+DISCARD_SECONDS = 5
 STATIC = Path(__file__).parent / "static"
 STATIC_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -189,8 +190,12 @@ class Center:
             raise BadRequest("Unknown example")
         destination = Path.home() / "agentbreeder-projects" / name
         if not (destination / "agent.yaml").exists():
+            existing = destination.parent
+            while not existing.exists():
+                existing = existing.parent
+            check_ancestors(existing.resolve())  # S-01, before anything is created
             destination.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
-            check_ancestors(destination.parent.resolve())  # S-01, before anything is written
+            check_ancestors(destination.parent.resolve())
             self.runner.read_text(["example", name, str(destination)], timeout=60)
         return self.register(destination)
 
@@ -488,11 +493,15 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(value).encode(), "application/json", extra)
 
     def _fail(self, failure: HttpError) -> None:
-        self._json(
-            failure.status,
-            envelope(failure.data, error(failure.code, failure.message)),
-            failure.extra,
-        )
+        try:
+            self._json(
+                failure.status,
+                envelope(failure.data, error(failure.code, failure.message)),
+                failure.extra,
+            )
+        except OSError:  # the client went away; nothing to tell it
+            self.close_connection = True
+            return
         self._discard_body()
 
     def _discard_body(self) -> None:
@@ -507,11 +516,13 @@ class Handler(BaseHTTPRequestHandler):
         if not re.fullmatch(r"[0-9]{1,12}", length):
             return
         remaining = min(int(length), MAX_DISCARD)
+        deadline = time.monotonic() + DISCARD_SECONDS  # a trickling client cannot hold a thread
         try:
             self.wfile.flush()
             self.connection.shutdown(socket.SHUT_WR)
-            while remaining > 0:
-                chunk = self.rfile.read(min(remaining, 65536))
+            self.connection.settimeout(DISCARD_SECONDS)
+            while remaining > 0 and time.monotonic() < deadline:
+                chunk = self.rfile.read1(min(remaining, 65536))  # whatever has arrived
                 if not chunk:
                     break
                 remaining -= len(chunk)
@@ -558,7 +569,10 @@ class Handler(BaseHTTPRequestHandler):
         if int(length) > route.limit:
             raise HttpError(413, "TOO_LARGE", f"The request is over {route.limit // 1024} KiB")
         self._body_pending = False
-        raw = self.rfile.read(int(length))
+        try:
+            raw = self.rfile.read(int(length))
+        except TimeoutError as problem:
+            raise HttpError(408, "TIMEOUT", "The request body did not arrive in time") from problem
         if len(raw) != int(length):
             raise HttpError(400, "BAD_REQUEST", "The request body is shorter than its length")
         try:
@@ -600,6 +614,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, self._handle(route, request))
         except HttpError as failure:
             self._fail(failure)
+        except ConnectionError:  # the client closed the tab or reloaded mid-request
+            self.close_connection = True
         except Exception as problem:  # never a traceback or a dropped connection
             print(f"console: request failed: {type(problem).__name__}", file=sys.stderr)
             self._fail(HttpError(500, "INTERNAL", "The console hit an unexpected error"))

@@ -995,7 +995,9 @@ def test_only_sign_in_skips_the_session_and_only_job_polls_keep_it_idle():
     assert [(r.method, r.pattern) for r in server.ROUTES if not r.session] == [
         ("POST", "/api/session")
     ]
-    assert {r.sample.split("/")[2] for r in server.ROUTES if r.poll} <= {"jobs", "activity"}
+    assert [(r.method, r.sample) for r in server.ROUTES if r.poll] == [
+        ("GET", "/api/jobs/" + "0" * 32)
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1124,3 +1126,76 @@ def test_services_never_start_from_a_stale_grant(center, project, cookie, monkey
     )
     status, data, _ = start(center, project, cookie, "services-up", {"digest": DIGEST})
     assert status == 400 and data["error"]["code"] == "GRANT_UNAVAILABLE"
+
+
+def test_a_stalled_body_times_out_with_a_coded_408(center, cookie, monkeypatch):
+    monkeypatch.setattr(server.Handler, "timeout", 0.5)
+    with socket.create_connection(("127.0.0.1", center.port), timeout=30) as connection:
+        connection.sendall(
+            (
+                f"POST /api/projects HTTP/1.1\r\nHost: 127.0.0.1:{center.port}\r\n"
+                f"X-AgentBreeder-Center: 1\r\nX-AgentBreeder-Session: {cookie}\r\n"
+                f"Origin: {center.origin}\r\nContent-Type: application/json\r\n"
+                "Content-Length: 100\r\n\r\n{"
+            ).encode()
+        )
+        data = b""
+        while chunk := connection.recv(65536):
+            data += chunk
+    head, _, body = data.partition(b"\r\n\r\n")
+    assert int(head.split()[1]) == 408 and json.loads(body)["error"]["code"] == "TIMEOUT"
+
+
+def test_a_client_that_goes_away_mid_request_leaves_no_traceback(center, cookie, capfd):
+    import struct
+
+    started, release = threading.Event(), threading.Event()
+
+    def slow(argv, timeout=30, key=None):
+        started.set()
+        release.wait(10)
+        return {"data": [], "error": None, "stale": False}
+
+    center.runner.read = slow
+    connection = socket.create_connection(("127.0.0.1", center.port), timeout=30)
+    connection.sendall(
+        (
+            f"GET /api/overview HTTP/1.1\r\nHost: 127.0.0.1:{center.port}\r\n"
+            f"X-AgentBreeder-Center: 1\r\nX-AgentBreeder-Session: {cookie}\r\n\r\n"
+        ).encode()
+    )
+    assert started.wait(10)
+    connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    connection.close()  # a reset, like a closed tab
+    release.set()
+    time.sleep(0.5)
+    assert api(center, "GET", "/api/projects", cookie=cookie)[0] == 200
+    assert "Traceback" not in capfd.readouterr().err
+
+
+def test_a_trickled_body_is_discarded_for_a_bounded_time(center, monkeypatch):
+    monkeypatch.setattr(server, "DISCARD_SECONDS", 0.5)
+    with socket.create_connection(("127.0.0.1", center.port), timeout=30) as connection:
+        connection.sendall(
+            b"POST /api/projects HTTP/1.1\r\nHost: evil.test\r\nContent-Length: 16000000\r\n\r\nx"
+        )
+        assert connection.recv(65536).split()[1] == b"403"
+        started, dropped = time.monotonic(), False
+        while time.monotonic() - started < 10:
+            try:
+                connection.sendall(b"x")  # trickle, as a slow client would
+            except OSError:
+                dropped = True  # the server stopped discarding and closed
+                break
+            time.sleep(0.1)
+        assert dropped and time.monotonic() - started < 3
+
+
+def test_onboarding_checks_before_creating_anything(center, cookie, tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    home.chmod(0o777)
+    monkeypatch.setattr(server.Path, "home", classmethod(lambda cls: home))
+    status, data, _ = api(center, "POST", "/api/projects", {"example": "northwind"}, cookie)
+    assert status == 400 and data["error"]["code"] == "PROJECT_UNSAFE"
+    assert not (home / "agentbreeder-projects").exists()
