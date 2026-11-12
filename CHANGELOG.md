@@ -21,6 +21,24 @@ On main, not in a published preview.
   remain; `--json` prints the `docs/next.md` contract and exits 0. In the contract, `LOCK_STALE`
   now comes before `NOT_BUILT`/`BUILD_STALE`, a provider key used only by a fallback alias is
   optional, and step objects list `id`, `title` and `required` first.
+- `agentbreeder invoke NAME MESSAGE|- [--candidate] [--customer ID] [--session ID] [--json]
+  [--state-dir DIR | --stack DIR [--environment ENV]]` (M4), on `main`, not in a published
+  preview: sends one message to a ready local deployment's `/invoke` and prints the reply. It
+  calls only `http://127.0.0.1:<port>` endpoints recorded in local state (a Kubernetes row is
+  refused with the `forward` command to use), and before sending asks Docker that the container
+  is still the recorded one and still publishes that port. No proxies, no redirects, one 180 s
+  deadline for the whole exchange; the state is opened read-only. The reply is model text:
+  controls (and lone surrogates) are shown as visible escapes, malformed HTTP or JSON is
+  `RESPONSE_INVALID`, and `--json` prints the whole answer. `--candidate` calls
+  `NAME-candidate`; `--customer` and `--session` are sent as given and are not authenticated
+  (#780). A message given as an argument is visible in `ps`; `-` reads it from stdin. Exit 0 with
+  a reply; 1 when the message was (or may have been) sent but no usable reply came back (an agent
+  error, an invalid answer, a timeout: a retry is a second turn); 2 when nothing was sent. Errors
+  are `[CODE] message` on stderr, and with `--json` also
+  `{"schema_version": 1, "error": {"code", "message", "sent"}}` on stdout. Printed follow-ups
+  (`status`, `forward`, `next`) carry the same `--stack` or `--state-dir`. `next`'s done
+  "Try it" step now suggests `invoke NAME Hello --stack DIR --environment ENV`. `safe_text`
+  also escapes lone surrogates, so `logs` cannot crash on one either.
 - The `agentbreeder next --json` contract (#820, M4), on `main`, not in a published preview:
   `docs/next.md` and `docs/next.schema.json` (generated from `src/agentbreeder/guide.py`) fix the
   guided-path checklist's shape (steps, states, reason codes, fix actions, `complete`, live

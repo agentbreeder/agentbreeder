@@ -143,7 +143,7 @@ def probe(stacks, calls=None, **kwargs):
 
 @pytest.fixture
 def later_commands(monkeypatch):
-    """As if `new agent` and `invoke` (later M4 PRs) were installed."""
+    """As if `new agent` (#769, its own PR) were installed; `invoke` ships."""
     monkeypatch.setattr(guide_checks, "_available", lambda name: True)
 
 
@@ -754,10 +754,27 @@ def test_without_new_and_invoke_the_example_is_the_way_in(tmp_path, stacks):
     assert shlex.split(project_step.fix.command)[1:] == ["example", "northwind", str(empty)]
 
 
-def test_without_invoke_a_done_try_has_no_fix(stacked, operator, stacks):  # noqa: F811
+def test_without_invoke_a_done_try_has_no_fix(stacked, operator, stacks, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(guide_checks, "_available", lambda name: name != "invoke")
     released(stacked, operator, stacks)
     result = guide_checks.compute(stacked, probe=probe(stacks))
     assert result.complete and steps(result)["try"].fix is None
+
+
+def test_invoke_ships_so_a_done_try_suggests_it(stacked, operator, stacks):  # noqa: F811
+    """No monkeypatch: this install has `invoke`, and the suggested command parses."""
+    released(stacked, operator, stacks)
+    result = guide_checks.compute(stacked, probe=probe(stacks))
+    fix = steps(result)["try"].fix
+    assert result.complete and fix.action == "invoke"
+    words = shlex.split(fix.command)
+    args = cli._parser().parse_args(words[words.index("invoke") :])
+    assert (args.name, args.message, args.stack, args.environment) == (
+        "helper",
+        "Hello",
+        stacked.resolve(),
+        "dev",
+    )
 
 
 def test_every_printed_command_parses(stacked, operator, stacks, tmp_path):  # noqa: F811
