@@ -444,6 +444,8 @@ def test_running_jobs_become_interrupted_after_a_restart(tmp_path):
     state.create_job("j", "p", "release")
     state.db.close()
     again = CenterState(tmp_path)
+    assert again.job("j")["state"] == "running"  # opening alone never sweeps (M2 commands)
+    again.interrupt_running()
     assert again.job("j")["state"] == "interrupted"
     assert again.latest_jobs("p")["release"]["state"] == "interrupted"
 
@@ -622,22 +624,6 @@ def test_explicit_busy_port_is_an_error(quiet_main, capsys):
         blocker.bind(("127.0.0.1", 0))
         blocker.listen()
         assert server.main(arguments(port=blocker.getsockname()[1])) == 2
-
-
-def test_busy_default_port_falls_back(tmp_path, monkeypatch):
-    with socket.socket() as blocker:
-        blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        blocker.bind(("127.0.0.1", 0))
-        blocker.listen()
-        monkeypatch.setattr(server, "DEFAULT_PORT", blocker.getsockname()[1])
-        directory = tmp_path / "c"
-        directory.mkdir()
-        instance = Center(directory)
-        http_server = make_server(instance, None)
-        try:
-            assert instance.port != blocker.getsockname()[1]
-        finally:
-            http_server.server_close()
 
 
 def test_center_directory_is_private(tmp_path, monkeypatch):
@@ -1698,6 +1684,289 @@ def test_a_key_file_that_cannot_be_removed_still_frees_the_locks(
         leftover.unlink()
 
 
+# -- up: isolated re-exec, single instance, leftovers, port policy (S-16, S-29) -------------------
+
+
+def _free_ports(count: int) -> list[int]:
+    """`count` ports free right now (bound and released)."""
+    sockets = []
+    for _ in range(count):
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        sockets.append(sock)
+    ports = [sock.getsockname()[1] for sock in sockets]
+    for sock in sockets:
+        sock.close()
+    return ports
+
+
+@pytest.fixture
+def blocked_port():
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen()
+        yield blocker.getsockname()[1]
+
+
+def _center(tmp_path) -> Center:
+    directory = tmp_path / "c"
+    directory.mkdir(exist_ok=True)
+    return Center(directory)
+
+
+def test_first_run_scans_past_a_busy_preferred_port(tmp_path, monkeypatch, blocked_port):
+    free = _free_ports(1)[0]
+    monkeypatch.setattr(server, "PORTS", (blocked_port, free))
+    instance = _center(tmp_path)
+    assert not instance.state.has_password()
+    http_server = make_server(instance, None)
+    try:
+        assert instance.port == free
+        assert instance.state.setting("port") == str(free)
+    finally:
+        http_server.server_close()
+
+
+def test_once_a_password_exists_a_busy_port_is_refused(tmp_path, monkeypatch, blocked_port):
+    monkeypatch.setattr(server, "PORTS", (blocked_port, _free_ports(1)[0]))
+    instance = _center(tmp_path)
+    instance.state.db.execute("CREATE TABLE users (email TEXT)")
+    instance.state.db.execute("INSERT INTO users VALUES ('admin@localhost')")
+    assert instance.state.has_password()
+    with pytest.raises(server.PortBusy) as busy:
+        make_server(instance, None)
+    assert busy.value.port == blocked_port and not busy.value.scanned
+
+
+def test_the_remembered_port_is_preferred(tmp_path, monkeypatch):
+    first, second = _free_ports(2)
+    monkeypatch.setattr(server, "PORTS", (first, second))
+    instance = _center(tmp_path)
+    instance.state.set_setting("port", str(second))
+    assert server.port_candidates(instance, None) == ([second, first], True)
+    assert server.port_candidates(instance, 1234) == ([1234], False)
+
+
+def test_no_free_port_in_the_range(tmp_path, monkeypatch, blocked_port):
+    monkeypatch.setattr(server, "PORTS", (blocked_port,))
+    with pytest.raises(server.PortBusy) as busy:
+        make_server(_center(tmp_path), None)
+    assert busy.value.scanned
+
+
+def test_the_default_range_is_8080_to_8099():
+    assert server.PORTS[0] == 8080 and server.PORTS[-1] == 8099 and len(server.PORTS) == 20
+
+
+@pytest.mark.parametrize("password", [False, True])
+def test_main_names_the_busy_port(quiet_main, monkeypatch, capsys, blocked_port, password):
+    monkeypatch.setattr(server, "PORTS", (blocked_port,))
+    monkeypatch.setattr(CenterState, "has_password", lambda self: password)
+    assert server.main(arguments(port=None)) == 2
+    err = capsys.readouterr().err
+    assert "--port" in err and str(blocked_port) in err
+    assert ("is in use by another program" in err) is password
+    assert ("No free port" in err) is not password
+
+
+def test_a_second_up_prints_the_running_url(quiet_main, tmp_path, capsys):
+    from agentbreeder.center.instance import SingleInstance
+
+    first = SingleInstance(server.center_directory())
+    first.acquire()
+    first.publish("http://127.0.0.1:8085")
+    try:
+        assert server.main(arguments()) == 0
+        out = capsys.readouterr().out
+        assert "already running: http://127.0.0.1:8085" in out and "#t=" not in out
+    finally:
+        first.release()
+    assert server.main(arguments()) == 0
+    assert "already running" not in capsys.readouterr().out
+
+
+def test_an_unreadable_lock_url_is_not_printed(tmp_path):
+    from agentbreeder.center.instance import AlreadyRunning, SingleInstance
+
+    tmp_path.chmod(0o700)
+    first = SingleInstance(tmp_path)
+    first.acquire()
+    os.pwrite(first.descriptor, b"http://evil.test/#t=x", 0)
+    with pytest.raises(AlreadyRunning) as running:
+        SingleInstance(tmp_path).acquire()
+    assert running.value.url is None
+    first.release()
+
+
+def test_leftovers_are_removed_only_by_the_lock_holder(quiet_main, capsys):
+    from agentbreeder.center.instance import SingleInstance
+
+    directory = server.center_directory()
+    for name in ("env-abc", "edit-123", "keep.txt"):
+        (directory / name).write_text("secret")
+    holder = SingleInstance(directory)
+    holder.acquire()
+    assert server.main(arguments()) == 0
+    assert (directory / "env-abc").exists()  # a running console's file is never touched
+    holder.release()
+    assert server.main(arguments()) == 0
+    assert sorted(p.name for p in directory.iterdir() if not p.name.startswith(".")) == [
+        "center.sqlite3",
+        "keep.txt",
+        "login.html",
+        "up.lock",
+    ]
+    assert "Removed 2 file(s)" in capsys.readouterr().err
+
+
+def test_main_refuses_a_newer_schema(quiet_main, capsys):
+    import sqlite3
+
+    directory = server.center_directory()
+    database = sqlite3.connect(directory / "center.sqlite3")
+    database.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+    database.execute("INSERT INTO schema_version VALUES (99)")
+    database.commit()
+    database.close()
+    assert server.main(arguments()) == 2
+    assert "newer than this AgentBreeder" in capsys.readouterr().err
+
+
+def test_sigterm_stops_the_console_like_ctrl_c():
+    with pytest.raises(KeyboardInterrupt):
+        server._stop(15, None)
+
+
+# -- center.sqlite3 schema versions and the a2 upgrade --------------------------------------------
+
+A2_SCHEMA = """
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL,
+    environment TEXT NOT NULL, accepted_grant TEXT, created REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY, project TEXT NOT NULL, kind TEXT NOT NULL,
+    state TEXT NOT NULL, exit_code INTEGER, created REAL NOT NULL,
+    finished REAL);
+CREATE TABLE IF NOT EXISTS lines (
+    job TEXT NOT NULL, seq INTEGER NOT NULL, text TEXT NOT NULL,
+    PRIMARY KEY (job, seq));
+"""
+
+
+def test_a2_state_is_migrated_with_projects_and_history_kept(tmp_path):
+    import sqlite3
+
+    database = sqlite3.connect(tmp_path / "center.sqlite3")
+    database.executescript(A2_SCHEMA)
+    database.execute("INSERT INTO projects VALUES ('p1','nw','/x','dev','grant',1.0)")
+    database.execute("INSERT INTO jobs VALUES ('j1','p1','release','succeeded',0,1.0,2.0)")
+    database.execute("INSERT INTO jobs VALUES ('j2','p1','build','running',NULL,3.0,NULL)")
+    database.execute("INSERT INTO lines VALUES ('j1',1,'released')")
+    database.commit()
+    database.close()
+    state = CenterState(tmp_path)
+    assert state.migrated_from == 0
+    version = state.db.execute("SELECT version FROM schema_version").fetchall()
+    assert version == [(jobs.SCHEMA_VERSION,)]
+    assert state.project("p1")["accepted_grant"] == "grant"
+    assert state.job("j1")["lines"] == [{"seq": 1, "text": "released"}]
+    state.interrupt_running()
+    assert state.job("j2")["state"] == "interrupted"
+    assert not state.has_password()
+    state.db.close()
+    again = CenterState(tmp_path)
+    assert again.migrated_from == jobs.SCHEMA_VERSION
+
+
+def test_a_failed_migration_changes_nothing(tmp_path, monkeypatch):
+    import sqlite3
+
+    monkeypatch.setitem(jobs.MIGRATIONS, 3, ("CREATE TABLE extra (x)", "THIS IS NOT SQL"))
+    monkeypatch.setattr(jobs, "SCHEMA_VERSION", 3)
+    with pytest.raises(sqlite3.Error):
+        CenterState(tmp_path)
+    database = sqlite3.connect(tmp_path / "center.sqlite3")
+    tables = {row[0] for row in database.execute("SELECT name FROM sqlite_master")}
+    assert "extra" not in tables and "projects" not in tables
+
+
+def test_a_newer_schema_is_refused(tmp_path):
+    import sqlite3
+
+    database = sqlite3.connect(tmp_path / "center.sqlite3")
+    database.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+    database.execute("INSERT INTO schema_version VALUES (99)")
+    database.commit()
+    with pytest.raises(jobs.SchemaTooNew):
+        CenterState(tmp_path)
+
+
+# -- the `up` command: re-exec under -I, and the isolated entry point -----------------------------
+
+
+def test_up_re_execs_the_server_isolated(monkeypatch, tmp_path):
+    from agentbreeder import __version__, doctor
+    from agentbreeder.center import launch
+    from agentbreeder.commands import up
+
+    monkeypatch.setenv("AGENTBREEDER_CENTER_DIR", str(tmp_path / "center"))
+    monkeypatch.setattr(doctor, "check_docker", lambda: [])
+    monkeypatch.setattr(doctor, "check_compose", lambda: [])
+    seen = []
+
+    def fake_exec(path, argv):
+        seen.append(argv)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(launch.os, "execv", fake_exec)
+    monkeypatch.chdir(tmp_path)
+    args = Namespace(dir=Path("-proj"), environment="dev", port=8090, no_browser=True, yes=True)
+    with pytest.raises(SystemExit):
+        up.run(args)
+    assert seen[0][:4] == [sys.executable, "-I", "-m", "agentbreeder.center"]
+    import agentbreeder as package
+
+    assert seen[0][4:] == [
+        f"--expect-version={__version__}",
+        f"--expect-package={Path(package.__file__).resolve().parent}",
+        "--environment=dev",
+        "--port",
+        "8090",
+        "--no-browser",
+        "--yes",
+        "--",
+        str(tmp_path / "-proj"),
+    ]
+
+
+def test_up_reports_failed_docker_checks_before_the_re_exec(monkeypatch, capsys, tmp_path):
+    from agentbreeder import doctor
+    from agentbreeder.center import launch
+    from agentbreeder.commands import up
+
+    monkeypatch.setenv("AGENTBREEDER_CENTER_DIR", str(tmp_path / "center"))
+    failed = doctor.Check("docker", False, "not running")
+    monkeypatch.setattr(doctor, "check_docker", lambda: [failed])
+    monkeypatch.setattr(doctor, "check_compose", lambda: [])
+    monkeypatch.setattr(
+        launch.os, "execv", lambda path, argv: (_ for _ in ()).throw(SystemExit(0))
+    )
+    with pytest.raises(SystemExit):
+        up.run(Namespace(dir=None, environment="dev", port=None, no_browser=False, yes=False))
+    assert "FAIL docker" in capsys.readouterr().err
+
+
+def test_the_isolated_entry_point_parses_what_up_passes(monkeypatch):
+    from agentbreeder.center import __main__ as entry
+
+    seen = []
+    monkeypatch.setattr(entry.server, "main", lambda args: seen.append(args) or 0)
+    assert entry.run(["--environment", "prod", "--port", "8081", "--no-browser", "--", "-p"]) == 0
+    args = seen[0]
+    assert (args.environment, args.port, args.no_browser, args.yes) == ("prod", 8081, True, False)
+    assert args.dir == Path("-p")
+
+
 def _wait_for_line(stream, pattern: str, timeout: float = 60) -> str:
     """The first line of `stream` matching `pattern`, read on a thread so a silent process
     cannot hang the test past `timeout`."""
@@ -1929,6 +2198,180 @@ def test_shutdown_retries_when_a_signal_interrupts_it(tmp_path, monkeypatch):
     assert len(calls) == 2
 
 
+def test_up_end_to_end_isolated_single_instance(tmp_path):
+    """The real CLI as a subprocess: `up` re-execs as `python -I -m agentbreeder.center` (same
+    pid), and a second `up` prints the running URL and exits."""
+    import signal as signals
+    import subprocess
+
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "AGENTBREEDER_CENTER_DIR": str(tmp_path / "center"),
+    }
+    command = [sys.executable, "-m", "agentbreeder", "up", "--no-browser", "--port", "0"]
+    first = subprocess.Popen(
+        command,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        line = _wait_for_line(first.stdout, r"http://127\.0\.0\.1:[0-9]+ ")
+        url = re.search(r"http://127\.0\.0\.1:[0-9]+", line)[0]
+        listing = subprocess.run(
+            ["ps", "-o", "args=", "-p", str(first.pid)], capture_output=True, text=True
+        ).stdout
+        assert "-I -m agentbreeder.center" in listing, listing
+        second = subprocess.run(
+            command, env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL
+        )
+        assert second.returncode == 0
+        assert f"already running: {url}" in second.stdout
+    finally:
+        first.send_signal(signals.SIGTERM)
+        first.wait(timeout=30)
+    assert first.returncode == 0
+
+
+# -- review round 1 on up (Fable) -----------------------------------------------------------------
+
+
+@pytest.fixture
+def wildcard_port():
+    """A program listening on 0.0.0.0, as Docker-published ports and most dev servers do."""
+    with socket.socket() as blocker:
+        blocker.bind(("0.0.0.0", 0))
+        blocker.listen()
+        yield blocker.getsockname()[1]
+
+
+def test_a_wildcard_listener_counts_as_busy(tmp_path, monkeypatch, wildcard_port):
+    free = _free_ports(1)[0]
+    monkeypatch.setattr(server, "PORTS", (wildcard_port, free))
+    assert server.in_use(wildcard_port) and not server.in_use(free) and not server.in_use(0)
+    instance = _center(tmp_path)
+    http_server = make_server(instance, None)
+    try:
+        assert instance.port == free
+    finally:
+        http_server.server_close()
+
+
+def test_a_second_up_with_work_to_do_says_it_did_nothing(quiet_main, project_dir, capsys):
+    from agentbreeder.center.instance import SingleInstance
+
+    first = SingleInstance(server.center_directory())
+    first.acquire()
+    first.publish("http://127.0.0.1:8085")
+    try:
+        assert server.main(arguments(dir=project_dir, yes=True)) == 1
+        captured = capsys.readouterr()
+        assert "already running: http://127.0.0.1:8085" in captured.out
+        assert "Nothing else was done" in captured.err
+        first.withdraw()
+        assert server.main(arguments()) == 0
+        assert "starting or stopping" in capsys.readouterr().out
+    finally:
+        first.release()
+
+
+def test_up_checks_for_a_running_console_before_docker(monkeypatch, tmp_path, capsys):
+    from agentbreeder import doctor
+    from agentbreeder.center.instance import SingleInstance
+    from agentbreeder.commands import up
+
+    monkeypatch.setenv("AGENTBREEDER_CENTER_DIR", str(tmp_path / "center"))
+    monkeypatch.setattr(doctor, "check_docker", lambda: pytest.fail("ran the Docker checks"))
+    first = SingleInstance(server.center_directory())
+    first.acquire()
+    first.publish("http://127.0.0.1:8086")
+    try:
+        args = Namespace(dir=None, environment="dev", port=None, no_browser=True, yes=False)
+        assert up.run(args) == 0
+        assert "http://127.0.0.1:8086" in capsys.readouterr().out
+    finally:
+        first.release()
+
+
+def test_up_reports_a_failed_exec(monkeypatch, tmp_path, capsys):
+    from agentbreeder import doctor
+    from agentbreeder.center import launch
+    from agentbreeder.commands import up
+
+    monkeypatch.setenv("AGENTBREEDER_CENTER_DIR", str(tmp_path / "center"))
+    monkeypatch.setattr(doctor, "check_docker", lambda: [])
+    monkeypatch.setattr(doctor, "check_compose", lambda: [])
+
+    def missing(path, argv):
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(launch.os, "execv", missing)
+    args = Namespace(dir=None, environment="dev", port=None, no_browser=True, yes=False)
+    assert up.run(args) == 2
+    assert "Cannot start the console" in capsys.readouterr().err
+
+
+def test_the_server_refuses_a_different_installed_version(capsys):
+    from agentbreeder.center import __main__ as entry
+
+    assert entry.run(["--expect-version=0.0.0", "--no-browser"]) == 2
+    assert "pip install -e ." in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("port", ["-1", "70000"])
+def test_ports_out_of_range_are_refused(port):
+    from agentbreeder.center import __main__ as entry
+    from agentbreeder.commands import up
+
+    with pytest.raises(SystemExit):
+        entry.parse(["--port", port])
+    import argparse
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        up._port(port)
+
+
+def test_a_bad_remembered_port_falls_back_to_8080(tmp_path):
+    instance = _center(tmp_path)
+    instance.state.set_setting("port", "99999")
+    assert server.port_candidates(instance, None)[0][0] == server.PORTS[0]
+
+
+def test_a_broken_database_is_one_line(quiet_main, capsys):
+    (server.center_directory() / "center.sqlite3").write_bytes(b"not a database" * 100)
+    assert server.main(arguments()) == 2
+    err = capsys.readouterr().err
+    assert "Cannot open the console database" in err and "Traceback" not in err
+
+
+def test_a_symlinked_lock_is_one_line(quiet_main, tmp_path, capsys):
+    directory = server.center_directory()
+    (directory / "up.lock").symlink_to(tmp_path / "elsewhere")
+    assert server.main(arguments()) == 2
+    assert "Cannot use the console directory" in capsys.readouterr().err
+
+
+def test_the_login_temp_file_is_a_leftover(tmp_path):
+    from agentbreeder.center.instance import remove_leftovers
+
+    (tmp_path / ".login.html.tmp").write_text("token")
+    assert remove_leftovers(tmp_path) == [".login.html.tmp"]
+
+
+def test_a_stop_before_serving_still_shuts_down(quiet_main, monkeypatch):
+    stopped = []
+    monkeypatch.setattr(
+        Center, "mint_login", lambda self: (_ for _ in ()).throw(KeyboardInterrupt())
+    )
+    monkeypatch.setattr(jobs.Runner, "shutdown", lambda self, grace=5.0: stopped.append(1) or [])
+    assert server.main(arguments()) == 0
+    assert stopped == [1]
+
+
 def test_redact_catches_json_escaped_and_url_passwords():
     import json as json_module
 
@@ -1942,8 +2385,66 @@ def test_redact_catches_json_escaped_and_url_passwords():
 
 def test_back_to_back_stop_signals_cannot_deadlock_the_flag():
     """The handler's flag takes no lock: re-entering it mid-set must not block."""
+    import threading as threads
+
+    assert type(server._stopping) is server._Flag
+    assert not isinstance(server._stopping, threads.Event)  # its set() takes a lock
     server._stopping.clear()
     server._stopping.set()
     server._stopping.set()  # a threading.Event here could block forever if re-entered
     assert server._stop(15, None) is None
     server._stopping.clear()
+
+
+# -- review round 2 on up (Fable) -----------------------------------------------------------------
+
+
+def test_the_server_refuses_another_tree_at_the_same_version(capsys):
+    from agentbreeder import __version__
+    from agentbreeder.center import __main__ as entry
+
+    argv = [f"--expect-version={__version__}", "--expect-package=/somewhere/else", "--no-browser"]
+    assert entry.run(argv) == 2
+    assert "not the same code" in capsys.readouterr().err
+
+
+def test_a_port_that_times_out_counts_as_busy(monkeypatch):
+    def timeout(*args, **kwargs):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(server.socket, "create_connection", timeout)
+    assert server.in_use(8080)
+
+    def refused(*args, **kwargs):
+        raise ConnectionRefusedError()
+
+    monkeypatch.setattr(server.socket, "create_connection", refused)
+    assert not server.in_use(8080)
+
+
+def test_a_stop_before_the_bind_is_quiet(quiet_main, monkeypatch, capsys):
+    monkeypatch.setattr(
+        server, "make_server", lambda center, port: (_ for _ in ()).throw(KeyboardInterrupt())
+    )
+    assert server.main(arguments()) == 130
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_remembering_the_port_is_best_effort(tmp_path, monkeypatch):
+    import sqlite3
+
+    instance = _center(tmp_path)
+
+    def locked(self, key, value):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(CenterState, "set_setting", locked)
+    http_server = make_server(instance, None)
+    http_server.server_close()
+
+
+def test_a_bad_dir_never_publishes_the_url(quiet_main, tmp_path):
+    from agentbreeder.center.instance import LOCK_NAME
+
+    assert server.main(arguments(dir=tmp_path / "missing")) == 2
+    assert (server.center_directory() / LOCK_NAME).read_bytes() == b""

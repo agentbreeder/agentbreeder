@@ -79,6 +79,14 @@ On main, not in a published preview.
     console jobs only; a terminal command does not see them.
   - Stopping `up` stops every job and long-lived child: SIGINT first, then, after 5 seconds,
     SIGTERM to each child's process group. Cancel still sends one SIGINT to the job.
+  - `up` re-execs as `python -I -m agentbreeder.center` and holds a single-instance lock in the
+    console directory; a second `up` prints the running URL and exits. At start it deletes
+    key and editor temp files a crashed console left.
+  - **The default port is now 8080 (3.0.0a2 used 8900).** Before a password exists, a busy port
+    moves the console to the next free port up to 8099; afterwards `up` refuses a busy port and
+    names it. Bookmarks to `127.0.0.1:8900` from 3.0.0a2 no longer reach the console.
+  - `center.sqlite3` gains a `schema_version` table and migrations; a 3.0.0a2 database is
+    upgraded in place with its projects and job history kept.
 - Registries (#824), on `main`, not in a published preview: `build`, `release` and `services up`
   now refuse a symlinked `<root>/<kind>` or `<root>/<kind>/<name>` directory in a registry root
   (`ENTRY_UNSAFE`), as they already refused a symlinked version directory. A symlinked or
