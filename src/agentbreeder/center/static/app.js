@@ -400,9 +400,10 @@ function projectName(id) {
 // is still running long after, the server allows a confirmed stop of its process group.
 function jobControl() {
   const job = ui.job;
-  if (!job.cancelling) {
+  // Sticky: a poll answered before the cancel landed must not bring the button back.
+  if (!job.cancelling && ui.cancelAsked !== job.id) {
     return h("button", { class: "action secondary", onclick: async () => {
-      job.cancelling = true; renderDrawer();
+      ui.cancelAsked = job.id; renderDrawer();
       try { await api(`/api/jobs/${job.id}/cancel`, {}); } catch { /* the poll shows the state */ }
     } }, "Cancel");
   }

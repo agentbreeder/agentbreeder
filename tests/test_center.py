@@ -2604,23 +2604,52 @@ def test_cancel_sends_one_sigint_only(tmp_path, monkeypatch):
     assert sent.count(jobs.signal.SIGINT) == 1
 
 
-def test_shutdown_adds_no_second_sigint_after_a_cancel(tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)
-    runner = _late_runner(tmp_path)
-    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
-    deadline = time.monotonic() + 20
-    while not runner.state.job(job)["lines"]:
-        assert time.monotonic() < deadline
-        time.sleep(0.02)
+SLOW_RESTORE = """
+import sys, time
+try:
+    print("started", flush=True)
+    time.sleep(30)
+except KeyboardInterrupt:
+    time.sleep(1.5)  # a restore still running when shutdown comes
+    sys.exit(130)
+"""
+
+
+def _count_sigints(monkeypatch) -> list:
     sent = []
     real = jobs._signal
     monkeypatch.setattr(
         jobs, "_signal", lambda process, number: sent.append(number) or real(process, number)
     )
+    return sent
+
+
+def test_shutdown_adds_no_second_sigint_after_a_cancel(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)
+    runner = _late_runner(tmp_path, SLOW_RESTORE)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    deadline = time.monotonic() + 20
+    while not runner.state.job(job)["lines"]:
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    sent = _count_sigints(monkeypatch)
     runner.cancel(job)
-    time.sleep(jobs.CANCEL_SETTLE + 0.2)
-    runner.shutdown(grace=2.0)
+    time.sleep(jobs.CANCEL_SETTLE + 0.2)  # the SIGINT went; the restore is still running
+    assert [entry["id"] for entry in runner.running()] == [job]
+    runner.shutdown(grace=5.0)
     assert sent.count(jobs.signal.SIGINT) == 1
+    assert runner.state.job(job)["exit_code"] == 130  # its restore was not cut short
+
+
+def test_shutdown_during_a_deferred_cancel_sends_one_sigint(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)
+    runner = _late_runner(tmp_path, SLOW_RESTORE)
+    sent = _count_sigints(monkeypatch)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    runner.cancel(job)  # deferred: no output yet
+    runner.shutdown(grace=5.0)
+    time.sleep(jobs.CANCEL_SETTLE + 0.3)  # a deferred timer, if any, would fire now
+    assert sent.count(jobs.signal.SIGINT) <= 1
 
 
 IGNORES_SIGINT = """

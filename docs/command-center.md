@@ -128,8 +128,8 @@ tool would not be caught.
   from the CLI's own file locks (the deployment store and `release` have one today; `cluster`
   and `services` get theirs in later milestones).
 - **Cancel and shutdown.** Cancel sends one SIGINT to the job's CLI process, so `release` and
-  `promote` finish or undo a replace step. It is sent 0.2 seconds after the job's first output
-  line, or 2 seconds after the start for a job that has printed nothing, because a SIGINT
+  `promote` finish or undo a replace step. It is sent no sooner than 0.2 seconds after the
+  job's first output line, or 2 seconds after the start for a job that has printed nothing, because a SIGINT
   sent while the CLI is starting, or just as it prints, can be lost or held back. While it
   works the job shows "Cancelling…"; Cancel is not offered twice, since a second SIGINT can
   interrupt the restore. If the job is still running 15 seconds later, "Stop now" (asked
