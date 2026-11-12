@@ -35,9 +35,10 @@ agentbreeder registry publish ./tool-orders [--to registry] [--json]   # prints 
 agentbreeder registry list [tool/] [--json]
 agentbreeder registry verify [--json]                 # exit 2 if any version is unsafe or inconsistent
 agentbreeder registry show prompt/support@1.0.0 [--project DIR] [--json]
+agentbreeder registry diff prompt/support@1.0.0 prompt/support@1.0.1 [--context N] [--json]
 ```
 
-`list`, `verify` and `show` search the roots of `--project` (default `.`).
+`list`, `verify`, `show` and `diff` search the roots of `--project` (default `.`).
 
 ## Browsing versions (on `main`, not in a published preview)
 
@@ -75,6 +76,46 @@ or disguise a file name; the file is marked `stripped`.
 `sha256` is the version hash that `agent.lock` records; a file's `sha256` is of its bytes alone.
 `text` is `null` for binary files and for files past the version's cap (`omitted: true`);
 `truncated: true` means only the first 256 KiB are in `text`.
+
+**`registry diff FROM TO`** shows what changes from the first version to the second (the order
+matters), file by file in path order, as a unified diff with `--context N` lines around each
+change (default 3, at most 1000). Both versions are read exactly as `show` reads them. For text
+files the hunks are those of `diff -U N` on the two files (headers name `FROM/path` and
+`TO/path`, `/dev/null` for an added or removed file); `Only in REF: dir/` reports an empty
+directory. A change that cannot be shown as text is still reported: `Binary files … differ`,
+`… differ (too large to show)` past the 256 KiB cap, `old mode`/`new mode` for the executable bit,
+and `… differ only in removed control or bidi characters` when the only difference is in
+characters that are stripped for display. Line endings are compared after `\r` is stripped. The
+exit status is 0 whether or not the versions differ, 2 on an error.
+
+`--json` prints:
+
+```json
+{
+  "from": {"ref": "prompt/support@1.0.0", "sha256": "sha256:…", "root": "…", "root_kind": "project"},
+  "to":   {"ref": "prompt/support@1.0.1", "sha256": "sha256:…", "root": "…", "root_kind": "project"},
+  "context": 3,
+  "identical": false,
+  "files": [
+    {"path": "empty", "status": "added", "type": "dir", "stripped": false},
+    {"path": "prompt.md", "status": "modified", "type": "file",
+     "from_sha256": "sha256:…", "to_sha256": "sha256:…",
+     "executable": {"from": false, "to": false},
+     "binary": false, "truncated": false, "omitted": false, "stripped": false,
+     "hunks": [{"from_start": 1, "from_count": 2, "to_start": 1, "to_count": 2, "lines": [
+       {"op": " ", "text": "Be kind."},
+       {"op": "-", "text": "Be brief."},
+       {"op": "+", "text": "Be brief", "no_newline": true}
+     ]}]}
+  ]
+}
+```
+
+Only changed entries are listed. `status` is `added`, `removed` or `modified`; a path that
+changes between file and directory appears as `removed` then `added`. On an added or removed file
+the missing side's `from_sha256`/`to_sha256` and `executable` value is `null`. `hunks` is empty
+when the change is not shown as text (see the flags). `no_newline` appears only on a line with no
+newline at the end of the file.
 
 ## Publishing and integrity
 

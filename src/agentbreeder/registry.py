@@ -20,6 +20,7 @@ not provenance: whoever can write site-packages can rewrite the manifest too.
 
 from __future__ import annotations
 
+import difflib
 import functools
 import hashlib
 import json
@@ -553,3 +554,195 @@ def show(ref: Ref, search: list[Path], project_dir: Path | None = None) -> dict:
         "omitted": any(f.get("omitted") for f in files),
         "files": files,
     }
+
+
+MAX_CONTEXT = 1000
+
+
+def _range(start: int, stop: int) -> tuple[int, int]:
+    """A hunk side as diff(1) prints it: 1-based start, line count (an empty side starts at the
+    line before)."""
+    length = stop - start
+    return (start + 1 if length else start), length
+
+
+def _line(op: str, text: str) -> dict:
+    if text.endswith("\n"):
+        return {"op": op, "text": text[:-1]}
+    return {"op": op, "text": text, "no_newline": True}
+
+
+def _hunks(before: list[str], after: list[str], context: int) -> list[dict]:
+    matcher = difflib.SequenceMatcher(None, before, after, autojunk=False)
+    hunks = []
+    for group in matcher.get_grouped_opcodes(context):
+        from_start, from_count = _range(group[0][1], group[-1][2])
+        to_start, to_count = _range(group[0][3], group[-1][4])
+        lines = []
+        for tag, i1, i2, j1, j2 in group:
+            if tag == "equal":
+                lines += [_line(" ", text) for text in before[i1:i2]]
+                continue
+            lines += [_line("-", text) for text in before[i1:i2]]
+            lines += [_line("+", text) for text in after[j1:j2]]
+        hunks.append(
+            {
+                "from_start": from_start,
+                "from_count": from_count,
+                "to_start": to_start,
+                "to_count": to_count,
+                "lines": lines,
+            }
+        )
+    return hunks
+
+
+def _side(item: _File | None) -> tuple[list[str], bool, bool]:
+    """(lines, whether they can be diffed, binary) for one side of a file change."""
+    if item is None:
+        return [], True, False
+    text, binary, _ = _text_of(item)
+    if text is None or item.truncated:
+        return [], False, binary
+    return text.splitlines(keepends=True), True, False  # only \n is left as a line break
+
+
+def _file_change(path: str, before: _File | None, after: _File | None, context: int) -> dict:
+    status = "added" if before is None else "removed" if after is None else "modified"
+    item = after or before
+    name, stripped = clean(path, name=True)
+    change = {"path": name, "status": status, "type": item.type}
+    if item.type == "dir":
+        change["stripped"] = stripped
+        return change
+    old, old_ok, old_binary = _side(before)
+    new, new_ok, new_binary = _side(after)
+    change.update(
+        {
+            "from_sha256": before.sha256 if before else None,
+            "to_sha256": after.sha256 if after else None,
+            "executable": {
+                "from": before.executable if before else None,
+                "to": after.executable if after else None,
+            },
+            "binary": old_binary or new_binary,
+            "truncated": any(i is not None and i.truncated for i in (before, after)),
+            "omitted": any(i is not None and i.head is None for i in (before, after)),
+            "hunks": _hunks(old, new, context) if old_ok and new_ok else [],
+        }
+    )
+    content_stripped = any(_text_of(i)[2] for i in (before, after) if i is not None)
+    change["stripped"] = stripped or content_stripped
+    return change
+
+
+def _only_dirs(items: dict[str, _File], keys: set[str]) -> set[str]:
+    """Directories in `keys` with no file of the same version beneath them (empty folders)."""
+    files = [k for k, item in items.items() if item.type == "file"]
+    return {k for k in keys if not any(f.startswith(k + "/") for f in files)}
+
+
+def diff(first: Ref, second: Ref, search: list[Path], context: int = 3, project_dir=None) -> dict:
+    """What changes from `first` to `second`, file by file, in path order, with `context` lines
+    around each change (as `diff -u`). Read like `show`: same checks, caps and stripping.
+
+    `registry diff --json` prints this dict: from and to ({ref, sha256, root, root_kind}),
+    context, identical, and files[] of changed entries: {path, status: added|removed|modified,
+    type: "dir", stripped} or {path, status, type: "file", from_sha256, to_sha256, executable
+    {from, to}, binary, truncated, omitted, stripped, hunks[]}; a hunk is {from_start,
+    from_count, to_start, to_count, lines[] of {op: " "|"-"|"+", text, no_newline?}}. A file
+    with no hunks changed in a way that is not shown as text: binary, over the cap, only its
+    executable bit, or only in removed control or bidi characters (`stripped`)."""
+    if not 0 <= context <= MAX_CONTEXT:
+        raise RegistryError("DIFF_INVALID", f"context must be 0 to {MAX_CONTEXT} lines")
+    sides = []
+    for ref in (first, second):
+        hit = resolve(ref, search)
+        read_manifest(hit.path, ref)
+        items = {item.relative: item for item in _read_version(hit.path)}
+        summary = {
+            "ref": str(ref),
+            "sha256": copy_and_hash(hit.path),
+            "root": clean(str(hit.root), name=True)[0],
+            "root_kind": root_kind(hit.root, project_dir),
+        }
+        sides.append((summary, items))
+    (before_summary, before), (after_summary, after) = sides
+    files = []
+    removed_dirs = _only_dirs(before, {k for k in before if k not in after})
+    added_dirs = _only_dirs(after, {k for k in after if k not in before})
+    for path in sorted(set(before) | set(after)):
+        old, new = before.get(path), after.get(path)
+        if old is not None and new is not None and old.type != new.type:
+            files.append(_file_change(path, old, None, context))
+            files.append(_file_change(path, None, new, context))
+            continue
+        if (old or new).type == "dir":
+            if path in removed_dirs or path in added_dirs:
+                files.append(_file_change(path, old, new, context))
+            continue
+        if (
+            old is not None
+            and new is not None
+            and (old.sha256, old.executable)
+            == (
+                new.sha256,
+                new.executable,
+            )
+        ):
+            continue
+        files.append(_file_change(path, old, new, context))
+    return {
+        "from": before_summary,
+        "to": after_summary,
+        "context": context,
+        "identical": before_summary["sha256"] == after_summary["sha256"],
+        "files": files,
+    }
+
+
+def _unified_range(start: int, count: int) -> str:
+    return str(start) if count == 1 else f"{start},{count}"
+
+
+def unified(result: dict) -> str:
+    """A `diff` result as unified diff text (`diff -u`, with ref-prefixed file names)."""
+    out = []
+    first, second = result["from"]["ref"], result["to"]["ref"]
+    for change in result["files"]:
+        path, status = change["path"], change["status"]
+        if change["type"] == "dir":
+            out.append(f"{'Only in ' + (first if status == 'removed' else second)}: {path}/")
+            continue
+        old = "/dev/null" if status == "added" else f"{first}/{path}"
+        new = "/dev/null" if status == "removed" else f"{second}/{path}"
+        modes = change["executable"]
+        if status == "modified" and modes["from"] != modes["to"]:
+            out += [
+                f"old mode {'100755' if modes['from'] else '100644'}",
+                f"new mode {'100755' if modes['to'] else '100644'}",
+            ]
+        if not change["hunks"]:
+            if change["binary"]:
+                out.append(f"Binary files {old} and {new} differ")
+            elif change["truncated"] or change["omitted"]:
+                out.append(f"Files {old} and {new} differ (too large to show)")
+            elif status == "modified" and change["from_sha256"] != change["to_sha256"]:
+                # Only removed characters changed: say so rather than show nothing.
+                out.append(
+                    f"Files {old} and {new} differ only in removed control or bidi characters"
+                )
+            elif status != "modified":
+                out += [f"--- {old}", f"+++ {new}"]  # an empty file added or removed
+            continue
+        out += [f"--- {old}", f"+++ {new}"]
+        for hunk in change["hunks"]:
+            out.append(
+                f"@@ -{_unified_range(hunk['from_start'], hunk['from_count'])} "
+                f"+{_unified_range(hunk['to_start'], hunk['to_count'])} @@"
+            )
+            for line in hunk["lines"]:
+                out.append(line["op"] + line["text"])
+                if line.get("no_newline"):
+                    out.append("\\ No newline at end of file")
+    return "\n".join(out) + ("\n" if out else "")

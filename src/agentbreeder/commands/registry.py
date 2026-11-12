@@ -1,7 +1,9 @@
-"""`agentbreeder registry new|publish|list|verify|show`: author and inspect registry versions."""
+"""`agentbreeder registry new|publish|list|verify|show|diff`: author and inspect registry
+versions."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -26,9 +28,15 @@ def register(commands) -> None:
     reg_verify = reg_commands.add_parser("verify", help="Re-check every version's integrity")
     reg_show = reg_commands.add_parser("show", help="Show one version's manifest and files")
     reg_show.add_argument("ref", help="kind/name@X.Y.Z")
-    for command in (reg_publish, reg_list, reg_verify, reg_show):
+    reg_diff = reg_commands.add_parser("diff", help="Show what changed between two versions")
+    reg_diff.add_argument("first", metavar="FROM", help="kind/name@X.Y.Z")
+    reg_diff.add_argument("second", metavar="TO", help="kind/name@X.Y.Z")
+    reg_diff.add_argument(
+        "--context", type=_context, default=3, metavar="N", help="Lines of context (default 3)"
+    )
+    for command in (reg_publish, reg_list, reg_verify, reg_show, reg_diff):
         command.add_argument("--json", action="store_true")
-    for command in (reg_list, reg_verify, reg_show):
+    for command in (reg_list, reg_verify, reg_show, reg_diff):
         command.add_argument("--project", type=Path, default=Path("."))
 
 
@@ -47,6 +55,14 @@ def run(args) -> int:
         if args.registry_command == "show":
             view = registry.show(registry.Ref.parse(args.ref), search, args.project)
             print(json.dumps(view, indent=2) if args.json else _show_text(view))
+            return 0
+        if args.registry_command == "diff":
+            first, second = registry.Ref.parse(args.first), registry.Ref.parse(args.second)
+            result = registry.diff(first, second, search, args.context, args.project)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(registry.unified(result), end="")
             return 0
         if args.registry_command == "list":
             rows = registry.listing(search, args.prefix)
@@ -70,6 +86,16 @@ def run(args) -> int:
     except registry.RegistryError as error:
         print(str(error), file=sys.stderr)
         return 2
+
+
+def _context(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        value = -1
+    if not 0 <= value <= registry.MAX_CONTEXT:
+        raise argparse.ArgumentTypeError(f"must be 0 to {registry.MAX_CONTEXT}")
+    return value
 
 
 def _file_note(entry: dict) -> str:

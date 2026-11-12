@@ -18,6 +18,10 @@ On main, not in a published preview.
   caps text at 256 KiB per file and 2 MiB per version, and removes control and bidi characters
   from file names, manifest values and content (S-27). The `--json` shape is documented in
   `docs/registry.md` for the console's registry pages.
+- `agentbreeder registry diff FROM TO [--context N] [--project DIR] [--json]` (#824), on `main`,
+  not in a published preview: what changes from one version to another, file by file, as a
+  unified diff whose hunks match `diff -U N` of the files. Binary, oversized, mode-only and
+  stripped-character-only changes are reported rather than hidden. Reads like `show`.
 
 - Brand tokens (#817): `website/brand.css` gains a light `:root` palette and, in both palettes,
   `--text-muted` (AA on every surface; `#a1a1aa` on dark), a 3:1 `--control-border`, and
