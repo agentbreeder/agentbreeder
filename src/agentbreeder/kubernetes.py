@@ -274,6 +274,134 @@ class Kubernetes:
                     return reason
         return None
 
+    def pod(self, info: dict) -> dict:
+        """The pod whose `agent` container `logs` reads, chosen among the pods owned by the
+        verified Deployment (`info["Id"]`, through its ReplicaSets' ownerReferences), so a stray
+        pod that merely carries the label is never read or reported. Prefers a pod whose agent
+        container is running, then the newest. Returns `{"name", "reason", "readable"}`:
+        `reason` is a fixed Kubernetes word (ImagePullBackOff, CrashLoopBackOff, Unschedulable,
+        NoPod, ...) or None, never a status message; `readable` is whether the container has
+        produced output to read (running, terminated, or restarted at least once)."""
+        identifier = info["deployment"]
+        selector = f"{DEPLOYMENT_LABEL}={identifier}"
+        try:
+            sets = json.loads(
+                self._namespaced("get", "replicasets", "-l", selector, "-o", "json") or "{}"
+            )
+            owned_sets = {
+                item["metadata"]["uid"]
+                for item in sets.get("items") or []
+                if any(
+                    ref.get("uid") == info["Id"] and ref.get("controller")
+                    for ref in item["metadata"].get("ownerReferences") or []
+                )
+            }
+            pods = json.loads(
+                self._namespaced("get", "pods", "-l", selector, "-o", "json") or "{}"
+            )
+            owned = [
+                pod
+                for pod in pods.get("items") or []
+                if any(
+                    ref.get("uid") in owned_sets and ref.get("controller")
+                    for ref in pod["metadata"].get("ownerReferences") or []
+                )
+                and not pod["metadata"].get("deletionTimestamp")
+            ]
+            candidates = [_pod_view(pod) for pod in owned]
+        except (ValueError, KeyError, AttributeError, TypeError) as error:
+            raise DeploymentError("Cannot read the pod's status") from error
+        if not candidates:
+            return {"name": None, "reason": "NoPod", "readable": False}
+        candidates.sort(key=lambda view: (view["running"], view["created"]), reverse=True)
+        chosen = candidates[0]
+        return {"name": chosen["name"], "reason": chosen["reason"], "readable": chosen["readable"]}
+
+    def _log_argv(
+        self, pod: str, tail: int, since: str | None, previous: bool, follow: bool
+    ) -> list[str]:
+        """`kubectl logs pod/NAME -c agent --timestamps` for a pod `pod()` chose. `since` was
+        validated as runtime.SINCE."""
+        from agentbreeder.runtime import MAX_TAIL, SINCE
+
+        if type(tail) is not int or not 1 <= tail <= MAX_TAIL:
+            raise DeploymentError(f"--tail must be 1..{MAX_TAIL}")
+        if since is not None and not SINCE.fullmatch(since):
+            raise DeploymentError("--since must look like 10m, 2h or 2026-11-11T09:00:00Z")
+        if not isinstance(pod, str) or not _POD_NAME.fullmatch(pod):
+            raise DeploymentError("Cannot read logs: no verified pod")
+        argv = [
+            "--namespace", self.namespace, "logs", f"pod/{pod}",
+            "-c", "agent", "--timestamps", "--tail", str(tail),
+        ]  # fmt: skip
+        if since is not None:
+            argv += ["--since-time", since] if "T" in since else ["--since", since]
+        argv += ["--previous"] if previous else []
+        argv += ["--follow"] if follow else []
+        return self._binary(*argv)
+
+    def logs(
+        self,
+        info: dict,
+        tail: int = 200,
+        since: str | None = None,
+        previous: bool = False,
+        pod: str | None = None,
+    ) -> tuple[str, bool]:
+        """The agent container's recent output (as `Docker.logs`: 4 MiB cap, whole lines, long
+        lines' partial records joined) for `pod` (from `pod()`), after `authorize` and
+        `inspect`. `previous`: the last terminated container (a crash loop). kubectl's stderr
+        is never read into a message."""
+        from agentbreeder.runtime import LOG_LIMIT, _read_tail, join_partials
+
+        argv = self._log_argv(pod, tail, since, previous, follow=False)
+        try:
+            process = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=self._environment(),
+            )
+        except OSError as error:
+            raise DeploymentError("Cannot run kubectl; is it installed?") from error
+        try:
+            result = _read_tail(process, LOG_LIMIT, timeout=30)
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+        if result is None:
+            raise DeploymentError("Reading the pod's logs timed out")
+        if process.returncode:
+            raise DeploymentError(
+                "kubectl could not read the pod's logs"
+                + (" (has the container restarted?)" if previous else "")
+            )
+        data, truncated = result
+        if truncated:
+            data = data[data.find(b"\n") + 1 :] if b"\n" in data else b""
+        data = b"\n".join(join_partials(line) for line in data.split(b"\n"))
+        return data.decode("utf-8", "replace"), truncated
+
+    def follow(
+        self, info: dict, tail: int = 200, since: str | None = None, pod: str | None = None
+    ) -> subprocess.Popen:
+        """`kubectl logs --follow` of `pod`'s agent container, as `Docker.follow` (same process
+        group as the caller, stdin closed, stopped with `runtime.stop_follow`). It ends when
+        the pod goes away; a replacement pod needs a new follow."""
+        argv = self._log_argv(pod, tail, since, previous=False, follow=True)
+        try:
+            return subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=self._environment(),
+            )
+        except OSError as error:
+            raise DeploymentError("Cannot run kubectl; is it installed?") from error
+
     def remove(self, info: dict) -> None:
         self._delete(info["deployment"])
 
@@ -364,6 +492,49 @@ class Kubernetes:
                 return probe_http(port, path, timeout)
         except DeploymentError:
             return False
+
+
+_POD_NAME = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?")
+_WORD = re.compile(r"[A-Za-z]{1,64}")
+
+
+def _pod_view(pod: dict) -> dict:
+    """What `Kubernetes.pod` needs from one pod, from its `agent` container only (a sidecar
+    added later must not change the answer). `reason` is a fixed word or None when running."""
+    metadata = pod["metadata"]
+    status = pod.get("status") or {}
+    agent = next(
+        (c for c in status.get("containerStatuses") or [] if c.get("name") == "agent"), None
+    )
+    state = (agent or {}).get("state") or {}
+    running = "running" in state
+    restarted = int((agent or {}).get("restartCount") or 0) > 0
+    reason = None
+    if not running:
+        words = [(state.get("waiting") or {}).get("reason")]
+        words.append((state.get("terminated") or {}).get("reason"))
+        words += [
+            condition.get("reason")
+            for condition in status.get("conditions") or []
+            if isinstance(condition, dict) and condition.get("status") == "False"
+        ]
+        words.append(status.get("phase"))
+        reason = next(
+            (w for w in words if isinstance(w, str) and _WORD.fullmatch(w) and w != "Running"),
+            "Pending",
+        )
+    return {
+        "name": metadata["name"],
+        "created": str(metadata.get("creationTimestamp") or ""),
+        "running": running,
+        # A first crash can wait in CrashLoopBackOff with restartCount still 0 and the exit only
+        # under lastState: its output is readable too.
+        "readable": running
+        or "terminated" in state
+        or restarted
+        or "terminated" in ((agent or {}).get("lastState") or {}),
+        "reason": reason,
+    }
 
 
 def _objects(record, manifest, namespace, environment, mounts, blocked) -> list[dict]:
