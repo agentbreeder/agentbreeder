@@ -1,6 +1,6 @@
 usage: agentbreeder logs [-h] [--state-dir STATE_DIR] [--json] [--failed NAME]
-                         [--tail N] [--since D] [--follow] [--raw]
-                         [--stack DIR] [--environment ENVIRONMENT]
+                         [--tail N] [--since D] [--follow] [--previous]
+                         [--raw] [--stack DIR] [--environment ENVIRONMENT]
                          [ID]
 
 positional arguments:
@@ -18,6 +18,8 @@ options:
   --follow              With ID: keep printing new lines until the container
                         stops, Ctrl-C, SIGTERM, SIGHUP or the end of a non-
                         terminal stdin
+  --previous            With a Kubernetes ID: the last restarted container's
+                        output (a crash loop)
   --raw                 Print control characters as they are (unsafe; --json
                         always escapes)
   --stack DIR           Use the operator config and state that `services up`

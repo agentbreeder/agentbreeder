@@ -12,6 +12,24 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder logs ID [--previous]` for a Kubernetes (local `kind`) deployment (#821, M5), on
+  `main`, not in a published preview: reads the `agent` container of one pod owned by the
+  verified Deployment (through its ReplicaSets' owner references, so a stray or stale pod that
+  carries the label is never read or reported; a running pod first, then the newest) with
+  `kubectl logs pod/NAME -c agent --timestamps`, through the cluster binding recorded with the
+  deployment, after the cluster, namespace and ownership checks every Kubernetes operation
+  makes; kubectl's stderr is never shown. Lines go through the same partial-record join,
+  redaction and escaping as local logs. A pod with no output yet returns no lines and its reason
+  (a fixed Kubernetes word; `pod_reason` in `--json`); a crash-looping pod is read with its
+  reason; `--previous` reads the container before the last restart; `--follow` streams from the
+  chosen pod with the same stop rules and ends when that pod goes away. `--json` now carries
+  `target`, `previous` and `pod_reason` for local deployments too. New codes:
+  `CLUSTER_UNAVAILABLE`, `KUBECTL_LOGS_FAILED`, `POD_NOT_RUNNING`, and `TARGET_UNSUPPORTED`
+  (instead of `NOT_LOCAL`) for an unknown target. Run by hand on macOS with kind: a promoted
+  deployment read (no lines: the runtime logs nothing), `--json`, `--previous` refused on a
+  container that never restarted, and `--follow` stopped at the end of stdin. Pending and
+  crash-looping pods are covered by tests only. Claim: local kind only.
+
 - `agentbreeder logs ID [--tail N] [--since D] [--follow] [--raw] [--json] [--state-dir DIR |
   --stack DIR [--environment ENV]]` (#821, M5), on `main`, not in a published preview: a local
   deployment's container logs (stdout and stderr merged, timestamped; `--tail` default 200, at
@@ -29,7 +47,7 @@ On main, not in a published preview.
   alone leaves it until its next write); a line over 1 MiB is dropped whole. `--follow --json`
   prints one object per line (`schema_version`, `source`, `name`, `deployment`, `line`) and a
   final `{"event": "end", "reason", "dropped"}`; a failing `docker logs` is `DOCKER_LOGS_FAILED`.
-  Local deployments only (Kubernetes is `NOT_LOCAL` for now); the state is opened read-only;
+  Kubernetes deployments: see the entry above; the state is opened read-only;
   errors are coded, with a JSON error object under `--json`. An opt-in real-Docker test runs a
   container that logs a stored secret in several encodings and across a 16 KiB boundary, and
   checks none is printed. `logs --failed NAME` reads the same file; its `--json` gains

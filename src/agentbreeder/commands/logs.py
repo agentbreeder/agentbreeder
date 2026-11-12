@@ -103,6 +103,11 @@ def register(commands) -> None:
         ),
     )
     logs.add_argument(
+        "--previous",
+        action="store_true",
+        help="With a Kubernetes ID: the last restarted container's output (a crash loop)",
+    )
+    logs.add_argument(
         "--raw",
         action="store_true",
         help="Print control characters as they are (unsafe; --json always escapes)",
@@ -126,9 +131,13 @@ def run(args) -> int:
         if (args.id is None) == (args.failed is None):
             raise LogsError("USAGE", "give a deployment ID or --failed NAME (one of them)")
         if args.failed is not None:
-            if args.tail is not None or args.since is not None or args.follow:
-                raise LogsError("USAGE", "--tail, --since and --follow go with a deployment ID")
+            if args.tail is not None or args.since is not None or args.follow or args.previous:
+                raise LogsError(
+                    "USAGE", "--tail, --since, --follow and --previous go with a deployment ID"
+                )
             return _failed(args)
+        if args.previous and args.follow:
+            raise LogsError("USAGE", "--previous shows a finished container; it cannot --follow")
         return _deployment(args)
     except LogsError as error:
         return _fail(args, error)
@@ -241,11 +250,15 @@ def _prepare(args):
             raise LogsError("NOT_FOUND", f"no deployment {args.id} in this state") from error
         except sqlite3.Error as error:
             raise LogsError("STATE_UNREADABLE", "cannot read the local state") from error
-        if target != "local":
+        if target not in TARGETS:
             raise LogsError(
-                "NOT_LOCAL",
-                f"{args.id} runs on {safe_text.excerpt(target, 40)}; `logs` reads local "
-                "deployments only in this version",
+                "TARGET_UNSUPPORTED",
+                f"{args.id} runs on {safe_text.excerpt(target, 40)}; `logs` reads local and "
+                "Kubernetes deployments",
+            )
+        if args.previous and target != "kubernetes":
+            raise LogsError(
+                "USAGE", "--previous is for a Kubernetes deployment (a restarted container)"
             )
         if record["state"] == "removed":
             raise LogsError("REMOVED", f"{args.id} was removed; its container is gone")
@@ -267,11 +280,13 @@ def _prepare(args):
             "nothing printed, because these values could not be read to redact the logs: "
             + safe_text.excerpt("; ".join(sorted(set(found.problems))), 400),
         )
-    runtime = _runtime()
+    codes = TARGETS[target]
+    runtime = _kubernetes() if target == "kubernetes" else _runtime()
     try:
         runtime.authorize(record["context"])
     except DeploymentError as error:
-        raise LogsError("DOCKER_UNAVAILABLE", str(error)) from error
+        # Kubernetes messages name the recorded namespace: excerpt, as other state-derived text.
+        raise LogsError(codes["unavailable"], safe_text.excerpt(str(error), 400)) from error
     try:
         info = runtime.inspect(record)
     except DeploymentError as error:
@@ -280,7 +295,20 @@ def _prepare(args):
         ) from error
     if info is None:
         raise LogsError("CONTAINER_GONE", f"the container of {args.id} no longer exists")
-    return record, runtime, info, redaction.Redactor(found.values)
+    return record, target, runtime, info, redaction.Redactor(found.values)
+
+
+# Per target: the error codes for an unreachable engine and a failing log read.
+TARGETS = {
+    "local": {"unavailable": "DOCKER_UNAVAILABLE", "failed": "DOCKER_LOGS_FAILED"},
+    "kubernetes": {"unavailable": "CLUSTER_UNAVAILABLE", "failed": "KUBECTL_LOGS_FAILED"},
+}
+
+
+def _kubernetes():
+    from agentbreeder.kubernetes import Kubernetes
+
+    return Kubernetes()
 
 
 def _has_copies(manifest: dict) -> bool:
@@ -305,32 +333,60 @@ def _shown(line: str, raw: bool) -> str:
 def _deployment(args) -> int:
     from agentbreeder.store import DeploymentError
 
-    record, runtime, info, redact = _prepare(args)
+    record, target, runtime, info, redact = _prepare(args)
+    codes = TARGETS[target]
     tail = args.tail or DEFAULT_TAIL
+    pod = {"name": None, "reason": None, "readable": True}
+    if target == "kubernetes":
+        # One pod owned by the verified Deployment (never a stray pod carrying the label).
+        try:
+            pod = runtime.pod(info)
+        except DeploymentError as error:
+            raise LogsError(codes["unavailable"], "cannot read the pod's status") from error
+    readable = pod["readable"] or (args.previous and pod["name"] is not None)
     if args.follow:
-        return _follow(args, record, runtime, info, redact, tail)
-    try:
-        text, truncated = runtime.logs(info, tail, args.since)
-    except DeploymentError as error:
-        raise LogsError("DOCKER_LOGS_FAILED", str(error)) from error
+        if not pod["readable"]:
+            raise LogsError(
+                "POD_NOT_RUNNING",
+                f"the pod of {args.id} has no output yet ({pod['reason']}); nothing to follow",
+            )
+        options = {"pod": pod["name"]} if target == "kubernetes" else {}
+        return _follow(args, record, runtime, info, redact, tail, codes["failed"], options, target)
+    text, truncated = "", False
+    if readable:
+        options = {"pod": pod["name"], "previous": args.previous} if target == "kubernetes" else {}
+        try:
+            text, truncated = runtime.logs(info, tail, args.since, **options)
+        except DeploymentError as error:
+            raise LogsError(codes["failed"], str(error)) from error
     lines = _lines(redact(text))
     if args.json:
-        print(
-            json.dumps(
-                {
-                    "schema_version": SCHEMA_VERSION,
-                    "source": "agent",
-                    "deployment": args.id,
-                    "name": record["name"],
-                    "lines": lines,
-                    "truncated": truncated,
-                },
-                indent=2,
-            )
-        )
+        body = {
+            "schema_version": SCHEMA_VERSION,
+            "source": "agent",
+            "target": target,
+            "deployment": args.id,
+            "name": record["name"],
+            "lines": lines,
+            "truncated": truncated,
+            "previous": bool(args.previous),
+            "pod_reason": pod["reason"],
+        }
+        print(json.dumps(body, indent=2))
         return 0
     for line in lines:
         sys.stdout.write(_shown(line, args.raw) + "\n")
+    if not readable:
+        print(
+            f"Note: the pod has no output yet ({pod['reason']})",
+            file=sys.stderr,
+        )
+    elif pod["reason"] is not None:
+        print(
+            f"Note: the pod is not running ({pod['reason']}); these are its last lines, and "
+            "`--previous` shows the container before the last restart",
+            file=sys.stderr,
+        )
     if truncated:
         print("Note: older lines were dropped (4 MiB cap); use --tail or --since", file=sys.stderr)
     return 0
@@ -403,7 +459,17 @@ ENDED = {
 }
 
 
-def _follow(args, record, runtime, info, redact, tail: int) -> int:
+def _follow(
+    args,
+    record,
+    runtime,
+    info,
+    redact,
+    tail: int,
+    failed: str = "DOCKER_LOGS_FAILED",
+    options=None,
+    target: str = "local",
+) -> int:
     """Stream until stopped. With --json each line is
     `{"schema_version", "source": "agent", "name", "deployment", "line"}` and the stream ends
     with `{"schema_version", "event": "end", "reason", "dropped"}` (reason: container, stdin,
@@ -419,9 +485,11 @@ def _follow(args, record, runtime, info, redact, tail: int) -> int:
         with follow.lock:
             if follow.reason is None:  # a stop signal may arrive before the child starts
                 try:
-                    follow.process = process = runtime.follow(info, tail, args.since)
+                    follow.process = process = runtime.follow(
+                        info, tail, args.since, **(options or {})
+                    )
                 except DeploymentError as error:
-                    raise LogsError("DOCKER_LOGS_FAILED", str(error)) from error
+                    raise LogsError(failed, str(error)) from error
                 if follow.reason is not None:  # a stop signal came while the child was starting
                     follow.stop(follow.reason)
         if process is not None:
@@ -448,6 +516,7 @@ def _follow(args, record, runtime, info, redact, tail: int) -> int:
                         entry = {
                             "schema_version": SCHEMA_VERSION,
                             "source": "agent",
+                            "target": target,
                             "name": record["name"],
                             "deployment": args.id,
                             "line": text,
@@ -481,9 +550,7 @@ def _follow(args, record, runtime, info, redact, tail: int) -> int:
         elif returncode in (-signal.SIGTERM, -signal.SIGHUP):  # a group signal reached it first
             reason = "signal"
         elif returncode not in (0, None):
-            raise LogsError(
-                "DOCKER_LOGS_FAILED", f"`docker logs` ended with exit code {returncode}"
-            )
+            raise LogsError(failed, f"the log stream ended with exit code {returncode}")
         else:
             reason = "container"
     try:

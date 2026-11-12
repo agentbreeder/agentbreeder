@@ -138,6 +138,8 @@ def test_json_shape(state, docker, capsys):
     assert run(state, IDENTIFIER, "--json", "--tail", "50", "--since", "10m") == 0
     result = json.loads(capsys.readouterr().out)
     assert result["schema_version"] == 1 and result["source"] == "agent"
+    # The same keys as a Kubernetes read, so a consumer need not branch on their presence.
+    assert (result["target"], result["previous"], result["pod_reason"]) == ("local", False, None)
     assert (result["deployment"], result["name"], result["truncated"]) == (
         IDENTIFIER,
         "hello",
@@ -206,12 +208,18 @@ def test_tail_range(state, tail, capsys):
     assert error.value.code == 2
 
 
-def test_kubernetes_deployments_are_not_read_yet(tmp_path, docker, capsys):
+def test_an_unknown_target_is_refused(tmp_path, docker, capsys):
     state = tmp_path / "state"
-    deployment(state, target="kubernetes")
+    deployment(state, target="nomad")  # a tampered or future row
     fake = docker.install(FakeDocker())
     assert run(state, IDENTIFIER) == 2
-    assert capsys.readouterr().err.startswith("[NOT_LOCAL]") and fake.calls == []
+    assert capsys.readouterr().err.startswith("[TARGET_UNSUPPORTED]") and fake.calls == []
+
+
+def test_previous_is_for_kubernetes(state, docker, capsys):
+    fake = docker.install(FakeDocker(text="x\n"))
+    assert run(state, IDENTIFIER, "--previous") == 2
+    assert capsys.readouterr().err.startswith("[USAGE]") and fake.calls == []
 
 
 def test_removed_deployments(tmp_path, docker, capsys):
@@ -345,6 +353,7 @@ def test_follow_json_lines_and_end_record(state, docker, capsys, monkeypatch):
     assert lines[0] == {
         "schema_version": 1,
         "source": "agent",
+        "target": "local",
         "name": "hello",
         "deployment": IDENTIFIER,
         "line": f"2026-11-12T10:00:00Z first {redaction.MARK}",
