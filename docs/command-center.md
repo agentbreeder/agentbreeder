@@ -61,6 +61,8 @@ agentbreeder cluster down --stack DIR
 ```
 
 `deploy` and `remove` take `--local` or `--cluster`, which must match the manifest's target.
+`cluster down` also removes the registry container's anonymous volume, and needs `kind` on `PATH`
+(on `main`, not in a published preview).
 
 ## How it stays the same engine
 

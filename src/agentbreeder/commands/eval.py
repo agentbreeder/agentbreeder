@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from agentbreeder import agentfile, cli, registry, secret_files
+from agentbreeder import agentfile, cli, hints, registry, secret_files
 from agentbreeder.operator_config import OperatorConfigError, load_operator_config
 
 NAMES = ("eval",)
@@ -32,7 +32,9 @@ def run(args) -> int:
         operator = load_operator_config()
         agent = agentfile.load_agent_file(Path(args.agent))
         environment = args.environment or operator.model.default_environment
-        eval_set = _eval_set(agent, Path(args.agent).resolve().parent)
+        # The `build` a LOCK_STALE names repeats --stack/--environment (#854), as release's.
+        where = hints.Where(stack=args.stack, environment=args.environment)
+        eval_set = _eval_set(agent, Path(args.agent).resolve().parent, where)
         report = evals.run(
             eval_set,
             args.endpoint,

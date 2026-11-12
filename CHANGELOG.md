@@ -122,6 +122,17 @@ On main, not in a published preview.
   moved from `cli.py` to `src/agentbreeder/commands/<name>.py`; a golden test checks every
   command's `--help` output byte for byte.
 
+### Fixed
+
+- Five small findings from the M3/M8 verification (#854), on `main`, not in a published preview:
+  `cluster down` removes the registry container's anonymous volume (`docker rm --volumes`) and,
+  without `kind` on `PATH`, fails with `CLUSTER_TOOL_MISSING` as `cluster up` does; `migrate` on
+  a state with an interrupted write says it recovered that write (its `--json` adds
+  `interrupted_write`) instead of "from an unreadable version"; a `LOCK_STALE` that names `build`
+  adds the `--stack DIR` note when a stack.yaml is beside the agent file, and `eval --stack`
+  repeats its stack in that hint; `registry used-by` on a `service` ref no longer lists the
+  project's agent deployments as undetermined (the keys stay, empty).
+
 ## [3.0.0a2] — 2026-11-11
 
 ### Added

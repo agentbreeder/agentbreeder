@@ -93,6 +93,11 @@ def _kind_supported() -> bool:
     return match is not None and (int(match[1]), int(match[2])) >= MIN_KIND
 
 
+def _require(tool: str) -> None:
+    if shutil.which(tool) is None:
+        raise ServiceError("CLUSTER_TOOL_MISSING", f"{tool} is not on PATH; {INSTALL[tool]}")
+
+
 def require_tools() -> None:
     state = tools()
     for tool, info in state.items():
@@ -390,6 +395,7 @@ def down(project: Path) -> dict:
 def _down(project: Path) -> dict:
     from agentbreeder.services.engine import Engine
 
+    _require("kind")  # as `cluster up`: name the missing tool, not a failed `kind get clusters`
     engine = Engine(project)
     try:
         active = engine.active_cluster_deployments()
@@ -400,6 +406,7 @@ def _down(project: Path) -> dict:
                 + ", ".join(active),
             )
         if NAME in _clusters():
+            _require("kubectl")
             path = engine.state.directory / "kubeconfig"
             _require_owned(path)  # the cluster is machine-wide: other stacks may use it
             workloads = kubectl(
@@ -418,7 +425,8 @@ def _down(project: Path) -> dict:
                 raise ServiceError("CLUSTER_IN_USE", "Agents are still deployed on the cluster")
             _run(["kind", "delete", "cluster", "--name", NAME], timeout=180, what="kind delete")
         if _registry_owned():
-            _run(["docker", "rm", "--force", REGISTRY], what="removing the registry")
+            # registry:2 declares VOLUME /var/lib/registry; without --volumes it is orphaned
+            _run(["docker", "rm", "--force", "--volumes", REGISTRY], what="removing the registry")
         (engine.state.directory / "kubeconfig").unlink(missing_ok=True)
         engine.state.put("kubernetes", "")
         return {"removed": [NAME, REGISTRY]}
