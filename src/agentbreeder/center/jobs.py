@@ -434,6 +434,7 @@ class Runner:
         self.held: dict[str, str] = {}  # lock key -> the job or short write holding it
         self.children: set[subprocess.Popen] = set()  # long-lived children (follows, watch, usage)
         self.cache: dict[str, dict] = {}
+        self.on_invalidate: list[Callable[[], None]] = []  # other caches to drop with this one
         self.stopping = False
 
     # -- engine jobs -----------------------------------------------------------------------------
@@ -694,6 +695,8 @@ class Runner:
         """A job or write ended: cached reads are no longer the last good answer."""
         with self.mutex:
             self.cache.clear()
+        for listener in self.on_invalidate:
+            listener()
 
     def read(self, argv: Sequence[str], timeout: int = 30, key: str | None = None) -> dict:
         """Run a read-only command that prints JSON; on failure, keep the last good answer."""

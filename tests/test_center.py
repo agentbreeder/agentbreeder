@@ -2450,6 +2450,12 @@ def test_a_bad_dir_never_publishes_the_url(quiet_main, tmp_path):
     assert (server.center_directory() / LOCK_NAME).read_bytes() == b""
 
 
+def test_used_by_route(center, cookie, project):
+    path = f"/api/projects/{project['id']}/used-by"
+    status, data, _ = api(center, "GET", path + "?ref=not%20a%20ref", cookie=cookie)
+    assert status == 200 and data["data"] is None and data["error"]["code"]
+
+
 def test_the_process_ignores_stop_signals_after_a_clean_stop(quiet_main, monkeypatch):
     import signal as signals
 

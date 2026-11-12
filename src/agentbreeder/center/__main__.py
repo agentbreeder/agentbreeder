@@ -13,7 +13,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from agentbreeder.center import files, jobs, server  # noqa: F401  (eager imports)
+from agentbreeder.center import files, jobs, reads, server  # noqa: F401  (eager imports)
 
 
 def _port(text: str) -> int:
