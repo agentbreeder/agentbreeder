@@ -1750,8 +1750,17 @@ def _console_script(tmp_path, fake_cli) -> Path:
     return script
 
 
-@pytest.mark.parametrize("names", [["SIGTERM"], ["SIGHUP"], ["SIGHUP", "SIGHUP", "SIGTERM"]])
-def test_sigterm_and_sighup_stop_the_console_and_its_jobs(tmp_path, fake_cli, names):
+@pytest.mark.parametrize(
+    "names,gap",
+    [
+        (["SIGTERM"], 0.05),
+        (["SIGHUP"], 0.05),
+        (["SIGHUP", "SIGHUP", "SIGTERM"], 0.05),
+        (["SIGTERM", "SIGHUP"], 0),  # back to back: the second lands while the first unwinds
+        (["SIGHUP", "SIGTERM", "SIGHUP"], 0),
+    ],
+)
+def test_sigterm_and_sighup_stop_the_console_and_its_jobs(tmp_path, fake_cli, names, gap):
     """A signal stops the console and its jobs. Repeated signals do not cut the grace short:
     the fake build still exits through its SIGINT handler (130)."""
     import signal as signals
@@ -1771,7 +1780,7 @@ def test_sigterm_and_sighup_stop_the_console_and_its_jobs(tmp_path, fake_cli, na
     time.sleep(1.0)  # let the fake build start
     for name in names:
         console.send_signal(getattr(signals, name))
-        time.sleep(0.05)
+        time.sleep(gap)
     _, err = console.communicate(timeout=30)
     assert console.returncode == 0, err
     assert "Stopped 1 running job(s)" in err
@@ -1810,3 +1819,47 @@ def test_closing_the_terminal_stops_the_jobs(tmp_path, fake_cli):
         time.sleep(0.1)
     assert done, "the console did not stop when its terminal closed"
     assert _gone(job_pid), "a job survived the terminal closing"
+
+
+def test_stop_raises_once_and_main_restores_handlers(quiet_main, monkeypatch):
+    import signal as signals
+
+    server._stopping.clear()
+    with pytest.raises(KeyboardInterrupt):
+        server._stop(signals.SIGTERM, None)
+    assert server._stop(signals.SIGHUP, None) is None  # a second stop signal is a no-op
+    before = signals.getsignal(signals.SIGTERM)
+    monkeypatch.setattr(signals, "getsignal", lambda number: None)  # set outside Python
+    assert server.main(arguments()) == 0
+    monkeypatch.undo()
+    assert signals.getsignal(signals.SIGTERM) is not None and before is not None
+
+
+def test_a_dead_terminal_does_not_break_the_last_flush(monkeypatch):
+    class Dead:
+        def write(self, text):
+            raise OSError(5, "Input/output error")
+
+        def flush(self):
+            raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(sys, "stderr", Dead())
+    monkeypatch.setattr(sys, "stdout", Dead())
+    server._say("hello")
+    print("still fine")
+    print("still fine", file=sys.stderr)
+
+
+def test_shutdown_retries_when_a_signal_interrupts_it(tmp_path, monkeypatch):
+    center = Center(tmp_path)
+    calls = []
+
+    def interrupted(grace=5.0):
+        calls.append(1)
+        if len(calls) == 1:
+            raise KeyboardInterrupt
+        return []
+
+    monkeypatch.setattr(center.runner, "shutdown", interrupted)
+    server._shut_down(center)
+    assert len(calls) == 2

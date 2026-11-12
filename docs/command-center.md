@@ -127,8 +127,9 @@ caught.
   `promote` finish or undo a replace step. Stopping `up` (Ctrl-C, SIGTERM or closing the
   terminal) sends the same SIGINT to every running job and long-lived child, waits 5 seconds
   (Ctrl-C again skips the wait), then sends SIGTERM to each one's process group, which also stops
-  the `docker`, `kind` or `kubectl` processes it started. A read or short write in progress is
-  not stopped; it ends or times out on its own.
+  the `docker`, `kind` or `kubectl` processes it started, and waits up to 5 more seconds for them
+  to end (at most 10 seconds in all). A read or short write in progress is not stopped; it ends
+  or times out on its own.
 
 **The limits.** Anyone who controls the local Docker has full control: the gate prevents mistakes and
 policy drift, not a local admin. A project is code. Building it runs its Dockerfile in Docker, so add

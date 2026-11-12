@@ -618,9 +618,10 @@ class Runner:
         for process in processes:
             _signal_group(process, signal.SIGTERM)
         try:
-            _wait_all(processes, time.monotonic() + grace)
-            # Let each pump record how its job ended before the console exits.
+            # One deadline for the SIGTERM wait and for each pump to record how its job ended:
+            # shutdown takes at most two grace periods.
             deadline = time.monotonic() + grace
+            _wait_all(processes, deadline)
             for job in jobs:
                 if job.pump is not None:
                     job.pump.join(timeout=max(0.0, deadline - time.monotonic()))

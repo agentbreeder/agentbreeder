@@ -46,7 +46,7 @@ async function api(path, body) {
   const response = await fetch(path, options);
   // Every reply is an envelope {data, error: null | {code, message}, stale}.
   const reply = await response.json().catch(() => ({ data: null, error: { code: "UNREADABLE", message: "Unreadable response" }, stale: false }));
-  if (response.status === 401) { showSignIn(); throw new Error("Sign in again"); }
+  if (response.status === 401) { showSignIn(); const error = new Error("Sign in again"); error.status = 401; throw error; }
   if (!response.ok) { const error = new Error(problem(reply) || "Request failed"); error.job = reply.data && reply.data.job; error.status = response.status; throw error; }
   return reply;
 }
@@ -188,7 +188,7 @@ function announceEnd(job) {
 
 function render() {
   const app = document.getElementById("app");
-  const select = h("select", { "aria-label": "Project", onchange: async (event) => { ui.project = ui.projects.find((p) => p.id === event.target.value); ui.view = {}; ui.plan = null; try { await followProject(); } catch (error) { if (error.status === 401) return; ui.notice = { kind: "error", text: error.message }; } try { await refresh(); } catch { /* the sign-in screen is already shown */ } } },
+  const select = h("select", { "aria-label": "Project", onchange: async (event) => { ui.project = ui.projects.find((p) => p.id === event.target.value); ui.view = {}; ui.plan = null; try { await followProject(); } catch (error) { if (error.status === 401) return; ui.notice = { kind: "error", text: error.message }; } try { await refresh(); } catch (error) { if (error.status !== 401) { ui.notice = { kind: "error", text: error.message }; render(); } } } },
     ui.projects.map((p) => { const o = h("option", { value: p.id }, `${p.name} (${p.environment})`); o.selected = ui.project && p.id === ui.project.id; return o; }));
   app.replaceChildren(
     h("header", { class: "top" },

@@ -17,6 +17,7 @@ import errno
 import hashlib
 import hmac
 import json
+import os
 import re
 import secrets
 import signal
@@ -716,28 +717,58 @@ def _watch_terminal(center: Center) -> None:
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 
+_stopping = threading.Event()
+
+
 def _stop(signum, frame):
+    """SIGTERM/SIGHUP: stop once, like Ctrl-C. Later ones (a closing terminal can send more than
+    one, and a supervisor may repeat SIGTERM) are ignored here, so they never cut the jobs'
+    SIGINT grace short; only a second Ctrl-C does. A Python handler, unlike SIG_IGN, is not
+    inherited by children."""
+    if _stopping.is_set():
+        return
+    _stopping.set()
     raise KeyboardInterrupt
 
 
 def _say(text: str) -> None:
     """A status line on stderr. A closed terminal (SIGHUP) makes writes fail; stopping the jobs
-    must go on regardless."""
+    must go on regardless, and the interpreter's last flush must not fail either."""
     try:
         print(text, file=sys.stderr, flush=True)
     except OSError:
-        pass
+        devnull = open(os.devnull, "w")  # noqa: SIM115 (lives until exit)
+        sys.stdout = sys.stderr = devnull
+
+
+def _shut_down(center: Center) -> None:
+    """Stop every job. A signal landing here (a Ctrl-C, or a stop signal racing the first)
+    must not skip it: an interrupted attempt is retried, and the retry finds the SIGINTs
+    already sent and goes on to SIGTERM."""
+    for _attempt in range(3):
+        try:
+            running = center.runner.running()
+            if running:
+                _say(f"Stopping {len(running)} running job(s); Ctrl-C again to skip the wait.")
+            stopped = center.runner.shutdown()
+            if stopped:
+                _say(f"Stopped {len(stopped)} running job(s).")
+            return
+        except KeyboardInterrupt:
+            continue
 
 
 def main(args) -> int:
     """Run the console; the signal handlers it installs are restored when it returns, so an
     ignored SIGTERM/SIGHUP is never inherited by a process started afterwards."""
     previous = {number: signal.getsignal(number) for number in STOP_SIGNALS}
+    _stopping.clear()
     try:
         return _main(args)
     finally:
         for number, handler in previous.items():
-            signal.signal(number, handler)
+            if handler is not None:  # None: installed outside Python, cannot be restored
+                signal.signal(number, handler)
 
 
 def _main(args) -> int:
@@ -791,17 +822,12 @@ def _main(args) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        # One stop only: a repeated SIGTERM/SIGHUP (a closing terminal can send more than one)
-        # must not cut the jobs' SIGINT grace short; only a second Ctrl-C does.
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        signal.signal(signal.SIGHUP, signal.SIG_IGN)
-        server.server_close()
-        running = center.runner.running()
-        if running:
-            _say(f"Stopping {len(running)} running job(s); Ctrl-C again to skip the wait.")
-        stopped = center.runner.shutdown()
-        if stopped:
-            _say(f"Stopped {len(stopped)} running job(s).")
+        _stopping.set()  # from here on a SIGTERM/SIGHUP is a no-op
+        try:
+            server.server_close()
+        except KeyboardInterrupt:
+            pass
+        _shut_down(center)
     _say(
         "Command center stopped. Services and deployments keep running: use "
         "`agentbreeder services down` and `agentbreeder remove`."
