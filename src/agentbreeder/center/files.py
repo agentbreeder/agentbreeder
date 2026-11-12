@@ -48,8 +48,10 @@ def write_private(path: Path, data: bytes) -> None:
 
 
 def _unsafe(path: Path, reason: str) -> BadRequest:
+    remedy = f" (`chmod go-w {path}` fixes this)" if reason.startswith("is writable") else ""
     return BadRequest(
-        f"{path} {reason}; the console only runs projects you alone control", "PROJECT_UNSAFE"
+        f"{path} {reason}{remedy}; the console only runs projects you alone control",
+        "PROJECT_UNSAFE",
     )
 
 
@@ -62,6 +64,9 @@ def check_ancestors(path: Path) -> None:
             info = os.lstat(directory)
         except OSError as error:
             raise _unsafe(directory, "cannot be read") from error
+        if not stat.S_ISDIR(info.st_mode):
+            # A link here would be checked instead of the directories it points into.
+            raise _unsafe(directory, "is not a plain directory (a link?)")
         if info.st_uid not in (uid, 0):
             raise _unsafe(directory, "is owned by another user")
         if info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX:

@@ -975,3 +975,152 @@ def test_write_private_leaves_no_temp_file_on_failure(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         files.write_private(directory / "login.html", b"x")
     assert list(directory.iterdir()) == []
+
+
+# -- review round 1 (Fable): dispatch errors, discarded bodies, guard order, moved projects ------
+
+
+def _raw(center, request: bytes) -> tuple[int, bytes]:
+    with socket.create_connection(("127.0.0.1", center.port), timeout=30) as connection:
+        connection.sendall(request)
+        connection.shutdown(socket.SHUT_WR)
+        data = b""
+        while chunk := connection.recv(65536):
+            data += chunk
+    head, _, body = data.partition(b"\r\n\r\n")
+    return int(head.split()[1]), body
+
+
+def test_only_sign_in_skips_the_session_and_only_job_polls_keep_it_idle():
+    assert [(r.method, r.pattern) for r in server.ROUTES if not r.session] == [
+        ("POST", "/api/session")
+    ]
+    assert {r.sample.split("/")[2] for r in server.ROUTES if r.poll} <= {"jobs", "activity"}
+
+
+@pytest.mark.parametrize(
+    "overrides,status",
+    [({"Origin": None}, 403), ({"X_AgentBreeder_Session": None}, 401)],
+    ids=["no-origin", "no-session"],
+)
+@pytest.mark.parametrize("path", ["/api/projects", "/api/nothing-here"])
+def test_404_and_405_come_after_every_guard(center, cookie, overrides, status, path):
+    assert api(center, "PUT", path, {}, cookie, **overrides)[0] == status
+    assert api(center, "GET", path, None, cookie, X_AgentBreeder_Session=None)[0] == 401
+
+
+def test_a_missing_session_is_reported_before_the_body_cap(center):
+    big = {"path": "x" * (server.MAX_BODY + 1)}
+    status, data, _ = api(center, "POST", "/api/projects", big)
+    assert status == 401 and data["error"]["code"] == "SIGN_IN"
+
+
+def test_a_really_large_body_still_gets_its_413(center, cookie):
+    big = json.dumps({"path": "x" * (4 * 1024 * 1024)}).encode()
+    request = (
+        f"POST /api/projects HTTP/1.1\r\nHost: 127.0.0.1:{center.port}\r\n"
+        f"X-AgentBreeder-Center: 1\r\nX-AgentBreeder-Session: {cookie}\r\n"
+        f"Origin: {center.origin}\r\nContent-Type: application/json\r\n"
+        f"Content-Length: {len(big)}\r\n\r\n"
+    ).encode()
+    status, body = _raw(center, request + big)
+    assert status == 413 and json.loads(body)["error"]["code"] == "TOO_LARGE"
+
+
+def test_deeply_nested_json_is_a_400_not_a_crash(center):
+    status, body = _raw(
+        center,
+        (
+            f"POST /api/session HTTP/1.1\r\nHost: 127.0.0.1:{center.port}\r\n"
+            f"X-AgentBreeder-Center: 1\r\nOrigin: {center.origin}\r\n"
+            "Content-Type: application/json\r\nContent-Length: 60000\r\n\r\n"
+        ).encode()
+        + b"[" * 60000,
+    )
+    assert status == 400 and json.loads(body)["error"]["code"] == "BAD_REQUEST"
+
+
+def test_a_bad_request_path_is_a_coded_400(center, cookie):
+    status, body = _raw(
+        center,
+        (
+            f"GET http://[x/api/overview HTTP/1.1\r\nHost: 127.0.0.1:{center.port}\r\n"
+            f"X-AgentBreeder-Center: 1\r\nX-AgentBreeder-Session: {cookie}\r\n\r\n"
+        ).encode(),
+    )
+    assert status == 400 and json.loads(body)["error"]["code"] == "BAD_REQUEST"
+
+
+def test_http_parse_errors_get_the_envelope_and_security_headers(center):
+    with socket.create_connection(("127.0.0.1", center.port), timeout=30) as connection:
+        connection.sendall(b"GET / HTTP/9.9\r\nHost: x\r\n\r\n")
+        data = b""
+        while chunk := connection.recv(65536):
+            data += chunk
+    head, _, body = data.partition(b"\r\n\r\n")
+    assert b"Content-Security-Policy" in head and b"<html" not in body.lower()
+    assert json.loads(body)["error"]["code"] == "HTTP"
+
+
+def test_an_unexpected_error_outside_a_handler_is_a_coded_500(center, cookie, monkeypatch):
+    monkeypatch.setattr(server, "parse_qs", lambda query: (_ for _ in ()).throw(KeyError("x")))
+    status, data, _ = api(center, "GET", "/api/projects", cookie=cookie)
+    assert status == 500 and data["error"]["code"] == "INTERNAL"
+
+
+def test_cli_error_ignores_coded_lines_before_the_last_line():
+    assert jobs.cli_error("[WARNING] /Users/me/x\nplain last line\n", 2)["code"] == (
+        "COMMAND_FAILED"
+    )
+
+
+def test_a_moved_or_relinked_project_is_refused_at_job_start(center, cookie, owned_tmp):
+    real = owned_tmp / "real"
+    real.mkdir()
+    project_dir = _make_project(real / "proj")
+    status, data, _ = api(center, "POST", "/api/projects", {"path": str(project_dir)}, cookie)
+    added = data["data"]
+    shared = owned_tmp / "shared"
+    shared.mkdir()
+    real.rename(shared / "real")
+    shared.chmod(0o777)
+    real.symlink_to(shared / "real")
+    status, data, _ = start(center, added, cookie, "build")
+    assert status == 400 and data["error"]["code"] == "PROJECT_UNSAFE"
+    assert "moved or replaced by a link" in data["error"]["message"]
+    real.unlink()
+    status, data, _ = start(center, added, cookie, "build")
+    assert status == 400 and data["error"]["code"] == "PROJECT_UNSAFE"
+
+
+def test_a_link_among_the_ancestors_is_refused(owned_tmp):
+    from agentbreeder.center.files import check_ancestors
+
+    (owned_tmp / "target").mkdir()
+    (owned_tmp / "link").symlink_to(owned_tmp / "target")
+    with pytest.raises(BadRequest, match="not a plain directory"):
+        check_ancestors(owned_tmp / "link")
+
+
+def test_the_unsafe_message_names_the_fix(owned_tmp):
+    from agentbreeder.center.files import check_project
+
+    project = _make_project(owned_tmp / "proj")
+    project.chmod(0o775)
+    with pytest.raises(BadRequest, match=r"chmod go-w"):
+        check_project(project)
+
+
+def test_services_never_start_from_a_stale_grant(center, project, cookie, monkeypatch):
+    monkeypatch.setattr(
+        Center,
+        "plan",
+        lambda self, project: {
+            "data": {"digest": DIGEST, "text": "old", "mcp": []},
+            "error": {"code": "TIMEOUT", "message": "x"},
+            "stale": True,
+            "accepted_text": None,
+        },
+    )
+    status, data, _ = start(center, project, cookie, "services-up", {"digest": DIGEST})
+    assert status == 400 and data["error"]["code"] == "GRANT_UNAVAILABLE"

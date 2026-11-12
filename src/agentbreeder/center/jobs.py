@@ -88,10 +88,10 @@ def error(code: str, message: str) -> dict:
 def cli_error(stderr: str, returncode: int) -> dict:
     """S-17: only the CLI's coded `[CODE] message` line reaches the browser, never free stderr
     (which can carry paths, tracebacks or a third party's text)."""
-    for line in reversed(stderr.splitlines()):
-        match = CODED.match(line.strip())
-        if match:
-            return error(match[1], CONTROL.sub("", match[2])[:MAX_MESSAGE])
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    match = CODED.match(lines[-1]) if lines else None  # the CLI prints its error last
+    if match:
+        return error(match[1], CONTROL.sub("", match[2])[:MAX_MESSAGE])
     return error("COMMAND_FAILED", f"The command failed (exit {returncode}); run it in a terminal")
 
 

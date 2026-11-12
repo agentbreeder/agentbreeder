@@ -27,9 +27,10 @@ On main, not in a published preview.
 
 - Console backend foundation (#815), on main, not in a published preview:
   - Every API route goes through one table that applies the host, API-header, `Sec-Fetch-Site`,
-    `Origin`, content-type and session checks before any handler; unknown methods get `405`.
+    `Origin`, content-type and session checks before any handler, `404` or `405`.
   - Every API reply is an envelope `{"data", "error", "stale"}`; `error` carries the CLI's
-    `[CODE]` and message, and other stderr is no longer forwarded to the browser.
+    `[CODE]` and message, and other stderr from a failed read is no longer forwarded to the
+    browser.
   - Body caps per route (64 KiB JSON, up to 1 MiB for editors; `413` when exceeded); a static
     allow-list built at start, serving the vendored `woff2` fonts.
   - Registering a project, onboarding an example and starting a job refuse directories, files and

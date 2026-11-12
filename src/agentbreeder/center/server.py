@@ -20,6 +20,7 @@ import json
 import re
 import secrets
 import signal
+import socket
 import sys
 import threading
 import time
@@ -47,6 +48,7 @@ SESSION_ABSOLUTE = 8 * 3600
 SESSION_IDLE = 3600
 MAX_BODY = 64 * 1024  # JSON requests
 MAX_EDITOR_BODY = 1024 * 1024  # editor payloads (prompts, evals, tools; later milestones)
+MAX_DISCARD = 16 * 1024 * 1024  # an over-cap body read and dropped so the 413 arrives
 STATIC = Path(__file__).parent / "static"
 STATIC_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -254,7 +256,19 @@ class Center:
         return {**result, "accepted_text": project.get("accepted_grant")}
 
     def start_job(self, project: dict, body: dict) -> str:
-        check_project(Path(project["path"]))  # S-01: re-checked at every job start
+        # S-01, re-checked at every job start: the path must still resolve to itself (no
+        # component swapped for a link since registration) and pass the ownership checks.
+        stored = Path(project["path"])
+        try:
+            moved = stored.resolve(strict=True) != stored
+        except (OSError, RuntimeError):
+            moved = True
+        if moved:
+            raise BadRequest(
+                f"{stored} was moved or replaced by a link; add the project again",
+                "PROJECT_UNSAFE",
+            )
+        check_project(stored)
         kind = str(body.get("kind", ""))
         options = body.get("options") or {}
         if isinstance(options, dict):
@@ -271,6 +285,8 @@ class Center:
         on_success = None
         if kind == "services-up":
             preview = self.plan(project)
+            if preview.get("error"):  # never start from a cached (stale) grant
+                raise BadRequest("Could not read the grant; review it again", "GRANT_UNAVAILABLE")
             data = preview.get("data") or {}
             if data.get("digest") != options.get("digest"):
                 raise BadRequest("The grant changed; review it again", "GRANT_CHANGED")
@@ -435,6 +451,8 @@ class Handler(BaseHTTPRequestHandler):
     routes: tuple[Route, ...] = ROUTES
     server_version = "agentbreeder-console"
     sys_version = ""
+    timeout = 30  # a client that claims a body and sends nothing does not hold a thread
+    _body_pending = False  # a body was announced and not read
 
     def log_message(self, format, *args):  # noqa: A002
         pass  # URLs and bodies stay out of the terminal
@@ -445,6 +463,16 @@ class Handler(BaseHTTPRequestHandler):
         if name.startswith("do_"):
             return lambda: self._dispatch(name[3:])
         raise AttributeError(name)
+
+    def send_error(self, code, message=None, explain=None):
+        """`http.server`'s own errors (a bad request line, header or version) get the envelope
+        and the security headers too, never its HTML page."""
+        self.close_connection = True
+        self.request_version = "HTTP/1.0"  # an unparsed request line leaves 0.9: no headers
+        try:
+            self._json(code, envelope(None, error("HTTP", "Bad request")))
+        except OSError:
+            pass
 
     def _send(self, code: int, body: bytes, kind: str, extra: dict | None = None) -> None:
         self.send_response(code)
@@ -465,6 +493,30 @@ class Handler(BaseHTTPRequestHandler):
             envelope(failure.data, error(failure.code, failure.message)),
             failure.extra,
         )
+        self._discard_body()
+
+    def _discard_body(self) -> None:
+        """After an early reply, read and drop an unread body (up to MAX_DISCARD), so closing
+        the socket does not reset the connection and lose the reply the client is waiting
+        for. The reply is sent first and our side of the connection shut, so the client sees
+        it even if it is still sending."""
+        if not self._body_pending:
+            return
+        self._body_pending = False
+        length = self.headers.get("Content-Length", "")
+        if not re.fullmatch(r"[0-9]{1,12}", length):
+            return
+        remaining = min(int(length), MAX_DISCARD)
+        try:
+            self.wfile.flush()
+            self.connection.shutdown(socket.SHUT_WR)
+            while remaining > 0:
+                chunk = self.rfile.read(min(remaining, 65536))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except OSError:
+            pass
 
     # -- guards ----------------------------------------------------------------------------------
 
@@ -486,11 +538,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
             raise HttpError(403, "FORBIDDEN", "Forbidden")
 
-    def _guard_session(self, route: Route) -> None:
+    def _guard_session(self, route: Route | None) -> None:
         # A header, not a cookie: browsers send cookies to every port on 127.0.0.1, including
-        # agent endpoints and stack services.
+        # agent endpoints and stack services. Only a route marked `session=False` (sign-in)
+        # skips it; an unknown path or method needs a session before it learns 404 or 405.
+        if route is not None and not route.session:
+            return
         token = self.headers.get("X-AgentBreeder-Session")
-        if route.session and not self.center.session_valid(token, refresh=not route.poll):
+        refresh = route is None or not route.poll
+        if not self.center.session_valid(token, refresh=refresh):
             raise HttpError(401, "SIGN_IN", "Sign in again")
 
     def _read_body(self, route: Route) -> dict:
@@ -501,12 +557,13 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(400, "BAD_REQUEST", "Invalid Content-Length")
         if int(length) > route.limit:
             raise HttpError(413, "TOO_LARGE", f"The request is over {route.limit // 1024} KiB")
+        self._body_pending = False
         raw = self.rfile.read(int(length))
         if len(raw) != int(length):
             raise HttpError(400, "BAD_REQUEST", "The request body is shorter than its length")
         try:
             value = json.loads(raw or b"{}")
-        except ValueError as problem:
+        except (ValueError, RecursionError) as problem:
             raise HttpError(400, "BAD_REQUEST", "The request is not JSON") from problem
         if not isinstance(value, dict):
             raise HttpError(400, "BAD_REQUEST", "The request must be a JSON object")
@@ -515,27 +572,37 @@ class Handler(BaseHTTPRequestHandler):
     # -- dispatch --------------------------------------------------------------------------------
 
     def _dispatch(self, method: str) -> None:
+        """Guards, in order, for every method: host; then for /api/ the API header and
+        Sec-Fetch-Site, for non-GET methods Origin and content type, then the session; only
+        then 404/405, the body cap and the handler."""
+        self._body_pending = self.headers.get("Content-Length", "0") not in ("", "0")
         try:
             self._guard_host()
-            parts = urlsplit(self.path)
+            try:
+                parts = urlsplit(self.path)
+            except ValueError as problem:
+                raise HttpError(400, "BAD_REQUEST", "Invalid request path") from problem
             if not parts.path.startswith("/api/"):
                 return self._static(method, parts.path)
             self._guard_api()
             route, match, allowed = find_route(method, parts.path, self.routes)
+            if method != "GET":
+                self._guard_write()
+            self._guard_session(route)
             if route is None:
                 if allowed:
                     raise HttpError(
                         405, "METHOD", "Method not allowed", {"Allow": ", ".join(sorted(allowed))}
                     )
                 raise HttpError(404, "NOT_FOUND", "Not found")
-            if method != "GET":
-                self._guard_write()
-            self._guard_session(route)
             body = self._read_body(route) if method != "GET" else None
             request = Request(self.center, match, body, parse_qs(parts.query))
             self._json(200, self._handle(route, request))
         except HttpError as failure:
             self._fail(failure)
+        except Exception as problem:  # never a traceback or a dropped connection
+            print(f"console: request failed: {type(problem).__name__}", file=sys.stderr)
+            self._fail(HttpError(500, "INTERNAL", "The console hit an unexpected error"))
 
     def _static(self, method: str, path: str) -> None:
         if method not in ("GET", "HEAD"):
