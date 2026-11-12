@@ -93,18 +93,22 @@ class EvalReport:
         }
 
 
-def failed_cases(results: list[dict]) -> list[dict]:
+def failed_cases(results: list[dict], redact=lambda text: text) -> list[dict]:
     """Each failed case, for the terminal and job logs (G-F6). Ids, check names and the
-    judge's reason are untrusted model or eval-set text: one line, controls stripped, capped."""
+    judge's reason are untrusted model or eval-set text: `redact` runs on the whole text first,
+    then it is made one line, controls stripped, and capped."""
     from agentbreeder.safe_text import excerpt
+
+    def clean(text, limit: int) -> str:
+        return excerpt(redact(str(text)), limit)
 
     return [
         {
-            "id": excerpt(result.get("case_id", ""), 80),
+            "id": clean(result.get("case_id", ""), 80),
             "failed_checks": [
-                excerpt(name, 80) for name, ok in (result.get("checks") or {}).items() if not ok
+                clean(name, 80) for name, ok in (result.get("checks") or {}).items() if not ok
             ],
-            "reason": excerpt(result.get("explanation") or "", 200),
+            "reason": clean(result.get("explanation") or "", 200),
         }
         for result in results
         if not result.get("passed")

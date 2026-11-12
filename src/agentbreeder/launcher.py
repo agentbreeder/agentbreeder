@@ -35,21 +35,38 @@ def _same_path(a: str | Path, b: str | Path) -> bool:
     return os.path.abspath(a) == os.path.abspath(b)
 
 
+def _same_interpreter(named: str, executable: str) -> bool:
+    """The shebang's interpreter is this one: the same path, or another name for the same file
+    in the same directory (a venv's `python3` beside `python`). Two different Pythons in one
+    directory (`python3.11`, `python3.12`) are not the same."""
+    if _same_path(named, executable):
+        return True
+    try:
+        return Path(named).parent.resolve() == Path(executable).parent.resolve() and (
+            os.path.samefile(named, executable)
+        )
+    except OSError:
+        return False
+
+
 def _runs_this_interpreter(script: str, executable: str) -> bool:
-    """The console script is this install's: its shebang names this interpreter, or it sits in
-    this interpreter's bin directory (followed through a symlink such as `uv tool`'s)."""
+    """The console script is this install's. A `#!` line naming a Python decides; only a
+    wrapper (sh, `env`) or an unreadable script falls back to "it sits in this interpreter's
+    bin directory" (followed through a symlink such as `uv tool`'s)."""
     try:
         real = Path(script).resolve()
-        if real.parent == Path(executable).parent.resolve():
-            return True
+    except (OSError, RuntimeError):
+        return False
+    try:
         with open(real, "rb") as handle:
             first = handle.readline(4096)
     except OSError:
-        return False
-    if not first.startswith(b"#!"):
-        return False
-    words = first[2:].decode("utf-8", "replace").split()
-    return bool(words) and _same_path(words[0], executable)
+        first = b""
+    if first.startswith(b"#!"):
+        words = first[2:].decode("utf-8", "replace").split()
+        if words and Path(words[0]).name.startswith("python"):
+            return _same_interpreter(words[0], executable)
+    return real.parent == Path(executable).parent.resolve()
 
 
 def _uv_cache(env: Mapping[str, str]) -> Path:

@@ -22,6 +22,21 @@ On main, not in a published preview.
   `center/static/fonts/`; the console does not use them yet. `tests/test_brand_tokens.py` checks
   the copy against `website/brand.css`, computes WCAG contrast for both palettes and pins the font
   hashes.
+- `agentbreeder migrate [--state-dir DIR | --stack DIR [--environment ENV]] [--json]` (#819; on
+  `main`, not in a published preview): upgrades the local deployment state to this version's
+  schema and finishes an interrupted write. No identity-provider calls; it never creates state.
+- `agentbreeder logs --failed NAME [--state-dir DIR | --stack DIR [--environment ENV]]` and the
+  failed-candidate log tail (#819; on `main`, not in a published preview): `release` reads the
+  candidate's last 500 lines and its secret copies before removing it, then redacts the lines and
+  keeps them at `<state-dir>/releases/<name>.candidate.log` (0600) when the candidate fails to
+  start or fails the gate; a passing release deletes it. A failed start deletes the candidate's
+  secret copies, so the deploy keeps (in memory, for that run only) what it read just before
+  that cleanup. When a value needed for redaction cannot be read, nothing is saved and release
+  says why (naming `agentbreeder migrate` when another environment's state is too old).
+  Failed-case excerpts are redacted before they are cut.
+  `logs --failed` shows control characters as visible escapes (`--raw` keeps them, `--json`
+  escapes them). Release's printed follow-up commands keep the `--stack`, `--environment` or
+  `--state-dir` it ran with.
 
 ### Changed
 
@@ -36,6 +51,27 @@ On main, not in a published preview.
   - Registering a project, onboarding an example and starting a job refuse directories, files and
     parent directories that other users own or can write (sticky directories such as `/tmp` are
     allowed).
+- `doctor` reports whether the `agentbreeder` your shell finds on `PATH` is this version (#805,
+  #819; advisory, never a failure; on `main`, not in a published preview). Under npx or uvx, the
+  temporary environment uv puts first on `PATH` is skipped, so a stale install behind it is found.
+- `cluster up` and `cluster down` take a per-user lock, `~/.agentbreeder/locks/cluster.lock`, and
+  fail with `CLUSTER_BUSY` while another one runs (security finding S-11, #819; on `main`, not in
+  a published preview).
+- One redactor (`agentbreeder.redaction`, #819; on `main`, not in a published preview): literal
+  values, each line of a multi-line value, base64 (also of the value inside a larger base64
+  string), URL-quoted (either hex case) and JSON-escaped forms, and URL passwords, replaced in one
+  pass in linear time. `services logs` uses it and now also redacts the stack's deployments'
+  secret copies, and failed-case excerpts from `release` go through it. The CLI never lets a
+  child process write to its own stdout or stderr unredacted (a test checks every call).
+- `release` no longer calls production "already in production" just because it runs the built
+  image (G-F3, #819; on `main`, not in a published preview): that needs an audited release of the
+  image. A hand-deployed production is warned about and evaluated as a candidate; a pass records
+  the release without replacing production, a fail exits 5 with `remove ID --local` (and
+  `--rollback` only when a release journal exists). `promote` reads the same evidence through the
+  new `evidence.released`.
+- `list` opens the local state read-only (`mode=ro`: no mkdir, no migration, no write lock) and,
+  for older or interrupted state, says to run `agentbreeder migrate` (#819; on `main`, not in a
+  published preview). `--stack DIR` resolution no longer creates the stack's state directory.
 - `Next:` lines name the launcher you are using (#819; on `main`, not in a published preview):
   `npx agentbreeder@<ver>` under the npm launcher (which now sets `AGENTBREEDER_LAUNCHER=npx` and
   `AGENTBREEDER_LAUNCHER_VERSION` for the CLI; only that value and a strict semver are accepted),

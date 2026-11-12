@@ -1,0 +1,14 @@
+usage: agentbreeder logs [-h] [--state-dir STATE_DIR] [--json] --failed NAME
+                         [--raw] [--stack DIR] [--environment ENVIRONMENT]
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json
+  --failed NAME         Agent name: show its last failed release candidate's
+                        log tail (redacted)
+  --raw                 Print control characters as they are (unsafe)
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR
+  --environment ENVIRONMENT
+                        With --stack: the stack environment

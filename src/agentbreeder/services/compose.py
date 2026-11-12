@@ -40,15 +40,10 @@ def sanitised_environment() -> dict[str, str]:
 
 
 def redact(text: str, values: Iterable[bytes | str]) -> str:
-    for value in sorted(
-        (v.decode("utf-8", "replace") if isinstance(v, bytes) else v for v in values),
-        key=len,
-        reverse=True,
-    ):
-        value = value.strip()
-        if len(value) >= 4:
-            text = text.replace(value, "[redacted]")
-    return text
+    """The shared redactor (literal, base64, URL, JSON forms and URL passwords; S-09)."""
+    from agentbreeder import redaction
+
+    return redaction.redact(text, values)
 
 
 class DockerCLI:

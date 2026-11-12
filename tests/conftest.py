@@ -29,6 +29,8 @@ def _no_real_legacy_home(monkeypatch):
     from agentbreeder.commands import doctor
 
     monkeypatch.setattr(doctor, "check_legacy", lambda: [])
+    # The PATH check runs whatever `agentbreeder` the machine has; tests/test_doctor_path.py.
+    monkeypatch.setattr(doctor, "check_path", lambda: [])
 
 
 def principal_entry(**overrides) -> dict:

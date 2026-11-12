@@ -62,6 +62,8 @@ COMMAND_MODULES = (
     "cluster",
     "up",
     "login",
+    "migrate",
+    "logs",
 )
 
 
@@ -117,11 +119,11 @@ def add_stack(command, environment: bool = False) -> None:
 _STACK_CODES = ("CONTEXT_ENVIRONMENT_UNKNOWN", "MODEL_ACCESS_UNCONFIGURED")
 
 
-def _stack_beside(near: Path) -> Path | None:
-    """The directory holding a stack.yaml beside `near` (an agent file) or one level above it
-    (a manifest in deploy/). A symlinked stack.yaml is not suggested."""
+def _stack_beside(near: Path, *, manifest: bool = False) -> Path | None:
+    """The directory holding a stack.yaml beside `near` (an agent file), or, for a manifest
+    (in deploy/), beside it or one level above. A symlinked stack.yaml is not suggested."""
     parent = near.absolute().parent
-    for directory in (parent, parent.parent):
+    for directory in (parent, parent.parent) if manifest else (parent,):
         candidate = directory / "stack.yaml"
         if candidate.is_file() and not candidate.is_symlink():
             return directory
@@ -137,18 +139,24 @@ def _message(error: Exception, *, args=None, near: Path | None = None) -> str:
     text = str(error)
     text = text if not code or text.startswith("[") else f"[{code}] {text}"
     if code in _STACK_CODES and near is not None and getattr(args, "stack", None) is None:
-        stack = _stack_beside(Path(near))
+        stack = _stack_beside(Path(near), manifest=getattr(args, "command", None) == "deploy")
         if stack is not None:
             text += (
                 f"\nstack.yaml is in {stack}: add `--stack {shlex.quote(str(stack))}` to use "
                 "the operator config `services up` wrote for it"
             )
     if code == "REF_UNPINNED" and getattr(args, "command", None) == "release":
+        build = hints.command(
+            "build",
+            near or "agent.yaml",
+            stack=getattr(args, "stack", None),
+            environment=getattr(args, "environment", None),
+        )
         text += (
             "\nrelease needs published versions: scaffold with "
             f"`{hints.command('registry', 'new', 'KIND', 'NAME')}`, copy your file in, run "
             f"`{hints.command('registry', 'publish', 'DIR')}`, reference KIND/NAME@X.Y.Z in "
-            f"agent.yaml, then `{hints.command('build', near or 'agent.yaml')}`"
+            f"agent.yaml, then `{build}`"
         )
     return text
 
@@ -170,9 +178,15 @@ def _use_stack(args) -> int | None:
     if args.command == "cluster":
         return None  # its --stack names the project; it needs no operator config
     if getattr(args, "stack", None) is None:
-        if args.command in ("status", "remove", "reconcile", "forward", "list") and (
-            args.environment
-        ):
+        if args.command in (
+            "status",
+            "remove",
+            "reconcile",
+            "forward",
+            "list",
+            "migrate",
+            "logs",
+        ) and (args.environment):
             _parser().error("--environment needs --stack for this command")
         return None
     if getattr(args, "state_dir", DEFAULT_STATE) != DEFAULT_STATE:
@@ -204,11 +218,13 @@ def run_stateful(
     before: Callable[[], int | None] | None = None,
     service: bool = True,
     near: Path | None = None,
+    readonly: bool = False,
 ) -> int:
     """Open the local state and run `action(service, operator)` (or `action(store)` when
     `service` is false), mapping deployment errors to exit 2. `before` runs first, inside the
     same error handling; an int it returns ends the command. `existing` refuses a missing state.
-    `near` (the file the command was given) lets an error name a fix such as `--stack`."""
+    `near` (the file the command was given) lets an error name a fix such as `--stack`.
+    `readonly` opens existing state with `Store.open_readonly` (needs `service=False`)."""
     store = None
     try:
         if before is not None and (early := before()) is not None:
@@ -217,7 +233,7 @@ def run_stateful(
             # Never create an empty state for a read/act-on-existing command: a mistyped
             # --state-dir would otherwise report success ("OK: 0 rows") on the wrong place.
             raise DeploymentError(f"No AgentBreeder state at {args.state_dir}; check --state-dir")
-        store = Store(args.state_dir)
+        store = Store.open_readonly(args.state_dir) if readonly else Store(args.state_dir)
         if not service:
             return action(store)
         operator = load_operator_config()

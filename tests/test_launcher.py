@@ -159,3 +159,27 @@ def test_launcher_end_to_end_in_a_real_interpreter(tmp_path):
     if (bindir / "agentbreeder").exists():  # an installed console script beside this python
         on_path = {**base, "PATH": f"{bindir}{os.pathsep}/usr/bin:/bin"}
         assert _printed(on_path) == "agentbreeder release agent.yaml"
+
+
+def test_the_shebang_decides_over_the_directory(tmp_path):
+    """Review r1: /usr/local/bin can hold python3.11's agentbreeder and python3.12 itself."""
+    bindir = tmp_path / "usr-local-bin"
+    bindir.mkdir()
+    for name in ("python3.11", "python3.12"):
+        (bindir / name).write_text("")
+    executable = str(bindir / "python3.12")
+    stale = script(bindir / "agentbreeder", str(bindir / "python3.11"))
+    assert prefix(
+        which=lambda n: stale if n == "agentbreeder" else None, executable=executable
+    ) == (f"{executable} -m agentbreeder")
+    # A venv: `python3` and `python` are one file in one directory.
+    venv = tmp_path / "venv" / "bin"
+    venv.mkdir(parents=True)
+    (venv / "python").write_text("")
+    (venv / "python3").symlink_to(venv / "python")
+    found = script(venv / "agentbreeder", str(venv / "python3"))
+    assert prefix(which=lambda n: found, executable=str(venv / "python")) == "agentbreeder"
+    # A shell wrapper: the directory rule.
+    wrapper = venv / "agentbreeder-sh"
+    wrapper.write_text('#!/bin/sh\nexec python -m agentbreeder "$@"\n')
+    assert prefix(which=lambda n: str(wrapper), executable=str(venv / "python")) == "agentbreeder"

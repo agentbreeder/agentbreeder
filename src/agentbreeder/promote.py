@@ -21,12 +21,11 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 import yaml
 
-from agentbreeder import evals, registry
+from agentbreeder import evals, evidence
 from agentbreeder.agentfile import load_agent_file
 from agentbreeder.deployer import Deployer
 from agentbreeder.deployment import AuditIncomplete, AuditUnavailable, DeploymentService
 from agentbreeder.gate import GateDenied
-from agentbreeder.lock import Lock
 from agentbreeder.manifest import Manifest
 from agentbreeder.operator_config import OperatorConfig
 from agentbreeder.release import (
@@ -111,28 +110,7 @@ def push_image(docker, image: str, repository: str, tag: str) -> str:
 
 def _evidence(service: DeploymentService, agent, project: Path, current: dict, image: str) -> dict:
     """The audited release that promoted this image, or a refusal explaining what is missing."""
-    ref = registry.Ref.parse(agent.evals.ref)
-    locked = Lock.load(project / "agent.lock").entries.get(str(ref)) or {}
-    for row in service.store.audit_matching("release", "promoted"):
-        reasons = {item["code"]: item["message"] for item in row.get("reasons") or []}
-        if (
-            reasons.get("RELEASE_IMAGE") != image
-            or reasons.get("RELEASE_MANIFEST") != current["digest"]
-        ):
-            continue
-        if float(reasons.get("RELEASE_THRESHOLD", -1)) < agent.evals.threshold:
-            raise ReleaseError(
-                "RELEASE_THRESHOLD_LOWERED",
-                "That release ran below the threshold in agent.yaml; release again",
-            )
-        if reasons.get("RELEASE_EVALSET") != locked.get("sha256"):
-            raise ReleaseError(
-                "RELEASE_EVALSET_CHANGED", "That release used another eval set; release again"
-            )
-        return reasons
-    raise ReleaseError(
-        "NO_RELEASE_EVIDENCE", "No audited release promoted this image; run agentbreeder release"
-    )
+    return evidence.released(service.store, agent, project, current, image)
 
 
 def _already_promoted(service: DeploymentService, reference: str, skipping: bool) -> bool:

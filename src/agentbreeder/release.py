@@ -14,7 +14,10 @@ docs say so. Order of operations:
 6. write the release journal (previous deployment + manifest), remove the old production
    (the engine refuses a different spec under an active name), deploy the evaluated image; if
    that fails, redeploy the previous manifest and exit 1
-An image already promoted (same manifest digest, ready) is a no-op. `--rollback` redeploys the
+An image already in production is a no-op only when an audited `release/promoted` row matches it
+(same image and manifest, threshold and eval set as now). Production running the image without
+that evidence (a plain `deploy`) is warned about and evaluated as a candidate; a pass records the
+release without replacing production, a fail exits 5 with advice (G-F3). `--rollback` redeploys the
 journal's previous manifest.
 """
 
@@ -23,6 +26,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import signal
 import tempfile
 import threading
@@ -32,7 +36,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from agentbreeder import evals, hints, registry
+from agentbreeder import evals, evidence, hints, registry
 from agentbreeder.agentfile import load_agent_file
 from agentbreeder.build import BuildError, build, docker_build
 from agentbreeder.deployer import Deployer
@@ -56,17 +60,15 @@ class Outcome:
         return {"exit_code": self.code, "message": self.message, **self.details}
 
 
-class ReleaseError(ValueError):
-    def __init__(self, code: str, message: str):
-        super().__init__(f"[{code}] {message}")
-        self.code = code
+# Re-exported: callers import ReleaseError from here.
+from agentbreeder.evidence import ReleaseError  # noqa: E402
 
 
 def _digest(manifest: Manifest) -> str:
     return manifest.digest()
 
 
-def _eval_set(agent, project: Path) -> evals.EvalSet:
+def _eval_set(agent, project: Path, where: hints.Where | None = None) -> evals.EvalSet:
     """Resolve the agent's eval ref and verify it against agent.lock (never re-locks)."""
     if agent.evals is None:
         raise ReleaseError("EVALS_MISSING", "agent.yaml has no `evals` ref; release needs one")
@@ -74,8 +76,9 @@ def _eval_set(agent, project: Path) -> evals.EvalSet:
     lock = Lock.load(project / "agent.lock")
     locked = lock.entries.get(str(ref))
     if locked is None:
+        build_command = (where or hints.Where()).command("build", project / "agent.yaml")
         raise ReleaseError(
-            "LOCK_STALE", f"{ref} is not in agent.lock; run `{hints.command('build')}` first"
+            "LOCK_STALE", f"{ref} is not in agent.lock; run `{build_command}` first"
         )
     hit = registry.resolve(ref, registry.roots(project))
     with tempfile.TemporaryDirectory(prefix="agentbreeder-eval-") as temporary:
@@ -146,7 +149,11 @@ def release(
     builder: Callable[[Path, Path], str] = docker_build,
     evaluate: Callable[..., evals.EvalReport] = evals.run,
     log: Callable[[str], None] = lambda message: None,
+    where: hints.Where | None = None,
 ) -> Outcome:
+    """`where` is the --stack/--environment/--state-dir the caller ran with, so commands in
+    messages work as printed."""
+    where = where or hints.Where()
     agent = load_agent_file(agent_path)
     project = agent_path.resolve().parent
     env = environment or operator.model.default_environment
@@ -162,12 +169,29 @@ def release(
             )
         production = load_manifest(built.manifest_path)
         candidate = load_manifest(built.candidate_manifest_path)
-        eval_set = _eval_set(agent, project)
+        eval_set = _eval_set(agent, project, where)
         details = {"image": built.image, "agent": agent.name, "environment": env}
+        needed = agent.evals.threshold if threshold is None else threshold
 
         current = service.store.active(production.name)
+        # G-F3: production running this image is "released" only with an audited release
+        # of it. A plain `deploy` (or a release under another threshold or eval set) is
+        # evaluated now as a candidate; production itself is never replaced or removed here.
+        unreleased = None
         if current and current["digest"] == _digest(production) and current["state"] == "ready":
-            return Outcome(EXIT_OK, f"{built.image} is already in production", details)
+            try:
+                evidence.released(
+                    service.store, agent, project, current, built.image, threshold=needed
+                )
+                return Outcome(EXIT_OK, f"{built.image} is already in production", details)
+            except ReleaseError as error:
+                unreleased = current
+                warning = (
+                    f"production ({current['id']}) runs this image but was not released through "
+                    f"the eval gate ({error.code}); evaluating the same image now"
+                )
+                log(f"WARNING: {warning}")
+                details["warnings"] = [warning]
 
         decision = service.preflight(production, env, deployer)
         if not decision.allowed:
@@ -178,7 +202,8 @@ def release(
             return Outcome(
                 EXIT_APPROVAL,
                 "The production deploy needs a second-person approval. Release does not run "
-                "approvals yet: deploy the manifest with `agentbreeder deploy` after approval. "
+                "approvals yet: deploy the manifest with "
+                f"`{where.command('deploy', built.manifest_path, '--local')}` after approval. "
                 "Production unchanged.",
                 {**details, "manifest": str(built.manifest_path)},
             )
@@ -195,6 +220,7 @@ def release(
             return Outcome(
                 EXIT_APPROVAL, "The candidate deploy needs approval; production unchanged", details
             )
+        capture: Capture | None = None
         try:
             if deployed["state"] != "ready":
                 return Outcome(
@@ -219,13 +245,23 @@ def release(
                 raise
         finally:
             if deployed.get("id"):
-                _removed_or_raise(service, deployed["id"], deployer, "the candidate")
+                # Read before removal, on every run: once removed, its logs and secret copies
+                # are gone (§14.9 R3). Capturing never raises, and an interrupt is held until
+                # the candidate is removed; redacting and saving happen after the removal, so
+                # neither can delay or skip it.
+                with defer_interrupt():
+                    capture = capture_candidate(service, deployed["id"])
+                    try:
+                        _removed_or_raise(
+                            service, deployed["id"], deployer, "the candidate", where=where
+                        )
+                    finally:
+                        save_candidate_tail(capture, state, agent.name, details)
         summary = report.summary()
         report_path = output / f"{agent.name}.eval-{report.run_id}.json"
         output.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps({**summary, "results": report.results}, indent=2) + "\n")
         details |= {"eval": summary, "eval_report": str(report_path)}
-        needed = agent.evals.threshold if threshold is None else threshold
         reasons = [
             {
                 "code": "RELEASE_EVAL",
@@ -244,11 +280,45 @@ def release(
         ]
         if report.pass_rate < needed:
             service.record("release", "eval_failed", deployer, reasons)
-            details["failed_cases"] = evals.failed_cases(report.results)
-            return Outcome(
-                EXIT_EVAL,
+            details["failed_cases"] = _redacted_cases(report.results, capture)
+            message = (
                 f"Eval gate failed: {summary['passed']}/{summary['cases']} passed, needs "
-                f"{needed:.0%}; production unchanged",
+                f"{needed:.0%}; production unchanged"
+            )
+            if unreleased:
+                # The caller prints the commands, with the --stack/--state-dir it was given.
+                message += "; production is running an image that failed the gate"
+                details["unreleased_production"] = {
+                    "id": unreleased["id"],
+                    "rollback": _has_previous(state, agent.name),
+                }
+            return Outcome(EXIT_EVAL, message, details)
+
+        # The gate passed: the failed-candidate tail of an earlier run is no longer current.
+        discard_candidate_tail(state, agent.name)
+        details.pop("candidate_log", None)
+
+        if unreleased:
+            # The evaluated image is production's own: record the release, replace nothing.
+            now = service.store.active(production.name)
+            if (
+                not now
+                or now["id"] != unreleased["id"]
+                or now["state"] != "ready"
+                or now["digest"] != unreleased["digest"]
+            ):
+                raise ReleaseError(
+                    "PRODUCTION_CHANGED",
+                    "Production changed while the evals ran; nothing was recorded. Re-run release",
+                )
+            service.record("release", "promoted", deployer, reasons)
+            details |= {
+                "production": {"id": unreleased["id"], "endpoint": unreleased.get("endpoint")}
+            }
+            return Outcome(
+                EXIT_OK,
+                f"Released {built.image}: {summary['passed']}/{summary['cases']} evals passed; "
+                "production already ran this image and was not replaced",
                 details,
             )
 
@@ -286,7 +356,9 @@ def release(
         with defer_interrupt():
             if current:
                 log(f"Replacing production {current['id']} ...")
-                _removed_or_raise(service, current["id"], deployer, "the previous production")
+                _removed_or_raise(
+                    service, current["id"], deployer, "the previous production", where=where
+                )
             denied = False
             try:
                 promoted = service.deploy(
@@ -321,7 +393,139 @@ def release(
         )
 
 
-def _removed_or_raise(service, identifier: str, deployer, what: str, *, local=True) -> None:
+TAIL_LINES = 500
+
+
+def candidate_tail_path(state: Path, name: str) -> Path:
+    """One per agent, beside the release journal in the 0700 state directory."""
+    from agentbreeder.agentfile import NAME_PATTERN
+
+    if not re.fullmatch(NAME_PATTERN, name):
+        raise ReleaseError("AGENT_NAME", "invalid agent name")
+    return state / "releases" / f"{name}.candidate.log"
+
+
+@dataclass
+class Capture:
+    """What was read from a candidate before its removal (raw, not yet redacted)."""
+
+    text: str | None = field(default=None, repr=False)
+    values: list = field(default_factory=list, repr=False)
+    problems: list = field(default_factory=list)
+
+
+def capture_candidate(service, deployment_id: str) -> Capture:
+    """The candidate's last TAIL_LINES log lines and the values needed to redact them, read
+    while the container and its secret copies still exist. Never raises."""
+    from agentbreeder import redaction
+
+    capture = Capture()
+    collected = False
+    try:
+        state = service.store.directory
+        record = service.store.get(deployment_id)
+        found = redaction.collect(state, store=service.store)
+        # The candidate's own copies (gateway key, MCP tokens, generated secrets). A failed
+        # start deletes them from disk, so the deployment service keeps what it read just
+        # before that cleanup; otherwise they are read from disk by the deployment's ID.
+        retained = getattr(service, "retained_secrets", {}).pop(deployment_id, None)
+        if retained is not None and record.get("state") != "ready":
+            found.values += retained.values
+            found.problems += retained.problems
+        else:
+            redaction.deployment_copies(state, deployment_id, found)
+        capture.values, capture.problems = found.values, found.problems
+        collected = True
+        service.runtime.authorize(record["context"])
+        info = service.runtime.inspect(record)
+        if info:
+            text, _ = service.runtime.logs(info, TAIL_LINES)
+            capture.text = text if isinstance(text, str) else None
+    except Exception:  # noqa: BLE001 - a log that cannot be read never fails a release
+        capture.text = None
+        if not collected:
+            # Values are missing: withhold what needs them (the tail, the judges' reasons).
+            capture.problems.append("could not collect the values needed for redaction")
+    return capture
+
+
+def save_candidate_tail(capture: Capture, state: Path, name: str, details: dict) -> None:
+    """Redact, keep the last TAIL_LINES lines, save (0600) and note the path in `details`; or
+    note why nothing was saved. Any earlier tail is replaced or deleted. Never raises."""
+    from agentbreeder import redaction
+
+    try:
+        discard_candidate_tail(state, name)
+        if capture.text is None:
+            return
+        if capture.problems:
+            details["candidate_log_skipped"] = (
+                "the candidate log was not saved because it could not be fully redacted: "
+                + "; ".join(sorted(set(capture.problems)))
+            )
+            return
+        redacted = redaction.redact(capture.text, capture.values)
+        lines = redacted.splitlines()[-TAIL_LINES:]
+        path = candidate_tail_path(state, name)
+        _journal_path(state, name)  # creates releases/ with 0700
+        _write_private(path, ("\n".join(lines) + "\n").encode())
+        details["candidate_log"] = str(path)
+    except Exception:  # noqa: BLE001 - best effort, after the candidate is gone
+        details.pop("candidate_log", None)
+
+
+def _redacted_cases(results: list[dict], capture: Capture | None) -> list[dict]:
+    """Failed cases for printing and JSON. Ids, check names and the judge's reason are redacted
+    whole (with the values read before the candidate was removed, its own keys included) and
+    only then cut to an excerpt, so a value across the cap leaves no prefix. The reason is
+    withheld when redaction is incomplete."""
+    from agentbreeder import redaction
+
+    hidden = "(not shown: could not be redacted)"
+    try:
+        values = capture.values if capture else []
+        complete = bool(capture) and not capture.problems
+        cases = evals.failed_cases(results, redact=lambda text: redaction.redact(text, values))
+        if not complete:
+            for case in cases:
+                case["reason"] = hidden if case["reason"] else ""
+        return cases
+    except Exception:  # noqa: BLE001 - never show what could not be redacted
+        return [{"id": hidden, "failed_checks": [], "reason": hidden} for _ in results]
+
+
+def discard_candidate_tail(state: Path, name: str) -> None:
+    try:
+        candidate_tail_path(state, name).unlink(missing_ok=True)
+    except (OSError, ReleaseError):
+        pass
+
+
+def _write_private(path: Path, data: bytes) -> None:
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.unlink(missing_ok=True)
+    descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _has_previous(state: Path, name: str) -> bool:
+    """Whether `release --rollback` can work: a journal with a previous production."""
+    journal = state / "releases" / f"{name}.json"
+    try:
+        return bool(json.loads(journal.read_text()).get("previous"))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def _removed_or_raise(
+    service, identifier: str, deployer, what: str, *, local=True, where: hints.Where | None = None
+) -> None:
     """`remove` reports a failed teardown as state `failed` instead of raising; a release must
     not carry on (promote, or exit 0) while a container it meant to remove keeps running."""
     result = service.remove(identifier, local=local, actor=deployer)
@@ -329,7 +533,9 @@ def _removed_or_raise(service, identifier: str, deployer, what: str, *, local=Tr
         raise ReleaseError(
             "REMOVE_FAILED",
             f"Could not remove {what} ({identifier}): {result.get('error')}. Production is "
-            f"unchanged where possible; run `agentbreeder remove {identifier} --local` and retry",
+            "unchanged where possible; run "
+            f"`{(where or hints.Where()).command('remove', identifier, '--local')}` "
+            "and retry",
         )
 
 
@@ -357,6 +563,7 @@ def rollback(
     environment: str | None = None,
     *,
     output: Path | None = None,
+    where: hints.Where | None = None,
 ) -> Outcome:
     """Redeploy the previous production recorded by the last release. The journal is only a
     pointer: the manifest must name this agent, the environment comes from the caller or the
@@ -395,7 +602,9 @@ def rollback(
                 "manifest": service.store.manifest(current["id"]),
                 "environment": current.get("environment"),
             }
-            _removed_or_raise(service, current["id"], deployer, "the current production")
+            _removed_or_raise(
+                service, current["id"], deployer, "the current production", where=where
+            )
         try:
             restored = service.deploy(manifest, local=True, environment=env, deployer=deployer)
         except (AuditUnavailable, AuditIncomplete):

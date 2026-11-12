@@ -50,6 +50,16 @@ def test_stack_hint_one_level_above_a_manifest(tmp_path):
     assert f"--stack {tmp_path}" in message
 
 
+def test_an_agent_file_gets_no_hint_from_a_stack_two_levels_up(tmp_path):
+    """Only a manifest (in deploy/) looks one level up; an agent file looks beside itself."""
+    (tmp_path / "stack.yaml").write_text("kind: stack\n")
+    (tmp_path / "sub").mkdir()
+    error = BuildError("CONTEXT_ENVIRONMENT_UNKNOWN", "x")
+    assert "--stack" not in cli._message(
+        error, args=args("build"), near=tmp_path / "sub" / "a.yaml"
+    )
+
+
 def test_no_stack_hint_without_stack_yaml_with_stack_or_for_other_codes(tmp_path):
     error = BuildError("CONTEXT_ENVIRONMENT_UNKNOWN", "x")
     assert "--stack" not in cli._message(error, args=args(), near=tmp_path / "agent.yaml")
@@ -158,7 +168,7 @@ def test_release_lock_stale_says_build_first(project, operator):  # noqa: F811
     from agentbreeder.agentfile import load_agent_file
     from agentbreeder.release import ReleaseError, _eval_set
 
-    with pytest.raises(ReleaseError, match="run `agentbreeder build` first"):
+    with pytest.raises(ReleaseError, match=r"run `agentbreeder build \S+agent\.yaml` first"):
         _eval_set(load_agent_file(project / "agent.yaml"), project)
 
 
@@ -205,8 +215,15 @@ def test_release_outcome_lists_failed_cases(project, operator, state):  # noqa: 
     assert "failed_cases" in outcome.as_json()
 
 
-def test_release_cli_prints_failed_cases(monkeypatch, capsys, tmp_path):
+def test_release_cli_prints_failed_cases(monkeypatch, capsys, tmp_path, identity_env):
+    """Uses the test's own operator config (never ~/.agentbreeder/operator.yaml)."""
     from agentbreeder import release as release_module
+    from agentbreeder.operator_config import CONFIG_ENV
+
+    monkeypatch.setenv(CONFIG_ENV, str(identity_env.path))
+    monkeypatch.setattr(
+        "agentbreeder.commands.release.load_operator_config", lambda: identity_env.load()
+    )
 
     failed = [{"id": "greets", "failed_checks": ["judge_correct"], "reason": "said bye"}]
     outcome = Outcome(EXIT_EVAL, "Eval gate failed: 1/2 passed", {"failed_cases": failed})

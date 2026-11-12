@@ -81,6 +81,19 @@ class DeploymentService:
         self.kubernetes = kubernetes if kubernetes is not None else Kubernetes(self.operator)
         self.boundary = Boundary(runtime, store.directory, self.operator)
         self.enforcing = self.operator.model.runtime_enforcement.mode == "mcp_http"
+        # Secret copies of deployments whose start failed, read just before their cleanup and
+        # kept only in this process, so `release` can still redact the failed candidate's log.
+        self.retained_secrets: dict = {}
+
+    def _retain_copies(self, identifier: str) -> None:
+        from agentbreeder import redaction
+
+        found = redaction.Collected()
+        try:
+            redaction.deployment_copies(self.store.directory, identifier, found)
+        except Exception:  # noqa: BLE001 - never block the cleanup that follows
+            found.problems.append("cannot read the failed deployment's secrets")
+        self.retained_secrets[identifier] = found
 
     def _runtime_for(self, target: str):
         return self.kubernetes if target == "kubernetes" else self.runtime
@@ -448,6 +461,7 @@ class DeploymentService:
                 identifier, "ready", endpoint=endpoint, audit=event("ready")
             )
         except DeploymentError as error:
+            self._retain_copies(identifier)
             secret_files.cleanup(self.store.directory, identifier)
             self._revoke_mcp(identifier)  # best effort here; reconcile retries what remains
             # Always revoke on failure: a key from an earlier generation may still be live even

@@ -10,6 +10,7 @@ import stat
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from agentbreeder import audit as audit_log
 from agentbreeder.audit import AuditError, AuditEvent
@@ -61,6 +62,37 @@ class DeploymentError(ValueError):
     """Safe, actionable lifecycle error."""
 
     code = "DEPLOYMENT_ERROR"
+
+
+class StateNeedsMigration(DeploymentError):
+    """A read-only open found state it cannot use as it is: an older schema, or an interrupted
+    write (hot journal) that only a writer can roll back. `agentbreeder migrate` fixes both."""
+
+    code = "STATE_NEEDS_MIGRATION"
+
+
+class StateBusy(DeploymentError):
+    code = "STATE_BUSY"
+
+
+def _migrate_hint() -> str:
+    from agentbreeder import hints
+
+    return f"run `{hints.command('migrate')}` (with the same --state-dir or --stack) to upgrade it"
+
+
+def _private_state_dir(directory: Path) -> None:
+    """The checks `Store()` makes on its directory, without creating it."""
+    try:
+        info = directory.lstat()
+    except FileNotFoundError as error:
+        raise DeploymentError(
+            f"No AgentBreeder state at {directory}; check --state-dir"
+        ) from error
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise DeploymentError("State directory must be owned by the current user")
+    if info.st_mode & 0o077:
+        raise DeploymentError("State directory must have permissions 0700")
 
 
 def _now() -> str:
@@ -132,6 +164,75 @@ class Store:
         except Exception:
             self.db.close()
             raise
+
+    @classmethod
+    def open_readonly(cls, directory: Path) -> Store:
+        """Open existing state for reading only (`file:…?mode=ro`): no mkdir, no migration and
+        no write lock, so `list` (and later `next` and `logs`) never create state or hold up a
+        running job's audit write. Older or interrupted state raises `StateNeedsMigration`."""
+        directory = directory.absolute()
+        _private_state_dir(directory)
+        path = directory / "deployments.sqlite3"
+        try:
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError as error:
+            raise DeploymentError(
+                f"No AgentBreeder state at {directory}; check --state-dir"
+            ) from error
+        except OSError as error:
+            raise DeploymentError(
+                "State database must be a private file owned by this user"
+            ) from error
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != os.getuid()
+                or metadata.st_mode & 0o077
+            ):
+                raise DeploymentError("State database must be a private file owned by this user")
+        finally:
+            os.close(descriptor)
+        db = sqlite3.connect(
+            f"file:{quote(str(path))}?mode=ro", uri=True, timeout=5, isolation_level=None
+        )
+        try:
+            try:
+                version = db.execute("PRAGMA user_version").fetchone()[0]
+                tables = db.execute("SELECT count(*) FROM sqlite_master WHERE type='table'")
+                has_tables = tables.fetchone()[0] > 0
+            except sqlite3.OperationalError as error:
+                if "locked" in str(error):
+                    raise StateBusy(
+                        "Another AgentBreeder operation is writing the local state; retry"
+                    ) from error
+                # A hot journal: a read-only connection may not roll back an interrupted write.
+                raise StateNeedsMigration(
+                    f"The local state at {directory} has an interrupted write; " + _migrate_hint()
+                ) from error
+            if version == SCHEMA_VERSION:
+                pass
+            elif version in (1, 2) or (version == 0 and not has_tables):
+                raise StateNeedsMigration(
+                    f"The local state at {directory} uses schema v{version} and this "
+                    f"AgentBreeder uses v{SCHEMA_VERSION}; " + _migrate_hint()
+                )
+            else:
+                raise DeploymentError(
+                    "Unsupported state schema; use the matching AgentBreeder version"
+                )
+        except Exception:
+            db.close()
+            raise
+        db.row_factory = sqlite3.Row
+        store = cls.__new__(cls)
+        store.directory = directory
+        store.db = db
+        store._depth = 0
+        store.readonly = True
+        return store
+
+    readonly = False
 
     def close(self):
         self.db.close()
