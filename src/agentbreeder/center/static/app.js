@@ -44,11 +44,16 @@ async function api(path, body) {
     options.body = JSON.stringify(body);
   }
   const response = await fetch(path, options);
-  const data = await response.json().catch(() => ({ error: "Unreadable response" }));
+  // Every reply is an envelope {data, error: null | {code, message}, stale}.
+  const reply = await response.json().catch(() => ({ data: null, error: { code: "UNREADABLE", message: "Unreadable response" }, stale: false }));
   if (response.status === 401) { showSignIn(); throw new Error("Sign in again"); }
-  if (!response.ok) { const error = new Error(data.error || "Request failed"); error.job = data.job; error.status = response.status; throw error; }
-  return data;
+  if (!response.ok) { const error = new Error(problem(reply) || "Request failed"); error.job = reply.data && reply.data.job; error.status = response.status; throw error; }
+  return reply;
 }
+
+// The data of a reply; views keep the whole envelope (data, error, stale).
+const fetchData = async (path, body) => (await api(path, body)).data;
+const problem = (reply) => (reply && reply.error ? reply.error.message : null);
 
 function announce(text) { document.getElementById("announce").textContent = text; }
 
@@ -76,7 +81,7 @@ function confirmAction(title, text, label) {
 const running = () => Boolean(ui.job && ui.job.state === "running");
 
 async function refresh() {
-  ui.projects = (await api("/api/projects")).projects;
+  ui.projects = (await fetchData("/api/projects")).projects;
   if (ui.project) ui.project = ui.projects.find((p) => p.id === ui.project.id) || null;
   if (!ui.project) ui.project = ui.projects[ui.projects.length - 1] || null;
   if (ui.project) await loadView();
@@ -100,7 +105,7 @@ async function loadView() {
 
 async function startJob(kind, options = {}, keys) {
   try {
-    const { job } = await api(`/api/projects/${ui.project.id}/jobs`, { kind, options, keys });
+    const { job } = await fetchData(`/api/projects/${ui.project.id}/jobs`, { kind, options, keys });
     ui.job = { id: job, kind, state: "running" };
     ui.jobLines = [];
     ui.lastLine = 0;
@@ -117,7 +122,7 @@ async function startJob(kind, options = {}, keys) {
 
 async function pollJob() {
   if (!ui.job) return;
-  const job = await api(`/api/jobs/${ui.job.id}?after=${ui.lastLine}`);
+  const job = await fetchData(`/api/jobs/${ui.job.id}?after=${ui.lastLine}`);
   for (const line of job.lines) { ui.jobLines.push(line.text); ui.lastLine = line.seq; }
   const wasRunning = running();
   ui.job = { ...ui.job, ...job };
@@ -190,7 +195,7 @@ function panel() {
 }
 
 const staleNote = (view) => (view && view.stale ? h("p", { class: "muted" }, "Showing last-known data. It refreshes when the running job ends.") : null);
-const errorNote = (view) => (view && view.error && !view.stale ? h("p", { class: "muted" }, view.error) : null);
+const errorNote = (view) => (view && view.error && !view.stale ? h("p", { class: "muted" }, problem(view)) : null);
 
 function trust() {
   return h("p", { class: "muted" }, "The local Docker admin has full control. The gate prevents mistakes and policy drift, not a local admin.");
@@ -199,7 +204,7 @@ function trust() {
 function panelProject() {
   const path = h("input", { id: "path", placeholder: "/path/to/project", autocomplete: "off" });
   const add = async (body) => {
-    try { ui.project = await api("/api/projects", body); ui.view = {}; ui.notice = null; ui.step = "services"; await refresh(); } catch (error) { ui.notice = { kind: "error", text: error.message }; render(); }
+    try { ui.project = await fetchData("/api/projects", body); ui.view = {}; ui.notice = null; ui.step = "services"; await refresh(); } catch (error) { ui.notice = { kind: "error", text: error.message }; render(); }
   };
   return h("section", {}, h("h2", {}, "Project"),
     h("div", { class: "card" }, h("h3", {}, "Start with the Northwind example"),
@@ -223,7 +228,7 @@ function panelServices() {
   const services = ui.view.services || {};
   const rows = services.data ? Object.entries(services.data.services || {}) : [];
   const review = async () => {
-    try { ui.plan = await api(`/api/projects/${ui.project.id}/plan`, {}); ui.notice = ui.plan.error ? { kind: "error", text: ui.plan.error } : null; } catch (error) { ui.notice = { kind: "error", text: error.message }; }
+    try { const reply = await api(`/api/projects/${ui.project.id}/plan`, {}); ui.plan = reply.data; ui.notice = reply.error ? { kind: "error", text: problem(reply) } : null; } catch (error) { ui.notice = { kind: "error", text: error.message }; }
     render();
   };
   return h("section", {}, h("h2", {}, "Services"),
@@ -234,13 +239,13 @@ function panelServices() {
       h("div", { class: "row" },
         h("button", { class: "action", disabled: running(), onclick: review }, rows.length ? "Review and update" : "Review what will run"),
         rows.length ? h("button", { class: "action secondary", disabled: running(), onclick: async () => { if (await confirmAction("Stop the services?", "The containers stop. Their data and generated secrets are kept. Refused while an agent is deployed.", "Stop services")) startJob("services-down"); } }, "Stop services") : null)),
-    ui.plan && ui.plan.data ? grantCard(ui.plan) : null,
+    ui.plan && ui.plan.grant ? grantCard(ui.plan) : null,
     registryCard(),
     trust());
 }
 
 function grantCard(plan) {
-  const data = plan.data;
+  const data = plan.grant;
   const inputs = data.keys.filter((key) => !key.stored).map((key) => ({ key, input: h("input", { type: "password", autocomplete: "off", id: `key-${key.name}` }) }));
   const stored = data.keys.filter((key) => key.stored);
   const start = () => {
@@ -265,12 +270,12 @@ function grantCard(plan) {
 }
 
 function registryCard() {
-  const registry = ui.view.registry;
+  const registry = ui.view.registry && ui.view.registry.data;
   if (!registry) return null;
   const versions = registry.versions.data || [];
   const problems = registry.problems.data;
   return h("div", { class: "card" }, h("h3", {}, "Registries"),
-    h("p", {}, `${versions.length} versions available. `, problems ? (problems.length ? `${problems.length} failed verification.` : "All passed verification (corruption check).") : (registry.problems.error || "")),
+    h("p", {}, `${versions.length} versions available. `, problems ? (problems.length ? `${problems.length} failed verification.` : "All passed verification (corruption check).") : (problem(registry.problems) || "")),
     h("details", {}, h("summary", {}, "Show versions"), h("pre", { tabindex: "0" }, versions.map((row) => row.ref).join("\n"))));
 }
 
@@ -325,8 +330,9 @@ function panelKubernetes() {
 }
 
 function panelAudit() {
-  const view = ui.view.audit || {};
-  if (view.error) return h("section", {}, h("h2", {}, "Audit"), h("p", { class: "muted" }, view.error));
+  const reply = ui.view.audit || {};
+  if (reply.error) return h("section", {}, h("h2", {}, "Audit"), h("p", { class: "muted" }, problem(reply)));
+  const view = reply.data || {};
   const rows = (view.rows && view.rows.data) || [];
   const verify = view.verify && view.verify.data;
   return h("section", {}, h("h2", {}, "Audit"),
@@ -352,10 +358,10 @@ async function start() {
   const match = /^#t=([A-Za-z0-9_-]+)$/.exec(location.hash);
   if (match) {
     history.replaceState(null, "", "/");
-    try { sessionToken((await api("/api/session", { token: match[1] })).session); } catch { showSignIn(); return; }
+    try { sessionToken((await fetchData("/api/session", { token: match[1] })).session); } catch { showSignIn(); return; }
   }
   try {
-    ui.overview = await api("/api/overview");
+    ui.overview = await fetchData("/api/overview");
     if (ui.overview.job) { ui.job = { id: ui.overview.job, kind: "job", state: "running" }; pollJob(); }
     await refresh();
   } catch { showSignIn(); }
