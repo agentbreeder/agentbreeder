@@ -12,6 +12,31 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder logs ID [--tail N] [--since D] [--follow] [--raw] [--json] [--state-dir DIR |
+  --stack DIR [--environment ENV]]` (#821, M5), on `main`, not in a published preview: a local
+  deployment's container logs (stdout and stderr merged, timestamped; `--tail` default 200, at
+  most 10 000; 4 MiB cap), read by container ID after Docker confirms the ownership labels.
+  Every line is redacted with the stack's stored secrets, every non-removed deployment's secret
+  copies and `<state>/secrets` (literal, base64, URL-quoted and JSON-escaped forms, URL
+  passwords; best effort), after Docker's 16 KiB partial records of a long line are joined
+  (their mid-line timestamps removed), so a value across that boundary is still found. Nothing
+  is printed when a value cannot be read: an unreadable or oversized secret, or a deployment
+  whose secret copies are gone (a failed deploy deletes them; `REDACTION_INCOMPLETE`). Lines are
+  split on `\n` only; controls, bidi and the Unicode line separators are shown as visible
+  escapes unless `--raw` (S-08). `--follow` streams until the container stops, Ctrl-C, SIGTERM,
+  SIGHUP or the end of a non-terminal stdin, and stops its `docker logs` child, which stays in
+  the CLI's process group so a hangup or a group kill reaches it too (S-10; a SIGKILL of the CLI
+  alone leaves it until its next write); a line over 1 MiB is dropped whole. `--follow --json`
+  prints one object per line (`schema_version`, `source`, `name`, `deployment`, `line`) and a
+  final `{"event": "end", "reason", "dropped"}`; a failing `docker logs` is `DOCKER_LOGS_FAILED`.
+  Local deployments only (Kubernetes is `NOT_LOCAL` for now); the state is opened read-only;
+  errors are coded, with a JSON error object under `--json`. An opt-in real-Docker test runs a
+  container that logs a stored secret in several encodings and across a 16 KiB boundary, and
+  checks none is printed. `logs --failed NAME` reads the same file; its `--json` gains
+  `schema_version`, its errors are coded the same way (with the JSON error object under
+  `--json`), and its lines are split on `\n` only. `services` stack secrets that cannot be
+  read are now reported to the redactor instead of skipped silently.
+
 - `agentbreeder next [DIR] [--environment ENV] [--output DIR] [--json]` (#820, M4), on `main`,
   not in a published preview: where a project is on the guided path (prerequisites, project,
   model keys, services, build, release through the eval gate, try it, and the local cluster when

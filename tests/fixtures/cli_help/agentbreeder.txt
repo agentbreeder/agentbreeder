@@ -47,8 +47,8 @@ positional arguments:
     login               Sign in with the operator's OIDC device flow
     migrate             Upgrade the local state to this version's schema (no
                         IdP calls)
-    logs                Show the saved log tail of the last failed release
-                        candidate
+    logs                Show a local deployment's logs (redacted), or the
+                        saved tail of a failed candidate
     next                Show where this project is on the guided path and the
                         command to run next
 
