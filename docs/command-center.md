@@ -113,18 +113,22 @@ caught.
 - **Several jobs at once.** Engine jobs (build, release, rollback, services, remove,
   reconcile) run one at a time per project, so two projects can run at once. Jobs that touch the
   one local cluster (`cluster up`, `cluster down`, promote to kind) also run one at a time on the
-  machine. Short writes in later milestones (registry publish and import, `agent set-ref`, memory
-  edits) lock only their target and are not blocked by engine jobs; they time out after 60 s
-  (300 s for a tool publish, which re-locks dependencies). A policy save is refused while any
-  engine job runs. A refused start names the job holding the lock (`409`, `[BUSY]`).
+  machine. Short writes in later milestones lock their target and time out after 60 s (300 s
+  for a tool publish, which re-locks dependencies): registry publish and import and memory edits
+  are not blocked by engine jobs; `agent set-ref` also holds its project, since it rewrites
+  `agent.yaml`; a policy save is refused while any engine job runs, and no engine job starts
+  during one. A refused start names the job holding the lock (`409`, `[BUSY]`); a refused save
+  answers `409`, `[WRITE_BUSY]`.
 - **These locks only order the console's own jobs.** A command typed in a terminal does not see
   them: `agentbreeder services up` in a terminal can run beside a console job. Correctness comes
   from the CLI's own file locks (the deployment store and `release` have one today; `cluster`
   and `services` get theirs in later milestones).
 - **Cancel and shutdown.** Cancel sends one SIGINT to the job's CLI process, so `release` and
-  `promote` finish or undo a replace step. Stopping `up` sends the same SIGINT to every running
-  job and long-lived child, waits 5 seconds, then sends SIGTERM to the process group of anything
-  still running, which also stops the `docker` or `kubectl` processes it started.
+  `promote` finish or undo a replace step. Stopping `up` (Ctrl-C, SIGTERM or closing the
+  terminal) sends the same SIGINT to every running job and long-lived child, waits 5 seconds
+  (Ctrl-C again skips the wait), then sends SIGTERM to each one's process group, which also stops
+  the `docker`, `kind` or `kubectl` processes it started. A read or short write in progress is
+  not stopped; it ends or times out on its own.
 
 **The limits.** Anyone who controls the local Docker has full control: the gate prevents mistakes and
 policy drift, not a local admin. A project is code. Building it runs its Dockerfile in Docker, so add

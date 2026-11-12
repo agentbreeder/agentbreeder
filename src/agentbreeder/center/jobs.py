@@ -27,7 +27,16 @@ from urllib.parse import quote
 
 from agentbreeder.center.files import BadRequest
 
-__all__ = ["BadRequest", "Busy", "CenterState", "Runner", "argv_for", "cli_error", "redact"]
+__all__ = [
+    "BadRequest",
+    "Busy",
+    "WriteBusy",
+    "CenterState",
+    "Runner",
+    "argv_for",
+    "cli_error",
+    "redact",
+]
 
 MAX_LINE = 4000
 MAX_LINES = 20000
@@ -111,6 +120,15 @@ def _signal_group(process: subprocess.Popen, number: int) -> None:
         os.killpg(process.pid, number)
     except (ProcessLookupError, PermissionError, OSError):
         pass
+
+
+def _wait_all(processes: Sequence[subprocess.Popen], deadline: float) -> None:
+    """Wait for every process until one shared deadline."""
+    for process in processes:
+        try:
+            process.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def redact(text: str, values: Sequence[str]) -> str:
@@ -290,15 +308,24 @@ def argv_for(kind: str, project: dict, options: dict) -> list[str]:
 
 
 MACHINE = "machine"
+POLICY = "policy-save"
 # Engine jobs that touch the one local kind cluster serialise machine-wide; every engine job also
-# holds its project. Console locks only order the console's own jobs: a terminal command does not
-# see them, and correctness comes from the CLI's own file locks (spec §10, S-11).
+# holds its project. `remove` of a cluster deployment holds only its project: the CLI refuses
+# `cluster down` while anything is deployed there. Console locks only order the console's own
+# jobs: a terminal command does not see them, and correctness comes from the CLI's own file locks
+# (spec §10, S-11).
 MACHINE_KINDS = frozenset({"cluster-up", "cluster-down", "promote"})
 # Short writes (later milestones: registry publish/import, `agent set-ref`, memory edits, policy
-# save): a synchronous CLI child with a per-target lock, never blocked by engine jobs.
+# save): a synchronous CLI child with a per-target lock. Registry and memory writes are never
+# blocked by engine jobs; `agent set-ref` also holds its project (it rewrites agent.yaml), and a
+# policy save excludes every engine job in both directions.
 SHORT_TIMEOUT = 60
 SHORT_TIMEOUTS = {"tool-publish": 300}  # publishing a tool re-locks its dependencies
 SHUTDOWN_GRACE = 5.0
+
+
+class WriteBusy(Exception):
+    """A short write found its target (or the policy) locked: no job to follow."""
 
 
 def lock_keys(kind: str, project: dict) -> tuple[str, ...]:
@@ -337,17 +364,24 @@ class Runner:
                 for job in self.jobs.values()
             ]
 
-    def _claim(self, keys: Sequence[str], holder: str) -> None:
-        """Take every key or none; Busy names the job holding the first taken one."""
+    def _claim(self, keys: Sequence[str], holder: str, write: bool = False) -> None:
+        """Take every key or none (call with the mutex held). Busy names the job holding the
+        first taken key; a short write gets WriteBusy, which names none."""
         for key in keys:
-            if key in self.held:
-                raise Busy(self.held[key])
+            owner = self.held.get(key)
+            if owner is not None:
+                if write or owner.startswith("short:"):
+                    raise WriteBusy(key)
+                raise Busy(owner)
         for key in keys:
             self.held[key] = holder
 
     def _free(self, holder: str) -> None:
         for key in [key for key, value in self.held.items() if value == holder]:
             del self.held[key]
+
+    def _policy_saving(self) -> bool:
+        return any(key.startswith(f"{POLICY}:") for key in self.held)
 
     def start(
         self,
@@ -364,9 +398,11 @@ class Runner:
         with self.mutex:
             if self.stopping:
                 raise BadRequest("The console is stopping", "STOPPING")
+            if self._policy_saving():
+                raise WriteBusy(POLICY)
             identifier = uuid.uuid4().hex
             self._claim(locks, identifier)
-            env_file = None
+            env_file = process = None
             try:
                 env_file = self._env_file(identifier, keys) if keys else None
                 if env_file:
@@ -383,12 +419,15 @@ class Runner:
                     errors="replace",
                     start_new_session=True,  # a terminal Ctrl-C must not reach the job
                 )
+                self.state.create_job(identifier, project["id"], kind)
             except BaseException:
                 self._free(identifier)
+                if process is not None:  # started but not recorded: stop it, never orphan it
+                    _signal_group(process, signal.SIGTERM)
+                    process.wait()
                 if env_file:
                     env_file.unlink(missing_ok=True)
                 raise
-            self.state.create_job(identifier, project["id"], kind)
             self.jobs[identifier] = Running(identifier, project["id"], kind, process, locks)
         threading.Thread(
             target=self._pump,
@@ -416,17 +455,26 @@ class Runner:
                 if seq <= MAX_LINES:
                     self.state.append(identifier, seq, redact(line.rstrip("\n"), values))
             code = process.wait()
+        except Exception:
+            # The log could not be recorded (disk full, database error): a job nobody can see
+            # must not keep running untracked.
+            _signal_group(process, signal.SIGTERM)
+            process.wait()
+            code = None
         finally:
             if env_file:
                 env_file.unlink(missing_ok=True)
+            self.invalidate()
             with self.mutex:
                 self.jobs.pop(identifier, None)
                 self._free(identifier)
         state = (
             "succeeded" if code == 0 else "waiting_approval" if code == EXIT_APPROVAL else "failed"
         )
-        self.state.finish_job(identifier, state, code)
-        self.invalidate()
+        try:
+            self.state.finish_job(identifier, state, code)
+        except Exception:
+            pass  # the next start marks a row still `running` as interrupted
         if code == 0 and on_success:
             on_success()
 
@@ -447,29 +495,37 @@ class Runner:
     # -- short writes ----------------------------------------------------------------------------
 
     def short_write(
-        self, kind: str, target: str, argv: Sequence[str], timeout: int | None = None
+        self,
+        kind: str,
+        target: str,
+        argv: Sequence[str],
+        timeout: int | None = None,
+        project: dict | None = None,
     ) -> dict:
-        """A short write as a synchronous CLI child, locked per target (`kind:target`).
-        Engine jobs do not block it, except that a policy save waits for none of them: it is
-        refused while any engine job runs, so a job never reads a half-changed policy."""
-        key = f"{kind}:{target}"
+        """A short write as a synchronous CLI child, locked per target (`kind:target`), plus
+        its project for writes that change a project's files (`agent set-ref`). A policy save
+        is refused while any engine job runs, and no engine job starts while one is saving, so
+        a job never reads a half-changed policy. Contention raises WriteBusy."""
+        keys = [f"{kind}:{target}"]
+        if project is not None:
+            keys.append(f"project:{project['id']}")
         holder = f"short:{uuid.uuid4().hex}"
         with self.mutex:
             if self.stopping:
                 raise BadRequest("The console is stopping", "STOPPING")
-            if kind == "policy-save" and self.jobs:
-                raise Busy(next(iter(self.jobs)))
-            self._claim((key,), holder)
+            if kind == POLICY and self.jobs:
+                raise WriteBusy(POLICY)
+            self._claim(keys, holder, write=True)
         try:
             return self.read(
                 argv,
                 timeout=timeout or SHORT_TIMEOUTS.get(kind, SHORT_TIMEOUT),
-                key=f"{key} {uuid.uuid4().hex}",  # writes are never served from the cache
+                key=f"{keys[0]} {uuid.uuid4().hex}",  # writes are never served from the cache
             )
         finally:
+            self.invalidate()
             with self.mutex:
                 self._free(holder)
-            self.invalidate()
 
     # -- long-lived children and shutdown ---------------------------------------------------------
 
@@ -477,33 +533,36 @@ class Runner:
         """Track a long-lived child (log follow, watch, usage) so shutdown stops it too. It must
         be started with `start_new_session=True`, so it leads its own process group."""
         with self.mutex:
+            self.children = {child for child in self.children if child.poll() is None}
             self.children.add(process)
 
+    def forget(self, process: subprocess.Popen) -> None:
+        with self.mutex:
+            self.children.discard(process)
+
     def shutdown(self, grace: float = SHUTDOWN_GRACE) -> list[str]:
-        """Stop every child (S-18): SIGINT to each job's CLI child (the same graceful step as
-        Cancel) and to long-lived children; after `grace` seconds, SIGTERM to the process group
-        of anything still running, so grandchildren (docker, kubectl) stop too. Returns the ids
-        of the jobs that were running."""
+        """Stop every engine job and long-lived child (S-18). First SIGINT to each CLI child
+        (the same graceful step as Cancel); after `grace` seconds, SIGTERM to every child's
+        process group, whether or not the child itself has exited, so the docker, kubectl or
+        kind processes it started stop too. A second Ctrl-C skips the wait. Reads and short
+        writes are not stopped: they end or time out on their own (at most 300 s). Returns the
+        ids of the jobs that were running."""
         with self.mutex:
             self.stopping = True
             jobs = list(self.jobs.values())
             processes = [job.process for job in jobs] + list(self.children)
         for process in processes:
             _signal(process, signal.SIGINT)
-        deadline = time.monotonic() + grace
+        try:
+            _wait_all(processes, time.monotonic() + grace)
+        except KeyboardInterrupt:
+            pass  # asked twice: go straight to SIGTERM
         for process in processes:
-            try:
-                process.wait(timeout=max(0.0, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                pass
-        for process in processes:
-            if process.poll() is None:
-                _signal_group(process, signal.SIGTERM)
-        for process in processes:
-            try:
-                process.wait(timeout=grace)
-            except subprocess.TimeoutExpired:
-                pass
+            _signal_group(process, signal.SIGTERM)
+        try:
+            _wait_all(processes, time.monotonic() + grace)
+        except KeyboardInterrupt:
+            pass
         return [job.id for job in jobs]
 
     def invalidate(self) -> None:
