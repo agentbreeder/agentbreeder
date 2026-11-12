@@ -82,9 +82,11 @@ they do for a CLI user.
 It binds `127.0.0.1` only, checks the exact `Host`, needs a per-tab session from the one-time link
 (a header, because browsers send cookies to every port on `127.0.0.1`), and on every request a
 custom header, same-origin `Origin` for writes, JSON bodies and a strict content
-security policy. Provider keys go to a private file for the one job that needs it. Job logs replace a
-key's value, base64 and URL-encoded forms; another encoding of a value echoed by a tool would not be
-caught.
+security policy. Provider keys go to a private file for the one job that needs it. Job logs go through
+the CLI's redactor (`agentbreeder.redaction`; on `main`, not in a published preview): a key's value
+(4 characters or more) and its base64, URL-encoded and JSON-escaped forms, and the password in
+any `scheme://user:password@host`, become `[redacted]`; another encoding of a value echoed by a
+tool would not be caught.
 
 ### Console foundation (#815): on `main`, not in a published preview
 
@@ -98,7 +100,7 @@ caught.
 - **One reply shape.** Every API reply, including the server's own errors for a malformed
   request, is `{"data", "error", "stale"}`. `error` is `null` or `{"code", "message"}`; when a
   CLI read fails, the console forwards only the CLI's final `[CODE] message` line, never other
-  stderr. (Job logs still show a job's whole output, redacted as described below.) `stale` marks the last good data shown after a
+  stderr. (Job logs still show a job's whole output, redacted as described above.) `stale` marks the last good data shown after a
   failed read.
 - **Static files** are an allow-list built at start from the installed `center/static/` tree:
   regular files of known types (HTML, JS, CSS, `woff2` fonts, plain text such as the font
@@ -111,6 +113,27 @@ caught.
   path, and for a writable one the `chmod go-w` that fixes it (a project cloned under a umask of
   `002` needs this). On a macOS volume mounted with "Ignore ownership on this volume", every file
   reports your user, so the check passes: keep projects on the system volume.
+
+- **Several jobs at once.** Engine jobs (build, release, rollback, services, remove,
+  reconcile) run one at a time per project, so two projects can run at once. Jobs that touch the
+  one local cluster (`cluster up`, `cluster down`, promote to kind) also run one at a time on the
+  machine. Short writes in later milestones lock their target and time out after 60 s (300 s
+  for a tool publish, which re-locks dependencies): registry publish and import and memory edits
+  are not blocked by engine jobs; `agent set-ref` also holds its project, since it rewrites
+  `agent.yaml`; a policy save is refused while any engine job runs, and no engine job starts
+  during one. A refused start names the job holding the lock (`409`, `[BUSY]`); a refused save
+  answers `409`, `[WRITE_BUSY]`.
+- **These locks only order the console's own jobs.** A command typed in a terminal does not see
+  them: `agentbreeder services up` in a terminal can run beside a console job. Correctness comes
+  from the CLI's own file locks (the deployment store and `release` have one today; `cluster`
+  and `services` get theirs in later milestones).
+- **Cancel and shutdown.** Cancel sends one SIGINT to the job's CLI process, so `release` and
+  `promote` finish or undo a replace step. Stopping `up` (Ctrl-C, SIGTERM or closing the
+  terminal) sends the same SIGINT to every running job and long-lived child, waits 5 seconds
+  (Ctrl-C again skips the wait), then sends SIGTERM to each one's process group, which also stops
+  the `docker`, `kind` or `kubectl` processes it started, and waits up to 5 more seconds for them
+  to end (at most 10 seconds in all). A read or short write in progress is not stopped; it ends
+  or times out on its own.
 
 **The limits.** Anyone who controls the local Docker has full control: the gate prevents mistakes and
 policy drift, not a local admin. A project is code. Building it runs its Dockerfile in Docker, so add

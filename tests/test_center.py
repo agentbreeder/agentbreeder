@@ -54,10 +54,24 @@ FAKE_CLI = textwrap.dedent(
         print(json.dumps({{"args": argv}}))
     elif argv[0] == "doctor":
         print("[]")
-    elif argv[0] == "cluster":
+    elif argv[:2] == ["cluster", "status"]:
         sys.stderr.write("[STACK_NOT_UP] nope\\n")
         sys.exit(2)
-    elif argv[0] == "build":
+    elif argv[0] == "reconcile":
+        import signal, subprocess
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        print("grandchild", child.pid, flush=True)
+        time.sleep(60)
+    elif argv[0] == "remove":
+        import subprocess
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        print("grandchild", child.pid, flush=True)
+        try:
+            time.sleep(60)
+        except KeyboardInterrupt:
+            sys.exit(130)
+    elif argv[0] in ("build", "cluster"):
         try:
             print("started", flush=True)
             time.sleep(30)
@@ -313,7 +327,7 @@ def test_unknown_routes_and_projects(center, cookie):
 
 def test_overview(center, cookie):
     status, data, _ = api(center, "GET", "/api/overview", cookie=cookie)
-    assert status == 200 and data["data"]["job"] is None and "version" in data["data"]
+    assert status == 200 and data["data"]["jobs"] == [] and "version" in data["data"]
 
 
 # -- jobs -----------------------------------------------------------------------------------------
@@ -335,7 +349,7 @@ def test_services_job_passes_keys_privately_and_redacts_them(center, project, co
     assert "mode 0o600" in text
     assert KEY_VALUE not in text
     assert base64.b64encode(KEY_VALUE.encode()).decode() not in text
-    assert "echo ***" in text and "b64 ***" in text
+    assert "echo [redacted]" in text and "b64 [redacted]" in text
     env_file = Path(re.search(r"envfile (\S+)", text)[1])
     assert not env_file.exists()
     deadline = time.monotonic() + 5
@@ -734,7 +748,10 @@ def _claimed_length(center, cookie, path, length):
     }.items():
         connection.putheader(name, value)
     connection.endheaders(b"{}")
-    connection.sock.shutdown(socket.SHUT_WR)
+    try:
+        connection.sock.shutdown(socket.SHUT_WR)
+    except OSError:
+        pass  # the server already answered (413) and closed
     status = connection.getresponse().status
     connection.close()
     return status
@@ -936,7 +953,7 @@ def test_registration_and_job_start_refuse_an_unsafe_project(center, cookie, pro
     (project_dir / "agent.yaml").chmod(0o666)
     status, data, _ = start(center, added, cookie, "build")
     assert status == 400 and data["error"]["code"] == "PROJECT_UNSAFE"
-    assert center.runner.current is None
+    assert center.runner.running() == []
 
 
 def test_onboarding_refuses_an_unsafe_destination(center, cookie, tmp_path, monkeypatch):
@@ -996,7 +1013,8 @@ def test_only_sign_in_skips_the_session_and_only_job_polls_keep_it_idle():
         ("POST", "/api/session")
     ]
     assert [(r.method, r.sample) for r in server.ROUTES if r.poll] == [
-        ("GET", "/api/jobs/" + "0" * 32)
+        ("GET", "/api/activity"),
+        ("GET", "/api/jobs/" + "0" * 32),
     ]
 
 
@@ -1225,3 +1243,707 @@ def test_onboarding_refuses_a_broken_link_for_the_projects_folder(
     status, data, _ = api(center, "POST", "/api/projects", {"example": "northwind"}, cookie)
     assert status == 400 and data["error"]["code"] == "PROJECT_UNSAFE"
     assert "broken link" in data["error"]["message"]
+
+
+# -- several jobs, lock scopes, short writes, shutdown (S-11, S-18) -------------------------------
+
+
+@pytest.fixture
+def second_project(center, cookie, tmp_path):
+    path = tmp_path / "proj2"
+    path.mkdir()
+    (path / "agent.yaml").write_text("kind: agent\n")
+    (path / "stack.yaml").write_text("kind: stack\n")
+    status, data, _ = api(center, "POST", "/api/projects", {"path": str(path)}, cookie)
+    assert status == 200
+    return data["data"]
+
+
+def _started(center, job):
+    """Wait until a job's child has printed its first line."""
+    deadline = time.monotonic() + 15
+    while not center.state.job(job)["lines"]:
+        assert time.monotonic() < deadline, "job did not start"
+        time.sleep(0.05)
+    return center.state.job(job)["lines"]
+
+
+def _job_id(response):
+    status, data, _ = response
+    assert status == 200, data
+    return data["data"]["job"]
+
+
+def test_lock_keys():
+    project = {"id": "abc"}
+    assert jobs.lock_keys("build", project) == ("project:abc",)
+    assert jobs.lock_keys("services-up", project) == ("project:abc",)
+    for kind in ("cluster-up", "cluster-down", "promote"):
+        assert jobs.lock_keys(kind, project) == ("machine", "project:abc")
+
+
+def test_two_projects_run_engine_jobs_at_once(center, cookie, project, second_project):
+    first = _job_id(start(center, project, cookie, "build"))
+    second = _job_id(start(center, second_project, cookie, "build"))
+    _started(center, first), _started(center, second)
+    _, overview, _ = api(center, "GET", "/api/overview", cookie=cookie)
+    running = overview["data"]["jobs"]
+    assert [job["id"] for job in running] == [first, second]
+    assert {job["project"] for job in running} == {project["id"], second_project["id"]}
+    _, activity, _ = api(center, "GET", "/api/activity", cookie=cookie)
+    assert len(activity["data"]["running"]) == 2
+    assert {row["id"] for row in activity["data"]["recent"]} >= {first, second}
+    # Cancel reaches only the job it names.
+    assert api(center, "POST", f"/api/jobs/{first}/cancel", {}, cookie)[1]["data"]["cancelled"]
+    assert wait(center, first, cookie)["exit_code"] == 130
+    assert center.state.job(second)["state"] == "running"
+    api(center, "POST", f"/api/jobs/{second}/cancel", {}, cookie)
+    wait(center, second, cookie)
+
+
+def test_cluster_jobs_serialise_machine_wide(center, cookie, project, second_project):
+    first = _job_id(start(center, project, cookie, "cluster-up"))
+    _started(center, first)
+    for other in ("cluster-down", "promote"):
+        status, data, _ = start(center, second_project, cookie, other)
+        assert status == 409 and data["data"]["job"] == first, other
+    # A plain engine job in the other project is not blocked by the cluster job...
+    build = _job_id(start(center, second_project, cookie, "build"))
+    # ...and the cluster job holds its own project too.
+    assert start(center, project, cookie, "release")[0] == 409
+    api(center, "POST", f"/api/jobs/{first}/cancel", {}, cookie)
+    wait(center, first, cookie)
+    status, data, _ = start(center, second_project, cookie, "cluster-down")
+    assert status == 409 and data["data"]["job"] == build
+    api(center, "POST", f"/api/jobs/{build}/cancel", {}, cookie)
+    wait(center, build, cookie)
+    after = _job_id(start(center, second_project, cookie, "cluster-down"))
+    api(center, "POST", f"/api/jobs/{after}/cancel", {}, cookie)
+    wait(center, after, cookie)
+    assert center.runner.held == {}
+
+
+def test_a_failed_start_releases_its_locks(center, project, monkeypatch):
+    def broken(*args, **kwargs):
+        raise OSError("no python")
+
+    monkeypatch.setattr(jobs.subprocess, "Popen", broken)
+    with pytest.raises(OSError):
+        center.runner.start(project, "cluster-up", {})
+    assert center.runner.held == {} and center.runner.running() == []
+
+
+def test_shutdown_stops_every_child_and_their_groups(center, cookie, project, second_project):
+    import signal as signals
+    import subprocess
+
+    gentle = _job_id(start(center, project, cookie, "build"))
+    stubborn = _job_id(start(center, second_project, cookie, "reconcile"))
+    _started(center, gentle)
+    lines = _started(center, stubborn)
+    grandchild = int(lines[0]["text"].split()[1])
+    follow = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+    )
+    center.runner.adopt(follow)
+    started = time.monotonic()
+    stopped = center.runner.shutdown(grace=1.0)
+    assert sorted(stopped) == sorted([gentle, stubborn])
+    assert time.monotonic() - started < 10
+    assert follow.poll() is not None
+    assert wait(center, gentle, cookie)["exit_code"] == 130  # SIGINT, the graceful step
+    assert wait(center, stubborn, cookie)["exit_code"] == -signals.SIGTERM
+    deadline = time.monotonic() + 5
+    while True:  # the grandchild was in the job's process group
+        try:
+            os.kill(grandchild, 0)
+        except ProcessLookupError:
+            break
+        assert time.monotonic() < deadline, "grandchild survived shutdown"
+        time.sleep(0.05)
+    status, data, _ = start(center, project, cookie, "build")
+    assert status == 400 and data["error"]["code"] == "STOPPING"
+
+
+def test_shutdown_tolerates_children_that_already_ended(tmp_path):
+    import subprocess
+
+    runner = Runner(CenterState(tmp_path), tmp_path)
+    done = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    done.wait()
+    runner.adopt(done)
+    assert runner.shutdown(grace=0.1) == []
+
+
+def test_short_writes_lock_per_target_and_are_not_blocked_by_jobs(center, cookie, project):
+    runner = center.runner
+    build = _job_id(start(center, project, cookie, "build"))
+    _started(center, build)
+    assert runner.short_write("registry-publish", "tools/a", ["list"])["data"] == [{"id": "1"}]
+    entered, release = threading.Event(), threading.Event()
+    real_read = runner.read
+    seen = []
+
+    def slow_read(argv, timeout=30, key=None):
+        seen.append(timeout)
+        entered.set()
+        release.wait(10)
+        return real_read(argv, timeout, key)
+
+    runner.read = slow_read
+    thread = threading.Thread(target=runner.short_write, args=("memory-edit", "n1", ["list"]))
+    thread.start()
+    assert entered.wait(10)
+    with pytest.raises(jobs.WriteBusy):
+        runner.short_write("memory-edit", "n1", ["list"])
+    runner.read = real_read
+    assert runner.short_write("memory-edit", "n2", ["list"])["error"] is None
+    release.set()
+    thread.join(10)
+    assert seen == [jobs.SHORT_TIMEOUT]
+    with pytest.raises(jobs.WriteBusy):
+        runner.short_write("policy-save", "operator", ["list"])
+    api(center, "POST", f"/api/jobs/{build}/cancel", {}, cookie)
+    wait(center, build, cookie)
+    assert runner.short_write("policy-save", "operator", ["list"])["error"] is None
+    assert runner.held == {}
+
+
+def test_short_write_timeouts_per_kind(tmp_path, monkeypatch):
+    runner = Runner(CenterState(tmp_path), tmp_path)
+    seen = []
+    monkeypatch.setattr(runner, "read", lambda argv, timeout, key: seen.append(timeout) or {})
+    runner.short_write("tool-publish", "tools/x", ["registry", "publish"])
+    runner.short_write("set-ref", "agent", ["agent", "set-ref"])
+    assert seen == [300, 60]
+    runner.shutdown(grace=0)
+    with pytest.raises(BadRequest):
+        runner.short_write("set-ref", "agent", ["agent", "set-ref"])
+
+
+def test_a_job_end_clears_the_read_cache(center, cookie, project):
+    center.runner.read(["list"], key="cached")
+    assert "cached" in center.runner.cache
+    wait(center, _job_id(start(center, project, cookie, "services-down")), cookie)
+    assert "cached" not in center.runner.cache
+
+
+def test_main_stops_running_jobs_on_exit(quiet_main, monkeypatch, capsys):
+    monkeypatch.setattr(jobs.Runner, "shutdown", lambda self, grace=5.0: ["a", "b"])
+    assert server.main(arguments()) == 0
+    assert "Stopped 2 running job(s)" in capsys.readouterr().err
+
+
+# -- review round 1 on jobs (Fable): leaks, groups, policy both ways, set-ref, write busy ---------
+
+
+def _gone(pid: int, timeout: float = 5) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_a_job_that_cannot_be_recorded_releases_its_locks_and_stops(center, project, monkeypatch):
+    import sqlite3
+
+    started = []
+    real_popen = jobs.subprocess.Popen
+
+    def tracking(*args, **kwargs):
+        started.append(real_popen(*args, **kwargs))
+        return started[-1]
+
+    def broken(*args):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(jobs.subprocess, "Popen", tracking)
+    monkeypatch.setattr(center.state, "create_job", broken)
+    with pytest.raises(sqlite3.OperationalError):
+        center.runner.start(project, "cluster-up", {})
+    assert center.runner.held == {} and center.runner.running() == []
+    assert started and started[0].poll() is not None  # stopped, not orphaned
+
+
+def test_shutdown_stops_the_group_of_a_job_that_honoured_sigint(center, cookie, project):
+    removing = _job_id(
+        start(center, project, cookie, "remove", {"deployment": "c" * 32, "target": "local"})
+    )
+    grandchild = int(_started(center, removing)[0]["text"].split()[1])
+    assert center.runner.shutdown(grace=1.0) == [removing]
+    assert wait(center, removing, cookie)["exit_code"] == 130
+    assert _gone(grandchild), "a grandchild of a job that exited on SIGINT survived shutdown"
+
+
+def test_a_second_ctrl_c_skips_the_grace_wait(center, cookie, project, monkeypatch):
+    stubborn = _job_id(start(center, project, cookie, "reconcile"))
+    _started(center, stubborn)
+    calls = []
+
+    def interrupted(processes, deadline):
+        calls.append(deadline)
+        if len(calls) == 1:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(jobs, "_wait_all", interrupted)
+    started = time.monotonic()
+    center.runner.shutdown(grace=30)
+    assert time.monotonic() - started < 5 and len(calls) == 2
+    assert wait(center, stubborn, cookie)["state"] == "failed"  # SIGTERM still sent
+
+
+def test_no_engine_job_starts_during_a_policy_save(center, cookie, project):
+    runner = center.runner
+    entered, release = threading.Event(), threading.Event()
+    real_read = runner.read
+
+    def slow_read(argv, timeout=30, key=None):
+        entered.set()
+        release.wait(10)
+        return real_read(argv, timeout, key)
+
+    runner.read = slow_read
+    thread = threading.Thread(target=runner.short_write, args=("policy-save", "op", ["list"]))
+    thread.start()
+    assert entered.wait(10)
+    status, data, _ = start(center, project, cookie, "build")
+    assert status == 409 and data["error"]["code"] == "WRITE_BUSY" and data["data"] is None
+    release.set()
+    thread.join(10)
+    runner.read = real_read
+    job = _job_id(start(center, project, cookie, "services-down"))
+    wait(center, job, cookie)
+
+
+def test_set_ref_holds_its_project(center, cookie, project):
+    runner = center.runner
+    build = _job_id(start(center, project, cookie, "build"))
+    _started(center, build)
+    with pytest.raises(jobs.WriteBusy):
+        runner.short_write("set-ref", "agent", ["list"], project=project)
+    api(center, "POST", f"/api/jobs/{build}/cancel", {}, cookie)
+    wait(center, build, cookie)
+    entered, release = threading.Event(), threading.Event()
+    real_read = runner.read
+
+    def slow_read(argv, timeout=30, key=None):
+        entered.set()
+        release.wait(10)
+        return real_read(argv, timeout, key)
+
+    runner.read = slow_read
+    thread = threading.Thread(
+        target=runner.short_write, args=("set-ref", "agent", ["list"]), kwargs={"project": project}
+    )
+    thread.start()
+    assert entered.wait(10)
+    status, data, _ = start(center, project, cookie, "build")
+    assert status == 409 and data["error"]["code"] == "WRITE_BUSY"
+    release.set()
+    thread.join(10)
+    runner.read = real_read
+    assert runner.held == {}
+
+
+def test_a_job_whose_log_cannot_be_written_is_stopped_gracefully(center, cookie, project):
+    calls = []
+
+    def broken(*args):
+        calls.append(args)
+        raise OSError("disk full")
+
+    center.state.append = broken
+    job = _job_id(start(center, project, cookie, "build"))
+    finished = wait(center, job, cookie)
+    # SIGINT first (the fake build exits 130 on it), as Cancel does; then marked failed.
+    assert calls and finished["state"] == "failed" and finished["exit_code"] == 130
+    assert center.runner.running() == [] and center.runner.held == {}
+
+
+def test_adopt_prunes_ended_children_and_forget_removes_one(tmp_path):
+    import subprocess
+
+    runner = Runner(CenterState(tmp_path), tmp_path)
+    done = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    done.wait()
+    runner.adopt(done)
+    alive = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True
+    )
+    runner.adopt(alive)
+    assert runner.children == {alive}
+    runner.forget(alive)
+    assert runner.children == set()
+    alive.kill()
+    alive.wait()
+
+
+def test_main_says_it_is_stopping_jobs(quiet_main, monkeypatch, capsys):
+    monkeypatch.setattr(
+        jobs.Runner, "running", lambda self: [{"id": "a", "project": "p", "kind": "build"}]
+    )
+    monkeypatch.setattr(jobs.Runner, "shutdown", lambda self, grace=5.0: ["a"])
+    assert server.main(arguments()) == 0
+    assert "Stopping 1 running job(s)" in capsys.readouterr().err
+
+
+# -- review round 2 on jobs (Fable) ---------------------------------------------------------------
+
+
+def test_a_failed_start_stops_its_child_outside_the_mutex(center, project, monkeypatch):
+    import sqlite3
+    import subprocess
+
+    monkeypatch.setattr(jobs, "SHUTDOWN_GRACE", 1.0)
+    stubborn = []
+    real_popen = subprocess.Popen
+
+    def ignoring_term(*args, **kwargs):
+        code = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+        stubborn.append(
+            real_popen(
+                [sys.executable, "-c", code], start_new_session=True, stdout=subprocess.PIPE
+            )
+        )
+        return stubborn[-1]
+
+    def broken(*args):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(jobs.subprocess, "Popen", ignoring_term)
+    monkeypatch.setattr(center.state, "create_job", broken)
+    errors = []
+    thread = threading.Thread(
+        target=lambda: errors.append(
+            pytest.raises(sqlite3.OperationalError, center.runner.start, project, "build", {})
+        )
+    )
+    thread.start()
+    time.sleep(0.3)
+    assert center.runner.mutex.acquire(timeout=0.5), "start() held the mutex while stopping"
+    center.runner.mutex.release()
+    thread.join(10)
+    assert errors and stubborn[0].poll() is not None  # SIGKILL after the ignored SIGTERM
+    assert center.runner.held == {}
+
+
+def test_shutdown_never_signals_a_long_ended_childs_group(tmp_path, monkeypatch):
+    import subprocess
+
+    runner = Runner(CenterState(tmp_path), tmp_path)
+    ended = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    runner.children.add(ended)
+    ended.wait()
+    signalled = []
+    monkeypatch.setattr(jobs, "_signal_group", lambda process, number: signalled.append(process))
+    runner.shutdown(grace=0.1)
+    assert signalled == []
+
+
+def test_write_busy_says_why(center, cookie, project):
+    runner = center.runner
+    build = _job_id(start(center, project, cookie, "build"))
+    _started(center, build)
+    with pytest.raises(jobs.WriteBusy) as busy:
+        runner.short_write("policy-save", "op", ["list"])
+    assert busy.value.reason == "job"
+    with pytest.raises(jobs.WriteBusy) as busy:
+        runner.short_write("set-ref", "agent", ["list"], project=project)
+    assert busy.value.reason == "job"
+    api(center, "POST", f"/api/jobs/{build}/cancel", {}, cookie)
+    wait(center, build, cookie)
+    runner.held["policy-save:op"] = "short:x"
+    status, data, _ = start(center, project, cookie, "build")
+    assert status == 409 and "Another save is in progress" in data["error"]["message"]
+    runner.held.clear()
+
+
+def test_finishing_a_job_is_retried_once(center, cookie, project, monkeypatch):
+    real = CenterState.finish_job
+    failures = []
+
+    def flaky(self, *args):
+        if not failures:
+            failures.append(1)
+            raise OSError("busy")
+        return real(self, *args)
+
+    monkeypatch.setattr(CenterState, "finish_job", flaky)
+    job = _job_id(start(center, project, cookie, "services-down"))
+    assert wait(center, job, cookie)["state"] == "succeeded" and failures
+
+
+def test_a_key_file_that_cannot_be_removed_still_frees_the_locks(
+    center, cookie, project, monkeypatch
+):
+    real_unlink = Path.unlink
+
+    def refuse(self, *args, **kwargs):
+        if self.name.startswith("env-"):
+            raise PermissionError("EPERM")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+    status, data, _ = start(
+        center, project, cookie, "services-up", {"digest": DIGEST}, {"GEMINI_API_KEY": KEY_VALUE}
+    )
+    wait(center, data["data"]["job"], cookie)
+    assert center.runner.held == {} and center.runner.running() == []
+    monkeypatch.setattr(Path, "unlink", real_unlink)
+    for leftover in center.directory.glob("env-*"):
+        leftover.unlink()
+
+
+def _wait_for_line(stream, pattern: str, timeout: float = 60) -> str:
+    """The first line of `stream` matching `pattern`, read on a thread so a silent process
+    cannot hang the test past `timeout`."""
+    import queue
+
+    lines: queue.Queue = queue.Queue()
+    threading.Thread(target=lambda: [lines.put(line) for line in stream], daemon=True).start()
+    deadline = time.monotonic() + timeout
+    seen = []
+    while time.monotonic() < deadline:
+        try:
+            line = lines.get(timeout=max(0.0, deadline - time.monotonic()))
+        except queue.Empty:
+            break
+        seen.append(line)
+        if re.search(pattern, line):
+            return line
+    raise AssertionError(f"no {pattern!r} in {seen!r}")
+
+
+def _console_script(tmp_path, fake_cli) -> Path:
+    """A real console process (`server.main`) that starts one fake `build` job and prints
+    `JOB <id> <pid>`."""
+    project = tmp_path / "p"
+    project.mkdir(exist_ok=True)
+    (project / "agent.yaml").write_text("kind: agent\n")
+    (project / "stack.yaml").write_text("kind: stack\n")
+    script = tmp_path / "run.py"
+    script.write_text(
+        "import sys\n"
+        "from argparse import Namespace\n"
+        "from pathlib import Path\n"
+        "from agentbreeder.center import server\n"
+        f"fake = {fake_cli!r}\n"
+        "real = server.Center.__init__\n"
+        "def init(self, directory, environment='dev', prefix=None):\n"
+        "    real(self, directory, environment, fake)\n"
+        "server.Center.__init__ = init\n"
+        "orig = server.make_server\n"
+        "def make(center, port):\n"
+        "    s = orig(center, port)\n"
+        f"    project = center.register(Path({str(project)!r}))\n"
+        "    job = center.runner.start(project, 'build', {})\n"
+        "    import time\n"
+        "    deadline = time.monotonic() + 30\n"
+        "    while not center.state.job(job)['lines']:  # its SIGINT handler is in place\n"
+        "        assert time.monotonic() < deadline, 'the fake job never started'\n"
+        "        time.sleep(0.05)\n"
+        "    print('JOB', job, center.runner.jobs[job].process.pid, flush=True)\n"
+        "    return s\n"
+        "server.make_server = make\n"
+        "args = Namespace(dir=None, environment='dev', port=0, no_browser=True, yes=False)\n"
+        "sys.exit(server.main(args))\n"
+    )
+    return script
+
+
+@pytest.mark.parametrize(
+    "names,gap",
+    [
+        (["SIGTERM"], 0.05),
+        (["SIGHUP"], 0.05),
+        (["SIGHUP", "SIGHUP", "SIGTERM"], 0.05),
+        (["SIGTERM", "SIGHUP"], 0),  # back to back: the second lands while the first unwinds
+        (["SIGHUP", "SIGTERM", "SIGHUP"], 0),
+    ],
+)
+def test_sigterm_and_sighup_stop_the_console_and_its_jobs(tmp_path, fake_cli, names, gap):
+    """A signal stops the console and its jobs. Repeated signals do not cut the grace short:
+    the fake build still exits through its SIGINT handler (130)."""
+    import signal as signals
+    import subprocess
+
+    env = {**os.environ, "AGENTBREEDER_CENTER_DIR": str(tmp_path / "center")}
+    console = subprocess.Popen(
+        [sys.executable, str(_console_script(tmp_path, fake_cli))],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        start_new_session=True,
+    )
+    job_pid = int(_wait_for_line(console.stdout, r"^JOB ").split()[2])
+    time.sleep(1.0)  # let the fake build start
+    for name in names:
+        console.send_signal(getattr(signals, name))
+        time.sleep(gap)
+    _, err = console.communicate(timeout=30)
+    assert console.returncode == 0, err
+    assert "Stopped 1 running job(s)" in err
+    assert _gone(job_pid)
+    database = CenterState(tmp_path / "center")
+    rows = database.recent_jobs()
+    assert rows[0]["exit_code"] == 130  # SIGINT honoured, not SIGTERM
+
+
+def test_closing_the_terminal_stops_the_jobs(tmp_path, fake_cli):
+    """The real case: `up` on a terminal that closes. Writes to the dead tty fail, and the
+    jobs are still stopped."""
+    import pty
+
+    script = _console_script(tmp_path, fake_cli)
+    env = {**os.environ, "AGENTBREEDER_CENTER_DIR": str(tmp_path / "center")}
+    pid, master = pty.fork()
+    if pid == 0:  # the child: a session leader on a new terminal
+        os.execve(sys.executable, [sys.executable, str(script)], env)
+    output = b""
+    deadline = time.monotonic() + 60
+    while b"JOB " not in output or not output.split(b"JOB ", 1)[1].count(b"\n"):
+        assert time.monotonic() < deadline, output
+        try:
+            output += os.read(master, 4096)
+        except OSError:
+            break
+    job_pid = int(output.split(b"JOB ", 1)[1].split()[1])
+    time.sleep(1.0)
+    os.close(master)  # the terminal goes away: SIGHUP
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        done, _status = os.waitpid(pid, os.WNOHANG)
+        if done:
+            break
+        time.sleep(0.1)
+    assert done, "the console did not stop when its terminal closed"
+    assert _gone(job_pid), "a job survived the terminal closing"
+
+
+@pytest.fixture
+def real_handlers():
+    """Put back this process's signal handlers whatever a test of `main` leaves behind."""
+    import signal as signals
+
+    saved = {number: signals.getsignal(number) for number in server.STOP_SIGNALS}
+    yield
+    for number, handler in saved.items():
+        if handler is not None:
+            signals.signal(number, handler)
+    server._stopping.clear()
+
+
+def test_stop_raises_once(real_handlers):
+    import signal as signals
+
+    server._stopping.clear()
+    with pytest.raises(KeyboardInterrupt):
+        server._stop(signals.SIGTERM, None)
+    assert server._stop(signals.SIGHUP, None) is None  # a second stop signal is a no-op
+
+
+def test_main_restores_handlers_and_skips_ones_it_cannot(quiet_main, real_handlers, monkeypatch):
+    import signal as signals
+
+    before = {number: signals.getsignal(number) for number in server.STOP_SIGNALS}
+    assert server.main(arguments()) == 0
+    assert {number: signals.getsignal(number) for number in server.STOP_SIGNALS} == before
+    calls = []
+    real_signal = signals.signal
+
+    def recording(number, handler):
+        calls.append(handler)
+        return real_signal(number, handler)
+
+    monkeypatch.setattr(signals, "getsignal", lambda number: None)  # set outside Python
+    monkeypatch.setattr(signals, "signal", recording)
+    assert server.main(arguments()) == 0  # no TypeError from signal.signal(n, None)
+    assert None not in calls
+
+
+def test_shutdown_still_terminates_when_every_attempt_is_interrupted(tmp_path, monkeypatch):
+    center = Center(tmp_path)
+    monkeypatch.setattr(
+        center.runner, "shutdown", lambda grace=5.0: (_ for _ in ()).throw(KeyboardInterrupt())
+    )
+    terminated = []
+    monkeypatch.setattr(center.runner, "terminate_all", lambda: terminated.append(1))
+    server._shut_down(center)
+    assert terminated == [1]
+
+
+def test_terminate_all_signals_every_live_group(tmp_path, monkeypatch):
+    import subprocess
+
+    runner = Runner(CenterState(tmp_path), tmp_path)
+    live = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True
+    )
+    runner.adopt(live)
+    runner.terminate_all()
+    assert live.wait(timeout=10) == -15 and runner.stopping
+
+
+def test_a_closed_stderr_does_not_stop_shutdown(monkeypatch):
+    import io
+
+    closed = io.StringIO()
+    closed.close()
+    monkeypatch.setattr(sys, "stderr", closed)
+    server._say("hello")
+
+
+def test_a_dead_terminal_does_not_break_the_last_flush(monkeypatch):
+    class Dead:
+        def write(self, text):
+            raise OSError(5, "Input/output error")
+
+        def flush(self):
+            raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(sys, "stderr", Dead())
+    monkeypatch.setattr(sys, "stdout", Dead())
+    server._say("hello")
+    print("still fine")
+    print("still fine", file=sys.stderr)
+
+
+def test_shutdown_retries_when_a_signal_interrupts_it(tmp_path, monkeypatch):
+    center = Center(tmp_path)
+    calls = []
+
+    def interrupted(grace=5.0):
+        calls.append(1)
+        if len(calls) == 1:
+            raise KeyboardInterrupt
+        return []
+
+    monkeypatch.setattr(center.runner, "shutdown", interrupted)
+    server._shut_down(center)
+    assert len(calls) == 2
+
+
+def test_redact_catches_json_escaped_and_url_passwords():
+    import json as json_module
+
+    value = 'se"cret\\value-123'
+    line = f"payload {json_module.dumps({'k': value})} url https://user:hunter2pw@host/x"
+    out = redact(line, [value])
+    assert value not in out and json_module.dumps(value)[1:-1] not in out
+    assert "hunter2pw" not in out and "[redacted]" in out
+    assert redact("abc used", ["abc"]) == "abc used"  # under 4 characters: kept (shared rule)
+
+
+def test_back_to_back_stop_signals_cannot_deadlock_the_flag():
+    """The handler's flag takes no lock: re-entering it mid-set must not block."""
+    server._stopping.clear()
+    server._stopping.set()
+    server._stopping.set()  # a threading.Event here could block forever if re-entered
+    assert server._stop(15, None) is None
+    server._stopping.clear()

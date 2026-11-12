@@ -17,6 +17,7 @@ import errno
 import hashlib
 import hmac
 import json
+import os
 import re
 import secrets
 import signal
@@ -40,7 +41,15 @@ from agentbreeder.center.files import (
     private_dir,
     write_private,
 )
-from agentbreeder.center.jobs import ENVIRONMENT, KEY_NAME, Busy, CenterState, Runner, error
+from agentbreeder.center.jobs import (
+    ENVIRONMENT,
+    KEY_NAME,
+    Busy,
+    CenterState,
+    Runner,
+    WriteBusy,
+    error,
+)
 
 DEFAULT_PORT = 8900
 TOKEN_TTL = 300
@@ -350,7 +359,13 @@ class Route:
 def _overview(request: Request) -> dict:
     runner = request.center.runner
     doctor = runner.read(["doctor", "--json"])
-    return envelope({"version": __version__, "job": runner.current, "doctor": doctor})
+    return envelope({"version": __version__, "jobs": runner.running(), "doctor": doctor})
+
+
+def _activity(request: Request) -> dict:
+    """Running jobs, and the latest jobs of every project, newest first."""
+    center = request.center
+    return envelope({"running": center.runner.running(), "recent": center.state.recent_jobs()})
 
 
 def _projects(request: Request) -> dict:
@@ -409,6 +424,7 @@ def _cancel(request: Request) -> dict:
 
 ROUTES: tuple[Route, ...] = (
     Route("GET", r"/api/overview", _overview, "/api/overview"),
+    Route("GET", r"/api/activity", _activity, "/api/activity", poll=True),
     Route("GET", r"/api/projects", _projects, "/api/projects"),
     Route(
         "GET",
@@ -645,6 +661,13 @@ class Handler(BaseHTTPRequestHandler):
     def _handle(self, route: Route, request: Request) -> dict:
         try:
             return route.handler(request)
+        except WriteBusy as busy:
+            message = (
+                "A running job needs this; try again when it ends"
+                if busy.reason == "job"
+                else "Another save is in progress; try again when it ends"
+            )
+            raise HttpError(409, "WRITE_BUSY", message) from busy
         except Busy as busy:
             raise HttpError(
                 409, "BUSY", "Another job is running", data={"job": busy.job}
@@ -691,15 +714,94 @@ def _watch_terminal(center: Center) -> None:
         print(f"New one-time link: {url}", flush=True)
 
 
+STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+class _Flag:
+    """A flag a signal handler may set. Not a threading.Event: its set() takes a lock, and a
+    second signal handled while the first handler holds that lock would deadlock the main thread
+    (seen on Linux CI with SIGTERM then SIGHUP back to back). Plain attribute writes take none."""
+
+    def __init__(self):
+        self.value = False
+
+    def is_set(self) -> bool:
+        return self.value
+
+    def set(self) -> None:
+        self.value = True
+
+    def clear(self) -> None:
+        self.value = False
+
+
+_stopping = _Flag()
+
+
+def _stop(signum, frame):
+    """SIGTERM/SIGHUP: stop once, like Ctrl-C. Later ones (a closing terminal can send more than
+    one, and a supervisor may repeat SIGTERM) are ignored here, so they never cut the jobs'
+    SIGINT grace short; only a second Ctrl-C does. A Python handler, unlike SIG_IGN, is not
+    inherited by children."""
+    if _stopping.is_set():
+        return
+    _stopping.set()
+    raise KeyboardInterrupt
+
+
+def _say(text: str) -> None:
+    """A status line on stderr. A closed terminal (SIGHUP) makes writes fail; stopping the jobs
+    must go on regardless, and the interpreter's last flush must not fail either."""
+    try:
+        print(text, file=sys.stderr, flush=True)
+    except (OSError, ValueError):  # ValueError: stderr already closed
+        devnull = open(os.devnull, "w")  # noqa: SIM115 (lives until exit)
+        sys.stdout = sys.stderr = devnull
+
+
+def _shut_down(center: Center) -> None:
+    """Stop every job. A signal landing here (a Ctrl-C, or a stop signal racing the first)
+    must not skip it: an interrupted attempt is retried (it sends SIGINT again, which is
+    harmless), and if every attempt is interrupted, each job's group still gets SIGTERM."""
+    for _attempt in range(3):
+        try:
+            running = center.runner.running()
+            if running:
+                _say(f"Stopping {len(running)} running job(s); Ctrl-C again to skip the wait.")
+            stopped = center.runner.shutdown()
+            if stopped:
+                _say(f"Stopped {len(stopped)} running job(s).")
+            return
+        except KeyboardInterrupt:
+            continue
+    center.runner.terminate_all()
+
+
 def main(args) -> int:
+    """Run the console; the signal handlers it installs are restored when it returns, so an
+    ignored SIGTERM/SIGHUP is never inherited by a process started afterwards."""
+    previous = {number: signal.getsignal(number) for number in STOP_SIGNALS}
+    _stopping.clear()
+    try:
+        return _main(args)
+    finally:
+        for number, handler in previous.items():
+            if handler is not None:  # None: installed outside Python, cannot be restored
+                signal.signal(number, handler)
+
+
+def _main(args) -> int:
     from agentbreeder.doctor import check_compose, check_docker
 
     if not ENVIRONMENT.fullmatch(args.environment):
         print("Invalid --environment", file=sys.stderr)
         return 2
     # Started from a backgrounded shell, SIGINT would be ignored here and in every job, and
-    # Cancel would do nothing.
+    # Cancel would do nothing. SIGTERM and SIGHUP (terminal closed) stop it the same way, so
+    # its jobs, which run in their own sessions, are stopped too.
     signal.signal(signal.SIGINT, signal.default_int_handler)
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGHUP, _stop)
     for check in check_docker() + check_compose():
         if not check.passed and check.required:
             print(f"FAIL {check.name}: {check.message}", file=sys.stderr)
@@ -732,21 +834,21 @@ def main(args) -> int:
             print(preview["text"], file=sys.stderr)
             try:
                 center.start_job(project, {"kind": "services-up", "options": preview})
-            except (BadRequest, Busy) as problem:
+            except (BadRequest, Busy, WriteBusy) as problem:
                 print(f"Services not started: {problem}", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        job = center.runner.current
-        if job:
-            center.runner.cancel(job)
-            print("Asked the running job to stop.", file=sys.stderr)
-        server.server_close()
-    print(
+        _stopping.set()  # from here on a SIGTERM/SIGHUP is a no-op
+        try:
+            server.server_close()
+        except KeyboardInterrupt:
+            pass
+        _shut_down(center)
+    _say(
         "Command center stopped. Services and deployments keep running: use "
-        "`agentbreeder services down` and `agentbreeder remove`.",
-        file=sys.stderr,
+        "`agentbreeder services down` and `agentbreeder remove`."
     )
     return 0
