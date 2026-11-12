@@ -44,6 +44,13 @@ On main, not in a published preview.
   `build` now suggests `release` (never a production `deploy`) with the `--stack` and
   `--environment` it used, and `services up` suggests `build` (no `agent.lock` yet) or `release`
   with absolute paths. No `Next:` line is printed with `--json`.
+- Messages that name their fix (#819; on `main`, not in a published preview):
+  `CONTEXT_ENVIRONMENT_UNKNOWN` and `MODEL_ACCESS_UNCONFIGURED` suggest `--stack DIR` when a
+  `stack.yaml` sits beside the agent file or one level above a manifest; `REF_UNPINNED` on
+  `release` explains how to publish a path ref; `LOCK_STALE` says to run `agentbreeder build`
+  instead of "run without --locked"; a failed eval gate prints each failed case (id, failed
+  checks, judge reason; control characters removed, capped) and `--json` adds `failed_cases`;
+  deploys through `--stack` add one line explaining the demo-identity warnings.
 
 ### Internal
 

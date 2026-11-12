@@ -203,11 +203,21 @@ steps:
 3. Deploy `<name>-candidate` under its own identity and gateway key, run the eval set against it,
    then remove the candidate.
 4. Below the threshold, exit 5 with production unchanged. The report is in
-   `deploy/<name>.eval-<run>.json`.
+   `deploy/<name>.eval-<run>.json`. Each failed case is also printed (and listed as
+   `failed_cases` with `--json`): its id (up to 80 characters), the checks that failed and the
+   judge's reason (up to 200 characters), with control characters removed. These excerpts come
+   from the model and the eval set, and they also appear in console job logs (on `main`, not in a
+   published preview).
 5. Otherwise write a release journal (the previous production and its manifest) to
    `<state-dir>/releases/<name>.json`,
    remove the old production, and deploy the **exact evaluated image**.
 6. If the new production fails to start, restore the previous one.
+
+Messages that name their fix (on `main`, not in a published preview): `LOCK_STALE` says to run
+`agentbreeder build` (release builds with `--locked`, which never updates `agent.lock`);
+`REF_UNPINNED` on release says how to publish a path ref as a registry version; and
+`CONTEXT_ENVIRONMENT_UNKNOWN` or `MODEL_ACCESS_UNCONFIGURED` suggest `--stack DIR` when a
+`stack.yaml` sits beside the agent file (or one level above a manifest).
 
 Limits:
 - **The eval gate can be bypassed.** It is release orchestration, not an engine control: anyone

@@ -93,6 +93,24 @@ class EvalReport:
         }
 
 
+def failed_cases(results: list[dict]) -> list[dict]:
+    """Each failed case, for the terminal and job logs (G-F6). Ids, check names and the
+    judge's reason are untrusted model or eval-set text: one line, controls stripped, capped."""
+    from agentbreeder.safe_text import excerpt
+
+    return [
+        {
+            "id": excerpt(result.get("case_id", ""), 80),
+            "failed_checks": [
+                excerpt(name, 80) for name, ok in (result.get("checks") or {}).items() if not ok
+            ],
+            "reason": excerpt(result.get("explanation") or "", 200),
+        }
+        for result in results
+        if not result.get("passed")
+    ]
+
+
 def _inside(directory: Path, name, field: str) -> Path:
     """A file named in the eval manifest must be a plain file in the (hashed) eval version."""
     if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):

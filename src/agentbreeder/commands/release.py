@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from agentbreeder import agentfile, cli, registry, secret_files
+from agentbreeder import agentfile, cli, hints, registry, secret_files
 from agentbreeder.deployer import DeployerError, os_deployer, resolve_deployer
 from agentbreeder.deployment import DeploymentService
 from agentbreeder.gate import GateDenied
@@ -79,7 +79,7 @@ def run(args) -> int:
         DeploymentError,
         secret_files.SecretError,
     ) as error:
-        print(cli._message(error), file=sys.stderr)
+        print(cli._message(error, args=args, near=Path(args.agent)), file=sys.stderr)
         return 3 if getattr(error, "code", "") == "APPROVAL_REQUIRED" else 2
     finally:
         if store:
@@ -91,6 +91,18 @@ def run(args) -> int:
         production = outcome.details.get("production")
         if production and production.get("endpoint"):
             print(f"Production: {production['endpoint']} ({production['id']})")
+        for case in outcome.details.get("failed_cases") or []:
+            checks = ", ".join(case["failed_checks"]) or "none"
+            reason = f"; judge: {case['reason']}" if case["reason"] else ""
+            print(f"FAIL {case['id']}: failed {checks}{reason}")
         if outcome.details.get("eval_report"):
             print(f"Eval report: {outcome.details['eval_report']}")
+        if outcome.details.get("failed_cases"):
+            print(
+                hints.next_note(
+                    "edit the prompt or eval set, publish it as a new version, reference that "
+                    f"version in agent.yaml, then run `{hints.command('build', args.agent)}` "
+                    "and release again"
+                )
+            )
     return outcome.code

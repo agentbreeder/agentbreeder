@@ -32,7 +32,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from agentbreeder import evals, registry
+from agentbreeder import evals, hints, registry
 from agentbreeder.agentfile import load_agent_file
 from agentbreeder.build import BuildError, build, docker_build
 from agentbreeder.deployer import Deployer
@@ -74,7 +74,9 @@ def _eval_set(agent, project: Path) -> evals.EvalSet:
     lock = Lock.load(project / "agent.lock")
     locked = lock.entries.get(str(ref))
     if locked is None:
-        raise ReleaseError("LOCK_STALE", f"{ref} is not in agent.lock; run agentbreeder build")
+        raise ReleaseError(
+            "LOCK_STALE", f"{ref} is not in agent.lock; run `{hints.command('build')}` first"
+        )
     hit = registry.resolve(ref, registry.roots(project))
     with tempfile.TemporaryDirectory(prefix="agentbreeder-eval-") as temporary:
         copy = Path(temporary) / "eval"
@@ -242,6 +244,7 @@ def release(
         ]
         if report.pass_rate < needed:
             service.record("release", "eval_failed", deployer, reasons)
+            details["failed_cases"] = evals.failed_cases(report.results)
             return Outcome(
                 EXIT_EVAL,
                 f"Eval gate failed: {summary['passed']}/{summary['cases']} passed, needs "
