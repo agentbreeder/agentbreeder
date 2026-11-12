@@ -16,13 +16,23 @@ On main, not in a published preview.
   preview: one version's hash, root, manifest, files and the text of its text files, read-only.
   It goes through the same safety checks as `verify`, opens files without following symlinks,
   caps text at 256 KiB per file and 2 MiB per version, and removes control and bidi characters
-  from file names, manifest values and content (S-27). The `--json` shape is documented in
-  `docs/registry.md` for the console's registry pages.
+  from file names, manifest values and content (S-27), and from every registry error message.
+  The hash and manifest it shows come from the same read as the content. The `--json` shape is
+  documented in `docs/registry.md` for the console's registry pages.
 - `agentbreeder registry diff FROM TO [--context N] [--project DIR] [--json]` (#824), on `main`,
-  not in a published preview: what changes from one version to another, file by file, as a
-  unified diff whose hunks match `diff -U N` of the files. Binary, oversized, mode-only and
-  stripped-character-only changes are reported rather than hidden. Reads like `show`.
-
+  not in a published preview: what changes from one version of a `kind/name` to another, file
+  by file, as a valid unified diff (patience anchors, then difflib: where lines repeat, hunk
+  placement can differ from `diff(1)`). Binary, oversized, over-budget (one budget of work and
+  output lines per diff), mode-only and stripped-character-only changes are reported rather
+  than hidden. Reads like `show`.
+- `agentbreeder registry used-by REF --project DIR... [--state-dir DIR] [--json]` (#824), on
+  `main`, not in a published preview: per project, where `agent.yaml`/`stack.yaml` declare the
+  ref (in ref fields only), the `agent.lock`/`stack.lock` entry, and recorded deployments of the
+  agent, reported separately: `ready` ones whose image the project's current build record lists
+  the ref for, the same match in other states, and deployments that cannot be matched
+  ("undetermined", with the reason). Project files are read as regular, size-capped files and
+  deploy state read-only (private, rollback-journal, `mode=ro`, bounded queries); states are the
+  last recorded observation, not a live check.
 - Brand tokens (#817): `website/brand.css` gains a light `:root` palette and, in both palettes,
   `--text-muted` (AA on every surface; `#a1a1aa` on dark), a 3:1 `--control-border`, and
   `--success`, `--warning` and `--info` with `-subtle` backgrounds. Existing token names and
@@ -47,6 +57,13 @@ On main, not in a published preview.
   - Registering a project, onboarding an example and starting a job refuse directories, files and
     parent directories that other users own or can write (sticky directories such as `/tmp` are
     allowed).
+- Registries (#824), on `main`, not in a published preview: `build`, `release` and `services up`
+  now refuse a symlinked `<root>/<kind>` or `<root>/<kind>/<name>` directory in a registry root
+  (`ENTRY_UNSAFE`), as they already refused a symlinked version directory. A symlinked or
+  dangling `./registry/tool` fails every `tool/*` ref even when a later root has the version
+  (fail closed). `registry verify` reports such directories and `registry list --json` marks the
+  versions under them `"symlinked": true`. An unreadable directory inside a version is now an
+  error instead of being skipped.
 
 ### Internal
 

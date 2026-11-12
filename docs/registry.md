@@ -36,24 +36,41 @@ agentbreeder registry list [tool/] [--json]
 agentbreeder registry verify [--json]                 # exit 2 if any version is unsafe or inconsistent
 agentbreeder registry show prompt/support@1.0.0 [--project DIR] [--json]
 agentbreeder registry diff prompt/support@1.0.0 prompt/support@1.0.1 [--context N] [--json]
+agentbreeder registry used-by tool/orders@1.0.0 [--project DIR ...] [--state-dir DIR] [--json]
 ```
 
 `list`, `verify`, `show` and `diff` search the roots of `--project` (default `.`).
 
+Nothing below a search root may be a symlink (the root itself may be). A symlinked, or dangling,
+`<root>/<kind>` or `<root>/<kind>/<name>` directory makes every ref under it fail to resolve
+(`ENTRY_UNSAFE`) in `build`, `release`, `services up`, `show` and `diff`, **even when a later
+root has the version**: resolution fails closed rather than skipping to the next root. `verify`
+reports each such directory as a problem, and `list` still lists the versions under it with
+`"symlinked": true` (text output: `(symlinked directory: refused)`).
+
 ## Browsing versions (on `main`, not in a published preview)
 
 `show`, `diff` and `used-by` only read. They are what the local console's registry pages will
-call, so their `--json` output is the contract described here.
+call, so their `--json` output is the contract described here. Paths in it (`root`, `path`,
+`project`, `state_dir`) are absolute.
+
+**What every read refuses or cleans.** A version goes through the same checks as `verify`
+(`REF_CONFLICT`, symlinks, hardlinks, devices, `MAX_FILES`/`MAX_BYTES`, the shipped content
+manifest), and nothing below a search root may be a symlink: a symlinked `<root>/<kind>`,
+`<root>/<kind>/<name>` or version directory is `ENTRY_UNSAFE`. Each file is opened without
+following symlinks and must still be the file that was checked, with the size it had; an
+unreadable entry (permissions, a file removed mid-read) is `ENTRY_UNSAFE`, never a partial
+listing. Control characters (except tab and newline in content), Unicode bidi controls, line and
+paragraph separators and lone surrogates are removed from file names, manifest values, content and
+error messages before anything is printed; names also lose zero-width, word-joiner, BOM and tag
+characters. So a version cannot rewrite your terminal or disguise a file name; the file is marked
+`stripped`.
 
 **`registry show REF`** prints one version: its hash, root, description, file list and the text
-of its text files. The version goes through the same checks as `verify` (`REF_CONFLICT`,
-symlinks, hardlinks, devices, `MAX_FILES`/`MAX_BYTES`, the shipped content manifest); each file
-is opened without following symlinks and must still be the file that was checked. Output is
-capped: at most 256 KiB of text per file and 2 MiB per version (later files are listed but not
-shown). Binary files (a NUL byte or invalid UTF-8) are listed, not shown. Control characters
-(except tab and newline in content) and Unicode bidi controls are removed from file names,
-manifest values and content before anything is printed, so a version cannot rewrite your terminal
-or disguise a file name; the file is marked `stripped`.
+of its text files. Output is capped: at most 256 KiB of text per file and 2 MiB per version
+(later files are listed but not shown). Binary files (a NUL byte or invalid UTF-8) are listed, not
+shown. The hash and the manifest come from the same read as the content, so they describe exactly
+the bytes shown.
 
 `--json` prints:
 
@@ -78,12 +95,19 @@ or disguise a file name; the file is marked `stripped`.
 `truncated: true` means only the first 256 KiB are in `text`.
 
 **`registry diff FROM TO`** shows what changes from the first version to the second (the order
-matters), file by file in path order, as a unified diff with `--context N` lines around each
-change (default 3, at most 1000). Both versions are read exactly as `show` reads them. For text
-files the hunks are those of `diff -U N` on the two files (headers name `FROM/path` and
-`TO/path`, `/dev/null` for an added or removed file); `Only in REF: dir/` reports an empty
-directory. A change that cannot be shown as text is still reported: `Binary files … differ`,
-`… differ (too large to show)` past the 256 KiB cap, `old mode`/`new mode` for the executable bit,
+matters) of one `kind/name` (two different names are `REF_INVALID`), file by file in path order,
+as a unified diff with `--context N` lines around each change (default 3, at most 1000). Both
+versions are read exactly as `show` reads them. Text changes are a valid unified diff (headers
+name `FROM/path` and `TO/path`, `/dev/null` for an added or removed file). It is computed in
+Python: the common start and end are skipped, lines that occur once on each side anchor the rest
+(as `git diff --patience` does), and only what lies between anchors goes to difflib. So where
+lines repeat, hunk placement can differ from what `diff(1)` prints (and `diff(1)`
+implementations disagree on how an empty side is numbered at context 0). `Only in REF: dir/`
+reports an empty directory. A change that cannot be shown as text is still reported: `Binary
+files … differ`; `… differ (too large to show)` past the 256 KiB cap, or once the diff's budget
+is spent (one budget for the whole diff: line comparisons, about two seconds, and 50,000 hunk
+lines of output, so every later changed file is reported this way); `old mode`/`new mode` for the
+executable bit;
 and `… differ only in removed control or bidi characters` when the only difference is in
 characters that are stripped for display. Line endings are compared after `\r` is stripped. The
 exit status is 0 whether or not the versions differ, 2 on an error.
@@ -92,8 +116,8 @@ exit status is 0 whether or not the versions differ, 2 on an error.
 
 ```json
 {
-  "from": {"ref": "prompt/support@1.0.0", "sha256": "sha256:…", "root": "…", "root_kind": "project"},
-  "to":   {"ref": "prompt/support@1.0.1", "sha256": "sha256:…", "root": "…", "root_kind": "project"},
+  "from": {"ref": "prompt/support@1.0.0", "sha256": "sha256:…", "root": "/abs/…", "root_kind": "project"},
+  "to":   {"ref": "prompt/support@1.0.1", "sha256": "sha256:…", "root": "/abs/…", "root_kind": "project"},
   "context": 3,
   "identical": false,
   "files": [
@@ -101,7 +125,7 @@ exit status is 0 whether or not the versions differ, 2 on an error.
     {"path": "prompt.md", "status": "modified", "type": "file",
      "from_sha256": "sha256:…", "to_sha256": "sha256:…",
      "executable": {"from": false, "to": false},
-     "binary": false, "truncated": false, "omitted": false, "stripped": false,
+     "binary": false, "truncated": false, "omitted": false, "too_large": false, "stripped": false,
      "hunks": [{"from_start": 1, "from_count": 2, "to_start": 1, "to_count": 2, "lines": [
        {"op": " ", "text": "Be kind."},
        {"op": "-", "text": "Be brief."},
@@ -114,8 +138,71 @@ exit status is 0 whether or not the versions differ, 2 on an error.
 Only changed entries are listed. `status` is `added`, `removed` or `modified`; a path that
 changes between file and directory appears as `removed` then `added`. On an added or removed file
 the missing side's `from_sha256`/`to_sha256` and `executable` value is `null`. `hunks` is empty
-when the change is not shown as text (see the flags). `no_newline` appears only on a line with no
-newline at the end of the file.
+when the change is not shown as text (see the flags; `too_large` means the diff's budget was
+spent). `no_newline` appears only on a line with no newline at the end of the file.
+
+**`registry used-by REF --project DIR [DIR ...]`** reports, for each project (default `.`, each
+directory once), separately:
+
+- **declared**: each field of `agent.yaml` or `stack.yaml` that `build` or `services up` reads a
+  ref from (`runtime`, `prompt.ref`, `knowledge[i].ref`, `tools[i].ref`, `mcp[i].ref`,
+  `evals.ref`; `services.NAME.ref`, `mcp.NAME.ref`) whose value is exactly the ref, never free
+  text such as a description;
+- **locked**: the `agent.lock` or `stack.lock` entry for the ref (hash and source root);
+- **deployed**: recorded deployments of the project's agent in state `ready` whose image is the
+  image in the project's build record, `deploy/<agent>.build.json` (written by `build` and
+  `release`), when that record is for the current `agent.yaml` and `agent.lock` (their hashes
+  match) and lists the ref;
+- **recorded_not_running**: the same match in another state (`pending`, `starting`, `failed`,
+  `removing`);
+- **deployed_undetermined**: a deployment of the agent that cannot be matched, with the `reason`:
+  no or unreadable build record, the record is older than `agent.yaml`/`agent.lock`, its image is
+  not the record's (rebuilt since, built with another `--output`, or a cluster deployment named by
+  registry digest), the record does not list the ref, or its recorded manifest is over the
+  256 KiB cap (so its image is unknown). Never guessed.
+
+`<agent>-candidate` deployments (release's candidates) count only when they run the record's
+image, so an unrelated agent of that name is never reported. Only agent images are checked: a
+`service` (or other stack) ref is declared and locked, never "deployed".
+
+Deployments are read from `--state-dir` (repeatable; default the local state, as `status`) and,
+for a project with a `stack.yaml`, from every environment `services up` wrote for it (what
+`--stack DIR` uses), each directory once. State is only read: the directory and database must be
+private and yours (as the store requires), the database must be in rollback-journal mode (a WAL
+database is refused, since reading it would create files), it is opened with SQLite `mode=ro`,
+`deployments` must be a table, query time and text columns are capped, and nothing is created or
+migrated (a state from before schema 2 is reported; any read-write command migrates it). Of more
+than 1000 deployments in one state directory, the newest 1000 are read and `STATE_TRUNCATED` is
+reported. Project files are read only as regular, non-symlink, size-capped files (`agent.yaml` and
+`stack.yaml` 64 KiB, what `build` and `services up` accept; locks and the build record 1 MiB);
+lock hashes must be `sha256:` and 64 hex digits. The
+state shown is the last recorded observation, not a live check (`status` and `reconcile`
+re-check). The ref does not have to exist in a registry. Problems with one file or state
+directory are reported in `errors` and the rest is still shown; the exit status is then 2.
+
+`--json` prints:
+
+```json
+{
+  "ref": "tool/orders@1.0.0",
+  "projects": [{
+    "project": "/abs/examples/northwind", "agent": "northwind-support", "stack": "northwind",
+    "declared": [{"file": "agent.yaml", "name": "northwind-support", "at": "tools[2].ref"}],
+    "locked": [{"file": "agent.lock", "sha256": "sha256:…", "source": "registry"}],
+    "deployed": [{"deployment": "…", "name": "northwind-support", "state": "ready",
+                  "target": "local", "environment": "dev", "endpoint": "http://127.0.0.1:…",
+                  "image": "sha256:…", "state_dir": "/abs/…",
+                  "build_record": "deploy/northwind-support.build.json"}],
+    "recorded_not_running": [],
+    "deployed_undetermined": [],
+    "errors": [{"file": "stack.lock", "error": "[LOCK_INVALID] …"}]
+  }]
+}
+```
+
+`agent` and `stack` are the names `agent.yaml` (`kind: agent`) and `stack.yaml` declare, `null`
+otherwise. `recorded_not_running` entries have the same fields as `deployed`;
+`deployed_undetermined` entries have `reason` instead of `build_record`.
 
 ## Publishing and integrity
 

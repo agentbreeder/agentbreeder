@@ -1,13 +1,15 @@
-usage: agentbreeder registry [-h] {new,publish,list,verify,show,diff} ...
+usage: agentbreeder registry [-h]
+                             {new,publish,list,verify,show,diff,used-by} ...
 
 positional arguments:
-  {new,publish,list,verify,show,diff}
+  {new,publish,list,verify,show,diff,used-by}
     new                 Scaffold a version directory to edit
     publish             Publish an immutable version
     list                List versions in the search roots
     verify              Re-check every version's integrity
     show                Show one version's manifest and files
     diff                Show what changed between two versions
+    used-by             Show which projects declare, lock and deploy a version
 
 options:
   -h, --help            show this help message and exit

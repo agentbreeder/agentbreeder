@@ -1,0 +1,14 @@
+usage: agentbreeder registry used-by [-h] [--project DIR [DIR ...]]
+                                     [--state-dir DIR] [--json]
+                                     ref
+
+positional arguments:
+  ref                   kind/name@X.Y.Z
+
+options:
+  -h, --help            show this help message and exit
+  --project DIR [DIR ...]
+                        Projects to look in (default: .)
+  --state-dir DIR       Local deploy state to read (default: the local state);
+                        a project's stack state is always read
+  --json
