@@ -36,6 +36,12 @@ On main, not in a published preview.
   - Registering a project, onboarding an example and starting a job refuse directories, files and
     parent directories that other users own or can write (sticky directories such as `/tmp` are
     allowed).
+  - Several jobs at once: one engine job per project, and cluster jobs (`cluster up/down`,
+    promote to kind) one at a time on the machine. The overview lists every running job and
+    `/api/activity` adds the latest jobs. These locks order console jobs only; a terminal command
+    does not see them.
+  - Stopping `up` stops every child: SIGINT first, then, after 5 seconds, SIGTERM to each child's
+    process group. Cancel still sends one SIGINT to the job.
 
 ### Internal
 

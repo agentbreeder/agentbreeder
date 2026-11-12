@@ -350,7 +350,13 @@ class Route:
 def _overview(request: Request) -> dict:
     runner = request.center.runner
     doctor = runner.read(["doctor", "--json"])
-    return envelope({"version": __version__, "job": runner.current, "doctor": doctor})
+    return envelope({"version": __version__, "jobs": runner.running(), "doctor": doctor})
+
+
+def _activity(request: Request) -> dict:
+    """Running jobs, and the latest jobs of every project, newest first."""
+    center = request.center
+    return envelope({"running": center.runner.running(), "recent": center.state.recent_jobs()})
 
 
 def _projects(request: Request) -> dict:
@@ -409,6 +415,7 @@ def _cancel(request: Request) -> dict:
 
 ROUTES: tuple[Route, ...] = (
     Route("GET", r"/api/overview", _overview, "/api/overview"),
+    Route("GET", r"/api/activity", _activity, "/api/activity", poll=True),
     Route("GET", r"/api/projects", _projects, "/api/projects"),
     Route(
         "GET",
@@ -739,11 +746,10 @@ def main(args) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        job = center.runner.current
-        if job:
-            center.runner.cancel(job)
-            print("Asked the running job to stop.", file=sys.stderr)
         server.server_close()
+        stopped = center.runner.shutdown()
+        if stopped:
+            print(f"Stopped {len(stopped)} running job(s).", file=sys.stderr)
     print(
         "Command center stopped. Services and deployments keep running: use "
         "`agentbreeder services down` and `agentbreeder remove`.",
