@@ -61,6 +61,19 @@
     },
     "BuildStep": {
       "properties": {
+        "id": {
+          "const": "build",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
         "state": {
           "enum": [
             "done",
@@ -91,19 +104,6 @@
             }
           ]
         },
-        "id": {
-          "const": "build",
-          "title": "Id",
-          "type": "string"
-        },
-        "title": {
-          "title": "Title",
-          "type": "string"
-        },
-        "required": {
-          "title": "Required",
-          "type": "boolean"
-        },
         "data": {
           "anyOf": [
             {
@@ -116,12 +116,12 @@
         }
       },
       "required": [
-        "state",
-        "reason",
-        "fix",
         "id",
         "title",
         "required",
+        "state",
+        "reason",
+        "fix",
         "data"
       ],
       "title": "BuildStep",
@@ -352,6 +352,19 @@
     },
     "KeysStep": {
       "properties": {
+        "id": {
+          "const": "keys",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
         "state": {
           "enum": [
             "done",
@@ -382,19 +395,6 @@
             }
           ]
         },
-        "id": {
-          "const": "keys",
-          "title": "Id",
-          "type": "string"
-        },
-        "title": {
-          "title": "Title",
-          "type": "string"
-        },
-        "required": {
-          "title": "Required",
-          "type": "boolean"
-        },
         "data": {
           "anyOf": [
             {
@@ -407,12 +407,12 @@
         }
       },
       "required": [
-        "state",
-        "reason",
-        "fix",
         "id",
         "title",
         "required",
+        "state",
+        "reason",
+        "fix",
         "data"
       ],
       "title": "KeysStep",
@@ -480,6 +480,19 @@
     },
     "KubernetesStep": {
       "properties": {
+        "id": {
+          "const": "kubernetes",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
         "state": {
           "enum": [
             "done",
@@ -510,19 +523,6 @@
             }
           ]
         },
-        "id": {
-          "const": "kubernetes",
-          "title": "Id",
-          "type": "string"
-        },
-        "title": {
-          "title": "Title",
-          "type": "string"
-        },
-        "required": {
-          "title": "Required",
-          "type": "boolean"
-        },
         "data": {
           "anyOf": [
             {
@@ -535,12 +535,12 @@
         }
       },
       "required": [
-        "state",
-        "reason",
-        "fix",
         "id",
         "title",
         "required",
+        "state",
+        "reason",
+        "fix",
         "data"
       ],
       "title": "KubernetesStep",
@@ -608,6 +608,19 @@
     },
     "PrerequisitesStep": {
       "properties": {
+        "id": {
+          "const": "prerequisites",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
         "state": {
           "enum": [
             "done",
@@ -638,19 +651,6 @@
             }
           ]
         },
-        "id": {
-          "const": "prerequisites",
-          "title": "Id",
-          "type": "string"
-        },
-        "title": {
-          "title": "Title",
-          "type": "string"
-        },
-        "required": {
-          "title": "Required",
-          "type": "boolean"
-        },
         "data": {
           "anyOf": [
             {
@@ -663,12 +663,12 @@
         }
       },
       "required": [
-        "state",
-        "reason",
-        "fix",
         "id",
         "title",
         "required",
+        "state",
+        "reason",
+        "fix",
         "data"
       ],
       "title": "PrerequisitesStep",
@@ -801,6 +801,19 @@
     },
     "ProjectStep": {
       "properties": {
+        "id": {
+          "const": "project",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
         "state": {
           "enum": [
             "done",
@@ -831,19 +844,6 @@
             }
           ]
         },
-        "id": {
-          "const": "project",
-          "title": "Id",
-          "type": "string"
-        },
-        "title": {
-          "title": "Title",
-          "type": "string"
-        },
-        "required": {
-          "title": "Required",
-          "type": "boolean"
-        },
         "data": {
           "anyOf": [
             {
@@ -856,12 +856,12 @@
         }
       },
       "required": [
-        "state",
-        "reason",
-        "fix",
         "id",
         "title",
         "required",
+        "state",
+        "reason",
+        "fix",
         "data"
       ],
       "title": "ProjectStep",
@@ -930,6 +930,19 @@
     },
     "ReleaseStep": {
       "properties": {
+        "id": {
+          "const": "release",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
         "state": {
           "enum": [
             "done",
@@ -960,19 +973,6 @@
             }
           ]
         },
-        "id": {
-          "const": "release",
-          "title": "Id",
-          "type": "string"
-        },
-        "title": {
-          "title": "Title",
-          "type": "string"
-        },
-        "required": {
-          "title": "Required",
-          "type": "boolean"
-        },
         "data": {
           "anyOf": [
             {
@@ -985,12 +985,12 @@
         }
       },
       "required": [
-        "state",
-        "reason",
-        "fix",
         "id",
         "title",
         "required",
+        "state",
+        "reason",
+        "fix",
         "data"
       ],
       "title": "ReleaseStep",
@@ -1074,6 +1074,19 @@
     },
     "ServicesStep": {
       "properties": {
+        "id": {
+          "const": "services",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
         "state": {
           "enum": [
             "done",
@@ -1104,19 +1117,6 @@
             }
           ]
         },
-        "id": {
-          "const": "services",
-          "title": "Id",
-          "type": "string"
-        },
-        "title": {
-          "title": "Title",
-          "type": "string"
-        },
-        "required": {
-          "title": "Required",
-          "type": "boolean"
-        },
         "data": {
           "anyOf": [
             {
@@ -1129,12 +1129,12 @@
         }
       },
       "required": [
-        "state",
-        "reason",
-        "fix",
         "id",
         "title",
         "required",
+        "state",
+        "reason",
+        "fix",
         "data"
       ],
       "title": "ServicesStep",
@@ -1176,6 +1176,19 @@
     },
     "TryStep": {
       "properties": {
+        "id": {
+          "const": "try",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
         "state": {
           "enum": [
             "done",
@@ -1206,19 +1219,6 @@
             }
           ]
         },
-        "id": {
-          "const": "try",
-          "title": "Id",
-          "type": "string"
-        },
-        "title": {
-          "title": "Title",
-          "type": "string"
-        },
-        "required": {
-          "title": "Required",
-          "type": "boolean"
-        },
         "data": {
           "anyOf": [
             {
@@ -1231,12 +1231,12 @@
         }
       },
       "required": [
-        "state",
-        "reason",
-        "fix",
         "id",
         "title",
         "required",
+        "state",
+        "reason",
+        "fix",
         "data"
       ],
       "title": "TryStep",
