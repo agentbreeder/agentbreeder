@@ -707,20 +707,37 @@ class Engine:
             }
         return result
 
-    def logs(self, service: str, tail: int) -> str:
-        from agentbreeder.services.compose import redact
+    def log_redactor(self, service: str):
+        """Check `service` names a stack service (or MCP relay), authorize Docker, and return
+        the redactor for its logs: the stack's stored secrets, every environment's deployment
+        copies (a service can log what an agent sent it, S-09) and the values this command
+        handled. Fails closed (REDACTION_INCOMPLETE) when one of them cannot be read."""
+        from agentbreeder import redaction, safe_text
 
         relays = {mcp_stack.relay_name(server) for server in self.stack.mcp}
         if service not in self.stack.services and service not in relays:
             raise ServiceError("SERVICE_UNKNOWN", "no such service in stack.yaml")
-        from agentbreeder.redaction import redaction_values
-
         self.docker.authorize()
-        self.docker.redactions.extend(self.state.known_secrets())
-        # Agents' secret copies too: a service can log what an agent sent it (S-09).
-        self.docker.redactions.extend(redaction_values(None, self.state.directory))
-        output = self.docker.logs(self.state, service, max(1, min(tail, 10000)))
-        return redact(output, self.docker.redactions)
+        found = redaction.collect(None, self.state.directory)
+        if found.problems:
+            raise ServiceError(
+                "REDACTION_INCOMPLETE",
+                "nothing printed, because these values could not be read to redact the logs: "
+                + safe_text.excerpt("; ".join(sorted(set(found.problems))), 400),
+            )
+        return redaction.Redactor([*found.values, *self.docker.redactions])
+
+    def read_logs(
+        self, service: str, tail: int, since: str | None = None
+    ) -> tuple[str, bool, object]:
+        """(redacted text, older output dropped, the redactor) for `services logs`."""
+        redactor = self.log_redactor(service)
+        text, truncated = self.docker.read_logs(self.state, service, tail, since)
+        return redactor(text), truncated, redactor
+
+    def logs(self, service: str, tail: int) -> str:
+        """The service's last `tail` lines, redacted (kept for callers that want text)."""
+        return self.read_logs(service, max(1, min(tail, 10000)))[0]
 
     def active_deployments(self) -> list[str]:
         from agentbreeder.store import Store

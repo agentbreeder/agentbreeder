@@ -15,11 +15,12 @@ visible escapes unless `--raw` (security finding S-08); `--json` escapes by cons
 
 `--follow` streams until the container stops, Ctrl-C, SIGTERM, SIGHUP or, when stdin is not a
 terminal, the end of stdin: a supervising process (the console) stops a follow by closing its
-stdin. The `docker logs` child is stopped with it, and it stays in the CLI's process group, so a
-terminal hangup or a supervisor's group kill reaches it too (S-10); only a SIGKILL of the CLI
-alone leaves it running until its next write. Run with stdin from `/dev/null`, a follow ends at
-once. A line over 1 MiB is dropped whole, never printed in part. Docker's 16 KiB partial records
-of a long line are joined before redaction (`runtime.join_partials`).
+stdin. The reader (`docker logs`, `kubectl logs`, `docker compose logs`) runs in its own
+process group, which the CLI's handlers stop whole: SIGTERM, then SIGKILL after 2 s (S-10;
+compose's plugin ignored one SIGTERM while starting). A SIGKILL of the CLI leaves the reader
+until its next write, for the console's leftover sweep. Run with stdin from `/dev/null`, a
+follow ends at once. A line over 1 MiB is dropped whole, never printed in part. Docker's 16 KiB
+partial records of a long line are joined before redaction (`runtime.join_partials`).
 
 `logs --failed NAME` reads only the file `release` saved (no Docker, no state database).
 
@@ -399,23 +400,43 @@ class _Follow:
     """The follow child and how it is stopped: by the end of stdin (a watcher thread), by
     SIGTERM/SIGHUP (handlers that only record the reason and stop the child), by Ctrl-C or by
     a closed stdout. The lock is re-entrant because a signal handler runs on the main thread,
-    possibly while it holds the lock to start the child; the child is signalled through Popen
-    only while it is unreaped. The first reason wins."""
+    possibly while it holds the lock to start the child. A stop signals the child's whole
+    process group (`runtime.signal_follow`) and arms a SIGKILL after STOP_GRACE seconds, so a
+    reader that ignores SIGTERM (docker while its compose plugin starts) cannot keep the read
+    loop waiting. The first reason wins."""
 
     def __init__(self) -> None:
         self.process = None
         self.reason: str | None = None
         self.lock = threading.RLock()
+        self.timer: threading.Timer | None = None
+        self.finished = False  # set once the child was stopped and waited for
 
     def stop(self, reason: str) -> None:
+        from agentbreeder.runtime import signal_follow
+
         with self.lock:
             self.reason = self.reason or reason
             process = self.process
-            if process is not None and process.poll() is None:
-                try:
-                    process.terminate()  # its stdout ends, so the read loop ends
-                except OSError:
-                    pass
+            if process is None or self.finished:  # e.g. stdin ending after the follow ended
+                return
+            signal_follow(process, signal.SIGTERM)  # its stdout ends, so the read loop ends
+            if self.timer is None:
+                self.timer = threading.Timer(
+                    STOP_GRACE, signal_follow, args=(process, signal.SIGKILL)
+                )
+                self.timer.daemon = True
+                self.timer.start()
+
+    def cancel(self) -> None:
+        """The follow ended: no later stop may signal or arm a timer."""
+        with self.lock:
+            self.finished = True
+            if self.timer is not None:
+                self.timer.cancel()
+
+
+STOP_GRACE = 2.0
 
 
 def _watch_stdin(follow: _Follow, descriptor: int) -> None:
@@ -469,14 +490,20 @@ def _follow(
     failed: str = "DOCKER_LOGS_FAILED",
     options=None,
     target: str = "local",
+    label: dict | None = None,
 ) -> int:
-    """Stream until stopped. With --json each line is
-    `{"schema_version", "source": "agent", "name", "deployment", "line"}` and the stream ends
-    with `{"schema_version", "event": "end", "reason", "dropped"}` (reason: container, stdin,
-    signal or interrupt), or with an error object when `docker logs` itself failed."""
+    """Stream until stopped. With --json each line is `{"schema_version", **label, "line"}`
+    (for a deployment, `label` is `{"source": "agent", "target", "name", "deployment"}`; for a
+    stack service, `{"source": "service", "target", "name"}`) and the stream ends with
+    `{"schema_version", "event": "end", "reason", "dropped"}` (reason: container, stdin, signal
+    or interrupt), or with an error object when the log reader itself failed. `runtime.follow`
+    must raise DeploymentError for a reader that cannot start."""
     from agentbreeder.runtime import join_partials, stop_follow
     from agentbreeder.store import DeploymentError
 
+    if label is None:
+        label = {"source": "agent", "target": target, "name": record["name"]}
+        label["deployment"] = args.id
     follow = _Follow()
     previous = _handlers(follow)
     dropped = False
@@ -493,12 +520,12 @@ def _follow(
                 if follow.reason is not None:  # a stop signal came while the child was starting
                     follow.stop(follow.reason)
         if process is not None:
-            descriptor = _stdin_descriptor()
-            if descriptor is not None:
-                threading.Thread(
-                    target=_watch_stdin, args=(follow, descriptor), daemon=True
-                ).start()
-            try:
+            try:  # entered at once: a Ctrl-C from here on still stops the reader's group
+                descriptor = _stdin_descriptor()
+                if descriptor is not None:
+                    threading.Thread(
+                        target=_watch_stdin, args=(follow, descriptor), daemon=True
+                    ).start()
                 while True:
                     line = process.stdout.readline(LINE_LIMIT)
                     if not line:
@@ -513,14 +540,7 @@ def _follow(
                     joined = join_partials(line.rstrip(b"\n"))
                     text = redact(joined.decode("utf-8", "replace"))
                     if args.json:
-                        entry = {
-                            "schema_version": SCHEMA_VERSION,
-                            "source": "agent",
-                            "target": target,
-                            "name": record["name"],
-                            "deployment": args.id,
-                            "line": text,
-                        }
+                        entry = {"schema_version": SCHEMA_VERSION, **label, "line": text}
                         print(json.dumps(entry), flush=True)
                     else:
                         print(_shown(text, args.raw), flush=True)
@@ -538,6 +558,7 @@ def _follow(
                     follow.stop("interrupt")
                     stop_follow(process, grace=0)
     finally:
+        follow.cancel()  # the group is gone (or was waited for); never fire on a reused id
         for number, handler in previous.items():
             signal.signal(number, handler)
     reason = follow.reason

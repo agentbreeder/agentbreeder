@@ -423,6 +423,57 @@ def test_follow_drops_an_over_long_line_whole(state, docker, capsys, monkeypatch
     assert "x" * 64 not in captured.out
 
 
+STUBBORN = """
+import os, signal, subprocess, sys, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)  # like docker while its compose plugin starts
+grand = (
+    "import os, signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+    "print('GRAND', os.getpid(), flush=True); time.sleep(60)"
+)
+subprocess.Popen([sys.executable, "-c", grand])  # holds stdout, like the compose plugin
+time.sleep(60)
+"""
+
+
+def test_a_reader_that_ignores_sigterm_is_killed_with_its_group(
+    state, docker, capsys, monkeypatch
+):
+    """The services-logs hang (review r1): one SIGTERM did not stop docker and its plugin, so
+    the read loop never ended. The whole group now gets SIGKILL after STOP_GRACE."""
+    from agentbreeder.runtime import start_follow
+
+    fake = docker.install(FakeDocker())
+    fake.follow = lambda info, tail=200, since=None: start_follow(
+        [sys.executable, "-c", STUBBORN], dict(os.environ)
+    )
+    timer = _pipe_stdin(monkeypatch, close_after=1.5)
+    started = time.monotonic()
+    try:
+        assert run(state, IDENTIFIER, "--follow") == 0
+    finally:
+        timer.cancel()
+    assert time.monotonic() - started < 15  # not the reader's 60 s
+    captured = capsys.readouterr()
+    grand = int(captured.out.split()[1])
+    assert "stdin ended" in captured.err
+    with pytest.raises(ProcessLookupError):
+        os.kill(grand, 0)
+
+
+def test_a_stop_after_the_follow_ended_signals_nothing():
+    """A late stdin end (the watcher thread) must not signal a reaped reader's group id or arm
+    a SIGKILL timer that nothing cancels (review r2)."""
+    from agentbreeder.runtime import start_follow, stop_follow
+
+    follow = logs_command._Follow()
+    follow.process = process = start_follow([sys.executable, "-c", "pass"], dict(os.environ))
+    stop_follow(process)
+    assert process.group is None  # gone: the id is forgotten
+    follow.cancel()  # what _follow's finally does
+    follow.stop("stdin")
+    assert follow.timer is None
+
+
 def test_a_signal_before_the_child_starts_starts_nothing(state, docker, capsys, monkeypatch):
     fake = docker.install(FakeDocker(child=CHILD))
     real = logs_command._handlers
