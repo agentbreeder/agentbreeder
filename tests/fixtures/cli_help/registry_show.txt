@@ -1,0 +1,9 @@
+usage: agentbreeder registry show [-h] [--json] [--project PROJECT] ref
+
+positional arguments:
+  ref                kind/name@X.Y.Z
+
+options:
+  -h, --help         show this help message and exit
+  --json
+  --project PROJECT
