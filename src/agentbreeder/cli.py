@@ -66,6 +66,7 @@ COMMAND_MODULES = (
     "migrate",
     "logs",
     "next",
+    "new",
     "invoke",
 )
 

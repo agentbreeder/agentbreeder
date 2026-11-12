@@ -194,7 +194,9 @@ When several codes apply, the step reports the first in the table's order. Notes
   does not resolve refs. An agent without an `evals` ref is `PROJECT_INVALID` with `error_code`
   `EVALS_MISSING`: `release` refuses it. It blocks the whole path, so `services up` and `build`
   are not offered for it either, since the path cannot finish without evals.
-- `PROJECT_MISSING`: the fix is `new agent` when this install has it, otherwise `example
+- `PROJECT_MISSING`: the fix is `new agent NAME --model gemini` (with `--dir DIR` when `DIR` is
+  empty; `NAME` is `DIR`'s name when `new agent` accepts it, otherwise `hello`), and its note
+  offers `example northwind` instead. An install without `new` (before #769) offers `example
   northwind` (into `DIR` when it is empty). `try` suggests `invoke` only when this install has
   it; otherwise a done `try` has no fix.
 
@@ -346,8 +348,8 @@ The third example: an empty directory. Nothing past `project` can be checked.
      "data": {"checks": [{"name": "Docker", "passed": true, "required": true, "message": "Docker engine 27.5.1 is reachable"}]}},
     {"id": "project", "title": "Project", "required": true, "state": "next",
      "reason": {"code": "PROJECT_MISSING", "message": "No agent.yaml in this directory"},
-     "fix": {"action": "new-agent", "command": "agentbreeder new agent hello --model gemini",
-             "note": null, "url": null},
+     "fix": {"action": "new-agent", "command": "agentbreeder new agent empty --model gemini --dir /home/me/work/empty",
+             "note": "Or copy an example: agentbreeder example northwind", "url": null},
      "data": {"agent": null, "agent_file": null, "stack_file": null, "error_code": null, "newer": []}},
     {"id": "keys", "title": "Model keys", "required": true, "state": "todo",
      "reason": {"code": "NOT_CHECKED", "message": "Create a project first"}, "fix": null, "data": null},

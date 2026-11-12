@@ -237,6 +237,36 @@ def test_install_smoke_locked_build_on_a_copied_northwind(tmp_path):
     install_smoke.locked_build(project, config)
 
 
+def test_install_smoke_next_and_new_agent_checks(tmp_path, capsys):
+    from agentbreeder import cli, example
+
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "linked").symlink_to(real)  # as macOS temp dirs: /var -> /private/var
+    tmp_path = tmp_path / "linked"
+    project = example.copy("northwind", tmp_path / "nw")
+    assert cli.main(["next", str(project), "--json"]) == 0
+    install_smoke.check_next(capsys.readouterr().out, project)
+    with pytest.raises(SystemExit, match="did not describe"):
+        install_smoke.check_next(json.dumps({"project": "elsewhere"}), project)
+    with pytest.raises(SystemExit, match="project step"):
+        install_smoke.check_next(
+            json.dumps({"project": str(project.absolute()), "complete": False, "steps": []}),
+            project,
+        )
+    assert "the checklist parses" in capsys.readouterr().out
+    target = tmp_path / "hello"
+    argv = ["new", "agent", "hello", "--model", "gemini", "--dir", str(target), "--dry-run"]
+    assert cli.main([*argv, "--json"]) == 0
+    output = capsys.readouterr().out
+    install_smoke.check_new(output, target)
+    with pytest.raises(SystemExit, match="did not list"):
+        install_smoke.check_new(json.dumps({"dry_run": True, "files": []}), target)
+    target.mkdir()
+    with pytest.raises(SystemExit, match="wrote to its destination"):
+        install_smoke.check_new(output, target)
+
+
 def test_install_smoke_refuses_to_run_from_the_checkout_interpreter():
     """The full script runs only in CI (install-smoke) and the release build job, against an
     installed wheel; from this interpreter it must fail, never pass."""

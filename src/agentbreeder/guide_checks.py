@@ -211,11 +211,10 @@ def _project(ctx: _Context) -> dict:
     }
     if data["agent_file"] is None:
         empty = not any(ctx.project.iterdir())
-        name = (
-            ctx.project.name
-            if empty and re.fullmatch(agentfile.NAME_PATTERN, ctx.project.name)
-            else "hello"
-        )
+        from agentbreeder import newagent
+
+        # `new agent`'s own rule (stricter than agentfile's): a suggested command must work.
+        name = ctx.project.name if empty and newagent.valid_name(ctx.project.name) else "hello"
         command = (
             hints.command("new", "agent", name, "--model", "gemini", "--dir", ctx.project)
             if empty
