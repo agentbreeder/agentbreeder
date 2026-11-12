@@ -65,6 +65,7 @@ COMMAND_MODULES = (
     "login",
     "migrate",
     "logs",
+    "next",
 )
 
 

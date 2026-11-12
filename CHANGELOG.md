@@ -12,6 +12,15 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder next [DIR] [--environment ENV] [--output DIR] [--json]` (#820, M4), on `main`,
+  not in a published preview: where a project is on the guided path (prerequisites, project,
+  model keys, services, build, release through the eval gate, try it, and the local cluster when
+  one is attached) and the one command to run next. It only reads: local state is opened
+  read-only, `DIR`'s stack state is used (as `--stack DIR` would), Docker is asked once
+  (`compose ps`), and no key value is ever printed. Text exits 0 when done and 1 when steps
+  remain; `--json` prints the `docs/next.md` contract and exits 0. In the contract, `LOCK_STALE`
+  now comes before `NOT_BUILT`/`BUILD_STALE`, a provider key used only by a fallback alias is
+  optional, and step objects list `id`, `title` and `required` first.
 - The `agentbreeder next --json` contract (#820, M4), on `main`, not in a published preview:
   `docs/next.md` and `docs/next.schema.json` (generated from `src/agentbreeder/guide.py`) fix the
   guided-path checklist's shape (steps, states, reason codes, fix actions, `complete`, live

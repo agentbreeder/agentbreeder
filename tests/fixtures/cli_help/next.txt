@@ -1,0 +1,15 @@
+usage: agentbreeder next [-h] [--environment ENVIRONMENT] [--output OUTPUT]
+                         [--json]
+                         [DIR]
+
+positional arguments:
+  DIR                   Project directory with agent.yaml and stack.yaml
+                        (default: .)
+
+options:
+  -h, --help            show this help message and exit
+  --environment ENVIRONMENT
+                        Environment (default: dev)
+  --output OUTPUT       Where `build --output` wrote its manifests (default
+                        DIR/deploy)
+  --json                Print the checklist as JSON

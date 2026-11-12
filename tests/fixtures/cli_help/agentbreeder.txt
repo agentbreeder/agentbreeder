@@ -1,5 +1,5 @@
 usage: agentbreeder [-h] [--version]
-                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login,migrate,logs}
+                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login,migrate,logs,next}
                     ...
 
 Local development: validate, gate and deploy trusted HTTP containers. The
@@ -8,7 +8,7 @@ Opt-in runtime enforcement covers MCP Streamable HTTP tool calls through the
 egress sidecar only.
 
 positional arguments:
-  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login,migrate,logs}
+  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login,migrate,logs,next}
     validate            Validate a deploy manifest or an agent file (kind:
                         agent)
     doctor              Check local Docker prerequisites without changes
@@ -49,6 +49,8 @@ positional arguments:
                         IdP calls)
     logs                Show the saved log tail of the last failed release
                         candidate
+    next                Show where this project is on the guided path and the
+                        command to run next
 
 options:
   -h, --help            show this help message and exit

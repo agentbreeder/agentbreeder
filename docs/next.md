@@ -1,10 +1,10 @@
 # `agentbreeder next --json`: the guided-path contract
 
-Status: **contract only, on `main`, not in a published preview.** The `next` command that prints
-this lands in a later M4 PR (#820). This page and `docs/next.schema.json` fix its output first,
-because the local console builds its checklist, "Next" pill, empty-state buttons and job result
-rows from it. The models live in `src/agentbreeder/guide.py`; `docs/next.schema.json` is generated
-from them and a test keeps the two equal; another test validates every JSON example on this page.
+Status: **on `main`, not in a published preview** (#820). `agentbreeder next` prints this; the
+local console builds its checklist, "Next" pill, empty-state buttons and job result rows from it.
+The models live in `src/agentbreeder/guide.py` and the checks in `src/agentbreeder/guide_checks.py`;
+`docs/next.schema.json` is generated from the models and a test keeps the two equal; another test
+validates every JSON example on this page.
 
 ## The command
 
@@ -27,11 +27,15 @@ Exit 2 is left for a checklist that could not be computed: a usage error (argpar
 one `[CODE] message` line at the end of stderr and nothing on stdout, for `DIR` that is not a
 directory (`PROJECT_DIR_MISSING`), local state locked by a running job for longer than the read
 timeout (`STATE_BUSY`), unreadable state (`STATE_UNREADABLE`), or a checklist that breaks this
-contract (`GUIDE_OUTPUT_INVALID`; the message names the field, never its value). A project
+contract (`GUIDE_OUTPUT_INVALID`; the message names the field, never its value). Also exit 2: an
+unreadable project or state file (`PROJECT_UNREADABLE`), a local state database locked by a
+running job past the read timeout during a query (`STATE_BUSY` as well), an `--output` outside
+`DIR` once symlinks are resolved (`OUTPUT_OUTSIDE_PROJECT`), an invalid environment name
+(`ENVIRONMENT_INVALID`), and anything unexpected (`NEXT_FAILED`, never a traceback). A project
 path that cannot be printed under the character rule below (for example a directory name with a
 zero-width joiner, a no-break space or an emoji variation selector) is checked first and is
 `PROJECT_PATH_UNSUPPORTED`; rename the directory. An `--environment` that is not a valid name
-(`[a-z0-9-]`, at most 32 characters) is a usage error; a valid one the stack was never brought up
+(`[a-z0-9-]`, at most 32 characters) is `ENVIRONMENT_INVALID`; a valid one the stack was never brought up
 for is the `services` step's `ENVIRONMENT_MISSING`. That line names no path beyond the
 argument given and carries no child process's stderr. The console shows its last result as stale
 on a non-zero exit.
@@ -119,12 +123,12 @@ column, capitalised as shown in the examples), `required` (`false` only for `kub
 |---|---|---|---|---|
 | `prerequisites` | yes | every required `doctor` check passes (the PATH check is advisory: `required: false` in `data.checks`) | **`PREREQUISITE_FAILED`** | none (the failing check's remedy is in `note`) |
 | `project` | yes | `agent.yaml` and `stack.yaml` exist in `DIR`, validate, and every ref resolves | `PROJECT_MISSING`, **`PROJECT_INVALID`**, **`REF_UNRESOLVED`** | `new-agent` or `example` for `PROJECT_MISSING` |
-| `keys` | yes | every provider key the stack's LiteLLM config names (each model's `api_key: os.environ/NAME`; never the generated `LITELLM_MASTER_KEY` or `DATABASE_URL`) is set in the environment of `next` or stored by an earlier `services up` | `KEYS_MISSING`, **`KEYS_CONFIG_INVALID`** | `set-keys` |
+| `keys` | yes | every provider key the stack's LiteLLM config names for the aliases `environment.models` lists (each such model's `api_key: os.environ/NAME`; a key only a fallback alias uses is optional; never the generated `LITELLM_MASTER_KEY` or `DATABASE_URL`) is set in the environment of `next` or stored by an earlier `services up` | `KEYS_MISSING`, **`KEYS_CONFIG_INVALID`** | `set-keys` |
 | `services` | yes | every service and MCP relay container is `running` and not `unhealthy` (one `compose ps`), and `services up` has written this environment's operator config | **`SERVICES_UNREADABLE`**, `SERVICES_DOWN`, `SERVICES_UNHEALTHY`, `ENVIRONMENT_MISSING` | `services-up`, except none for `SERVICES_UNREADABLE` |
-| `build` | yes | `agent.yaml` has no `path:` ref, and `NAME.build.json` in the output directory was written for this environment and records the current `agent.yaml` and `agent.lock` hashes, and the lock's keys (`path:` keys included) are exactly the agent's refs | `REF_UNPINNED`, `NOT_BUILT`, `BUILD_STALE`, `LOCK_STALE` | `build` for `NOT_BUILT` and `BUILD_STALE`; none for `REF_UNPINNED` and `LOCK_STALE` |
+| `build` | yes | `agent.yaml` has no `path:` ref, and `NAME.build.json` in the output directory was written for this environment and records the current `agent.yaml` and `agent.lock` hashes, and the lock's keys (`path:` keys included) are exactly the agent's refs | `REF_UNPINNED`, `LOCK_STALE`, `NOT_BUILT`, `BUILD_STALE` | `build` for `NOT_BUILT` and `BUILD_STALE`; none for `REF_UNPINNED` and `LOCK_STALE` |
 | `release` | yes | the active local production deployment is `ready`, runs the image and deploy manifest the current build wrote, **and** a matching `release/promoted` audit row exists | **`STATE_NEEDS_MIGRATION`**, **`APPROVAL_PENDING`**, **`PRODUCTION_DISABLED`**, `RELEASE_GATE_FAILED`, `NOT_RELEASED`, `PRODUCTION_STALE`, `NO_RELEASE_EVIDENCE`, `RELEASE_THRESHOLD_LOWERED`, `RELEASE_EVALSET_CHANGED`, `PRODUCTION_NOT_READY` | `release`, except none for the blocking codes |
 | `try` | yes | exactly when `release` is done (no request is sent) | only `NOT_CHECKED` | `invoke`, as a suggestion on the done step |
-| `kubernetes` | no | an active, `ready` kubernetes deployment exists and its `promote/promoted` audit row's image is production's image | **`APPROVAL_PENDING`**, `CLUSTER_DOWN`, `NOT_PROMOTED`, `PROMOTION_STALE` | `cluster-up` for `CLUSTER_DOWN`; `promote` for `NOT_PROMOTED` and `PROMOTION_STALE` |
+| `kubernetes` | no | (`NOT_CHECKED` while Docker is unreachable) an active, `ready` kubernetes deployment exists and its `promote/promoted` audit row's image is production's image | **`APPROVAL_PENDING`**, `CLUSTER_DOWN`, `NOT_PROMOTED`, `PROMOTION_STALE` | `cluster-up` for `CLUSTER_DOWN`; `promote` for `NOT_PROMOTED` and `PROMOTION_STALE` |
 
 Any step can also carry **`NOT_CHECKED`**: it cannot be checked until an earlier step is done (no
 agent name or stack to read, Docker not reachable, state that needs `migrate`). Its `data` is
@@ -143,7 +147,8 @@ When several codes apply, the step reports the first in the table's order. Notes
   plain `build` succeeded.
 - `LOCK_STALE` (the lock no longer matches `agent.yaml`'s refs, the normal edit loop) is `next`,
   not blocked: a plain `build` from the CLI fixes it. It has no console action because the
-  console's build job is `build --locked`, which refuses it; the console shows `command` instead.
+  console's build job is `build --locked`, which refuses it; the console shows `command` instead. It is
+  reported before `NOT_BUILT` and `BUILD_STALE`, whose Build action would fail on a stale lock.
 - `RELEASE_GATE_FAILED`: the latest `release` audit row for the current build's image, eval set
   hash and threshold (the row's `RELEASE_IMAGE`, `RELEASE_EVALSET` and `RELEASE_THRESHOLD`) is
   `eval_failed`. Publishing new evals or changing the threshold makes a new combination, so the
@@ -158,15 +163,23 @@ When several codes apply, the step reports the first in the table's order. Notes
   again.
 - `PRODUCTION_DISABLED`: the kill switch blocks production's principal in this environment (a
   `blockers` row: the release step's `data.blocker`); `release` would be denied. `command` is
-  `agentbreeder enable …`, which only an authorised operator can run. Once the blocker is gone
+  `agentbreeder enable ID --state-dir <stack state> …`, which only an authorised operator can run,
+  with the stack's operator config (`note` names the `AGENTBREEDER_OPERATOR_CONFIG` value). Once the blocker is gone
   the code becomes `PRODUCTION_NOT_READY` with a Release action. A principal blocked before any production
   exists is not reported (there is no production to name), so the step shows `NOT_RELEASED` with
   a Release action that the gate denies; the job's output then explains it.
 - `APPROVAL_PENDING`: an unexpired pending row in the local `approvals` table names this agent or
   `NAME-candidate` (a deploy waiting for a second person: `agentbreeder approve ID`; `release`
-  stops with exit 3 on either). The table has no target column: a row is the release step's when
-  its `revision` (the manifest digest) is one the current build wrote (production or candidate),
-  and the `kubernetes` step's when it is the promote manifest's. `note` says so. When policy requires
+  stops with exit 3 on either). Rows are matched by agent name, environment, state and expiry:
+  their `revision` is the gate's revision digest (manifest, image, principal, deployer, policy),
+  not something `next` can recompute. The table has no target column, so a `NAME-candidate` row
+  is always the release step's, and a `NAME` row is the `kubernetes` step's only when the stack
+  has a cluster attached and the release step is otherwise done; otherwise it is the release
+  step's. `note` says who must run `approve` and that it needs this stack's state and operator
+  config (`approve`, like `enable`, has no `--stack` yet; #860 adds it, and these
+  notes will then print `--stack`). Matching by name makes this a hint: a pending approval for an
+  earlier revision of the same agent matches too, so the message says only that a deploy of this
+  agent is waiting, not that it is for the current build. When policy requires
   approval, `release` stops before it creates a request, so nothing is recorded and `next` shows
   `NOT_RELEASED` with a Release action that exits 3; the job's output then explains it.
 - A leftover `NAME-candidate` deployment is ignored by every step and condition.
@@ -176,7 +189,14 @@ When several codes apply, the step reports the first in the table's order. Notes
 - `KEYS_CONFIG_INVALID`: the LiteLLM config fails AgentBreeder's review (`services up` would
   refuse it); `message` names the field, never its value.
 - `PROJECT_INVALID` and `REF_UNRESOLVED`: `data.error_code` is the validator's code; `message`
-  names a field or ref, never file content or a child process's stderr.
+  names a file or ref, never file content or a child process's stderr. `REF_UNRESOLVED` names the
+  file that holds the ref, and its fix is a note (publish it or fix the ref), since `validate`
+  does not resolve refs. An agent without an `evals` ref is `PROJECT_INVALID` with `error_code`
+  `EVALS_MISSING`: `release` refuses it. It blocks the whole path, so `services up` and `build`
+  are not offered for it either, since the path cannot finish without evals.
+- `PROJECT_MISSING`: the fix is `new agent` when this install has it, otherwise `example
+  northwind` (into `DIR` when it is empty). `try` suggests `invoke` only when this install has
+  it; otherwise a done `try` has no fix.
 
 ### States
 
@@ -236,7 +256,9 @@ reachable that way (use `forward`).
   `disabled`); `released` (a `release/promoted` row whose `RELEASE_IMAGE` and `RELEASE_MANIFEST`
   are the image and manifest digest production runs, whatever that release's threshold or eval
   set: `RELEASE_THRESHOLD_LOWERED` and `RELEASE_EVALSET_CHANGED` leave it true, and a rebuild
-  that makes production `PRODUCTION_STALE` does not change it); `blocker` (a kill-switch blocker
+  that makes production `PRODUCTION_STALE` does not change it; when `evidence.released` itself
+  rejects that row, for example a malformed threshold, or the agent has no evals, `released` is
+  false and the reason is `NO_RELEASE_EVIDENCE`: unreadable evidence is no evidence); `blocker` (a kill-switch blocker
   for production's principal); `gate_failed` (as
   `RELEASE_GATE_FAILED` defines it); `failed_tail` (a
   saved failed-candidate log tail exists; it is best effort and is not tied to an image).
@@ -257,7 +279,7 @@ when the cause goes away. The console's notifications show the same set. Each ha
 |---|---|
 | `STEP_BLOCKED` | exactly when the first step not done is `blocked` (`step` names it) |
 | `DEPLOYMENT_FAILED` | an active deployment of this agent (not `NAME-candidate`) is recorded `failed`; `deployment` names it |
-| `DEPLOYMENT_NONCOMPLIANT` | an active deployment's identity compliance, as of the last `reconcile`, is not compliant (never reconciled is not a condition) |
+| `DEPLOYMENT_NONCOMPLIANT` | an active deployment's recorded identity compliance, as of the last `reconcile`, starts with `noncompliant` (never reconciled, and `unbound`, are not conditions) |
 | `SERVICES_UNHEALTHY` | Docker is reachable, `grant_recorded` is true, at least one container of the stack exists, and a service is not `running` or is `unhealthy` (an `absent` one included); one condition per service, `service` names it. A stack with no container at all (never up, or after `services down`) is the `services` step, not a condition. |
 | `PRODUCTION_UNGATED` | exactly when production exists and `released` is false, whatever the release step's reason (a hand-deployed image that then failed the gate included); `deployment` names production |
 

@@ -85,7 +85,7 @@ REASONS: dict[str, tuple[str, ...]] = {
         "SERVICES_UNHEALTHY",
         "ENVIRONMENT_MISSING",
     ),
-    "build": ("REF_UNPINNED", "NOT_BUILT", "BUILD_STALE", "LOCK_STALE"),
+    "build": ("REF_UNPINNED", "LOCK_STALE", "NOT_BUILT", "BUILD_STALE"),
     "release": (
         "STATE_NEEDS_MIGRATION",
         "APPROVAL_PENDING",
@@ -365,16 +365,19 @@ class KubernetesData(_Model):
 
 
 class _Step(_Model):
+    id: StepId
+    title: str
+    required: bool
     state: StepState
     reason: Reason | None  # null exactly when done
     fix: Fix | None  # required when next or blocked; on a done step only for try
 
     @model_validator(mode="after")
     def _step_rules(self) -> _Step:
-        step = self.id  # type: ignore[attr-defined]
-        if self.title != TITLES[step]:  # type: ignore[attr-defined]
+        step = self.id
+        if self.title != TITLES[step]:
             raise ValueError(f"{step}: title must be {TITLES[step]!r}")
-        if self.required != (step not in OPTIONAL_STEPS):  # type: ignore[attr-defined]
+        if self.required != (step not in OPTIONAL_STEPS):
             raise ValueError(f"{step}: required must be {step not in OPTIONAL_STEPS}")
         if (self.state == "done") != (self.reason is None):
             raise ValueError(f"{step}: a reason is given exactly when it is not done")
@@ -407,57 +410,41 @@ class _Step(_Model):
 
 class PrerequisitesStep(_Step):
     id: Literal["prerequisites"]
-    title: str
-    required: bool
     data: PrerequisitesData | None
 
 
 class ProjectStep(_Step):
     id: Literal["project"]
-    title: str
-    required: bool
     data: ProjectData | None
 
 
 class KeysStep(_Step):
     id: Literal["keys"]
-    title: str
-    required: bool
     data: KeysData | None
 
 
 class ServicesStep(_Step):
     id: Literal["services"]
-    title: str
-    required: bool
     data: ServicesData | None
 
 
 class BuildStep(_Step):
     id: Literal["build"]
-    title: str
-    required: bool
     data: BuildData | None
 
 
 class ReleaseStep(_Step):
     id: Literal["release"]
-    title: str
-    required: bool
     data: ReleaseData | None
 
 
 class TryStep(_Step):
     id: Literal["try"]
-    title: str
-    required: bool
     data: TryData | None
 
 
 class KubernetesStep(_Step):
     id: Literal["kubernetes"]
-    title: str
-    required: bool
     data: KubernetesData | None
 
 
