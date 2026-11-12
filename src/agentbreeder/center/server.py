@@ -190,6 +190,12 @@ class Center:
             raise BadRequest("Unknown example")
         destination = Path.home() / "agentbreeder-projects" / name
         if not (destination / "agent.yaml").exists():
+            if destination.parent.is_symlink() and not destination.parent.exists():
+                raise BadRequest(
+                    f"{destination.parent} is a broken link; remove it or point it at a "
+                    "directory you own",
+                    "PROJECT_UNSAFE",
+                )
             existing = destination.parent
             while not existing.exists():
                 existing = existing.parent
@@ -461,6 +467,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):  # noqa: A002
         pass  # URLs and bodies stay out of the terminal
+
+    def handle(self):
+        # A client that resets while its request line or headers are still being read fails in
+        # the base class, before `_dispatch`; it needs no reply and no traceback.
+        try:
+            super().handle()
+        except ConnectionError:
+            self.close_connection = True
 
     def __getattr__(self, name: str):
         # Every method, including ones no route uses, reaches the same guarded dispatch; the

@@ -1170,7 +1170,8 @@ def test_a_client_that_goes_away_mid_request_leaves_no_traceback(center, cookie,
     release.set()
     time.sleep(0.5)
     assert api(center, "GET", "/api/projects", cookie=cookie)[0] == 200
-    assert "Traceback" not in capfd.readouterr().err
+    err = capfd.readouterr().err
+    assert "Traceback" not in err and "request failed" not in err
 
 
 def test_a_trickled_body_is_discarded_for_a_bounded_time(center, monkeypatch):
@@ -1199,3 +1200,28 @@ def test_onboarding_checks_before_creating_anything(center, cookie, tmp_path, mo
     status, data, _ = api(center, "POST", "/api/projects", {"example": "northwind"}, cookie)
     assert status == 400 and data["error"]["code"] == "PROJECT_UNSAFE"
     assert not (home / "agentbreeder-projects").exists()
+
+
+def test_a_reset_while_headers_are_read_leaves_no_traceback(center, capfd):
+    import struct
+
+    connection = socket.create_connection(("127.0.0.1", center.port), timeout=30)
+    connection.sendall(b"GET /api/overview HTTP/1.1\r\nHost: x")
+    time.sleep(0.2)
+    connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    connection.close()
+    time.sleep(0.5)
+    err = capfd.readouterr().err
+    assert "Traceback" not in err and "Exception occurred" not in err
+
+
+def test_onboarding_refuses_a_broken_link_for_the_projects_folder(
+    center, cookie, tmp_path, monkeypatch
+):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "agentbreeder-projects").symlink_to(tmp_path / "nowhere")
+    monkeypatch.setattr(server.Path, "home", classmethod(lambda cls: home))
+    status, data, _ = api(center, "POST", "/api/projects", {"example": "northwind"}, cookie)
+    assert status == 400 and data["error"]["code"] == "PROJECT_UNSAFE"
+    assert "broken link" in data["error"]["message"]
