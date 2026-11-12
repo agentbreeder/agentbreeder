@@ -629,6 +629,16 @@ class Runner:
             pass
         return [job.id for job in jobs]
 
+    def terminate_all(self) -> None:
+        """The last resort when shutdown itself keeps being interrupted: SIGTERM to every job's
+        and live child's process group, no wait."""
+        with self.mutex:
+            self.stopping = True
+            processes = [job.process for job in self.jobs.values()]
+            processes += [child for child in self.children if child.poll() is None]
+        for process in processes:
+            _signal_group(process, signal.SIGTERM)
+
     def invalidate(self) -> None:
         """A job or write ended: cached reads are no longer the last good answer."""
         with self.mutex:

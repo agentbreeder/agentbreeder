@@ -1821,18 +1821,77 @@ def test_closing_the_terminal_stops_the_jobs(tmp_path, fake_cli):
     assert _gone(job_pid), "a job survived the terminal closing"
 
 
-def test_stop_raises_once_and_main_restores_handlers(quiet_main, monkeypatch):
+@pytest.fixture
+def real_handlers():
+    """Put back this process's signal handlers whatever a test of `main` leaves behind."""
+    import signal as signals
+
+    saved = {number: signals.getsignal(number) for number in server.STOP_SIGNALS}
+    yield
+    for number, handler in saved.items():
+        if handler is not None:
+            signals.signal(number, handler)
+    server._stopping.clear()
+
+
+def test_stop_raises_once(real_handlers):
     import signal as signals
 
     server._stopping.clear()
     with pytest.raises(KeyboardInterrupt):
         server._stop(signals.SIGTERM, None)
     assert server._stop(signals.SIGHUP, None) is None  # a second stop signal is a no-op
-    before = signals.getsignal(signals.SIGTERM)
-    monkeypatch.setattr(signals, "getsignal", lambda number: None)  # set outside Python
+
+
+def test_main_restores_handlers_and_skips_ones_it_cannot(quiet_main, real_handlers, monkeypatch):
+    import signal as signals
+
+    before = {number: signals.getsignal(number) for number in server.STOP_SIGNALS}
     assert server.main(arguments()) == 0
-    monkeypatch.undo()
-    assert signals.getsignal(signals.SIGTERM) is not None and before is not None
+    assert {number: signals.getsignal(number) for number in server.STOP_SIGNALS} == before
+    calls = []
+    real_signal = signals.signal
+
+    def recording(number, handler):
+        calls.append(handler)
+        return real_signal(number, handler)
+
+    monkeypatch.setattr(signals, "getsignal", lambda number: None)  # set outside Python
+    monkeypatch.setattr(signals, "signal", recording)
+    assert server.main(arguments()) == 0  # no TypeError from signal.signal(n, None)
+    assert None not in calls
+
+
+def test_shutdown_still_terminates_when_every_attempt_is_interrupted(tmp_path, monkeypatch):
+    center = Center(tmp_path)
+    monkeypatch.setattr(
+        center.runner, "shutdown", lambda grace=5.0: (_ for _ in ()).throw(KeyboardInterrupt())
+    )
+    terminated = []
+    monkeypatch.setattr(center.runner, "terminate_all", lambda: terminated.append(1))
+    server._shut_down(center)
+    assert terminated == [1]
+
+
+def test_terminate_all_signals_every_live_group(tmp_path, monkeypatch):
+    import subprocess
+
+    runner = Runner(CenterState(tmp_path), tmp_path)
+    live = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True
+    )
+    runner.adopt(live)
+    runner.terminate_all()
+    assert live.wait(timeout=10) == -15 and runner.stopping
+
+
+def test_a_closed_stderr_does_not_stop_shutdown(monkeypatch):
+    import io
+
+    closed = io.StringIO()
+    closed.close()
+    monkeypatch.setattr(sys, "stderr", closed)
+    server._say("hello")
 
 
 def test_a_dead_terminal_does_not_break_the_last_flush(monkeypatch):

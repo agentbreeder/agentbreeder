@@ -736,15 +736,15 @@ def _say(text: str) -> None:
     must go on regardless, and the interpreter's last flush must not fail either."""
     try:
         print(text, file=sys.stderr, flush=True)
-    except OSError:
+    except (OSError, ValueError):  # ValueError: stderr already closed
         devnull = open(os.devnull, "w")  # noqa: SIM115 (lives until exit)
         sys.stdout = sys.stderr = devnull
 
 
 def _shut_down(center: Center) -> None:
     """Stop every job. A signal landing here (a Ctrl-C, or a stop signal racing the first)
-    must not skip it: an interrupted attempt is retried, and the retry finds the SIGINTs
-    already sent and goes on to SIGTERM."""
+    must not skip it: an interrupted attempt is retried (it sends SIGINT again, which is
+    harmless), and if every attempt is interrupted, each job's group still gets SIGTERM."""
     for _attempt in range(3):
         try:
             running = center.runner.running()
@@ -756,6 +756,7 @@ def _shut_down(center: Center) -> None:
             return
         except KeyboardInterrupt:
             continue
+    center.runner.terminate_all()
 
 
 def main(args) -> int:

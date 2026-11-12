@@ -123,6 +123,7 @@ async function startJob(kind, options = {}, keys) {
     announce(`${kind} started`);
     render();
   } catch (error) {
+    if (error.status === 401) return; // the sign-in screen is already shown
     ui.notice = { kind: "error", text: error.message };
     if (error.job) follow({ id: error.job, kind: "job" });
     render();
