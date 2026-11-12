@@ -4,8 +4,8 @@
 space and the text is capped. `visible` is for log lines on a terminal (security finding S-08):
 C0 controls except tab and newline, DEL and C1 controls, ESC included, are shown as `\\xNN`
 escapes, so an echoed OSC 52 or CSI sequence cannot write the clipboard, forge a link or rewrite
-earlier lines. Bidirectional overrides and the Unicode line and paragraph separators are escaped
-the same way.
+earlier lines. Bidirectional overrides, the Unicode line and paragraph separators, and lone
+surrogates (which `print` cannot encode) are escaped the same way.
 """
 
 from __future__ import annotations
@@ -14,9 +14,11 @@ import re
 
 _BIDI = "‪-‮⁦-⁩‎‏؜"
 # Line and paragraph separators: some readers break lines on them (a forged log line).
-_SEPARATORS = "  "
-_ANY_CONTROL = re.compile(f"[\x00-\x1f\x7f-\x9f{_BIDI}{_SEPARATORS}]")
-_SHOWN = re.compile(f"[\x00-\x08\x0b-\x1f\x7f-\x9f{_BIDI}{_SEPARATORS}]")
+_SEPARATORS = "\u2028\u2029"
+# Lone surrogates (valid in JSON's \\uXXXX, never encodable as UTF-8) would make `print` raise.
+_SURROGATES = "\ud800-\udfff"
+_ANY_CONTROL = re.compile(f"[\x00-\x1f\x7f-\x9f{_BIDI}{_SEPARATORS}{_SURROGATES}]")
+_SHOWN = re.compile(f"[\x00-\x08\x0b-\x1f\x7f-\x9f{_BIDI}{_SEPARATORS}{_SURROGATES}]")
 
 
 def excerpt(text: object, limit: int) -> str:

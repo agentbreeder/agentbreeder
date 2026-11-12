@@ -1,0 +1,9 @@
+usage: agentbreeder new [-h] {agent} ...
+
+positional arguments:
+  {agent}
+    agent     Write a starter agent: agent.yaml, stack.yaml, a prompt and two
+              eval cases
+
+options:
+  -h, --help  show this help message and exit

@@ -37,6 +37,27 @@ On main, not in a published preview.
   `--json`), and its lines are split on `\n` only. `services` stack secrets that cannot be
   read are now reported to the redactor instead of skipped silently.
 
+- `agentbreeder new agent NAME --model gemini [--dir DIR] [--dry-run] [--json]` (#769, M4), on
+  `main`, not in a published preview: writes a starter based on the one walked by hand on
+  3.0.0a2 to `DIR` (default `./NAME`; absent, or an empty real directory you own that others
+  cannot write to). This template, with `traces: none` and `agent_events: none` added, ran once
+  end to end from a checkout on macOS (2026-11-12: `services up`, `build --locked`, `release`
+  2/2, `next` complete). It writes `agent.yaml` on `runtime/adk@1.0.6` with
+  `traces: none`, `agent_events: none` and a comment on the edit loop, `stack.yaml` (Postgres and
+  LiteLLM, `chat` and `judge` aliases, a `DATABASE_URL` binding, `candidate: true`, `review_by`
+  180 days out), `stack/litellm/config.yaml`, and editable sources in `src/prompt/` and
+  `src/evals/` (the two verified eval cases, `retries: 1`). It publishes
+  `prompt/NAME-prompt@0.1.0` and `eval/NAME-evals@0.1.0` into `DIR/registry` and writes
+  `agent.lock`, so `build --locked` passes. Everything is written in a staging directory inside
+  `DIR`, validated, then moved into place; files 0644, directories 0755. Only `gemini` is offered
+  and `--model` is required. Names that YAML reads as non-strings (`true`, `no`, `null`, …) and
+  destinations with control characters are refused. With `--json`, a refusal also prints
+  `{"schema_version": 1, "error": {"code", "message"}}` on stdout (exit 2; argparse usage errors
+  such as an unknown `--model` stay plain text). An existing `DIR` that is group-writable is
+  accepted only off macOS and only for your own group. `next` now offers `new agent` for a
+  directory without `agent.yaml` (`example northwind` stays in the fix's note), `quickstart` ends
+  with `Next: … new agent hello --model gemini`, and `scripts/install_smoke.py` also runs
+  `next --json` and `new agent --dry-run --json`.
 - `agentbreeder next [DIR] [--environment ENV] [--output DIR] [--json]` (#820, M4), on `main`,
   not in a published preview: where a project is on the guided path (prerequisites, project,
   model keys, services, build, release through the eval gate, try it, and the local cluster when
@@ -46,6 +67,24 @@ On main, not in a published preview.
   remain; `--json` prints the `docs/next.md` contract and exits 0. In the contract, `LOCK_STALE`
   now comes before `NOT_BUILT`/`BUILD_STALE`, a provider key used only by a fallback alias is
   optional, and step objects list `id`, `title` and `required` first.
+- `agentbreeder invoke NAME MESSAGE|- [--candidate] [--customer ID] [--session ID] [--json]
+  [--state-dir DIR | --stack DIR [--environment ENV]]` (M4), on `main`, not in a published
+  preview: sends one message to a ready local deployment's `/invoke` and prints the reply. It
+  calls only `http://127.0.0.1:<port>` endpoints recorded in local state (a Kubernetes row is
+  refused with the `forward` command to use), and before sending asks Docker that the container
+  is still the recorded one and still publishes that port. No proxies, no redirects, one 180 s
+  deadline for the whole exchange; the state is opened read-only. The reply is model text:
+  controls (and lone surrogates) are shown as visible escapes, malformed HTTP or JSON is
+  `RESPONSE_INVALID`, and `--json` prints the whole answer. `--candidate` calls
+  `NAME-candidate`; `--customer` and `--session` are sent as given and are not authenticated
+  (#780). A message given as an argument is visible in `ps`; `-` reads it from stdin. Exit 0 with
+  a reply; 1 when the message was (or may have been) sent but no usable reply came back (an agent
+  error, an invalid answer, a timeout: a retry is a second turn); 2 when nothing was sent. Errors
+  are `[CODE] message` on stderr, and with `--json` also
+  `{"schema_version": 1, "error": {"code", "message", "sent"}}` on stdout. Printed follow-ups
+  (`status`, `forward`, `next`) carry the same `--stack` or `--state-dir`. `next`'s done
+  "Try it" step now suggests `invoke NAME Hello --stack DIR --environment ENV`. `safe_text`
+  also escapes lone surrogates, so `logs` cannot crash on one either.
 - The `agentbreeder next --json` contract (#820, M4), on `main`, not in a published preview:
   `docs/next.md` and `docs/next.schema.json` (generated from `src/agentbreeder/guide.py`) fix the
   guided-path checklist's shape (steps, states, reason codes, fix actions, `complete`, live

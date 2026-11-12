@@ -1,0 +1,21 @@
+usage: agentbreeder invoke [-h] [--state-dir STATE_DIR] [--json] [--candidate]
+                           [--customer ID] [--session ID] [--stack DIR]
+                           [--environment ENVIRONMENT]
+                           NAME MESSAGE
+
+positional arguments:
+  NAME                  Agent name from agent.yaml
+  MESSAGE               The message, or - to read stdin
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json
+  --candidate           Call NAME-candidate (the release candidate) instead of
+                        production
+  --customer ID         customer_id to send (not authenticated)
+  --session ID          session_id to continue (not authenticated)
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR
+  --environment ENVIRONMENT
+                        With --stack: the stack environment

@@ -51,6 +51,9 @@ _WITHOUT_STACK = {
     "logs": ("state_dir",),
     "release": ("environment", "state_dir"),
     "deploy": ("environment", "state_dir"),
+    "status": ("state_dir",),
+    "forward": ("state_dir",),
+    "invoke": ("state_dir",),
 }
 
 

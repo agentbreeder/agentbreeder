@@ -541,3 +541,11 @@ real browser passed 61/61 (2026-11-11).
   `npx agentbreeder@3.0.0-alpha.2 up` (process list, 2026-11-11 12:37), not a checkout. Docs and
   CLAUDE.md change only when a3's verification records its own browser run. The `pods/log`
   requirement for a non-admin Kubernetes target belongs in #770/#772 (Helm RBAC).
+
+### Implementation notes (not spec changes)
+
+- **`invoke` reply (§9.2 #7, M4):** control characters in the reply are shown as visible escapes
+  (`safe_text.visible`, as `logs` does for S-08) rather than removed, so a reply is never silently
+  altered; `--json` escapes by construction. Exit 1 also covers failures after the message was
+  sent (timeout, invalid answer), since the agent may have run the turn; exit 2 means nothing was
+  sent.
