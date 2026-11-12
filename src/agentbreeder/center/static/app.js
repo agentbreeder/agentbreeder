@@ -131,7 +131,14 @@ async function startJob(kind, options = {}, keys) {
 
 async function pollJob(generation) {
   if (!ui.job || generation !== ui.pollGeneration) return;
-  const job = await fetchData(`/api/jobs/${ui.job.id}?after=${ui.lastLine}`);
+  let job;
+  try {
+    job = await fetchData(`/api/jobs/${ui.job.id}?after=${ui.lastLine}`);
+  } catch (error) {
+    // A failed poll retries (the sign-in screen handles a 401); the loop never just stops.
+    if (error.status !== 401 && generation === ui.pollGeneration) setTimeout(() => pollJob(generation), 5000);
+    return;
+  }
   if (generation !== ui.pollGeneration) return;
   for (const line of job.lines) { ui.jobLines.push(line.text); ui.lastLine = line.seq; }
   const wasRunning = ui.job.state === "running";
@@ -147,11 +154,11 @@ async function pollJob(generation) {
   if (wasRunning) { announceEnd(job); await refresh(); } else { renderDrawer(); }
 }
 
-// On a project switch or at start: follow that project's running job, if any.
+// On a project switch or at start: follow that project's running job, if any. Reads
+// /api/activity, which starts no child process.
 async function followProject() {
-  const overview = await fetchData("/api/overview");
-  ui.overview = overview;
-  const mine = overview.jobs.find((job) => ui.project && job.project === ui.project.id);
+  const activity = await fetchData("/api/activity");
+  const mine = activity.running.find((job) => ui.project && job.project === ui.project.id);
   if (mine) follow({ id: mine.id, kind: mine.kind, project: mine.project });
   else if (ui.job && ui.job.state === "running" && ui.project && ui.job.project !== ui.project.id) follow(null);
 }
@@ -181,7 +188,7 @@ function announceEnd(job) {
 
 function render() {
   const app = document.getElementById("app");
-  const select = h("select", { "aria-label": "Project", onchange: async (event) => { ui.project = ui.projects.find((p) => p.id === event.target.value); ui.view = {}; ui.plan = null; try { await followProject(); } catch { return; } goto(ui.step); } },
+  const select = h("select", { "aria-label": "Project", onchange: async (event) => { ui.project = ui.projects.find((p) => p.id === event.target.value); ui.view = {}; ui.plan = null; try { await followProject(); } catch (error) { if (error.status === 401) return; ui.notice = { kind: "error", text: error.message }; } try { await refresh(); } catch { /* the sign-in screen is already shown */ } } },
     ui.projects.map((p) => { const o = h("option", { value: p.id }, `${p.name} (${p.environment})`); o.selected = ui.project && p.id === ui.project.id; return o; }));
   app.replaceChildren(
     h("header", { class: "top" },

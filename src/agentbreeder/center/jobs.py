@@ -370,6 +370,7 @@ class Running:
     kind: str
     process: subprocess.Popen
     keys: tuple[str, ...]
+    pump: threading.Thread | None = None
 
 
 class Runner:
@@ -467,11 +468,15 @@ class Runner:
             if env_file:
                 env_file.unlink(missing_ok=True)
             raise failure
-        threading.Thread(
+        pump = threading.Thread(
             target=self._pump,
             args=(identifier, process, env_file, list((keys or {}).values()), on_success),
             daemon=True,
-        ).start()
+        )
+        with self.mutex:
+            if identifier in self.jobs:
+                self.jobs[identifier].pump = pump
+        pump.start()
         return identifier
 
     def _env_file(self, identifier: str, keys: dict[str, str]) -> Path:
@@ -514,16 +519,11 @@ class Runner:
             with self.mutex:
                 self.jobs.pop(identifier, None)
                 self._free(identifier)
-        if unrecorded:
-            state = "failed"
-        else:
-            state = (
-                "succeeded"
-                if code == 0
-                else "waiting_approval"
-                if code == EXIT_APPROVAL
-                else "failed"
-            )
+        # The exit code decides: a job that finished (0) despite its log failing did its work
+        # (services up, a release); one stopped because of it exits non-zero and is failed.
+        state = (
+            "succeeded" if code == 0 else "waiting_approval" if code == EXIT_APPROVAL else "failed"
+        )
         for _attempt in range(2):
             try:
                 self.state.finish_job(identifier, state, code)
@@ -619,6 +619,11 @@ class Runner:
             _signal_group(process, signal.SIGTERM)
         try:
             _wait_all(processes, time.monotonic() + grace)
+            # Let each pump record how its job ended before the console exits.
+            deadline = time.monotonic() + grace
+            for job in jobs:
+                if job.pump is not None:
+                    job.pump.join(timeout=max(0.0, deadline - time.monotonic()))
         except KeyboardInterrupt:
             pass
         return [job.id for job in jobs]

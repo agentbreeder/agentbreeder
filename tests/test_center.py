@@ -1699,11 +1699,18 @@ def test_a_key_file_that_cannot_be_removed_still_frees_the_locks(
 
 
 def _wait_for_line(stream, pattern: str, timeout: float = 60) -> str:
+    """The first line of `stream` matching `pattern`, read on a thread so a silent process
+    cannot hang the test past `timeout`."""
+    import queue
+
+    lines: queue.Queue = queue.Queue()
+    threading.Thread(target=lambda: [lines.put(line) for line in stream], daemon=True).start()
     deadline = time.monotonic() + timeout
     seen = []
     while time.monotonic() < deadline:
-        line = stream.readline()
-        if not line:
+        try:
+            line = lines.get(timeout=max(0.0, deadline - time.monotonic()))
+        except queue.Empty:
             break
         seen.append(line)
         if re.search(pattern, line):
@@ -1711,19 +1718,16 @@ def _wait_for_line(stream, pattern: str, timeout: float = 60) -> str:
     raise AssertionError(f"no {pattern!r} in {seen!r}")
 
 
-@pytest.mark.parametrize("name", ["SIGTERM", "SIGHUP"])
-def test_sigterm_and_sighup_stop_the_console_and_its_jobs(tmp_path, fake_cli, name):
-    """The real server process: a running job is stopped when the console gets the signal."""
-    import signal as signals
-    import subprocess
-
+def _console_script(tmp_path, fake_cli) -> Path:
+    """A real console process (`server.main`) that starts one fake `build` job and prints
+    `JOB <id> <pid>`."""
     project = tmp_path / "p"
-    project.mkdir()
+    project.mkdir(exist_ok=True)
     (project / "agent.yaml").write_text("kind: agent\n")
     (project / "stack.yaml").write_text("kind: stack\n")
     script = tmp_path / "run.py"
     script.write_text(
-        "import sys, threading, time\n"
+        "import sys\n"
         "from argparse import Namespace\n"
         "from pathlib import Path\n"
         "from agentbreeder.center import server\n"
@@ -1737,15 +1741,25 @@ def test_sigterm_and_sighup_stop_the_console_and_its_jobs(tmp_path, fake_cli, na
         "    s = orig(center, port)\n"
         f"    project = center.register(Path({str(project)!r}))\n"
         "    job = center.runner.start(project, 'build', {})\n"
-        "    print('JOB', job, flush=True)\n"
+        "    print('JOB', job, center.runner.jobs[job].process.pid, flush=True)\n"
         "    return s\n"
         "server.make_server = make\n"
         "args = Namespace(dir=None, environment='dev', port=0, no_browser=True, yes=False)\n"
         "sys.exit(server.main(args))\n"
     )
+    return script
+
+
+@pytest.mark.parametrize("names", [["SIGTERM"], ["SIGHUP"], ["SIGHUP", "SIGHUP", "SIGTERM"]])
+def test_sigterm_and_sighup_stop_the_console_and_its_jobs(tmp_path, fake_cli, names):
+    """A signal stops the console and its jobs. Repeated signals do not cut the grace short:
+    the fake build still exits through its SIGINT handler (130)."""
+    import signal as signals
+    import subprocess
+
     env = {**os.environ, "AGENTBREEDER_CENTER_DIR": str(tmp_path / "center")}
     console = subprocess.Popen(
-        [sys.executable, str(script)],
+        [sys.executable, str(_console_script(tmp_path, fake_cli))],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -1753,9 +1767,46 @@ def test_sigterm_and_sighup_stop_the_console_and_its_jobs(tmp_path, fake_cli, na
         text=True,
         start_new_session=True,
     )
-    _wait_for_line(console.stdout, r"^JOB ")
+    job_pid = int(_wait_for_line(console.stdout, r"^JOB ").split()[2])
     time.sleep(1.0)  # let the fake build start
-    console.send_signal(getattr(signals, name))
-    out, err = console.communicate(timeout=30)
+    for name in names:
+        console.send_signal(getattr(signals, name))
+        time.sleep(0.05)
+    _, err = console.communicate(timeout=30)
     assert console.returncode == 0, err
     assert "Stopped 1 running job(s)" in err
+    assert _gone(job_pid)
+    database = CenterState(tmp_path / "center")
+    rows = database.recent_jobs()
+    assert rows[0]["exit_code"] == 130  # SIGINT honoured, not SIGTERM
+
+
+def test_closing_the_terminal_stops_the_jobs(tmp_path, fake_cli):
+    """The real case: `up` on a terminal that closes. Writes to the dead tty fail, and the
+    jobs are still stopped."""
+    import pty
+
+    script = _console_script(tmp_path, fake_cli)
+    env = {**os.environ, "AGENTBREEDER_CENTER_DIR": str(tmp_path / "center")}
+    pid, master = pty.fork()
+    if pid == 0:  # the child: a session leader on a new terminal
+        os.execve(sys.executable, [sys.executable, str(script)], env)
+    output = b""
+    deadline = time.monotonic() + 60
+    while b"JOB " not in output or not output.split(b"JOB ", 1)[1].count(b"\n"):
+        assert time.monotonic() < deadline, output
+        try:
+            output += os.read(master, 4096)
+        except OSError:
+            break
+    job_pid = int(output.split(b"JOB ", 1)[1].split()[1])
+    time.sleep(1.0)
+    os.close(master)  # the terminal goes away: SIGHUP
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        done, _status = os.waitpid(pid, os.WNOHANG)
+        if done:
+            break
+        time.sleep(0.1)
+    assert done, "the console did not stop when its terminal closed"
+    assert _gone(job_pid), "a job survived the terminal closing"

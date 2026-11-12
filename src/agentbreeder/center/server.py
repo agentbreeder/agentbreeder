@@ -713,11 +713,34 @@ def _watch_terminal(center: Center) -> None:
         print(f"New one-time link: {url}", flush=True)
 
 
+STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
 def _stop(signum, frame):
     raise KeyboardInterrupt
 
 
+def _say(text: str) -> None:
+    """A status line on stderr. A closed terminal (SIGHUP) makes writes fail; stopping the jobs
+    must go on regardless."""
+    try:
+        print(text, file=sys.stderr, flush=True)
+    except OSError:
+        pass
+
+
 def main(args) -> int:
+    """Run the console; the signal handlers it installs are restored when it returns, so an
+    ignored SIGTERM/SIGHUP is never inherited by a process started afterwards."""
+    previous = {number: signal.getsignal(number) for number in STOP_SIGNALS}
+    try:
+        return _main(args)
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+
+
+def _main(args) -> int:
     from agentbreeder.doctor import check_compose, check_docker
 
     if not ENVIRONMENT.fullmatch(args.environment):
@@ -768,20 +791,19 @@ def main(args) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        # One stop only: a repeated SIGTERM/SIGHUP (a closing terminal can send more than one)
+        # must not cut the jobs' SIGINT grace short; only a second Ctrl-C does.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
         server.server_close()
         running = center.runner.running()
         if running:
-            print(
-                f"Stopping {len(running)} running job(s); Ctrl-C again to skip the wait.",
-                file=sys.stderr,
-                flush=True,
-            )
+            _say(f"Stopping {len(running)} running job(s); Ctrl-C again to skip the wait.")
         stopped = center.runner.shutdown()
         if stopped:
-            print(f"Stopped {len(stopped)} running job(s).", file=sys.stderr)
-    print(
+            _say(f"Stopped {len(stopped)} running job(s).")
+    _say(
         "Command center stopped. Services and deployments keep running: use "
-        "`agentbreeder services down` and `agentbreeder remove`.",
-        file=sys.stderr,
+        "`agentbreeder services down` and `agentbreeder remove`."
     )
     return 0
