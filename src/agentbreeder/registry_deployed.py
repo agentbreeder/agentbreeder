@@ -272,8 +272,8 @@ def deployed(ref: Ref, row: dict, project: Path, directories: list[Path]) -> dic
         "errors": list(row["errors"]),
     }
     agent = row.get("agent")
-    if not agent:
-        return row
+    if not agent or ref.kind == "service":
+        return row  # a service ref is used by the stack, never by an agent image (#854)
     record, problem = _record(project, agent, row)
     candidate = f"{agent}-candidate"
     for directory in directories:

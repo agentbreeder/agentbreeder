@@ -163,7 +163,9 @@ directory once), separately:
 
 `<agent>-candidate` deployments (release's candidates) count only when they run the record's
 image, so an unrelated agent of that name is never reported. Only agent images are checked: a
-`service` (or other stack) ref is declared and locked, never "deployed".
+`service` (or other stack) ref is declared and locked, never "deployed". For a `service` ref
+the three deployment lists are empty and no deploy state is read (on `main`, not in a published
+preview).
 
 Deployments are read from `--state-dir` (repeatable; default the local state, as `status`) and,
 for a project with a `stack.yaml`, from every environment `services up` wrote for it (what

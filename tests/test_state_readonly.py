@@ -159,7 +159,12 @@ def test_a_hot_journal_is_reported_and_migrate_recovers_it(tmp_path):
     with pytest.raises(StateNeedsMigration, match="interrupted write"):
         Store.open_readonly(state)
     assert journal.exists()  # a reader never rolls it back
-    assert run_cli("migrate", "--state-dir", str(state)).returncode == 0
+    migrated = run_cli("migrate", "--state-dir", str(state))
+    assert migrated.returncode == 0
+    # #854: name the interrupted write, not "an unreadable version" (the schema was v3)
+    assert "unreadable version" not in migrated.stdout
+    assert f"Recovered an interrupted write in {state}" in migrated.stdout
+    assert f"schema v{SCHEMA_VERSION}" in migrated.stdout
     store = Store.open_readonly(state)
     try:
         assert store.db.execute("SELECT count(*) FROM events").fetchone()[0] == 0
@@ -202,3 +207,47 @@ def test_stack_state_open_readonly(tmp_path):
             reader.put("x", "y")
     finally:
         reader.close()
+
+
+def test_migrate_json_reports_the_interrupted_write(tmp_path):
+    state = make_state(tmp_path / "state")
+    database = state / "deployments.sqlite3"
+    subprocess.run([sys.executable, "-c", HOT_JOURNAL, str(database)], check=True, timeout=60)
+    result = json.loads(run_cli("migrate", "--state-dir", str(state), "--json").stdout)
+    assert result["interrupted_write"] is True and result["previous_version"] is None
+    again = json.loads(run_cli("migrate", "--state-dir", str(state), "--json").stdout)
+    assert again["interrupted_write"] is False and again["migrated"] is False
+
+
+def test_a_held_lock_is_not_reported_as_an_interrupted_write(tmp_path):
+    """#854 review: a writer holding the database is busy, not a hot journal."""
+    from agentbreeder.commands import migrate
+
+    state = make_state(tmp_path / "state")
+    writer = sqlite3.connect(state / "deployments.sqlite3", isolation_level=None)
+    try:
+        writer.execute("BEGIN EXCLUSIVE")
+        assert migrate._version(state / "deployments.sqlite3") == (None, True)
+    finally:
+        writer.close()
+    assert migrate._version(state / "deployments.sqlite3") == (SCHEMA_VERSION, False)
+    assert migrate._hot_journal(state) is False
+
+
+def test_migrate_in_process_text_and_json(tmp_path, capsys):
+    """The migrate messages, in process: recovered, upgraded, already current."""
+    state = make_state(tmp_path / "state")
+    subprocess.run(
+        [sys.executable, "-c", HOT_JOURNAL, str(state / "deployments.sqlite3")],
+        check=True,
+        timeout=60,
+    )
+    assert cli.main(["migrate", "--state-dir", str(state)]) == 0
+    assert f"Recovered an interrupted write in {state}" in capsys.readouterr().out
+    assert cli.main(["migrate", "--state-dir", str(state)]) == 0
+    assert "is already at schema" in capsys.readouterr().out
+    downgrade_to_v2(state)
+    assert cli.main(["migrate", "--state-dir", str(state), "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["previous_version"] == 2 and result["migrated"] is True
+    assert result["interrupted_write"] is False

@@ -10,6 +10,7 @@ import argparse
 import importlib
 import json
 import os
+import re
 import shlex
 import sqlite3
 import sys
@@ -130,6 +131,14 @@ def _stack_beside(near: Path, *, manifest: bool = False) -> Path | None:
     return None
 
 
+# A `build` command in a message, in any launcher form (`agentbreeder`, `npx agentbreeder@V`, ...).
+_NAMES_BUILD = re.compile(r"agentbreeder(@\S*)? build\b")
+
+
+def _stack_used(args) -> bool:
+    return getattr(args, "stack", None) is not None
+
+
 def _message(error: Exception, *, args=None, near: Path | None = None) -> str:
     """`[CODE] message`, plus the fix when the CLI knows it. `near` is the agent file or
     manifest the command was given; `args` the parsed command line."""
@@ -138,13 +147,18 @@ def _message(error: Exception, *, args=None, near: Path | None = None) -> str:
     code = getattr(error, "code", None)
     text = str(error)
     text = text if not code or text.startswith("[") else f"[{code}] {text}"
-    if code in _STACK_CODES and near is not None and getattr(args, "stack", None) is None:
+    if code in _STACK_CODES and near is not None and not _stack_used(args):
         stack = _stack_beside(Path(near), manifest=getattr(args, "command", None) == "deploy")
         if stack is not None:
             text += (
                 f"\nstack.yaml is in {stack}: add `--stack {shlex.quote(str(stack))}` to use "
                 "the operator config `services up` wrote for it"
             )
+    if code == "LOCK_STALE" and _NAMES_BUILD.search(text) and near and not _stack_used(args):
+        stack = _stack_beside(Path(near))  # #854: the `build` it names needs --stack too
+        if stack is not None:
+            flag = f"--stack {shlex.quote(str(stack))}"
+            text += f"\nstack.yaml is in {stack}: run that build with `{flag}`"
     if code == "REF_UNPINNED" and getattr(args, "command", None) == "release":
         build = hints.command(
             "build",

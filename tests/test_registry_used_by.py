@@ -328,6 +328,18 @@ def test_undetermined_reasons(northwind, tmp_path):
     assert "BUILD_RECORD_INVALID" in row["errors"][0]["error"]
 
 
+def test_a_service_ref_is_never_matched_against_deployments(northwind, tmp_path):
+    """#854: a service ref is declared and locked, never "deployed": the running agent is not
+    listed as undetermined for it. The keys stay (the documented JSON shape)."""
+    state = tmp_path / "state"
+    write_record(northwind)
+    add_deployment(state, "d1", AGENT, IMAGE)
+    row = used(northwind, state, Ref.parse("service/northwind-ops@1.0.0"))
+    assert row["declared"] and row["locked"]
+    assert row["deployed"] == row["recorded_not_running"] == row["deployed_undetermined"] == []
+    assert row["errors"] == []
+
+
 def test_an_unrelated_candidate_named_agent_is_not_reported(northwind, tmp_path):
     state = tmp_path / "state"
     write_record(northwind)

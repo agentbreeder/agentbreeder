@@ -172,6 +172,51 @@ def test_release_lock_stale_says_build_first(project, operator):  # noqa: F811
         _eval_set(load_agent_file(project / "agent.yaml"), project)
 
 
+def test_lock_stale_names_the_stack_when_stack_yaml_is_beside(tmp_path):
+    """#854: `eval` before the first build: the `build` it suggests needs --stack too."""
+    from agentbreeder.release import ReleaseError
+
+    stale = "eval/e@1.0.0 is not in agent.lock; run `agentbreeder build` first"
+    error = ReleaseError("LOCK_STALE", stale)
+    near = tmp_path / "agent.yaml"
+    assert "--stack" not in cli._message(error, args=args("eval"), near=near)
+    (tmp_path / "stack.yaml").write_text("kind: stack\n")
+    message = cli._message(error, args=args("eval"), near=near)
+    assert message.startswith("[LOCK_STALE] eval/e@1.0.0 is not in agent.lock")
+    assert f"stack.yaml is in {tmp_path}: run that build with `--stack {tmp_path}`" in message
+    used = args("eval", stack=tmp_path)
+    assert "stack.yaml is in" not in cli._message(error, args=used, near=near)
+    services = registry.RegistryError("LOCK_STALE", "run `agentbreeder services up` first")
+    assert "stack.yaml is in" not in cli._message(services, args=args("eval"), near=near)
+    other = registry.RegistryError("LOCK_STALE", "mcp.rebuild is gone; see /work/build/x")
+    assert "stack.yaml is in" not in cli._message(other, args=args("eval"), near=near)
+    npx = registry.RegistryError("LOCK_STALE", "run `npx agentbreeder@3.0.0 build a.yaml` first")
+    assert "stack.yaml is in" in cli._message(npx, args=args("eval"), near=near)
+
+
+def test_eval_repeats_its_stack_in_the_build_hint(monkeypatch, tmp_path, capsys):
+    """#854: with --stack, eval's LOCK_STALE hint is `build ... --stack DIR --environment ENV`."""
+    from agentbreeder import agentfile, release
+    from agentbreeder.commands import eval as eval_command
+
+    seen = {}
+
+    def fake_eval_set(agent, directory, where=None):
+        seen["where"] = where
+        raise release.ReleaseError("LOCK_STALE", "stale")
+
+    monkeypatch.setattr(release, "_eval_set", fake_eval_set)
+    monkeypatch.setattr(eval_command, "load_operator_config", lambda: Namespace())
+    monkeypatch.setattr(agentfile, "load_agent_file", lambda path: Namespace())
+    ran = Namespace(agent=str(tmp_path / "agent.yaml"), stack=tmp_path, environment="dev")
+    assert eval_command.run(ran) == 2
+    assert seen["where"].stack == tmp_path and seen["where"].environment == "dev"
+    ran = Namespace(agent=str(tmp_path / "agent.yaml"), stack=None, environment="staging")
+    eval_command.run(ran)
+    assert seen["where"].stack is None and seen["where"].environment == "staging"
+    capsys.readouterr()
+
+
 # -- G-F6: failed cases ------------------------------------------------------------------------
 
 

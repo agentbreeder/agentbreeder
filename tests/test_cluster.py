@@ -211,7 +211,31 @@ def test_down_removes_only_what_it_owns(tools, fake_engine, tmp_path):
     tools.containers.add(cluster.REGISTRY)
     assert cluster.down(tmp_path)["removed"]
     assert ["kind", "delete", "cluster", "--name", cluster.NAME] in [c[:5] for c in tools.calls]
-    assert ["docker", "rm", "--force", cluster.REGISTRY] in tools.calls
+    # registry:2 declares VOLUME /var/lib/registry: without --volumes it is orphaned (#854)
+    assert ["docker", "rm", "--force", "--volumes", cluster.REGISTRY] in tools.calls
+
+
+def test_down_without_kind_names_the_missing_tool(tools, fake_engine, tmp_path, monkeypatch):
+    """#854: not `[CLUSTER_FAILED] kind get clusters failed or timed out`, as `cluster up`."""
+    monkeypatch.setattr(cluster.shutil, "which", lambda name: None if name == "kind" else name)
+    with pytest.raises(ServiceError, match="CLUSTER_TOOL_MISSING") as raised:
+        cluster.down(tmp_path)
+    assert "kind is not on PATH" in str(raised.value) and "kind.sigs" in str(raised.value)
+    assert tools.calls == []
+
+
+def test_down_needs_kubectl_only_when_the_cluster_exists(
+    tools, fake_engine, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(cluster.shutil, "which", lambda name: None if name == "kubectl" else name)
+    tools.containers.add(cluster.REGISTRY)
+    assert cluster.down(tmp_path)["removed"]  # no cluster: only the registry goes
+    assert ["docker", "rm", "--force", "--volumes", cluster.REGISTRY] in tools.calls
+    tools.clusters = cluster.NAME
+    with pytest.raises(ServiceError, match="CLUSTER_TOOL_MISSING") as raised:
+        cluster.down(tmp_path)
+    assert "kubectl is not on PATH" in str(raised.value)
+    assert not any(c[:2] == ["kind", "delete"] for c in tools.calls)
 
 
 def test_down_refuses_while_agents_are_on_the_machine_wide_cluster(tools, fake_engine, tmp_path):
