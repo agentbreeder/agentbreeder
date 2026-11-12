@@ -12,6 +12,11 @@ On main, not in a published preview.
 
 ### Added
 
+- The `agentbreeder next --json` contract (#820, M4), on `main`, not in a published preview:
+  `docs/next.md` and `docs/next.schema.json` (generated from `src/agentbreeder/guide.py`) fix the
+  guided-path checklist's shape (steps, states, reason codes, fix actions, `complete`, live
+  conditions) before the command lands, so the console can build its checklist from it. Contract
+  only: the `next` command itself comes in a later M4 PR.
 - `agentbreeder registry show REF [--project DIR] [--json]` (#824), on `main`, not in a published
   preview: one version's hash, root, manifest, files and the text of its text files, read-only.
   It goes through the same safety checks as `verify`, opens files without following symlinks,

@@ -1,0 +1,1357 @@
+{
+  "$defs": {
+    "BuildData": {
+      "properties": {
+        "image": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Image"
+        },
+        "build_manifest": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 2,
+              "pattern": "^/",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Build Manifest"
+        },
+        "environment": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Environment"
+        },
+        "agent_yaml_current": {
+          "title": "Agent Yaml Current",
+          "type": "boolean"
+        },
+        "lock_current": {
+          "title": "Lock Current",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "image",
+        "build_manifest",
+        "environment",
+        "agent_yaml_current",
+        "lock_current"
+      ],
+      "title": "BuildData",
+      "type": "object"
+    },
+    "BuildStep": {
+      "properties": {
+        "state": {
+          "enum": [
+            "done",
+            "next",
+            "blocked",
+            "todo"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "const": "build",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BuildData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "fix",
+        "id",
+        "title",
+        "required",
+        "data"
+      ],
+      "title": "BuildStep",
+      "type": "object"
+    },
+    "Check": {
+      "properties": {
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "message": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "passed",
+        "required",
+        "message"
+      ],
+      "title": "Check",
+      "type": "object"
+    },
+    "Condition": {
+      "description": "A live problem (guided \u00a714.4): computed on every run, never stored, clears itself.",
+      "properties": {
+        "code": {
+          "pattern": "^[A-Z][A-Z0-9_]{2,39}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "enum": [
+                "prerequisites",
+                "project",
+                "keys",
+                "services",
+                "build",
+                "release",
+                "try",
+                "kubernetes"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Step"
+        },
+        "deployment": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deployment"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Service"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "step",
+        "deployment",
+        "service"
+      ],
+      "title": "Condition",
+      "type": "object"
+    },
+    "Fix": {
+      "description": "What fixes the step. `command` is display only: no surface runs it. The console maps\n`action` to its own fixed job; with `action: null` it shows `command` and `note`.",
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "enum": [
+                "new-agent",
+                "example",
+                "set-keys",
+                "services-up",
+                "build",
+                "release",
+                "invoke",
+                "cluster-up",
+                "promote"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Action"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Command"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Note"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "const": "https://aistudio.google.com/apikey",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Url"
+        }
+      },
+      "required": [
+        "action",
+        "command",
+        "note",
+        "url"
+      ],
+      "title": "Fix",
+      "type": "object"
+    },
+    "KeysData": {
+      "properties": {
+        "required": {
+          "items": {
+            "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Required",
+          "type": "array"
+        },
+        "present": {
+          "items": {
+            "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Present",
+          "type": "array"
+        },
+        "stored": {
+          "items": {
+            "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Stored",
+          "type": "array"
+        },
+        "missing": {
+          "items": {
+            "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Missing",
+          "type": "array"
+        }
+      },
+      "required": [
+        "required",
+        "present",
+        "stored",
+        "missing"
+      ],
+      "title": "KeysData",
+      "type": "object"
+    },
+    "KeysStep": {
+      "properties": {
+        "state": {
+          "enum": [
+            "done",
+            "next",
+            "blocked",
+            "todo"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "const": "keys",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeysData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "fix",
+        "id",
+        "title",
+        "required",
+        "data"
+      ],
+      "title": "KeysStep",
+      "type": "object"
+    },
+    "KubernetesData": {
+      "properties": {
+        "cluster": {
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$",
+          "title": "Cluster",
+          "type": "string"
+        },
+        "cluster_up": {
+          "title": "Cluster Up",
+          "type": "boolean"
+        },
+        "deployment": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deployment"
+        },
+        "promoted_image": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "pattern": "(?:^(?:[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]{1,5})?/)?[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-f0-9]{64}$)|(?:^sha256:[a-f0-9]{64}$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Promoted Image"
+        },
+        "production_image": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "pattern": "(?:^(?:[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]{1,5})?/)?[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-f0-9]{64}$)|(?:^sha256:[a-f0-9]{64}$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Production Image"
+        }
+      },
+      "required": [
+        "cluster",
+        "cluster_up",
+        "deployment",
+        "promoted_image",
+        "production_image"
+      ],
+      "title": "KubernetesData",
+      "type": "object"
+    },
+    "KubernetesStep": {
+      "properties": {
+        "state": {
+          "enum": [
+            "done",
+            "next",
+            "blocked",
+            "todo"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "const": "kubernetes",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KubernetesData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "fix",
+        "id",
+        "title",
+        "required",
+        "data"
+      ],
+      "title": "KubernetesStep",
+      "type": "object"
+    },
+    "NewerVersion": {
+      "properties": {
+        "ref": {
+          "maxLength": 200,
+          "pattern": "^[a-z]+/[a-z0-9]([a-z0-9-]*[a-z0-9])?@[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$",
+          "title": "Ref",
+          "type": "string"
+        },
+        "latest": {
+          "maxLength": 64,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$",
+          "title": "Latest",
+          "type": "string"
+        },
+        "file": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "pattern": "^/",
+          "title": "File",
+          "type": "string"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Line"
+        }
+      },
+      "required": [
+        "ref",
+        "latest",
+        "file",
+        "line"
+      ],
+      "title": "NewerVersion",
+      "type": "object"
+    },
+    "PrerequisitesData": {
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/Check"
+          },
+          "maxItems": 50,
+          "title": "Checks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "checks"
+      ],
+      "title": "PrerequisitesData",
+      "type": "object"
+    },
+    "PrerequisitesStep": {
+      "properties": {
+        "state": {
+          "enum": [
+            "done",
+            "next",
+            "blocked",
+            "todo"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "const": "prerequisites",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PrerequisitesData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "fix",
+        "id",
+        "title",
+        "required",
+        "data"
+      ],
+      "title": "PrerequisitesStep",
+      "type": "object"
+    },
+    "Production": {
+      "properties": {
+        "id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "image": {
+          "maxLength": 512,
+          "pattern": "(?:^(?:[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]{1,5})?/)?[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-f0-9]{64}$)|(?:^sha256:[a-f0-9]{64}$)",
+          "title": "Image",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "starting",
+            "ready",
+            "failed",
+            "removing",
+            "disabled"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "pattern": "^http://127\\.0\\.0\\.1:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Endpoint"
+        },
+        "manifest_current": {
+          "title": "Manifest Current",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "image",
+        "state",
+        "endpoint",
+        "manifest_current"
+      ],
+      "title": "Production",
+      "type": "object"
+    },
+    "ProjectData": {
+      "properties": {
+        "agent": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9]([a-z0-9-]{0,51}[a-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Agent"
+        },
+        "agent_file": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 2,
+              "pattern": "^/",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Agent File"
+        },
+        "stack_file": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 2,
+              "pattern": "^/",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stack File"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z][A-Z0-9_]{2,39}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "newer": {
+          "items": {
+            "$ref": "#/$defs/NewerVersion"
+          },
+          "maxItems": 200,
+          "title": "Newer",
+          "type": "array"
+        }
+      },
+      "required": [
+        "agent",
+        "agent_file",
+        "stack_file",
+        "error_code",
+        "newer"
+      ],
+      "title": "ProjectData",
+      "type": "object"
+    },
+    "ProjectStep": {
+      "properties": {
+        "state": {
+          "enum": [
+            "done",
+            "next",
+            "blocked",
+            "todo"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "const": "project",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "fix",
+        "id",
+        "title",
+        "required",
+        "data"
+      ],
+      "title": "ProjectStep",
+      "type": "object"
+    },
+    "Reason": {
+      "description": "Why a step is not done: a code from `REASONS[step]` (or NOT_CHECKED) and one line.",
+      "properties": {
+        "code": {
+          "pattern": "^[A-Z][A-Z0-9_]{2,39}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Reason",
+      "type": "object"
+    },
+    "ReleaseData": {
+      "properties": {
+        "production": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Production"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "released": {
+          "title": "Released",
+          "type": "boolean"
+        },
+        "blocker": {
+          "title": "Blocker",
+          "type": "boolean"
+        },
+        "gate_failed": {
+          "title": "Gate Failed",
+          "type": "boolean"
+        },
+        "failed_tail": {
+          "title": "Failed Tail",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "production",
+        "released",
+        "blocker",
+        "gate_failed",
+        "failed_tail"
+      ],
+      "title": "ReleaseData",
+      "type": "object"
+    },
+    "ReleaseStep": {
+      "properties": {
+        "state": {
+          "enum": [
+            "done",
+            "next",
+            "blocked",
+            "todo"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "const": "release",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReleaseData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "fix",
+        "id",
+        "title",
+        "required",
+        "data"
+      ],
+      "title": "ReleaseStep",
+      "type": "object"
+    },
+    "Service": {
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "service",
+            "mcp-relay"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "created",
+            "running",
+            "restarting",
+            "paused",
+            "exited",
+            "removing",
+            "dead",
+            "absent"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "health": {
+          "enum": [
+            "healthy",
+            "unhealthy",
+            "starting",
+            "none"
+          ],
+          "title": "Health",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "state",
+        "health"
+      ],
+      "title": "Service",
+      "type": "object"
+    },
+    "ServicesData": {
+      "properties": {
+        "services": {
+          "items": {
+            "$ref": "#/$defs/Service"
+          },
+          "maxItems": 100,
+          "title": "Services",
+          "type": "array"
+        },
+        "grant_recorded": {
+          "title": "Grant Recorded",
+          "type": "boolean"
+        },
+        "environment_written": {
+          "title": "Environment Written",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "services",
+        "grant_recorded",
+        "environment_written"
+      ],
+      "title": "ServicesData",
+      "type": "object"
+    },
+    "ServicesStep": {
+      "properties": {
+        "state": {
+          "enum": [
+            "done",
+            "next",
+            "blocked",
+            "todo"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "const": "services",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicesData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "fix",
+        "id",
+        "title",
+        "required",
+        "data"
+      ],
+      "title": "ServicesStep",
+      "type": "object"
+    },
+    "TryData": {
+      "properties": {
+        "deployment": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deployment"
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "pattern": "^http://127\\.0\\.0\\.1:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Endpoint"
+        }
+      },
+      "required": [
+        "deployment",
+        "endpoint"
+      ],
+      "title": "TryData",
+      "type": "object"
+    },
+    "TryStep": {
+      "properties": {
+        "state": {
+          "enum": [
+            "done",
+            "next",
+            "blocked",
+            "todo"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "const": "try",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TryData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "fix",
+        "id",
+        "title",
+        "required",
+        "data"
+      ],
+      "title": "TryStep",
+      "type": "object"
+    }
+  },
+  "description": "What `agentbreeder next --json` prints (exit 0 whenever it was computed).",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "project": {
+      "maxLength": 4096,
+      "minLength": 2,
+      "pattern": "^/",
+      "title": "Project",
+      "type": "string"
+    },
+    "environment": {
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$",
+      "title": "Environment",
+      "type": "string"
+    },
+    "complete": {
+      "title": "Complete",
+      "type": "boolean"
+    },
+    "next": {
+      "anyOf": [
+        {
+          "enum": [
+            "prerequisites",
+            "project",
+            "keys",
+            "services",
+            "build",
+            "release",
+            "try",
+            "kubernetes"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next"
+    },
+    "steps": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "build": "#/$defs/BuildStep",
+            "keys": "#/$defs/KeysStep",
+            "kubernetes": "#/$defs/KubernetesStep",
+            "prerequisites": "#/$defs/PrerequisitesStep",
+            "project": "#/$defs/ProjectStep",
+            "release": "#/$defs/ReleaseStep",
+            "services": "#/$defs/ServicesStep",
+            "try": "#/$defs/TryStep"
+          },
+          "propertyName": "id"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/PrerequisitesStep"
+          },
+          {
+            "$ref": "#/$defs/ProjectStep"
+          },
+          {
+            "$ref": "#/$defs/KeysStep"
+          },
+          {
+            "$ref": "#/$defs/ServicesStep"
+          },
+          {
+            "$ref": "#/$defs/BuildStep"
+          },
+          {
+            "$ref": "#/$defs/ReleaseStep"
+          },
+          {
+            "$ref": "#/$defs/TryStep"
+          },
+          {
+            "$ref": "#/$defs/KubernetesStep"
+          }
+        ]
+      },
+      "maxItems": 8,
+      "title": "Steps",
+      "type": "array"
+    },
+    "conditions": {
+      "items": {
+        "$ref": "#/$defs/Condition"
+      },
+      "maxItems": 100,
+      "title": "Conditions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "project",
+    "environment",
+    "complete",
+    "next",
+    "steps",
+    "conditions"
+  ],
+  "title": "agentbreeder next --json",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
