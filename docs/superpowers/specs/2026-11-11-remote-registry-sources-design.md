@@ -39,6 +39,8 @@ In scope (M9b):
   into a pin.
 - A cache of extracted versions, `registry fetch`, `--offline`, `registry cache list|prune`.
 - `agent.lock` format v2 (§7), written when `agent.yaml` declares `registries:`.
+- Remote **`mcp`** versions (owner, D5): `stack.yaml` also gains `registries:` for them, and
+  `stack.lock` follows the same v1/v2 rule (§6.6).
 - Layouts for an **organization registry repo** and the **agent repos** that consume it (§9).
 - The **standard library** stays the built-in registry in the wheel; additions there each run end
   to end before they ship (§10).
@@ -46,10 +48,10 @@ In scope (M9b):
 
 Non-goals (M9b):
 
-- Remote sources in `stack.yaml` / `stack.lock`. Services and the MCP relay run with host-level
-  reach and stay local or built-in. `stack.lock` stays format v1 and refuses v2 (§7).
-- Remote `runtime`, `service` and `mcp` versions (refused, §6.4). Allowed kinds: `prompt`, `eval`,
-  `knowledge`, `tool`. `agent` (M13/M19) decides its own rule.
+- Remote `runtime` and `service` versions (refused, §6.4): services and runtimes run with
+  host-level reach and stay local or built-in. The MCP relay (`service/mcp-relay`) stays
+  built-in only (`RELAY_RESERVED`, unchanged). Allowed kinds from remotes (owner, D5): `prompt`,
+  `eval`, `knowledge`, `tool`, `mcp`, and `agent` once M13 defines that kind (§6.4).
 - Floating pins (branches, tags, `latest`, an unpinned index) in `agent.yaml`. Every source is
   pinned where it is declared (§5), so a reviewer sees a pin change in the diff. `registry pin`
   removes the copy-paste work.
@@ -287,10 +289,65 @@ responses at 64 KB.
 
 ### 6.4 Kinds refused from remotes
 
-`runtime`, `service` and `mcp` refs that resolve only in a remote give `REMOTE_KIND_REFUSED`:
-"runtimes, services and MCP servers come from ./registry, AGENTBREEDER_REGISTRY_PATH or the
-built-in registry; copy it into ./registry with: agentbreeder registry import …" (M9a). A remote
-that contains such versions is not an error; they are ignored for resolution and shown greyed.
+`runtime` and `service` refs that resolve only in a remote give `REMOTE_KIND_REFUSED`:
+"runtimes and services come from ./registry, AGENTBREEDER_REGISTRY_PATH or the built-in
+registry; copy it into ./registry with: agentbreeder registry import …" (M9a). A remote that
+contains such versions is not an error; they are ignored for resolution and shown greyed.
+
+Allowed from remotes (owner, D5, 2026-11-11): `prompt`, `eval`, `knowledge`, `tool`, `mcp` (§6.6)
+and `agent`. The `agent` kind does not exist yet (`registry.py:36`); M13 (#763) defines it and its
+spec must cover a remote `agent` version: what the package pins (image digest, lock, eval
+result), where the image is pulled from (trust rules of §8.3 apply to that registry too), and the
+consent before an agent from another source is deployed or called (M19).
+
+### 6.6 Remote MCP versions
+
+An `mcp` version is configuration, not code: an upstream URL, an auth type, secret imports and
+tool effects (`builtin_registry/mcp/github/1.0.0/mcp.yaml`). It is resolved twice: by `build` for
+the agent's `mcp:` entries (tool names checked, `build.py:181-230`) and by `services up` for the
+stack's relay, which imports the version's secrets and sends them to its upstream
+(`services/mcp_stack.py:98-108`, `relay_spec`). A remote version therefore chooses **which local
+credential is sent where**, so:
+
+- `stack.yaml` gains the same `registries:` block (§5 rules). Its sources may provide only `mcp`
+  versions; anything else from them is `REMOTE_KIND_REFUSED`. `stack.lock` follows the agent.lock
+  rule: v2 when `stack.yaml` declares `registries:`, v1 byte for byte otherwise (§7).
+- The relay itself stays built-in only (`RELAY_RESERVED`, `mcp_stack.py:155-161`).
+- **Origin and identity.** `mcp_stack.origin_of` (`mcp_stack.py:51-57`) maps `remote:<name>`
+  to `remote:<canonical URL>@<full pin>` (§5 canonical form, full 40-hex commit or digest). That
+  string goes into `identity()` (`mcp_stack.py:89-96`) and the grant digest (`grant_section`,
+  `mcp_stack.py:341-366`), so neither the project-chosen source name nor a short SHA can keep an
+  old consent valid. Short forms (`acme @3f2a9c1`) are for display only.
+- **Consent bound to the pin.** Today `--allow-project-mcp SERVER` is keyed on the server name
+  only (`services/engine.py:254-267`), and in plain mode an identity change only rewrites
+  `lock.mcp` (`mcp_stack.py:197-207`). For a remote origin the flag must name the pin,
+  `--allow-project-mcp SERVER@<full pin>`, so a flag left in a script stops authorising after a
+  pin bump or an origin change; a missing or stale pin is `MCP_PROJECT_CONSENT`. The pin alone
+  suffices because a commit or digest authenticates the bytes wherever they are served; for an
+  HTTP source the pin is the full `index_sha256`. Tests: a stale `SERVER@pin` is refused after a
+  pin bump, and a bare `SERVER` is refused for a remote origin.
+  `needs_project_consent` (`mcp_stack.py:381-383`) fires for **every** remote origin, also with
+  `auth: none`, because tool arguments still leave the machine.
+- **Only referenced credentials.** `relay_spec` mounts every `secrets:` entry into the relay
+  (`mcp_stack.py:292-298`), while consent lists only `auth.secret_names()` (`mcp_stack.py:100`)
+  and `McpSpec` checks only that auth names are declared (`mcp.py:187-189`). For a remote origin,
+  a secret that `auth` does not reference is refused (`MCP_INVALID`), so a remote version cannot
+  import an extra host variable without a "will be sent to" line.
+- **Consent text** names the source and full pin, and for `oauth_refresh` lists both the token-URL
+  host (refresh credential) and the upstream (minted access token), not only the token host
+  (`mcp_stack.py:106`): "credential GITHUB_MCP_TOKEN will be sent to https://api.githubcopilot.com;
+  this MCP version comes from https://github.com/acme/agent-registry @3f2a9c1d…".
+- **One version, one set of bytes.** `build` and `release` compare, for each `mcp` ref the agent
+  uses, the `agent.lock` and `stack.lock` entries: same hash and same canonical source and pin,
+  else `MCP_VERSION_MISMATCH`. When `stack.lock` is missing or has no entry for the ref, `release`
+  fails closed and `build` warns. No such check exists today (grep of `services/`,
+  `deployment.py`, `release.py`, 2026-11-11); the MCP slice adds it.
+- Unchanged and relied on: upstreams are `https` on port 443 only (`mcp.py:69-79`,
+  `mcp_stack.py:231`); the relay refuses private, loopback and link-local resolution
+  (`relay.py:266-277`); the console refuses `services up` for stacks with MCP servers
+  (`center/server.py:233-237`).
+- The trusted-source list (§8.3) covers fetching the version; it does not cover the upstream the
+  version names. Upstream egress stays governed as today (relay, grants, consent).
 
 ### 6.5 Same version, two hashes
 
@@ -344,11 +401,12 @@ lock are untouched. Removing `registries:` writes v1 again.
 **Reading: a strict schema in `Lock.load(path, versions=…)`.**
 
 - Signature `Lock.load(path, versions=(1, 2), extra_keys=())`. `agent.lock` accepts `(1, 2)`
-  and no extra top-level keys; `StackLock.load` passes `versions=(1,)`,
-  `extra_keys=("imports", "mcp")` (`services/lock.py:66-76`) and also refuses `sources` and
-  `remote:` (`stack.lock` stays v1; `services/lock.py` gets its own `STACK_LOCK_VERSION = 1` for
-  `save`). Northwind's `stack.lock` must load unchanged (slice 1a test). Tests that pin today's constant: `tests/test_registry.py`,
-  `tests/test_services_lock.py`, `tests/test_mcp_stack.py`.
+  and no extra top-level keys; `StackLock.load` passes `versions=(1, 2)` and
+  `extra_keys=("imports", "mcp")` (`services/lock.py:66-76`). In `stack.lock`, `remote:` entries
+  may only be `mcp` refs (§6.6). Both files are written v2 only when their YAML declares
+  `registries:`. Northwind's `stack.lock` must load and re-save byte-identical (slice 1a test).
+  Tests that pin today's constant: `tests/test_registry.py`, `tests/test_services_lock.py`,
+  `tests/test_mcp_stack.py`.
 - Unknown top-level keys, entry keys, `sources.*.type` values or `pin` keys: `LOCK_INVALID`
   ("written by a newer AgentBreeder; upgrade"). A `lock_version` above 2 gets the same message.
 - v1: no `sources`; any `source` starting with `remote:` is `LOCK_INVALID`.
@@ -377,7 +435,8 @@ lock are untouched. Removing `registries:` writes v1 again.
   would miss a remote eval set; it moves to one helper, `sources.locate(lock, entry, project)`,
   which `lock.py` calls (so `lock.py` imports no network code) and which applies the strict lock
   checks above. `promote._evidence` reads entries only; unchanged. `mcp_stack.origin_of`
-  (`mcp_stack.py:51-57`) refuses a `remote:` source explicitly.
+  (`mcp_stack.py:51-57`) maps a `remote:` source to a remote origin with its pin (§6.6) instead
+  of today's fallback label.
 
 **Older AgentBreeder** reading v2 fails with `LOCK_INVALID: unsupported lock_version`; from M9b
 on the message says to upgrade.
@@ -609,13 +668,33 @@ agentbreeder build agent.yaml --locked --offline
 Private org repos in CI: the runner's git credentials (a deploy key via `ssh-agent`, or a
 credential helper with a token); never a token in the URL (refused, §5).
 
-## 10. Standard library
+## 10. Standard library (D4, open)
 
-The standard library is the built-in registry shipped in the wheel (`builtin_registry/`), checked
-against `_content.json`. M9b adds no hosted index. Each addition (a tool, prompt or eval set useful
-to most agents) ships only after an end-to-end run recorded in the M9b verification record, and is
-added under `REGISTRY_READ_ONLY` rules as today (`scripts/content_manifest.py`,
-`tests/fixtures/builtin_hashes.json`). Which additions: decided in the M9b plan delta (owner, D4).
+**Today** the built-in registry (`builtin_registry/`, shipped in the wheel and checked against
+`_content.json`) holds only infrastructure: `runtime/adk` (1.0.4–1.1.0), `mcp/github` and
+`mcp/playwright` (1.0.0), and `service/` postgres-pgvector, litellm, phoenix, mcp-relay,
+playwright-mcp and echo. It has **no prompts, tools or eval sets**. Northwind's tools live in its
+example registry; of them only `tool/web-search` (Tavily through the operator's tools proxy) is
+generic.
+
+**Where additions could live:**
+
+| Option | How users get it | For | Against |
+|---|---|---|---|
+| A. In the wheel (today's mechanism) | nothing to do; resolves offline | no network, no trust step | each addition needs an AgentBreeder release; grows the wheel |
+| B. An official `agentbreeder/registry` git repo, consumed as a remote source (M9b) | one `registries:` entry + `registry trust https://github.com/agentbreeder` | versions ship independently of releases; dogfoods M9b | needs the network and a trust step; a repo to maintain and protect |
+| C. Both | small core in the wheel, the rest in the repo | best of each | two places to look |
+
+**Candidate first additions** (each only after an end-to-end run, recorded in the M9b
+verification record):
+
+- `tool/web-search` promoted from Northwind (generic; needs the tools proxy and a Tavily key);
+- a generic `eval/` smoke set (answers, stays on topic, no tool errors), usable as a starting gate;
+- more `mcp/` versions for Streamable HTTP servers (each needs its live check, as #748 did).
+
+**Recommendation:** decide D4 after slice 1b, when remote sources have run end to end. Then choose
+B or C, starting with `tool/web-search` and the eval smoke set. Until then, M9b ships no
+standard-library additions, and slice 7 stays unscheduled.
 
 ## 11. Delivery slices
 
@@ -633,10 +712,14 @@ added under `REGISTRY_READ_ONLY` rules as today (`scripts/content_manifest.py`,
    server gives `SOURCE_UNREACHABLE`; an untrusted host gives `SOURCE_HOST_UNTRUSTED` in plain and
    `--locked` modes.
 3. **Console** (lane B screen): source chip, states, Fetch, confirm (§8.5).
-4. **OCI** (+ `registry pack`, layout docs), verified against kind's local registry and one public
+4. **Remote MCP versions** (§6.6): `stack.yaml` `registries:`, `stack.lock` v2, full-pin origin
+   in identity and grant, `--allow-project-mcp SERVER@PIN`, unreferenced secrets refused,
+   consent text, `MCP_VERSION_MISMATCH`. Acceptance: an `mcp` version from a
+   separate git repo runs through the relay after consent; a pin bump asks for consent again.
+5. **OCI** (+ `registry pack`, layout docs), verified against kind's local registry and one public
    registry.
-5. **HTTP index** (+ `registry pack --index`).
-6. **Standard-library additions.**
+6. **HTTP index** (+ `registry pack --index`).
+7. **Standard-library additions** (D4, open).
 
 Each slice: tests first (unit + CLI end to end as a subprocess), docs and CHANGELOG, the gate,
 different-model review, owner approval. Git hardening (§6.1) gets a dedicated test per option
@@ -677,8 +760,9 @@ Every new error ends with a `Next:` line from the shared hint helper with the la
 - **OSS:** `registry.py` (`Root`, empty-directory refusal, `--root`, `--agent`), `lock.py` (lane C
   from M9b: strict v1/v2), new `sources/` package (`git.py`, `oci.py`, `http.py`, `cache.py`,
   `extract.py`, `trust.py`, `locate`), `agentfile.py` (`registries:`), `build.py`/`release.py`
-  (resolution, `--offline`, `build.json` sources), `services/lock.py` (v1 only),
-  `services/mcp_stack.py` (refuse `remote:`), the registry command module, JSON Schema,
+  (resolution, `--offline`, `build.json` sources), `services/lock.py` and `services/schema.py`
+  (`registries:` in `stack.yaml`, v1/v2), `services/mcp_stack.py` (remote origin, consent text,
+  `MCP_VERSION_MISMATCH`), the registry command module, JSON Schema,
   `docs/registry.md` (claims §8.6, troubleshooting table code → remedy), `docs/agent-yaml.md`
   (`registries:` example), a new "Use a tool from your org registry" guide (trust, pin, build,
   commit the lock), the org-registry template, the CI recipe, CHANGELOG. `operator_config.py` is
@@ -690,18 +774,21 @@ Every new error ends with a `Next:` line from the shared hint helper with the la
 
 ## 14. Owner decisions
 
-- **D1** Trusted-source list, default empty, per user in `~/.agentbreeder/sources.yaml`, checked
-  on every fetch in every mode, org-prefix entries (§8.3). Alternative: allow every `https`/`ssh`
-  host and rely on reviewing `agent.yaml`.
-- **D2** Pins in `agent.yaml` (commit, digest, index hash), no floating refs; `registry pin`
-  resolves branches and tags (§5). Alternative: cargo-style `rev: main` resolved into the lock.
-- **D3** Lock v2 written whenever `registries:` is declared, v1 otherwise (§7). Alternative:
-  always v2 (relock every shipped example and fixture once).
-- **D4** Which standard-library additions (§10).
-- **D5** Remote kinds limited to prompt, eval, knowledge, tool (§6.4).
-- **D6** `--locked` resolves only from the locked root, dropping today's cross-root
-  `REF_CONFLICT` check under `--locked` (§4.3).
-- **D7** Empty directories refused in registry versions (§6.5).
+Decided by the owner on 2026-11-11:
+
+- **D1 yes.** Trusted-source list, default empty, per user in `~/.agentbreeder/sources.yaml`,
+  checked on every fetch in every mode, org-prefix entries (§8.3).
+- **D2 yes.** Pins in YAML (commit, digest, index hash), no floating refs; `registry pin` resolves
+  branches and tags (§5).
+- **D3 yes.** Lock v2 written whenever the YAML declares `registries:`, v1 otherwise (§7).
+- **D5 yes, extended.** Remote kinds: `prompt`, `eval`, `knowledge`, `tool`, **and `mcp`** (§6.6)
+  **and `agent`** (once M13 defines it, §6.4). `runtime` and `service` stay refused.
+- **D6 yes.** `--locked` resolves only from the locked (and currently configured) root (§4.3).
+- **D7 yes.** Empty directories refused in registry versions (§6.5).
+
+Open:
+
+- **D4** Which standard-library additions, and where they live (§10 lists the options).
 
 ## 15. Plan delta (for the console-epic plan, at M9b start)
 
