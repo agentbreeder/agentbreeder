@@ -438,3 +438,25 @@ def _cli_any(*argv: str) -> object:
     )
     assert result.returncode in (0, 2), result.stderr
     return json.loads(result.stdout)
+
+
+def test_a_grandchild_holding_the_pipes_cannot_hold_a_read_past_its_timeout(tmp_path):
+    from agentbreeder.center.jobs import CenterState, Runner
+
+    directory = tmp_path / "runner"
+    directory.mkdir()
+    runner = Runner(CenterState(directory), directory, ["/bin/sh", "-c"])
+    started = time.monotonic()
+    answer = runner.read(["sleep 30 & sleep 60"], timeout=1)
+    assert answer["error"]["code"] == "TIMEOUT" and time.monotonic() - started < 10
+
+
+def test_no_tracked_read_starts_once_the_console_is_stopping(tmp_path):
+    from agentbreeder.center.jobs import CenterState, Runner
+
+    directory = tmp_path / "runner"
+    directory.mkdir()
+    runner = Runner(CenterState(directory), directory, [sys.executable, "-c", "print(1)"])
+    runner.shutdown(grace=0)
+    assert runner.read(["x"], track=True)["error"]["code"] == "STOPPING"
+    assert runner.children == set()

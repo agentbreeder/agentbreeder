@@ -716,6 +716,14 @@ class Runner:
         cache_key = key or " ".join(argv)
         if not cache:
             cache_key = f"uncached {uuid.uuid4().hex}"
+        if track:
+            with self.mutex:
+                if self.stopping:  # a child started now could miss shutdown's snapshot
+                    return {
+                        "data": None,
+                        "error": error("STOPPING", "The console is stopping"),
+                        "stale": False,
+                    }
         try:
             process = subprocess.Popen(
                 [*self.prefix, *argv],
@@ -735,8 +743,19 @@ class Runner:
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            _stop_process(process, 1.0) if track else process.kill()
-            process.communicate()
+            if track:
+                _stop_process(process, 1.0)  # its whole group
+            else:
+                process.kill()
+            # Bounded: a grandchild that inherited the pipes must not hold this past the timeout.
+            try:
+                process.communicate(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+            finally:
+                for pipe in (process.stdout, process.stderr):
+                    if pipe:
+                        pipe.close()
             return self._stale(cache_key, error("TIMEOUT", "The command timed out"))
         finally:
             if track:
