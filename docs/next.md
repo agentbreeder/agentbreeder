@@ -176,7 +176,7 @@ When several codes apply, the step reports the first in the table's order. Notes
   is always the release step's, and a `NAME` row is the `kubernetes` step's only when the stack
   has a cluster attached and the release step is otherwise done; otherwise it is the release
   step's. `note` says who must run `approve` and that it needs this stack's state and operator
-  config (`approve`, like `enable`, has no `--stack` yet; a follow-up issue adds it, and these
+  config (`approve`, like `enable`, has no `--stack` yet; #860 adds it, and these
   notes will then print `--stack`). Matching by name makes this a hint: a pending approval for an
   earlier revision of the same agent matches too, so the message says only that a deploy of this
   agent is waiting, not that it is for the current build. When policy requires
