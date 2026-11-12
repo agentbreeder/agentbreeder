@@ -1,0 +1,19 @@
+usage: agentbreeder new agent [-h] --model {gemini} [--dir DIR] [--dry-run]
+                              [--json]
+                              name
+
+Write a starter agent project to DIR (default ./NAME): agent.yaml, stack.yaml
+(Postgres and LiteLLM), stack/litellm/config.yaml, and editable sources in
+src/prompt/ and src/evals/. Publishes prompt/NAME-prompt@0.1.0 and eval/NAME-
+evals@0.1.0 into DIR/registry and writes agent.lock. DIR must not exist or be
+an empty directory.
+
+positional arguments:
+  name              Agent name: [a-z][a-z0-9-], at most 31 characters
+
+options:
+  -h, --help        show this help message and exit
+  --model {gemini}  Model provider (only providers run end to end are offered)
+  --dir DIR         Destination (default ./NAME)
+  --dry-run         Show what would be written
+  --json            Print the result as JSON

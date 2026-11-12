@@ -27,7 +27,7 @@ from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from urllib.request import ProxyHandler, Request, build_opener
 
-from agentbreeder import cli, example
+from agentbreeder import cli, example, hints
 from agentbreeder.operator_config import CONFIG_ENV as OPERATOR_ENV
 from agentbreeder.store import DeploymentError
 
@@ -273,4 +273,6 @@ def _run() -> int:
                     file=sys.stderr,
                 )
                 failed = True
+    if not failed:  # the guided path's next step (guided §3): a starter agent of your own
+        print(hints.next_line("new", "agent", "hello", "--model", "gemini"), flush=True)
     return int(failed)
