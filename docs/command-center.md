@@ -162,6 +162,14 @@ tool would not be caught.
   stored. Sign-in events arrive with the password milestone. The registry and `set-ref` edits of
   later milestones will change only the project's files (and git history, if you commit them);
   the console will keep no record of them.
+- **Reads of project files run in the server.** Registry versions (`registry list`), registry
+  verification (`registry verify`, on a background thread), `agent.yaml`, `agent.lock` and
+  where a version is declared and locked (`registry used-by`) are read in process with the same
+  functions as the CLI, cached by each file's modification time and size, and dropped when a job
+  ends. Which deployments run a version reads deploy state, so that part of `used-by` is a CLI
+  child. Everything that touches deployment state, a stack's
+  database or secrets, Docker, the operator config or the audit chain still runs as a CLI child;
+  a test checks that the server process never loads those modules.
 - **Its database** (`center.sqlite3`, mode 0600) holds projects, job history and settings, and
   from the sign-in milestone password hashes; never a password, key or other secret value. Its
   schema is versioned and migrated at start; a 3.0.0a2 database keeps its projects and job
