@@ -550,7 +550,7 @@ trusted:
 - CI: `AGENTBREEDER_REGISTRY_TRUST` (comma-separated **prefix entries only**) is read in addition
   to the file; a bare host or a private host needs the file (`--whole-host`, `--private`). It is
   set by whoever runs CI, never read from the project; a test pins that no code path derives it
-  from project files (today the CLI sets only `AGENTBREEDER_OPERATOR_CONFIG`, `cli.py:388`). The
+  from project files (today the CLI sets only `AGENTBREEDER_OPERATOR_CONFIG`, `cli._use_stack`, `cli.py:150` on main after #840). The
   console passes `AGENTBREEDER_*` variables to its children (`center/jobs.py:59`); that is the
   owner's own environment. Without a TTY, `SOURCE_HOST_UNTRUSTED` adds "in CI set
   AGENTBREEDER_REGISTRY_TRUST=https://github.com/acme".
