@@ -100,9 +100,65 @@ def test_compose_argv_is_explicit(state):
     ]  # fmt: skip
     docker.write_compose(state, {"name": state.project, "services": {"a": {}}})
     docker.down(state)
-    docker.logs(state, "echo", 5)
     assert run.calls[1][0][10:] == ["down", "--remove-orphans"]
-    assert run.calls[2][0][10:] == ["logs", "--no-color", "--tail", "5", "echo"]
+
+
+def test_logs_argv_is_bounded_and_unprefixed(state):
+    docker = DockerCLI(run=Recorder())
+    argv = docker._logs_argv(state, "echo", 5, "10m", follow=False)
+    assert argv[10:] == [
+        "logs", "--no-color", "--no-log-prefix", "--timestamps", "--tail", "5",
+        "--since", "10m", "--", "echo",
+    ]  # fmt: skip
+    assert docker._logs_argv(state, "echo", 5, None, follow=True)[-3:] == [
+        "--follow",
+        "--",
+        "echo",
+    ]
+    for tail, since in ((0, None), (10001, None), (True, None), (5, "1d"), (5, "10m; rm")):
+        with pytest.raises(ServiceError):
+            docker._logs_argv(state, "echo", tail, since, follow=False)
+
+
+def _script_popen(script):
+    import sys
+
+    def popen(argv, **options):
+        return subprocess.Popen([sys.executable, "-c", script], **options)
+
+    return popen
+
+
+def test_read_logs_joins_partials_and_discards_compose_stderr(state):
+    from agentbreeder.runtime import PARTIAL
+
+    payload = "x" * (PARTIAL - 4) + "seeded-marker-" + "q" * 20
+    chunked = (
+        "2026-11-12T10:00:00.1Z "
+        + payload[:PARTIAL]
+        + "2026-11-12T10:00:00.2Z "
+        + payload[PARTIAL:]
+    )
+    script = (
+        f"import sys; sys.stdout.write({chunked!r} + '\\n'); sys.stderr.write('compose noise')"
+    )
+    docker = DockerCLI(run=Recorder(), popen=_script_popen(script))
+    text, truncated = docker.read_logs(state, "echo", 5)
+    assert text == "2026-11-12T10:00:00.1Z " + payload + "\n" and not truncated
+    failing = DockerCLI(run=Recorder(), popen=_script_popen("import sys; sys.exit(1)"))
+    with pytest.raises(ServiceError, match="DOCKER_LOGS_FAILED"):
+        failing.read_logs(state, "echo", 5)
+
+
+def test_follow_logs_starts_a_reader(state):
+    from agentbreeder.runtime import stop_follow
+
+    docker = DockerCLI(run=Recorder(), popen=_script_popen("print('line', flush=True)"))
+    process = docker.follow_logs(state, "echo", 5)
+    try:
+        assert process.stdout.readline() == b"line\n"
+    finally:
+        stop_follow(process)
 
 
 def test_down_and_containers_without_compose_file(state):

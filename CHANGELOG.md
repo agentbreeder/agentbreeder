@@ -12,6 +12,25 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder services logs [DIR] NAME` gains `--since D`, `--follow`, `--json` and `--raw`
+  (#821, M5), on `main`, not in a published preview: the same shape, redaction and escaping as
+  `logs ID`. It reads `docker compose logs --no-color --no-log-prefix --timestamps` (4 MiB cap,
+  Docker's 16 KiB partial records joined), redacts every line and now prints nothing when a value
+  it needs cannot be read (`REDACTION_INCOMPLETE`; before, an unreadable stack secret was skipped
+  silently), and shows controls as visible escapes unless `--raw` (S-08; before, they were
+  printed raw). `--json` prints `{"schema_version", "source": "service", "target": "local",
+  "name", "lines", "truncated"}`; `--follow` streams NDJSON lines (`source`, `target`, `name`,
+  `line`) with the same stop rules and end record as `logs ID --follow` (S-10). `--tail` is now
+  validated (1 to 10 000) instead of clamped. Text output changes shape: each line now starts
+  with Docker's timestamp and no longer with compose's `name |` prefix. Errors are coded
+  (`DOCKER_LOGS_FAILED` when compose cannot read the logs), with the JSON error object under
+  `--json`; compose's own stderr is never shown. A follow stops the compose process and its
+  plugin together (the reader and its descendants, SIGKILL after 2 s; before, a stop while
+  compose was starting could hang the follow), and so do `logs ID --follow` readers, which stay
+  in the CLI's process group so a group kill of the CLI (the console's S-10 sweep) reaches them.
+  A service follow carries on across container restarts. Run against real Postgres
+  and LiteLLM on macOS.
+
 - `agentbreeder logs ID [--previous]` for a Kubernetes (local `kind`) deployment (#821, M5), on
   `main`, not in a published preview: reads the `agent` container of one pod owned by the
   verified Deployment (through its ReplicaSets' owner references, so a stray or stale pod that
@@ -42,9 +61,9 @@ On main, not in a published preview.
   whose secret copies are gone (a failed deploy deletes them; `REDACTION_INCOMPLETE`). Lines are
   split on `\n` only; controls, bidi and the Unicode line separators are shown as visible
   escapes unless `--raw` (S-08). `--follow` streams until the container stops, Ctrl-C, SIGTERM,
-  SIGHUP or the end of a non-terminal stdin, and stops its `docker logs` child, which stays in
-  the CLI's process group so a hangup or a group kill reaches it too (S-10; a SIGKILL of the CLI
-  alone leaves it until its next write); a line over 1 MiB is dropped whole. `--follow --json`
+  SIGHUP or the end of a non-terminal stdin, and stops its `docker logs` child (S-10: the child
+  stays in the CLI's process group, so a hangup or a group kill reaches it; a SIGKILL of the
+  CLI process alone leaves it until its next write); a line over 1 MiB is dropped whole. `--follow --json`
   prints one object per line (`schema_version`, `source`, `name`, `deployment`, `line`) and a
   final `{"event": "end", "reason", "dropped"}`; a failing `docker logs` is `DOCKER_LOGS_FAILED`.
   Kubernetes deployments: see the entry above; the state is opened read-only;

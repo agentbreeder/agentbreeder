@@ -76,20 +76,119 @@ def _read_tail(process, limit: int, timeout: float) -> tuple[bytes, bool] | None
     return bytes(kept), dropped[0]
 
 
-def stop_follow(process: subprocess.Popen, grace: float = 2.0) -> None:
-    """Stop a `Docker.follow` child: SIGTERM, then SIGKILL after `grace` seconds. Signals go
-    through Popen, which never signals a child it has already reaped (no reused pid). Safe to
-    call more than once or after it ended."""
-    for stop, wait in ((process.terminate, grace), (process.kill, 5.0)):
-        if process.poll() is not None:
-            break
-        try:
-            stop()
-            process.wait(wait)
-        except subprocess.TimeoutExpired:
+def start_follow(
+    argv: list[str], environment: dict[str, str], merge_stderr: bool = False
+) -> subprocess.Popen:
+    """A log-follow child (`docker logs -f`, `docker compose logs -f`, `kubectl logs -f`). It
+    stays in the caller's process group, so a terminal hangup or a supervisor's group kill
+    (the console's S-10 sweep of a leftover CLI) reaches it and anything it started. Stop it
+    with `signal_follow`/`stop_follow`, which signal its whole process family: `docker compose`
+    is `docker` plus a plugin process, and a signal to `docker` alone while it starts does not
+    stop the plugin, which keeps the pipe open. `merge_stderr`: `docker logs` writes the
+    container's stderr to its own stderr (merged); kubectl's and compose's own stderr is
+    discarded (it can carry local details)."""
+    return subprocess.Popen(
+        argv,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
+        env=environment,
+    )
+
+
+def _process_table() -> dict[int, list[int]]:
+    """parent pid -> child pids, from `ps` (empty when it cannot be read)."""
+    try:
+        result = subprocess.run(
+            ["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    children: dict[int, list[int]] = {}
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[0].isdigit() and fields[1].isdigit():
+            children.setdefault(int(fields[1]), []).append(int(fields[0]))
+    return children
+
+
+def _descendants(pid: int) -> set[int]:
+    table, found, queue = _process_table(), set(), [pid]
+    while queue:
+        for child in table.get(queue.pop(), []):
+            if child not in found:
+                found.add(child)
+                queue.append(child)
+    return found
+
+
+def _family(process: subprocess.Popen) -> set[int]:
+    """The follow child's descendants (compose's plugin), recorded on the Popen while the child
+    is unreaped, so they can still be found after the child exits and they are reparented."""
+    family = getattr(process, "family", None)
+    if family is None:
+        family = process.family = set()
+    if process.poll() is None:
+        family |= _descendants(process.pid)
+    return family
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    return True
+
+
+def signal_follow(process: subprocess.Popen, number: int) -> None:
+    """Signal a follow child and its recorded descendants. The child is signalled through
+    Popen, never after it was reaped; a descendant found gone is dropped from the record, so
+    its pid is never signalled again."""
+    family = _family(process)
+    try:
+        if process.poll() is None:
+            process.send_signal(number)
+    except OSError:
+        pass
+    for pid in sorted(family):
+        if not _alive(pid):
+            family.discard(pid)
             continue
-        except OSError:
-            break
+        try:
+            os.kill(pid, number)
+        except (ProcessLookupError, PermissionError, OSError):
+            family.discard(pid)
+
+
+def _running(process: subprocess.Popen) -> bool:
+    family = _family(process)
+    for pid in list(family):
+        if not _alive(pid):
+            family.discard(pid)
+    return process.poll() is None or bool(family)
+
+
+def stop_follow(process: subprocess.Popen, grace: float = 2.0) -> None:
+    """Stop a follow child and its descendants: SIGTERM, then SIGKILL after `grace` seconds,
+    then wait (at most 5 s) for all of them to be gone. Safe to call more than once or after
+    it ended."""
+    import signal
+
+    signal_follow(process, signal.SIGTERM)
+    deadline = time.monotonic() + grace
+    while _running(process) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if _running(process):
+        signal_follow(process, signal.SIGKILL)
+        deadline = time.monotonic() + 5.0
+        while _running(process) and time.monotonic() < deadline:
+            time.sleep(0.05)
+    try:
+        process.wait(1)
+    except subprocess.TimeoutExpired:
+        pass
+    _running(process)  # drops what is gone
     if process.stdout is not None:
         process.stdout.close()
 
@@ -180,19 +279,12 @@ class Docker:
 
     def follow(self, info: dict, tail: int = 200, since: str | None = None) -> subprocess.Popen:
         """`docker container logs --follow` of a verified container (as `logs`), stdout and
-        stderr merged, timestamped. The child stays in the caller's process group, so a
-        terminal hangup or a supervisor's group kill (the console's) reaches it too (S-10); its
-        stdin is closed. The caller reads `stdout` line by line, applies `join_partials`,
+        stderr merged, timestamped, started by `start_follow` (in the caller's process group,
+        stdin closed). The caller reads `stdout` line by line, applies `join_partials`,
         redacts, and stops it with `stop_follow`."""
         argv = self._log_argv(info, tail, since, follow=True)
         try:
-            return subprocess.Popen(
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                env=self._environment(),
-            )
+            return start_follow(argv, self._environment(), merge_stderr=True)
         except OSError as error:
             raise DeploymentError("Docker operation failed; check docker context") from error
 

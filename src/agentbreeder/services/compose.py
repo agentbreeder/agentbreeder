@@ -203,8 +203,86 @@ class DockerCLI:
         if state.compose_path.exists():
             self.compose(state, "down", "--remove-orphans", timeout=180, what="stopping the stack")
 
-    def logs(self, state: StackState, service: str, tail: int) -> str:
-        return self.compose(state, "logs", "--no-color", "--tail", str(tail), service, timeout=60)
+    def _logs_argv(
+        self, state: StackState, service: str, tail: int, since: str | None, follow: bool
+    ) -> list[str]:
+        """`docker compose logs` of one service: no colour, no `name |` prefix (so Docker's
+        16 KiB partial records can be joined like `logs ID`), timestamped. The service name
+        was checked against stack.yaml by the engine; `since` against runtime.SINCE."""
+        from agentbreeder.runtime import MAX_TAIL, SINCE
+
+        if type(tail) is not int or not 1 <= tail <= MAX_TAIL:
+            raise ServiceError("TAIL_INVALID", f"--tail must be 1..{MAX_TAIL}")
+        if since is not None and not SINCE.fullmatch(since):
+            raise ServiceError(
+                "SINCE_INVALID", "--since must look like 10m, 2h or 2026-11-11T09:00:00Z"
+            )
+        arguments = [
+            "compose", "-p", state.project, "-f", str(state.compose_path),
+            "--project-directory", str(state.directory),
+            "--env-file", str(state.directory / "compose.env"),
+            "logs", "--no-color", "--no-log-prefix", "--timestamps", "--tail", str(tail),
+        ]  # fmt: skip
+        arguments += ["--since", since] if since else []
+        arguments += ["--follow"] if follow else []
+        return self._argv([*arguments, "--", service])
+
+    def read_logs(
+        self, state: StackState, service: str, tail: int, since: str | None = None
+    ) -> tuple[str, bool]:
+        """The service's recent output (as `Docker.logs`: 4 MiB cap keeping whole lines, long
+        lines' partial records joined) and whether older output was dropped. Not redacted.
+        Compose's own stderr is never read into a message (it can carry local details)."""
+        from agentbreeder.runtime import LOG_LIMIT, _read_tail, join_partials
+
+        argv = self._logs_argv(state, service, tail, since, follow=False)
+        try:
+            process = self._popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=sanitised_environment(),
+            )
+        except OSError:
+            raise ServiceError(
+                "DOCKER_LOGS_FAILED", "docker compose logs failed to start"
+            ) from None
+        try:
+            result = _read_tail(process, LOG_LIMIT, timeout=60)
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+        if result is None:
+            raise ServiceError("DOCKER_LOGS_FAILED", "docker compose logs timed out")
+        if process.returncode:
+            raise ServiceError("DOCKER_LOGS_FAILED", "docker compose logs failed")
+        data, truncated = result
+        if truncated:
+            data = data[data.find(b"\n") + 1 :] if b"\n" in data else b""
+        data = b"\n".join(join_partials(line) for line in data.split(b"\n"))
+        return data.decode("utf-8", "replace"), truncated
+
+    def follow_logs(
+        self, state: StackState, service: str, tail: int, since: str | None = None
+    ) -> subprocess.Popen:
+        """`docker compose logs --follow` of one service, as `runtime.start_follow`: in the
+        caller's process group (a group kill reaches it), stdin closed, stderr discarded;
+        stopped with `runtime.stop_follow`, which also stops compose's plugin process."""
+        argv = self._logs_argv(state, service, tail, since, follow=True)
+        try:
+            return self._popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=sanitised_environment(),
+            )
+        except OSError:
+            raise ServiceError(
+                "DOCKER_LOGS_FAILED", "docker compose logs failed to start"
+            ) from None
 
     # -- volumes and images -----------------------------------------------------------------------
 

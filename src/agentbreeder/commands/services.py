@@ -64,7 +64,29 @@ def register(commands) -> None:
     sv_status.add_argument("--json", action="store_true")
     sv_logs = service_commands.add_parser("logs", help="Show a service's logs (redacted)")
     sv_logs.add_argument("target", nargs="+", metavar="[DIR] NAME")
-    sv_logs.add_argument("--tail", type=int, default=200)
+    from agentbreeder.commands import logs as logs_command
+
+    sv_logs.add_argument(
+        "--tail", type=logs_command._tail, default=200, metavar="N",
+        help="The last N lines (default 200, at most 10000)",
+    )  # fmt: skip
+    sv_logs.add_argument(
+        "--since", metavar="D", help="Only lines since D (10m, 2h, 2026-11-11T09:00:00Z)"
+    )
+    sv_logs.add_argument(
+        "--follow",
+        action="store_true",
+        help=(
+            "Keep printing new lines until the service stops, Ctrl-C, SIGTERM, SIGHUP or the "
+            "end of a non-terminal stdin"
+        ),
+    )
+    sv_logs.add_argument("--json", action="store_true", help="Print the result as JSON")
+    sv_logs.add_argument(
+        "--raw",
+        action="store_true",
+        help="Print control characters as they are (unsafe; --json always escapes)",
+    )
     sv_env = service_commands.add_parser("env", help="Print exports for the stack's config")
     sv_env.add_argument("dir", nargs="?", type=Path, default=Path("."))
     sv_env.add_argument("--environment")
@@ -168,8 +190,7 @@ def run(args) -> int:
                     print(line)
             return 0
         if command == "logs":
-            print(engine.logs(name, args.tail))
-            return 0
+            return _logs(engine, name, args)
         if command == "env":
             print("\n".join(engine.env_lines(args.environment)))
             return 0
@@ -192,9 +213,22 @@ def run(args) -> int:
         secret_files.SecretError,
         DeploymentError,
     ) as error:
+        if command == "logs" and getattr(error, "code", None):
+            from agentbreeder.commands import logs as logs_command
+
+            return logs_command._fail(args, error)  # `--json` gets the error object too
         print(cli._message(error), file=sys.stderr)
         return 2
     except (OSError, sqlite3.Error):
+        if command == "logs":
+            from agentbreeder.commands import logs as logs_command
+
+            return logs_command._fail(
+                args,
+                logs_command.LogsError(
+                    "STATE_UNREADABLE", "cannot access the stack state; check permissions"
+                ),
+            )
         print("Cannot access the stack state; check permissions and disk space", file=sys.stderr)
         return 2
     finally:
@@ -211,3 +245,55 @@ def _next_after_up(directory: Path, environment: str) -> str | None:
         return None
     step = "release" if (project / "agent.lock").is_file() else "build"
     return hints.next_line(step, agent, stack=project, environment=environment)
+
+
+def _logs(engine, name: str, args) -> int:
+    """`services logs [DIR] NAME [--tail N] [--since D] [--follow] [--json] [--raw]`, in the same
+    shape as `logs ID` (guided §10): `{"schema_version", "source": "service", "target": "local",
+    "name", "lines", "truncated"}`, or with --follow one object per line plus the end record.
+    Lines are redacted (failing closed) and controls shown as visible escapes unless --raw."""
+    from agentbreeder.commands import logs as logs_command
+    from agentbreeder.runtime import SINCE
+    from agentbreeder.services.schema import ServiceError
+
+    label = {"source": "service", "target": "local", "name": name}
+    try:
+        if args.since is not None and not SINCE.fullmatch(args.since):
+            raise logs_command.LogsError(
+                "SINCE_INVALID", "--since must look like 10m, 2h or 2026-11-11T09:00:00Z"
+            )
+        if args.follow:
+            redactor = engine.log_redactor(name)
+            return logs_command._follow(
+                args, None, _ServiceReader(engine, name), None, redactor, args.tail,
+                "DOCKER_LOGS_FAILED", label=label,
+            )  # fmt: skip
+        text, truncated, _ = engine.read_logs(name, args.tail, args.since)
+    except (ServiceError, logs_command.LogsError) as error:
+        return logs_command._fail(args, error)
+    lines = logs_command._lines(text)
+    if args.json:
+        body = {"schema_version": logs_command.SCHEMA_VERSION, **label}
+        print(json.dumps({**body, "lines": lines, "truncated": truncated}, indent=2))
+        return 0
+    for line in lines:
+        sys.stdout.write(logs_command._shown(line, args.raw) + "\n")
+    if truncated:
+        print("Note: older lines were dropped (4 MiB cap); use --tail or --since", file=sys.stderr)
+    return 0
+
+
+class _ServiceReader:
+    """The follow loop's reader interface (`follow(info, tail, since)`) for a stack service."""
+
+    def __init__(self, engine, name: str):
+        self.engine, self.name = engine, name
+
+    def follow(self, info, tail, since):
+        from agentbreeder.services.schema import ServiceError
+        from agentbreeder.store import DeploymentError
+
+        try:
+            return self.engine.docker.follow_logs(self.engine.state, self.name, tail, since)
+        except ServiceError as error:
+            raise DeploymentError(str(error).removeprefix(f"[{error.code}] ")) from error

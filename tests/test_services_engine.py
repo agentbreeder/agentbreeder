@@ -128,8 +128,8 @@ class FakeDocker(DockerCLI):
         self.events.append(("down",))
         self.running.clear()
 
-    def logs(self, state, service, tail):
-        return f"{service} started with token {self.secret_seen}\n"
+    def read_logs(self, state, service, tail, since=None):
+        return f"{service} started with token {self.secret_seen}\n", False
 
     secret_seen = ""
 

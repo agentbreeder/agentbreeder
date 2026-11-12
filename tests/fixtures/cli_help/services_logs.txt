@@ -1,9 +1,16 @@
-usage: agentbreeder services logs [-h] [--tail TAIL]
+usage: agentbreeder services logs [-h] [--tail N] [--since D] [--follow]
+                                  [--json] [--raw]
                                   [DIR] NAME [[DIR] NAME ...]
 
 positional arguments:
   [DIR] NAME
 
 options:
-  -h, --help   show this help message and exit
-  --tail TAIL
+  -h, --help  show this help message and exit
+  --tail N    The last N lines (default 200, at most 10000)
+  --since D   Only lines since D (10m, 2h, 2026-11-11T09:00:00Z)
+  --follow    Keep printing new lines until the service stops, Ctrl-C,
+              SIGTERM, SIGHUP or the end of a non-terminal stdin
+  --json      Print the result as JSON
+  --raw       Print control characters as they are (unsafe; --json always
+              escapes)

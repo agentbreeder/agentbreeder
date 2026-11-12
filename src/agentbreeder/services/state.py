@@ -272,6 +272,10 @@ class StackState:
                 continue
             if data:
                 values.append(data)
+            elif problems is not None:
+                # Recorded but gone (deleted by hand): a running service may still hold and
+                # log the value, so redaction is incomplete.
+                problems.append(f"the stack's stored secret {service}/{name} is missing")
         return values
 
     # -- ports ----------------------------------------------------------------------------------
