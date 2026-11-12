@@ -23,6 +23,19 @@ On main, not in a published preview.
   the copy against `website/brand.css`, computes WCAG contrast for both palettes and pins the font
   hashes.
 
+### Changed
+
+- Console backend foundation (#815), on main, not in a published preview:
+  - Every API route goes through one table that applies the host, API-header, `Sec-Fetch-Site`,
+    `Origin`, content-type and session checks before any handler; unknown methods get `405`.
+  - Every API reply is an envelope `{"data", "error", "stale"}`; `error` carries the CLI's
+    `[CODE]` and message, and other stderr is no longer forwarded to the browser.
+  - Body caps per route (64 KiB JSON, up to 1 MiB for editors; `413` when exceeded); a static
+    allow-list built at start, serving the vendored `woff2` fonts.
+  - Registering a project, onboarding an example and starting a job refuse directories, files and
+    parent directories that other users own or can write (sticky directories such as `/tmp` are
+    allowed).
+
 ### Internal
 
 - CLI commands split into modules (no behaviour change) (#813). Each command's parser and handler

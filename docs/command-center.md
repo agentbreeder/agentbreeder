@@ -84,6 +84,27 @@ security policy. Provider keys go to a private file for the one job that needs i
 key's value, base64 and URL-encoded forms; another encoding of a value echoed by a tool would not be
 caught.
 
+### Console foundation (#815): on `main`, not in a published preview
+
+- **One route table.** Every API request passes the same checks, in this order, before any handler
+  runs: the exact `Host`; the `X-AgentBreeder-Center` header and `Sec-Fetch-Site: same-origin`
+  (so a page on another `127.0.0.1` port, which is same-site, is refused); for any method other
+  than `GET`, the console's own `Origin` and `Content-Type: application/json`; the session; then
+  the route's body cap (64 KiB for JSON, up to 1 MiB for editor payloads; larger is `413`). A
+  method no route uses gets `405`. A job-log poll does not keep an idle session alive.
+- **One reply shape.** Every API reply is `{"data", "error", "stale"}`. `error` is `null` or
+  `{"code", "message"}`; when a CLI read fails, the console forwards only the CLI's coded
+  `[CODE] message` line, never other stderr. `stale` marks the last good data shown after a
+  failed read.
+- **Static files** are an allow-list built at start from the installed package (HTML, JS, CSS,
+  `woff2` fonts); nothing else under the package is served.
+- **Projects only from directories you alone control.** Adding a project, onboarding an example
+  and every job start refuse a project directory, `agent.yaml` or `stack.yaml` that another user
+  owns or that is group- or world-writable, and any parent directory up to `/` owned by someone
+  other than you or root, or writable by others unless it is sticky (like `/tmp`). The error
+  names the path. On a macOS volume mounted with "Ignore ownership on this volume", every file
+  reports your user, so the check passes: keep projects on the system volume.
+
 **The limits.** Anyone who controls the local Docker has full control: the gate prevents mistakes and
 policy drift, not a local admin. A project is code. Building it runs its Dockerfile in Docker, so add
 only projects you trust. Local endpoints are unauthenticated.

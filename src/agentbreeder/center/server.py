@@ -1,8 +1,14 @@
-"""`agentbreeder up`: a loopback HTTP server for the command center (spec §6).
+"""`agentbreeder up`: a loopback HTTP server for the console (spec §6, §8.1).
 
 Single user. Standard library only, so an install keeps its two dependencies. Binds 127.0.0.1 and
 offers no way to bind anything else. Every engine action is a child process of the CLI (`jobs.py`);
 nothing here opens the deployment state.
+
+Requests go through one route table (`ROUTES`). Before any handler runs, `Handler._dispatch`
+applies the same guards to every method (S-03): the `Host`, the API header and
+`Sec-Fetch-Site`, then for every non-GET method `Origin` and the content type, then the session,
+then the route's body cap. Unknown methods get 405. Every API reply is an envelope
+`{"data": ..., "error": null | {"code", "message"}, "stale": bool}`.
 """
 
 from __future__ import annotations
@@ -18,43 +24,53 @@ import sys
 import threading
 import time
 import webbrowser
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from agentbreeder import __version__
-from agentbreeder.center.jobs import (
-    ENVIRONMENT,
-    KEY_NAME,
+from agentbreeder.center.files import (
     BadRequest,
-    Busy,
-    CenterState,
-    Runner,
+    check_ancestors,
+    check_project,
+    private_dir,
+    write_private,
 )
-from agentbreeder.services.state import private_dir, write_private
+from agentbreeder.center.jobs import ENVIRONMENT, KEY_NAME, Busy, CenterState, Runner, error
 
 DEFAULT_PORT = 8900
 TOKEN_TTL = 300
 SESSION_ABSOLUTE = 8 * 3600
 SESSION_IDLE = 3600
-MAX_BODY = 64 * 1024
+MAX_BODY = 64 * 1024  # JSON requests
+MAX_EDITOR_BODY = 1024 * 1024  # editor payloads (prompts, evals, tools; later milestones)
 STATIC = Path(__file__).parent / "static"
-FILES = {
-    "/": ("index.html", "text/html; charset=utf-8"),
-    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
-    "/style.css": ("style.css", "text/css; charset=utf-8"),
+STATIC_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
 }
 EXAMPLES = ("northwind",)
 OPTIONS = {"services-up": ("digest",), "remove": ("deployment", "target")}
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
-        "img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        "img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; "
+        "frame-ancestors 'none'"
     ),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
 }
+PROJECT_ID = r"(?P<project>[0-9a-f]{12})"
+JOB_ID = r"(?P<job>[0-9a-f]{32})"
 
 
 def center_directory() -> Path:
@@ -62,6 +78,22 @@ def center_directory() -> Path:
 
     value = os.environ.get("AGENTBREEDER_CENTER_DIR")
     return private_dir(Path(value).expanduser() if value else Path.home() / ".agentbreeder/center")
+
+
+def static_files(root: Path = STATIC) -> dict[str, tuple[bytes, str]]:
+    """The allow-list of static paths, built once at start from the package tree: regular files
+    with a known type, no dotfiles, no symlinks. Anything else is a 404."""
+    files: dict[str, tuple[bytes, str]] = {}
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if any(part.startswith(".") for part in relative.parts) or path.is_symlink():
+            continue
+        kind = STATIC_TYPES.get(path.suffix)
+        if kind is None or not path.is_file():
+            continue
+        files["/" + relative.as_posix()] = (path.read_bytes(), kind)
+    files["/"] = files["/index.html"]
+    return files
 
 
 def _hash(value: str) -> bytes:
@@ -74,6 +106,7 @@ class Center:
         self.environment = environment
         self.state = CenterState(directory)
         self.runner = Runner(self.state, directory, prefix)
+        self.static = static_files()
         self.port = 0
         self.token: tuple[bytes, float, bool] | None = None
         self.sessions: dict[bytes, list[float]] = {}
@@ -106,7 +139,7 @@ class Center:
             digest, expires, used = self.token
             if used:
                 print(
-                    "WARNING: a used command center login link was presented again.",
+                    "WARNING: a used console login link was presented again.",
                     file=sys.stderr,
                 )
                 return None
@@ -117,7 +150,9 @@ class Center:
             self.sessions[_hash(session)] = [time.time(), time.time()]
             return session
 
-    def session_valid(self, value: str | None) -> bool:
+    def session_valid(self, value: str | None, refresh: bool = True) -> bool:
+        """`refresh=False` for polls (guided §14.9 R7): a tab left polling a job log does not
+        keep an idle session alive."""
         if not value:
             return False
         key = _hash(value)
@@ -129,7 +164,8 @@ class Center:
             if now - entry[0] > SESSION_ABSOLUTE or now - entry[1] > SESSION_IDLE:
                 del self.sessions[key]
                 return False
-            entry[1] = now
+            if refresh:
+                entry[1] = now
             return True
 
     # -- projects --------------------------------------------------------------------------------
@@ -137,12 +173,9 @@ class Center:
     def register(self, path: Path) -> dict:
         try:
             path = path.expanduser().resolve()
-        except (ValueError, OSError, RuntimeError) as error:
-            raise BadRequest("Invalid path") from error
-        for name in ("agent.yaml", "stack.yaml"):
-            candidate = path / name
-            if candidate.is_symlink() or not candidate.is_file():
-                raise BadRequest(f"That directory needs a regular {name}")
+        except (ValueError, OSError, RuntimeError) as problem:
+            raise BadRequest("Invalid path") from problem
+        check_project(path)
         identifier = hashlib.sha256(str(path).encode()).hexdigest()[:12]
         project = self.state.add_project(identifier, path.name, str(path), self.environment)
         if project["environment"] != self.environment:
@@ -154,14 +187,15 @@ class Center:
             raise BadRequest("Unknown example")
         destination = Path.home() / "agentbreeder-projects" / name
         if not (destination / "agent.yaml").exists():
-            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+            check_ancestors(destination.parent.resolve())  # S-01, before anything is written
             self.runner.read_text(["example", name, str(destination)], timeout=60)
         return self.register(destination)
 
     def need_project(self, identifier: str) -> dict:
         project = self.state.project(identifier)
         if project is None:
-            raise BadRequest("Unknown project")
+            raise BadRequest("Unknown project", "UNKNOWN_PROJECT")
         return project
 
     # -- reads -----------------------------------------------------------------------------------
@@ -174,15 +208,19 @@ class Center:
         return match[1].strip("'\"") if match else None
 
     def read_view(self, project: dict, view: str) -> dict:
+        """The envelope for one view: a single CLI read is its own envelope; a view made of
+        several reads carries each read's envelope in `data`."""
         path, environment = project["path"], project["environment"]
         read = self.runner.read
         if view == "services":
             return read(["services", "status", path, "--json"])
         if view == "registry":
-            return {
-                "versions": read(["registry", "list", "--project", path, "--json"]),
-                "problems": read(["registry", "verify", "--project", path, "--json"]),
-            }
+            return envelope(
+                {
+                    "versions": read(["registry", "list", "--project", path, "--json"]),
+                    "problems": read(["registry", "verify", "--project", path, "--json"]),
+                }
+            )
         if view == "deployments":
             return read(["list", "--stack", path, "--environment", environment, "--json"])
         if view == "cluster":
@@ -190,12 +228,16 @@ class Center:
         if view == "audit":
             state = self.state_dir(project)
             if not state:
-                return {"error": "Start the services first"}
-            return {
-                "rows": read(["audit", "list", "--state-dir", state, "--limit", "50", "--json"]),
-                "verify": read(["audit", "verify", "--state-dir", state, "--json"]),
-            }
-        raise BadRequest("Unknown view")
+                return envelope(None, error("STACK_NOT_UP", "Start the services first"))
+            return envelope(
+                {
+                    "rows": read(
+                        ["audit", "list", "--state-dir", state, "--limit", "50", "--json"]
+                    ),
+                    "verify": read(["audit", "verify", "--state-dir", state, "--json"]),
+                }
+            )
+        raise BadRequest("Unknown view", "UNKNOWN_VIEW")
 
     def plan(self, project: dict) -> dict:
         result = self.runner.read(
@@ -212,6 +254,7 @@ class Center:
         return {**result, "accepted_text": project.get("accepted_grant")}
 
     def start_job(self, project: dict, body: dict) -> str:
+        check_project(Path(project["path"]))  # S-01: re-checked at every job start
         kind = str(body.get("kind", ""))
         options = body.get("options") or {}
         if isinstance(options, dict):
@@ -230,24 +273,178 @@ class Center:
             preview = self.plan(project)
             data = preview.get("data") or {}
             if data.get("digest") != options.get("digest"):
-                raise BadRequest("The grant changed; review it again")
+                raise BadRequest("The grant changed; review it again", "GRANT_CHANGED")
             if data.get("mcp"):
                 raise BadRequest(
                     "This stack has MCP servers; review their tools with "
-                    f"`agentbreeder services up {project['path']}`"
+                    f"`agentbreeder services up {project['path']}`",
+                    "MCP_NEEDS_CLI",
                 )
             text = data.get("text", "")
             on_success = lambda: self.state.accept_grant(project["id"], text)  # noqa: E731
         return self.runner.start(project, kind, options, keys, on_success)
 
 
+# -- the route table ------------------------------------------------------------------------------
+
+
+def envelope(data: Any = None, problem: dict | None = None, stale: bool = False) -> dict:
+    return {"data": data, "error": problem, "stale": stale}
+
+
+@dataclass(frozen=True)
+class Request:
+    center: Center
+    match: re.Match
+    body: dict | None
+    query: dict[str, list[str]]
+
+    def project(self) -> dict:
+        return self.center.need_project(self.match["project"])
+
+
+@dataclass(frozen=True)
+class Route:
+    """One API route. `sample` is a path that matches `pattern`; the guard tests use it."""
+
+    method: str
+    pattern: str
+    handler: Callable[[Request], dict]
+    sample: str
+    session: bool = True  # only sign-in itself runs without one
+    poll: bool = False  # polls do not refresh the idle timer (R7)
+    limit: int = MAX_BODY  # body cap for non-GET methods (MAX_EDITOR_BODY for editors)
+    regex: re.Pattern = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        object.__setattr__(self, "regex", re.compile(self.pattern))
+
+
+def _overview(request: Request) -> dict:
+    runner = request.center.runner
+    doctor = runner.read(["doctor", "--json"])
+    return envelope({"version": __version__, "job": runner.current, "doctor": doctor})
+
+
+def _projects(request: Request) -> dict:
+    state = request.center.state
+    return envelope(
+        {"projects": [{**p, "jobs": state.latest_jobs(p["id"])} for p in state.projects()]}
+    )
+
+
+def _view(request: Request) -> dict:
+    return request.center.read_view(request.project(), request.match["view"])
+
+
+def _job(request: Request) -> dict:
+    after = request.query.get("after", ["0"])[0]
+    job = request.center.state.job(
+        request.match["job"], int(after) if re.fullmatch(r"[0-9]{1,12}", after) else 0
+    )
+    if job is None:
+        raise NotFound("Unknown job")
+    return envelope(job)
+
+
+def _session(request: Request) -> dict:
+    session = request.center.redeem(str(request.body.get("token", "")))
+    if session is None:
+        raise Refused("That link was used or has expired")
+    return envelope({"session": session})
+
+
+def _add_project(request: Request) -> dict:
+    body, center = request.body, request.center
+    if body.get("example"):
+        return envelope(center.onboard_example(str(body["example"])))
+    if body.get("path"):
+        return envelope(center.register(Path(str(body["path"]))))
+    raise BadRequest("Name an example or a path")
+
+
+def _plan(request: Request) -> dict:
+    result = request.center.plan(request.project())
+    return envelope(
+        {"grant": result["data"], "accepted_text": result["accepted_text"]},
+        result["error"],
+        result["stale"],
+    )
+
+
+def _start_job(request: Request) -> dict:
+    return envelope({"job": request.center.start_job(request.project(), request.body)})
+
+
+def _cancel(request: Request) -> dict:
+    return envelope({"cancelled": request.center.runner.cancel(request.match["job"])})
+
+
+ROUTES: tuple[Route, ...] = (
+    Route("GET", r"/api/overview", _overview, "/api/overview"),
+    Route("GET", r"/api/projects", _projects, "/api/projects"),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/(?P<view>[a-z]+)",
+        _view,
+        "/api/projects/0123456789ab/services",
+    ),
+    Route("GET", rf"/api/jobs/{JOB_ID}", _job, "/api/jobs/" + "0" * 32, poll=True),
+    Route("POST", r"/api/session", _session, "/api/session", session=False),
+    Route("POST", r"/api/projects", _add_project, "/api/projects"),
+    Route("POST", rf"/api/projects/{PROJECT_ID}/plan", _plan, "/api/projects/0123456789ab/plan"),
+    Route(
+        "POST", rf"/api/projects/{PROJECT_ID}/jobs", _start_job, "/api/projects/0123456789ab/jobs"
+    ),
+    Route("POST", rf"/api/jobs/{JOB_ID}/cancel", _cancel, "/api/jobs/" + "0" * 32 + "/cancel"),
+)
+
+
+def find_route(method: str, path: str, routes=ROUTES) -> tuple[Route | None, re.Match | None, set]:
+    """The route for `method` and `path`, and the methods `path` allows (for a 405)."""
+    allowed: set[str] = set()
+    for route in routes:
+        match = route.regex.fullmatch(path)
+        if match is None:
+            continue
+        if route.method == method:
+            return route, match, allowed
+        allowed.add(route.method)
+    return None, None, allowed
+
+
+class NotFound(Exception):
+    pass
+
+
+class Refused(Exception):
+    pass
+
+
+class HttpError(Exception):
+    def __init__(
+        self, status: int, code: str, message: str, extra: dict | None = None, data: Any = None
+    ):
+        super().__init__(message)
+        self.status, self.code, self.message, self.extra = status, code, message, extra
+        self.data = data
+
+
 class Handler(BaseHTTPRequestHandler):
     center: Center
-    server_version = "agentbreeder-center"
+    routes: tuple[Route, ...] = ROUTES
+    server_version = "agentbreeder-console"
     sys_version = ""
 
     def log_message(self, format, *args):  # noqa: A002
         pass  # URLs and bodies stay out of the terminal
+
+    def __getattr__(self, name: str):
+        # Every method, including ones no route uses, reaches the same guarded dispatch; the
+        # base class would otherwise answer an unknown method with 501 before any check.
+        if name.startswith("do_"):
+            return lambda: self._dispatch(name[3:])
+        raise AttributeError(name)
 
     def _send(self, code: int, body: bytes, kind: str, extra: dict | None = None) -> None:
         self.send_response(code)
@@ -256,137 +453,123 @@ class Handler(BaseHTTPRequestHandler):
         for key, value in {**SECURITY_HEADERS, **(extra or {})}.items():
             self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
-    def _json(self, code: int, value, extra: dict | None = None) -> None:
+    def _json(self, code: int, value: dict, extra: dict | None = None) -> None:
         self._send(code, json.dumps(value).encode(), "application/json", extra)
 
-    def _session(self) -> str | None:
+    def _fail(self, failure: HttpError) -> None:
+        self._json(
+            failure.status,
+            envelope(failure.data, error(failure.code, failure.message)),
+            failure.extra,
+        )
+
+    # -- guards ----------------------------------------------------------------------------------
+
+    def _guard_host(self) -> None:
+        if self.headers.get("Host") != f"127.0.0.1:{self.center.port}":
+            raise HttpError(403, "FORBIDDEN", "Bad host")
+
+    def _guard_api(self) -> None:
+        # The custom header forces a CORS preflight that is never approved; Sec-Fetch-Site
+        # refuses same-site pages, such as other 127.0.0.1 ports (S-25).
+        if self.headers.get("X-AgentBreeder-Center") != "1":
+            raise HttpError(403, "FORBIDDEN", "Forbidden")
+        if self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
+            raise HttpError(403, "FORBIDDEN", "Forbidden")
+
+    def _guard_write(self) -> None:
+        if self.headers.get("Origin") != self.center.origin:
+            raise HttpError(403, "FORBIDDEN", "Forbidden")
+        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+            raise HttpError(403, "FORBIDDEN", "Forbidden")
+
+    def _guard_session(self, route: Route) -> None:
         # A header, not a cookie: browsers send cookies to every port on 127.0.0.1, including
         # agent endpoints and stack services.
-        return self.headers.get("X-AgentBreeder-Session")
+        token = self.headers.get("X-AgentBreeder-Session")
+        if route.session and not self.center.session_valid(token, refresh=not route.poll):
+            raise HttpError(401, "SIGN_IN", "Sign in again")
 
-    def _host_ok(self) -> bool:
-        return self.headers.get("Host") == f"127.0.0.1:{self.center.port}"
-
-    def _api_ok(self) -> bool:
-        if self.headers.get("X-AgentBreeder-Center") != "1":
-            return False
-        return self.headers.get("Sec-Fetch-Site", "same-origin") == "same-origin"
-
-    def _body(self) -> dict | None:
-        length = self.headers.get("Content-Length", "")
-        if not re.fullmatch(r"[0-9]{1,9}", length) or int(length) > MAX_BODY:
-            return None
-        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
-            return None
-        if self.headers.get("Origin") != self.center.origin:
-            return None
+    def _read_body(self, route: Route) -> dict:
+        length = self.headers.get("Content-Length")
+        if length is None:
+            raise HttpError(411, "LENGTH_REQUIRED", "Content-Length is required")
+        if not re.fullmatch(r"[0-9]{1,12}", length):
+            raise HttpError(400, "BAD_REQUEST", "Invalid Content-Length")
+        if int(length) > route.limit:
+            raise HttpError(413, "TOO_LARGE", f"The request is over {route.limit // 1024} KiB")
+        raw = self.rfile.read(int(length))
+        if len(raw) != int(length):
+            raise HttpError(400, "BAD_REQUEST", "The request body is shorter than its length")
         try:
-            value = json.loads(self.rfile.read(int(length)) or b"{}")
-        except ValueError:
-            return None
-        return value if isinstance(value, dict) else None
+            value = json.loads(raw or b"{}")
+        except ValueError as problem:
+            raise HttpError(400, "BAD_REQUEST", "The request is not JSON") from problem
+        if not isinstance(value, dict):
+            raise HttpError(400, "BAD_REQUEST", "The request must be a JSON object")
+        return value
 
-    def do_GET(self):  # noqa: N802
-        if not self._host_ok():
-            return self._json(403, {"error": "Bad host"})
-        parts = urlsplit(self.path)
-        if parts.path in FILES:
-            name, kind = FILES[parts.path]
-            return self._send(200, (STATIC / name).read_bytes(), kind)
-        if not parts.path.startswith("/api/"):
-            return self._json(404, {"error": "Not found"})
-        if not self._api_ok():
-            return self._json(403, {"error": "Forbidden"})
-        if not self.center.session_valid(self._session()):
-            return self._json(401, {"error": "Sign in again"})
-        return self._guarded(lambda: self._get(parts))
+    # -- dispatch --------------------------------------------------------------------------------
 
-    def do_POST(self):  # noqa: N802
-        if not self._host_ok() or not self._api_ok():
-            return self._json(403, {"error": "Forbidden"})
-        body = self._body()
-        if body is None:
-            return self._json(403, {"error": "Forbidden"})
-        path = urlsplit(self.path).path
-        if path == "/api/session":
-            return self._login(body)
-        if not self.center.session_valid(self._session()):
-            return self._json(401, {"error": "Sign in again"})
-        return self._guarded(lambda: self._post(path, body))
-
-    def _guarded(self, action) -> None:
+    def _dispatch(self, method: str) -> None:
         try:
-            action()
-        except Busy as error:
-            self._json(409, {"error": "Another job is running", "job": error.job})
-        except BadRequest as error:
-            self._json(400, {"error": str(error)})
-        except ValueError:
-            self._json(400, {"error": "Invalid request"})
-        except OSError:
-            self._json(500, {"error": "A local file could not be read or written"})
+            self._guard_host()
+            parts = urlsplit(self.path)
+            if not parts.path.startswith("/api/"):
+                return self._static(method, parts.path)
+            self._guard_api()
+            route, match, allowed = find_route(method, parts.path, self.routes)
+            if route is None:
+                if allowed:
+                    raise HttpError(
+                        405, "METHOD", "Method not allowed", {"Allow": ", ".join(sorted(allowed))}
+                    )
+                raise HttpError(404, "NOT_FOUND", "Not found")
+            if method != "GET":
+                self._guard_write()
+            self._guard_session(route)
+            body = self._read_body(route) if method != "GET" else None
+            request = Request(self.center, match, body, parse_qs(parts.query))
+            self._json(200, self._handle(route, request))
+        except HttpError as failure:
+            self._fail(failure)
 
-    def _login(self, body: dict) -> None:
-        session = self.center.redeem(str(body.get("token", "")))
-        if session is None:
-            return self._json(403, {"error": "That link was used or has expired"})
-        self._json(200, {"session": session})
+    def _static(self, method: str, path: str) -> None:
+        if method not in ("GET", "HEAD"):
+            raise HttpError(405, "METHOD", "Method not allowed", {"Allow": "GET, HEAD"})
+        entry = self.center.static.get(path)
+        if entry is None:
+            raise HttpError(404, "NOT_FOUND", "Not found")
+        self._send(200, entry[0], entry[1])
 
-    def _get(self, parts) -> None:
-        center, path = self.center, parts.path
-        if path == "/api/overview":
-            return self._json(
-                200,
-                {
-                    "version": __version__,
-                    "job": center.runner.current,
-                    "doctor": center.runner.read(["doctor", "--json"]),
-                },
+    def _handle(self, route: Route, request: Request) -> dict:
+        try:
+            return route.handler(request)
+        except Busy as busy:
+            raise HttpError(
+                409, "BUSY", "Another job is running", data={"job": busy.job}
+            ) from busy
+        except BadRequest as problem:
+            raise HttpError(400, problem.code, str(problem)) from problem
+        except NotFound as problem:
+            raise HttpError(404, "NOT_FOUND", str(problem)) from problem
+        except Refused as problem:
+            raise HttpError(403, "REFUSED", str(problem)) from problem
+        except ValueError as problem:
+            raise HttpError(400, "BAD_REQUEST", "Invalid request") from problem
+        except OSError as problem:
+            raise HttpError(
+                500, "LOCAL_FILE", "A local file could not be read or written"
+            ) from problem
+        except Exception as problem:  # never a traceback or a dropped connection
+            print(
+                f"console: {route.method} {route.pattern} failed: {type(problem).__name__}",
+                file=sys.stderr,
             )
-        if path == "/api/projects":
-            return self._json(
-                200,
-                {
-                    "projects": [
-                        {**p, "jobs": center.state.latest_jobs(p["id"])}
-                        for p in center.state.projects()
-                    ]
-                },
-            )
-        match = re.fullmatch(r"/api/projects/([0-9a-f]{12})/([a-z]+)", path)
-        if match:
-            project = center.need_project(match[1])
-            return self._json(200, center.read_view(project, match[2]))
-        match = re.fullmatch(r"/api/jobs/([0-9a-f]{32})", path)
-        if match:
-            after = parse_qs(parts.query).get("after", ["0"])[0]
-            job = center.state.job(match[1], int(after) if re.fullmatch(r"[0-9]+", after) else 0)
-            return self._json(200 if job else 404, job or {"error": "Unknown job"})
-        self._json(404, {"error": "Not found"})
-
-    def _post(self, path: str, body: dict) -> None:
-        center = self.center
-        if path == "/api/projects":
-            if body.get("example"):
-                project = center.onboard_example(str(body["example"]))
-            elif body.get("path"):
-                project = center.register(Path(str(body["path"])))
-            else:
-                raise BadRequest("Name an example or a path")
-            return self._json(200, project)
-        match = re.fullmatch(r"/api/projects/([0-9a-f]{12})/plan", path)
-        if match:
-            return self._json(200, center.plan(center.need_project(match[1])))
-        match = re.fullmatch(r"/api/projects/([0-9a-f]{12})/jobs", path)
-        if match:
-            job = center.start_job(center.need_project(match[1]), body)
-            return self._json(200, {"job": job})
-        match = re.fullmatch(r"/api/jobs/([0-9a-f]{32})/cancel", path)
-        if match:
-            return self._json(200, {"cancelled": center.runner.cancel(match[1])})
-        self._json(404, {"error": "Not found"})
+            raise HttpError(500, "INTERNAL", "The console hit an unexpected error") from problem
 
 
 def make_server(center: Center, port: int | None) -> ThreadingHTTPServer:
@@ -395,8 +578,8 @@ def make_server(center: Center, port: int | None) -> ThreadingHTTPServer:
         server = ThreadingHTTPServer(
             ("127.0.0.1", DEFAULT_PORT if port is None else port), handler
         )
-    except OSError as error:
-        if port is not None or error.errno != errno.EADDRINUSE:
+    except OSError as problem:
+        if port is not None or problem.errno != errno.EADDRINUSE:
             raise
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     server.daemon_threads = True
@@ -433,8 +616,8 @@ def main(args) -> int:
     if args.dir is not None:
         try:
             project = center.register(args.dir)
-        except BadRequest as error:
-            print(str(error), file=sys.stderr)
+        except BadRequest as problem:
+            print(str(problem), file=sys.stderr)
             return 2
     url, page = center.mint_login()
     print(f"AgentBreeder command center: {center.origin} (this machine only, single user)")
@@ -452,8 +635,8 @@ def main(args) -> int:
             print(preview["text"], file=sys.stderr)
             try:
                 center.start_job(project, {"kind": "services-up", "options": preview})
-            except (BadRequest, Busy) as error:
-                print(f"Services not started: {error}", file=sys.stderr)
+            except (BadRequest, Busy) as problem:
+                print(f"Services not started: {problem}", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

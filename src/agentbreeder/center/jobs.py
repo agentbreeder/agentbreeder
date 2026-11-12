@@ -23,6 +23,10 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from urllib.parse import quote
 
+from agentbreeder.center.files import BadRequest
+
+__all__ = ["BadRequest", "Busy", "CenterState", "Runner", "argv_for", "cli_error", "redact"]
+
 MAX_LINE = 4000
 MAX_LINES = 20000
 KEEP_JOBS = 100
@@ -30,6 +34,9 @@ ENVIRONMENT = re.compile(r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$")
 DEPLOYMENT = re.compile(r"^[0-9a-f]{32}$")
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 KEY_NAME = re.compile(r"^[A-Z_][A-Z0-9_]{0,127}$")
+CODED = re.compile(r"^\[([A-Z][A-Z0-9_]{2,39})\] (.+)$")
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+MAX_MESSAGE = 300
 EXIT_APPROVAL = 3
 KINDS = frozenset(
     {
@@ -66,16 +73,26 @@ class Busy(Exception):
         self.job = job
 
 
-class BadRequest(ValueError):
-    """Safe to show: names what is wrong, never echoes the value."""
-
-
 def child_environment() -> dict[str, str]:
     return {
         key: value
         for key, value in os.environ.items()
         if key in _ALLOWED_ENV or key in _ALLOWED_EXACT_DOCKER or key.startswith(_ALLOWED_PREFIXES)
     }
+
+
+def error(code: str, message: str) -> dict:
+    return {"code": code, "message": message}
+
+
+def cli_error(stderr: str, returncode: int) -> dict:
+    """S-17: only the CLI's coded `[CODE] message` line reaches the browser, never free stderr
+    (which can carry paths, tracebacks or a third party's text)."""
+    for line in reversed(stderr.splitlines()):
+        match = CODED.match(line.strip())
+        if match:
+            return error(match[1], CONTROL.sub("", match[2])[:MAX_MESSAGE])
+    return error("COMMAND_FAILED", f"The command failed (exit {returncode}); run it in a terminal")
 
 
 def redact(text: str, values: Sequence[str]) -> str:
@@ -357,15 +374,18 @@ class Runner:
                 errors="replace",
                 timeout=timeout,
             )
-        except (OSError, subprocess.TimeoutExpired):
-            return self._stale(cache_key, "The command timed out")
+        except subprocess.TimeoutExpired:
+            return self._stale(cache_key, error("TIMEOUT", "The command timed out"))
+        except OSError:
+            return self._stale(cache_key, error("COMMAND_FAILED", "The command could not start"))
         if result.returncode:
-            lines = [line for line in result.stderr.strip().splitlines() if line]
-            return self._stale(cache_key, lines[-1][:500] if lines else "The command failed")
+            return self._stale(cache_key, cli_error(result.stderr, result.returncode))
         try:
-            answer = {"data": json.loads(result.stdout)}
+            answer = {"data": json.loads(result.stdout), "error": None, "stale": False}
         except ValueError:
-            return self._stale(cache_key, "The command returned unreadable output")
+            return self._stale(
+                cache_key, error("BAD_OUTPUT", "The command returned unreadable output")
+            )
         self.cache[cache_key] = answer
         return answer
 
@@ -386,6 +406,9 @@ class Runner:
             return None
         return result.stdout if result.returncode == 0 else None
 
-    def _stale(self, key: str, error: str) -> dict:
+    def _stale(self, key: str, problem: dict) -> dict:
+        """The `{data, error, stale}` envelope: the last good data, marked stale, if any."""
         previous = self.cache.get(key)
-        return {**previous, "stale": True, "error": error} if previous else {"error": error}
+        if previous:
+            return {"data": previous["data"], "error": problem, "stale": True}
+        return {"data": None, "error": problem, "stale": False}
