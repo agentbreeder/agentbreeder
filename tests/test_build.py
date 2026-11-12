@@ -232,7 +232,10 @@ def test_cli_build(project, operator, monkeypatch, capsys):
     operator.load()
     assert cli.main(["build", str(project / "agent.yaml"), "--environment", "dev"]) == 0
     out = capsys.readouterr().out
-    assert "Built helper" in out and "Next: agentbreeder deploy" in out
+    assert "Built helper" in out
+    # Never a production deploy before the eval gate: build points at release.
+    assert f"Next: agentbreeder release {project / 'agent.yaml'} --environment dev" in out
+    assert "deploy" not in out.split("Next:")[1]
     assert cli.main(["build", str(project / "agent.yaml"), "--environment", "dev", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["image"] == IMAGE
     assert cli.main(["build", str(project / "agent.yaml"), "--environment", "missing"]) == 2

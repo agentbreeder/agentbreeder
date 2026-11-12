@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from agentbreeder import agentfile, cli, registry
+from agentbreeder import agentfile, cli, hints, registry
 from agentbreeder.operator_config import OperatorConfigError, load_operator_config
 from agentbreeder.store import DeploymentError
 
@@ -62,6 +62,6 @@ def run(args) -> int:
     if result.candidate_manifest_path:
         print(f"Candidate manifest: {result.candidate_manifest_path}")
     print(f"Lock: {result.lock_path} ({'updated' if result.lock_changed else 'unchanged'})")
-    environment = f" --environment {args.environment}" if args.environment else ""
-    print(f"Next: agentbreeder deploy {result.manifest_path} --local{environment}")
+    # Never a production `deploy`: production comes from `release`, behind the eval gate.
+    print(hints.next_line("release", args.agent, stack=args.stack, environment=args.environment))
     return 0

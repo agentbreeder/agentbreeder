@@ -36,6 +36,14 @@ On main, not in a published preview.
   - Registering a project, onboarding an example and starting a job refuse directories, files and
     parent directories that other users own or can write (sticky directories such as `/tmp` are
     allowed).
+- `Next:` lines name the launcher you are using (#819; on `main`, not in a published preview):
+  `npx agentbreeder@<ver>` under the npm launcher (which now sets `AGENTBREEDER_LAUNCHER=npx` and
+  `AGENTBREEDER_LAUNCHER_VERSION` for the CLI; only that value and a strict semver are accepted),
+  `uvx --from 'agentbreeder[eval]==<ver>' agentbreeder` inside a uvx environment, a bare
+  `agentbreeder` when the one on `PATH` is this install, otherwise `python -m agentbreeder`.
+  `build` now suggests `release` (never a production `deploy`) with the `--stack` and
+  `--environment` it used, and `services up` suggests `build` (no `agent.lock` yet) or `release`
+  with absolute paths. No `Next:` line is printed with `--json`.
 
 ### Internal
 

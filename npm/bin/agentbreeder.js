@@ -5,7 +5,9 @@
 //   uvx --exclude-newer <exclude_newer> --exclude-newer-package agentbreeder=<window_end>
 //       -c <constraints.txt> --from agentbreeder[eval]==<pypi_version> agentbreeder <args...>
 //
-// No dependencies, no install scripts, no shell. The environment is passed through unchanged.
+// No dependencies, no install scripts, no shell. The environment is passed through, plus
+// AGENTBREEDER_LAUNCHER=npx and AGENTBREEDER_LAUNCHER_VERSION=<this package's version>, so the
+// commands the CLI prints (`Next: npx agentbreeder@<ver> ...`) can be pasted back as they are.
 "use strict";
 
 const childProcess = require("node:child_process");
@@ -120,6 +122,11 @@ function uvVersion(uvx) {
   return parseVersion(result.stdout);
 }
 
+// The CLI accepts these only as the enum value "npx" and a strict semver; it prints the form.
+function launcherEnv(env, pkg) {
+  return { ...env, AGENTBREEDER_LAUNCHER: "npx", AGENTBREEDER_LAUNCHER_VERSION: pkg.version };
+}
+
 function resolutionWarnings(env) {
   return RESOLUTION_VARIABLES.filter((name) => env[name]);
 }
@@ -184,6 +191,7 @@ function main(argv) {
   const child = childProcess.spawn(found.path, buildArgs(release, constraints, argv), {
     stdio: "inherit",
     shell: false,
+    env: launcherEnv(process.env, pkg),
   });
   const forward = (signal) => () => {
     if (child.exitCode === null && child.signalCode === null) child.kill(signal);
@@ -220,4 +228,4 @@ if (require.main === module) {
   main(process.argv.slice(2));
 }
 
-module.exports = { buildArgs, findUvx, parseVersion, versionAtLeast };
+module.exports = { buildArgs, findUvx, launcherEnv, parseVersion, versionAtLeast };
