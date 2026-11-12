@@ -23,6 +23,7 @@ import shutil
 import sqlite3
 import stat
 from pathlib import Path
+from urllib.parse import quote
 
 from agentbreeder.services.schema import ServiceError
 
@@ -91,7 +92,58 @@ def read_private(path: Path, limit: int = 64 * 1024) -> bytes | None:
         return handle.read(limit + 1)[: limit + 1]
 
 
+def _existing_private_dir(path: Path) -> bool:
+    """Whether `path` is a directory you own (not a symlink); never creates it."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise ServiceError("STATE_UNSAFE", f"cannot read {path}") from error
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise ServiceError("STATE_UNSAFE", f"{path} must be a directory you own (not a symlink)")
+    return True
+
+
 class StackState:
+    @classmethod
+    def locate(cls, stack_name: str, project_dir: Path, root: Path | None = None) -> Path | None:
+        """The stack's state directory if `services up` made it; None otherwise. Creates nothing
+        (`--stack` resolution and read-only commands must not leave phantom stacks)."""
+        base = root or stacks_root()
+        directory = base / stack_id(stack_name, project_dir)
+        if not _existing_private_dir(base) or not _existing_private_dir(directory):
+            return None
+        return directory
+
+    @classmethod
+    def open_readonly(
+        cls, stack_name: str, project_dir: Path, root: Path | None = None
+    ) -> StackState | None:
+        """`stack.db` opened with `mode=ro` (no mkdir, no CREATE, no write lock); None when the
+        stack was never brought up."""
+        directory = cls.locate(stack_name, project_dir, root)
+        return None if directory is None else cls.open_directory(directory)
+
+    @classmethod
+    def open_directory(cls, directory: Path) -> StackState | None:
+        """A stack state directory opened read-only (as `open_readonly`); None when it holds
+        no stack.db."""
+        if not _existing_private_dir(directory):
+            return None
+        path = directory / "stack.db"
+        if read_private(path, limit=0) is None:
+            return None
+        self = cls.__new__(cls)
+        self.id = directory.name
+        self.project = f"agentbreeder-{self.id}"
+        self.root = directory.parent
+        self.directory = directory
+        self.db = sqlite3.connect(
+            f"file:{quote(str(path))}?mode=ro", uri=True, timeout=5, isolation_level=None
+        )
+        return self
+
     def __init__(self, stack_name: str, project_dir: Path, root: Path | None = None):
         self.id = stack_id(stack_name, project_dir)
         self.project = f"agentbreeder-{self.id}"  # Compose project and resource prefix
@@ -137,14 +189,7 @@ class StackState:
 
     def environments(self) -> list[str]:
         """Environments `up` has written an operator config for."""
-        root = self.directory / "envs"
-        if not root.is_dir():
-            return []
-        return sorted(
-            child.name
-            for child in root.iterdir()
-            if _ENV.fullmatch(child.name) and (child / "operator.yaml").is_file()
-        )
+        return written_environments(self.directory)
 
     def deploy_state(self, environment: str) -> Path:
         return self.env_dir(environment) / "state"
@@ -335,6 +380,17 @@ class StackState:
                 path.chmod(0o555 if _executable(original) else 0o444)
         os.replace(staging, root / digest[:16])
         return target
+
+
+def written_environments(directory: Path) -> list[str]:
+    root = directory / "envs"
+    if not root.is_dir():
+        return []
+    return sorted(
+        child.name
+        for child in root.iterdir()
+        if _ENV.fullmatch(child.name) and (child / "operator.yaml").is_file()
+    )
 
 
 def _tree_digest(source: Path) -> str:

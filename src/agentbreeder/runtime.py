@@ -8,10 +8,44 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 from agentbreeder.manifest import Manifest
 from agentbreeder.store import DeploymentError
+
+LOG_LIMIT = 4 * 1024 * 1024  # bytes of `docker logs` output read at most
+MAX_TAIL = 10000
+SINCE = re.compile(r"[1-9][0-9]{0,5}[smh]|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+
+
+def _read_tail(process, limit: int, timeout: float) -> tuple[bytes, bool] | None:
+    """The last `limit` bytes of the child's stdout (read to the end, keeping only a bounded
+    buffer) and whether earlier output was dropped; None when it does not finish in time."""
+    kept = bytearray()
+    dropped = [False]
+
+    def read() -> None:
+        while True:
+            chunk = process.stdout.read(65536)
+            if not chunk:
+                return
+            kept.extend(chunk)
+            if len(kept) > 2 * limit:
+                del kept[: len(kept) - limit]
+                dropped[0] = True
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    reader.join(timeout)
+    if reader.is_alive():
+        process.kill()
+        reader.join(5)
+        return None
+    if len(kept) > limit:
+        del kept[: len(kept) - limit]
+        dropped[0] = True
+    return bytes(kept), dropped[0]
 
 
 class Docker:
@@ -27,16 +61,11 @@ class Docker:
     ) -> str:
         """Run the docker CLI. Secrets go in `env` (inherited by the CLI and forwarded with a
         bare `--env NAME`), never in `arguments`: argv is visible to every local user."""
-        prefix = ["docker"] + (["--context", self.context] if self.context else [])
-        environment = {
-            k: v
-            for k, v in os.environ.items()
-            if k not in {"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"}
-        }
+        environment = self._environment()
         environment.update(env or {})
         try:
             result = subprocess.run(
-                [*prefix, *arguments],
+                [*self._prefix(), *arguments],
                 capture_output=True,
                 input=stdin,
                 timeout=timeout,
@@ -53,6 +82,60 @@ class Docker:
         if isinstance(output, bytes):
             output = output.decode("utf-8", "replace")
         return output.strip()
+
+    def _prefix(self) -> list[str]:
+        return ["docker"] + (["--context", self.context] if self.context else [])
+
+    @staticmethod
+    def _environment() -> dict[str, str]:
+        return {
+            k: v
+            for k, v in os.environ.items()
+            if k not in {"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"}
+        }
+
+    def logs(self, info: dict, tail: int = 500, since: str | None = None) -> tuple[str, bool]:
+        """A container's recent output, stdout and stderr merged, each line timestamped.
+        `info` must come from `inspect(record)` after `authorize(record["context"])`, so the
+        container is addressed by the ID whose ownership labels were checked. At most
+        the newest LOG_LIMIT bytes are kept (whole lines); returns (text, truncated). The text
+        is not redacted. A failing `docker logs` raises instead of returning its error."""
+        if not isinstance(tail, int) or not 1 <= tail <= MAX_TAIL:
+            raise DeploymentError(f"--tail must be 1..{MAX_TAIL}")
+        if since is not None and not SINCE.fullmatch(since):
+            raise DeploymentError("--since must look like 10m, 2h or 2026-11-11T09:00:00Z")
+        container = info.get("Id") if isinstance(info, dict) else None
+        if not isinstance(container, str) or not re.fullmatch(r"[0-9a-f]{12,64}", container):
+            raise DeploymentError("Cannot read logs: no verified container ID")
+        argv = [*self._prefix(), "container", "logs", "--timestamps", "--tail", str(tail)]
+        argv += ["--since", since] if since else []
+        try:
+            process = subprocess.Popen(
+                [*argv, container],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=self._environment(),
+            )
+        except OSError as error:
+            raise DeploymentError("Docker operation failed; check docker context") from error
+        try:
+            result = _read_tail(process, LOG_LIMIT, timeout=30)
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+        if result is None:
+            raise DeploymentError("Reading the container's logs timed out")
+        if process.returncode:
+            # e.g. "No such container": Docker's own error, never the container's output.
+            raise DeploymentError("Docker could not read the container's logs")
+        data, truncated = result
+        if truncated:
+            # The newest output is kept; a line cut at the front is dropped whole, so a value
+            # in it cannot leak as an unredactable fragment.
+            data = data[data.find(b"\n") + 1 :] if b"\n" in data else b""
+        return data.decode("utf-8", "replace"), truncated
 
     def authorize(self, context: str | None = None):
         # Explicit remote environment overrides are never silently redirected locally.

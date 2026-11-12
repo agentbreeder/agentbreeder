@@ -15,11 +15,22 @@ IMAGE = "sha256:" + "a" * 64
 
 
 @pytest.fixture(autouse=True)
+def _bare_launcher(monkeypatch):
+    """`Next:` lines name the launcher; pin the bare form so output doesn't depend on how the
+    test interpreter was installed (tests/test_launcher.py covers each form)."""
+    from agentbreeder import hints
+
+    monkeypatch.setattr(hints, "_prefix", lambda: "agentbreeder")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_legacy_home(monkeypatch):
     """`doctor` must not see the developer's real ~/.agentbreeder (2.x state adds an INFO line)."""
     from agentbreeder.commands import doctor
 
     monkeypatch.setattr(doctor, "check_legacy", lambda: [])
+    # The PATH check runs whatever `agentbreeder` the machine has; tests/test_doctor_path.py.
+    monkeypatch.setattr(doctor, "check_path", lambda: [])
 
 
 def principal_entry(**overrides) -> dict:

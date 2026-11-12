@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from agentbreeder import hints
+
 NAMES = ("example",)
 
 
@@ -31,5 +33,5 @@ def run(args) -> int:
         print(str(error), file=sys.stderr)
         return 2
     print(f"Copied {args.name} to {destination}")
-    print(f"Next: read {destination / 'README.md'}")
+    print(hints.next_note(f"read {destination / 'README.md'}"))
     return 0

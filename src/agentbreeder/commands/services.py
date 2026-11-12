@@ -8,7 +8,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from agentbreeder import cli, registry, secret_files
+from agentbreeder import cli, hints, registry, secret_files
 from agentbreeder.store import DeploymentError
 
 NAMES = ("services",)
@@ -146,10 +146,9 @@ def run(args) -> int:
                 for line in stack_plan.mcp_status_lines(result.get("mcp") or {}):
                     print(line)
                 print(f"Operator config: {result['operator_config']}")
-                print(
-                    f"Next: agentbreeder release agent.yaml --stack {directory} "
-                    f"--environment {args.environment}"
-                )
+                hint = _next_after_up(directory, args.environment)
+                if hint:
+                    print(hint)
             return 0
         if command == "plan":
             preview = engine.preview(args.environment)
@@ -201,3 +200,14 @@ def run(args) -> int:
     finally:
         if engine is not None:
             engine.close()
+
+
+def _next_after_up(directory: Path, environment: str) -> str | None:
+    """Absolute paths, so the line works from any directory: `build` until the project has an
+    agent.lock, then `release`."""
+    project = directory.resolve()
+    agent = project / "agent.yaml"
+    if not agent.is_file():
+        return None
+    step = "release" if (project / "agent.lock").is_file() else "build"
+    return hints.next_line(step, agent, stack=project, environment=environment)

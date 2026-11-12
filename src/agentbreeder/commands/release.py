@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from agentbreeder import agentfile, cli, registry, secret_files
+from agentbreeder import agentfile, cli, hints, registry, secret_files
 from agentbreeder.deployer import DeployerError, os_deployer, resolve_deployer
 from agentbreeder.deployment import DeploymentService
 from agentbreeder.gate import GateDenied
@@ -40,6 +40,7 @@ def run(args) -> int:
     from agentbreeder.release import ReleaseError, release, rollback
 
     store = None
+    where = _where(args)
     try:
         operator = load_operator_config()
         store = Store(args.state_dir)
@@ -51,7 +52,12 @@ def run(args) -> int:
             raise
         if args.rollback:
             outcome = rollback(
-                Path(args.agent), service, deployer, args.environment, output=args.output
+                Path(args.agent),
+                service,
+                deployer,
+                args.environment,
+                output=args.output,
+                where=where,
             )
         else:
             outcome = release(
@@ -63,6 +69,7 @@ def run(args) -> int:
                 threshold=args.threshold,
                 retries=args.retries,
                 output=args.output,
+                where=where,
                 log=(lambda message: None)
                 if args.json
                 else (lambda message: print(message, file=sys.stderr)),
@@ -79,11 +86,14 @@ def run(args) -> int:
         DeploymentError,
         secret_files.SecretError,
     ) as error:
-        print(cli._message(error), file=sys.stderr)
+        print(cli._message(error, args=args, near=Path(args.agent)), file=sys.stderr)
         return 3 if getattr(error, "code", "") == "APPROVAL_REQUIRED" else 2
     finally:
         if store:
             store.close()
+    advice = _advice(args, where, outcome.details)
+    if advice:
+        outcome.details["advice"] = advice
     if args.json:
         print(json.dumps(outcome.as_json(), indent=2))
     else:
@@ -91,6 +101,50 @@ def run(args) -> int:
         production = outcome.details.get("production")
         if production and production.get("endpoint"):
             print(f"Production: {production['endpoint']} ({production['id']})")
+        for case in outcome.details.get("failed_cases") or []:
+            checks = ", ".join(case["failed_checks"]) or "none"
+            reason = f"; judge: {case['reason']}" if case["reason"] else ""
+            print(f"FAIL {case['id']}: failed {checks}{reason}")
         if outcome.details.get("eval_report"):
             print(f"Eval report: {outcome.details['eval_report']}")
+        if outcome.details.get("candidate_log"):
+            print(
+                f"Candidate log: {outcome.details['candidate_log']} "
+                f"(show it: `{advice['show_log']}`)"
+            )
+        elif outcome.details.get("candidate_log_skipped"):
+            print(f"Note: {outcome.details['candidate_log_skipped']}", file=sys.stderr)
+        if "remove" in advice:
+            rollback = f", or roll back: `{advice['rollback']}`" if "rollback" in advice else ""
+            print(hints.next_note(f"remove that production: `{advice['remove']}`{rollback}"))
+        if outcome.details.get("failed_cases"):
+            print(
+                hints.next_note(
+                    "edit the prompt or eval set, publish it as a new version, reference that "
+                    f"version in agent.yaml, then run `{advice['build']}` and release again"
+                )
+            )
     return outcome.code
+
+
+def _where(args) -> hints.Where:
+    """The --stack (and its environment) or non-default --state-dir this release ran with."""
+    if args.stack is not None:
+        return hints.Where(stack=args.stack, environment=args.environment)
+    custom = args.state_dir if args.state_dir != cli.DEFAULT_STATE else None
+    return hints.Where(environment=args.environment, state_dir=custom)
+
+
+def _advice(args, where: hints.Where, details: dict) -> dict:
+    """Commands that work as printed, in the same place this release ran."""
+    advice: dict = {}
+    if details.get("candidate_log"):
+        advice["show_log"] = where.command("logs", "--failed", details["agent"])
+    unreleased = details.get("unreleased_production")
+    if unreleased:
+        advice["remove"] = where.command("remove", unreleased["id"], "--local")
+        if unreleased.get("rollback"):
+            advice["rollback"] = where.command("release", args.agent, "--rollback")
+    if details.get("failed_cases"):
+        advice["build"] = where.command("build", args.agent)
+    return advice

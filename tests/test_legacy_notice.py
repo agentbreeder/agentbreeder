@@ -38,7 +38,7 @@ def test_no_home_state_reports_nothing(home):
 
 
 def test_three_x_state_alone_is_not_flagged(home):
-    for name in ("local/", "stacks/", "operator.yaml", "oidc-token"):
+    for name in ("local/", "locks/", "stacks/", "operator.yaml", "oidc-token"):
         make(home / ".agentbreeder", name)
     assert doctor.check_legacy() == []
 
@@ -62,7 +62,9 @@ def three_x_home_names() -> set[str]:
 
 def test_every_three_x_home_path_is_known():
     # A new ~/.agentbreeder path in 3.x shows up here and must be checked against the markers.
-    assert three_x_home_names() == {"center", "local", "stacks", "operator.yaml", "oidc-token"}
+    assert three_x_home_names() == {
+        "center", "local", "locks", "stacks", "operator.yaml", "oidc-token"
+    }  # fmt: skip
 
 
 def test_three_x_paths_do_not_collide_with_markers():

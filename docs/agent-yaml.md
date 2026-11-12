@@ -193,7 +193,7 @@ database's credentials, before the run and before each retry round. That needs
 only use eval sets you would let write to that database.
 
 `release` is orchestration around two ordinary governed deploys. The exit codes are 0 released or
-already in production, 1 runtime failure, 2 denied or a release precondition failed (for example `LOCK_STALE`,
+already released into production, 1 runtime failure, 2 denied or a release precondition failed (for example `LOCK_STALE`,
 `PRODUCTION_CHANGED`, `REMOVE_FAILED`, `RELEASE_BUSY`), 3 needs approval, 5 eval gate failed. The
 steps:
 
@@ -203,11 +203,57 @@ steps:
 3. Deploy `<name>-candidate` under its own identity and gateway key, run the eval set against it,
    then remove the candidate.
 4. Below the threshold, exit 5 with production unchanged. The report is in
-   `deploy/<name>.eval-<run>.json`.
+   `deploy/<name>.eval-<run>.json`. Each failed case is also printed (and listed as
+   `failed_cases` with `--json`): its id (up to 80 characters), the checks that failed and the
+   judge's reason (up to 200 characters), with control characters removed. These excerpts come
+   from the model and the eval set, and they also appear in console job logs (on `main`, not in a
+   published preview).
 5. Otherwise write a release journal (the previous production and its manifest) to
    `<state-dir>/releases/<name>.json`,
    remove the old production, and deploy the **exact evaluated image**.
 6. If the new production fails to start, restore the previous one.
+
+Before it removes the candidate, every release reads the candidate's last 500 log lines (stdout
+and stderr, timestamped, newest kept) and the values needed to redact them; after the removal it
+redacts the lines and, when the candidate failed to start or failed the gate, keeps them:
+`<state-dir>/releases/<name>.candidate.log`, mode 0600, one per agent, deleted when a later
+release passes. A failed start deletes the candidate's own secret copies (its gateway key, MCP
+tokens); the deploy keeps what it read just before that cleanup, in memory for that run only, so
+the tail is still redacted with them. If any value could not be read, nothing is saved and
+release says why (and names `agentbreeder migrate` when a state is from an older version). `agentbreeder logs --failed NAME` (with the same
+`--state-dir`, or `--stack DIR [--environment ENV]`) prints it, with control characters shown as
+visible escapes (`--raw` prints them as they are). Redaction is best effort: it covers the
+stack's stored secrets, every live deployment's secret copies and the `agentbreeder secret`
+values, in their literal, base64 (also inside a larger base64 string), URL-quoted and
+JSON-escaped forms, and passwords in URLs; a value hashed, compressed or split across lines is
+not found, and the short-lived eval judge key is not covered (on `main`, not in a published
+preview).
+
+With `--json`, release adds these keys when they apply:
+
+- `failed_cases`: each failed case as `{id, failed_checks, reason}` (redacted, then capped).
+- `candidate_log`: the saved tail's path; or `candidate_log_skipped`: why no tail was saved.
+- `unreleased_production`: `{id, rollback}` when production ran this image without an audited
+  release and the gate failed (`rollback` is true only when a release journal makes
+  `--rollback` possible).
+- `advice`: commands to run next, as text to show (never to execute), already carrying the
+  `--stack`/`--environment` or `--state-dir` of this run: `show_log`, `remove`, `rollback`,
+  `build`.
+- `warnings`: for example that production was not released through the gate.
+
+Production that already runs the built image counts as released only when the audit log has a
+`release/promoted` row for that image and manifest, at no lower a threshold and with the same
+eval set as now. Otherwise (for example after a plain `deploy` of the production manifest),
+release warns, evaluates the same image as a candidate, and on a pass records the release
+without replacing production; on a fail it exits 5 and says to `remove ID --local` (and
+`--rollback` only when a release journal with a previous production exists). It never removes
+production on its own (on `main`, not in a published preview).
+
+Messages that name their fix (on `main`, not in a published preview): `LOCK_STALE` says to run
+`agentbreeder build` (release builds with `--locked`, which never updates `agent.lock`);
+`REF_UNPINNED` on release says how to publish a path ref as a registry version; and
+`CONTEXT_ENVIRONMENT_UNKNOWN` or `MODEL_ACCESS_UNCONFIGURED` suggest `--stack DIR` when a
+`stack.yaml` sits beside the agent file (or one level above a manifest).
 
 Limits:
 - **The eval gate can be bypassed.** It is release orchestration, not an engine control: anyone

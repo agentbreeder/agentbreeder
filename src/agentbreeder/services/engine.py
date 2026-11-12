@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from agentbreeder import env_import, registry, secret_files
+from agentbreeder import env_import, hints, registry, secret_files
 from agentbreeder import mcp as mcp_kind
 from agentbreeder.registry import RegistryError
 from agentbreeder.services import mcp_stack
@@ -26,7 +26,13 @@ from agentbreeder.services.dockerfile import check as _check_dockerfile
 from agentbreeder.services.lock import LockedStack, StackLock, lock_stack
 from agentbreeder.services.plan import Plan, grant_digest, grant_text
 from agentbreeder.services.schema import ServiceError, Stack, load_stack
-from agentbreeder.services.state import StackState, stacks_root, write_private
+from agentbreeder.services.state import (
+    StackState,
+    stack_id,
+    stacks_root,
+    write_private,
+    written_environments,
+)
 
 STACK_FILE = "stack.yaml"
 LOCK_FILE = "stack.lock"
@@ -60,33 +66,31 @@ class StackContext:
 
 
 def context(project: Path, environment: str | None, root: Path | None = None) -> StackContext:
-    """What `--stack DIR` means: that stack's generated operator config and deploy state."""
-    stack, state = open_state(project, root)
-    try:
-        written = state.environments()
-        if environment is None:
-            if len(written) != 1:
-                raise ServiceError(
-                    "STACK_ENVIRONMENT",
-                    "pass --environment"
-                    + (f" (one of {', '.join(written)})" if written else "")
-                    + "; run `agentbreeder services up` first if none is listed",
-                )
-            environment = written[0]
-        if environment not in written:
+    """What `--stack DIR` means: that stack's generated operator config and deploy state.
+    Creates nothing: a stack that was never brought up is reported, not made."""
+    project = project.resolve()
+    stack = load(project)
+    directory = StackState.locate(stack.name, project, root)
+    written = written_environments(directory) if directory else []
+    name = stack_id(stack.name, project)
+    if environment is None:
+        if len(written) != 1:
             raise ServiceError(
-                "STACK_NOT_UP",
-                f"stack {state.id} has no operator config for {environment}; run "
-                f"`agentbreeder services up --environment {environment}`",
+                "STACK_ENVIRONMENT",
+                "pass --environment"
+                + (f" (one of {', '.join(written)})" if written else "")
+                + f"; run `{hints.command('services', 'up', project, '--environment', 'ENV')}` "
+                "first if none is listed",
             )
-        return StackContext(
-            state.id,
-            environment,
-            state.env_dir(environment) / "operator.yaml",
-            state.deploy_state(environment),
+        environment = written[0]
+    if environment not in written:
+        raise ServiceError(
+            "STACK_NOT_UP",
+            f"stack {name} has no operator config for {environment}; run "
+            f"`{hints.command('services', 'up', project, environment=environment)}`",
         )
-    finally:
-        state.close()
+    env_dir = directory / "envs" / environment
+    return StackContext(name, environment, env_dir / "operator.yaml", env_dir / "state")
 
 
 class Engine:
@@ -709,8 +713,12 @@ class Engine:
         relays = {mcp_stack.relay_name(server) for server in self.stack.mcp}
         if service not in self.stack.services and service not in relays:
             raise ServiceError("SERVICE_UNKNOWN", "no such service in stack.yaml")
+        from agentbreeder.redaction import redaction_values
+
         self.docker.authorize()
         self.docker.redactions.extend(self.state.known_secrets())
+        # Agents' secret copies too: a service can log what an agent sent it (S-09).
+        self.docker.redactions.extend(redaction_values(None, self.state.directory))
         output = self.docker.logs(self.state, service, max(1, min(tail, 10000)))
         return redact(output, self.docker.redactions)
 

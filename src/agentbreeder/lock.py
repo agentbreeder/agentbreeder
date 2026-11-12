@@ -146,7 +146,9 @@ def materialise(
     if unused:
         if mode == "locked":
             raise RegistryError(
-                "LOCK_STALE", f"agent.lock has entries agent.yaml no longer uses: {unused}"
+                "LOCK_STALE",
+                f"{lock_file} has entries the project no longer uses: {unused}; "
+                + _refresh(lock_file, update_command),
             )
         for key in unused:
             del lock.entries[key]
@@ -154,11 +156,22 @@ def materialise(
     return results, changed
 
 
+def _refresh(lock_file: str, update_command: str) -> str:
+    """How to bring a stale lock up to date (G-F5): `release` and `build --locked` never
+    re-lock, so the fix is a plain `build` (or `services up` for stack.lock)."""
+    from agentbreeder import hints
+
+    words = ["build"] if lock_file == "agent.lock" else update_command.split()[:-1]
+    return f"run `{hints.command(*words)}` (without --locked) to update it"
+
+
 def _reconcile(lock, key, digest, source, locked, mode, update, names) -> bool:
     lock_file, update_command = names
     if locked is None:
         if mode == "locked":
-            raise RegistryError("LOCK_STALE", f"{key} is not in {lock_file}; run without --locked")
+            raise RegistryError(
+                "LOCK_STALE", f"{key} is not in {lock_file}; {_refresh(lock_file, update_command)}"
+            )
         lock.entries[key] = {"sha256": digest, "source": source}
         return True
     if locked.get("sha256") == digest:

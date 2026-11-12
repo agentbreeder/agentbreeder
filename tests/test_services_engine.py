@@ -691,9 +691,16 @@ def test_cli_up_status_env_logs_down(env, fake_docker, capsys, monkeypatch):
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     assert cli.main(["services", "up", str(env), "--environment", "dev"]) == 2
     assert "GRANT_NOT_CONFIRMED" in capsys.readouterr().err
+    (env / "agent.yaml").write_text("kind: agent\n")  # only its presence matters to the hint
     assert cli.main(["services", "up", str(env), "--environment", "dev", "--yes"]) == 0
     out, err = capsys.readouterr()
-    assert "echo             created" in out and "Next: agentbreeder release" in out
+    project = env.resolve()
+    assert "echo             created" in out
+    # No agent.lock yet: build first; absolute paths so the line works from anywhere.
+    assert (
+        f"Next: agentbreeder build {project / 'agent.yaml'} --stack {project} --environment dev"
+        in out
+    )
     assert "Demo identities" in err and "imports: ECHO_CANARY" in err
     assert CANARY not in out + err
     assert cli.main(["services", "up", str(env), "--environment", "dev", "--json"]) == 0
