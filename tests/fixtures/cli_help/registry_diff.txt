@@ -1,0 +1,13 @@
+usage: agentbreeder registry diff [-h] [--context N] [--json]
+                                  [--project PROJECT]
+                                  FROM TO
+
+positional arguments:
+  FROM               kind/name@X.Y.Z
+  TO                 kind/name@X.Y.Z
+
+options:
+  -h, --help         show this help message and exit
+  --context N        Lines of context (default 3)
+  --json
+  --project PROJECT
