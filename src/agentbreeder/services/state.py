@@ -259,13 +259,16 @@ class StackState:
             (service, name, origin),
         )
 
-    def known_secrets(self) -> list[bytes]:
-        """Every stored value, for redacting logs and error text."""
+    def known_secrets(self, problems: list[str] | None = None) -> list[bytes]:
+        """Every stored value, for redacting logs and error text. A value that cannot be read
+        is skipped; when `problems` is given, it is also named there (redaction incomplete)."""
         values = []
         for service, name in self.db.execute("SELECT service, name FROM secrets"):
             try:
                 data = self.read_secret(service, name)
             except ServiceError:
+                if problems is not None:
+                    problems.append(f"cannot read the stack's stored secret {service}/{name}")
                 continue
             if data:
                 values.append(data)

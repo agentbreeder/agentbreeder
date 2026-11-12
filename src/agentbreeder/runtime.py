@@ -16,7 +16,35 @@ from agentbreeder.store import DeploymentError
 
 LOG_LIMIT = 4 * 1024 * 1024  # bytes of `docker logs` output read at most
 MAX_TAIL = 10000
-SINCE = re.compile(r"[1-9][0-9]{0,5}[smh]|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+SINCE = re.compile(r"[1-9][0-9]{0,5}[smh]|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+# Docker stores a line longer than PARTIAL bytes as several partial records, and
+# `docker logs --timestamps` prints each record's timestamp in front of it, mid-line. A value
+# straddling that boundary would escape redaction, so `join_partials` removes those timestamps.
+PARTIAL = 16 * 1024
+_STAMP = re.compile(
+    rb"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    rb"(\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2}) "
+)
+
+
+def join_partials(line: bytes) -> bytes:
+    """One `docker logs --timestamps` line with the timestamps of its continuation records
+    removed: after the leading timestamp, a timestamp that starts exactly PARTIAL payload bytes
+    after the previous one (with no newline between) begins a continuation of the same line.
+    A line without a leading timestamp is returned as it is."""
+    first = _STAMP.match(line)
+    if first is None:
+        return line
+    out = bytearray(line[: first.end()])
+    rest = line[first.end() :]
+    while len(rest) > PARTIAL:
+        continuation = _STAMP.match(rest, PARTIAL)
+        if continuation is None:
+            break
+        out += rest[:PARTIAL]
+        rest = rest[continuation.end() :]
+    out += rest
+    return bytes(out)
 
 
 def _read_tail(process, limit: int, timeout: float) -> tuple[bytes, bool] | None:
@@ -46,6 +74,24 @@ def _read_tail(process, limit: int, timeout: float) -> tuple[bytes, bool] | None
         del kept[: len(kept) - limit]
         dropped[0] = True
     return bytes(kept), dropped[0]
+
+
+def stop_follow(process: subprocess.Popen, grace: float = 2.0) -> None:
+    """Stop a `Docker.follow` child: SIGTERM, then SIGKILL after `grace` seconds. Signals go
+    through Popen, which never signals a child it has already reaped (no reused pid). Safe to
+    call more than once or after it ended."""
+    for stop, wait in ((process.terminate, grace), (process.kill, 5.0)):
+        if process.poll() is not None:
+            break
+        try:
+            stop()
+            process.wait(wait)
+        except subprocess.TimeoutExpired:
+            continue
+        except OSError:
+            break
+    if process.stdout is not None:
+        process.stdout.close()
 
 
 class Docker:
@@ -100,18 +146,10 @@ class Docker:
         container is addressed by the ID whose ownership labels were checked. At most
         the newest LOG_LIMIT bytes are kept (whole lines); returns (text, truncated). The text
         is not redacted. A failing `docker logs` raises instead of returning its error."""
-        if not isinstance(tail, int) or not 1 <= tail <= MAX_TAIL:
-            raise DeploymentError(f"--tail must be 1..{MAX_TAIL}")
-        if since is not None and not SINCE.fullmatch(since):
-            raise DeploymentError("--since must look like 10m, 2h or 2026-11-11T09:00:00Z")
-        container = info.get("Id") if isinstance(info, dict) else None
-        if not isinstance(container, str) or not re.fullmatch(r"[0-9a-f]{12,64}", container):
-            raise DeploymentError("Cannot read logs: no verified container ID")
-        argv = [*self._prefix(), "container", "logs", "--timestamps", "--tail", str(tail)]
-        argv += ["--since", since] if since else []
+        argv = self._log_argv(info, tail, since, follow=False)
         try:
             process = subprocess.Popen(
-                [*argv, container],
+                argv,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -135,7 +173,41 @@ class Docker:
             # The newest output is kept; a line cut at the front is dropped whole, so a value
             # in it cannot leak as an unredactable fragment.
             data = data[data.find(b"\n") + 1 :] if b"\n" in data else b""
+        # Long lines come back as timestamped partial records: join them, so redaction sees
+        # each line whole (a value across a 16 KiB boundary is still found).
+        data = b"\n".join(join_partials(line) for line in data.split(b"\n"))
         return data.decode("utf-8", "replace"), truncated
+
+    def follow(self, info: dict, tail: int = 200, since: str | None = None) -> subprocess.Popen:
+        """`docker container logs --follow` of a verified container (as `logs`), stdout and
+        stderr merged, timestamped. The child stays in the caller's process group, so a
+        terminal hangup or a supervisor's group kill (the console's) reaches it too (S-10); its
+        stdin is closed. The caller reads `stdout` line by line, applies `join_partials`,
+        redacts, and stops it with `stop_follow`."""
+        argv = self._log_argv(info, tail, since, follow=True)
+        try:
+            return subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=self._environment(),
+            )
+        except OSError as error:
+            raise DeploymentError("Docker operation failed; check docker context") from error
+
+    def _log_argv(self, info: dict, tail: int, since: str | None, follow: bool) -> list[str]:
+        if type(tail) is not int or not 1 <= tail <= MAX_TAIL:  # not a bool
+            raise DeploymentError(f"--tail must be 1..{MAX_TAIL}")
+        if since is not None and not SINCE.fullmatch(since):
+            raise DeploymentError("--since must look like 10m, 2h or 2026-11-11T09:00:00Z")
+        container = info.get("Id") if isinstance(info, dict) else None
+        if not isinstance(container, str) or not re.fullmatch(r"[0-9a-f]{12,64}", container):
+            raise DeploymentError("Cannot read logs: no verified container ID")
+        argv = [*self._prefix(), "container", "logs", "--timestamps", "--tail", str(tail)]
+        argv += ["--follow"] if follow else []
+        argv += ["--since", since] if since else []
+        return [*argv, container]
 
     def authorize(self, context: str | None = None):
         # Explicit remote environment overrides are never silently redirected locally.

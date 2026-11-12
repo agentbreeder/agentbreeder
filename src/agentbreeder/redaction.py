@@ -186,8 +186,23 @@ def _url_password_spans(text: str) -> list[tuple[int, int]]:
 
 
 def redact(text: str, values: Iterable[bytes | str]) -> str:
+    return Redactor(values)(text)
+
+
+class Redactor:
+    """`redact` with the patterns computed once, for a stream redacted line by line
+    (`logs --follow`). Calling it is the same as `redact(text, values)`."""
+
+    def __init__(self, values: Iterable[bytes | str]):
+        self.patterns = patterns(values)
+
+    def __call__(self, text: str) -> str:
+        return _apply(text, self.patterns)
+
+
+def _apply(text: str, compiled: list[str]) -> str:
     spans = _url_password_spans(text)
-    for pattern in patterns(values):
+    for pattern in compiled:
         start = text.find(pattern)
         while start >= 0:
             spans.append((start, start + len(pattern)))
@@ -274,6 +289,11 @@ def _files(directory: Path, found: Collected, what: str) -> None:
         data = read_copy(directory / name)
         if data:
             found.values.append(data)
+            try:
+                if (directory / name).lstat().st_size > READ_LIMIT:  # only whole lines were kept
+                    found.problems.append(f"{what}/{name} is larger than {READ_LIMIT} bytes")
+            except OSError:
+                found.problems.append(f"cannot read {what}/{name}")
         else:
             found.problems.append(f"cannot read {what}/{name}")
 
@@ -340,7 +360,7 @@ def collect(state_dir: Path | None, stack: Path | None = None, *, store=None) ->
             opened = StackState.open_directory(stack)
             if opened is not None:
                 try:
-                    found.values += opened.known_secrets()
+                    found.values += opened.known_secrets(found.problems)
                 finally:
                     opened.close()
             states += [stack / "envs" / env / "state" for env in written_environments(stack)]
