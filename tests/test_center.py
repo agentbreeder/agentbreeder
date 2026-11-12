@@ -1442,6 +1442,59 @@ def _gone(pid: int, timeout: float = 5) -> bool:
     return False
 
 
+def _stop_group(pid: int | None, ended, grace: float = 2.0) -> None:
+    """Test cleanup that cannot leave a process behind: SIGTERM the process group led by
+    `pid`, then SIGKILL it if `ended(grace)` says it is still there. A console stuck in a
+    deadlock ignores SIGTERM, so the SIGKILL step is what stops it outliving the test."""
+    import signal as signals
+
+    if pid is None:
+        return
+    for number in (signals.SIGTERM, signals.SIGKILL):
+        try:
+            os.killpg(pid, number)
+        except ProcessLookupError:
+            return
+        except PermissionError:  # macOS: a group left with only a zombie leader
+            ended(0)  # reap it
+            return
+        if ended(grace):
+            return
+
+
+def _popen_ended(process):
+    """For `_stop_group`: waits for (and reaps) a direct child."""
+    import subprocess
+
+    def ended(timeout: float) -> bool:
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return False
+        return True
+
+    return ended
+
+
+def _forked_ended(pid: int):
+    """For `_stop_group`: waits for (and reaps) a child from `pty.fork`."""
+
+    def ended(timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while True:  # at least one waitpid, so `ended(0)` reaps a zombie
+            try:
+                done, _status = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                return True
+            if done:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+
+    return ended
+
+
 def test_a_job_that_cannot_be_recorded_releases_its_locks_and_stops(center, project, monkeypatch):
     import sqlite3
 
@@ -2058,15 +2111,22 @@ def test_sigterm_and_sighup_stop_the_console_and_its_jobs(tmp_path, fake_cli, na
         text=True,
         start_new_session=True,
     )
-    job_pid = int(_wait_for_line(console.stdout, r"^JOB ").split()[2])
-    time.sleep(1.0)  # let the fake build start
-    for name in names:
-        console.send_signal(getattr(signals, name))
-        time.sleep(gap)
-    _, err = console.communicate(timeout=30)
-    assert console.returncode == 0, err
-    assert "Stopped 1 running job(s)" in err
-    assert _gone(job_pid)
+    job_pid = None
+    try:
+        job_pid = int(_wait_for_line(console.stdout, r"^JOB ").split()[2])
+        time.sleep(1.0)  # let the fake build start
+        for name in names:
+            console.send_signal(getattr(signals, name))
+            time.sleep(gap)
+        _, err = console.communicate(timeout=30)
+        assert console.returncode == 0, err
+        assert "Stopped 1 running job(s)" in err
+        assert _gone(job_pid)
+        job_pid = None  # confirmed gone: nothing for the cleanup to signal
+    finally:  # on any failure or timeout: neither the console nor its job outlives the test
+        if console.returncode is None:
+            _stop_group(console.pid, _popen_ended(console))
+        _stop_group(job_pid, lambda timeout: _gone(job_pid, timeout))
     database = CenterState(tmp_path / "center")
     rows = database.recent_jobs()
     assert rows[0]["exit_code"] == 130  # SIGINT honoured, not SIGTERM
@@ -2081,26 +2141,41 @@ def test_closing_the_terminal_stops_the_jobs(tmp_path, fake_cli):
     env = {**os.environ, "AGENTBREEDER_CENTER_DIR": str(tmp_path / "center")}
     pid, master = pty.fork()
     if pid == 0:  # the child: a session leader on a new terminal
-        os.execve(sys.executable, [sys.executable, str(script)], env)
-    output = b""
-    deadline = time.monotonic() + 60
-    while b"JOB " not in output or not output.split(b"JOB ", 1)[1].count(b"\n"):
-        assert time.monotonic() < deadline, output
         try:
-            output += os.read(master, 4096)
-        except OSError:
-            break
-    job_pid = int(output.split(b"JOB ", 1)[1].split()[1])
-    time.sleep(1.0)
-    os.close(master)  # the terminal goes away: SIGHUP
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        done, _status = os.waitpid(pid, os.WNOHANG)
-        if done:
-            break
-        time.sleep(0.1)
-    assert done, "the console did not stop when its terminal closed"
-    assert _gone(job_pid), "a job survived the terminal closing"
+            os.execve(sys.executable, [sys.executable, str(script)], env)
+        finally:
+            os._exit(127)  # never run the rest of the test in the forked child
+    job_pid = None
+    closed = False
+    try:
+        output = b""
+        deadline = time.monotonic() + 60
+        while b"JOB " not in output or not output.split(b"JOB ", 1)[1].count(b"\n"):
+            assert time.monotonic() < deadline, output
+            try:
+                output += os.read(master, 4096)
+            except OSError:
+                break
+        job_pid = int(output.split(b"JOB ", 1)[1].split()[1])
+        time.sleep(1.0)
+        os.close(master)  # the terminal goes away: SIGHUP
+        closed = True
+        done = 0
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            done, _status = os.waitpid(pid, os.WNOHANG)
+            if done:
+                break
+            time.sleep(0.1)
+        assert done, "the console did not stop when its terminal closed"
+        assert _gone(job_pid), "a job survived the terminal closing"
+        pid = job_pid = None  # both reaped or confirmed gone: nothing for the cleanup to signal
+    finally:  # on any failure or timeout: neither the console nor its job outlives the test
+        if not closed:
+            os.close(master)
+        if pid is not None:
+            _stop_group(pid, _forked_ended(pid))
+        _stop_group(job_pid, lambda timeout: _gone(job_pid, timeout))
 
 
 @pytest.fixture
@@ -2241,7 +2316,11 @@ def test_up_end_to_end_isolated_single_instance(tmp_path):
         assert f"already running: {url}" in second.stdout
     finally:
         first.send_signal(signals.SIGTERM)
-        first.wait(timeout=30)
+        try:
+            first.wait(timeout=30)
+        finally:  # a console that ignores SIGTERM must not outlive the test
+            if first.returncode is None:
+                _stop_group(first.pid, _popen_ended(first))
     assert first.returncode == 0
 
 
@@ -2679,3 +2758,79 @@ def test_a_cancel_that_does_not_end_the_job_can_be_escalated(center, cookie, pro
     assert row["data"]["can_stop"] is True
     assert api(center, "POST", f"/api/jobs/{job}/stop", {}, cookie)[1]["data"] == {"stopped": True}
     assert wait(center, job, cookie)["exit_code"] == -jobs.signal.SIGTERM
+
+
+# -- test cleanup: a stuck console cannot outlive its test ----------------------------------------
+
+
+def test_stop_group_kills_a_process_that_ignores_sigterm():
+    import subprocess
+
+    code = (
+        "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "print('ready', flush=True); time.sleep(60)"
+    )
+    stubborn = subprocess.Popen(
+        [sys.executable, "-c", code], start_new_session=True, stdout=subprocess.PIPE
+    )
+    try:
+        assert stubborn.stdout.readline() == b"ready\n"  # its SIGTERM handler is in place
+        started = time.monotonic()
+        _stop_group(stubborn.pid, _popen_ended(stubborn), grace=0.5)
+        assert stubborn.returncode == -9  # SIGKILL, after the ignored SIGTERM
+        assert time.monotonic() - started < 5
+    finally:
+        if stubborn.poll() is None:
+            stubborn.kill()
+            stubborn.wait()
+        stubborn.stdout.close()
+
+
+def test_stop_group_is_a_no_op_for_an_ended_or_missing_process():
+    import subprocess
+
+    ended = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    ended.wait()
+    _stop_group(ended.pid, _popen_ended(ended))
+    _stop_group(None, lambda timeout: True)
+    assert ended.returncode == 0
+
+
+def test_stop_group_kills_and_reaps_a_forked_child_that_ignores_sigterm():
+    import signal as signals
+
+    read, write = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            os.setsid()
+            signals.signal(signals.SIGTERM, signals.SIG_IGN)
+            os.write(write, b"r")
+            time.sleep(60)
+        finally:
+            os._exit(0)
+    os.close(write)
+    try:
+        assert os.read(read, 1) == b"r"  # its SIGTERM handler is in place
+        _stop_group(pid, _forked_ended(pid), grace=0.5)
+        with pytest.raises(ChildProcessError):  # reaped
+            os.waitpid(pid, os.WNOHANG)
+    finally:
+        os.close(read)
+        try:
+            os.kill(pid, signals.SIGKILL)
+            os.waitpid(pid, 0)
+        except (ProcessLookupError, ChildProcessError):
+            pass
+
+
+def test_stop_group_reaps_a_forked_child_that_already_exited():
+    """A group left with only a zombie leader (macOS refuses to signal it): still reaped."""
+    pid = os.fork()
+    if pid == 0:
+        os.setsid()
+        os._exit(0)
+    time.sleep(0.3)  # it has exited and is now a zombie
+    _stop_group(pid, _forked_ended(pid))
+    with pytest.raises(ChildProcessError):  # reaped
+        os.waitpid(pid, os.WNOHANG)
