@@ -362,7 +362,9 @@ async function start() {
   }
   try {
     ui.overview = await fetchData("/api/overview");
-    if (ui.overview.job) { ui.job = { id: ui.overview.job, kind: "job", state: "running" }; pollJob(); }
+    // Several jobs can run (one per project); this screen follows the oldest.
+    const first = ui.overview.jobs[0];
+    if (first) { ui.job = { id: first.id, kind: first.kind, state: "running" }; pollJob(); }
     await refresh();
   } catch { showSignIn(); }
 }

@@ -54,10 +54,16 @@ FAKE_CLI = textwrap.dedent(
         print(json.dumps({{"args": argv}}))
     elif argv[0] == "doctor":
         print("[]")
-    elif argv[0] == "cluster":
+    elif argv[:2] == ["cluster", "status"]:
         sys.stderr.write("[STACK_NOT_UP] nope\\n")
         sys.exit(2)
-    elif argv[0] == "build":
+    elif argv[0] == "reconcile":
+        import signal, subprocess
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        print("grandchild", child.pid, flush=True)
+        time.sleep(60)
+    elif argv[0] in ("build", "cluster"):
         try:
             print("started", flush=True)
             time.sleep(30)
@@ -313,7 +319,7 @@ def test_unknown_routes_and_projects(center, cookie):
 
 def test_overview(center, cookie):
     status, data, _ = api(center, "GET", "/api/overview", cookie=cookie)
-    assert status == 200 and data["data"]["job"] is None and "version" in data["data"]
+    assert status == 200 and data["data"]["jobs"] == [] and "version" in data["data"]
 
 
 # -- jobs -----------------------------------------------------------------------------------------
@@ -734,7 +740,10 @@ def _claimed_length(center, cookie, path, length):
     }.items():
         connection.putheader(name, value)
     connection.endheaders(b"{}")
-    connection.sock.shutdown(socket.SHUT_WR)
+    try:
+        connection.sock.shutdown(socket.SHUT_WR)
+    except OSError:
+        pass  # the server already answered (413) and closed
     status = connection.getresponse().status
     connection.close()
     return status
@@ -936,7 +945,7 @@ def test_registration_and_job_start_refuse_an_unsafe_project(center, cookie, pro
     (project_dir / "agent.yaml").chmod(0o666)
     status, data, _ = start(center, added, cookie, "build")
     assert status == 400 and data["error"]["code"] == "PROJECT_UNSAFE"
-    assert center.runner.current is None
+    assert center.runner.running() == []
 
 
 def test_onboarding_refuses_an_unsafe_destination(center, cookie, tmp_path, monkeypatch):
@@ -996,7 +1005,8 @@ def test_only_sign_in_skips_the_session_and_only_job_polls_keep_it_idle():
         ("POST", "/api/session")
     ]
     assert [(r.method, r.sample) for r in server.ROUTES if r.poll] == [
-        ("GET", "/api/jobs/" + "0" * 32)
+        ("GET", "/api/activity"),
+        ("GET", "/api/jobs/" + "0" * 32),
     ]
 
 
@@ -1225,3 +1235,193 @@ def test_onboarding_refuses_a_broken_link_for_the_projects_folder(
     status, data, _ = api(center, "POST", "/api/projects", {"example": "northwind"}, cookie)
     assert status == 400 and data["error"]["code"] == "PROJECT_UNSAFE"
     assert "broken link" in data["error"]["message"]
+
+
+# -- several jobs, lock scopes, short writes, shutdown (S-11, S-18) -------------------------------
+
+
+@pytest.fixture
+def second_project(center, cookie, tmp_path):
+    path = tmp_path / "proj2"
+    path.mkdir()
+    (path / "agent.yaml").write_text("kind: agent\n")
+    (path / "stack.yaml").write_text("kind: stack\n")
+    status, data, _ = api(center, "POST", "/api/projects", {"path": str(path)}, cookie)
+    assert status == 200
+    return data["data"]
+
+
+def _started(center, job):
+    """Wait until a job's child has printed its first line."""
+    deadline = time.monotonic() + 15
+    while not center.state.job(job)["lines"]:
+        assert time.monotonic() < deadline, "job did not start"
+        time.sleep(0.05)
+    return center.state.job(job)["lines"]
+
+
+def _job_id(response):
+    status, data, _ = response
+    assert status == 200, data
+    return data["data"]["job"]
+
+
+def test_lock_keys():
+    project = {"id": "abc"}
+    assert jobs.lock_keys("build", project) == ("project:abc",)
+    assert jobs.lock_keys("services-up", project) == ("project:abc",)
+    for kind in ("cluster-up", "cluster-down", "promote"):
+        assert jobs.lock_keys(kind, project) == ("machine", "project:abc")
+
+
+def test_two_projects_run_engine_jobs_at_once(center, cookie, project, second_project):
+    first = _job_id(start(center, project, cookie, "build"))
+    second = _job_id(start(center, second_project, cookie, "build"))
+    _started(center, first), _started(center, second)
+    _, overview, _ = api(center, "GET", "/api/overview", cookie=cookie)
+    running = overview["data"]["jobs"]
+    assert [job["id"] for job in running] == [first, second]
+    assert {job["project"] for job in running} == {project["id"], second_project["id"]}
+    _, activity, _ = api(center, "GET", "/api/activity", cookie=cookie)
+    assert len(activity["data"]["running"]) == 2
+    assert {row["id"] for row in activity["data"]["recent"]} >= {first, second}
+    # Cancel reaches only the job it names.
+    assert api(center, "POST", f"/api/jobs/{first}/cancel", {}, cookie)[1]["data"]["cancelled"]
+    assert wait(center, first, cookie)["exit_code"] == 130
+    assert center.state.job(second)["state"] == "running"
+    api(center, "POST", f"/api/jobs/{second}/cancel", {}, cookie)
+    wait(center, second, cookie)
+
+
+def test_cluster_jobs_serialise_machine_wide(center, cookie, project, second_project):
+    first = _job_id(start(center, project, cookie, "cluster-up"))
+    _started(center, first)
+    for other in ("cluster-down", "promote"):
+        status, data, _ = start(center, second_project, cookie, other)
+        assert status == 409 and data["data"]["job"] == first, other
+    # A plain engine job in the other project is not blocked by the cluster job...
+    build = _job_id(start(center, second_project, cookie, "build"))
+    # ...but a cluster job in that project now also waits for its project lock.
+    assert start(center, project, cookie, "release")[0] == 409
+    api(center, "POST", f"/api/jobs/{first}/cancel", {}, cookie)
+    wait(center, first, cookie)
+    status, data, _ = start(center, second_project, cookie, "cluster-down")
+    assert status == 409 and data["data"]["job"] == build
+    api(center, "POST", f"/api/jobs/{build}/cancel", {}, cookie)
+    wait(center, build, cookie)
+    after = _job_id(start(center, second_project, cookie, "cluster-down"))
+    api(center, "POST", f"/api/jobs/{after}/cancel", {}, cookie)
+    wait(center, after, cookie)
+    assert center.runner.held == {}
+
+
+def test_a_failed_start_releases_its_locks(center, project, monkeypatch):
+    def broken(*args, **kwargs):
+        raise OSError("no python")
+
+    monkeypatch.setattr(jobs.subprocess, "Popen", broken)
+    with pytest.raises(OSError):
+        center.runner.start(project, "cluster-up", {})
+    assert center.runner.held == {} and center.runner.running() == []
+
+
+def test_shutdown_stops_every_child_and_their_groups(center, cookie, project, second_project):
+    import signal as signals
+    import subprocess
+
+    gentle = _job_id(start(center, project, cookie, "build"))
+    stubborn = _job_id(start(center, second_project, cookie, "reconcile"))
+    _started(center, gentle)
+    lines = _started(center, stubborn)
+    grandchild = int(lines[0]["text"].split()[1])
+    follow = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+    )
+    center.runner.adopt(follow)
+    started = time.monotonic()
+    stopped = center.runner.shutdown(grace=1.0)
+    assert sorted(stopped) == sorted([gentle, stubborn])
+    assert time.monotonic() - started < 10
+    assert follow.poll() is not None
+    assert wait(center, gentle, cookie)["exit_code"] == 130  # SIGINT, the graceful step
+    assert wait(center, stubborn, cookie)["exit_code"] == -signals.SIGTERM
+    deadline = time.monotonic() + 5
+    while True:  # the grandchild was in the job's process group
+        try:
+            os.kill(grandchild, 0)
+        except ProcessLookupError:
+            break
+        assert time.monotonic() < deadline, "grandchild survived shutdown"
+        time.sleep(0.05)
+    status, data, _ = start(center, project, cookie, "build")
+    assert status == 400 and data["error"]["code"] == "STOPPING"
+
+
+def test_shutdown_tolerates_children_that_already_ended(tmp_path):
+    import subprocess
+
+    runner = Runner(CenterState(tmp_path), tmp_path)
+    done = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    done.wait()
+    runner.adopt(done)
+    assert runner.shutdown(grace=0.1) == []
+
+
+def test_short_writes_lock_per_target_and_are_not_blocked_by_jobs(center, cookie, project):
+    runner = center.runner
+    build = _job_id(start(center, project, cookie, "build"))
+    _started(center, build)
+    assert runner.short_write("registry-publish", "tools/a", ["list"])["data"] == [{"id": "1"}]
+    entered, release = threading.Event(), threading.Event()
+    real_read = runner.read
+    seen = []
+
+    def slow_read(argv, timeout=30, key=None):
+        seen.append(timeout)
+        entered.set()
+        release.wait(10)
+        return real_read(argv, timeout, key)
+
+    runner.read = slow_read
+    thread = threading.Thread(target=runner.short_write, args=("memory-edit", "n1", ["list"]))
+    thread.start()
+    assert entered.wait(10)
+    with pytest.raises(jobs.Busy):
+        runner.short_write("memory-edit", "n1", ["list"])
+    runner.read = real_read
+    assert runner.short_write("memory-edit", "n2", ["list"])["error"] is None
+    release.set()
+    thread.join(10)
+    assert seen == [jobs.SHORT_TIMEOUT]
+    with pytest.raises(jobs.Busy) as busy:
+        runner.short_write("policy-save", "operator", ["list"])
+    assert busy.value.job == build
+    api(center, "POST", f"/api/jobs/{build}/cancel", {}, cookie)
+    wait(center, build, cookie)
+    assert runner.short_write("policy-save", "operator", ["list"])["error"] is None
+    assert runner.held == {}
+
+
+def test_short_write_timeouts_per_kind(tmp_path, monkeypatch):
+    runner = Runner(CenterState(tmp_path), tmp_path)
+    seen = []
+    monkeypatch.setattr(runner, "read", lambda argv, timeout, key: seen.append(timeout) or {})
+    runner.short_write("tool-publish", "tools/x", ["registry", "publish"])
+    runner.short_write("set-ref", "agent", ["agent", "set-ref"])
+    assert seen == [300, 60]
+    runner.shutdown(grace=0)
+    with pytest.raises(BadRequest):
+        runner.short_write("set-ref", "agent", ["agent", "set-ref"])
+
+
+def test_a_job_end_clears_the_read_cache(center, cookie, project):
+    center.runner.read(["list"], key="cached")
+    assert "cached" in center.runner.cache
+    wait(center, _job_id(start(center, project, cookie, "services-down")), cookie)
+    assert "cached" not in center.runner.cache
+
+
+def test_main_stops_running_jobs_on_exit(quiet_main, monkeypatch, capsys):
+    monkeypatch.setattr(jobs.Runner, "shutdown", lambda self, grace=5.0: ["a", "b"])
+    assert server.main(arguments()) == 0
+    assert "Stopped 2 running job(s)" in capsys.readouterr().err
