@@ -374,6 +374,9 @@ MACHINE_KINDS = frozenset({"cluster-up", "cluster-down", "promote"})
 SHORT_TIMEOUT = 60
 SHORT_TIMEOUTS = {"tool-publish": 300}  # publishing a tool re-locks its dependencies
 SHUTDOWN_GRACE = 5.0
+# A cancel before the job's first output waits for that line (or this long): a SIGINT that
+# reaches the CLI while its interpreter is still starting can be lost, and the job runs on.
+STARTUP_GRACE = 2.0
 
 
 class WriteBusy(Exception):
@@ -423,6 +426,10 @@ class Running:
     process: subprocess.Popen
     keys: tuple[str, ...]
     pump: threading.Thread | None = None
+    started: float = 0.0
+    seen_output: bool = False
+    cancel_requested: bool = False
+    signalled: bool = False
 
 
 class Runner:
@@ -510,7 +517,9 @@ class Runner:
                 self._free(identifier)
                 failure = problem
             else:
-                self.jobs[identifier] = Running(identifier, project["id"], kind, process, locks)
+                self.jobs[identifier] = Running(
+                    identifier, project["id"], kind, process, locks, started=time.monotonic()
+                )
         if failure is not None:
             # Outside the mutex: a child that was started but not recorded is stopped, never
             # orphaned, and a slow stop does not block every other request.
@@ -549,6 +558,8 @@ class Runner:
         try:
             for line in process.stdout:  # always drained, so the child never blocks on a pipe
                 seq += 1
+                if seq == 1:
+                    self._first_output(identifier)
                 if unrecorded or seq > MAX_LINES:
                     continue
                 try:
@@ -588,13 +599,44 @@ class Runner:
 
     def cancel(self, identifier: str) -> bool:
         """One SIGINT to the CLI child only: `release` and `promote` finish any replace step and
-        restore on it (S-18 keeps this graceful path)."""
+        restore on it (S-18 keeps this graceful path). A SIGINT that reaches the child while its
+        interpreter is still starting can be lost, so before the job's first output line the
+        cancel waits for that line (the CLI is running by then), or STARTUP_GRACE at most."""
         with self.mutex:
             job = self.jobs.get(identifier)
             if job is None:
                 return False
-            job.process.send_signal(signal.SIGINT)
-            return True
+            job.cancel_requested = True
+            if job.signalled:
+                return True
+            if job.seen_output or time.monotonic() - job.started >= STARTUP_GRACE:
+                self._interrupt(job)
+                return True
+            delay = STARTUP_GRACE - (time.monotonic() - job.started)
+        timer = threading.Timer(delay, self._interrupt_if_waiting, args=(identifier,))
+        timer.daemon = True
+        timer.start()
+        return True
+
+    def _interrupt(self, job: Running) -> None:
+        """Send the one SIGINT (call with the mutex held)."""
+        job.signalled = True
+        _signal(job.process, signal.SIGINT)
+
+    def _first_output(self, identifier: str) -> None:
+        with self.mutex:
+            job = self.jobs.get(identifier)
+            if job is None:
+                return
+            job.seen_output = True
+            if job.cancel_requested and not job.signalled:
+                self._interrupt(job)
+
+    def _interrupt_if_waiting(self, identifier: str) -> None:
+        with self.mutex:
+            job = self.jobs.get(identifier)
+            if job is not None and job.cancel_requested and not job.signalled:
+                self._interrupt(job)
 
     def any_engine_job(self) -> bool:
         with self.mutex:

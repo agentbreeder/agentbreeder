@@ -2487,3 +2487,74 @@ def test_used_by_route_answers_files_and_deployments(center, cookie, project, tm
     center.runner.cache.clear()
     status, data, _ = api(center, "GET", path, cookie=cookie)
     assert data["data"]["deployments"]["error"] is None
+
+
+# -- a cancel during the child's startup is never lost --------------------------------------------
+
+LATE_HANDLER = """
+import signal, sys, time
+signal.signal(signal.SIGINT, signal.SIG_IGN)  # like a SIGINT swallowed while starting
+time.sleep(0.5)
+signal.signal(signal.SIGINT, signal.default_int_handler)
+try:
+    print("started", flush=True)
+    time.sleep(30)
+except KeyboardInterrupt:
+    print("interrupted", flush=True)
+    sys.exit(130)
+"""
+
+
+def _late_runner(tmp_path, source=LATE_HANDLER):
+    script = tmp_path / "late.py"
+    script.write_text(source)
+    directory = tmp_path / "late-center"
+    directory.mkdir()
+    return Runner(CenterState(directory), directory, [sys.executable, str(script)])
+
+
+def _ends(runner, job, limit):
+    deadline = time.monotonic() + limit
+    while runner.running():
+        assert time.monotonic() < deadline, "the cancel was lost"
+        time.sleep(0.02)
+    return runner.state.job(job)
+
+
+def test_a_cancel_before_the_first_line_waits_for_it(tmp_path):
+    runner = _late_runner(tmp_path)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    time.sleep(0.2)  # the child is up but cannot take SIGINT yet (an immediate send is lost)
+    assert runner.cancel(job) is True
+    row = _ends(runner, job, 10)
+    assert row["exit_code"] == 130 and [line["text"] for line in row["lines"]] == [
+        "started",
+        "interrupted",
+    ]
+
+
+def test_a_silent_child_still_gets_the_cancel_after_the_startup_grace(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 0.5)
+    silent = (
+        "import time\ntry:\n    time.sleep(30)\n"
+        "except KeyboardInterrupt:\n    raise SystemExit(130)\n"
+    )
+    runner = _late_runner(tmp_path, silent)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    time.sleep(0.2)  # its interpreter is up; it never prints
+    runner.cancel(job)
+    assert _ends(runner, job, 10)["exit_code"] == 130
+
+
+def test_cancel_sends_one_sigint_only(tmp_path, monkeypatch):
+    runner = _late_runner(tmp_path)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    sent = []
+    real = jobs._signal
+    monkeypatch.setattr(
+        jobs, "_signal", lambda process, number: sent.append(number) or real(process, number)
+    )
+    runner.cancel(job)
+    runner.cancel(job)
+    _ends(runner, job, 10)
+    assert sent.count(jobs.signal.SIGINT) == 1
