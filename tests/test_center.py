@@ -46,6 +46,10 @@ FAKE_CLI = textwrap.dedent(
             print("envfile", path, flush=True)
     elif argv[:2] == ["services", "env"]:
         print("export AGENTBREEDER_STATE_DIR=/tmp/fake-state")
+    elif argv[:2] == ["registry", "used-by"]:
+        print(json.dumps({{"ref": argv[2], "projects": [{{"deployed": []}}]}}))
+        if os.path.exists(marker + "/used-by-errors"):
+            sys.exit(2)
     elif argv[0] == "registry":
         print("[]")
     elif argv[0] == "list":
@@ -289,7 +293,9 @@ def test_project_paths_are_validated(center, cookie, tmp_path, project_dir):
     assert api(center, "POST", "/api/projects", {"example": "other"}, cookie)[0] == 400
 
 
-@pytest.mark.parametrize("view", ["services", "registry", "deployments", "audit", "cluster"])
+@pytest.mark.parametrize(
+    "view", ["services", "registry", "deployments", "audit", "cluster", "agent", "lock"]
+)
 def test_views(center, project, cookie, view):
     status, data, _ = api(center, "GET", f"/api/projects/{project['id']}/{view}", cookie=cookie)
     assert status == 200 and data
@@ -839,11 +845,13 @@ def test_read_timeouts_and_start_failures_are_coded(tmp_path, monkeypatch):
     runner = Runner(CenterState(tmp_path), tmp_path, ["/nonexistent/python"])
     assert runner.read(["list"])["error"]["code"] == "COMMAND_FAILED"
 
-    def slow(*args, **kwargs):
-        raise jobs.subprocess.TimeoutExpired("x", 1)
-
-    monkeypatch.setattr(jobs.subprocess, "run", slow)
-    assert runner.read(["list"])["error"]["code"] == "TIMEOUT"
+    script = tmp_path / "slow.py"
+    script.write_text("import time\ntime.sleep(30)\n")
+    slow = Runner(CenterState(tmp_path), tmp_path, [sys.executable, str(script)])
+    started = time.monotonic()
+    assert slow.read(["list"], timeout=0.3)["error"]["code"] == "TIMEOUT"
+    assert slow.read(["list"], timeout=0.3, track=True)["error"]["code"] == "TIMEOUT"
+    assert time.monotonic() - started < 10 and slow.children == set()
 
 
 # -- S-01: projects only from directories you alone control ---------------------------------------
@@ -2450,6 +2458,12 @@ def test_a_bad_dir_never_publishes_the_url(quiet_main, tmp_path):
     assert (server.center_directory() / LOCK_NAME).read_bytes() == b""
 
 
+def test_used_by_route(center, cookie, project):
+    path = f"/api/projects/{project['id']}/used-by"
+    status, data, _ = api(center, "GET", path + "?ref=not%20a%20ref", cookie=cookie)
+    assert status == 200 and data["data"] is None and data["error"]["code"]
+
+
 def test_the_process_ignores_stop_signals_after_a_clean_stop(quiet_main, monkeypatch):
     import signal as signals
 
@@ -2461,3 +2475,207 @@ def test_the_process_ignores_stop_signals_after_a_clean_stop(quiet_main, monkeyp
     finally:
         for number, handler in saved.items():
             signals.signal(number, handler)
+
+
+def test_used_by_route_answers_files_and_deployments(center, cookie, project, tmp_path):
+    path = f"/api/projects/{project['id']}/used-by?ref=runtime/adk@1.0.0"
+    status, data, _ = api(center, "GET", path, cookie=cookie)
+    assert status == 200 and data["data"]["deployments"]["error"] is None
+    assert data["data"]["deployments"]["data"]["ref"] == "runtime/adk@1.0.0"
+    # `used-by` exits 2 when a project file has an error but still prints its answer.
+    (tmp_path / "used-by-errors").write_text("")
+    center.runner.cache.clear()
+    status, data, _ = api(center, "GET", path, cookie=cookie)
+    assert data["data"]["deployments"]["error"] is None
+
+
+# -- a cancel during the child's startup is never lost --------------------------------------------
+
+LATE_HANDLER = """
+import signal, sys, time
+signal.signal(signal.SIGINT, signal.SIG_IGN)  # like a SIGINT swallowed while starting
+time.sleep(0.5)
+signal.signal(signal.SIGINT, signal.default_int_handler)
+try:
+    print("started", flush=True)
+    time.sleep(30)
+except KeyboardInterrupt:
+    print("interrupted", flush=True)
+    sys.exit(130)
+"""
+
+
+def _late_runner(tmp_path, source=LATE_HANDLER):
+    script = tmp_path / "late.py"
+    script.write_text(source)
+    directory = tmp_path / "late-center"
+    directory.mkdir()
+    return Runner(CenterState(directory), directory, [sys.executable, str(script)])
+
+
+def _ends(runner, job, limit):
+    deadline = time.monotonic() + limit
+    while runner.running():
+        assert time.monotonic() < deadline, "the cancel was lost"
+        time.sleep(0.02)
+    return runner.state.job(job)
+
+
+def test_a_cancel_before_the_first_line_waits_for_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)  # only the first line may release it
+    runner = _late_runner(tmp_path)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    time.sleep(0.2)  # the child is up but cannot take SIGINT yet (an immediate send is lost)
+    assert runner.cancel(job) is True
+    row = _ends(runner, job, 20)
+    assert row["exit_code"] == 130 and [line["text"] for line in row["lines"]] == [
+        "started",
+        "interrupted",
+    ]
+
+
+def test_the_sigint_settles_after_the_first_line(tmp_path, monkeypatch):
+    """Not right on the first line: a CLI goes from printing it into a blocking call, and a
+    SIGINT landing in that gap surfaces only when the call returns."""
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)
+    runner = _late_runner(tmp_path)
+    times = {}
+    real_first = runner._first_output
+
+    def first(identifier):
+        times["line"] = time.monotonic()
+        real_first(identifier)
+
+    runner._first_output = first
+    real_signal = jobs._signal
+
+    def recording(process, number):
+        times.setdefault("sigint", time.monotonic())
+        real_signal(process, number)
+
+    monkeypatch.setattr(jobs, "_signal", recording)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    runner.cancel(job)
+    assert _ends(runner, job, 20)["exit_code"] == 130
+    assert times["sigint"] - times["line"] >= jobs.CANCEL_SETTLE * 0.9
+
+
+SILENT = """
+import pathlib, sys, time
+try:
+    pathlib.Path(sys.argv[1]).write_text("ready")
+    time.sleep(30)
+except KeyboardInterrupt:
+    raise SystemExit(130)
+"""
+
+
+def test_a_silent_child_still_gets_the_cancel_after_the_startup_grace(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 2.0)
+    marker = tmp_path / "ready"
+    script = tmp_path / "silent.py"
+    script.write_text(SILENT)
+    directory = tmp_path / "silent-center"
+    directory.mkdir()
+    runner = Runner(CenterState(directory), directory, [sys.executable, str(script), str(marker)])
+    started = time.monotonic()
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    deadline = time.monotonic() + 20
+    while not marker.exists():  # its handler is in place; it never prints
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    runner.cancel(job)
+    assert _ends(runner, job, 20)["exit_code"] == 130
+    assert time.monotonic() - started >= 2.0 * 0.9  # not before the grace
+
+
+def test_cancel_sends_one_sigint_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)
+    runner = _late_runner(tmp_path)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    sent = []
+    real = jobs._signal
+    monkeypatch.setattr(
+        jobs, "_signal", lambda process, number: sent.append(number) or real(process, number)
+    )
+    runner.cancel(job)
+    runner.cancel(job)
+    _ends(runner, job, 20)
+    assert sent.count(jobs.signal.SIGINT) == 1
+
+
+SLOW_RESTORE = """
+import sys, time
+try:
+    print("started", flush=True)
+    time.sleep(30)
+except KeyboardInterrupt:
+    time.sleep(1.5)  # a restore still running when shutdown comes
+    sys.exit(130)
+"""
+
+
+def _count_sigints(monkeypatch) -> list:
+    sent = []
+    real = jobs._signal
+    monkeypatch.setattr(
+        jobs, "_signal", lambda process, number: sent.append(number) or real(process, number)
+    )
+    return sent
+
+
+def test_shutdown_adds_no_second_sigint_after_a_cancel(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)
+    runner = _late_runner(tmp_path, SLOW_RESTORE)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    deadline = time.monotonic() + 20
+    while not runner.state.job(job)["lines"]:
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    sent = _count_sigints(monkeypatch)
+    runner.cancel(job)
+    time.sleep(jobs.CANCEL_SETTLE + 0.2)  # the SIGINT went; the restore is still running
+    assert [entry["id"] for entry in runner.running()] == [job]
+    runner.shutdown(grace=5.0)
+    assert sent.count(jobs.signal.SIGINT) == 1
+    assert runner.state.job(job)["exit_code"] == 130  # its restore was not cut short
+
+
+def test_shutdown_during_a_deferred_cancel_sends_one_sigint(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)
+    runner = _late_runner(tmp_path, SLOW_RESTORE)
+    sent = _count_sigints(monkeypatch)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    runner.cancel(job)  # deferred: no output yet
+    runner.shutdown(grace=5.0)
+    time.sleep(jobs.CANCEL_SETTLE + 0.3)  # a deferred timer, if any, would fire now
+    assert sent.count(jobs.signal.SIGINT) <= 1
+
+
+IGNORES_SIGINT = """
+import signal, time
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+print("started", flush=True)
+time.sleep(30)
+"""
+
+
+def test_a_cancel_that_does_not_end_the_job_can_be_escalated(center, cookie, project, monkeypatch):
+    monkeypatch.setattr(jobs, "STOP_AFTER", 0.5)
+    script = center.directory.parent / "stubborn.py"
+    script.write_text(IGNORES_SIGINT)
+    center.runner.prefix = [sys.executable, str(script)]
+    job = _job_id(start(center, project, cookie, "build"))
+    _started(center, job)
+    assert api(center, "POST", f"/api/jobs/{job}/stop", {}, cookie)[1]["data"] == {
+        "stopped": False  # no Cancel yet
+    }
+    api(center, "POST", f"/api/jobs/{job}/cancel", {}, cookie)
+    _, row, _ = api(center, "GET", f"/api/jobs/{job}", cookie=cookie)
+    assert row["data"]["cancelling"] is True and row["data"]["can_stop"] is False
+    assert center.runner.running()[0]["cancelling"] is True
+    time.sleep(0.6)
+    _, row, _ = api(center, "GET", f"/api/jobs/{job}", cookie=cookie)
+    assert row["data"]["can_stop"] is True
+    assert api(center, "POST", f"/api/jobs/{job}/stop", {}, cookie)[1]["data"] == {"stopped": True}
+    assert wait(center, job, cookie)["exit_code"] == -jobs.signal.SIGTERM

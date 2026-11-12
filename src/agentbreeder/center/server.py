@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from agentbreeder import __version__
+from agentbreeder import __version__, registry
 from agentbreeder.center.files import (
     BadRequest,
     check_ancestors,
@@ -53,6 +53,7 @@ from agentbreeder.center.jobs import (
     WriteBusy,
     error,
 )
+from agentbreeder.center.reads import Reads
 
 PORTS = tuple(range(8080, 8100))  # 3.0.0a2 used 8900
 TOKEN_TTL = 300
@@ -121,6 +122,8 @@ class Center:
         self.environment = environment
         self.state = CenterState(directory)
         self.runner = Runner(self.state, directory, prefix)
+        self.reads = Reads(run_cli=self.runner.read)
+        self.runner.on_invalidate.append(self.reads.invalidate)
         self.static = static_files()
         self.port = 0
         self.token: tuple[bytes, float, bool] | None = None
@@ -239,13 +242,17 @@ class Center:
         read = self.runner.read
         if view == "services":
             return read(["services", "status", path, "--json"])
-        if view == "registry":
+        if view == "registry":  # in process: the same functions as `registry list/verify`
             return envelope(
                 {
-                    "versions": read(["registry", "list", "--project", path, "--json"]),
-                    "problems": read(["registry", "verify", "--project", path, "--json"]),
+                    "versions": self.reads.registry_versions(path),
+                    "problems": self.reads.registry_problems(path),
                 }
             )
+        if view == "agent":
+            return self.reads.agent(path)
+        if view == "lock":
+            return self.reads.lock(path)
         if view == "deployments":
             return read(["list", "--stack", path, "--environment", environment, "--json"])
         if view == "cluster":
@@ -382,6 +389,24 @@ def _view(request: Request) -> dict:
     return request.center.read_view(request.project(), request.match["view"])
 
 
+def _used_by(request: Request) -> dict:
+    """Which files of the project declare and lock REF (in process), and which deployments run
+    it (`registry used-by --json`, a CLI child: it reads deploy state)."""
+    ref = request.query.get("ref", [""])[0]
+    project = request.project()
+    files = request.center.reads.used_by(project["path"], ref)
+    if files["error"]:
+        return files
+    # Canonical ref in argv (it parsed above). `used-by` exits 2 when a project file has an
+    # error but still prints its JSON, so that answer is kept.
+    canonical = str(registry.Ref.parse(ref))
+    deployed = request.center.runner.read(
+        ["registry", "used-by", canonical, "--project", project["path"], "--json"],
+        ok_codes=(0, 2),
+    )
+    return envelope({"files": files["data"], "deployments": deployed})
+
+
 def _job(request: Request) -> dict:
     after = request.query.get("after", ["0"])[0]
     job = request.center.state.job(
@@ -389,7 +414,8 @@ def _job(request: Request) -> dict:
     )
     if job is None:
         raise NotFound("Unknown job")
-    return envelope(job)
+    live = request.center.runner.job_status(request.match["job"])
+    return envelope({**job, "cancelling": False, "can_stop": False, **(live or {})})
 
 
 def _session(request: Request) -> dict:
@@ -425,6 +451,11 @@ def _cancel(request: Request) -> dict:
     return envelope({"cancelled": request.center.runner.cancel(request.match["job"])})
 
 
+def _stop_job(request: Request) -> dict:
+    """The confirmed escalation after a Cancel has waited: stops the job's process group."""
+    return envelope({"stopped": request.center.runner.stop(request.match["job"])})
+
+
 ROUTES: tuple[Route, ...] = (
     Route("GET", r"/api/overview", _overview, "/api/overview"),
     Route("GET", r"/api/activity", _activity, "/api/activity", poll=True),
@@ -435,6 +466,12 @@ ROUTES: tuple[Route, ...] = (
         _view,
         "/api/projects/0123456789ab/services",
     ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/used-by",
+        _used_by,
+        "/api/projects/0123456789ab/used-by",
+    ),
     Route("GET", rf"/api/jobs/{JOB_ID}", _job, "/api/jobs/" + "0" * 32, poll=True),
     Route("POST", r"/api/session", _session, "/api/session", session=False),
     Route("POST", r"/api/projects", _add_project, "/api/projects"),
@@ -443,6 +480,7 @@ ROUTES: tuple[Route, ...] = (
         "POST", rf"/api/projects/{PROJECT_ID}/jobs", _start_job, "/api/projects/0123456789ab/jobs"
     ),
     Route("POST", rf"/api/jobs/{JOB_ID}/cancel", _cancel, "/api/jobs/" + "0" * 32 + "/cancel"),
+    Route("POST", rf"/api/jobs/{JOB_ID}/stop", _stop_job, "/api/jobs/" + "0" * 32 + "/stop"),
 )
 
 

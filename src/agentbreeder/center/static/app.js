@@ -102,6 +102,23 @@ async function loadView() {
   if (ui.step === "services") wanted.push("registry");
   if (!ui.view.deployments && !wanted.includes("deployments")) wanted.push("deployments");
   await Promise.all(wanted.map(async (view) => { ui.view[view] = await api(`${base}/${view}`); }));
+  if (wanted.includes("registry")) followVerify(ui.project.id);
+}
+
+// Registry verification runs in the background (a CLI child, up to 5 minutes): ask again while
+// it says "verifying" or shows a stale answer, backing off from 2 to 10 seconds, for at most 330
+// seconds and only for the project on screen. One chain at a time: a newer one ends the older.
+function followVerify(projectId, started = Date.now(), delay = 2000, chain = (ui.verifyChain = (ui.verifyChain || 0) + 1)) {
+  const problems = ui.view.registry && ui.view.registry.data && ui.view.registry.data.problems;
+  const pending = problems && (problems.stale || (problems.error && problems.error.code === "VERIFYING"));
+  if (!pending || Date.now() - started > 330000) return;
+  setTimeout(async () => {
+    if (chain !== ui.verifyChain || !ui.project || ui.project.id !== projectId) return;
+    try { ui.view.registry = await api(`/api/projects/${projectId}/registry`); } catch { return; }
+    if (chain !== ui.verifyChain) return;
+    if (ui.step === "services") render();
+    followVerify(projectId, started, Math.min(delay * 1.5, 10000), chain);
+  }, delay);
 }
 
 // Follow one job in the drawer. Each call starts a new generation, so an older poll loop stops
@@ -379,6 +396,25 @@ function projectName(id) {
   return project ? `${project.name}: ` : "";
 }
 
+// Cancel sends one SIGINT (release and promote then restore), so it is offered once. If the job
+// is still running long after, the server allows a confirmed stop of its process group.
+function jobControl() {
+  const job = ui.job;
+  // Sticky: a poll answered before the cancel landed must not bring the button back.
+  if (!job.cancelling && ui.cancelAsked !== job.id) {
+    return h("button", { class: "action secondary", onclick: async () => {
+      ui.cancelAsked = job.id; renderDrawer();
+      try { await api(`/api/jobs/${job.id}/cancel`, {}); } catch { /* the poll shows the state */ }
+    } }, "Cancel");
+  }
+  if (!job.can_stop) return h("span", { class: "muted", role: "status" }, "Cancelling…");
+  return h("button", { class: "action danger", onclick: async () => {
+    if (await confirmAction("Stop the job now?", "Cancel has not ended it. Stopping ends every process it started, and may skip restoring the previous production: check Deployments afterwards.", "Stop now")) {
+      try { await api(`/api/jobs/${job.id}/stop`, {}); } catch { /* the poll shows the state */ }
+    }
+  } }, "Stop now");
+}
+
 function renderDrawer() {
   const drawer = document.getElementById("drawer");
   if (!drawer) return;
@@ -387,7 +423,7 @@ function renderDrawer() {
   const log = h("pre", { role: "log", tabindex: "0", "aria-label": "Job log" }, ui.jobLines.join("\n"));
   drawer.replaceChildren(h("div", { class: "row" },
     h("strong", {}, `${projectName(ui.job.project)}${ui.job.kind}: ${(ui.job.state || "").replace("_", " ")}`),
-    ui.job.state === "running" ? h("button", { class: "action secondary", onclick: () => api(`/api/jobs/${ui.job.id}/cancel`, {}) }, "Cancel") : null,
+    ui.job.state === "running" ? jobControl() : null,
     h("button", { class: "action secondary", onclick: () => { follow(null); renderDrawer(); } }, "Hide")), log);
   log.scrollTop = log.scrollHeight;
 }

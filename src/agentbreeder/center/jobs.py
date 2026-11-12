@@ -40,6 +40,7 @@ __all__ = [
 MAX_LINE = 4000
 MAX_LINES = 20000
 KEEP_JOBS = 100
+MAX_CACHED = 256  # last good read answers kept
 ENVIRONMENT = re.compile(r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$")
 DEPLOYMENT = re.compile(r"^[0-9a-f]{32}$")
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -373,6 +374,14 @@ MACHINE_KINDS = frozenset({"cluster-up", "cluster-down", "promote"})
 SHORT_TIMEOUT = 60
 SHORT_TIMEOUTS = {"tool-publish": 300}  # publishing a tool re-locks its dependencies
 SHUTDOWN_GRACE = 5.0
+# A cancel before the job's first output waits for that line (or this long): a SIGINT that
+# reaches the CLI while its interpreter is still starting can be lost, and the job runs on.
+STARTUP_GRACE = 2.0
+# ...and never right on that line: a CLI goes from printing it straight into a blocking call,
+# and a SIGINT landing in that gap surfaces only when the call returns (CPython). A short settle
+# moves it into the call, which it interrupts.
+CANCEL_SETTLE = 0.2
+STOP_AFTER = 15.0  # a cancel this old can be escalated to a stop (the UI asks first)
 
 
 class WriteBusy(Exception):
@@ -398,10 +407,14 @@ def _stop_process(process: subprocess.Popen, grace: float | None = None) -> None
             pass
 
 
-def _stop_gracefully(process: subprocess.Popen, grace: float | None = None) -> None:
-    """The Cancel path first (one SIGINT, so a replace step restores), then `_stop_process`."""
+def _stop_gracefully(
+    process: subprocess.Popen, grace: float | None = None, interrupt: bool = True
+) -> None:
+    """The Cancel path first (one SIGINT, so a replace step restores; skipped when the job was
+    already sent its SIGINT), then `_stop_process`."""
     grace = SHUTDOWN_GRACE if grace is None else grace
-    _signal(process, signal.SIGINT)
+    if interrupt:
+        _signal(process, signal.SIGINT)
     try:
         process.wait(timeout=grace)
     except subprocess.TimeoutExpired:
@@ -422,6 +435,10 @@ class Running:
     process: subprocess.Popen
     keys: tuple[str, ...]
     pump: threading.Thread | None = None
+    started: float = 0.0
+    seen_output: float | None = None  # when the first line arrived
+    cancel_requested: float | None = None  # when Cancel was asked
+    signalled: bool = False
 
 
 class Runner:
@@ -434,6 +451,7 @@ class Runner:
         self.held: dict[str, str] = {}  # lock key -> the job or short write holding it
         self.children: set[subprocess.Popen] = set()  # long-lived children (follows, watch, usage)
         self.cache: dict[str, dict] = {}
+        self.on_invalidate: list[Callable[[], None]] = []  # other caches to drop with this one
         self.stopping = False
 
     # -- engine jobs -----------------------------------------------------------------------------
@@ -442,9 +460,24 @@ class Runner:
         """Running engine jobs, oldest first."""
         with self.mutex:
             return [
-                {"id": job.id, "project": job.project, "kind": job.kind}
+                {
+                    "id": job.id,
+                    "project": job.project,
+                    "kind": job.kind,
+                    "cancelling": job.cancel_requested is not None,
+                }
                 for job in self.jobs.values()
             ]
+
+    def job_status(self, identifier: str) -> dict | None:
+        """Live state the job row does not hold: whether a Cancel is under way, and whether it
+        has waited long enough to offer a stop."""
+        with self.mutex:
+            job = self.jobs.get(identifier)
+            if job is None or job.cancel_requested is None:
+                return None
+            waited = time.monotonic() - job.cancel_requested
+            return {"cancelling": True, "can_stop": waited >= STOP_AFTER}
 
     def _claim(self, keys: Sequence[str], holder: str, write: bool = False) -> None:
         """Take every key or none (call with the mutex held). Busy names the job holding the
@@ -508,7 +541,9 @@ class Runner:
                 self._free(identifier)
                 failure = problem
             else:
-                self.jobs[identifier] = Running(identifier, project["id"], kind, process, locks)
+                self.jobs[identifier] = Running(
+                    identifier, project["id"], kind, process, locks, started=time.monotonic()
+                )
         if failure is not None:
             # Outside the mutex: a child that was started but not recorded is stopped, never
             # orphaned, and a slow stop does not block every other request.
@@ -547,15 +582,27 @@ class Runner:
         try:
             for line in process.stdout:  # always drained, so the child never blocks on a pipe
                 seq += 1
+                if seq == 1:
+                    self._first_output(identifier)
                 if unrecorded or seq > MAX_LINES:
                     continue
                 try:
                     self.state.append(identifier, seq, redact(line.rstrip("\n"), values))
                 except Exception:
                     # The log cannot be recorded (disk full, database error): a job nobody can
-                    # see must not run on, but it stops the graceful way, as Cancel does.
+                    # see must not run on, but it stops the graceful way, as Cancel does, with
+                    # no second SIGINT if Cancel already sent one.
                     unrecorded = True
-                    threading.Thread(target=_stop_gracefully, args=(process,), daemon=True).start()
+                    with self.mutex:
+                        job = self.jobs.get(identifier)
+                        already = bool(job and job.signalled)
+                        if job:
+                            job.signalled = True
+                    threading.Thread(
+                        target=_stop_gracefully,
+                        args=(process, None, not already),
+                        daemon=True,
+                    ).start()
             code = process.wait()
         except Exception:
             _stop_process(process)
@@ -586,13 +633,77 @@ class Runner:
 
     def cancel(self, identifier: str) -> bool:
         """One SIGINT to the CLI child only: `release` and `promote` finish any replace step and
-        restore on it (S-18 keeps this graceful path)."""
+        restore on it (S-18 keeps this graceful path). A SIGINT that reaches the child while its
+        interpreter is still starting can be lost, so before the job's first output line the
+        cancel waits for that line (the CLI is running by then), or STARTUP_GRACE at most."""
         with self.mutex:
             job = self.jobs.get(identifier)
             if job is None:
                 return False
-            job.process.send_signal(signal.SIGINT)
-            return True
+            if job.cancel_requested is None:
+                job.cancel_requested = time.monotonic()
+            if job.signalled:
+                return True  # one SIGINT only: a second can abort release's restore
+            delay = self._signal_delay(job)
+            if delay <= 0:
+                self._interrupt(job)
+                return True
+        self._later(delay, identifier)
+        return True
+
+    def _signal_delay(self, job: Running) -> float:
+        """Seconds until a waiting cancel may send its SIGINT: CANCEL_SETTLE after the first
+        line, or STARTUP_GRACE after the start for a job that has printed nothing."""
+        now = time.monotonic()
+        if job.seen_output is not None:
+            return job.seen_output + CANCEL_SETTLE - now
+        return job.started + STARTUP_GRACE - now
+
+    def _later(self, delay: float, identifier: str) -> None:
+        timer = threading.Timer(max(delay, 0.0), self._interrupt_if_waiting, args=(identifier,))
+        timer.daemon = True
+        timer.start()
+
+    def stop(self, identifier: str) -> bool:
+        """The escalation the UI offers once a Cancel has waited STOP_AFTER: SIGTERM, then
+        SIGKILL, to the job's whole process group. It may skip release's restore; the UI says
+        so and asks first."""
+        with self.mutex:
+            job = self.jobs.get(identifier)
+            if job is None or job.cancel_requested is None:
+                return False
+            if time.monotonic() - job.cancel_requested < STOP_AFTER:
+                return False
+            job.signalled = True
+            process = job.process
+        threading.Thread(target=_stop_process, args=(process,), daemon=True).start()
+        return True
+
+    def _interrupt(self, job: Running) -> None:
+        """Send the one SIGINT (call with the mutex held)."""
+        job.signalled = True
+        _signal(job.process, signal.SIGINT)
+
+    def _first_output(self, identifier: str) -> None:
+        with self.mutex:
+            job = self.jobs.get(identifier)
+            if job is None:
+                return
+            job.seen_output = time.monotonic()
+            waiting = job.cancel_requested is not None and not job.signalled
+        if waiting:
+            self._later(CANCEL_SETTLE, identifier)
+
+    def _interrupt_if_waiting(self, identifier: str) -> None:
+        with self.mutex:
+            job = self.jobs.get(identifier)
+            if job is None or job.cancel_requested is None or job.signalled:
+                return
+            delay = self._signal_delay(job)
+            if delay <= 0:
+                self._interrupt(job)
+                return
+        self._later(delay, identifier)  # the first line arrived meanwhile: settle after it
 
     def any_engine_job(self) -> bool:
         with self.mutex:
@@ -660,7 +771,12 @@ class Runner:
             # Jobs keep the group signal even after their CLI exits (their pump holds them).
             live = [child for child in self.children if child.poll() is None]
             processes = [job.process for job in jobs] + live
-        for process in processes:
+            # One SIGINT per job: skip a job Cancel already signalled (a second can abort
+            # release's restore), and mark the rest so a waiting cancel adds none.
+            interrupt = [job.process for job in jobs if not job.signalled] + live
+            for job in jobs:
+                job.signalled = True
+        for process in interrupt:
             _signal(process, signal.SIGINT)
         try:
             _wait_all(processes, time.monotonic() + grace)
@@ -694,34 +810,85 @@ class Runner:
         """A job or write ended: cached reads are no longer the last good answer."""
         with self.mutex:
             self.cache.clear()
+        for listener in self.on_invalidate:
+            listener()
 
-    def read(self, argv: Sequence[str], timeout: int = 30, key: str | None = None) -> dict:
-        """Run a read-only command that prints JSON; on failure, keep the last good answer."""
+    def read(
+        self,
+        argv: Sequence[str],
+        timeout: int = 30,
+        key: str | None = None,
+        ok_codes: Sequence[int] = (0,),
+        cache: bool = True,
+        track: bool = False,
+    ) -> dict:
+        """Run a read-only command that prints JSON; on failure, keep the last good answer.
+        `ok_codes`: exit codes whose JSON is still the answer (`registry used-by` and `registry
+        verify` exit 2 after printing what they found). `cache=False`: neither use nor keep the
+        last good answer. `track=True`: a long read (verify) is tracked as a child, so shutdown
+        stops it even when it is blocked."""
         cache_key = key or " ".join(argv)
+        if not cache:
+            cache_key = f"uncached {uuid.uuid4().hex}"
+        if track:
+            with self.mutex:
+                if self.stopping:  # a child started now could miss shutdown's snapshot
+                    return {
+                        "data": None,
+                        "error": error("STOPPING", "The console is stopping"),
+                        "stale": False,
+                    }
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 [*self.prefix, *argv],
                 cwd=self.directory,
                 env=child_environment(),
                 stdin=subprocess.DEVNULL,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 errors="replace",
-                timeout=timeout,
+                start_new_session=track,
             )
-        except subprocess.TimeoutExpired:
-            return self._stale(cache_key, error("TIMEOUT", "The command timed out"))
         except OSError:
             return self._stale(cache_key, error("COMMAND_FAILED", "The command could not start"))
-        if result.returncode:
-            return self._stale(cache_key, cli_error(result.stderr, result.returncode))
+        if track:
+            self.adopt(process)
         try:
-            answer = {"data": json.loads(result.stdout), "error": None, "stale": False}
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if track:
+                _stop_process(process, 1.0)  # its whole group
+            else:
+                process.kill()
+            # Bounded: a grandchild that inherited the pipes must not hold this past the timeout.
+            try:
+                process.communicate(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+            finally:
+                for pipe in (process.stdout, process.stderr):
+                    if pipe:
+                        pipe.close()
+            return self._stale(cache_key, error("TIMEOUT", "The command timed out"))
+        finally:
+            if track:
+                self.forget(process)
+        if process.returncode not in ok_codes:
+            return self._stale(cache_key, cli_error(stderr, process.returncode))
+        try:
+            answer = {"data": json.loads(stdout), "error": None, "stale": False}
         except ValueError:
+            if process.returncode:  # an allowed failure exit without JSON: its `[CODE]` line
+                return self._stale(cache_key, cli_error(stderr, process.returncode))
             return self._stale(
                 cache_key, error("BAD_OUTPUT", "The command returned unreadable output")
             )
-        self.cache[cache_key] = answer
+        if cache:
+            with self.mutex:
+                while len(self.cache) >= MAX_CACHED:  # distinct argv (used-by refs) grow it
+                    self.cache.pop(next(iter(self.cache)))
+                self.cache[cache_key] = answer
         return answer
 
     def read_text(self, argv: Sequence[str], timeout: int = 30) -> str | None:
