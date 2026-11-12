@@ -325,7 +325,37 @@ SHUTDOWN_GRACE = 5.0
 
 
 class WriteBusy(Exception):
-    """A short write found its target (or the policy) locked: no job to follow."""
+    """A short write, or a job during a policy save, was refused: no job to follow.
+    `reason` is "job" (an engine job holds what it needs) or "saving" (a save is running)."""
+
+    def __init__(self, key: str, reason: str):
+        super().__init__(key)
+        self.key, self.reason = key, reason
+
+
+def _stop_process(process: subprocess.Popen, grace: float | None = None) -> None:
+    """Stop a child and its process group without waiting forever: SIGTERM, then SIGKILL."""
+    grace = SHUTDOWN_GRACE if grace is None else grace
+    _signal_group(process, signal.SIGTERM)
+    try:
+        process.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        _signal_group(process, signal.SIGKILL)
+        try:
+            process.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def _stop_gracefully(process: subprocess.Popen, grace: float | None = None) -> None:
+    """The Cancel path first (one SIGINT, so a replace step restores), then `_stop_process`."""
+    grace = SHUTDOWN_GRACE if grace is None else grace
+    _signal(process, signal.SIGINT)
+    try:
+        process.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        pass
+    _stop_process(process, grace)
 
 
 def lock_keys(kind: str, project: dict) -> tuple[str, ...]:
@@ -370,8 +400,10 @@ class Runner:
         for key in keys:
             owner = self.held.get(key)
             if owner is not None:
-                if write or owner.startswith("short:"):
-                    raise WriteBusy(key)
+                if owner.startswith("short:"):
+                    raise WriteBusy(key, "saving")
+                if write:
+                    raise WriteBusy(key, "job")
                 raise Busy(owner)
         for key in keys:
             self.held[key] = holder
@@ -399,10 +431,10 @@ class Runner:
             if self.stopping:
                 raise BadRequest("The console is stopping", "STOPPING")
             if self._policy_saving():
-                raise WriteBusy(POLICY)
+                raise WriteBusy(POLICY, "saving")
             identifier = uuid.uuid4().hex
             self._claim(locks, identifier)
-            env_file = process = None
+            env_file = process = failure = None
             try:
                 env_file = self._env_file(identifier, keys) if keys else None
                 if env_file:
@@ -420,15 +452,21 @@ class Runner:
                     start_new_session=True,  # a terminal Ctrl-C must not reach the job
                 )
                 self.state.create_job(identifier, project["id"], kind)
-            except BaseException:
+            except BaseException as problem:
                 self._free(identifier)
-                if process is not None:  # started but not recorded: stop it, never orphan it
-                    _signal_group(process, signal.SIGTERM)
-                    process.wait()
-                if env_file:
-                    env_file.unlink(missing_ok=True)
-                raise
-            self.jobs[identifier] = Running(identifier, project["id"], kind, process, locks)
+                failure = problem
+            else:
+                self.jobs[identifier] = Running(identifier, project["id"], kind, process, locks)
+        if failure is not None:
+            # Outside the mutex: a child that was started but not recorded is stopped, never
+            # orphaned, and a slow stop does not block every other request.
+            if process is not None:
+                if process.stdout:
+                    process.stdout.close()
+                _stop_process(process)
+            if env_file:
+                env_file.unlink(missing_ok=True)
+            raise failure
         threading.Thread(
             target=self._pump,
             args=(identifier, process, env_file, list((keys or {}).values()), on_success),
@@ -449,33 +487,50 @@ class Runner:
     def _pump(self, identifier, process, env_file, values, on_success) -> None:
         seq = 0
         code = None
+        unrecorded = False
         try:
-            for line in process.stdout:
+            for line in process.stdout:  # always drained, so the child never blocks on a pipe
                 seq += 1
-                if seq <= MAX_LINES:
+                if unrecorded or seq > MAX_LINES:
+                    continue
+                try:
                     self.state.append(identifier, seq, redact(line.rstrip("\n"), values))
+                except Exception:
+                    # The log cannot be recorded (disk full, database error): a job nobody can
+                    # see must not run on, but it stops the graceful way, as Cancel does.
+                    unrecorded = True
+                    threading.Thread(target=_stop_gracefully, args=(process,), daemon=True).start()
             code = process.wait()
         except Exception:
-            # The log could not be recorded (disk full, database error): a job nobody can see
-            # must not keep running untracked.
-            _signal_group(process, signal.SIGTERM)
-            process.wait()
+            _stop_process(process)
             code = None
         finally:
             if env_file:
-                env_file.unlink(missing_ok=True)
+                try:
+                    env_file.unlink(missing_ok=True)
+                except OSError:
+                    pass  # removed at the next start (S-16); the locks must still be freed
             self.invalidate()
             with self.mutex:
                 self.jobs.pop(identifier, None)
                 self._free(identifier)
-        state = (
-            "succeeded" if code == 0 else "waiting_approval" if code == EXIT_APPROVAL else "failed"
-        )
-        try:
-            self.state.finish_job(identifier, state, code)
-        except Exception:
-            pass  # the next start marks a row still `running` as interrupted
-        if code == 0 and on_success:
+        if unrecorded:
+            state = "failed"
+        else:
+            state = (
+                "succeeded"
+                if code == 0
+                else "waiting_approval"
+                if code == EXIT_APPROVAL
+                else "failed"
+            )
+        for _attempt in range(2):
+            try:
+                self.state.finish_job(identifier, state, code)
+                break
+            except Exception:
+                time.sleep(0.2)  # a second failure leaves it to the next start (interrupted)
+        if state == "succeeded" and on_success:
             on_success()
 
     def cancel(self, identifier: str) -> bool:
@@ -514,7 +569,7 @@ class Runner:
             if self.stopping:
                 raise BadRequest("The console is stopping", "STOPPING")
             if kind == POLICY and self.jobs:
-                raise WriteBusy(POLICY)
+                raise WriteBusy(POLICY, "job")
             self._claim(keys, holder, write=True)
         try:
             return self.read(
@@ -550,7 +605,10 @@ class Runner:
         with self.mutex:
             self.stopping = True
             jobs = list(self.jobs.values())
-            processes = [job.process for job in jobs] + list(self.children)
+            # Only live adopted children: a long-ended one's pid may belong to someone else now.
+            # Jobs keep the group signal even after their CLI exits (their pump holds them).
+            live = [child for child in self.children if child.poll() is None]
+            processes = [job.process for job in jobs] + live
         for process in processes:
             _signal(process, signal.SIGINT)
         try:

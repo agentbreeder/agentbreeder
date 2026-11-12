@@ -661,9 +661,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             return route.handler(request)
         except WriteBusy as busy:
-            raise HttpError(
-                409, "WRITE_BUSY", "Another save to this item or the policy is in progress"
-            ) from busy
+            message = (
+                "A running job needs this; try again when it ends"
+                if busy.reason == "job"
+                else "Another save is in progress; try again when it ends"
+            )
+            raise HttpError(409, "WRITE_BUSY", message) from busy
         except Busy as busy:
             raise HttpError(
                 409, "BUSY", "Another job is running", data={"job": busy.job}
@@ -710,6 +713,10 @@ def _watch_terminal(center: Center) -> None:
         print(f"New one-time link: {url}", flush=True)
 
 
+def _stop(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main(args) -> int:
     from agentbreeder.doctor import check_compose, check_docker
 
@@ -717,8 +724,11 @@ def main(args) -> int:
         print("Invalid --environment", file=sys.stderr)
         return 2
     # Started from a backgrounded shell, SIGINT would be ignored here and in every job, and
-    # Cancel would do nothing.
+    # Cancel would do nothing. SIGTERM and SIGHUP (terminal closed) stop it the same way, so
+    # its jobs, which run in their own sessions, are stopped too.
     signal.signal(signal.SIGINT, signal.default_int_handler)
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGHUP, _stop)
     for check in check_docker() + check_compose():
         if not check.passed and check.required:
             print(f"FAIL {check.name}: {check.message}", file=sys.stderr)
@@ -751,7 +761,7 @@ def main(args) -> int:
             print(preview["text"], file=sys.stderr)
             try:
                 center.start_job(project, {"kind": "services-up", "options": preview})
-            except (BadRequest, Busy) as problem:
+            except (BadRequest, Busy, WriteBusy) as problem:
                 print(f"Services not started: {problem}", file=sys.stderr)
     try:
         server.serve_forever()

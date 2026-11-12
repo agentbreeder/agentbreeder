@@ -1549,7 +1549,7 @@ def test_set_ref_holds_its_project(center, cookie, project):
     assert runner.held == {}
 
 
-def test_a_job_whose_log_cannot_be_written_is_stopped_and_failed(center, cookie, project):
+def test_a_job_whose_log_cannot_be_written_is_stopped_gracefully(center, cookie, project):
     calls = []
 
     def broken(*args):
@@ -1559,7 +1559,8 @@ def test_a_job_whose_log_cannot_be_written_is_stopped_and_failed(center, cookie,
     center.state.append = broken
     job = _job_id(start(center, project, cookie, "build"))
     finished = wait(center, job, cookie)
-    assert calls and finished["state"] == "failed" and finished["exit_code"] is None
+    # SIGINT first (the fake build exits 130 on it), as Cancel does; then marked failed.
+    assert calls and finished["state"] == "failed" and finished["exit_code"] == 130
     assert center.runner.running() == [] and center.runner.held == {}
 
 
@@ -1588,3 +1589,173 @@ def test_main_says_it_is_stopping_jobs(quiet_main, monkeypatch, capsys):
     monkeypatch.setattr(jobs.Runner, "shutdown", lambda self, grace=5.0: ["a"])
     assert server.main(arguments()) == 0
     assert "Stopping 1 running job(s)" in capsys.readouterr().err
+
+
+# -- review round 2 on jobs (Fable) ---------------------------------------------------------------
+
+
+def test_a_failed_start_stops_its_child_outside_the_mutex(center, project, monkeypatch):
+    import sqlite3
+    import subprocess
+
+    monkeypatch.setattr(jobs, "SHUTDOWN_GRACE", 1.0)
+    stubborn = []
+    real_popen = subprocess.Popen
+
+    def ignoring_term(*args, **kwargs):
+        code = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+        stubborn.append(
+            real_popen(
+                [sys.executable, "-c", code], start_new_session=True, stdout=subprocess.PIPE
+            )
+        )
+        return stubborn[-1]
+
+    def broken(*args):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(jobs.subprocess, "Popen", ignoring_term)
+    monkeypatch.setattr(center.state, "create_job", broken)
+    errors = []
+    thread = threading.Thread(
+        target=lambda: errors.append(
+            pytest.raises(sqlite3.OperationalError, center.runner.start, project, "build", {})
+        )
+    )
+    thread.start()
+    time.sleep(0.3)
+    assert center.runner.mutex.acquire(timeout=0.5), "start() held the mutex while stopping"
+    center.runner.mutex.release()
+    thread.join(10)
+    assert errors and stubborn[0].poll() is not None  # SIGKILL after the ignored SIGTERM
+    assert center.runner.held == {}
+
+
+def test_shutdown_never_signals_a_long_ended_childs_group(tmp_path, monkeypatch):
+    import subprocess
+
+    runner = Runner(CenterState(tmp_path), tmp_path)
+    ended = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    runner.children.add(ended)
+    ended.wait()
+    signalled = []
+    monkeypatch.setattr(jobs, "_signal_group", lambda process, number: signalled.append(process))
+    runner.shutdown(grace=0.1)
+    assert signalled == []
+
+
+def test_write_busy_says_why(center, cookie, project):
+    runner = center.runner
+    build = _job_id(start(center, project, cookie, "build"))
+    _started(center, build)
+    with pytest.raises(jobs.WriteBusy) as busy:
+        runner.short_write("policy-save", "op", ["list"])
+    assert busy.value.reason == "job"
+    with pytest.raises(jobs.WriteBusy) as busy:
+        runner.short_write("set-ref", "agent", ["list"], project=project)
+    assert busy.value.reason == "job"
+    api(center, "POST", f"/api/jobs/{build}/cancel", {}, cookie)
+    wait(center, build, cookie)
+    runner.held["policy-save:op"] = "short:x"
+    status, data, _ = start(center, project, cookie, "build")
+    assert status == 409 and "Another save is in progress" in data["error"]["message"]
+    runner.held.clear()
+
+
+def test_finishing_a_job_is_retried_once(center, cookie, project, monkeypatch):
+    real = CenterState.finish_job
+    failures = []
+
+    def flaky(self, *args):
+        if not failures:
+            failures.append(1)
+            raise OSError("busy")
+        return real(self, *args)
+
+    monkeypatch.setattr(CenterState, "finish_job", flaky)
+    job = _job_id(start(center, project, cookie, "services-down"))
+    assert wait(center, job, cookie)["state"] == "succeeded" and failures
+
+
+def test_a_key_file_that_cannot_be_removed_still_frees_the_locks(
+    center, cookie, project, monkeypatch
+):
+    real_unlink = Path.unlink
+
+    def refuse(self, *args, **kwargs):
+        if self.name.startswith("env-"):
+            raise PermissionError("EPERM")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+    status, data, _ = start(
+        center, project, cookie, "services-up", {"digest": DIGEST}, {"GEMINI_API_KEY": KEY_VALUE}
+    )
+    wait(center, data["data"]["job"], cookie)
+    assert center.runner.held == {} and center.runner.running() == []
+    monkeypatch.setattr(Path, "unlink", real_unlink)
+    for leftover in center.directory.glob("env-*"):
+        leftover.unlink()
+
+
+def _wait_for_line(stream, pattern: str, timeout: float = 60) -> str:
+    deadline = time.monotonic() + timeout
+    seen = []
+    while time.monotonic() < deadline:
+        line = stream.readline()
+        if not line:
+            break
+        seen.append(line)
+        if re.search(pattern, line):
+            return line
+    raise AssertionError(f"no {pattern!r} in {seen!r}")
+
+
+@pytest.mark.parametrize("name", ["SIGTERM", "SIGHUP"])
+def test_sigterm_and_sighup_stop_the_console_and_its_jobs(tmp_path, fake_cli, name):
+    """The real server process: a running job is stopped when the console gets the signal."""
+    import signal as signals
+    import subprocess
+
+    project = tmp_path / "p"
+    project.mkdir()
+    (project / "agent.yaml").write_text("kind: agent\n")
+    (project / "stack.yaml").write_text("kind: stack\n")
+    script = tmp_path / "run.py"
+    script.write_text(
+        "import sys, threading, time\n"
+        "from argparse import Namespace\n"
+        "from pathlib import Path\n"
+        "from agentbreeder.center import server\n"
+        f"fake = {fake_cli!r}\n"
+        "real = server.Center.__init__\n"
+        "def init(self, directory, environment='dev', prefix=None):\n"
+        "    real(self, directory, environment, fake)\n"
+        "server.Center.__init__ = init\n"
+        "orig = server.make_server\n"
+        "def make(center, port):\n"
+        "    s = orig(center, port)\n"
+        f"    project = center.register(Path({str(project)!r}))\n"
+        "    job = center.runner.start(project, 'build', {})\n"
+        "    print('JOB', job, flush=True)\n"
+        "    return s\n"
+        "server.make_server = make\n"
+        "args = Namespace(dir=None, environment='dev', port=0, no_browser=True, yes=False)\n"
+        "sys.exit(server.main(args))\n"
+    )
+    env = {**os.environ, "AGENTBREEDER_CENTER_DIR": str(tmp_path / "center")}
+    console = subprocess.Popen(
+        [sys.executable, str(script)],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        start_new_session=True,
+    )
+    _wait_for_line(console.stdout, r"^JOB ")
+    time.sleep(1.0)  # let the fake build start
+    console.send_signal(getattr(signals, name))
+    out, err = console.communicate(timeout=30)
+    assert console.returncode == 0, err
+    assert "Stopped 1 running job(s)" in err
