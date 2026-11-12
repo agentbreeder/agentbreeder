@@ -153,12 +153,15 @@ tool would not be caught.
   port it used. Once a password exists, it does not move: if the port is busy, `up` names the
   port and stops, so a program squatting the port cannot pass for the console at a bookmarked
   address. `--port N` uses exactly `N`.
-- **What records a console action (S-30).** A job that runs `deploy`, `release`, `promote` or
-  `remove` writes rows to the deployment audit chain, as the same CLI command does. `services
-  up`/`down` and `cluster up`/`down` write no audit rows; the console's job history in
-  `center.sqlite3` (kind, project, start, end, exit code and the redacted log; the last 100 jobs;
-  not chained, so a local user can edit it) is their only record. Sign-in events arrive with the
-  password milestone; registry and `set-ref` edits are recorded in the project's files and git.
+- **What records a console action (S-30).** A `release`, rollback, `promote`, `remove` or
+  `reconcile` job writes rows to the deployment audit chain, as the same CLI command does.
+  `build`, `services up`/`down` and `cluster up`/`down` write none; the console's job history in
+  `center.sqlite3` is their only record: kind, project, start, end, exit code and the redacted log
+  (at most 20,000 lines of 4,000 characters), for the last 100 finished jobs, not chained, so a
+  local user can edit it. Job options (such as which deployment a `remove` targeted) are not
+  stored. Sign-in events arrive with the password milestone. The registry and `set-ref` edits of
+  later milestones will change only the project's files (and git history, if you commit them);
+  the console will keep no record of them.
 - **Its database** (`center.sqlite3`, mode 0600) holds projects, job history and settings, and
   from the sign-in milestone password hashes; never a password, key or other secret value. Its
   schema is versioned and migrated at start; a 3.0.0a2 database keeps its projects and job

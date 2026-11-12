@@ -46,14 +46,15 @@ def run(argv: list[str]) -> int:
         # `-I` ignores PYTHONPATH and the current directory, so a checkout run with
         # PYTHONPATH=src hands over to whatever agentbreeder is installed: refuse a mismatch.
         print(
-            f"`agentbreeder up` from {args.expect_package or args.expect_version} would hand "
+            f"`agentbreeder up` ({args.expect_package or 'version ' + args.expect_version}) "
+            "would hand "
             f"over to agentbreeder {__version__} installed at {here}, which is not the same "
             "code. Install the package you are running (`pip install -e .` in a checkout) and "
             "try again.",
             file=sys.stderr,
         )
         return 2
-    return server.main(args)
+    return server.serve_process(args)
 
 
 if __name__ == "__main__":

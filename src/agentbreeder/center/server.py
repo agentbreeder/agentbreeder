@@ -840,6 +840,16 @@ def main(args) -> int:
                 signal.signal(number, handler)
 
 
+def serve_process(args) -> int:
+    """The console as a process (`python -I -m agentbreeder.center`): `main`, then ignore any
+    later SIGTERM/SIGHUP. A closing terminal or a supervisor can send one after the console has
+    stopped cleanly; the process is about to exit and must not die of it."""
+    code = main(args)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    return code
+
+
 def _main(args) -> int:
     """The console server process (`python -I -m agentbreeder.center`, started by `up`)."""
     if not ENVIRONMENT.fullmatch(args.environment):
@@ -854,6 +864,14 @@ def _main(args) -> int:
     # `up --set-password` / `--reset-password` (M2) branch here, before the lock: they run
     # beside a live console and must not take it, sweep its jobs or migrate under it.
     try:
+        return _locked(args)
+    except KeyboardInterrupt:  # stopped before serving (taking the lock, a slow port scan)
+        _stopping.set()  # a second stop signal while unwinding is a no-op
+        return 130
+
+
+def _locked(args) -> int:
+    try:
         directory = center_directory()
         instance = SingleInstance(directory)
         instance.acquire()
@@ -864,8 +882,6 @@ def _main(args) -> int:
         return 2
     try:
         return _serve(args, directory, instance)
-    except KeyboardInterrupt:  # stopped before serving (during a slow port scan): no jobs yet
-        return 130
     finally:
         instance.release()
 

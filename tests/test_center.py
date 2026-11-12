@@ -1960,7 +1960,7 @@ def test_the_isolated_entry_point_parses_what_up_passes(monkeypatch):
     from agentbreeder.center import __main__ as entry
 
     seen = []
-    monkeypatch.setattr(entry.server, "main", lambda args: seen.append(args) or 0)
+    monkeypatch.setattr(entry.server, "serve_process", lambda args: seen.append(args) or 0)
     assert entry.run(["--environment", "prod", "--port", "8081", "--no-browser", "--", "-p"]) == 0
     args = seen[0]
     assert (args.environment, args.port, args.no_browser, args.yes) == ("prod", 8081, True, False)
@@ -2019,7 +2019,7 @@ def _console_script(tmp_path, fake_cli) -> Path:
         "    return s\n"
         "server.make_server = make\n"
         "args = Namespace(dir=None, environment='dev', port=0, no_browser=True, yes=False)\n"
-        "sys.exit(server.main(args))\n"
+        "sys.exit(server.serve_process(args))\n"
     )
     return script
 
@@ -2448,3 +2448,16 @@ def test_a_bad_dir_never_publishes_the_url(quiet_main, tmp_path):
 
     assert server.main(arguments(dir=tmp_path / "missing")) == 2
     assert (server.center_directory() / LOCK_NAME).read_bytes() == b""
+
+
+def test_the_process_ignores_stop_signals_after_a_clean_stop(quiet_main, monkeypatch):
+    import signal as signals
+
+    saved = {n: signals.getsignal(n) for n in (signals.SIGTERM, signals.SIGHUP)}
+    try:
+        assert server.serve_process(arguments()) == 0
+        assert signals.getsignal(signals.SIGTERM) is signals.SIG_IGN
+        assert signals.getsignal(signals.SIGHUP) is signals.SIG_IGN
+    finally:
+        for number, handler in saved.items():
+            signals.signal(number, handler)
