@@ -78,7 +78,8 @@ function confirmAction(title, text, label) {
   });
 }
 
-const running = () => Boolean(ui.job && ui.job.state === "running");
+// Engine jobs run one at a time per project: only this project's running job disables its actions.
+const running = () => Boolean(ui.job && ui.job.state === "running" && ui.project && ui.job.project === ui.project.id);
 
 async function refresh() {
   ui.projects = (await fetchData("/api/projects")).projects;
@@ -106,7 +107,7 @@ async function loadView() {
 async function startJob(kind, options = {}, keys) {
   try {
     const { job } = await fetchData(`/api/projects/${ui.project.id}/jobs`, { kind, options, keys });
-    ui.job = { id: job, kind, state: "running" };
+    ui.job = { id: job, kind, state: "running", project: ui.project.id };
     ui.jobLines = [];
     ui.lastLine = 0;
     ui.notice = null;
@@ -115,7 +116,7 @@ async function startJob(kind, options = {}, keys) {
     pollJob();
   } catch (error) {
     ui.notice = { kind: "error", text: error.message };
-    if (error.job) { ui.job = { id: error.job, kind: "job", state: "running" }; pollJob(); }
+    if (error.job) { ui.job = { id: error.job, kind: "job", state: "running", project: ui.project.id }; pollJob(); }
     render();
   }
 }
@@ -362,10 +363,11 @@ async function start() {
   }
   try {
     ui.overview = await fetchData("/api/overview");
-    // Several jobs can run (one per project); this screen follows the oldest.
-    const first = ui.overview.jobs[0];
-    if (first) { ui.job = { id: first.id, kind: first.kind, state: "running" }; pollJob(); }
     await refresh();
+    // Several jobs can run (one per project): follow this project's, else the oldest.
+    const jobs = ui.overview.jobs;
+    const follow = jobs.find((job) => ui.project && job.project === ui.project.id) || jobs[0];
+    if (follow) { ui.job = { id: follow.id, kind: follow.kind, state: "running", project: follow.project }; render(); pollJob(); }
   } catch { showSignIn(); }
 }
 

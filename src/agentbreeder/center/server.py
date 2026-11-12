@@ -40,7 +40,15 @@ from agentbreeder.center.files import (
     private_dir,
     write_private,
 )
-from agentbreeder.center.jobs import ENVIRONMENT, KEY_NAME, Busy, CenterState, Runner, error
+from agentbreeder.center.jobs import (
+    ENVIRONMENT,
+    KEY_NAME,
+    Busy,
+    CenterState,
+    Runner,
+    WriteBusy,
+    error,
+)
 
 DEFAULT_PORT = 8900
 TOKEN_TTL = 300
@@ -652,6 +660,10 @@ class Handler(BaseHTTPRequestHandler):
     def _handle(self, route: Route, request: Request) -> dict:
         try:
             return route.handler(request)
+        except WriteBusy as busy:
+            raise HttpError(
+                409, "WRITE_BUSY", "Another save to this item or the policy is in progress"
+            ) from busy
         except Busy as busy:
             raise HttpError(
                 409, "BUSY", "Another job is running", data={"job": busy.job}
@@ -747,6 +759,13 @@ def main(args) -> int:
         pass
     finally:
         server.server_close()
+        running = center.runner.running()
+        if running:
+            print(
+                f"Stopping {len(running)} running job(s); Ctrl-C again to skip the wait.",
+                file=sys.stderr,
+                flush=True,
+            )
         stopped = center.runner.shutdown()
         if stopped:
             print(f"Stopped {len(stopped)} running job(s).", file=sys.stderr)
