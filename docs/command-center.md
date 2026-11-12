@@ -135,6 +135,38 @@ tool would not be caught.
   to end (at most 10 seconds in all). A read or short write in progress is not stopped; it ends
   or times out on its own.
 
+- **One console per user, isolated.** `up` runs its Docker checks, then replaces itself (same
+  process, same terminal) with `python -I -m agentbreeder.center`, so the server ignores
+  `PYTHONPATH`, the user site and the current directory, and never loads the deployment state,
+  Docker, secret, operator-config or audit modules. It holds a lock (`up.lock`) in the console
+  directory (`~/.agentbreeder/center`): a second `up` prints the running console's URL and exits
+  (with a project directory or `--yes`, it says nothing else was done and exits 1).
+  Once it holds the lock, `up` deletes provider-key and editor temp files a crashed console left
+  there. Because of `-I`, `up` needs AgentBreeder installed (from a checkout, `pip install -e .`);
+  it refuses to hand over to a different installed copy (another version or another
+  directory). The lock needs macOS or Linux.
+- **Port.** `up` listens on `127.0.0.1` only, on port 8080 by default (3.0.0a2 used 8900), and
+  prints the URL: open only that URL. A port counts as busy when anything answers on
+  `127.0.0.1` there, including a program listening on all addresses. Before a console password
+  exists (sign-in arrives in a
+  later milestone), a busy port moves it to the next free one up to 8099, and it remembers the
+  port it used. Once a password exists, it does not move: if the port is busy, `up` names the
+  port and stops, so a program squatting the port cannot pass for the console at a bookmarked
+  address. `--port N` uses exactly `N`.
+- **What records a console action (S-30).** A `release`, rollback, `promote`, `remove` or
+  `reconcile` job writes rows to the deployment audit chain, as the same CLI command does.
+  `build`, `services up`/`down` and `cluster up`/`down` write none; the console's job history in
+  `center.sqlite3` is their only record: kind, project, start, end, exit code and the redacted log
+  (at most 20,000 lines of 4,000 characters), for the last 100 finished jobs, not chained, so a
+  local user can edit it. Job options (such as which deployment a `remove` targeted) are not
+  stored. Sign-in events arrive with the password milestone. The registry and `set-ref` edits of
+  later milestones will change only the project's files (and git history, if you commit them);
+  the console will keep no record of them.
+- **Its database** (`center.sqlite3`, mode 0600) holds projects, job history and settings, and
+  from the sign-in milestone password hashes; never a password, key or other secret value. Its
+  schema is versioned and migrated at start; a 3.0.0a2 database keeps its projects and job
+  history.
+
 **The limits.** Anyone who controls the local Docker has full control: the gate prevents mistakes and
 policy drift, not a local admin. A project is code. Building it runs its Dockerfile in Docker, so add
 only projects you trust. Local endpoints are unauthenticated.

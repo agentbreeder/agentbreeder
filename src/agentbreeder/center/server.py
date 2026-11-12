@@ -22,6 +22,7 @@ import re
 import secrets
 import signal
 import socket
+import sqlite3
 import sys
 import threading
 import time
@@ -41,17 +42,19 @@ from agentbreeder.center.files import (
     private_dir,
     write_private,
 )
+from agentbreeder.center.instance import AlreadyRunning, SingleInstance, remove_leftovers
 from agentbreeder.center.jobs import (
     ENVIRONMENT,
     KEY_NAME,
     Busy,
     CenterState,
     Runner,
+    SchemaTooNew,
     WriteBusy,
     error,
 )
 
-DEFAULT_PORT = 8900
+PORTS = tuple(range(8080, 8100))  # 3.0.0a2 used 8900
 TOKEN_TTL = 300
 SESSION_ABSOLUTE = 8 * 3600
 SESSION_IDLE = 3600
@@ -692,18 +695,65 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(500, "INTERNAL", "The console hit an unexpected error") from problem
 
 
+class PortBusy(OSError):
+    def __init__(self, port: int, scanned: bool):
+        super().__init__(port)
+        self.port, self.scanned = port, scanned
+
+
+def port_candidates(center: Center, port: int | None) -> tuple[list[int], bool]:
+    """The ports to try, and whether that is a scan. An explicit `--port` is tried alone. In
+    first-run state (no password yet) the preferred port comes first, then the rest of
+    8080-8099. Once a password exists only the preferred port is tried (S-29): another user
+    squatting it must not move the console, because a stale tab or bookmark would then show the
+    squatter's sign-in form."""
+    if port is not None:
+        return [port], False
+    remembered = center.state.setting("port") or ""
+    preferred = (
+        int(remembered) if remembered.isdigit() and 0 < int(remembered) < 65536 else PORTS[0]
+    )
+    if center.state.has_password():
+        return [preferred], False
+    return [preferred, *(p for p in PORTS if p != preferred)], True
+
+
+def in_use(port: int) -> bool:
+    """Something already answers on 127.0.0.1:`port`. On macOS a bind to 127.0.0.1 succeeds
+    beside a listener on 0.0.0.0 or [::] (Docker-published ports, most dev servers) and takes
+    its loopback traffic, so a successful bind alone does not mean the port is free."""
+    if port == 0:
+        return False
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except ConnectionRefusedError:
+        return False
+    except OSError:
+        return True  # a timeout (a full accept queue) or a reset: something holds it
+
+
 def make_server(center: Center, port: int | None) -> ThreadingHTTPServer:
     handler = type("BoundHandler", (Handler,), {"center": center})
-    try:
-        server = ThreadingHTTPServer(
-            ("127.0.0.1", DEFAULT_PORT if port is None else port), handler
-        )
-    except OSError as problem:
-        if port is not None or problem.errno != errno.EADDRINUSE:
-            raise
-        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    candidates, scanned = port_candidates(center, port)
+    for candidate in candidates:
+        if in_use(candidate):
+            continue
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", candidate), handler)
+            break
+        except OSError as problem:
+            if problem.errno != errno.EADDRINUSE:
+                raise
+    else:
+        raise PortBusy(candidates[0], scanned)
     server.daemon_threads = True
     center.port = server.server_address[1]
+    if port is None:
+        try:
+            center.state.set_setting("port", str(center.port))
+        except sqlite3.Error:
+            pass  # remembering the port is a convenience
     return server
 
 
@@ -790,27 +840,67 @@ def main(args) -> int:
                 signal.signal(number, handler)
 
 
-def _main(args) -> int:
-    from agentbreeder.doctor import check_compose, check_docker
+def serve_process(args) -> int:
+    """The console as a process (`python -I -m agentbreeder.center`): `main`, then ignore any
+    later SIGTERM/SIGHUP. A closing terminal or a supervisor can send one after the console has
+    stopped cleanly; the process is about to exit and must not die of it."""
+    code = main(args)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    return code
 
+
+def _main(args) -> int:
+    """The console server process (`python -I -m agentbreeder.center`, started by `up`)."""
     if not ENVIRONMENT.fullmatch(args.environment):
         print("Invalid --environment", file=sys.stderr)
         return 2
     # Started from a backgrounded shell, SIGINT would be ignored here and in every job, and
     # Cancel would do nothing. SIGTERM and SIGHUP (terminal closed) stop it the same way, so
-    # its jobs, which run in their own sessions, are stopped too.
+    # its children are stopped too.
     signal.signal(signal.SIGINT, signal.default_int_handler)
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGHUP, _stop)
-    for check in check_docker() + check_compose():
-        if not check.passed and check.required:
-            print(f"FAIL {check.name}: {check.message}", file=sys.stderr)
-    center = Center(center_directory(), args.environment)
+    # `up --set-password` / `--reset-password` (M2) branch here, before the lock: they run
+    # beside a live console and must not take it, sweep its jobs or migrate under it.
     try:
-        server = make_server(center, args.port)
-    except OSError:
-        print(f"Cannot listen on 127.0.0.1:{args.port}", file=sys.stderr)
+        return _locked(args)
+    except KeyboardInterrupt:  # stopped before serving (taking the lock, a slow port scan)
+        _stopping.set()  # a second stop signal while unwinding is a no-op
+        return 130
+
+
+def _locked(args) -> int:
+    try:
+        directory = center_directory()
+        instance = SingleInstance(directory)
+        instance.acquire()
+    except AlreadyRunning as running:
+        return _already_running(args, running.url)
+    except OSError as problem:
+        print(f"Cannot use the console directory: {problem}", file=sys.stderr)
         return 2
+    try:
+        return _serve(args, directory, instance)
+    finally:
+        instance.release()
+
+
+def _already_running(args, url: str | None) -> int:
+    where = url or "on this machine (it is starting or stopping)"
+    print(f"The AgentBreeder console is already running: {where}")
+    print("Use that one, or stop it first (Ctrl-C in its terminal).")
+    if args.dir is not None or args.yes:
+        print(
+            "Nothing else was done: add the project and start its services in that console.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+def _run(args, center: Center, server: ThreadingHTTPServer, instance: SingleInstance) -> int:
+    """From the bind to the end of serving: register DIR, print the link, `--yes`, serve."""
     project = None
     if args.dir is not None:
         try:
@@ -818,6 +908,7 @@ def _main(args) -> int:
         except BadRequest as problem:
             print(str(problem), file=sys.stderr)
             return 2
+    instance.publish(center.origin)  # only once there is a console to answer at it
     url, page = center.mint_login()
     print(f"AgentBreeder command center: {center.origin} (this machine only, single user)")
     print(f"One-time link, valid {TOKEN_TTL // 60} minutes: {url}", flush=True)
@@ -836,17 +927,58 @@ def _main(args) -> int:
                 center.start_job(project, {"kind": "services-up", "options": preview})
             except (BadRequest, Busy, WriteBusy) as problem:
                 print(f"Services not started: {problem}", file=sys.stderr)
+    server.serve_forever()
+    return 0
+
+
+def _serve(args, directory: Path, instance: SingleInstance) -> int:
+    removed = remove_leftovers(directory)  # S-16: only once the lock is held
+    if removed:
+        print(f"Removed {len(removed)} file(s) left by a console that crashed.", file=sys.stderr)
     try:
-        server.serve_forever()
+        center = Center(directory, args.environment)
+        center.state.interrupt_running()  # the lock is held: no other console owns these
+    except SchemaTooNew as problem:
+        print(str(problem), file=sys.stderr)
+        return 2
+    except (sqlite3.Error, OSError) as problem:
+        print(f"Cannot open the console database (center.sqlite3): {problem}", file=sys.stderr)
+        return 2
+    try:
+        server = make_server(center, args.port)
+    except PortBusy as busy:
+        if busy.scanned:
+            print(
+                f"No free port on 127.0.0.1 between {PORTS[0]} and {PORTS[-1]}; "
+                "start with --port N",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"127.0.0.1:{busy.port} is in use by another program. Open only the URL that "
+                "`up` prints. Find what holds the port, or start with --port N.",
+                file=sys.stderr,
+            )
+        return 2
+    except OSError as problem:
+        print(f"Cannot listen on 127.0.0.1: {problem.strerror or problem}", file=sys.stderr)
+        return 2
+    try:
+        # Everything after the bind is inside the stop handling: a Ctrl-C or stop signal at any
+        # point from here (registering DIR, `--yes` starting services) still stops every job.
+        code = _run(args, center, server, instance)
     except KeyboardInterrupt:
-        pass
+        code = 0
     finally:
         _stopping.set()  # from here on a SIGTERM/SIGHUP is a no-op
         try:
             server.server_close()
+            instance.withdraw()  # a second `up` no longer prints a URL nobody answers
         except KeyboardInterrupt:
             pass
         _shut_down(center)
+    if code:
+        return code
     _say(
         "Command center stopped. Services and deployments keep running: use "
         "`agentbreeder services down` and `agentbreeder remove`."

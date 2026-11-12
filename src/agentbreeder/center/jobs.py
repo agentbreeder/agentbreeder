@@ -146,8 +146,64 @@ def _dotenv_quote(value: str) -> str:
     raise BadRequest("A key value cannot contain both quote characters")
 
 
+# Each migration is a tuple of statements, applied in one transaction with the version bump.
+# Version 1 is the 3.0.0a2 schema, written then without a version table: its statements use IF
+# NOT EXISTS, so an a2 database (tables, no version) and an empty file both reach version 1 with
+# their rows kept.
+MIGRATIONS: dict[int, tuple[str, ...]] = {
+    1: (
+        """CREATE TABLE IF NOT EXISTS projects (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL,
+            environment TEXT NOT NULL, accepted_grant TEXT, created REAL NOT NULL)""",
+        """CREATE TABLE IF NOT EXISTS jobs (
+            id TEXT PRIMARY KEY, project TEXT NOT NULL, kind TEXT NOT NULL,
+            state TEXT NOT NULL, exit_code INTEGER, created REAL NOT NULL,
+            finished REAL)""",
+        """CREATE TABLE IF NOT EXISTS lines (
+            job TEXT NOT NULL, seq INTEGER NOT NULL, text TEXT NOT NULL,
+            PRIMARY KEY (job, seq))""",
+    ),
+    2: ("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",),
+}
+SCHEMA_VERSION = max(MIGRATIONS)
+
+
+class SchemaTooNew(Exception):
+    def __init__(self, version: int):
+        super().__init__(
+            f"center.sqlite3 is at schema version {version}, newer than this AgentBreeder "
+            f"understands ({SCHEMA_VERSION}); upgrade AgentBreeder"
+        )
+        self.version = version
+
+
+def migrate(db: sqlite3.Connection) -> int:
+    """Bring `db` to SCHEMA_VERSION; returns the version it started at (0: new or a2)."""
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        db.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
+        row = db.execute("SELECT version FROM schema_version").fetchone()
+        if row is None:
+            db.execute("INSERT INTO schema_version (version) VALUES (0)")
+        start = row[0] if row else 0
+        if start > SCHEMA_VERSION:
+            raise SchemaTooNew(start)
+        for number in range(start + 1, SCHEMA_VERSION + 1):
+            for statement in MIGRATIONS[number]:
+                db.execute(statement)
+        db.execute("UPDATE schema_version SET version=?", (SCHEMA_VERSION,))
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
+    return start
+
+
 class CenterState:
-    """Projects, jobs and job logs. Never holds a secret."""
+    """The console's own database, `center.sqlite3` (0600): projects, jobs, job logs and
+    settings; from M2 also the users and their password hashes (scrypt), never a password or any
+    other secret value. Provider keys never reach it (they go to a 0600 env file for one job).
+    Its schema is versioned (`schema_version`) and migrated forward at start."""
 
     def __init__(self, directory: Path):
         self.db = sqlite3.connect(
@@ -156,24 +212,27 @@ class CenterState:
         self.lock = threading.Lock()
         (directory / "center.sqlite3").chmod(0o600)
         with self.lock:
-            self.db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS projects (
-                    id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL,
-                    environment TEXT NOT NULL, accepted_grant TEXT, created REAL NOT NULL);
-                CREATE TABLE IF NOT EXISTS jobs (
-                    id TEXT PRIMARY KEY, project TEXT NOT NULL, kind TEXT NOT NULL,
-                    state TEXT NOT NULL, exit_code INTEGER, created REAL NOT NULL,
-                    finished REAL);
-                CREATE TABLE IF NOT EXISTS lines (
-                    job TEXT NOT NULL, seq INTEGER NOT NULL, text TEXT NOT NULL,
-                    PRIMARY KEY (job, seq));
-                """
-            )
-            self.db.execute(
-                "UPDATE jobs SET state='interrupted', finished=? WHERE state='running'",
-                (time.time(),),
-            )
+            self.migrated_from = migrate(self.db)
+
+    def interrupt_running(self) -> None:
+        """Mark jobs a stopped console left `running` as interrupted. Only the console holding
+        the single-instance lock calls this: a command run beside it must not."""
+        self._write(
+            "UPDATE jobs SET state='interrupted', finished=? WHERE state='running'", time.time()
+        )
+
+    def setting(self, key: str) -> str | None:
+        rows = self._rows("SELECT value FROM settings WHERE key=?", key)
+        return rows[0]["value"] if rows else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        self._write("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, value)
+
+    def has_password(self) -> bool:
+        """True once a console password exists (M2 adds the `users` table). Until then `up` is
+        in first-run state, which decides the port policy (S-29)."""
+        tables = self._rows("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        return bool(tables) and bool(self._rows("SELECT 1 FROM users LIMIT 1"))
 
     def _rows(self, sql: str, *parameters) -> list[dict]:
         with self.lock:
