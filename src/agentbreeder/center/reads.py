@@ -1,17 +1,26 @@
-"""In-process reads of a project's files (spec §8.1 #3): registry versions, `agent.lock` and
-`agent.yaml`.
+"""Reads of a project's files for the console (spec §8.1 #3): registry versions and their
+verification, `agent.yaml`, `agent.lock` and where a version is declared and locked.
 
-The server calls the same functions as the CLI's `--json` commands (`registry list`, `registry
-verify`), but only modules that read files: `registry`, `lock`, `agentfile`. Anything that
-touches deployment state, a stack database, secrets, Docker, the operator config or the audit
-chain stays a CLI child (`jobs.Runner.read`); a guard test checks that the server process never
-loads those modules. Answers are cached by the (path, mtime, size) of what they read and dropped
-when a job or write ends. `registry verify` hashes every version, so it runs off the request
-thread: a request gets the last answer (marked stale) or "verifying" until it is ready.
+In process, with the same functions as the CLI's `--json` commands and only modules that read
+files (`registry`, `lock`, `agentfile`): `registry list`'s rows (directory listings only), the
+lock and agent file (each read first through `registry.read_project_file`: a regular file, not a
+link or FIFO, opened non-blocking and size-capped) and `registry used-by`'s files part
+(`registry.usage`). Each answer is cached by a signature of what it reads (inode, ctime, mtime and
+size) and dropped when a job or write ends; a write racing a read cannot store an answer older
+than the drop (a generation counter).
 
-`used_by` gives what `registry used-by` reads from files (declared in `agent.yaml` or
-`stack.yaml`, locked in `agent.lock` or `stack.lock`; `registry.usage`). Which deployments run a
-version reads local deploy state (`registry_deployed`), so it stays a CLI child.
+`registry verify` opens and hashes every file of every version, so it runs as a CLI child with a
+timeout on a background thread (`run_cli`), never in this process: a planted FIFO or a huge tree
+can only time out that child. Until it answers, a request gets the last answer marked stale, or
+VERIFYING; a job's end keeps the last answer (stale) and starts a new run.
+
+Which deployments run a version reads deploy state (`registry_deployed`), so `used-by`'s
+deployments part is a CLI child too (server.py). A guard test keeps the modules this process may
+load to an allowlist.
+
+Out of scope (spec §10.1, processes running as the owner are trusted): a same-user process
+swapping `agent.yaml` or `agent.lock` between the check and `agentfile`/`registry.usage`'s own
+read; the project directory and its files are the owner's (S-01).
 """
 
 from __future__ import annotations
@@ -19,12 +28,16 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
 from agentbreeder import agentfile, lock, registry
 
-MAX_TREE_ENTRIES = 20000  # a registry larger than this is not cached by signature
+MAX_TREE_ENTRIES = 20000  # registry directories signed per request; larger is not cached
+MAX_CACHED = 256  # answers kept (distinct used-by refs grow it)
+VERIFY_TIMEOUT = 300
+UNSIGNED_VERIFY_TTL = 60.0  # an unsigned (huge) registry is verified again after this
 
 
 def envelope(data=None, problem: dict | None = None, stale: bool = False) -> dict:
@@ -41,31 +54,43 @@ def _problem(error: Exception) -> dict:
     }
 
 
-def _signature(paths: list[Path]) -> tuple:
-    """What a read depends on: each path's (mtime, size), and for a directory every entry under
-    it. None when a tree is too large to sign cheaply (the answer is then not cached)."""
+def _stat(path: str, follow: bool = True) -> tuple:
+    try:
+        info = os.stat(path) if follow else os.lstat(path)
+    except OSError:
+        return (path, None)
+    return (path, info.st_ino, info.st_ctime_ns, info.st_mtime_ns, info.st_size)
+
+
+def _file_signature(paths: list[Path]) -> tuple:
+    return tuple(_stat(str(path), follow=False) for path in paths)
+
+
+def _registry_signature(roots: list[Path]) -> tuple | None:
+    """What `registry.listing` depends on: each root, its kind directories, their name
+    directories and the version names under them. Kind and name directories are followed when
+    they are links, as `listing` globs through them. None above MAX_TREE_ENTRIES."""
     parts: list = []
     count = 0
-    for path in paths:
-        try:
-            info = os.stat(path)
-        except OSError:
-            parts.append((str(path), None))
-            continue
-        parts.append((str(path), info.st_mtime_ns, info.st_size))
-        if not os.path.isdir(path):
-            continue
-        for directory, names, files in os.walk(path):
-            names.sort()
-            for name in sorted(files) + names:
+    for root in roots:
+        parts.append(_stat(str(root)))
+        for kind in registry.KINDS:
+            kind_dir = os.path.join(root, kind)
+            parts.append(_stat(kind_dir, follow=False) + _stat(kind_dir)[1:])
+            try:
+                names = sorted(os.listdir(kind_dir))
+            except OSError:
+                continue
+            for name in names:
+                name_dir = os.path.join(kind_dir, name)
                 count += 1
                 if count > MAX_TREE_ENTRIES:
                     return None
+                parts.append(_stat(name_dir, follow=False) + _stat(name_dir)[1:])
                 try:
-                    entry = os.lstat(os.path.join(directory, name))
+                    parts.append((name_dir, tuple(sorted(os.listdir(name_dir)))))
                 except OSError:
                     continue
-                parts.append((directory, name, entry.st_mtime_ns, entry.st_size))
     return tuple(parts)
 
 
@@ -75,7 +100,7 @@ def _lock_entries(raw: bytes | None, name: str) -> dict:
         return {}
     try:
         data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as error:
+    except (UnicodeDecodeError, ValueError, RecursionError) as error:
         raise registry.RegistryError(
             "LOCK_INVALID", f"{name} is not a valid agent.lock"
         ) from error
@@ -88,28 +113,36 @@ def _lock_entries(raw: bytes | None, name: str) -> dict:
 
 
 class Reads:
-    def __init__(self):
+    def __init__(self, run_cli: Callable[..., dict] | None = None):
+        """`run_cli(argv, timeout=...)` returns a CLI read's envelope (`jobs.Runner.read`)."""
+        self.run_cli = run_cli
         self.mutex = threading.Lock()
-        self.cache: dict[tuple, tuple[tuple, dict]] = {}  # (kind, project) -> (signature, answer)
+        self.generation = 0  # bumped when a job or write ends
+        self.cache: dict[tuple, tuple] = {}  # key -> (signature, answer)
+        self.problems: dict[str, tuple] = {}  # project -> (signature, generation, at, answer)
         self.verifying: set[str] = set()
 
     def invalidate(self) -> None:
         with self.mutex:
-            self.cache.clear()
+            self.generation += 1
+            self.cache.clear()  # verify answers are kept, shown stale until the rerun
 
-    def _cached(self, key: tuple, paths: list[Path], compute: Callable[[], dict]) -> dict:
-        signature = _signature(paths)
+    def _cached(self, key: tuple, signature: tuple | None, compute: Callable[[], dict]) -> dict:
         with self.mutex:
             hit = self.cache.get(key)
             if signature is not None and hit and hit[0] == signature:
                 return hit[1]
+            generation = self.generation
         answer = compute()
         if signature is not None and answer["error"] is None:
             with self.mutex:
-                self.cache[key] = (signature, answer)
+                if generation == self.generation:  # no job ended while this read ran
+                    while len(self.cache) >= MAX_CACHED:
+                        self.cache.pop(next(iter(self.cache)))
+                    self.cache[key] = (signature, answer)
         return answer
 
-    # -- the reads -------------------------------------------------------------------------------
+    # -- in process ------------------------------------------------------------------------------
 
     def registry_versions(self, project: str) -> dict:
         """The same rows as `agentbreeder registry list --project PROJECT --json`."""
@@ -121,46 +154,11 @@ class Reads:
             except (registry.RegistryError, OSError) as error:
                 return envelope(None, _problem(error))
 
-        return self._cached(("versions", project), search, compute)
-
-    def registry_problems(self, project: str) -> dict:
-        """The same rows as `agentbreeder registry verify --project PROJECT --json`, computed on
-        a background thread: until it is ready, the last answer marked stale, or VERIFYING."""
-        search = registry.roots(Path(project))
-        signature = _signature(search)
-        key = ("problems", project)
-        with self.mutex:
-            hit = self.cache.get(key)
-            if (
-                hit
-                and hit[0] == signature
-                and (signature is not None or project in self.verifying)
-            ):
-                return hit[1]
-            if project not in self.verifying:
-                self.verifying.add(project)
-                threading.Thread(
-                    target=self._verify, args=(project, search, signature), daemon=True
-                ).start()
-        if hit:
-            return {**hit[1], "stale": True}
-        return envelope(None, {"code": "VERIFYING", "message": "Verifying the registries"})
-
-    def _verify(self, project: str, search: list[Path], signature) -> None:
-        try:
-            answer = envelope(registry.verify(search))
-        except (registry.RegistryError, OSError) as error:
-            answer = envelope(None, _problem(error))
-        with self.mutex:
-            self.verifying.discard(project)
-            # Kept even when it failed: verify reruns when the tree changes or on invalidate,
-            # not on every request.
-            self.cache[("problems", project)] = (signature, answer)
+        return self._cached(("versions", project), _registry_signature(search), compute)
 
     def agent(self, project: str) -> dict:
-        """`agent.yaml` as the build reads it (`agentfile.load_agent_file`). First checked with
-        `registry.read_project_file` (a regular file, not a link or FIFO, opened non-blocking,
-        size-capped), so a planted file cannot hang or bloat the long-running server."""
+        """`agent.yaml` through `agentfile.load_agent_file`, after `read_project_file` checked it
+        (a symlinked `agent.yaml` is refused here, as `registry used-by` refuses it)."""
         path = Path(project) / "agent.yaml"
 
         def compute() -> dict:
@@ -171,26 +169,7 @@ class Reads:
             except (agentfile.AgentFileError, registry.RegistryError, OSError) as error:
                 return envelope(None, _problem(error))
 
-        return self._cached(("agent", project), [path], compute)
-
-    def used_by(self, project: str, ref: str) -> dict:
-        """Where PROJECT declares and locks REF: `registry.usage`, the in-process half of
-        `agentbreeder registry used-by REF --project PROJECT --json`."""
-        directory = Path(project)
-        try:
-            parsed = registry.Ref.parse(ref)
-        except registry.RegistryError as error:
-            return envelope(None, _problem(error))
-        paths = [directory / name for name in ("agent.yaml", "stack.yaml", "agent.lock")]
-        paths.append(directory / "stack.lock")
-
-        def compute() -> dict:
-            try:
-                return envelope(registry.usage(parsed, directory))
-            except (registry.RegistryError, OSError) as error:
-                return envelope(None, _problem(error))
-
-        return self._cached(("used-by", project, str(parsed)), paths, compute)
+        return self._cached(("agent", project), _file_signature([path]), compute)
 
     def lock(self, project: str) -> dict:
         """`agent.lock`'s entries, parsed as `lock.Lock.load` does, from bytes read with
@@ -205,4 +184,76 @@ class Reads:
             except (registry.RegistryError, OSError) as error:
                 return envelope(None, _problem(error))
 
-        return self._cached(("lock", project), [path], compute)
+        return self._cached(("lock", project), _file_signature([path]), compute)
+
+    def used_by(self, project: str, ref: str) -> dict:
+        """Where PROJECT declares and locks REF: `registry.usage`, the in-process half of
+        `agentbreeder registry used-by REF --project PROJECT --json`."""
+        directory = Path(project)
+        try:
+            parsed = registry.Ref.parse(ref)
+        except registry.RegistryError as error:
+            return envelope(None, _problem(error))
+        names = ("agent.yaml", "stack.yaml", "agent.lock", "stack.lock")
+        signature = _file_signature([directory / name for name in names])
+
+        def compute() -> dict:
+            try:
+                return envelope(registry.usage(parsed, directory))
+            except (registry.RegistryError, OSError, RecursionError) as error:
+                return envelope(None, _problem(error))
+
+        return self._cached(("used-by", project, str(parsed)), signature, compute)
+
+    # -- verify: a CLI child off the request thread ----------------------------------------------
+
+    def registry_problems(self, project: str) -> dict:
+        """The same rows as `agentbreeder registry verify --project PROJECT --json`, from a CLI
+        child on a background thread: until it answers, the last answer marked stale, or
+        VERIFYING."""
+        signature = _registry_signature(registry.roots(Path(project)))
+        now = time.monotonic()
+        with self.mutex:
+            entry = self.problems.get(project)
+            fresh = (
+                entry is not None
+                and entry[1] == self.generation
+                and (
+                    entry[0] == signature
+                    if signature is not None
+                    else now - entry[2] < UNSIGNED_VERIFY_TTL
+                )
+            )
+            if fresh:
+                return entry[3]
+            if project not in self.verifying:
+                self.verifying.add(project)
+                threading.Thread(
+                    target=self._verify,
+                    args=(project, signature, self.generation),
+                    daemon=True,
+                ).start()
+        if entry is not None:
+            return {**entry[3], "stale": True}
+        return envelope(None, {"code": "VERIFYING", "message": "Verifying the registries"})
+
+    def _verify(self, project: str, signature, generation: int) -> None:
+        answer = envelope(None, {"code": "VERIFY_FAILED", "message": "Verification failed"})
+        try:
+            if self.run_cli is None:
+                answer = envelope(None, {"code": "VERIFY_UNAVAILABLE", "message": "No CLI"})
+            else:
+                answer = self.run_cli(
+                    ["registry", "verify", "--project", project, "--json"],
+                    timeout=VERIFY_TIMEOUT,
+                    key=f"verify {project} {time.monotonic()}",  # never the shared cache
+                )
+                answer = {**answer, "stale": False}
+        except Exception as error:  # a verify failure must never leave VERIFYING for good
+            answer = envelope(None, {"code": "VERIFY_FAILED", "message": type(error).__name__})
+        finally:
+            with self.mutex:
+                self.verifying.discard(project)
+                # Kept even when it failed: verify reruns when the tree changes, on a job's end,
+                # or (unsigned trees) after UNSIGNED_VERIFY_TTL, not on every request.
+                self.problems[project] = (signature, generation, time.monotonic(), answer)

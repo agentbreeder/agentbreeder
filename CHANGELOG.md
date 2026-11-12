@@ -90,10 +90,11 @@ On main, not in a published preview.
   - **The default port is now 8080 (3.0.0a2 used 8900).** Before a password exists, a busy port
     moves the console to the next free port up to 8099; afterwards `up` refuses a busy port and
     names it. Bookmarks to `127.0.0.1:8900` from 3.0.0a2 no longer reach the console.
-  - Registry versions and verification, `agent.yaml`, `agent.lock` and `used-by`'s declared and
-    locked parts are read in the server process with the CLI's own functions (verification off
-    the request thread), cached by file modification time and size; a test keeps state, secret, Docker, operator-config and audit
-    modules out of that process. The registry screen no longer starts two CLI processes.
+  - Registry versions, `agent.yaml`, `agent.lock` and `used-by`'s declared and locked parts are
+    read in the server process with the CLI's own functions, each file checked first (regular,
+    non-blocking, size-capped) and cached until it changes or a job ends. `registry verify` runs
+    as a CLI child in the background (the registry card shows "verifying" or the last answer). A
+    test keeps the server process to an allowlist of modules.
   - `center.sqlite3` gains a `schema_version` table and migrations; a 3.0.0a2 database is
     upgraded in place with its projects and job history kept.
 - Registries (#824), on `main`, not in a published preview: `build`, `release` and `services up`

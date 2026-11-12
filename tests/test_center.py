@@ -46,6 +46,10 @@ FAKE_CLI = textwrap.dedent(
             print("envfile", path, flush=True)
     elif argv[:2] == ["services", "env"]:
         print("export AGENTBREEDER_STATE_DIR=/tmp/fake-state")
+    elif argv[:2] == ["registry", "used-by"]:
+        print(json.dumps({{"ref": argv[2], "projects": [{{"deployed": []}}]}}))
+        if os.path.exists(marker + "/used-by-errors"):
+            sys.exit(2)
     elif argv[0] == "registry":
         print("[]")
     elif argv[0] == "list":
@@ -289,7 +293,9 @@ def test_project_paths_are_validated(center, cookie, tmp_path, project_dir):
     assert api(center, "POST", "/api/projects", {"example": "other"}, cookie)[0] == 400
 
 
-@pytest.mark.parametrize("view", ["services", "registry", "deployments", "audit", "cluster"])
+@pytest.mark.parametrize(
+    "view", ["services", "registry", "deployments", "audit", "cluster", "agent", "lock"]
+)
 def test_views(center, project, cookie, view):
     status, data, _ = api(center, "GET", f"/api/projects/{project['id']}/{view}", cookie=cookie)
     assert status == 200 and data
@@ -2467,3 +2473,15 @@ def test_the_process_ignores_stop_signals_after_a_clean_stop(quiet_main, monkeyp
     finally:
         for number, handler in saved.items():
             signals.signal(number, handler)
+
+
+def test_used_by_route_answers_files_and_deployments(center, cookie, project, tmp_path):
+    path = f"/api/projects/{project['id']}/used-by?ref=runtime/adk@1.0.0"
+    status, data, _ = api(center, "GET", path, cookie=cookie)
+    assert status == 200 and data["data"]["deployments"]["error"] is None
+    assert data["data"]["deployments"]["data"]["ref"] == "runtime/adk@1.0.0"
+    # `used-by` exits 2 when a project file has an error but still prints its answer.
+    (tmp_path / "used-by-errors").write_text("")
+    center.runner.cache.clear()
+    status, data, _ = api(center, "GET", path, cookie=cookie)
+    assert data["data"]["deployments"]["error"] is None

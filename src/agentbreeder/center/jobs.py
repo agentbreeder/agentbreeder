@@ -40,6 +40,7 @@ __all__ = [
 MAX_LINE = 4000
 MAX_LINES = 20000
 KEEP_JOBS = 100
+MAX_CACHED = 256  # last good read answers kept
 ENVIRONMENT = re.compile(r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$")
 DEPLOYMENT = re.compile(r"^[0-9a-f]{32}$")
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -698,8 +699,16 @@ class Runner:
         for listener in self.on_invalidate:
             listener()
 
-    def read(self, argv: Sequence[str], timeout: int = 30, key: str | None = None) -> dict:
-        """Run a read-only command that prints JSON; on failure, keep the last good answer."""
+    def read(
+        self,
+        argv: Sequence[str],
+        timeout: int = 30,
+        key: str | None = None,
+        ok_codes: Sequence[int] = (0,),
+    ) -> dict:
+        """Run a read-only command that prints JSON; on failure, keep the last good answer.
+        `ok_codes`: exit codes whose JSON is still the answer (`registry used-by` exits 2 when
+        a project file has an error, after printing what it found)."""
         cache_key = key or " ".join(argv)
         try:
             result = subprocess.run(
@@ -716,7 +725,7 @@ class Runner:
             return self._stale(cache_key, error("TIMEOUT", "The command timed out"))
         except OSError:
             return self._stale(cache_key, error("COMMAND_FAILED", "The command could not start"))
-        if result.returncode:
+        if result.returncode not in ok_codes:
             return self._stale(cache_key, cli_error(result.stderr, result.returncode))
         try:
             answer = {"data": json.loads(result.stdout), "error": None, "stale": False}
@@ -724,6 +733,8 @@ class Runner:
             return self._stale(
                 cache_key, error("BAD_OUTPUT", "The command returned unreadable output")
             )
+        while len(self.cache) >= MAX_CACHED:  # distinct argv (used-by refs) grow it
+            self.cache.pop(next(iter(self.cache)))
         self.cache[cache_key] = answer
         return answer
 

@@ -18,28 +18,26 @@ AGENT = (
     "kind: agent\nschema_version: 1\nname: tiny\nruntime: runtime/adk@1.0.0\n"
     "model: {alias: m}\nprompt: {path: prompts/dev.md}\n"
 )
-# Modules the long-running server process must never load (spec §8.1 #3, §10 I3): deployment
-# state, stack state and secrets, Docker, the operator config, the audit chain, and the CLI
-# itself (which imports all of them).
-FORBIDDEN = (
-    "agentbreeder.cli",
-    "agentbreeder.store",
-    "agentbreeder.deployment",
-    "agentbreeder.deployer",
-    "agentbreeder.runtime",
-    "agentbreeder.operator_config",
-    "agentbreeder.audit",
-    "agentbreeder.secret_files",
-    "agentbreeder.services",
-    "agentbreeder.services.state",
-    "agentbreeder.gate",
-    "agentbreeder.release",
-    "agentbreeder.promote",
-    "agentbreeder.doctor",
-    "agentbreeder.kubernetes",
-    "agentbreeder.egress",
-    "agentbreeder.registry_deployed",
-)
+# The only AgentBreeder modules the long-running server process may load (spec §8.1 #3, §10 I3):
+# an allowlist, so a new import of state, secrets, Docker, the operator config, the audit chain,
+# registry_deployed or the CLI fails the guard.
+ALLOWED = {
+    "agentbreeder",
+    "agentbreeder._version",
+    "agentbreeder.agentfile",
+    "agentbreeder.lock",
+    "agentbreeder.redaction",
+    "agentbreeder.registry",
+    "agentbreeder.strict_yaml",
+    "agentbreeder.center",
+    "agentbreeder.center.__main__",
+    "agentbreeder.center.files",
+    "agentbreeder.center.instance",
+    "agentbreeder.center.jobs",
+    "agentbreeder.center.launch",
+    "agentbreeder.center.reads",
+    "agentbreeder.center.server",
+}
 
 
 @pytest.fixture
@@ -74,19 +72,6 @@ def _until_ready(read, timeout: float = 120) -> dict:
     raise AssertionError("verify never finished")
 
 
-def test_registry_reads_match_the_cli(project):
-    """The same functions as `registry list` and `registry verify`, so the same answers."""
-    layer = Reads()
-    versions = layer.registry_versions(str(project))
-    assert versions["error"] is None and versions["data"]
-    assert versions["data"] == _cli("registry", "list", "--project", str(project), "--json")
-    first = layer.registry_problems(str(project))
-    assert first["error"] == {"code": "VERIFYING", "message": "Verifying the registries"}
-    problems = _until_ready(lambda: layer.registry_problems(str(project)))
-    assert problems["error"] is None
-    assert problems["data"] == _cli("registry", "verify", "--project", str(project), "--json")
-
-
 def test_reads_are_cached_by_what_they_read(project):
     layer = Reads()
     first = layer.agent(str(project))
@@ -108,20 +93,6 @@ def test_a_published_version_changes_the_listing(project):
     assert len(rows) == len(before) + 1 and rows[0]["ref"] == "prompt/local@1.0.0"
 
 
-def test_verify_returns_the_last_answer_as_stale_while_it_reruns(project, monkeypatch):
-    layer = Reads()
-    _until_ready(lambda: layer.registry_problems(str(project)))
-    (project / "registry").mkdir()  # the tree changed: verify runs again
-    real = reads.registry.verify
-    monkeypatch.setattr(reads.registry, "verify", lambda search: time.sleep(0.5) or real(search))
-    again = layer.registry_problems(str(project))
-    assert again["stale"] is True and again["error"] is None
-    deadline = time.monotonic() + 30
-    while layer.registry_problems(str(project))["stale"]:
-        assert time.monotonic() < deadline, "the rerun never finished"
-        time.sleep(0.05)
-
-
 def test_read_errors_carry_the_code(project):
     layer = Reads()
     (project / "agent.lock").write_text("not json")
@@ -140,25 +111,6 @@ def test_errors_are_not_cached(project, monkeypatch):
     assert ("lock", str(project)) not in layer.cache
 
 
-def test_a_failing_verify_reports_its_code(project, monkeypatch):
-    def broken(search):
-        raise reads.registry.RegistryError("REGISTRY_BROKEN", "bad tree")
-
-    monkeypatch.setattr(reads.registry, "verify", broken)
-    monkeypatch.setattr(reads.registry, "listing", broken)
-    layer = Reads()
-    assert layer.registry_versions(str(project))["error"]["code"] == "REGISTRY_BROKEN"
-    answer = _until_ready(lambda: layer.registry_problems(str(project)))
-    assert answer["error"] == {"code": "REGISTRY_BROKEN", "message": "bad tree"}
-
-
-def test_a_huge_tree_is_read_but_not_cached(project, monkeypatch):
-    monkeypatch.setattr(reads, "MAX_TREE_ENTRIES", 1)
-    layer = Reads()
-    assert layer.registry_versions(str(project))["error"] is None
-    assert layer.cache == {}
-
-
 def test_a_job_end_drops_the_read_cache(tmp_path, project):
     from agentbreeder.center.server import Center
 
@@ -169,44 +121,6 @@ def test_a_job_end_drops_the_read_cache(tmp_path, project):
     assert center.reads.cache
     center.runner.invalidate()
     assert center.reads.cache == {}
-
-
-def test_the_server_process_never_loads_state_secret_docker_config_or_audit(tmp_path, project):
-    """The real console process: `python -I -m agentbreeder.center`'s imports, plus every
-    in-process read, leave none of the forbidden modules loaded."""
-    script = (
-        "import json, sys\n"
-        "from pathlib import Path\n"
-        "import agentbreeder.center.__main__\n"
-        "from agentbreeder.center.server import Center\n"
-        f"directory = Path({str(tmp_path / 'center')!r})\n"
-        "directory.mkdir(mode=0o700)\n"
-        "center = Center(directory)\n"
-        f"project = {str(project)!r}\n"
-        "center.reads.registry_versions(project)\n"
-        "center.reads.agent(project)\n"
-        "center.reads.lock(project)\n"
-        "center.reads.used_by(project, 'runtime/adk@1.0.0')\n"
-        "import agentbreeder.registry as registry\n"
-        "registry.verify(registry.roots(Path(project)))\n"
-        "print(json.dumps(sorted(sys.modules)))\n"
-    )
-    result = subprocess.run(
-        [sys.executable, "-I", "-c", script],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 0, result.stderr
-    loaded = set(json.loads(result.stdout))
-    assert "agentbreeder.center.reads" in loaded and "agentbreeder.registry" in loaded
-    leaked = sorted(
-        name
-        for name in loaded
-        if any(name == bad or name.startswith(bad + ".") for bad in FORBIDDEN)
-    )
-    assert leaked == []
 
 
 def test_used_by_matches_the_cli_files_part(project):
@@ -261,3 +175,207 @@ def test_lock_entries_match_lock_load(project):
         assert Reads().lock(str(project))["error"]["code"] == "LOCK_INVALID"
     (project / "agent.lock").write_text(json.dumps({"lock_version": lock_module.LOCK_VERSION}))
     assert Reads().lock(str(project))["error"]["code"] == "LOCK_INVALID"
+
+
+def _ready(read, timeout: float = 120) -> dict:
+    """Ask until the answer is neither VERIFYING nor stale."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        answer = read()
+        pending = answer["error"] is not None and answer["error"]["code"] == "VERIFYING"
+        if not pending and not answer["stale"]:
+            return answer
+        time.sleep(0.05)
+    raise AssertionError("verify never finished")
+
+
+def _real_cli(tmp_path):
+    from agentbreeder.center.jobs import CenterState, Runner
+
+    directory = tmp_path / "runner"
+    directory.mkdir(exist_ok=True)
+    return Runner(CenterState(directory), directory, [sys.executable, "-m", "agentbreeder"]).read
+
+
+def test_registry_reads_match_the_cli(project, tmp_path):
+    """`registry list` in process and `registry verify` as a CLI child: the CLI's answers."""
+    layer = Reads(run_cli=_real_cli(tmp_path))
+    versions = layer.registry_versions(str(project))
+    assert versions["error"] is None and versions["data"]
+    assert versions["data"] == _cli("registry", "list", "--project", str(project), "--json")
+    first = layer.registry_problems(str(project))
+    assert first["error"] == {"code": "VERIFYING", "message": "Verifying the registries"}
+    problems = _ready(lambda: layer.registry_problems(str(project)))
+    assert problems["error"] is None
+    assert problems["data"] == _cli("registry", "verify", "--project", str(project), "--json")
+
+
+def test_verify_keeps_the_last_answer_stale_after_a_job_ends(project):
+    calls = []
+
+    def fake(argv, timeout, key):
+        calls.append((argv, timeout))
+        time.sleep(0.2)
+        return {"data": [len(calls)], "error": None, "stale": False}
+
+    layer = Reads(run_cli=fake)
+    assert _ready(lambda: layer.registry_problems(str(project)))["data"] == [1]
+    assert calls[0][0][:2] == ["registry", "verify"] and calls[0][1] == reads.VERIFY_TIMEOUT
+    assert layer.registry_problems(str(project))["data"] == [1]  # fresh: no second run
+    layer.invalidate()
+    stale = layer.registry_problems(str(project))
+    assert stale["stale"] is True and stale["data"] == [1]
+    assert _ready(lambda: layer.registry_problems(str(project)))["data"] == [2]
+
+
+def test_a_verify_that_fails_or_raises_never_sticks_on_verifying(project):
+    def broken(argv, timeout, key):
+        raise RuntimeError("boom")
+
+    layer = Reads(run_cli=broken)
+    answer = _ready(lambda: layer.registry_problems(str(project)))
+    assert answer["error"]["code"] == "VERIFY_FAILED" and layer.verifying == set()
+    timed_out = Reads(
+        run_cli=lambda argv, timeout, key: {
+            "data": None,
+            "error": {"code": "TIMEOUT", "message": "The command timed out"},
+            "stale": False,
+        }
+    )
+    assert _ready(lambda: timed_out.registry_problems(str(project)))["error"]["code"] == "TIMEOUT"
+    no_cli = Reads()
+    assert no_cli.registry_problems(str(project))["error"]["code"] == "VERIFYING"
+    answer = _ready(lambda: no_cli.registry_problems(str(project)), 5)
+    assert answer["error"]["code"] == "VERIFY_UNAVAILABLE"
+
+
+def test_a_fifo_manifest_cannot_hang_the_server(project, tmp_path):
+    """Verify opens every file; it runs as a CLI child, so a FIFO only costs that child's
+    timeout, and the listing (directory names only) answers at once."""
+    version = project / "registry" / "prompt" / "x" / "1.0.0"
+    version.mkdir(parents=True)
+    os.mkfifo(version / "manifest.yaml")
+    layer = Reads(
+        run_cli=lambda argv, timeout, key: (
+            time.sleep(0.1)
+            or {"data": None, "error": {"code": "TIMEOUT", "message": "x"}, "stale": False}
+        )
+    )
+    started = time.monotonic()
+    rows = layer.registry_versions(str(project))["data"]
+    assert any(row["ref"] == "prompt/x@1.0.0" for row in rows)
+    assert layer.registry_problems(str(project))["error"]["code"] == "VERIFYING"
+    assert time.monotonic() - started < 5
+
+
+def test_an_unsigned_registry_is_not_verified_again_and_again(project, monkeypatch):
+    monkeypatch.setattr(reads, "MAX_TREE_ENTRIES", 0)
+    (project / "registry" / "prompt" / "x").mkdir(parents=True)
+    calls = []
+    layer = Reads(
+        run_cli=lambda argv, timeout, key: (
+            calls.append(1) or {"data": [], "error": None, "stale": False}
+        )
+    )
+    _ready(lambda: layer.registry_problems(str(project)))
+    for _ in range(20):
+        layer.registry_problems(str(project))
+    assert len(calls) == 1
+    assert layer.registry_versions(str(project))["error"] is None and layer.cache == {}
+
+
+def test_a_linked_name_directory_is_covered_by_the_signature(project, tmp_path):
+    outside = tmp_path / "outside"
+    (outside / "1.0.0").mkdir(parents=True)
+    (project / "registry" / "prompt").mkdir(parents=True)
+    (project / "registry" / "prompt" / "linked").symlink_to(outside)
+    layer = Reads()
+    before = {row["ref"] for row in layer.registry_versions(str(project))["data"]}
+    (outside / "2.0.0").mkdir()
+    after = {row["ref"] for row in layer.registry_versions(str(project))["data"]}
+    assert after - before == {"prompt/linked@2.0.0"}
+
+
+def test_a_read_racing_a_job_end_is_not_cached(project, monkeypatch):
+    layer = Reads()
+    real = reads.agentfile.load_agent_file
+
+    def racing(path):
+        layer.invalidate()  # a job ends while this read runs
+        return real(path)
+
+    monkeypatch.setattr(reads.agentfile, "load_agent_file", racing)
+    assert layer.agent(str(project))["error"] is None
+    assert ("agent", str(project)) not in layer.cache
+
+
+def test_the_cache_is_bounded(project, monkeypatch):
+    monkeypatch.setattr(reads, "MAX_CACHED", 3)
+    layer = Reads()
+    for version in range(6):
+        layer.used_by(str(project), f"prompt/x@1.0.{version}")
+    assert len(layer.cache) == 3
+
+
+def test_a_deeply_nested_lock_is_lock_invalid_not_a_crash(project):
+    (project / "agent.lock").write_text("[" * 200000)
+    assert Reads().lock(str(project))["error"]["code"] == "LOCK_INVALID"
+
+
+def test_a_same_size_edit_with_the_same_mtime_is_seen(project):
+    layer = Reads()
+    path = project / "agent.yaml"
+    assert layer.agent(str(project))["data"]["name"] == "tiny"
+    info = path.stat()
+    path.write_text(AGENT.replace("tiny", "tinz"))
+    os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
+    assert layer.agent(str(project))["data"]["name"] == "tinz"  # ctime and inode still change
+
+
+def test_a_relative_registry_path_is_made_absolute_at_start(tmp_path, monkeypatch):
+    from agentbreeder.center import __main__ as entry
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENTBREEDER_REGISTRY_PATH", os.pathsep.join(["shared", "/abs", ""]))
+    entry._absolute_registry_path()
+    assert os.environ["AGENTBREEDER_REGISTRY_PATH"].split(os.pathsep) == [
+        str(tmp_path / "shared"),
+        "/abs",
+        "",
+    ]
+
+
+def test_the_server_process_loads_only_allowed_modules(tmp_path, project):
+    """The real console process, `python -I`, driven through every read (the views, used-by
+    and a finished verify): only allowlisted AgentBreeder modules are loaded."""
+    script = (
+        "import json, sys, time\n"
+        "from pathlib import Path\n"
+        "import agentbreeder.center.__main__\n"
+        "from agentbreeder.center import server\n"
+        f"directory = Path({str(tmp_path / 'center')!r})\n"
+        "directory.mkdir(mode=0o700)\n"
+        "center = server.Center(directory)\n"
+        f"project = center.register(Path({str(project)!r}))\n"
+        "for view in ('registry', 'agent', 'lock'):\n"
+        "    center.read_view(project, view)\n"
+        "class Q: pass\n"
+        "request = server.Request(center, {'project': project['id']}, None,\n"
+        "                         {'ref': ['runtime/adk@1.0.0']})\n"
+        "server._used_by(request)\n"
+        "deadline = time.monotonic() + 120\n"
+        "while center.reads.verifying and time.monotonic() < deadline:\n"
+        "    time.sleep(0.05)\n"
+        "print(json.dumps(sorted(m for m in sys.modules if m.startswith('agentbreeder'))))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    loaded = set(json.loads(result.stdout.strip().splitlines()[-1]))
+    assert {"agentbreeder.center.reads", "agentbreeder.registry"} <= loaded
+    assert loaded - ALLOWED == set()

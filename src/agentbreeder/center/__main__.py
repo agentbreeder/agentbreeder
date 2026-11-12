@@ -54,7 +54,25 @@ def run(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 2
+    _absolute_registry_path()
     return server.serve_process(args)
+
+
+def _absolute_registry_path() -> None:
+    """Make AGENTBREEDER_REGISTRY_PATH entries absolute against the directory `up` ran in, so
+    the in-process reads and the CLI children (which run in the console directory) search the
+    same roots."""
+    import os
+
+    from agentbreeder import registry
+
+    value = os.environ.get(registry.PATH_ENV)
+    if value:
+        entries = [
+            str(Path(entry).expanduser().absolute()) if entry.strip() else entry
+            for entry in value.split(os.pathsep)
+        ]
+        os.environ[registry.PATH_ENV] = os.pathsep.join(entries)
 
 
 if __name__ == "__main__":

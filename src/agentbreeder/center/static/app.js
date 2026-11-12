@@ -102,6 +102,21 @@ async function loadView() {
   if (ui.step === "services") wanted.push("registry");
   if (!ui.view.deployments && !wanted.includes("deployments")) wanted.push("deployments");
   await Promise.all(wanted.map(async (view) => { ui.view[view] = await api(`${base}/${view}`); }));
+  if (wanted.includes("registry")) followVerify(ui.project.id);
+}
+
+// Registry verification runs in the background: ask again while it says "verifying" or shows a
+// stale answer, a few times, for the project still on screen.
+function followVerify(projectId, tries = 0) {
+  const problems = ui.view.registry && ui.view.registry.data && ui.view.registry.data.problems;
+  const pending = problems && (problems.stale || (problems.error && problems.error.code === "VERIFYING"));
+  if (!pending || tries >= 30) return;
+  setTimeout(async () => {
+    if (!ui.project || ui.project.id !== projectId) return;
+    try { ui.view.registry = await api(`/api/projects/${projectId}/registry`); } catch { return; }
+    if (ui.step === "services") render();
+    followVerify(projectId, tries + 1);
+  }, 2000);
 }
 
 // Follow one job in the drawer. Each call starts a new generation, so an older poll loop stops

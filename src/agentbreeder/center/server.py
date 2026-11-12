@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from agentbreeder import __version__
+from agentbreeder import __version__, registry
 from agentbreeder.center.files import (
     BadRequest,
     check_ancestors,
@@ -122,7 +122,7 @@ class Center:
         self.environment = environment
         self.state = CenterState(directory)
         self.runner = Runner(self.state, directory, prefix)
-        self.reads = Reads()
+        self.reads = Reads(run_cli=self.runner.read)
         self.runner.on_invalidate.append(self.reads.invalidate)
         self.static = static_files()
         self.port = 0
@@ -397,8 +397,12 @@ def _used_by(request: Request) -> dict:
     files = request.center.reads.used_by(project["path"], ref)
     if files["error"]:
         return files
+    # Canonical ref in argv (it parsed above). `used-by` exits 2 when a project file has an
+    # error but still prints its JSON, so that answer is kept.
+    canonical = str(registry.Ref.parse(ref))
     deployed = request.center.runner.read(
-        ["registry", "used-by", ref, "--project", project["path"], "--json"]
+        ["registry", "used-by", canonical, "--project", project["path"], "--json"],
+        ok_codes=(0, 2),
     )
     return envelope({"files": files["data"], "deployments": deployed})
 
