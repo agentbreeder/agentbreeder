@@ -137,6 +137,12 @@ re-vendors `tokens.css`; `tokens:check` now also compares `:root`.
 operator config gains `Environment.kubernetes`. Website: `what-ships` and `command-center.mdx`. Cloud: no
 code; it has no OSS version pin, and the center's API is private and unversioned, not the #775 contract.
 
+**CLI M3 and M8 (#819, #824), per side.** OSS (on `main`, not in a published preview): `migrate`,
+`logs --failed`, `registry show|diff|used-by`, launcher-aware `Next:` lines, `redaction.py`,
+`evidence.py`, `registry_deployed.py`. Website: no change until the release milestone (R). Cloud: a
+`CLAUDE.md` note only; it has no OSS version pin and there is no `agent.yaml`, JSON Schema or
+`agent.lock` format change.
+
 ## 🎯 When Adding a New Feature
 
 1. **Check the ROADMAP.md** — is this feature planned? Which priority, lane and milestone?

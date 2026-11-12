@@ -434,9 +434,9 @@ def test_cli_promote_reports_errors(identity_env, tmp_path, capsys):
 
 
 def test_cli_promote_success_path(project, cluster_env, state, released, monkeypatch, capsys):  # noqa: F811
-    monkeypatch.setattr(
-        promote_module.__dict__["promote"].__globals__["registry"], "PATH_ENV", "UNUSED"
-    )
+    from agentbreeder import registry as registry_module
+
+    monkeypatch.setattr(registry_module, "PATH_ENV", "UNUSED")
     outcome = SimpleNamespace(code=0, message="ok", as_json=lambda: {"exit_code": 0})
     monkeypatch.setattr(promote_module, "promote", lambda *a, **k: outcome)
     code = cli.main(

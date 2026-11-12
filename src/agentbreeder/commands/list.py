@@ -24,8 +24,9 @@ def run(args) -> int:
             return 0
         return None
 
+    # Read-only: no migration, no write lock, nothing created (guided §14.2).
     return cli.run_stateful(
-        args, lambda service, operator: _list(service.store, args), before=before
+        args, lambda store: _list(store, args), before=before, service=False, readonly=True
     )
 
 

@@ -349,7 +349,7 @@ def test_services_job_passes_keys_privately_and_redacts_them(center, project, co
     assert "mode 0o600" in text
     assert KEY_VALUE not in text
     assert base64.b64encode(KEY_VALUE.encode()).decode() not in text
-    assert "echo ***" in text and "b64 ***" in text
+    assert "echo [redacted]" in text and "b64 [redacted]" in text
     env_file = Path(re.search(r"envfile (\S+)", text)[1])
     assert not env_file.exists()
     deadline = time.monotonic() + 5
@@ -1741,6 +1741,9 @@ def _console_script(tmp_path, fake_cli) -> Path:
         "    s = orig(center, port)\n"
         f"    project = center.register(Path({str(project)!r}))\n"
         "    job = center.runner.start(project, 'build', {})\n"
+        "    import time\n"
+        "    while not center.state.job(job)['lines']:  # its SIGINT handler is in place\n"
+        "        time.sleep(0.05)\n"
         "    print('JOB', job, center.runner.jobs[job].process.pid, flush=True)\n"
         "    return s\n"
         "server.make_server = make\n"

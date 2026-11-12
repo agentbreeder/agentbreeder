@@ -9,17 +9,22 @@ the deployer, it is not a production topology.
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import yaml
 
 from agentbreeder.kubernetes import MANAGED_BY, POD_SECURITY
 from agentbreeder.services.schema import ServiceError
-from agentbreeder.services.state import write_private
+from agentbreeder.services.state import private_dir, write_private
 
 NAME = "agentbreeder"
 NODE = f"{NAME}-control-plane"
@@ -279,14 +284,55 @@ def block_for(state, agents_network: str) -> dict:
     }
 
 
+LOCK_NAME = "cluster.lock"
+
+
+def lock_path() -> Path:
+    """`~/.agentbreeder/locks/cluster.lock`: per user and fixed (it does not follow
+    AGENTBREEDER_STACKS_DIR), because the kind cluster and registry are one per machine."""
+    return private_dir(Path.home() / ".agentbreeder" / "locks") / LOCK_NAME
+
+
+@contextmanager
+def cluster_lock() -> Iterator[None]:
+    """One `cluster up` or `cluster down` at a time on this machine (security finding S-11):
+    the kind cluster and registry are machine-wide, so the console's in-process locks cannot
+    order a terminal run against a console job. A second run fails fast instead of waiting."""
+    path = lock_path()
+    try:
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    except OSError as error:
+        raise ServiceError("STATE_UNSAFE", f"cannot open {path}") from error
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ServiceError("STATE_UNSAFE", f"{path} must be a 0600 file you own")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ServiceError(
+                "CLUSTER_BUSY",
+                "another `agentbreeder cluster up` or `cluster down` is running; retry when it "
+                "finishes",
+            ) from None
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def up(
     project: Path, environment: str, *, confirm=None, expect_grant=None, log=lambda _: None
 ) -> dict:
     """Prepare the cluster and record it. With `confirm`, also accept the changed grant; without
     it the caller reviews the grant (`services plan`) and confirms with `services up`."""
+    require_tools()
+    with cluster_lock():
+        return _up(project, environment, confirm=confirm, expect_grant=expect_grant, log=log)
+
+
+def _up(project: Path, environment: str, *, confirm, expect_grant, log) -> dict:
     from agentbreeder.services.engine import Engine
 
-    require_tools()
     engine = Engine(project, log=log)
     try:
         network = engine.state.project + "-agents"
@@ -337,6 +383,11 @@ def status(project: Path) -> dict:
 
 
 def down(project: Path) -> dict:
+    with cluster_lock():
+        return _down(project)
+
+
+def _down(project: Path) -> dict:
     from agentbreeder.services.engine import Engine
 
     engine = Engine(project)

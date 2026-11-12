@@ -12,6 +12,27 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder registry show REF [--project DIR] [--json]` (#824), on `main`, not in a published
+  preview: one version's hash, root, manifest, files and the text of its text files, read-only.
+  It goes through the same safety checks as `verify`, opens files without following symlinks,
+  caps text at 256 KiB per file and 2 MiB per version, and removes control and bidi characters
+  from file names, manifest values and content (S-27), and from every registry error message.
+  The hash and manifest it shows come from the same read as the content. The `--json` shape is
+  documented in `docs/registry.md` for the console's registry pages.
+- `agentbreeder registry diff FROM TO [--context N] [--project DIR] [--json]` (#824), on `main`,
+  not in a published preview: what changes from one version of a `kind/name` to another, file
+  by file, as a valid unified diff (patience anchors, then difflib: where lines repeat, hunk
+  placement can differ from `diff(1)`). Binary, oversized, over-budget (one budget of work and
+  output lines per diff), mode-only and stripped-character-only changes are reported rather
+  than hidden. Reads like `show`.
+- `agentbreeder registry used-by REF --project DIR... [--state-dir DIR] [--json]` (#824), on
+  `main`, not in a published preview: per project, where `agent.yaml`/`stack.yaml` declare the
+  ref (in ref fields only), the `agent.lock`/`stack.lock` entry, and recorded deployments of the
+  agent, reported separately: `ready` ones whose image the project's current build record lists
+  the ref for, the same match in other states, and deployments that cannot be matched
+  ("undetermined", with the reason). Project files are read as regular, size-capped files and
+  deploy state read-only (private, rollback-journal, `mode=ro`, bounded queries); states are the
+  last recorded observation, not a live check.
 - Brand tokens (#817): `website/brand.css` gains a light `:root` palette and, in both palettes,
   `--text-muted` (AA on every surface; `#a1a1aa` on dark), a 3:1 `--control-border`, and
   `--success`, `--warning` and `--info` with `-subtle` backgrounds. Existing token names and
@@ -22,6 +43,21 @@ On main, not in a published preview.
   `center/static/fonts/`; the console does not use them yet. `tests/test_brand_tokens.py` checks
   the copy against `website/brand.css`, computes WCAG contrast for both palettes and pins the font
   hashes.
+- `agentbreeder migrate [--state-dir DIR | --stack DIR [--environment ENV]] [--json]` (#819; on
+  `main`, not in a published preview): upgrades the local deployment state to this version's
+  schema and finishes an interrupted write. No identity-provider calls; it never creates state.
+- `agentbreeder logs --failed NAME [--state-dir DIR | --stack DIR [--environment ENV]]` and the
+  failed-candidate log tail (#819; on `main`, not in a published preview): `release` reads the
+  candidate's last 500 lines and its secret copies before removing it, then redacts the lines and
+  keeps them at `<state-dir>/releases/<name>.candidate.log` (0600) when the candidate fails to
+  start or fails the gate; a passing release deletes it. A failed start deletes the candidate's
+  secret copies, so the deploy keeps (in memory, for that run only) what it read just before
+  that cleanup. When a value needed for redaction cannot be read, nothing is saved and release
+  says why (naming `agentbreeder migrate` when another environment's state is too old).
+  Failed-case excerpts are redacted before they are cut.
+  `logs --failed` shows control characters as visible escapes (`--raw` keeps them, `--json`
+  escapes them). Release's printed follow-up commands keep the `--stack`, `--environment` or
+  `--state-dir` it ran with.
 
 ### Changed
 
@@ -43,6 +79,49 @@ On main, not in a published preview.
     console jobs only; a terminal command does not see them.
   - Stopping `up` stops every job and long-lived child: SIGINT first, then, after 5 seconds,
     SIGTERM to each child's process group. Cancel still sends one SIGINT to the job.
+- Registries (#824), on `main`, not in a published preview: `build`, `release` and `services up`
+  now refuse a symlinked `<root>/<kind>` or `<root>/<kind>/<name>` directory in a registry root
+  (`ENTRY_UNSAFE`), as they already refused a symlinked version directory. A symlinked or
+  dangling `./registry/tool` fails every `tool/*` ref even when a later root has the version
+  (fail closed). `registry verify` reports such directories and `registry list --json` marks the
+  versions under them `"symlinked": true`. An unreadable directory inside a version is now an
+  error instead of being skipped.
+- `doctor` reports whether the `agentbreeder` your shell finds on `PATH` is this version (#805,
+  #819; advisory, never a failure; on `main`, not in a published preview). Under npx or uvx, the
+  temporary environment uv puts first on `PATH` is skipped, so a stale install behind it is found.
+- `cluster up` and `cluster down` take a per-user lock, `~/.agentbreeder/locks/cluster.lock`, and
+  fail with `CLUSTER_BUSY` while another one runs (security finding S-11, #819; on `main`, not in
+  a published preview).
+- One redactor (`agentbreeder.redaction`, #819; on `main`, not in a published preview): literal
+  values, each line of a multi-line value, base64 (also of the value inside a larger base64
+  string), URL-quoted (either hex case) and JSON-escaped forms, and URL passwords, replaced in one
+  pass in linear time. `services logs` uses it and now also redacts the stack's deployments'
+  secret copies, and failed-case excerpts from `release` go through it. The CLI never lets a
+  child process write to its own stdout or stderr unredacted (a test checks every call).
+- `release` no longer calls production "already in production" just because it runs the built
+  image (G-F3, #819; on `main`, not in a published preview): that needs an audited release of the
+  image. A hand-deployed production is warned about and evaluated as a candidate; a pass records
+  the release without replacing production, a fail exits 5 with `remove ID --local` (and
+  `--rollback` only when a release journal exists). `promote` reads the same evidence through the
+  new `evidence.released`.
+- `list` opens the local state read-only (`mode=ro`: no mkdir, no migration, no write lock) and,
+  for older or interrupted state, says to run `agentbreeder migrate` (#819; on `main`, not in a
+  published preview). `--stack DIR` resolution no longer creates the stack's state directory.
+- `Next:` lines name the launcher you are using (#819; on `main`, not in a published preview):
+  `npx agentbreeder@<ver>` under the npm launcher (which now sets `AGENTBREEDER_LAUNCHER=npx` and
+  `AGENTBREEDER_LAUNCHER_VERSION` for the CLI; only that value and a strict semver are accepted),
+  `uvx --from 'agentbreeder[eval]==<ver>' agentbreeder` inside a uvx environment, a bare
+  `agentbreeder` when the one on `PATH` is this install, otherwise `python -m agentbreeder`.
+  `build` now suggests `release` (never a production `deploy`) with the `--stack` and
+  `--environment` it used, and `services up` suggests `build` (no `agent.lock` yet) or `release`
+  with absolute paths. No `Next:` line is printed with `--json`.
+- Messages that name their fix (#819; on `main`, not in a published preview):
+  `CONTEXT_ENVIRONMENT_UNKNOWN` and `MODEL_ACCESS_UNCONFIGURED` suggest `--stack DIR` when a
+  `stack.yaml` sits beside the agent file or one level above a manifest; `REF_UNPINNED` on
+  `release` explains how to publish a path ref; `LOCK_STALE` says to run `agentbreeder build`
+  instead of "run without --locked"; a failed eval gate prints each failed case (id, failed
+  checks, judge reason; control characters removed, capped) and `--json` adds `failed_cases`;
+  deploys through `--stack` add one line explaining the demo-identity warnings.
 
 ### Internal
 

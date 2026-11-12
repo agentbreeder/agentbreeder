@@ -9,7 +9,6 @@ the jobs that touch the local cluster also run one at a time on the machine (`lo
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import re
@@ -23,8 +22,8 @@ import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import quote
 
+from agentbreeder import redaction
 from agentbreeder.center.files import BadRequest
 
 __all__ = [
@@ -132,17 +131,10 @@ def _wait_all(processes: Sequence[subprocess.Popen], deadline: float) -> None:
 
 
 def redact(text: str, values: Sequence[str]) -> str:
-    """Best effort: the value and its base64 and URL-encoded forms. Echoes in other encodings
-    or truncated are not caught; the docs say so."""
-    for value in values:
-        for form in (
-            value,
-            base64.b64encode(value.encode()).decode(),
-            quote(value, safe=""),
-        ):
-            if form:
-                text = text.replace(form, "***")
-    return text
+    """The CLI's own redactor (`agentbreeder.redaction.redact`): the value, each line of a
+    multi-line value, base64, URL-quoted and JSON-escaped forms, and URL passwords. Echoes in
+    other encodings or truncated are not caught; the docs say so."""
+    return redaction.redact(text, [value for value in values if value])
 
 
 def _dotenv_quote(value: str) -> str:

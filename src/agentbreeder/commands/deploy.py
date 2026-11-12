@@ -43,4 +43,4 @@ def run(args) -> int:
         )
         return cli._print_deployment(result, args, "deploy")
 
-    return cli.run_stateful(args, action, before=before)
+    return cli.run_stateful(args, action, before=before, near=Path(args.manifest))

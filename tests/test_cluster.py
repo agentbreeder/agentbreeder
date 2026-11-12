@@ -55,6 +55,13 @@ class Tools:
         return ""
 
 
+@pytest.fixture(autouse=True)
+def _private_stacks_root(tmp_path, monkeypatch):
+    """`cluster up/down` take a per-user lock under ~/.agentbreeder; never the developer's."""
+    monkeypatch.setenv("AGENTBREEDER_STACKS_DIR", str(tmp_path / "stacks-root"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+
 @pytest.fixture
 def tools(monkeypatch):
     fake = Tools()
@@ -304,3 +311,61 @@ def test_cli_up_passes_confirmation(monkeypatch, capsys):
     monkeypatch.setattr(cluster, "up", fake_up)
     assert cli.main(["cluster", "up", "--environment", "dev", "--yes"]) == 0
     assert seen == {"environment": "dev", "expect_grant": None}
+
+
+# -- S-11: one cluster up/down at a time on this machine ---------------------------------------
+
+
+def test_cluster_up_and_down_hold_a_machine_wide_lock(tools, fake_engine, tmp_path, monkeypatch):
+    import fcntl
+    import os
+
+    lock = tmp_path / "home" / ".agentbreeder" / "locks" / "cluster.lock"
+    with cluster.cluster_lock():
+        assert lock.exists() and (lock.stat().st_mode & 0o777) == 0o600
+        # A second run (another terminal, or a console job) fails fast instead of interleaving.
+        with pytest.raises(ServiceError, match="CLUSTER_BUSY"):
+            cluster.up(tmp_path, "dev")
+        with pytest.raises(ServiceError, match="CLUSTER_BUSY"):
+            cluster.down(tmp_path)
+    seen = []
+
+    def probe(*args, **kwargs):
+        descriptor = os.open(lock, os.O_RDWR)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            seen.append("free")
+        except BlockingIOError:
+            seen.append("held")
+        finally:
+            os.close(descriptor)
+        return {}
+
+    monkeypatch.setattr(cluster, "_down", probe)
+    monkeypatch.setattr(cluster, "_up", probe)
+    cluster.down(tmp_path)
+    cluster.up(tmp_path, "dev")
+    assert seen == ["held", "held"]  # held for the whole run, released between runs
+
+
+def test_cluster_busy_is_reported_by_the_cli(tools, fake_engine, tmp_path, capsys):
+    with cluster.cluster_lock():
+        assert cli.main(["cluster", "down", "--stack", str(tmp_path)]) == 2
+    assert "[CLUSTER_BUSY]" in capsys.readouterr().err
+
+
+def test_the_cluster_lock_ignores_the_stacks_override(tmp_path, monkeypatch):
+    """Two stacks roots (AGENTBREEDER_STACKS_DIR) still share the one machine-wide lock."""
+    with cluster.cluster_lock():
+        monkeypatch.setenv("AGENTBREEDER_STACKS_DIR", str(tmp_path / "another-root"))
+        with pytest.raises(ServiceError, match="CLUSTER_BUSY"):
+            with cluster.cluster_lock():
+                pass
+    path = cluster.lock_path()
+    assert path.parent.stat().st_mode & 0o777 == 0o700
+    path.unlink()
+    path.symlink_to(tmp_path / "elsewhere")
+    with pytest.raises(ServiceError, match="STATE_UNSAFE"):
+        with cluster.cluster_lock():
+            pass
+    assert not (tmp_path / "elsewhere").exists()

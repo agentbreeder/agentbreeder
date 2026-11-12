@@ -12,7 +12,7 @@ const NPM_DIR = path.resolve(__dirname, "..");
 const LAUNCHER = path.join(NPM_DIR, "bin", "agentbreeder.js");
 const RELEASE = JSON.parse(fs.readFileSync(path.join(NPM_DIR, "release.json"), "utf8"));
 const PACKAGE = JSON.parse(fs.readFileSync(path.join(NPM_DIR, "package.json"), "utf8"));
-const { buildArgs, findUvx, parseVersion, versionAtLeast } = require(LAUNCHER);
+const { buildArgs, findUvx, launcherEnv, parseVersion, versionAtLeast } = require(LAUNCHER);
 
 // A stub uvx: `--version` prints VERSION; otherwise it records argv (one per line) and selected
 // env to $STUB_OUT, then exits with $STUB_EXIT. With $STUB_WAIT=trap it waits and records
@@ -27,6 +27,7 @@ function stub(dir, version = "0.11.6") {
       `if [ "$1" = "--version" ]; then echo "uvx ${version} (stub)"; exit 0; fi`,
       'for a in "$@"; do printf "%s\\n" "$a"; done > "$STUB_OUT"',
       'printf "%s\\n" "${UV_INDEX_URL:-}" > "$STUB_OUT.env"',
+      'printf "%s %s\\n" "${AGENTBREEDER_LAUNCHER:-}" "${AGENTBREEDER_LAUNCHER_VERSION:-}" > "$STUB_OUT.launcher"',
       'if [ "$STUB_WAIT" = trap ]; then',
       '  trap \'echo TERM > "$STUB_OUT.sig"; exit 143\' TERM',
       '  trap \'echo INT > "$STUB_OUT.sig"; exit 130\' INT',
@@ -90,6 +91,28 @@ test("runs uvx with the exact pinned argv and passes the environment through", (
     "--flag=x y",
   ]);
   assert.strictEqual(fs.readFileSync(out + ".env", "utf8"), "https://mirror.example/simple\n");
+});
+
+test("tells the CLI it runs under npx, with this package's version", () => {
+  const root = tmp();
+  const bin = path.join(root, "bin");
+  stub(bin);
+  const out = path.join(root, "argv");
+  const result = run(["status"], {
+    pathDirs: [bin, ...BASE_PATH],
+    cwd: root,
+    // A caller's own values are replaced, never passed on.
+    env: { STUB_OUT: out, AGENTBREEDER_LAUNCHER: "x", AGENTBREEDER_LAUNCHER_VERSION: "$(id)" },
+  });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.strictEqual(fs.readFileSync(out + ".launcher", "utf8"), `npx ${PACKAGE.version}\n`);
+  assert.match(PACKAGE.version, /^\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?$/);
+  const env = launcherEnv({ KEEP: "1" }, { version: "3.0.0-alpha.2" });
+  assert.deepStrictEqual(env, {
+    KEEP: "1",
+    AGENTBREEDER_LAUNCHER: "npx",
+    AGENTBREEDER_LAUNCHER_VERSION: "3.0.0-alpha.2",
+  });
 });
 
 test("release.json pins one exact PyPI version and a 30-day agentbreeder window", () => {

@@ -80,9 +80,10 @@ they do for a CLI user.
 It binds `127.0.0.1` only, checks the exact `Host`, needs a per-tab session from the one-time link
 (a header, because browsers send cookies to every port on `127.0.0.1`), and on every request a
 custom header, same-origin `Origin` for writes, JSON bodies and a strict content
-security policy. Provider keys go to a private file for the one job that needs it. Job logs replace a
-key's value, base64 and URL-encoded forms; another encoding of a value echoed by a tool would not be
-caught.
+security policy. Provider keys go to a private file for the one job that needs it. Job logs go through
+the CLI's redactor (`agentbreeder.redaction`; on `main`, not in a published preview): a key's value,
+each line of a multi-line value, and its base64, URL-encoded and JSON-escaped forms become
+`[redacted]`; another encoding of a value echoed by a tool would not be caught.
 
 ### Console foundation (#815): on `main`, not in a published preview
 

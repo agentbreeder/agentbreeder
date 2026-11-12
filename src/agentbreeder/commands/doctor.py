@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 
-from agentbreeder.doctor import check_compose, check_docker, check_legacy
+from agentbreeder.doctor import check_compose, check_docker, check_legacy, check_path
 
 NAMES = ("doctor",)
 
@@ -16,7 +16,7 @@ def register(commands) -> None:
 
 
 def run(args) -> int:
-    checks = check_docker() + check_compose() + check_legacy()
+    checks = check_docker() + check_compose() + check_path() + check_legacy()
     if args.json:
         print(json.dumps([asdict(check) for check in checks], indent=2))
     else:

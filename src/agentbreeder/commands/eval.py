@@ -50,7 +50,7 @@ def run(args) -> int:
         OperatorConfigError,
         secret_files.SecretError,
     ) as error:
-        print(cli._message(error), file=sys.stderr)
+        print(cli._message(error, args=args, near=Path(args.agent)), file=sys.stderr)
         return 2
     summary = report.summary()
     if args.json:
