@@ -104,32 +104,56 @@ async function loadView() {
   await Promise.all(wanted.map(async (view) => { ui.view[view] = await api(`${base}/${view}`); }));
 }
 
+// Follow one job in the drawer. Each call starts a new generation, so an older poll loop stops
+// at its next tick and two loops never append to the same log. `project` comes from the
+// server's job row on the first poll.
+function follow(job) {
+  ui.pollGeneration = (ui.pollGeneration || 0) + 1;
+  ui.job = job ? { state: "running", ...job } : null;
+  ui.jobLines = [];
+  ui.lastLine = 0;
+  if (job) pollJob(ui.pollGeneration);
+}
+
 async function startJob(kind, options = {}, keys) {
   try {
     const { job } = await fetchData(`/api/projects/${ui.project.id}/jobs`, { kind, options, keys });
-    ui.job = { id: job, kind, state: "running", project: ui.project.id };
-    ui.jobLines = [];
-    ui.lastLine = 0;
     ui.notice = null;
+    follow({ id: job, kind, project: ui.project.id });
     announce(`${kind} started`);
     render();
-    pollJob();
   } catch (error) {
     ui.notice = { kind: "error", text: error.message };
-    if (error.job) { ui.job = { id: error.job, kind: "job", state: "running", project: ui.project.id }; pollJob(); }
+    if (error.job) follow({ id: error.job, kind: "job" });
     render();
   }
 }
 
-async function pollJob() {
-  if (!ui.job) return;
+async function pollJob(generation) {
+  if (!ui.job || generation !== ui.pollGeneration) return;
   const job = await fetchData(`/api/jobs/${ui.job.id}?after=${ui.lastLine}`);
+  if (generation !== ui.pollGeneration) return;
   for (const line of job.lines) { ui.jobLines.push(line.text); ui.lastLine = line.seq; }
-  const wasRunning = running();
+  const wasRunning = ui.job.state === "running";
+  const learnedProject = !ui.job.project;
   ui.job = { ...ui.job, ...job };
-  renderDrawer();
-  if (job.state === "running") { setTimeout(pollJob, 2000); return; }
-  if (wasRunning) { announceEnd(job); await refresh(); }
+  if (job.state === "running") {
+    // A full render only when the job's project first arrives (it decides which actions are
+    // disabled); otherwise only the drawer, so form inputs are kept.
+    if (learnedProject) render(); else renderDrawer();
+    setTimeout(() => pollJob(generation), 2000);
+    return;
+  }
+  if (wasRunning) { announceEnd(job); await refresh(); } else { renderDrawer(); }
+}
+
+// On a project switch or at start: follow that project's running job, if any.
+async function followProject() {
+  const overview = await fetchData("/api/overview");
+  ui.overview = overview;
+  const mine = overview.jobs.find((job) => ui.project && job.project === ui.project.id);
+  if (mine) follow({ id: mine.id, kind: mine.kind, project: mine.project });
+  else if (ui.job && ui.job.state === "running" && ui.project && ui.job.project !== ui.project.id) follow(null);
 }
 
 const ENDINGS = {
@@ -157,7 +181,7 @@ function announceEnd(job) {
 
 function render() {
   const app = document.getElementById("app");
-  const select = h("select", { "aria-label": "Project", onchange: (event) => { ui.project = ui.projects.find((p) => p.id === event.target.value); ui.view = {}; ui.plan = null; goto(ui.step); } },
+  const select = h("select", { "aria-label": "Project", onchange: async (event) => { ui.project = ui.projects.find((p) => p.id === event.target.value); ui.view = {}; ui.plan = null; try { await followProject(); } catch { return; } goto(ui.step); } },
     ui.projects.map((p) => { const o = h("option", { value: p.id }, `${p.name} (${p.environment})`); o.selected = ui.project && p.id === ui.project.id; return o; }));
   app.replaceChildren(
     h("header", { class: "top" },
@@ -342,6 +366,11 @@ function panelAudit() {
       h("tbody", {}, rows.map((row) => h("tr", {}, h("td", {}, row.timestamp || ""), h("td", {}, row.action), h("td", {}, row.decision), h("td", {}, row.actor))))))));
 }
 
+function projectName(id) {
+  const project = ui.projects.find((p) => p.id === id);
+  return project ? `${project.name}: ` : "";
+}
+
 function renderDrawer() {
   const drawer = document.getElementById("drawer");
   if (!drawer) return;
@@ -349,9 +378,9 @@ function renderDrawer() {
   drawer.hidden = false;
   const log = h("pre", { role: "log", tabindex: "0", "aria-label": "Job log" }, ui.jobLines.join("\n"));
   drawer.replaceChildren(h("div", { class: "row" },
-    h("strong", {}, `${ui.job.kind}: ${(ui.job.state || "").replace("_", " ")}`),
-    running() ? h("button", { class: "action secondary", onclick: () => api(`/api/jobs/${ui.job.id}/cancel`, {}) }, "Cancel") : null,
-    h("button", { class: "action secondary", onclick: () => { ui.job = null; renderDrawer(); } }, "Hide")), log);
+    h("strong", {}, `${projectName(ui.job.project)}${ui.job.kind}: ${(ui.job.state || "").replace("_", " ")}`),
+    ui.job.state === "running" ? h("button", { class: "action secondary", onclick: () => api(`/api/jobs/${ui.job.id}/cancel`, {}) }, "Cancel") : null,
+    h("button", { class: "action secondary", onclick: () => { follow(null); renderDrawer(); } }, "Hide")), log);
   log.scrollTop = log.scrollHeight;
 }
 
@@ -364,10 +393,9 @@ async function start() {
   try {
     ui.overview = await fetchData("/api/overview");
     await refresh();
-    // Several jobs can run (one per project): follow this project's, else the oldest.
-    const jobs = ui.overview.jobs;
-    const follow = jobs.find((job) => ui.project && job.project === ui.project.id) || jobs[0];
-    if (follow) { ui.job = { id: follow.id, kind: follow.kind, state: "running", project: follow.project }; render(); pollJob(); }
+    // Several jobs can run (one per project): follow this project's, if any.
+    await followProject();
+    render();
   } catch { showSignIn(); }
 }
 
