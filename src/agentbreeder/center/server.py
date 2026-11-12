@@ -717,7 +717,25 @@ def _watch_terminal(center: Center) -> None:
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 
-_stopping = threading.Event()
+class _Flag:
+    """A flag a signal handler may set. Not a threading.Event: its set() takes a lock, and a
+    second signal handled while the first handler holds that lock would deadlock the main thread
+    (seen on Linux CI with SIGTERM then SIGHUP back to back). Plain attribute writes take none."""
+
+    def __init__(self):
+        self.value = False
+
+    def is_set(self) -> bool:
+        return self.value
+
+    def set(self) -> None:
+        self.value = True
+
+    def clear(self) -> None:
+        self.value = False
+
+
+_stopping = _Flag()
 
 
 def _stop(signum, frame):

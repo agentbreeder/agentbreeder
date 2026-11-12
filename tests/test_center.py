@@ -1742,7 +1742,9 @@ def _console_script(tmp_path, fake_cli) -> Path:
         f"    project = center.register(Path({str(project)!r}))\n"
         "    job = center.runner.start(project, 'build', {})\n"
         "    import time\n"
+        "    deadline = time.monotonic() + 30\n"
         "    while not center.state.job(job)['lines']:  # its SIGINT handler is in place\n"
+        "        assert time.monotonic() < deadline, 'the fake job never started'\n"
         "        time.sleep(0.05)\n"
         "    print('JOB', job, center.runner.jobs[job].process.pid, flush=True)\n"
         "    return s\n"
@@ -1925,3 +1927,23 @@ def test_shutdown_retries_when_a_signal_interrupts_it(tmp_path, monkeypatch):
     monkeypatch.setattr(center.runner, "shutdown", interrupted)
     server._shut_down(center)
     assert len(calls) == 2
+
+
+def test_redact_catches_json_escaped_and_url_passwords():
+    import json as json_module
+
+    value = 'se"cret\\value-123'
+    line = f"payload {json_module.dumps({'k': value})} url https://user:hunter2pw@host/x"
+    out = redact(line, [value])
+    assert value not in out and json_module.dumps(value)[1:-1] not in out
+    assert "hunter2pw" not in out and "[redacted]" in out
+    assert redact("abc used", ["abc"]) == "abc used"  # under 4 characters: kept (shared rule)
+
+
+def test_back_to_back_stop_signals_cannot_deadlock_the_flag():
+    """The handler's flag takes no lock: re-entering it mid-set must not block."""
+    server._stopping.clear()
+    server._stopping.set()
+    server._stopping.set()  # a threading.Event here could block forever if re-entered
+    assert server._stop(15, None) is None
+    server._stopping.clear()

@@ -81,9 +81,10 @@ It binds `127.0.0.1` only, checks the exact `Host`, needs a per-tab session from
 (a header, because browsers send cookies to every port on `127.0.0.1`), and on every request a
 custom header, same-origin `Origin` for writes, JSON bodies and a strict content
 security policy. Provider keys go to a private file for the one job that needs it. Job logs go through
-the CLI's redactor (`agentbreeder.redaction`; on `main`, not in a published preview): a key's value,
-each line of a multi-line value, and its base64, URL-encoded and JSON-escaped forms become
-`[redacted]`; another encoding of a value echoed by a tool would not be caught.
+the CLI's redactor (`agentbreeder.redaction`; on `main`, not in a published preview): a key's value
+(4 characters or more) and its base64, URL-encoded and JSON-escaped forms, and the password in
+any `scheme://user:password@host`, become `[redacted]`; another encoding of a value echoed by a
+tool would not be caught.
 
 ### Console foundation (#815): on `main`, not in a published preview
 
@@ -97,7 +98,7 @@ each line of a multi-line value, and its base64, URL-encoded and JSON-escaped fo
 - **One reply shape.** Every API reply, including the server's own errors for a malformed
   request, is `{"data", "error", "stale"}`. `error` is `null` or `{"code", "message"}`; when a
   CLI read fails, the console forwards only the CLI's final `[CODE] message` line, never other
-  stderr. (Job logs still show a job's whole output, redacted as described below.) `stale` marks the last good data shown after a
+  stderr. (Job logs still show a job's whole output, redacted as described above.) `stale` marks the last good data shown after a
   failed read.
 - **Static files** are an allow-list built at start from the installed `center/static/` tree:
   regular files of known types (HTML, JS, CSS, `woff2` fonts, plain text such as the font
