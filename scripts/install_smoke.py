@@ -7,12 +7,14 @@ Run it with the installed environment's interpreter, isolated from the checkout:
 It checks, from the installed package only: the version; with --hardlinked, that the built-in
 registry files really are hardlinks (st_nlink > 1, uv's UV_LINK_MODE=hardlink), which is the
 case #754 found broken; `--version`, `registry verify`, `example list`, `example northwind`,
-`validate` on its agent.yaml and stack.yaml, a locked build of the copy with a stub image builder
+`validate` on its agent.yaml and stack.yaml, `next --json` on the copy, `new agent --dry-run
+--json` (nothing written), a locked build of the copy with a stub image builder
 (every registry ref resolves; no image is built), and `quickstart --dry-run`, whose `doctor` needs
 a reachable Docker engine (GitHub's ubuntu runners have one).
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -119,6 +121,30 @@ def operator_config(directory: Path) -> Path:
     return config
 
 
+def check_next(output: str, project: Path) -> None:
+    """`next --json` on the copied example: the contract parses and the project step is done."""
+    result = json.loads(output)
+    steps = {step["id"]: step for step in result.get("steps", [])}
+    # `next` reports the absolute path as given, not symlink-resolved (macOS temp dirs are
+    # under /var -> /private/var).
+    if result.get("project") != os.path.normpath(project.absolute()) or "complete" not in result:
+        fail("`next --json` did not describe the copied example")
+    if steps.get("project", {}).get("state") != "done":
+        fail(f"`next --json`: the example's project step is {steps.get('project')}")
+    print("next --json: the checklist parses; the example's project step is done")
+
+
+def check_new(output: str, target: Path) -> None:
+    """`new agent --dry-run --json`: the starter's files are listed and nothing is written."""
+    result = json.loads(output)
+    paths = {entry["path"] for entry in result.get("files", [])}
+    if result.get("dry_run") is not True or not {"agent.yaml", "stack.yaml"} <= paths:
+        fail("`new agent --dry-run --json` did not list the starter's files")
+    if target.exists():
+        fail("`new agent --dry-run` wrote to its destination")
+    print(f"new agent --dry-run --json: {len(paths)} files listed, nothing written")
+
+
 def locked_build(project: Path, config: Path) -> None:
     from agentbreeder import operator_config as operator_module
     from agentbreeder.build import build
@@ -162,6 +188,23 @@ def main(argv: list[str] | None = None) -> int:
         cli("example", "northwind", str(work / "nw"), cwd=work, env=env)
         cli("validate", str(work / "nw" / "agent.yaml"), cwd=work, env=env)
         cli("validate", str(work / "nw" / "stack.yaml"), cwd=work, env=env)
+        check_next(cli("next", str(work / "nw"), "--json", cwd=work, env=env), work / "nw")
+        check_new(
+            cli(
+                "new",
+                "agent",
+                "hello",
+                "--model",
+                "gemini",
+                "--dir",
+                str(work / "hello"),
+                "--dry-run",
+                "--json",
+                cwd=work,
+                env=env,
+            ),  # fmt: skip
+            work / "hello",
+        )
         # In-process like the CLI calls' environment: the private HOME, not the runner's.
         real_home = os.environ.get("HOME")
         os.environ["HOME"] = env["HOME"]

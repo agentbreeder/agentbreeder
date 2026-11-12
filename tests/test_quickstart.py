@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from agentbreeder import cli, quickstart
+from agentbreeder import cli, hints, quickstart
 from agentbreeder.commands import doctor as doctor_command
 from agentbreeder.doctor import Check
 from agentbreeder.runtime import Docker
@@ -88,6 +88,13 @@ def test_happy_path_runs_five_steps_in_process(demo, monkeypatch, capsys):
     out = capsys.readouterr().out
     for step in ("1/5", "2/5", "3/5", "4/5", "5/5"):
         assert step in out
+    # The guided path continues with a starter agent (#769), in the launcher's form.
+    assert out.strip().splitlines()[-1] == hints.next_line(
+        "new", "agent", "hello", "--model", "gemini"
+    )
+    words = out.strip().splitlines()[-1].split()
+    args = cli._parser().parse_args(words[words.index("new") :])
+    assert (args.new_command, args.name, args.model) == ("agent", "hello", "gemini")
     # The CLI's JSON is captured, not echoed.
     assert '"endpoint"' not in out
     assert [argv[0] for argv, _ in seen] == ["deploy", "deploy", "status", "remove"]
@@ -164,7 +171,9 @@ def test_failed_deploy_keeps_id_and_removes(demo, monkeypatch, capsys):
     monkeypatch.setattr(quickstart.cli, "main", fake_cli(demo, seen, failed))
     assert quickstart.main() == 1
     assert seen[-1][0][:2] == ["remove", "owned-id"]
-    assert "Deployment failed" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "Deployment failed" in captured.err
+    assert "Next:" not in captured.out  # no next step after a failed demo
 
 
 def test_unexpected_response_fails_and_cleans_up(demo, monkeypatch):

@@ -143,7 +143,7 @@ def probe(stacks, calls=None, **kwargs):
 
 @pytest.fixture
 def later_commands(monkeypatch):
-    """As if `new agent` and `invoke` (later M4 PRs) were installed."""
+    """As if `invoke` (a later M4 PR) were installed; `new agent` ships (#769)."""
     monkeypatch.setattr(guide_checks, "_available", lambda name: True)
 
 
@@ -746,7 +746,19 @@ def test_text_form_never_prints_a_key_value(stacked, operator, stacks):  # noqa:
 LATER = (datetime(2026, 11, 12, tzinfo=UTC) + timedelta(hours=1)).isoformat()
 
 
-def test_without_new_and_invoke_the_example_is_the_way_in(tmp_path, stacks):
+def test_new_agent_ships_so_it_is_the_way_in(tmp_path, stacks):
+    """No monkeypatch: this install has `new` (#769), so an empty directory gets `new agent`."""
+    empty = tmp_path / "hello"
+    empty.mkdir()
+    project_step = steps(guide_checks.compute(empty, probe=probe(stacks)))["project"]
+    assert project_step.fix.action == "new-agent"
+    assert shlex.split(project_step.fix.command)[1:] == [
+        "new", "agent", "hello", "--model", "gemini", "--dir", str(empty),
+    ]  # fmt: skip
+
+
+def test_without_new_the_example_is_the_way_in(tmp_path, stacks, monkeypatch):
+    monkeypatch.setattr(guide_checks, "_available", lambda name: name != "new")
     empty = tmp_path / "hello"
     empty.mkdir()
     project_step = steps(guide_checks.compute(empty, probe=probe(stacks)))["project"]
@@ -779,7 +791,7 @@ def test_every_printed_command_parses(stacked, operator, stacks, tmp_path):  # n
     commands(guide_checks.compute(stacked, probe=probe(stacks)))  # lock stale: build
     released(stacked, operator, stacks, Evaluator(passed=False))
     commands(guide_checks.compute(stacked, probe=probe(stacks)))  # gate failed
-    assert {"example", "build"} <= set(seen)
+    assert {"new", "build"} <= set(seen)
 
 
 def test_candidate_approval_blocks_release(stacked, operator, stacks):  # noqa: F811

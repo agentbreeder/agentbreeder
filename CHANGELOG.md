@@ -12,6 +12,27 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder new agent NAME --model gemini [--dir DIR] [--dry-run] [--json]` (#769, M4), on
+  `main`, not in a published preview: writes a starter based on the one walked by hand on
+  3.0.0a2 to `DIR` (default `./NAME`; absent, or an empty real directory you own that others
+  cannot write to). This template, with `traces: none` and `agent_events: none` added, ran once
+  end to end from a checkout on macOS (2026-11-12: `services up`, `build --locked`, `release`
+  2/2, `next` complete). It writes `agent.yaml` on `runtime/adk@1.0.6` with
+  `traces: none`, `agent_events: none` and a comment on the edit loop, `stack.yaml` (Postgres and
+  LiteLLM, `chat` and `judge` aliases, a `DATABASE_URL` binding, `candidate: true`, `review_by`
+  180 days out), `stack/litellm/config.yaml`, and editable sources in `src/prompt/` and
+  `src/evals/` (the two verified eval cases, `retries: 1`). It publishes
+  `prompt/NAME-prompt@0.1.0` and `eval/NAME-evals@0.1.0` into `DIR/registry` and writes
+  `agent.lock`, so `build --locked` passes. Everything is written in a staging directory inside
+  `DIR`, validated, then moved into place; files 0644, directories 0755. Only `gemini` is offered
+  and `--model` is required. Names that YAML reads as non-strings (`true`, `no`, `null`, …) and
+  destinations with control characters are refused. With `--json`, a refusal also prints
+  `{"schema_version": 1, "error": {"code", "message"}}` on stdout (exit 2; argparse usage errors
+  such as an unknown `--model` stay plain text). An existing `DIR` that is group-writable is
+  accepted only off macOS and only for your own group. `next` now offers `new agent` for a
+  directory without `agent.yaml` (`example northwind` stays in the fix's note), `quickstart` ends
+  with `Next: … new agent hello --model gemini`, and `scripts/install_smoke.py` also runs
+  `next --json` and `new agent --dry-run --json`.
 - `agentbreeder next [DIR] [--environment ENV] [--output DIR] [--json]` (#820, M4), on `main`,
   not in a published preview: where a project is on the guided path (prerequisites, project,
   model keys, services, build, release through the eval gate, try it, and the local cluster when
