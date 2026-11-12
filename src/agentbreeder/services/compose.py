@@ -267,25 +267,22 @@ class DockerCLI:
     def follow_logs(
         self, state: StackState, service: str, tail: int, since: str | None = None
     ) -> subprocess.Popen:
-        """`docker compose logs --follow` of one service, as `runtime.start_follow`: its own
-        process group (compose is `docker` plus a plugin process; the whole group is stopped),
-        stdin closed, stderr discarded; stopped with `runtime.stop_follow`."""
+        """`docker compose logs --follow` of one service, as `runtime.start_follow`: in the
+        caller's process group (a group kill reaches it), stdin closed, stderr discarded;
+        stopped with `runtime.stop_follow`, which also stops compose's plugin process."""
         argv = self._logs_argv(state, service, tail, since, follow=True)
         try:
-            process = self._popen(
+            return self._popen(
                 argv,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 env=sanitised_environment(),
-                start_new_session=True,
             )
         except OSError:
             raise ServiceError(
                 "DOCKER_LOGS_FAILED", "docker compose logs failed to start"
             ) from None
-        process.group = process.pid
-        return process
 
     # -- volumes and images -----------------------------------------------------------------------
 

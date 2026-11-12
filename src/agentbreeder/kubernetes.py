@@ -388,8 +388,8 @@ class Kubernetes:
         self, info: dict, tail: int = 200, since: str | None = None, pod: str | None = None
     ) -> subprocess.Popen:
         """`kubectl logs --follow` of `pod`'s agent container, as `Docker.follow`
-        (`runtime.start_follow`: its own process group, stdin closed, kubectl's stderr
-        discarded; stopped with `runtime.stop_follow`). It ends when the pod goes away; a
+        (`runtime.start_follow`: in the caller's process group, stdin closed, kubectl's
+        stderr discarded; stopped with `runtime.stop_follow`). It ends when the pod goes away; a
         replacement pod needs a new follow."""
         from agentbreeder.runtime import start_follow
 

@@ -15,10 +15,11 @@ visible escapes unless `--raw` (security finding S-08); `--json` escapes by cons
 
 `--follow` streams until the container stops, Ctrl-C, SIGTERM, SIGHUP or, when stdin is not a
 terminal, the end of stdin: a supervising process (the console) stops a follow by closing its
-stdin. The reader (`docker logs`, `kubectl logs`, `docker compose logs`) runs in its own
-process group, which the CLI's handlers stop whole: SIGTERM, then SIGKILL after 2 s (S-10;
-compose's plugin ignored one SIGTERM while starting). A SIGKILL of the CLI leaves the reader
-until its next write, for the console's leftover sweep. Run with stdin from `/dev/null`, a
+stdin. The reader (`docker logs`, `kubectl logs`, `docker compose logs`) stays in the CLI's
+process group, so a terminal hangup or a group kill of the CLI (the console's S-10 sweep)
+reaches it too. The CLI's handlers stop the reader and its descendants (compose's plugin,
+which ignored one SIGTERM while starting): SIGTERM, then SIGKILL after 2 s. A SIGKILL of the
+CLI process alone leaves the reader until its next write. Run with stdin from `/dev/null`, a
 follow ends at once. A line over 1 MiB is dropped whole, never printed in part. Docker's 16 KiB
 partial records of a long line are joined before redaction (`runtime.join_partials`).
 
@@ -400,8 +401,8 @@ class _Follow:
     """The follow child and how it is stopped: by the end of stdin (a watcher thread), by
     SIGTERM/SIGHUP (handlers that only record the reason and stop the child), by Ctrl-C or by
     a closed stdout. The lock is re-entrant because a signal handler runs on the main thread,
-    possibly while it holds the lock to start the child. A stop signals the child's whole
-    process group (`runtime.signal_follow`) and arms a SIGKILL after STOP_GRACE seconds, so a
+    possibly while it holds the lock to start the child. A stop signals the child and its
+    descendants (`runtime.signal_follow`) and arms a SIGKILL after STOP_GRACE seconds, so a
     reader that ignores SIGTERM (docker while its compose plugin starts) cannot keep the read
     loop waiting. The first reason wins."""
 

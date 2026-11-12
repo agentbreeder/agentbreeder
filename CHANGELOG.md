@@ -25,8 +25,10 @@ On main, not in a published preview.
   with Docker's timestamp and no longer with compose's `name |` prefix. Errors are coded
   (`DOCKER_LOGS_FAILED` when compose cannot read the logs), with the JSON error object under
   `--json`; compose's own stderr is never shown. A follow stops the compose process and its
-  plugin together (their own process group, SIGKILL after 2 s), and so do `logs ID --follow`
-  readers. A service follow carries on across container restarts. Run against real Postgres
+  plugin together (the reader and its descendants, SIGKILL after 2 s; before, a stop while
+  compose was starting could hang the follow), and so do `logs ID --follow` readers, which stay
+  in the CLI's process group so a group kill of the CLI (the console's S-10 sweep) reaches them.
+  A service follow carries on across container restarts. Run against real Postgres
   and LiteLLM on macOS.
 
 - `agentbreeder logs ID [--previous]` for a Kubernetes (local `kind`) deployment (#821, M5), on
@@ -59,9 +61,9 @@ On main, not in a published preview.
   whose secret copies are gone (a failed deploy deletes them; `REDACTION_INCOMPLETE`). Lines are
   split on `\n` only; controls, bidi and the Unicode line separators are shown as visible
   escapes unless `--raw` (S-08). `--follow` streams until the container stops, Ctrl-C, SIGTERM,
-  SIGHUP or the end of a non-terminal stdin, and stops its `docker logs` child (S-10: the CLI's
-  handlers stop the child's whole process group, with SIGKILL after 2 s; a SIGKILL of the CLI
-  leaves it until its next write); a line over 1 MiB is dropped whole. `--follow --json`
+  SIGHUP or the end of a non-terminal stdin, and stops its `docker logs` child (S-10: the child
+  stays in the CLI's process group, so a hangup or a group kill reaches it; a SIGKILL of the
+  CLI process alone leaves it until its next write); a line over 1 MiB is dropped whole. `--follow --json`
   prints one object per line (`schema_version`, `source`, `name`, `deployment`, `line`) and a
   final `{"event": "end", "reason", "dropped"}`; a failing `docker logs` is `DOCKER_LOGS_FAILED`.
   Kubernetes deployments: see the entry above; the state is opened read-only;

@@ -604,6 +604,14 @@ Counts: High 1, Medium 16, Low 12, Info 6 (35 findings).
   `stdin=PIPE`; `up` records child PIDs and start times in a 0600 file and kills matching leftovers
   at start; caps of 8 follows per session, 16 overall, one `watch` per project and one usage child.
   M6 and M11 use M5's pattern.
+  *Implementation note (CLI, #866/#867):* the reader (`docker logs -f`, `docker compose logs
+  -f`, `kubectl logs -f`) stays in the CLI's process group, so the sweep's group kill of a
+  leftover CLI also reaches its reader; the console must start each CLI child as the leader of
+  its own group (`start_new_session=True`, as jobs do) and kill that group. The CLI stops the
+  reader and its descendants itself on stdin EOF, SIGTERM or SIGHUP (SIGTERM, then SIGKILL after
+  2 s): `docker compose` is `docker` plus a plugin process, and a stop while it starts once hung
+  a follow when only `docker` was signalled. A SIGKILL of the CLI process alone (not its group)
+  leaves the reader until its next write; the sweep kills groups, never single PIDs.
 
 **Lock scopes (M0a, M3, M6, M18).**
 

@@ -468,7 +468,7 @@ def test_a_stop_after_the_follow_ended_signals_nothing():
     follow = logs_command._Follow()
     follow.process = process = start_follow([sys.executable, "-c", "pass"], dict(os.environ))
     stop_follow(process)
-    assert process.group is None  # gone: the id is forgotten
+    assert process.family == set()  # gone: no pid recorded to signal again
     follow.cancel()  # what _follow's finally does
     follow.stop("stdin")
     assert follow.timer is None
@@ -518,7 +518,7 @@ time.sleep({linger})
 """
 
 
-def _spawn(tmp_path, state, linger=60):
+def _spawn(tmp_path, state, linger=60, own_group=False):
     script = tmp_path / "wrapper.py"
     script.write_text(WRAPPER)
     env = {**os.environ, "FAKE_CHILD": PID_CHILD.format(linger=linger)}
@@ -529,6 +529,7 @@ def _spawn(tmp_path, state, linger=60):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
+        start_new_session=own_group,  # as the console starts its CLI children
     )
     first = process.stdout.readline().decode()
     assert first.startswith("PID "), first
@@ -572,6 +573,23 @@ def test_a_real_process_ends_cleanly_when_the_container_stops(tmp_path, state):
     assert process.returncode == 0, err
     assert b"Fatal" not in err and b"Traceback" not in err
     assert b"the container stopped" in err
+
+
+def test_the_console_sweep_group_kill_reaches_a_quiet_reader(tmp_path, state):
+    """S-10: a leftover CLI (its console gone) killed with SIGKILL as a group, the way the
+    console's sweep does it, takes its quiet reader with it (the reader stays in the CLI's
+    group; it never writes, so it would otherwise live on)."""
+    import signal as signals
+
+    process, child = _spawn(tmp_path, state, own_group=True)
+    os.killpg(process.pid, signals.SIGKILL)
+    process.wait(timeout=20)
+    deadline = time.monotonic() + 10
+    while not _dead(child) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert _dead(child)
+    for stream in (process.stdin, process.stdout, process.stderr):
+        stream.close()
 
 
 def test_a_real_process_stops_at_stdin_eof(tmp_path, state):
