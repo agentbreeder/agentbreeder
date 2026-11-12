@@ -414,7 +414,8 @@ def _job(request: Request) -> dict:
     )
     if job is None:
         raise NotFound("Unknown job")
-    return envelope(job)
+    live = request.center.runner.job_status(request.match["job"])
+    return envelope({**job, "cancelling": False, "can_stop": False, **(live or {})})
 
 
 def _session(request: Request) -> dict:
@@ -450,6 +451,11 @@ def _cancel(request: Request) -> dict:
     return envelope({"cancelled": request.center.runner.cancel(request.match["job"])})
 
 
+def _stop_job(request: Request) -> dict:
+    """The confirmed escalation after a Cancel has waited: stops the job's process group."""
+    return envelope({"stopped": request.center.runner.stop(request.match["job"])})
+
+
 ROUTES: tuple[Route, ...] = (
     Route("GET", r"/api/overview", _overview, "/api/overview"),
     Route("GET", r"/api/activity", _activity, "/api/activity", poll=True),
@@ -474,6 +480,7 @@ ROUTES: tuple[Route, ...] = (
         "POST", rf"/api/projects/{PROJECT_ID}/jobs", _start_job, "/api/projects/0123456789ab/jobs"
     ),
     Route("POST", rf"/api/jobs/{JOB_ID}/cancel", _cancel, "/api/jobs/" + "0" * 32 + "/cancel"),
+    Route("POST", rf"/api/jobs/{JOB_ID}/stop", _stop_job, "/api/jobs/" + "0" * 32 + "/stop"),
 )
 
 

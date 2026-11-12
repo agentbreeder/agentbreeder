@@ -128,7 +128,13 @@ tool would not be caught.
   from the CLI's own file locks (the deployment store and `release` have one today; `cluster`
   and `services` get theirs in later milestones).
 - **Cancel and shutdown.** Cancel sends one SIGINT to the job's CLI process, so `release` and
-  `promote` finish or undo a replace step. Stopping `up` (Ctrl-C, SIGTERM or closing the
+  `promote` finish or undo a replace step. It is sent 0.2 seconds after the job's first output
+  line, or 2 seconds after the start for a job that has printed nothing, because a SIGINT
+  sent while the CLI is starting, or just as it prints, can be lost or held back. While it
+  works the job shows "Cancelling…"; Cancel is not offered twice, since a second SIGINT can
+  interrupt the restore. If the job is still running 15 seconds later, "Stop now" (asked
+  first) ends its whole process group and may skip that restore: check Deployments after it.
+  Stopping `up` (Ctrl-C, SIGTERM or closing the
   terminal) sends the same SIGINT to every running job and long-lived child, waits 5 seconds
   (Ctrl-C again skips the wait), then sends SIGTERM to each one's process group, which also stops
   the `docker`, `kind` or `kubectl` processes it started, and waits up to 5 more seconds for them

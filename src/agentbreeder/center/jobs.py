@@ -377,6 +377,11 @@ SHUTDOWN_GRACE = 5.0
 # A cancel before the job's first output waits for that line (or this long): a SIGINT that
 # reaches the CLI while its interpreter is still starting can be lost, and the job runs on.
 STARTUP_GRACE = 2.0
+# ...and never right on that line: a CLI goes from printing it straight into a blocking call,
+# and a SIGINT landing in that gap surfaces only when the call returns (CPython). A short settle
+# moves it into the call, which it interrupts.
+CANCEL_SETTLE = 0.2
+STOP_AFTER = 15.0  # a cancel this old can be escalated to a stop (the UI asks first)
 
 
 class WriteBusy(Exception):
@@ -402,10 +407,14 @@ def _stop_process(process: subprocess.Popen, grace: float | None = None) -> None
             pass
 
 
-def _stop_gracefully(process: subprocess.Popen, grace: float | None = None) -> None:
-    """The Cancel path first (one SIGINT, so a replace step restores), then `_stop_process`."""
+def _stop_gracefully(
+    process: subprocess.Popen, grace: float | None = None, interrupt: bool = True
+) -> None:
+    """The Cancel path first (one SIGINT, so a replace step restores; skipped when the job was
+    already sent its SIGINT), then `_stop_process`."""
     grace = SHUTDOWN_GRACE if grace is None else grace
-    _signal(process, signal.SIGINT)
+    if interrupt:
+        _signal(process, signal.SIGINT)
     try:
         process.wait(timeout=grace)
     except subprocess.TimeoutExpired:
@@ -427,8 +436,8 @@ class Running:
     keys: tuple[str, ...]
     pump: threading.Thread | None = None
     started: float = 0.0
-    seen_output: bool = False
-    cancel_requested: bool = False
+    seen_output: float | None = None  # when the first line arrived
+    cancel_requested: float | None = None  # when Cancel was asked
     signalled: bool = False
 
 
@@ -451,9 +460,24 @@ class Runner:
         """Running engine jobs, oldest first."""
         with self.mutex:
             return [
-                {"id": job.id, "project": job.project, "kind": job.kind}
+                {
+                    "id": job.id,
+                    "project": job.project,
+                    "kind": job.kind,
+                    "cancelling": job.cancel_requested is not None,
+                }
                 for job in self.jobs.values()
             ]
+
+    def job_status(self, identifier: str) -> dict | None:
+        """Live state the job row does not hold: whether a Cancel is under way, and whether it
+        has waited long enough to offer a stop."""
+        with self.mutex:
+            job = self.jobs.get(identifier)
+            if job is None or job.cancel_requested is None:
+                return None
+            waited = time.monotonic() - job.cancel_requested
+            return {"cancelling": True, "can_stop": waited >= STOP_AFTER}
 
     def _claim(self, keys: Sequence[str], holder: str, write: bool = False) -> None:
         """Take every key or none (call with the mutex held). Busy names the job holding the
@@ -566,9 +590,19 @@ class Runner:
                     self.state.append(identifier, seq, redact(line.rstrip("\n"), values))
                 except Exception:
                     # The log cannot be recorded (disk full, database error): a job nobody can
-                    # see must not run on, but it stops the graceful way, as Cancel does.
+                    # see must not run on, but it stops the graceful way, as Cancel does, with
+                    # no second SIGINT if Cancel already sent one.
                     unrecorded = True
-                    threading.Thread(target=_stop_gracefully, args=(process,), daemon=True).start()
+                    with self.mutex:
+                        job = self.jobs.get(identifier)
+                        already = bool(job and job.signalled)
+                        if job:
+                            job.signalled = True
+                    threading.Thread(
+                        target=_stop_gracefully,
+                        args=(process, None, not already),
+                        daemon=True,
+                    ).start()
             code = process.wait()
         except Exception:
             _stop_process(process)
@@ -606,16 +640,43 @@ class Runner:
             job = self.jobs.get(identifier)
             if job is None:
                 return False
-            job.cancel_requested = True
+            if job.cancel_requested is None:
+                job.cancel_requested = time.monotonic()
             if job.signalled:
-                return True
-            if job.seen_output or time.monotonic() - job.started >= STARTUP_GRACE:
+                return True  # one SIGINT only: a second can abort release's restore
+            delay = self._signal_delay(job)
+            if delay <= 0:
                 self._interrupt(job)
                 return True
-            delay = STARTUP_GRACE - (time.monotonic() - job.started)
-        timer = threading.Timer(delay, self._interrupt_if_waiting, args=(identifier,))
+        self._later(delay, identifier)
+        return True
+
+    def _signal_delay(self, job: Running) -> float:
+        """Seconds until a waiting cancel may send its SIGINT: CANCEL_SETTLE after the first
+        line, or STARTUP_GRACE after the start for a job that has printed nothing."""
+        now = time.monotonic()
+        if job.seen_output is not None:
+            return job.seen_output + CANCEL_SETTLE - now
+        return job.started + STARTUP_GRACE - now
+
+    def _later(self, delay: float, identifier: str) -> None:
+        timer = threading.Timer(max(delay, 0.0), self._interrupt_if_waiting, args=(identifier,))
         timer.daemon = True
         timer.start()
+
+    def stop(self, identifier: str) -> bool:
+        """The escalation the UI offers once a Cancel has waited STOP_AFTER: SIGTERM, then
+        SIGKILL, to the job's whole process group. It may skip release's restore; the UI says
+        so and asks first."""
+        with self.mutex:
+            job = self.jobs.get(identifier)
+            if job is None or job.cancel_requested is None:
+                return False
+            if time.monotonic() - job.cancel_requested < STOP_AFTER:
+                return False
+            job.signalled = True
+            process = job.process
+        threading.Thread(target=_stop_process, args=(process,), daemon=True).start()
         return True
 
     def _interrupt(self, job: Running) -> None:
@@ -628,15 +689,21 @@ class Runner:
             job = self.jobs.get(identifier)
             if job is None:
                 return
-            job.seen_output = True
-            if job.cancel_requested and not job.signalled:
-                self._interrupt(job)
+            job.seen_output = time.monotonic()
+            waiting = job.cancel_requested is not None and not job.signalled
+        if waiting:
+            self._later(CANCEL_SETTLE, identifier)
 
     def _interrupt_if_waiting(self, identifier: str) -> None:
         with self.mutex:
             job = self.jobs.get(identifier)
-            if job is not None and job.cancel_requested and not job.signalled:
+            if job is None or job.cancel_requested is None or job.signalled:
+                return
+            delay = self._signal_delay(job)
+            if delay <= 0:
                 self._interrupt(job)
+                return
+        self._later(delay, identifier)  # the first line arrived meanwhile: settle after it
 
     def any_engine_job(self) -> bool:
         with self.mutex:
@@ -704,7 +771,12 @@ class Runner:
             # Jobs keep the group signal even after their CLI exits (their pump holds them).
             live = [child for child in self.children if child.poll() is None]
             processes = [job.process for job in jobs] + live
-        for process in processes:
+            # One SIGINT per job: skip a job Cancel already signalled (a second can abort
+            # release's restore), and mark the rest so a waiting cancel adds none.
+            interrupt = [job.process for job in jobs if not job.signalled] + live
+            for job in jobs:
+                job.signalled = True
+        for process in interrupt:
             _signal(process, signal.SIGINT)
         try:
             _wait_all(processes, time.monotonic() + grace)

@@ -396,6 +396,24 @@ function projectName(id) {
   return project ? `${project.name}: ` : "";
 }
 
+// Cancel sends one SIGINT (release and promote then restore), so it is offered once. If the job
+// is still running long after, the server allows a confirmed stop of its process group.
+function jobControl() {
+  const job = ui.job;
+  if (!job.cancelling) {
+    return h("button", { class: "action secondary", onclick: async () => {
+      job.cancelling = true; renderDrawer();
+      try { await api(`/api/jobs/${job.id}/cancel`, {}); } catch { /* the poll shows the state */ }
+    } }, "Cancel");
+  }
+  if (!job.can_stop) return h("span", { class: "muted", role: "status" }, "Cancelling…");
+  return h("button", { class: "action danger", onclick: async () => {
+    if (await confirmAction("Stop the job now?", "Cancel has not ended it. Stopping ends every process it started, and may skip restoring the previous production: check Deployments afterwards.", "Stop now")) {
+      try { await api(`/api/jobs/${job.id}/stop`, {}); } catch { /* the poll shows the state */ }
+    }
+  } }, "Stop now");
+}
+
 function renderDrawer() {
   const drawer = document.getElementById("drawer");
   if (!drawer) return;
@@ -404,7 +422,7 @@ function renderDrawer() {
   const log = h("pre", { role: "log", tabindex: "0", "aria-label": "Job log" }, ui.jobLines.join("\n"));
   drawer.replaceChildren(h("div", { class: "row" },
     h("strong", {}, `${projectName(ui.job.project)}${ui.job.kind}: ${(ui.job.state || "").replace("_", " ")}`),
-    ui.job.state === "running" ? h("button", { class: "action secondary", onclick: () => api(`/api/jobs/${ui.job.id}/cancel`, {}) }, "Cancel") : null,
+    ui.job.state === "running" ? jobControl() : null,
     h("button", { class: "action secondary", onclick: () => { follow(null); renderDrawer(); } }, "Hide")), log);
   log.scrollTop = log.scrollHeight;
 }

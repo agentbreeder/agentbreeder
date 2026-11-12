@@ -2521,32 +2521,76 @@ def _ends(runner, job, limit):
     return runner.state.job(job)
 
 
-def test_a_cancel_before_the_first_line_waits_for_it(tmp_path):
+def test_a_cancel_before_the_first_line_waits_for_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)  # only the first line may release it
     runner = _late_runner(tmp_path)
     job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
     time.sleep(0.2)  # the child is up but cannot take SIGINT yet (an immediate send is lost)
     assert runner.cancel(job) is True
-    row = _ends(runner, job, 10)
+    row = _ends(runner, job, 20)
     assert row["exit_code"] == 130 and [line["text"] for line in row["lines"]] == [
         "started",
         "interrupted",
     ]
 
 
-def test_a_silent_child_still_gets_the_cancel_after_the_startup_grace(tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs, "STARTUP_GRACE", 0.5)
-    silent = (
-        "import time\ntry:\n    time.sleep(30)\n"
-        "except KeyboardInterrupt:\n    raise SystemExit(130)\n"
-    )
-    runner = _late_runner(tmp_path, silent)
+def test_the_sigint_settles_after_the_first_line(tmp_path, monkeypatch):
+    """Not right on the first line: a CLI goes from printing it into a blocking call, and a
+    SIGINT landing in that gap surfaces only when the call returns."""
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)
+    runner = _late_runner(tmp_path)
+    times = {}
+    real_first = runner._first_output
+
+    def first(identifier):
+        times["line"] = time.monotonic()
+        real_first(identifier)
+
+    runner._first_output = first
+    real_signal = jobs._signal
+
+    def recording(process, number):
+        times.setdefault("sigint", time.monotonic())
+        real_signal(process, number)
+
+    monkeypatch.setattr(jobs, "_signal", recording)
     job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
-    time.sleep(0.2)  # its interpreter is up; it never prints
     runner.cancel(job)
-    assert _ends(runner, job, 10)["exit_code"] == 130
+    assert _ends(runner, job, 20)["exit_code"] == 130
+    assert times["sigint"] - times["line"] >= jobs.CANCEL_SETTLE * 0.9
+
+
+SILENT = """
+import pathlib, sys, time
+try:
+    pathlib.Path(sys.argv[1]).write_text("ready")
+    time.sleep(30)
+except KeyboardInterrupt:
+    raise SystemExit(130)
+"""
+
+
+def test_a_silent_child_still_gets_the_cancel_after_the_startup_grace(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 2.0)
+    marker = tmp_path / "ready"
+    script = tmp_path / "silent.py"
+    script.write_text(SILENT)
+    directory = tmp_path / "silent-center"
+    directory.mkdir()
+    runner = Runner(CenterState(directory), directory, [sys.executable, str(script), str(marker)])
+    started = time.monotonic()
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    deadline = time.monotonic() + 20
+    while not marker.exists():  # its handler is in place; it never prints
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    runner.cancel(job)
+    assert _ends(runner, job, 20)["exit_code"] == 130
+    assert time.monotonic() - started >= 2.0 * 0.9  # not before the grace
 
 
 def test_cancel_sends_one_sigint_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)
     runner = _late_runner(tmp_path)
     job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
     sent = []
@@ -2556,5 +2600,53 @@ def test_cancel_sends_one_sigint_only(tmp_path, monkeypatch):
     )
     runner.cancel(job)
     runner.cancel(job)
-    _ends(runner, job, 10)
+    _ends(runner, job, 20)
     assert sent.count(jobs.signal.SIGINT) == 1
+
+
+def test_shutdown_adds_no_second_sigint_after_a_cancel(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "STARTUP_GRACE", 30.0)
+    runner = _late_runner(tmp_path)
+    job = runner.start({"id": "p", "path": "/x", "environment": "dev"}, "cluster-down", {})
+    deadline = time.monotonic() + 20
+    while not runner.state.job(job)["lines"]:
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    sent = []
+    real = jobs._signal
+    monkeypatch.setattr(
+        jobs, "_signal", lambda process, number: sent.append(number) or real(process, number)
+    )
+    runner.cancel(job)
+    time.sleep(jobs.CANCEL_SETTLE + 0.2)
+    runner.shutdown(grace=2.0)
+    assert sent.count(jobs.signal.SIGINT) == 1
+
+
+IGNORES_SIGINT = """
+import signal, time
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+print("started", flush=True)
+time.sleep(30)
+"""
+
+
+def test_a_cancel_that_does_not_end_the_job_can_be_escalated(center, cookie, project, monkeypatch):
+    monkeypatch.setattr(jobs, "STOP_AFTER", 0.5)
+    script = center.directory.parent / "stubborn.py"
+    script.write_text(IGNORES_SIGINT)
+    center.runner.prefix = [sys.executable, str(script)]
+    job = _job_id(start(center, project, cookie, "build"))
+    _started(center, job)
+    assert api(center, "POST", f"/api/jobs/{job}/stop", {}, cookie)[1]["data"] == {
+        "stopped": False  # no Cancel yet
+    }
+    api(center, "POST", f"/api/jobs/{job}/cancel", {}, cookie)
+    _, row, _ = api(center, "GET", f"/api/jobs/{job}", cookie=cookie)
+    assert row["data"]["cancelling"] is True and row["data"]["can_stop"] is False
+    assert center.runner.running()[0]["cancelling"] is True
+    time.sleep(0.6)
+    _, row, _ = api(center, "GET", f"/api/jobs/{job}", cookie=cookie)
+    assert row["data"]["can_stop"] is True
+    assert api(center, "POST", f"/api/jobs/{job}/stop", {}, cookie)[1]["data"] == {"stopped": True}
+    assert wait(center, job, cookie)["exit_code"] == -jobs.signal.SIGTERM
