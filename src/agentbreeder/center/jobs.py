@@ -705,37 +705,57 @@ class Runner:
         timeout: int = 30,
         key: str | None = None,
         ok_codes: Sequence[int] = (0,),
+        cache: bool = True,
+        track: bool = False,
     ) -> dict:
         """Run a read-only command that prints JSON; on failure, keep the last good answer.
-        `ok_codes`: exit codes whose JSON is still the answer (`registry used-by` exits 2 when
-        a project file has an error, after printing what it found)."""
+        `ok_codes`: exit codes whose JSON is still the answer (`registry used-by` and `registry
+        verify` exit 2 after printing what they found). `cache=False`: neither use nor keep the
+        last good answer. `track=True`: a long read (verify) is tracked as a child, so shutdown
+        stops it even when it is blocked."""
         cache_key = key or " ".join(argv)
+        if not cache:
+            cache_key = f"uncached {uuid.uuid4().hex}"
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 [*self.prefix, *argv],
                 cwd=self.directory,
                 env=child_environment(),
                 stdin=subprocess.DEVNULL,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 errors="replace",
-                timeout=timeout,
+                start_new_session=track,
             )
-        except subprocess.TimeoutExpired:
-            return self._stale(cache_key, error("TIMEOUT", "The command timed out"))
         except OSError:
             return self._stale(cache_key, error("COMMAND_FAILED", "The command could not start"))
-        if result.returncode not in ok_codes:
-            return self._stale(cache_key, cli_error(result.stderr, result.returncode))
+        if track:
+            self.adopt(process)
         try:
-            answer = {"data": json.loads(result.stdout), "error": None, "stale": False}
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _stop_process(process, 1.0) if track else process.kill()
+            process.communicate()
+            return self._stale(cache_key, error("TIMEOUT", "The command timed out"))
+        finally:
+            if track:
+                self.forget(process)
+        if process.returncode not in ok_codes:
+            return self._stale(cache_key, cli_error(stderr, process.returncode))
+        try:
+            answer = {"data": json.loads(stdout), "error": None, "stale": False}
         except ValueError:
+            if process.returncode:  # an allowed failure exit without JSON: its `[CODE]` line
+                return self._stale(cache_key, cli_error(stderr, process.returncode))
             return self._stale(
                 cache_key, error("BAD_OUTPUT", "The command returned unreadable output")
             )
-        while len(self.cache) >= MAX_CACHED:  # distinct argv (used-by refs) grow it
-            self.cache.pop(next(iter(self.cache)))
-        self.cache[cache_key] = answer
+        if cache:
+            with self.mutex:
+                while len(self.cache) >= MAX_CACHED:  # distinct argv (used-by refs) grow it
+                    self.cache.pop(next(iter(self.cache)))
+                self.cache[cache_key] = answer
         return answer
 
     def read_text(self, argv: Sequence[str], timeout: int = 30) -> str | None:

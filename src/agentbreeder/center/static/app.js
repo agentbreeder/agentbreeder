@@ -105,18 +105,20 @@ async function loadView() {
   if (wanted.includes("registry")) followVerify(ui.project.id);
 }
 
-// Registry verification runs in the background: ask again while it says "verifying" or shows a
-// stale answer, a few times, for the project still on screen.
-function followVerify(projectId, tries = 0) {
+// Registry verification runs in the background (a CLI child, up to 5 minutes): ask again while
+// it says "verifying" or shows a stale answer, backing off from 2 to 10 seconds, for at most 330
+// seconds and only for the project on screen. One chain at a time: a newer one ends the older.
+function followVerify(projectId, started = Date.now(), delay = 2000, chain = (ui.verifyChain = (ui.verifyChain || 0) + 1)) {
   const problems = ui.view.registry && ui.view.registry.data && ui.view.registry.data.problems;
   const pending = problems && (problems.stale || (problems.error && problems.error.code === "VERIFYING"));
-  if (!pending || tries >= 30) return;
+  if (!pending || Date.now() - started > 330000) return;
   setTimeout(async () => {
-    if (!ui.project || ui.project.id !== projectId) return;
+    if (chain !== ui.verifyChain || !ui.project || ui.project.id !== projectId) return;
     try { ui.view.registry = await api(`/api/projects/${projectId}/registry`); } catch { return; }
+    if (chain !== ui.verifyChain) return;
     if (ui.step === "services") render();
-    followVerify(projectId, tries + 1);
-  }, 2000);
+    followVerify(projectId, started, Math.min(delay * 1.5, 10000), chain);
+  }, delay);
 }
 
 // Follow one job in the drawer. Each call starts a new generation, so an older poll loop stops

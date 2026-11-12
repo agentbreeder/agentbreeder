@@ -37,7 +37,8 @@ from agentbreeder import agentfile, lock, registry
 MAX_TREE_ENTRIES = 20000  # registry directories signed per request; larger is not cached
 MAX_CACHED = 256  # answers kept (distinct used-by refs grow it)
 VERIFY_TIMEOUT = 300
-UNSIGNED_VERIFY_TTL = 60.0  # an unsigned (huge) registry is verified again after this
+VERIFY_TTL = 60.0  # verify reruns at least this often: the listing signature does not see
+# edits inside a version, which only verify (hashing every file) does
 
 
 def envelope(data=None, problem: dict | None = None, stale: bool = False) -> dict:
@@ -218,11 +219,8 @@ class Reads:
             fresh = (
                 entry is not None
                 and entry[1] == self.generation
-                and (
-                    entry[0] == signature
-                    if signature is not None
-                    else now - entry[2] < UNSIGNED_VERIFY_TTL
-                )
+                and entry[0] == signature
+                and now - entry[2] < VERIFY_TTL
             )
             if fresh:
                 return entry[3]
@@ -246,7 +244,9 @@ class Reads:
                 answer = self.run_cli(
                     ["registry", "verify", "--project", project, "--json"],
                     timeout=VERIFY_TIMEOUT,
-                    key=f"verify {project} {time.monotonic()}",  # never the shared cache
+                    ok_codes=(0, 2),  # it exits 2 after printing the problems it found
+                    cache=False,
+                    track=True,  # stopped with the console, even when blocked on a file
                 )
                 answer = {**answer, "stale": False}
         except Exception as error:  # a verify failure must never leave VERIFYING for good
@@ -254,6 +254,6 @@ class Reads:
         finally:
             with self.mutex:
                 self.verifying.discard(project)
-                # Kept even when it failed: verify reruns when the tree changes, on a job's end,
-                # or (unsigned trees) after UNSIGNED_VERIFY_TTL, not on every request.
+                # Kept even when it failed: verify reruns when the listing changes, on a job's
+                # end, or after VERIFY_TTL, not on every request.
                 self.problems[project] = (signature, generation, time.monotonic(), answer)

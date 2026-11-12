@@ -62,16 +62,6 @@ def _cli(*argv: str) -> object:
     return json.loads(result.stdout)
 
 
-def _until_ready(read, timeout: float = 120) -> dict:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        answer = read()
-        if answer["error"] is None or answer["error"]["code"] != "VERIFYING":
-            return answer
-        time.sleep(0.05)
-    raise AssertionError("verify never finished")
-
-
 def test_reads_are_cached_by_what_they_read(project):
     layer = Reads()
     first = layer.agent(str(project))
@@ -213,7 +203,7 @@ def test_registry_reads_match_the_cli(project, tmp_path):
 def test_verify_keeps_the_last_answer_stale_after_a_job_ends(project):
     calls = []
 
-    def fake(argv, timeout, key):
+    def fake(argv, timeout, **options):
         calls.append((argv, timeout))
         time.sleep(0.2)
         return {"data": [len(calls)], "error": None, "stale": False}
@@ -229,14 +219,14 @@ def test_verify_keeps_the_last_answer_stale_after_a_job_ends(project):
 
 
 def test_a_verify_that_fails_or_raises_never_sticks_on_verifying(project):
-    def broken(argv, timeout, key):
+    def broken(argv, timeout, **options):
         raise RuntimeError("boom")
 
     layer = Reads(run_cli=broken)
     answer = _ready(lambda: layer.registry_problems(str(project)))
     assert answer["error"]["code"] == "VERIFY_FAILED" and layer.verifying == set()
     timed_out = Reads(
-        run_cli=lambda argv, timeout, key: {
+        run_cli=lambda argv, timeout, **options: {
             "data": None,
             "error": {"code": "TIMEOUT", "message": "The command timed out"},
             "stale": False,
@@ -256,7 +246,7 @@ def test_a_fifo_manifest_cannot_hang_the_server(project, tmp_path):
     version.mkdir(parents=True)
     os.mkfifo(version / "manifest.yaml")
     layer = Reads(
-        run_cli=lambda argv, timeout, key: (
+        run_cli=lambda argv, timeout, **options: (
             time.sleep(0.1)
             or {"data": None, "error": {"code": "TIMEOUT", "message": "x"}, "stale": False}
         )
@@ -268,12 +258,12 @@ def test_a_fifo_manifest_cannot_hang_the_server(project, tmp_path):
     assert time.monotonic() - started < 5
 
 
-def test_an_unsigned_registry_is_not_verified_again_and_again(project, monkeypatch):
+def test_verify_is_not_rerun_on_every_request(project, monkeypatch):
     monkeypatch.setattr(reads, "MAX_TREE_ENTRIES", 0)
     (project / "registry" / "prompt" / "x").mkdir(parents=True)
     calls = []
     layer = Reads(
-        run_cli=lambda argv, timeout, key: (
+        run_cli=lambda argv, timeout, **options: (
             calls.append(1) or {"data": [], "error": None, "stale": False}
         )
     )
@@ -359,7 +349,6 @@ def test_the_server_process_loads_only_allowed_modules(tmp_path, project):
         f"project = center.register(Path({str(project)!r}))\n"
         "for view in ('registry', 'agent', 'lock'):\n"
         "    center.read_view(project, view)\n"
-        "class Q: pass\n"
         "request = server.Request(center, {'project': project['id']}, None,\n"
         "                         {'ref': ['runtime/adk@1.0.0']})\n"
         "server._used_by(request)\n"
@@ -379,3 +368,73 @@ def test_the_server_process_loads_only_allowed_modules(tmp_path, project):
     loaded = set(json.loads(result.stdout.strip().splitlines()[-1]))
     assert {"agentbreeder.center.reads", "agentbreeder.registry"} <= loaded
     assert loaded - ALLOWED == set()
+
+
+def test_verify_reports_problems_from_the_real_cli(project, tmp_path):
+    """`registry verify --json` exits 2 when it finds a problem; its rows are the answer."""
+    (project / "registry" / "prompt" / "broken" / "1.0.0").mkdir(parents=True)
+    layer = Reads(run_cli=_real_cli(tmp_path))
+    answer = _ready(lambda: layer.registry_problems(str(project)))
+    assert answer["error"] is None and answer["data"], answer
+    assert answer["data"] == _cli_any("registry", "verify", "--project", str(project), "--json")
+
+
+def test_verify_reruns_after_its_ttl(project, monkeypatch):
+    """Edits inside a version are invisible to the listing signature; verify reruns anyway."""
+    monkeypatch.setattr(reads, "VERIFY_TTL", 0.2)
+    calls = []
+    layer = Reads(
+        run_cli=lambda argv, timeout, **options: (
+            calls.append(1) or {"data": [len(calls)], "error": None, "stale": False}
+        )
+    )
+    _ready(lambda: layer.registry_problems(str(project)))
+    time.sleep(0.3)
+    assert layer.registry_problems(str(project))["stale"] is True
+    assert _ready(lambda: layer.registry_problems(str(project)))["data"] == [2]
+
+
+def test_a_tracked_read_is_stopped_with_the_console(tmp_path):
+    """A verify child blocked on a file must not outlive the console."""
+    import threading
+
+    from agentbreeder.center.jobs import CenterState, Runner
+
+    script = tmp_path / "slow.py"
+    script.write_text("import time\ntime.sleep(60)\n")
+    directory = tmp_path / "runner"
+    directory.mkdir()
+    runner = Runner(CenterState(directory), directory, [sys.executable, str(script)])
+    answers = []
+    thread = threading.Thread(
+        target=lambda: answers.append(runner.read(["x"], timeout=120, cache=False, track=True))
+    )
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not runner.children and time.monotonic() < deadline:
+        time.sleep(0.05)
+    (child,) = list(runner.children)
+    runner.shutdown(grace=0.5)
+    thread.join(10)
+    assert child.poll() is not None and answers and answers[0]["error"]
+    assert runner.children == set() and runner.cache == {}
+
+
+def test_an_allowed_exit_without_json_keeps_its_code(tmp_path):
+    from agentbreeder.center.jobs import CenterState, Runner
+
+    script = tmp_path / "coded.py"
+    script.write_text("import sys\nsys.stderr.write('[LOCK_INVALID] bad lock\\n')\nsys.exit(2)\n")
+    directory = tmp_path / "runner"
+    directory.mkdir()
+    runner = Runner(CenterState(directory), directory, [sys.executable, str(script)])
+    answer = runner.read(["x"], ok_codes=(0, 2))
+    assert answer["error"] == {"code": "LOCK_INVALID", "message": "bad lock"}
+
+
+def _cli_any(*argv: str) -> object:
+    result = subprocess.run(
+        [sys.executable, "-m", "agentbreeder", *argv], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode in (0, 2), result.stderr
+    return json.loads(result.stdout)

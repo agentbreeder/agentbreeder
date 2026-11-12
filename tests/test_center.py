@@ -845,11 +845,13 @@ def test_read_timeouts_and_start_failures_are_coded(tmp_path, monkeypatch):
     runner = Runner(CenterState(tmp_path), tmp_path, ["/nonexistent/python"])
     assert runner.read(["list"])["error"]["code"] == "COMMAND_FAILED"
 
-    def slow(*args, **kwargs):
-        raise jobs.subprocess.TimeoutExpired("x", 1)
-
-    monkeypatch.setattr(jobs.subprocess, "run", slow)
-    assert runner.read(["list"])["error"]["code"] == "TIMEOUT"
+    script = tmp_path / "slow.py"
+    script.write_text("import time\ntime.sleep(30)\n")
+    slow = Runner(CenterState(tmp_path), tmp_path, [sys.executable, str(script)])
+    started = time.monotonic()
+    assert slow.read(["list"], timeout=0.3)["error"]["code"] == "TIMEOUT"
+    assert slow.read(["list"], timeout=0.3, track=True)["error"]["code"] == "TIMEOUT"
+    assert time.monotonic() - started < 10 and slow.children == set()
 
 
 # -- S-01: projects only from directories you alone control ---------------------------------------
