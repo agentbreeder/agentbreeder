@@ -34,7 +34,47 @@ agentbreeder registry new tool orders --dir .         # scaffold ./tool-orders t
 agentbreeder registry publish ./tool-orders [--to registry] [--json]   # prints ref, sha256, path
 agentbreeder registry list [tool/] [--json]
 agentbreeder registry verify [--json]                 # exit 2 if any version is unsafe or inconsistent
+agentbreeder registry show prompt/support@1.0.0 [--project DIR] [--json]
 ```
+
+`list`, `verify` and `show` search the roots of `--project` (default `.`).
+
+## Browsing versions (on `main`, not in a published preview)
+
+`show`, `diff` and `used-by` only read. They are what the local console's registry pages will
+call, so their `--json` output is the contract described here.
+
+**`registry show REF`** prints one version: its hash, root, description, file list and the text
+of its text files. The version goes through the same checks as `verify` (`REF_CONFLICT`,
+symlinks, hardlinks, devices, `MAX_FILES`/`MAX_BYTES`, the shipped content manifest); each file
+is opened without following symlinks and must still be the file that was checked. Output is
+capped: at most 256 KiB of text per file and 2 MiB per version (later files are listed but not
+shown). Binary files (a NUL byte or invalid UTF-8) are listed, not shown. Control characters
+(except tab and newline in content) and Unicode bidi controls are removed from file names,
+manifest values and content before anything is printed, so a version cannot rewrite your terminal
+or disguise a file name; the file is marked `stripped`.
+
+`--json` prints:
+
+```json
+{
+  "ref": "prompt/support@1.0.0", "kind": "prompt", "name": "support", "version": "1.0.0",
+  "description": "…", "root": "/abs/project/registry", "root_kind": "project",
+  "path": "/abs/project/registry/prompt/support/1.0.0", "sha256": "sha256:…",
+  "manifest": {"kind": "prompt", "name": "support", "version": "1.0.0", "description": "…"},
+  "omitted": false,
+  "files": [
+    {"path": "docs", "type": "dir", "stripped": false},
+    {"path": "prompt.md", "type": "file", "size": 9, "executable": false, "sha256": "sha256:…",
+     "binary": false, "truncated": false, "omitted": false, "text": "Be kind.\n", "stripped": false}
+  ]
+}
+```
+
+`root_kind` is `project` (`./registry`), `path` (`AGENTBREEDER_REGISTRY_PATH`) or `builtin`.
+`sha256` is the version hash that `agent.lock` records; a file's `sha256` is of its bytes alone.
+`text` is `null` for binary files and for files past the version's cap (`omitted: true`);
+`truncated: true` means only the first 256 KiB are in `text`.
 
 ## Publishing and integrity
 

@@ -12,6 +12,13 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder registry show REF [--project DIR] [--json]` (#824), on `main`, not in a published
+  preview: one version's hash, root, manifest, files and the text of its text files, read-only.
+  It goes through the same safety checks as `verify`, opens files without following symlinks,
+  caps text at 256 KiB per file and 2 MiB per version, and removes control and bidi characters
+  from file names, manifest values and content (S-27). The `--json` shape is documented in
+  `docs/registry.md` for the console's registry pages.
+
 - Brand tokens (#817): `website/brand.css` gains a light `:root` palette and, in both palettes,
   `--text-muted` (AA on every surface; `#a1a1aa` on dark), a 3:1 `--control-border`, and
   `--success`, `--warning` and `--info` with `-subtle` backgrounds. Existing token names and

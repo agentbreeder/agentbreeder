@@ -387,3 +387,169 @@ def scaffold(kind: str, name: str, directory: Path, version: str = "0.1.0") -> P
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
     return target
+
+
+# -- Read-only views: `registry show`, `diff` and `used-by` ---------------------------------------
+# Pure reads over registry roots and project files (no Docker, state, secrets or operator config):
+# the local console calls these in-process. Every version goes through `resolve` and `_entries`
+# (symlink, hardlink, size and shipped-content checks), files are opened with O_NOFOLLOW and
+# checked against the inode `_entries` saw, text is capped, and control and bidi characters are
+# stripped from file names, manifest values and content before anything is shown (S-27).
+
+SHOW_FILE_LIMIT = 256 * 1024  # text kept per file
+SHOW_TOTAL_LIMIT = 2 * 1024 * 1024  # text kept per version; later files are listed, not shown
+_BIDI = "؜‎‏  ‪-‮⁦-⁩"
+_STRIP_NAME = re.compile(f"[\x00-\x1f\x7f-\x9f{_BIDI}]")
+_STRIP_TEXT = re.compile(f"[\x00-\x08\x0b-\x1f\x7f-\x9f{_BIDI}]")  # keeps tab and newline
+
+
+def clean(text: str, *, name: bool = False) -> tuple[str, bool]:
+    """`text` without control and bidi characters (a name also loses tab and newline), and
+    whether anything was removed."""
+    cleaned = (_STRIP_NAME if name else _STRIP_TEXT).sub("", text)
+    return cleaned, cleaned != text
+
+
+def _clean_value(value):
+    if isinstance(value, str):
+        return clean(value)[0]
+    if isinstance(value, dict):
+        return {clean(str(k), name=True)[0]: _clean_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_clean_value(v) for v in value]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return clean(str(value))[0]  # e.g. YAML dates
+
+
+def root_kind(root: Path, project_dir: Path | None = None) -> str:
+    """Where a search root comes from: `project` (./registry), `builtin` (shipped with
+    AgentBreeder) or `path` (an AGENTBREEDER_REGISTRY_PATH entry)."""
+    if root.resolve() == BUILTIN_ROOT.resolve():
+        return "builtin"
+    if project_dir is not None and root == project_dir / "registry":
+        return "project"
+    return "path"
+
+
+@dataclass
+class _File:
+    relative: str
+    type: str  # "file" or "dir"
+    size: int = 0
+    executable: bool = False
+    sha256: str = ""
+    head: bytes | None = None  # first SHOW_FILE_LIMIT bytes; None once the version budget is spent
+    truncated: bool = False
+
+
+def _read_one(relative: str, path: Path, info: os.stat_result) -> tuple[int, str, bytes]:
+    """Size, sha256 and the first SHOW_FILE_LIMIT bytes of one file, opened with O_NOFOLLOW
+    and refused if it is no longer the regular file `_entries` checked."""
+    digest = hashlib.sha256()
+    head = bytearray()
+    size = 0
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as reader:
+        now = os.fstat(reader.fileno())
+        if not stat.S_ISREG(now.st_mode) or (now.st_dev, now.st_ino) != (info.st_dev, info.st_ino):
+            raise RegistryError("ENTRY_UNSAFE", f"changed while reading: {relative}")
+        while chunk := reader.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_BYTES:
+                raise RegistryError("ENTRY_UNSAFE", "registry version is too large")
+            digest.update(chunk)
+            if len(head) < SHOW_FILE_LIMIT:
+                head += chunk[: SHOW_FILE_LIMIT - len(head)]
+    return size, "sha256:" + digest.hexdigest(), bytes(head)
+
+
+def _read_version(path: Path) -> list[_File]:
+    """Every entry of a version directory, validated by `_entries`, in path order."""
+    budget = SHOW_TOTAL_LIMIT
+    result = []
+    for relative, file_path, info in _entries(path):
+        if stat.S_ISDIR(info.st_mode):
+            result.append(_File(relative, "dir"))
+            continue
+        size, digest, head = _read_one(relative, file_path, info)
+        keep = len(head) <= budget
+        if keep:
+            budget -= len(head)
+        executable = bool(info.st_mode & 0o111)
+        kept = head if keep else None
+        result.append(_File(relative, "file", size, executable, digest, kept, size > len(head)))
+    return result
+
+
+def _decode(head: bytes, truncated: bool) -> str | None:
+    """UTF-8 text, or None for binary content (NUL bytes or invalid UTF-8)."""
+    if b"\x00" in head:
+        return None
+    try:
+        return head.decode("utf-8")
+    except UnicodeDecodeError as error:
+        # The cap can cut a multi-byte character in half: drop only that tail.
+        if truncated and error.start >= len(head) - 3:
+            try:
+                return head[: error.start].decode("utf-8")
+            except UnicodeDecodeError:
+                return None
+        return None
+
+
+def _text_of(item: _File) -> tuple[str | None, bool, bool]:
+    """(cleaned text or None, binary, whether characters were stripped from the content)."""
+    if item.head is None:
+        return None, False, False
+    text = _decode(item.head, item.truncated)
+    if text is None:
+        return None, True, False
+    cleaned, stripped = clean(text)
+    return cleaned, False, stripped
+
+
+def _file_view(item: _File) -> dict:
+    name, stripped = clean(item.relative, name=True)
+    if item.type == "dir":
+        return {"path": name, "type": "dir", "stripped": stripped}
+    text, binary, content_stripped = _text_of(item)
+    return {
+        "path": name,
+        "type": "file",
+        "size": item.size,
+        "executable": item.executable,
+        "sha256": item.sha256,
+        "binary": binary,
+        "truncated": item.truncated,
+        "omitted": item.head is None,
+        "text": text,
+        "stripped": stripped or content_stripped,
+    }
+
+
+def show(ref: Ref, search: list[Path], project_dir: Path | None = None) -> dict:
+    """One version, read-only: manifest, hash and files, with the text of text files (capped).
+
+    `registry show --json` prints this dict: ref, kind, name, version, description, root,
+    root_kind, path, sha256, manifest, omitted (the version's text budget ran out), and files[]:
+    {path, type: "dir", stripped} or {path, type: "file", size, executable, sha256, binary,
+    truncated, omitted, text, stripped}. `text` is null for binary or omitted files."""
+    hit = resolve(ref, search)
+    files = [_file_view(item) for item in _read_version(hit.path)]
+    manifest = _clean_value(read_manifest(hit.path, ref))
+    description = manifest.get("description")
+    return {
+        "ref": str(ref),
+        "kind": ref.kind,
+        "name": ref.name,
+        "version": ref.version,
+        "description": description if isinstance(description, str) else "",
+        "root": clean(str(hit.root), name=True)[0],
+        "root_kind": root_kind(hit.root, project_dir),
+        "path": clean(str(hit.path), name=True)[0],
+        "sha256": copy_and_hash(hit.path),
+        "manifest": manifest,
+        "omitted": any(f.get("omitted") for f in files),
+        "files": files,
+    }

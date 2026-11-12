@@ -1,4 +1,4 @@
-"""`agentbreeder registry new|publish|list|verify`: author and inspect registry versions."""
+"""`agentbreeder registry new|publish|list|verify|show`: author and inspect registry versions."""
 
 from __future__ import annotations
 
@@ -24,9 +24,11 @@ def register(commands) -> None:
     reg_list = reg_commands.add_parser("list", help="List versions in the search roots")
     reg_list.add_argument("prefix", nargs="?", default="")
     reg_verify = reg_commands.add_parser("verify", help="Re-check every version's integrity")
-    for command in (reg_publish, reg_list, reg_verify):
+    reg_show = reg_commands.add_parser("show", help="Show one version's manifest and files")
+    reg_show.add_argument("ref", help="kind/name@X.Y.Z")
+    for command in (reg_publish, reg_list, reg_verify, reg_show):
         command.add_argument("--json", action="store_true")
-    for command in (reg_list, reg_verify):
+    for command in (reg_list, reg_verify, reg_show):
         command.add_argument("--project", type=Path, default=Path("."))
 
 
@@ -42,6 +44,10 @@ def run(args) -> int:
             print(json.dumps(result) if args.json else f"{ref} {digest} {path}")
             return 0
         search = registry.roots(args.project)
+        if args.registry_command == "show":
+            view = registry.show(registry.Ref.parse(args.ref), search, args.project)
+            print(json.dumps(view, indent=2) if args.json else _show_text(view))
+            return 0
         if args.registry_command == "list":
             rows = registry.listing(search, args.prefix)
             if args.json:
@@ -64,3 +70,38 @@ def run(args) -> int:
     except registry.RegistryError as error:
         print(str(error), file=sys.stderr)
         return 2
+
+
+def _file_note(entry: dict) -> str:
+    notes = []
+    if entry["executable"]:
+        notes.append("executable")
+    if entry["binary"]:
+        notes.append("binary, not shown")
+    if entry["omitted"]:
+        notes.append("not shown: output limit reached")
+    elif entry["truncated"]:
+        notes.append(f"first {registry.SHOW_FILE_LIMIT // 1024} KiB shown")
+    if entry["stripped"]:
+        notes.append("control or bidi characters removed")
+    return f"  ({', '.join(notes)})" if notes else ""
+
+
+def _show_text(view: dict) -> str:
+    """`registry show` for a terminal; every string was already cleaned by registry.show."""
+    lines = [
+        f"{view['ref']}  {view['sha256']}",
+        f"Root: {view['root']} ({view['root_kind']})",
+    ]
+    if view["description"]:
+        lines.append(f"Description: {registry.clean(view['description'], name=True)[0]}")
+    lines.append("Files:")
+    for entry in view["files"]:
+        if entry["type"] == "dir":
+            lines.append(f"  {entry['path']}/")
+        else:
+            lines.append(f"  {entry['path']}  {entry['size']} B{_file_note(entry)}")
+    for entry in view["files"]:
+        if entry["type"] == "file" and entry["text"] is not None:
+            lines += ["", f"--- {entry['path']} ---", entry["text"].rstrip("\n")]
+    return "\n".join(lines)
