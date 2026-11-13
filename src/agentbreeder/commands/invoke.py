@@ -71,12 +71,7 @@ def run(args) -> int:
         invoke.check_id(args.customer, "--customer")
         invoke.check_id(args.session, "--session")
         message = invoke.message_from(args.message, sys.stdin)
-        if not (args.state_dir / "deployments.sqlite3").is_file():
-            raise invoke.InvokeError(
-                "NO_STATE",
-                f"no AgentBreeder state at {safe_text.excerpt(args.state_dir, 300)}; check "
-                "--state-dir or --stack",
-            )
+        _check_state(args.state_dir)
     except invoke.InvokeError as error:
         return _fail(args, error)
     if args.customer is not None or args.session is not None:
@@ -89,6 +84,39 @@ def run(args) -> int:
         return _invoke(store, args, message)
     finally:
         store.close()
+
+
+def _check_state(state_dir) -> None:
+    """NO_STATE when there is no state file, STATE_UNREADABLE when it cannot be looked at (a
+    directory without search permission, another OS error): `Path.is_file` raises
+    PermissionError on 3.11–3.13, which was a traceback. What `is_file` treats as "not a file"
+    (the errnos `pathlib` ignores, a NUL in the path) stays NO_STATE. The reason is the errno's
+    symbolic name, never the OS's message."""
+    import errno
+    import os
+    import stat
+
+    from agentbreeder import invoke
+
+    shown = safe_text.excerpt(state_dir, 300)
+    try:
+        mode = os.stat(state_dir / "deployments.sqlite3").st_mode
+    except ValueError:  # an embedded NUL, from a --stack config: as `is_file`, not a file
+        mode = None
+    except OSError as error:
+        if error.errno not in (errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP):
+            if isinstance(error, PermissionError):
+                reason = "permission denied"
+            else:
+                reason = errno.errorcode.get(error.errno, "OS error")
+            raise invoke.InvokeError(
+                "STATE_UNREADABLE", f"cannot read the AgentBreeder state at {shown} ({reason})"
+            ) from error
+        mode = None
+    if mode is None or not stat.S_ISREG(mode):
+        raise invoke.InvokeError(
+            "NO_STATE", f"no AgentBreeder state at {shown}; check --state-dir or --stack"
+        )
 
 
 def _open(state_dir):
