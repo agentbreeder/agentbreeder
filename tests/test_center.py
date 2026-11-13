@@ -202,7 +202,7 @@ def start(center, project, cookie, kind, options=None, keys=None):
 
 def test_static_files_carry_the_security_headers(center):
     response, raw = call(center, "GET", "/")
-    assert response.status == 200 and b"Command Center" in raw
+    assert response.status == 200 and b"AgentBreeder console" in raw
     policy = response.getheader("Content-Security-Policy")
     assert "default-src 'none'" in policy and "form-action 'none'" in policy
     assert response.getheader("X-Content-Type-Options") == "nosniff"

@@ -122,6 +122,27 @@ def test_source_guard_catches_each_sink():
     assert not STRING_TIMER.search("setTimeout(() => go(), 0)")
 
 
+# Bidi controls and invisible format characters ("Trojan Source"): code that reads differently
+# from what runs. Tests write them as escapes (\u202e), never as raw characters.
+INVISIBLE = re.compile(
+    "[\u00ad\u061c\u180e\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff"
+    "\U000e0000-\U000e007f]"
+)
+
+
+@pytest.mark.parametrize("path", _own_sources(), ids=lambda p: p.relative_to(STATIC).as_posix())
+def test_no_raw_bidi_or_invisible_characters(path):
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        assert not INVISIBLE.search(line), f"{path.name}:{number}"
+
+
+def test_console_tests_write_invisible_characters_as_escapes():
+    root = Path(__file__).parent
+    for path in [*root.glob("ui/*.py"), *root.glob("js/*.mjs"), Path(__file__)]:
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            assert not INVISIBLE.search(line), f"{path.name}:{number}"
+
+
 def test_html_has_no_inline_script_style_or_handlers():
     for path in STATIC.rglob("*.html"):
         source = path.read_text()

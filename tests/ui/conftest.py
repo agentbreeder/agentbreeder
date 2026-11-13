@@ -31,11 +31,21 @@ class Console:
         self.login = info["login"]
         self.state = state
 
-    def project(self, name: str = "demo") -> Path:
+    def mint(self) -> str:
+        """A new one-time sign-in link, as pressing Enter in `up`'s terminal gives."""
+        self.process.stdin.write("mint\n")
+        self.process.stdin.flush()
+        return json.loads(self.process.stdout.readline())["login"]
+
+    def scenario(self, **answers) -> None:
+        """Change the fake CLI's answers (before the console first reads them)."""
+        (self.state / "scenario.json").write_text(json.dumps(answers))
+
+    def project(self, name: str = "demo", fixture: str = "demo") -> Path:
         """A copy of a fixture project under the test's state directory."""
         target = self.state / "projects" / name
         if not target.exists():
-            shutil.copytree(FIXTURES / "projects" / name, target)
+            shutil.copytree(FIXTURES / "projects" / fixture, target)
         return target
 
 
@@ -47,6 +57,7 @@ def console(tmp_path):
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(tmp_path / "home"),
         "TMPDIR": str(tmp_path),
+        "AGENTBREEDER_FAKE_DIR": str(state),
     }
     process = subprocess.Popen(
         [sys.executable, "-I", str(HERE / "launcher.py"), str(state)],
@@ -72,6 +83,18 @@ def console(tmp_path):
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(5)
+
+
+def sign_in(page, console, project: bool = True) -> None:
+    """Open the one-time link; with `project`, add the fixture project from Home (which opens its
+    Services screen)."""
+    page.goto(console.login)
+    page.get_by_role("heading", level=1, name="Home").wait_for()
+    if project:
+        page.get_by_label("Absolute path").fill(str(console.project()))
+        page.get_by_role("button", name="Add project").click()
+        page.wait_for_url("**/#/services")
+        page.get_by_role("heading", name="Stack services").wait_for()
 
 
 @pytest.fixture
