@@ -449,3 +449,37 @@ def test_a_new_link_in_a_signed_in_tab_keeps_the_route(page, console):
     page.evaluate("(hash) => { location.hash = hash; }", "#" + token)
     expect(page.get_by_role("heading", level=1)).to_contain_text("Deployments")
     assert "#t=" not in page.url
+
+
+def test_row_remove_is_off_while_a_job_runs(page, console):
+    # #881: with a job running in the project, every row Remove is off with one shared reason.
+    # The server only starts `remove` for a real (32-hex) deployment id.
+    rows = [dict(row, id=f"{n:032x}") for n, row in enumerate(DEPLOYMENTS, 1)]
+    console.scenario(deployments=rows, job_seconds=20)
+    sign_in(page, console)
+    go(page, console, "/deployments", "Deployments")
+    first = page.get_by_role("row", name=re.compile(r"demo\b(?!-)")).get_by_role(
+        "button", name="Remove"
+    )
+    first.click()
+    page.get_by_role("dialog").get_by_role("button", name="Remove").click()
+    expect(page.locator("#activity-pill")).to_have_text("1 running")
+    page.get_by_role("complementary", name="Jobs").get_by_role("button", name="Close").click()
+    removes = page.get_by_role("button", name="Remove")
+    expect(removes).to_have_count(2)
+    reason = page.locator(".reason")
+    expect(reason).to_have_count(1)  # shown once, not once per row
+    expect(reason).to_contain_text("Remove is running in this project")
+    reason_id = reason.get_attribute("id")
+    for n in range(2):
+        expect(removes.nth(n)).to_be_disabled()
+        assert removes.nth(n).get_attribute("aria-describedby") == reason_id
+    reverify = page.get_by_role("button", name="Re-verify (reconcile)")
+    expect(reverify).to_be_disabled()
+    # The bug as seen: the buttons were disabled but kept their red outline, so they looked live.
+    # An off Remove must look like the off Re-verify, not like an enabled danger button.
+    look = "b => { const s = getComputedStyle(b); return [s.color, s.borderTopColor]; }"
+    for n in range(2):
+        assert removes.nth(n).evaluate(look) == reverify.evaluate(look)
+    removes.first.focus()
+    expect(removes.first).not_to_be_focused()  # a disabled button takes no focus
