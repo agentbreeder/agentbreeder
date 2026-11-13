@@ -206,8 +206,16 @@ What you see: `cluster up` prints the changed grant (the cluster added to it), w
 accepts as it now stands, including any `stack.yaml` change since your last `services up`. To
 review it first, run `cluster up` without `--yes`, then
 `agentbreeder services plan . --environment dev`, then `services up` without `--yes`. Until a
-grant with the cluster is accepted, the operator config is unchanged and `promote` fails with
-`KUBERNETES_UNCONFIGURED`. `promote` deploys the released image to the cluster after running the
+grant with the cluster is accepted, the operator config is unchanged and `promote` would fail
+with `KUBERNETES_UNCONFIGURED`, so `next` says the cluster is not in the accepted grant
+(`GRANT_PENDING` in `--json`) and points at this command, which, like `cluster up --yes`, accepts
+the grant as it now stands:
+
+```sh
+agentbreeder services up . --environment dev --yes
+```
+
+`promote` deploys the released image to the cluster after running the
 evals there (`--skip-cluster-evals` skips them). The step is done when the cluster runs the same
 image as production. `agentbreeder forward DEPLOYMENT_ID --stack . --environment dev` gives it
 a local port; the same caveat as step 7 applies.

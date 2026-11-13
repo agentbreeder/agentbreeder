@@ -152,6 +152,7 @@ def _kubernetes(state="next", code="NOT_PROMOTED", action="promote") -> dict:
         "data": {
             "cluster": "agentbreeder",
             "cluster_up": True,
+            "cluster_configured": True,
             "deployment": None,
             "promoted_image": None,
             "production_image": IMAGE,
@@ -395,6 +396,10 @@ def test_code_action_mapping():
     data["steps"].append(_kubernetes("next", "CLUSTER_DOWN", "promote"))
     _invalid(data, "does not belong here")
     _step(data, "kubernetes")["fix"]["action"] = "cluster-up"
+    guide.Guide.model_validate(data)
+    _step(data, "kubernetes")["reason"]["code"] = "GRANT_PENDING"
+    _invalid(data, "does not belong here")
+    _step(data, "kubernetes")["fix"]["action"] = "services-up"
     guide.Guide.model_validate(data)
     data = _base()
     _step(data, "build")["reason"]["code"] = "REF_UNPINNED"

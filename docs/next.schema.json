@@ -429,6 +429,10 @@
           "title": "Cluster Up",
           "type": "boolean"
         },
+        "cluster_configured": {
+          "title": "Cluster Configured",
+          "type": "boolean"
+        },
         "deployment": {
           "anyOf": [
             {
@@ -471,6 +475,7 @@
       "required": [
         "cluster",
         "cluster_up",
+        "cluster_configured",
         "deployment",
         "promoted_image",
         "production_image"
