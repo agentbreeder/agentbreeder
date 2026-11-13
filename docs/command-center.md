@@ -97,6 +97,10 @@ On `main` the walkthrough column is replaced by a console shell (Preact + htm, n
     this project), it is shown once.
   - Confirm dialogs focus Cancel and give focus back to the button that opened them.
   - A service without host ports says "internal only".
+  - A service with no running container (after `services down`, say) shows its last host ports
+    as "not listening (last: …)". Stop services is off with "The services are stopped." when
+    every service is absent; it stays on for exited containers, which `services down` also
+    removes (#882, on `main`, not in a published preview).
   - Release candidates carry a violet "candidate, temporary" label.
   - Notices belong to their screen and clear when you leave it.
   - Measured cost figures appear only for the onboarded Northwind example.

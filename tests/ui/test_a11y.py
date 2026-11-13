@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from .conftest import sign_in
-from .test_shell import AUDIT_ROW, DEPLOYMENTS, ROUTES
+from .test_shell import AUDIT_ROW, DEPLOYMENTS, ROUTES, STOPPED
 
 pytestmark = pytest.mark.ui
 
@@ -75,3 +75,11 @@ def test_deployments_with_a_job_running_has_no_serious_axe_findings(scheme_page,
     scheme_page.get_by_role("dialog").get_by_role("button", name="Remove").click()
     scheme_page.locator(".reason").wait_for()
     assert blocking(scheme_page, "deployments, busy") == []
+
+
+def test_stopped_services_have_no_serious_axe_findings(scheme_page, console):
+    # #882: the muted last ports and the off Stop services with its reason, light and dark.
+    console.scenario(services=STOPPED)
+    sign_in(scheme_page, console)
+    scheme_page.locator(".reason").wait_for()
+    assert blocking(scheme_page, "services, stopped") == []

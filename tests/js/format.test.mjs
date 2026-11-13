@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   auditTime, incompleteSentence, isCandidate, isNorthwind, jobLabel, jobOutcome, portsText,
-  reasonCodes, serviceState, toolGuidance, verifySentence,
+  reasonCodes, serviceState, serviceUp, toolGuidance, verifySentence,
 } from "../../src/agentbreeder/center/static/lib/format.js";
 
 test("verify in words, intact and broken", () => {
@@ -46,7 +46,14 @@ test("candidates and ports", () => {
   assert.equal(isCandidate(null), false);
   assert.equal(portsText({ host_ports: {} }), "internal only");
   assert.equal(portsText({}), "internal only");
-  assert.equal(portsText({ host_ports: { "4000": 4000 } }), "4000 → 127.0.0.1:4000");
+  assert.equal(portsText({ state: "running", host_ports: { "4000": 4000 } }), "4000 → 127.0.0.1:4000");
+  assert.equal(portsText({ state: "absent", host_ports: { pg: 65534 } }), "not listening (last: pg → 127.0.0.1:65534)");
+  assert.equal(portsText({ state: "exited", host_ports: {} }), "internal only");
+  assert.equal(serviceUp({ state: "running" }), true);
+  assert.equal(serviceUp({ state: "paused" }), true);
+  assert.equal(serviceUp({ state: "absent" }), false);
+  assert.equal(serviceUp({ state: "exited" }), false);
+  assert.equal(serviceUp(null), false);
   assert.equal(serviceState({ state: "running", health: "healthy" }), "running (healthy)");
   assert.equal(serviceState({ state: "exited" }), "exited");
 });

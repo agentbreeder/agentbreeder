@@ -83,6 +83,69 @@ def test_services_show_internal_only_ports(page, console):
     )
 
 
+STOPPED = {
+    "postgres": {"state": "absent", "health": "", "host_ports": {"pg": 65534}},
+    "litellm": {"state": "absent", "health": "", "host_ports": {}},
+}
+
+
+def test_stopped_services_list_no_live_port_and_no_stop(page, console):
+    # After `services down` every service is absent; state still records the last host port (#882).
+    console.scenario(services=STOPPED)
+    sign_in(page, console)
+    row = page.get_by_role("row", name=re.compile("postgres"))
+    expect(row).to_contain_text("absent")
+    expect(row).to_contain_text("not listening (last: pg → 127.0.0.1:65534)")
+    stop = page.get_by_role("button", name="Stop services")
+    expect(stop).to_be_disabled()
+    reason_id = stop.get_attribute("aria-describedby")
+    assert reason_id
+    expect(page.locator(f"#{reason_id}")).to_have_text("The services are stopped.")
+    expect(page.get_by_role("button", name="Review and update")).to_be_enabled()
+
+
+def test_a_running_service_keeps_stop_and_its_port(page, console):
+    console.scenario(
+        services={
+            **STOPPED,
+            "litellm": {"state": "running", "health": "", "host_ports": {"4000": 4000}},
+        }
+    )
+    sign_in(page, console)
+    expect(page.get_by_role("row", name=re.compile("postgres"))).to_contain_text("not listening")
+    litellm = page.get_by_role("row", name=re.compile("litellm"))
+    expect(litellm).to_contain_text("4000 → 127.0.0.1:4000")
+    expect(litellm).not_to_contain_text("not listening")
+    expect(page.get_by_role("button", name="Stop services")).to_be_enabled()
+
+
+def test_exited_containers_keep_stop_but_show_no_live_port(page, console):
+    # `services down` also removes exited containers, so Stop stays on to clean them up (#882).
+    exited = {name: dict(info, state="exited") for name, info in STOPPED.items()}
+    console.scenario(services=exited)
+    sign_in(page, console)
+    row = page.get_by_role("row", name=re.compile("postgres"))
+    expect(row).to_contain_text("not listening (last: pg → 127.0.0.1:65534)")
+    expect(page.get_by_role("button", name="Stop services")).to_be_enabled()
+    expect(page.get_by_text("The services are stopped.")).to_have_count(0)
+
+
+def test_stopped_services_show_only_the_busy_reason_while_a_job_runs(page, console):
+    console.scenario(services=STOPPED, job_seconds=20)
+    sign_in(page, console)
+    page.get_by_role("button", name="Review and update").click()
+    page.get_by_label("GOOGLE_API_KEY").fill("x")
+    page.get_by_role("button", name="Confirm and start").click()
+    stop = page.get_by_role("button", name="Stop services")
+    # Once the job runs, its shared reason replaces "The services are stopped.", never both.
+    expect(page.get_by_role("button", name="Review and update")).to_be_disabled()
+    expect(stop).to_be_disabled()
+    reason_id = stop.get_attribute("aria-describedby")
+    assert reason_id
+    expect(page.locator(f"#{reason_id}")).to_contain_text("running in this project")
+    expect(page.get_by_text("The services are stopped.")).to_have_count(0)
+
+
 def test_grant_review_keeps_typed_values_and_starts_the_job(page, console):
     sign_in(page, console)
     page.get_by_role("button", name="Review and update").click()
