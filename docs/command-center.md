@@ -190,6 +190,39 @@ tool would not be caught.
 policy drift, not a local admin. A project is code. Building it runs its Dockerfile in Docker, so add
 only projects you trust. Local endpoints are unauthenticated.
 
+### Browser-side guards (#816): on `main`, not in a published preview
+
+A console session can build and run project code, so whatever reaches the page must not be able to
+run as script. These guards are a primary control, not hardening (console spec §10.1 I1):
+
+- **Content security policy** on every response: `default-src 'none'; script-src 'self';
+  style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none';
+  form-action 'none'; frame-ancestors 'none'; trusted-types 'none'; require-trusted-types-for
+  'script'`. No inline script or style, no `eval`, nothing from another origin. Trusted Types are
+  required and no policy may be created, so assigning a string to `innerHTML` (or to a script's
+  text or URL) throws.
+- **Source guard.** A test fails if any console file outside `vendor/` uses `innerHTML`,
+  `outerHTML`, `insertAdjacentHTML`, `document.write`, `dangerouslySetInnerHTML`, `srcdoc`, `eval`,
+  `Function(…)`, `createContextualFragment`, `DOMParser` or a string timer, or if any HTML, JS or
+  CSS file names an external origin. Agent replies, log lines, notes and file contents are only
+  ever placed as text.
+- **Preact + htm, vendored** for the console shell that replaces the current screens (#816, in
+  progress): htm 3.1.1's `preact/standalone.module.js` (htm and the Preact 10 build it bundles,
+  one ES module), copied unchanged from the npm tarball and pinned by SHA-256 in a test, with no
+  build step. Its licences (Apache-2.0 for htm, MIT for Preact) ship beside it in
+  `center/static/vendor/`.
+- **Visible control characters** (S-35). A shared text function shows C0/C1 controls and DEL as
+  `\x1b`, and bidi controls and invisible format characters (zero-width space, BOM, soft hyphen,
+  the Unicode tag block) as `U+202E`, so a log line cannot rewrite the terminal or read
+  differently from its bytes, and Copy takes the escaped form. Zero-width joiners stay, since
+  emoji and Persian text need them. The new shell's text views will
+  use it; the current screens do not yet.
+
+Tests: `node --test 'tests/js/*.test.mjs'` for the browser modules; `tests/ui/` runs the console from the built
+wheel with a fake CLI in Chromium (Playwright): zero CSP violations on load, HTML sinks throw, and
+axe in light and dark (`AGENTBREEDER_UI_TEST=1`, dependencies in `tests/ui/requirements.txt`; on
+macOS 13, where Playwright's Chromium is not offered, add `--browser-channel chrome`).
+
 ## The Kubernetes target
 
 Local clusters only. `kind` is the verified path.

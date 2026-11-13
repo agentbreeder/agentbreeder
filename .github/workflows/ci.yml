@@ -104,6 +104,46 @@ jobs:
           package-manager-cache: false
       - run: node --test
         working-directory: npm
+  console-js:
+    # The console's pure browser modules (router, API client, text escaping; #816).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      # A glob, not a directory: since Node 21 `--test` arguments are glob patterns.
+      - run: node --test 'tests/js/*.test.mjs'
+  console-ui:
+    # The console in a real browser (#816): Playwright + axe, light and dark, against a server from
+    # the built wheel (the launcher runs with -I, so the checkout is not on its path) with a fake
+    # CLI. No Docker, network or model key.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Build the wheel from hashed build dependencies
+        run: |
+          python -m venv "$RUNNER_TEMP/build-venv"
+          "$RUNNER_TEMP/build-venv/bin/pip" install --require-hashes --only-binary=:all: -r scripts/build-requirements.txt
+          "$RUNNER_TEMP/build-venv/bin/python" -m build --no-isolation --wheel --outdir dist
+      - name: Install the wheel and the hashed UI test requirements
+        run: |
+          python -m venv "$RUNNER_TEMP/ui-venv"
+          "$RUNNER_TEMP/ui-venv/bin/pip" install dist/*.whl
+          "$RUNNER_TEMP/ui-venv/bin/pip" install --require-hashes --only-binary=:all: -r tests/ui/requirements.txt
+          "$RUNNER_TEMP/ui-venv/bin/playwright" install --with-deps chromium
+      - run: '"$RUNNER_TEMP/ui-venv/bin/python" -m pytest tests/ui -p no:cacheprovider'
+        env:
+          AGENTBREEDER_UI_TEST: '1'
+          AGENTBREEDER_UI_WHEEL: '1'
   upgrade-guard:
     # The same claim against PyPI itself. Before 3.0.0a1 is published it holds trivially; the
     # pre-publish proof is install-smoke's local index. After publishing it is the real check.

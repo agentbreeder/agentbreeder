@@ -22,6 +22,18 @@ On main, not in a published preview.
   agent's runtime comes from `--stack DIR`'s build record (built-in runtimes only). `--json`
   adds `format`, `levels` and `level`, and `--follow --json` each line's `level`. Tested against logs captured from a
   Northwind run (`tests/fixtures/logs/`); `runtime/adk` printed nothing in the runs captured.
+- Console browser-side guards (#816, M0b, slice 1), on `main`, not in a published preview. The
+  content security policy now requires Trusted Types with no policy allowed
+  (`trusted-types 'none'; require-trusted-types-for 'script'`) and allows `data:` images, so any
+  string assigned to an HTML or script sink throws. A source guard test fails on `innerHTML`,
+  `eval` and the other HTML and code sinks outside `vendor/`, and on any external origin in a
+  static file. Preact + htm (htm 3.1.1's standalone module, pinned by SHA-256, licences beside
+  it) and the pure modules for the new shell (hash router, API client, the S-35 text escaping)
+  are vendored and tested but not yet used by the screens. `center/static/**` is packaged
+  recursively and a packaging test checks every tracked static file ships. Tests: `node --test
+  'tests/js/*.test.mjs'` and a Playwright + axe job against the built wheel with a fake CLI (`tests/ui/`, CI
+  jobs `console-js` and `console-ui`).
+
 - `next`'s Kubernetes step gains the reason `GRANT_PENDING` (#820, M4), on `main`, not in a
   published preview: the cluster is attached (typically after `cluster up` without `--yes`, as
   the console's job runs it) but the environment's operator config does not name it, so

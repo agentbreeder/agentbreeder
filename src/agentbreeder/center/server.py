@@ -75,11 +75,16 @@ STATIC_TYPES = {
 }
 EXAMPLES = ("northwind",)
 OPTIONS = {"services-up": ("digest",), "remove": ("deployment", "target")}
+# A console session is code execution as the owner (console spec §10.1 I1), so the browser-side
+# guards are a primary control: scripts and styles from this origin only, no inline code, and
+# Trusted Types required with no policy allowed, so every HTML sink (innerHTML and the like)
+# throws.
+# `default-src 'none'` is stricter than the plan's `'self'`: each kind the console uses is named.
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
-        "img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; "
-        "frame-ancestors 'none'"
+        "img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; "
+        "frame-ancestors 'none'; trusted-types 'none'; require-trusted-types-for 'script'"
     ),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
