@@ -25,7 +25,10 @@ ALLOWED = {
     "agentbreeder",
     "agentbreeder._version",
     "agentbreeder.agentfile",
+    # `next --json`'s models (#820), checked in process; pure pydantic, no state or Docker.
+    "agentbreeder.guide",
     "agentbreeder.lock",
+    "agentbreeder.manifest",
     "agentbreeder.redaction",
     "agentbreeder.registry",
     "agentbreeder.strict_yaml",

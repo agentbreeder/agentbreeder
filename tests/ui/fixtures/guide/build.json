@@ -1,0 +1,158 @@
+{
+ "schema_version": 1,
+ "project": "@PROJECT@",
+ "environment": "dev",
+ "complete": false,
+ "next": "build",
+ "steps": [
+  {
+   "id": "prerequisites",
+   "title": "Prerequisites",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": null,
+   "data": {
+    "checks": [
+     {
+      "name": "Docker",
+      "passed": true,
+      "required": true,
+      "message": "Docker engine 27.5.1 is reachable"
+     },
+     {
+      "name": "agentbreeder on PATH",
+      "passed": false,
+      "required": false,
+      "message": "No agentbreeder on PATH; expected with npx or uvx"
+     }
+    ]
+   }
+  },
+  {
+   "id": "project",
+   "title": "Project",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": null,
+   "data": {
+    "agent": "hello",
+    "agent_file": "@PROJECT@/agent.yaml",
+    "stack_file": "@PROJECT@/stack.yaml",
+    "error_code": null,
+    "newer": [
+     {
+      "ref": "prompt/hello-prompt@0.1.0",
+      "latest": "0.1.1",
+      "file": "@PROJECT@/agent.yaml",
+      "line": 9
+     }
+    ]
+   }
+  },
+  {
+   "id": "keys",
+   "title": "Model keys",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": null,
+   "data": {
+    "required": [
+     "GEMINI_API_KEY"
+    ],
+    "present": [
+     "GEMINI_API_KEY"
+    ],
+    "stored": [],
+    "missing": []
+   }
+  },
+  {
+   "id": "services",
+   "title": "Services",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": null,
+   "data": {
+    "services": [
+     {
+      "name": "postgres",
+      "kind": "service",
+      "state": "running",
+      "health": "healthy"
+     },
+     {
+      "name": "litellm",
+      "kind": "service",
+      "state": "running",
+      "health": "healthy"
+     }
+    ],
+    "grant_recorded": true,
+    "environment_written": true
+   }
+  },
+  {
+   "id": "build",
+   "title": "Build",
+   "required": true,
+   "state": "next",
+   "reason": {
+    "code": "NOT_BUILT",
+    "message": "No build manifest at deploy/hello.build.json"
+   },
+   "fix": {
+    "action": "build",
+    "command": "agentbreeder build @PROJECT@/agent.yaml --stack @PROJECT@ --environment dev",
+    "note": null,
+    "url": null
+   },
+   "data": {
+    "image": null,
+    "build_manifest": null,
+    "environment": null,
+    "agent_yaml_current": false,
+    "lock_current": true
+   }
+  },
+  {
+   "id": "release",
+   "title": "Release (eval gate)",
+   "required": true,
+   "state": "todo",
+   "reason": {
+    "code": "NOT_RELEASED",
+    "message": "No production deployment"
+   },
+   "fix": {
+    "action": "release",
+    "command": "agentbreeder release @PROJECT@/agent.yaml --stack @PROJECT@ --environment dev",
+    "note": null,
+    "url": null
+   },
+   "data": {
+    "production": null,
+    "released": false,
+    "blocker": false,
+    "gate_failed": false,
+    "failed_tail": false
+   }
+  },
+  {
+   "id": "try",
+   "title": "Try it",
+   "required": true,
+   "state": "todo",
+   "reason": {
+    "code": "NOT_CHECKED",
+    "message": "Release first"
+   },
+   "fix": null,
+   "data": null
+  }
+ ],
+ "conditions": []
+}

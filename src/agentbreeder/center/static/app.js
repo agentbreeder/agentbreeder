@@ -94,6 +94,45 @@ function announce(text) {
   if (region) region.textContent = text;
 }
 
+const NO_GUIDE = { loading: false, data: null, error: null, stale: false };
+
+/**
+ * `next --json` for the project in scope (#820), read once per scope, again when one of its
+ * jobs ends (its version changes), when the window gets focus back (most fixes are done in a
+ * terminal) and on "Check again". The checklist, the pill, empty states and job result rows
+ * share this one read, so `next` runs once per change, not once per surface.
+ * Returns [guide, reload].
+ */
+function useGuide(projectId, version, ready) {
+  const [guide, setGuide] = useState(NO_GUIDE);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!projectId || !ready) return undefined;
+    const onFocus = () => setTick((n) => n + 1);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [projectId, ready]);
+  useEffect(() => {
+    if (!projectId || !ready) {
+      setGuide(NO_GUIDE);
+      return undefined;
+    }
+    let live = true;
+    setGuide((previous) => (previous.project === projectId ? { ...previous, loading: true } : { ...NO_GUIDE, loading: true, project: projectId }));
+    client
+      .request(`/api/projects/${projectId}/guide`)
+      .then((reply) => live && setGuide({ project: projectId, loading: false, data: reply.data, error: reply.error, stale: reply.stale }))
+      .catch((error) => {
+        if (!live || error.kind === "session" || error.kind === "unreachable") return;
+        setGuide((previous) => ({ ...previous, loading: false, error: { code: error.code, message: error.message }, stale: Boolean(previous.data) }));
+      });
+    return () => {
+      live = false;
+    };
+  }, [projectId, version, ready, tick]);
+  return [guide, () => setTick((n) => n + 1)];
+}
+
 function App({ initial }) {
   const [phase, setPhase] = useState(initial);
   const [path, setPath] = useState(pathFrom(location.hash));
@@ -105,6 +144,8 @@ function App({ initial }) {
   const [, bump] = useReducer((n) => n + 1, 0);
   const seen = useRef(new Map());
   const finished = useRef(0);
+  const scoped = projects.find((p) => p.id === scope) || null;
+  const [guide, reloadGuide] = useGuide(scoped ? scoped.id : null, scoped ? jobs.version(scoped.id) : 0, phase.name === "ready");
 
   bus.phase = (next) => {
     jobs.halt();
@@ -198,7 +239,7 @@ function App({ initial }) {
   if (phase.name === "signed-out") return html`<${SignedOut} reason=${phase.reason} />`;
   if (phase.name === "unreachable") return html`<${Unreachable} onRetry=${load} />`;
 
-  const project = projects.find((p) => p.id === scope) || null;
+  const project = scoped;
   const value = {
     client,
     // Starting a job opens the dock so its log is in view (also for a refused start: the dock
@@ -222,6 +263,8 @@ function App({ initial }) {
     overview,
     projects,
     project,
+    guide,
+    reloadGuide,
     dockOpen,
     setDockOpen,
     theme,

@@ -4,6 +4,7 @@ import { isCandidate } from "../lib/format.js";
 import { visible } from "../lib/text.js";
 import { Action, Actions, Card, Notice, Table, Text, ViewState, useConfirm, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
+import { NextStep } from "../ui/guide.js";
 import { html, useState } from "../ui/preact.js";
 
 export function Deployments({ project }) {
@@ -44,6 +45,7 @@ export function Deployments({ project }) {
           <//>`
         : null}
       <${ViewState} view=${view} empty=${!rows.length && !view.loading && !view.error ? "Nothing deployed." : null} />
+      ${!rows.length && !view.loading && !view.error ? html`<${NextStep} project=${project} />` : null}
       <p class="muted">Local endpoints are unauthenticated. Cluster deployments have no public address: use <code>agentbreeder forward ID</code>.</p>
       <${Action} tone="secondary" onClick=${() => start("reconcile")}>Re-verify (reconcile)<//>
       <//>

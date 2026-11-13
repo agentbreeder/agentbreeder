@@ -128,6 +128,42 @@ Docker and on `kind` through the console's API, every screen was opened in Chrom
 ran from the UI (three leftover Docker objects of the stack were then removed by hand). Onboarding,
 the grant review, a full release and the cluster connect and deploy were not clicked in the browser.
 
+### The guided path and Create starter (#820): on `main`, not in a published preview
+
+The console reads `agentbreeder next PROJECT --environment ENV --json` (the contract in
+`next.md`) for the project in scope, once when the scope changes and again when one of its jobs
+ends. The server checks the answer with the CLI's own models (`guide.Guide`) and refuses one that
+names another project (`GUIDE_INVALID`); on a failed run it keeps the last good answer, marked as
+last known. The console never runs a command from the answer: each `fix.action` maps to a fixed
+console move (Build starts the build job; services, keys and release open their screens, where
+the grant review and the cost note come first; Kubernetes steps open Targets ▸ Kubernetes).
+`command`, `note` and paths are shown as text to copy, and the one link the CLI can give (the
+Gemini key page) opens only on a click, with its host shown.
+
+- **Home checklist**: every step with its state as an icon and a word (Done, Next, Blocked, To
+  do), its reason, and for the current step its button, command and note. A stale `agent.lock`
+  (`LOCK_STALE`) has no button: the console's build is `build --locked`, so it shows the CLI
+  instruction instead. While a job runs in the project, the list says it is checked again when the
+  job ends.
+- **Next pill** in the top bar ("Next: Services", "Blocked: …" or "All steps done"), for the
+  project in scope; it opens the Home checklist.
+- **Result row**: a finished job of that project shows where the path stands now ("Next step:
+  Release (eval gate). …").
+- **Empty states**: Home with no project offers Create starter as its primary action; an empty
+  Deployments screen offers the guide's next step.
+- **Create starter**: a name only. The server checks it with `new agent`'s rule, checks
+  `~/agentbreeder-projects` as Onboard Northwind does, runs `agentbreeder new agent NAME --model
+  gemini --dir ~/agentbreeder-projects/NAME --json` and registers the result. A refusal shows
+  `new agent`'s own coded message (for example a folder that is not empty).
+- **Not yet**: Try it. The done "Try it" step shows the `invoke` command to copy and a link to
+  Deployments; the console's Try it is M7 (#823). So the console path from Create starter reaches
+  a released agent, and the first reply still needs a terminal.
+
+Tested with Playwright against a fake CLI that serves `next --json` answers checked by the same
+models (every step's state, title and reason match the JSON; a stale lock; a failed read; the job
+result row after a build), with axe in light and dark. Not yet run against real services: that is
+the M4 verification (`superpowers/verification/M4.md`).
+
 ## How it stays the same engine
 
 Every action starts the CLI in a child process, with a fixed argument list. The UI does not open the

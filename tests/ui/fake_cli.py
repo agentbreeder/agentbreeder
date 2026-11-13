@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 DIGEST = "c" * 64
 GRANT = "services:\n  postgres: postgres-pgvector@1.0.0\n  litellm: litellm@1.0.0\n"
@@ -49,6 +52,11 @@ DEFAULT = {
     "job_lines": {},
     "job_exit": {},
     "job_seconds": 0.6,
+    # `next --json`: a file under fixtures/guide (the project path is filled in), or null for a
+    # failed run (exit 2, a coded line).
+    "guide": "services",
+    # `new agent`: null writes the demo project into --dir; a {code, message} refuses.
+    "new_error": None,
 }
 
 
@@ -104,6 +112,22 @@ def main(argv: list[str]) -> int:
         return job("cluster-up", data)
     elif head == ["cluster", "down"]:
         return job("cluster-down", data)
+    elif argv and argv[0] == "next":
+        if not data["guide"]:
+            print("[NEXT_FAILED] The checklist could not be computed", file=sys.stderr)
+            return 2
+        text = (FIXTURES / "guide" / f"{data['guide']}.json").read_text()
+        print(text.replace("@PROJECT@", argv[1]))
+    elif head == ["new", "agent"]:
+        if data["new_error"]:
+            print(json.dumps({"schema_version": 1, "error": data["new_error"]}))
+            print(f"[{data['new_error']['code']}] {data['new_error']['message']}", file=sys.stderr)
+            return 2
+        target = Path(argv[argv.index("--dir") + 1])
+        shutil.copytree(FIXTURES / "projects" / "demo", target)
+        summary = {"schema_version": 1, "dry_run": False, "name": argv[2]}
+        summary["directory"] = str(target)
+        print(json.dumps(summary))
     elif argv and argv[0] == "doctor":
         print(json.dumps(data["doctor"]))
     elif argv and argv[0] in ("build", "release", "promote", "reconcile", "remove", "rollback"):

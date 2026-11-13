@@ -232,7 +232,9 @@ def test_cancel_is_offered_once(page, console):
     dock = page.get_by_role("complementary", name="Jobs")
     dock.get_by_role("button", name="Cancel").click()
     expect(dock.get_by_role("button", name="Cancel")).to_have_count(0)
-    expect(dock).not_to_contain_text("running", timeout=15000)
+    # The job's own state (the guided path's result row can say "not running" about services).
+    job = dock.locator("section.job")
+    expect(job).not_to_have_class(re.compile(r"\brunning\b"), timeout=15000)
 
 
 def test_confirm_focuses_cancel_and_returns_focus(page, console):

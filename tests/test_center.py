@@ -87,6 +87,27 @@ FAKE_CLI = textwrap.dedent(
     elif argv[0] == "release":
         print("noise" * 2000, flush=True)
         sys.exit(5)
+    elif argv[0] == "next":
+        open(marker + "/next-argv", "w").write(json.dumps(argv))
+        guide = marker + "/guide.json"
+        if not os.path.exists(guide):
+            sys.stderr.write("[NEXT_FAILED] no guide\\n")
+            sys.exit(2)
+        print(open(guide).read().replace("@PROJECT@", argv[1]))
+    elif argv[:2] == ["new", "agent"]:
+        target = argv[argv.index("--dir") + 1]
+        open(marker + "/new-argv", "w").write(json.dumps(argv))
+        if os.path.exists(marker + "/new-refuse"):
+            print(json.dumps({{"schema_version": 1, "error": {{
+                "code": "DIR_NOT_EMPTY", "message": "\\x1b[31m" + target + " is not empty"}}}}))
+            sys.stderr.write("[DIR_NOT_EMPTY] not empty\\n")
+            sys.exit(2)
+        os.makedirs(target, mode=0o755, exist_ok=True)
+        for name in ("agent.yaml", "stack.yaml"):
+            with open(os.path.join(target, name), "w") as handle:
+                handle.write("kind: x\\n")
+        summary = {{"schema_version": 1, "dry_run": False, "name": argv[2], "directory": target}}
+        print(json.dumps(summary))
     elif argv[0] == "env-dump":
         print(json.dumps(dict(os.environ)))
     elif argv[0] == "garbage":
@@ -2829,3 +2850,137 @@ def test_stop_group_reaps_a_forked_child_that_already_exited():
     _stop_group(pid, _forked_ended(pid))
     with pytest.raises(ChildProcessError):  # reaped
         os.waitpid(pid, os.WNOHANG)
+
+
+# -- the guided path (#820): `next --json` as the guide view, and Create starter ------------------
+
+GUIDES = Path(__file__).parent / "ui" / "fixtures" / "guide"
+
+
+def _guide(tmp_path, name="services", edit=None):
+    text = (GUIDES / f"{name}.json").read_text()
+    if edit:
+        data = json.loads(text)
+        edit(data)
+        text = json.dumps(data)
+    (tmp_path / "guide.json").write_text(text)
+
+
+def test_guide_view_runs_next_with_fixed_arguments_and_validates_it(
+    center, project, cookie, tmp_path
+):
+    _guide(tmp_path)
+    status, data, _ = api(center, "GET", f"/api/projects/{project['id']}/guide", cookie=cookie)
+    assert status == 200 and data["error"] is None
+    guide = data["data"]
+    assert guide["project"] == project["path"] and guide["next"] == "services"
+    assert [step["id"] for step in guide["steps"]][-1] == "try"
+    argv = json.loads((tmp_path / "next-argv").read_text())
+    assert argv == ["next", project["path"], "--environment", "dev", "--json"]
+
+
+def test_guide_view_refuses_output_that_breaks_the_contract(center, project, cookie, tmp_path):
+    _guide(tmp_path, edit=lambda data: data.update(complete=True))
+    _, data, _ = api(center, "GET", f"/api/projects/{project['id']}/guide", cookie=cookie)
+    assert data["data"] is None and data["error"]["code"] == "GUIDE_INVALID"
+
+
+def test_guide_view_refuses_another_projects_answer(center, project, cookie, tmp_path):
+    other = json.loads((GUIDES / "services.json").read_text().replace("@PROJECT@", "/elsewhere"))
+    (tmp_path / "guide.json").write_text(json.dumps(other))
+    _, data, _ = api(center, "GET", f"/api/projects/{project['id']}/guide", cookie=cookie)
+    assert data["data"] is None and data["error"]["code"] == "GUIDE_INVALID"
+
+
+def test_guide_view_keeps_the_last_good_answer_as_stale(center, project, cookie, tmp_path):
+    _guide(tmp_path)
+    path = f"/api/projects/{project['id']}/guide"
+    assert api(center, "GET", path, cookie=cookie)[1]["error"] is None
+    (tmp_path / "guide.json").unlink()
+    _, data, _ = api(center, "GET", path, cookie=cookie)
+    assert data["stale"] is True and data["error"]["code"] == "NEXT_FAILED"
+    assert data["data"]["next"] == "services"
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    path = tmp_path / "home"
+    path.mkdir(mode=0o755)
+    monkeypatch.setattr(server.Path, "home", classmethod(lambda cls: path))
+    return path
+
+
+def test_create_starter_runs_new_agent_into_the_fixed_folder_and_registers_it(
+    center, cookie, home, tmp_path
+):
+    status, data, _ = api(center, "POST", "/api/projects", {"starter": "hello"}, cookie)
+    assert status == 200, data
+    destination = home / "agentbreeder-projects" / "hello"
+    assert data["data"]["path"] == str(destination.resolve())
+    argv = json.loads((tmp_path / "new-argv").read_text())
+    assert argv == [
+        "new",
+        "agent",
+        "hello",
+        "--model",
+        "gemini",
+        "--dir",
+        str(destination),
+        "--json",
+    ]
+
+
+@pytest.mark.parametrize(
+    "name", ["", "Hello", "1abc", "a" * 32, "../x", "hello-", "-x", "a b", 7, None, ["hello"]]
+)
+def test_create_starter_refuses_a_bad_name_before_running_anything(
+    center, cookie, home, tmp_path, name
+):
+    status, data, _ = api(center, "POST", "/api/projects", {"starter": name}, cookie)
+    assert status == 400
+    assert not (tmp_path / "new-argv").exists()
+    assert not (home / "agentbreeder-projects").exists()
+
+
+def test_create_starter_shows_new_agents_own_coded_error(center, cookie, home, tmp_path):
+    (tmp_path / "new-refuse").write_text("")
+    status, data, _ = api(center, "POST", "/api/projects", {"starter": "hello"}, cookie)
+    assert status == 400 and data["error"]["code"] == "DIR_NOT_EMPTY"
+    assert "\x1b" not in data["error"]["message"] and "is not empty" in data["error"]["message"]
+    assert server.CenterState is not None and center.state.projects() == []
+
+
+def test_create_starter_checks_the_folder_before_creating_anything(center, cookie, home, tmp_path):
+    home.chmod(0o777)
+    status, data, _ = api(center, "POST", "/api/projects", {"starter": "hello"}, cookie)
+    assert status == 400 and data["error"]["code"] == "PROJECT_UNSAFE"
+    assert not (home / "agentbreeder-projects").exists()
+    assert not (tmp_path / "new-argv").exists()
+
+
+def test_the_starter_name_rule_is_new_agents():
+    from agentbreeder import newagent
+
+    assert server.STARTER_NAME.pattern == newagent.NAME_PATTERN
+
+
+def test_the_browser_starter_name_rule_is_new_agents():
+    from agentbreeder import newagent
+
+    source = (server.STATIC / "lib" / "guide.js").read_text()
+    assert f"const STARTER_NAME = /{newagent.NAME_PATTERN}/;" in source
+
+
+def test_a_cached_answer_for_another_project_is_never_served_as_stale(
+    center, project, cookie, tmp_path
+):
+    # The runner caches what `next` printed before the server checks it; the stale fallback must
+    # be checked again, not passed through.
+    other = (GUIDES / "services.json").read_text().replace("@PROJECT@", "/elsewhere")
+    (tmp_path / "guide.json").write_text(other)
+    path = f"/api/projects/{project['id']}/guide"
+    assert api(center, "GET", path, cookie=cookie)[1]["error"]["code"] == "GUIDE_INVALID"
+    (tmp_path / "guide.json").unlink()  # the next run fails: the runner falls back to its cache
+    _, data, _ = api(center, "GET", path, cookie=cookie)
+    assert data["data"] is None and data["error"]["code"] == "GUIDE_INVALID"
+    assert "/elsewhere" not in json.dumps(data)
