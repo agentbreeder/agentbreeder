@@ -12,6 +12,15 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder events [--project DIR] [--limit N] [--unread] [--mark-read ID] [--mark-all-read]
+  [--json]` and `watch --record` (#827, M11), on `main`, not in a published preview: stored
+  events, newest 500, in `~/.agentbreeder/center/events.sqlite3` (0600). The kinds are fixed:
+  `job_failed`, `gate_failed` (stored by `release` on exit 5, with case ids and counts),
+  `container_died` and `container_unhealthy` (from `watch --record`; `restarted` is not stored).
+  Fields are validated and messages are rendered from templates; no text from logs, stderr or
+  models is stored. Conditions are not stored: with `--project` they come from the function
+  behind `next`. The console does not call `job_failed` or `--record` yet. Tested with fakes;
+  the real-Docker acceptance has not run. See `docs/events.md`.
 - `agentbreeder registry import PATH [--as NAME] [--version X.Y.Z] [--project DIR] [--json]`
   (#825, M9a), on `main`, not in a published preview: copies a version directory from anywhere
   into the project's `./registry` with `publish`'s checks, plus a `REF_CONFLICT` check against the

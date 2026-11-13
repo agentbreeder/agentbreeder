@@ -556,3 +556,32 @@ def test_status_text():
     )
     unknown = {**status, "services": [{"name": "x", "state": None, "health": None}]}
     assert watch_command._status_text(unknown).startswith("T status: x ?")
+
+
+def test_record_stores_died_events_only(
+    stack, fake_docker, capsys, monkeypatch, stopper, tmp_path
+):
+    """`--record` (#827): the printed died event is stored; a stop and a restart are not."""
+    from agentbreeder import events as stored_events
+
+    monkeypatch.setenv("AGENTBREEDER_CENTER_DIR", str(tmp_path / "center"))
+    service = {**SERVICE_LABELS, watch.LABEL_STACK: _state(stack).id, "exitCode": "1"}
+    _child(
+        monkeypatch,
+        [record("kill", service, container="e" * 64), record("die", service, container="e" * 64),
+         record("die", service), record("start", service)],
+    )  # fmt: skip
+    _stop_when(monkeypatch, stopper, 3)  # the status, died and restarted
+    assert cli.main(["watch", "--stack", str(stack), "--json", "--record"]) == 0
+    rows = stored_events.read_recent(tmp_path / "center")
+    assert [(r["kind"], r["name"], r["exit_code"]) for r in rows] == [
+        ("container_died", "postgres", 1)
+    ]
+    assert rows[0]["project"] == str(stack.resolve())
+
+
+def test_record_refuses_an_unsafe_store(stack, fake_docker, capsys, monkeypatch, tmp_path):
+    (tmp_path / "file").write_text("")
+    monkeypatch.setenv("AGENTBREEDER_CENTER_DIR", str(tmp_path / "file" / "center"))
+    assert cli.main(["watch", "--stack", str(stack), "--json", "--record"]) == 2
+    assert capsys.readouterr().err.startswith("[EVENTS_UNSAFE] ")

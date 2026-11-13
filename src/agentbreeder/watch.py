@@ -20,8 +20,8 @@ label, so they match by `io.agentbreeder.deployment` against this stack's deploy
 the stream is filtered by type and action only, `relevant` drops everything without an
 AgentBreeder label, and the rest is matched here. Labels are not authenticated: a container on
 the same Docker engine can claim them, so events are best effort, never evidence. Nothing from
-a container's labels is printed except a validated service name. Events are not stored
-(stored events come later, M9).
+a container's labels is printed except a validated service name. `watch --record` stores
+`died` and `unhealthy` (never `restarted`) through `agentbreeder.events` (#827).
 """
 
 from __future__ import annotations
