@@ -305,6 +305,7 @@ def _watch(args) -> int:
     follow = logs_command._Follow()
     previous = logs_command._handlers(follow)
     process = None
+    ended = None  # docker events' own exit code, read before we stop it
     records = _Records()
     try:
         with follow.lock:
@@ -342,8 +343,10 @@ def _watch(args) -> int:
                         item = records.queue.get(timeout=wait)
                     except queue.Empty:
                         item = False
-                    if item is None:
-                        break  # the child ended: stopped by us, or docker went away
+                    if item is None:  # the child ended: stopped by us, or docker went away
+                        if follow.reason is None:
+                            ended = logs_command.exit_code(process)  # before we stop it
+                        break
                     if isinstance(item, tuple):
                         pending = False
                         _emit(args, item[1], _status_text(item[1]))
@@ -385,6 +388,8 @@ def _watch(args) -> int:
     reason = follow.reason
     if reason == "pipe":
         return 0
+    if reason is None:
+        reason = logs_command.stop_reason(ended)  # the signal reached docker first
     if reason is None:
         raise LogsError("DOCKER_EVENTS_FAILED", "docker events ended unexpectedly")
     try:

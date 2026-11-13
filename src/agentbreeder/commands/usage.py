@@ -328,6 +328,10 @@ def _usage(args) -> int:
                 elif kind == "end" and item[1] == loop.generation:
                     if follow.reason is not None:
                         break
+                    stopped = logs_command.stop_reason(logs_command.exit_code(loop.process))
+                    if stopped is not None:  # the group's signal reached `docker stats` first
+                        follow.stop(stopped)
+                        break
                     # `docker stats` exits at once when a listed container is already gone
                     # (removed between the listing and the start; Docker 27.5): list again
                     # now and start a new child, even for the same set.

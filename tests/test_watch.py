@@ -428,6 +428,27 @@ def test_watch_reports_docker_events_ending(stack, fake_docker, capsys, monkeypa
     assert json.loads(captured.out.splitlines()[-1])["error"]["code"] == "DOCKER_EVENTS_FAILED"
 
 
+@pytest.mark.parametrize("code, reason", [(130, "interrupt"), (143, "signal"), (1, None)])
+def test_docker_events_exiting_on_a_stop_signal_is_a_stop(
+    stack, fake_docker, capsys, monkeypatch, stopper, code, reason
+):
+    # The terminal's Ctrl-C (or a group SIGTERM) can reach `docker events` before the CLI, and
+    # the docker CLI exits 128 + N (#863 review).
+    def start(argv, environment, merge_stderr=False):
+        script = f"import sys; sys.exit({code})"
+        return subprocess.Popen(
+            [sys.executable, "-c", script], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE
+        )
+
+    monkeypatch.setattr(runtime, "start_follow", start)
+    assert cli.main(["watch", "--stack", str(stack), "--json"]) == (0 if reason else 2)
+    last = json.loads(capsys.readouterr().out.splitlines()[-1])
+    if reason:
+        assert last["reason"] == reason
+    else:
+        assert last["error"]["code"] == "DOCKER_EVENTS_FAILED"
+
+
 def test_watch_status_with_a_kubernetes_pod_and_unreadable_compose(
     stack, fake_docker, capsys, monkeypatch, stopper
 ):
