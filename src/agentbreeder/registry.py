@@ -24,6 +24,7 @@ import bisect
 import collections
 import contextlib
 import difflib
+import errno
 import functools
 import hashlib
 import json
@@ -345,30 +346,234 @@ def resolve(ref: Ref, search: list[Path]) -> Resolved:
     return hits[0]
 
 
-def publish(source: Path, root: Path) -> tuple[Ref, str, Path]:
-    """Copy a prepared version directory into a registry root. Versions are immutable."""
-    if trusted_root(root):
+# Kinds whose versions are code that runs inside agents (or is the agent server): the console asks
+# for the "this code runs in agents" confirm before importing one (S-05). Prompts and knowledge
+# are text that steers the agent.
+CODE_KINDS = frozenset({"tool", "service", "eval", "mcp", "runtime"})
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def runs_code(kind: str) -> bool:
+    return kind in CODE_KINDS
+
+
+def _staged_manifest(source: Path, staged: Path) -> dict:
+    """The manifest parsed from the staged copy's bytes (what is written is what is checked);
+    errors name `source`, never the private staging directory."""
+    where = f"{_shown(source)}/manifest.yaml"
+    path = staged / "manifest.yaml"
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        raise RegistryError("MANIFEST_INVALID", f"{where} is missing") from None
+    if not stat.S_ISREG(info.st_mode):
+        raise RegistryError("MANIFEST_INVALID", f"{where} is missing")
+    if info.st_size > MANIFEST_LIMIT:
+        raise RegistryError("MANIFEST_INVALID", f"{where} exceeds the 64 KiB limit")
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        raise RegistryError("MANIFEST_INVALID", f"{where} is not UTF-8 text") from None
+    return read_manifest(source, text=text)
+
+
+_TOP_KEY = re.compile(r"^(?P<key>name|version):(?P<value>[^\r\n]*)(?=\r?$)", re.MULTILINE)
+
+
+def _renamed_manifest(source: Path, staged: Path, data: dict, ref: Ref) -> None:
+    """Rewrite only the top-level `name:` and `version:` lines of the staged manifest, so every
+    other byte (comments, other values) is kept; fail closed unless re-parsing gives exactly
+    the old fields with the new name and version."""
+    path = staged / "manifest.yaml"
+    text = path.read_text(encoding="utf-8", newline="")  # line endings kept as written
+    values = {"name": ref.name, "version": ref.version}
+    found = [match["key"] for match in _TOP_KEY.finditer(text)]
+    if sorted(found) != ["name", "version"]:
         raise RegistryError(
-            "REGISTRY_READ_ONLY",
-            f"{root} is shipped inside AgentBreeder and checked against its content manifest; "
-            "add the version directory by hand, git add it, run scripts/content_manifest.py "
-            "and record it in tests/fixtures/builtin_hashes.json",
+            "MANIFEST_INVALID",
+            f"{_shown(source)}/manifest.yaml: to import under another name or version, write "
+            "`name:` and `version:` once each as plain top-level lines",
         )
-    data = read_manifest(source)
-    ref = Ref.parse(f"{data['kind']}/{data['name']}@{data['version']}")
+    rewritten = _TOP_KEY.sub(lambda m: f'{m["key"]}: "{values[m["key"]]}"', text)
+    path.write_text(rewritten, encoding="utf-8", newline="")
+    if _staged_manifest(source, staged) != {**data, **values}:
+        raise RegistryError(
+            "MANIFEST_INVALID",
+            f"{_shown(source)}/manifest.yaml: cannot rename it safely; write `name:` and "
+            "`version:` as plain one-line top-level values",
+        )
+
+
+@contextlib.contextmanager
+def _as_source(staged: Path, source: Path):
+    """An OS error on the staged copy names the matching source path, never the staging dir."""
+    try:
+        yield
+    except OSError as error:
+        if error.filename and Path(error.filename).is_relative_to(staged):
+            error.filename = str(source / Path(error.filename).relative_to(staged))
+        raise
+
+
+def _check_target(root: Path, ref: Ref) -> Path:
+    """`<root>/<kind>/<name>/<version>`, refused when it exists or when a directory on the way
+    is a symlink (a write would land outside the root it is shown under)."""
+    for part in (root / ref.kind, root / ref.kind / ref.name):
+        if part.is_symlink():
+            raise RegistryError("ENTRY_UNSAFE", f"{_shown(part)} must not be a symlink")
     target = root / ref.relative()
     if target.exists() or target.is_symlink():
         raise RegistryError(
-            "VERSION_EXISTS", f"{ref} is already published at {target}; bump the version"
+            "VERSION_EXISTS", f"{ref} is already published at {_shown(target)}; bump the version"
         )
-    target.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=".publish-", dir=target.parent))
+    return target
+
+
+def place(
+    source: Path,
+    root: Path,
+    *,
+    name: str | None = None,
+    version: str | None = None,
+    expect_digest: str | None = None,
+    dry_run: bool = False,
+    search: list[Path] | None = None,
+    project_dir: Path | None = None,
+) -> dict:
+    """Copy a version directory into a registry root as an immutable version: `publish` and
+    `import`. `name`/`version` rename it (the staged manifest is rewritten).
+
+    The source is copied once into a private staging directory and every check runs on that
+    copy: the entry checks (`_entries`), the manifest, and the hash. With `dry_run`, nothing is
+    written and the result carries the staged files (as `show`); its `sha256` is what a later
+    call passes as `expect_digest`, which refuses unless the new staged copy hashes the same
+    (S-04: the bytes written are the bytes reviewed). `search` adds a REF_CONFLICT check against
+    the other roots, so the new version resolves."""
+    if expect_digest is not None and not DIGEST.fullmatch(expect_digest):
+        raise RegistryError("DIGEST_INVALID", "--expect-digest must be sha256:<64 hex digits>")
+    if trusted_root(root):
+        raise RegistryError(
+            "REGISTRY_READ_ONLY",
+            f"{_shown(root)} is shipped inside AgentBreeder and checked against its content "
+            "manifest; add the version directory by hand, git add it, run "
+            "scripts/content_manifest.py and record it in tests/fixtures/builtin_hashes.json",
+        )
+    if source.is_symlink() or not source.is_dir():
+        raise RegistryError("ENTRY_UNSAFE", f"{_shown(source)} must be a real directory")
+    if root.resolve().is_relative_to(source.resolve()):
+        # A write stages inside the root, so the copy would contain itself.
+        raise RegistryError(
+            "ENTRY_UNSAFE",
+            f"the registry root {_shown(root)} is inside the source {_shown(source)}; "
+            "publish a version directory, not the project",
+        )
+    if dry_run:
+        staging = Path(tempfile.mkdtemp(prefix="agentbreeder-import-"))
+    else:
+        root.mkdir(parents=True, exist_ok=True)
+        # In the root, so the final rename stays on one filesystem; not listed (not a kind).
+        staging = Path(tempfile.mkdtemp(prefix=".import-", dir=root))
+    staged = staging / "v"
     try:
-        digest = copy_and_hash(source, staging / "v")
-        os.rename(staging / "v", target)
+        with _reads(), _as_source(staged, source):
+            copy_and_hash(source, staged)
+            data = _staged_manifest(source, staged)
+            original = Ref.parse(f"{data['kind']}/{data['name']}@{data['version']}")
+            ref = Ref.parse(
+                f"{original.kind}/{original.name if name is None else name}"
+                f"@{original.version if version is None else version}"
+            )
+            if ref != original:
+                _renamed_manifest(source, staged, data, ref)
+            items, digest = _read_version(staged)
+        if expect_digest is not None and digest != expect_digest:
+            raise RegistryError(
+                "DIGEST_MISMATCH",
+                f"{ref} would be written as {digest}, not the reviewed {expect_digest}: the "
+                "source changed after the preview; review it again",
+            )
+        target = _check_target(root, ref)
+        for other in search or []:
+            if other == root:
+                continue
+            # As `resolve`: a symlinked kind or name directory fails every ref under it.
+            for part in (other / ref.kind, other / ref.kind / ref.name, other / ref.relative()):
+                if part.is_symlink():
+                    raise RegistryError(
+                        "ENTRY_UNSAFE",
+                        f"{_shown(part)} is a symlink, so {ref} would not resolve; fix that root",
+                    )
+            candidate = other / ref.relative()
+            if candidate.is_dir() and copy_and_hash(candidate) != digest:
+                raise RegistryError(
+                    "REF_CONFLICT",
+                    f"{ref} already exists with different content in {_shown(other)}; "
+                    "choose another name or version",
+                )
+        if not dry_run:
+            with _reads():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.rename(staged, target)
+                except OSError as error:
+                    if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                        raise RegistryError(
+                            "ENTRY_UNSAFE",
+                            f"cannot write {_shown(target)}: {error.strerror or error}",
+                        ) from error
+                    # Published meanwhile (another tab, another terminal).
+                    raise RegistryError(
+                        "VERSION_EXISTS", f"{ref} was published at {_shown(target)} meanwhile"
+                    ) from error
     finally:
         shutil.rmtree(staging, ignore_errors=True)
-    return ref, digest, target
+    result = {
+        "ref": str(ref),
+        "kind": ref.kind,
+        "name": ref.name,
+        "version": ref.version,
+        "source_ref": str(original),
+        "sha256": digest,
+        "source": _absolute(source),
+        "root": _absolute(root),  # resolve() also works for a root a dry run did not create
+        "root_kind": root_kind(root, project_dir),
+        "path": _absolute(target),
+        "dry_run": dry_run,
+        "runs_code": runs_code(ref.kind),
+    }
+    if dry_run:
+        result["files"] = [_file_view(item) for item in items]
+    return result
+
+
+def publish(source: Path, root: Path) -> tuple[Ref, str, Path]:
+    """Copy a prepared version directory into a registry root. Versions are immutable."""
+    result = place(source, root)
+    ref = Ref.parse(result["ref"])
+    return ref, result["sha256"], root / ref.relative()
+
+
+def import_version(
+    source: Path,
+    project_dir: Path,
+    *,
+    name: str | None = None,
+    version: str | None = None,
+    expect_digest: str | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """`registry import`: a version directory from anywhere into the project's `./registry`,
+    with `publish`'s checks plus a conflict check against the other search roots."""
+    return place(
+        source,
+        project_dir / "registry",
+        name=name,
+        version=version,
+        expect_digest=expect_digest,
+        dry_run=dry_run,
+        search=roots(project_dir),
+        project_dir=project_dir,
+    )
 
 
 def _links(root: Path) -> list[tuple[str, Path]]:

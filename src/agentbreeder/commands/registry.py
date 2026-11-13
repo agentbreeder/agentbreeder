@@ -1,4 +1,4 @@
-"""`agentbreeder registry new|publish|list|verify|show|diff|used-by`: author and inspect
+"""`agentbreeder registry new|publish|import|list|verify|show|diff|used-by`: author and inspect
 registry versions."""
 
 from __future__ import annotations
@@ -24,6 +24,24 @@ def register(commands) -> None:
     reg_publish = reg_commands.add_parser("publish", help="Publish an immutable version")
     reg_publish.add_argument("source", type=Path)
     reg_publish.add_argument("--to", type=Path, default=Path("registry"), help="Registry root")
+    reg_import = reg_commands.add_parser(
+        "import", help="Copy a version directory from anywhere into the project registry"
+    )
+    reg_import.add_argument("source", metavar="PATH", type=Path, help="A version directory")
+    reg_import.add_argument("--as", dest="name", metavar="NAME", help="Import under this name")
+    reg_import.add_argument("--version", metavar="X.Y.Z", help="Import as this version")
+    reg_import.add_argument("--project", type=Path, default=Path("."))
+    for command in (reg_publish, reg_import):
+        mode = command.add_mutually_exclusive_group()
+        mode.add_argument(
+            "--dry-run", action="store_true", help="Check and hash a staged copy; write nothing"
+        )
+        mode.add_argument(
+            "--expect-digest",
+            type=_digest,
+            metavar="SHA256",
+            help="Refuse unless the staged copy has this digest (from --dry-run)",
+        )
     reg_list = reg_commands.add_parser("list", help="List versions in the search roots")
     reg_list.add_argument("prefix", nargs="?", default="")
     reg_verify = reg_commands.add_parser("verify", help="Re-check every version's integrity")
@@ -57,7 +75,7 @@ def register(commands) -> None:
         help="Local deploy state to read (default: the local state); a project's stack state "
         "is always read",
     )
-    for command in (reg_publish, reg_list, reg_verify, reg_show, reg_diff, reg_used):
+    for command in (reg_publish, reg_import, reg_list, reg_verify, reg_show, reg_diff, reg_used):
         command.add_argument("--json", action="store_true")
     for command in (reg_list, reg_verify, reg_show, reg_diff):
         command.add_argument("--project", type=Path, default=Path("."))
@@ -84,10 +102,20 @@ def _run(args) -> int:
             print(f"Created {path}. Edit it, then: agentbreeder registry publish {path}")
             return 0
         if args.registry_command == "publish":
-            ref, digest, path = registry.publish(args.source, args.to)
-            result = {"ref": str(ref), "sha256": digest, "path": str(path)}
-            print(json.dumps(result) if args.json else f"{ref} {digest} {path}")
-            return 0
+            result = registry.place(
+                args.source, args.to, expect_digest=args.expect_digest, dry_run=args.dry_run
+            )
+            return _placed(args, result, "publish", notice=False)
+        if args.registry_command == "import":
+            result = registry.import_version(
+                args.source,
+                args.project,
+                name=args.name,
+                version=args.version,
+                expect_digest=args.expect_digest,
+                dry_run=args.dry_run,
+            )
+            return _placed(args, result, "import", notice=True)
         if args.registry_command == "used-by":
             return _used_by(args)
         search = registry.roots(args.project)
@@ -128,6 +156,39 @@ def _run(args) -> int:
         # wrapped error did not (defence in depth, S-27).
         print(registry.clean(str(error))[0], file=sys.stderr)
         return 2
+
+
+def _placed(args, result: dict, verb: str, notice: bool) -> int:
+    """`publish`/`import` output. Text for a write keeps publish's `REF SHA256 PATH` line."""
+    if notice:
+        print(_notice(result["kind"]), file=sys.stderr)
+    if args.json:
+        # publish keeps its one-line JSON (scripts read the last line); import matches `show`.
+        print(json.dumps(result, indent=2 if verb == "import" else None))
+        return 0
+    line = f"{result['ref']} {result['sha256']} {result['path']}"
+    if result["source_ref"] != result["ref"]:
+        line += f" (from {result['source_ref']})"
+    if result["dry_run"]:
+        line = f"Would {verb} {line} (dry run: nothing written)"
+        line += f"\nTo write exactly this: --expect-digest {result['sha256']}"
+    print(line)
+    return 0
+
+
+def _notice(kind: str) -> str:
+    if registry.runs_code(kind):
+        return (
+            f"Note: a {kind} version is code that runs inside agents with their privileges. "
+            "Review it before an agent uses it; it takes effect only after `release` passes."
+        )
+    return f"Note: a {kind} version steers the agent. Review it before an agent uses it."
+
+
+def _digest(text: str) -> str:
+    if not registry.DIGEST.fullmatch(text):
+        raise argparse.ArgumentTypeError("must be sha256:<64 hex digits>")
+    return text
 
 
 def _used_by(args) -> int:

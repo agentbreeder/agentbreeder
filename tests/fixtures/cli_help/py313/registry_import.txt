@@ -1,0 +1,18 @@
+usage: agentbreeder registry import [-h] [--as NAME] [--version X.Y.Z]
+                                    [--project PROJECT] [--dry-run |
+                                    --expect-digest SHA256] [--json]
+                                    PATH
+
+positional arguments:
+  PATH                  A version directory
+
+options:
+  -h, --help            show this help message and exit
+  --as NAME             Import under this name
+  --version X.Y.Z       Import as this version
+  --project PROJECT
+  --dry-run             Check and hash a staged copy; write nothing
+  --expect-digest SHA256
+                        Refuse unless the staged copy has this digest (from
+                        --dry-run)
+  --json

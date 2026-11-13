@@ -12,6 +12,21 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder registry import PATH [--as NAME] [--version X.Y.Z] [--project DIR] [--json]`
+  (#825, M9a), on `main`, not in a published preview: copies a version directory from anywhere
+  into the project's `./registry` with `publish`'s checks, plus a `REF_CONFLICT` check against the
+  other search roots so the imported version resolves. `--as`/`--version` replace only the staged
+  manifest's top-level `name:` and `version:` lines (anything else fails closed). `registry
+  publish` and `import` now take `--dry-run` (stage and check, write nothing, print the digest
+  and, with `--json`, the staged files) and
+  `--expect-digest SHA256`, which writes only if the new staged copy has the reviewed digest
+  (`DIGEST_MISMATCH` otherwise; security review S-04). Both now check the manifest from the staged
+  copy rather than the source, refuse a symlinked kind or name directory in the target root, and
+  report a version published between the check and the rename as `VERSION_EXISTS`. The JSON
+  carries `runs_code` (tool, service, eval, mcp, runtime; S-05) for the console's confirm, and
+  `import` prints a matching note. `publish --json` keeps its one-line object and gains fields;
+  its `path` is now absolute. See `docs/registry.md`.
+
 - `agentbreeder services usage [DIR] [--follow] [--json]` (#821 S-10, M6), on `main`, not in a
   published preview: one stack's CPU, memory, network and block IO, and its disk, reading only.
   Containers match as `watch` matches them (stack services by label, agent containers by this
