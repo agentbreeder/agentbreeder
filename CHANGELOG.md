@@ -382,6 +382,11 @@ On main, not in a published preview.
 - Design spec for governed agent-to-agent calls (A2A, M19 #835, epic #812):
   `docs/superpowers/specs/2026-11-13-a2a-design.md`. A spec only, on `main`, not in a published
   preview; nothing is built, and agents cannot call each other.
+- `safe_text` writes its bidirectional-control character class as `\u` escapes instead of seven
+  literal invisible characters (#820), on `main`, not in a published preview. No behaviour
+  change: a test checks every code point (U+0000 to U+10FFFF) against the documented set
+  (C0, DEL and C1, bidi controls, U+2028/U+2029, lone surrogates) and that the module source
+  holds no invisible control character.
 
 ### Fixed
 
