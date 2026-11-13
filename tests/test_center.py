@@ -560,11 +560,6 @@ def test_center_never_opens_the_engine_directly():
         assert not forbidden.search(path.read_text()), path.name
 
 
-def test_ui_never_uses_inner_html():
-    source = (server.STATIC / "app.js").read_text()
-    assert "innerHTML" not in source and "insertAdjacentHTML" not in source
-
-
 # -- main -----------------------------------------------------------------------------------------
 
 

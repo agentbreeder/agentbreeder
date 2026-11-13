@@ -48,9 +48,10 @@ where = ["src"]
 [tool.setuptools.package-data]
 agentbreeder = [
     "policy/cedar_schema.json",
-    "center/static/*",
-    # Vendored Geist / Geist Mono woff2 and their OFL licence (#817); no font network at runtime.
-    "center/static/fonts/*",
+    # The console's static tree, recursively (#816): screens, lib/, vendored Preact + htm with
+    # their licences, and Geist / Geist Mono woff2 with the OFL (#817); no network at runtime.
+    # `**/*` skips dotfiles; tests/test_packaging.py checks every tracked file ships.
+    "center/static/**/*",
     # Shipped registry versions (the ADK runtime). Its runtime_tests need google-adk and run
     # separately; build.py copies only the runtime's Dockerfile and runtime/ into a build
     # context, so they never reach an image (they are still part of the hashed version).
@@ -88,6 +89,7 @@ pythonpath = ["src"]
 addopts = "-ra"
 markers = [
     "entra_live: live Microsoft Entra tenant test (needs AGENTBREEDER_ENTRA_LIVE credentials)",
+    "ui: console browser test (Playwright; needs AGENTBREEDER_UI_TEST=1 and tests/ui/requirements.txt)",
 ]
 
 [tool.ruff]
