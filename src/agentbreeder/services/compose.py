@@ -307,6 +307,45 @@ class DockerCLI:
         prefix = f"{state.project}-"
         return sorted(n for n in output.splitlines() if n.startswith(prefix))
 
+    # -- usage (`services usage`) ---------------------------------------------------------------
+
+    def labelled_containers(self, label: str, keys: tuple[str, ...]) -> list[list]:
+        """Running containers matching one `label` filter (`key` or `key=value`), each as
+        `[short id, value of keys[0], ...]` (a missing label is ""). The values come through
+        Docker's own `json` template function, so no separator can be spoofed by a label."""
+        fields = ["{{json .ID}}", *(f'{{{{json (.Label "{key}")}}}}' for key in keys)]
+        output = self.run(
+            "ps",
+            "--filter",
+            f"label={label}",
+            "--format",
+            "[" + ",".join(fields) + "]",
+            timeout=30,
+            what="listing containers",
+        )
+        rows = []
+        for line in output.splitlines():
+            try:
+                row = json.loads(line)
+            except (ValueError, RecursionError):
+                continue
+            if isinstance(row, list) and len(row) == len(keys) + 1:
+                rows.append(row)
+        return rows
+
+    def disk_usage(self) -> dict:
+        """`docker system df -v` as a document (Images, Containers, Volumes, BuildCache)."""
+        output = self.run(
+            "system", "df", "-v", "--format", "{{json .}}", timeout=120, what="docker system df"
+        )
+        try:
+            document = json.loads(output)
+        except (ValueError, RecursionError):
+            raise ServiceError("DOCKER_FAILED", "docker system df returned no JSON") from None
+        if not isinstance(document, dict):
+            raise ServiceError("DOCKER_FAILED", "docker system df returned no JSON")
+        return document
+
     def remove_volume(self, name: str) -> None:
         self.run("volume", "rm", name, what="removing a volume")
 

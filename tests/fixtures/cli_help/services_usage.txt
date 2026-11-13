@@ -1,0 +1,10 @@
+usage: agentbreeder services usage [-h] [--follow] [--json] [dir]
+
+positional arguments:
+  dir
+
+options:
+  -h, --help  show this help message and exit
+  --follow    Keep printing samples until Ctrl-C, SIGTERM, SIGHUP or the end
+              of a non-terminal stdin
+  --json      One JSON object per line

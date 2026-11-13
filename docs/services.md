@@ -95,6 +95,7 @@ environment:
 agentbreeder services up     [DIR] --environment ENV [--locked | --update] [--env-file FILE] [--yes] [--json]
 agentbreeder services status [DIR] [--json]
 agentbreeder services logs   [DIR] NAME [--tail N]       # known secret values are redacted
+agentbreeder services usage  [DIR] [--follow] [--json]   # CPU, memory, IO and disk (on main)
 agentbreeder services env    [DIR] [--environment ENV]   # prints the two export lines
 agentbreeder services down   [DIR] [--volumes | --purge] [--yes] [--json]
 ```
