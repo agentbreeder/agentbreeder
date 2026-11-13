@@ -1,5 +1,5 @@
-"""`agentbreeder services up|plan|status|logs|env|down`: local backing services from stack.yaml
-(local-only preview)."""
+"""`agentbreeder services up|plan|status|logs|usage|env|down`: local backing services from
+stack.yaml (local-only preview)."""
 
 from __future__ import annotations
 
@@ -88,6 +88,9 @@ def register(commands) -> None:
         action="store_true",
         help="Print control characters as they are (unsafe; --json always escapes)",
     )
+    from agentbreeder.commands import usage as usage_command
+
+    usage_command.register(service_commands)
     sv_env = service_commands.add_parser("env", help="Print exports for the stack's config")
     sv_env.add_argument("dir", nargs="?", type=Path, default=Path("."))
     sv_env.add_argument("--environment")
@@ -110,6 +113,10 @@ def run(args) -> int:
     from agentbreeder.services.schema import ServiceError
 
     command = args.services_command
+    if command == "usage":  # read-only: no Engine (which opens the state read-write)
+        from agentbreeder.commands import usage as usage_command
+
+        return usage_command.run(args)
     if command == "logs":
         if len(args.target) > 2:
             cli._parser().error("logs takes [DIR] NAME")

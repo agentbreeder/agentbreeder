@@ -12,6 +12,22 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder services usage [DIR] [--follow] [--json]` (#821 S-10, M6), on `main`, not in a
+  published preview: one stack's CPU, memory, network and block IO, and its disk, reading only.
+  Containers match as `watch` matches them (stack services by label, agent containers by this
+  stack's deployment IDs), listed again every 10 s; ONE streaming `docker stats` child runs over
+  exactly those IDs and is replaced when the set changes (never with an empty list, which
+  would show every container on the engine). A sample is printed at most every 2 s. Disk (the
+  stack's volumes and its containers' writable layers) comes from `docker system df -v` every
+  60 s on a worker thread; the last good reading is kept and carries `as_of`, and `stale` when
+  the latest one failed. Docker's container names, labels and mounts are never printed. With
+  `--follow` it stops with its child on stdin EOF, SIGTERM, SIGHUP or Ctrl-C (S-10);
+  `docker stats` ignores SIGTERM, so the child is killed at once. `docker stats` also exits at
+  once when a listed container is already gone, so a child that ends is replaced after a new
+  listing (three in a row fail with `DOCKER_STATS_FAILED`). Without `--follow` it prints one
+  sample and one disk reading (failing after 30 s without them). On macOS with Docker Desktop and Northwind: six containers
+  sampled, and a stop by stdin EOF or SIGTERM ended in under half a second with no
+  `docker stats` left.
 - `agentbreeder watch --stack DIR [--json]` (#821, M5), on `main`, not in a published preview:
   one stack's container events until stopped, reading only. `died` (a container exited by
   itself: a `die` with no `kill` or `stop` since it last started, and never for an agent
