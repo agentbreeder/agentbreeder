@@ -1,0 +1,6 @@
+usage: agentbreeder watch [-h] --stack DIR [--json]
+
+options:
+  -h, --help   show this help message and exit
+  --stack DIR  The stack's project directory
+  --json       One JSON object per line
