@@ -385,7 +385,8 @@ def _renamed_manifest(source: Path, staged: Path, data: dict, ref: Ref) -> None:
     other byte (comments, other values) is kept; fail closed unless re-parsing gives exactly
     the old fields with the new name and version."""
     path = staged / "manifest.yaml"
-    text = path.read_text(encoding="utf-8", newline="")  # line endings kept as written
+    with path.open(encoding="utf-8", newline="") as handle:  # line endings kept as written
+        text = handle.read()  # (Path.read_text has no newline= before Python 3.13)
     values = {"name": ref.name, "version": ref.version}
     found = [match["key"] for match in _TOP_KEY.finditer(text)]
     if sorted(found) != ["name", "version"]:

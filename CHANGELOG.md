@@ -367,9 +367,17 @@ On main, not in a published preview.
 - CLI commands split into modules (no behaviour change) (#813). Each command's parser and handler
   moved from `cli.py` to `src/agentbreeder/commands/<name>.py`; a golden test checks every
   command's `--help` output byte for byte.
+- Design spec for authenticated `/invoke` and caller-derived customer identity (#780, epic #812):
+  `docs/superpowers/specs/2026-11-13-authenticated-invoke-design.md`. A spec only; nothing is
+  built, and `/invoke` is still unauthenticated.
 
 ### Fixed
 
+- `invoke`: a state directory it cannot look into (no search permission on it or a parent,
+  another OS error, named by its errno) is now `[STATE_UNREADABLE] cannot read the
+  AgentBreeder state at DIR (permission denied)`, exit 2, with the `--json` error object
+  (`sent: false`), instead of a Python traceback; a missing state is still `NO_STATE` (#820).
+  On `main`, not in a published preview.
 - `logs ID --follow`, `services logs --follow`, `watch` and `services usage --follow`: when the
   terminal's Ctrl-C or a group SIGTERM/SIGHUP ends their docker or kubectl child before the
   CLI's own handler records it, a child exit of 130, 143 or 129 (it caught the signal) now counts
