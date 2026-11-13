@@ -385,6 +385,12 @@ On main, not in a published preview.
 
 ### Fixed
 
+- Console, Services: after `services down` a service with no running container (absent,
+  exited, created or dead) no longer lists its last host port as if something listened there;
+  it reads "not listening (last: NAME → 127.0.0.1:PORT)", muted. **Stop services** is off,
+  with "The services are stopped.", only when every service is absent: `services down` also
+  removes exited containers, so it stays on for those (#882).
+  On `main`, not in a published preview.
 - `invoke`: a state directory it cannot look into (no search permission on it or a parent,
   another OS error, named by its errno) is now `[STATE_UNREADABLE] cannot read the
   AgentBreeder state at DIR (permission denied)`, exit 2, with the `--json` error object

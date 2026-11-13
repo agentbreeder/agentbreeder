@@ -1,6 +1,6 @@
 // Services: the project's stack, the grant review that starts it, and its registries.
 
-import { portsText, serviceState } from "../lib/format.js";
+import { portsText, serviceState, serviceUp } from "../lib/format.js";
 import { Action, Actions, Card, Notice, Table, Text, ViewState, useConfirm, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { html, useEffect, useRef, useState } from "../ui/preact.js";
@@ -15,6 +15,8 @@ export function Services({ project }) {
   const [dialog, confirm] = useConfirm();
   const busy = busyReason(project.id);
   const rows = Object.entries((services.data && services.data.services) || {});
+  // `services down` also removes exited containers, so Stop stays on until every service is absent.
+  const stopped = rows.every(([, info]) => !info || info.state === "absent");
 
   useVerifyFollow(registry, reloadRegistry);
 
@@ -51,19 +53,25 @@ export function Services({ project }) {
             ${rows.map(([name, info]) => html`<tr key=${name}>
               <td><${Text} value=${name} /></td>
               <td><${Text} value=${serviceState(info)} /></td>
-              <td>${portsText(info) === "internal only" ? html`<span class="muted" title="Reached by agents on the stack network, not from this machine">internal only</span>` : html`<${Text} value=${portsText(info)} />`}</td>
+              <td><${Ports} info=${info} /></td>
             </tr>`)}
           <//>`
         : null}
       <${ViewState} view=${services} empty=${!rows.length && !services.loading && !services.error ? "Not started yet." : null} />
       <${Actions} disabled=${busy}>
         <${Action} onClick=${review}>${rows.length ? "Review and update" : "Review what will run"}<//>
-        ${rows.length ? html`<${Action} tone="secondary" onClick=${stop}>Stop services<//>` : null}
+        ${rows.length ? html`<${Action} tone="secondary" disabled=${!busy && stopped && "The services are stopped."} onClick=${stop}>Stop services<//>` : null}
       <//>
     <//>
     ${plan && plan.grant ? html`<${Grant} key=${plan.review} plan=${plan} busy=${busy} onStart=${start} onError=${setNotice} />` : null}
     <${Registries} view=${registry} />
   `;
+}
+
+function Ports({ info }) {
+  const text = portsText(info);
+  if (text === "internal only") return html`<span class="muted" title="Reached by agents on the stack network, not from this machine">internal only</span>`;
+  return serviceUp(info) ? html`<${Text} value=${text} />` : html`<span class="muted"><${Text} value=${text} /></span>`;
 }
 
 function Grant({ plan, busy, onStart, onError }) {
