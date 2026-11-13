@@ -63,3 +63,15 @@ def test_signed_out_page_has_no_serious_axe_findings(scheme_page, console):
     scheme_page.goto(console.origin + "/")
     scheme_page.locator("main h1").wait_for()
     assert blocking(scheme_page, "signed out") == []
+
+
+def test_deployments_with_a_job_running_has_no_serious_axe_findings(scheme_page, console):
+    # #881: the off row Remove buttons and their shared reason, light and dark.
+    rows = [dict(row, id=f"{n:032x}") for n, row in enumerate(DEPLOYMENTS, 1)]
+    console.scenario(deployments=rows, job_seconds=20)
+    sign_in(scheme_page, console)
+    scheme_page.goto(f"{console.origin}/#/deployments")
+    scheme_page.get_by_role("button", name="Remove").first.click()
+    scheme_page.get_by_role("dialog").get_by_role("button", name="Remove").click()
+    scheme_page.locator(".reason").wait_for()
+    assert blocking(scheme_page, "deployments, busy") == []
