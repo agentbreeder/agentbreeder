@@ -34,7 +34,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from agentbreeder import __version__, registry
+from pydantic import ValidationError
+
+from agentbreeder import __version__, guide, registry
 from agentbreeder.center.files import (
     BadRequest,
     check_ancestors,
@@ -51,6 +53,7 @@ from agentbreeder.center.jobs import (
     Runner,
     SchemaTooNew,
     WriteBusy,
+    cli_error,
     error,
 )
 from agentbreeder.center.reads import Reads
@@ -74,6 +77,10 @@ STATIC_TYPES = {
     ".png": "image/png",
 }
 EXAMPLES = ("northwind",)
+# `new agent`'s own name rule (`newagent.NAME_PATTERN`; a test keeps them equal). Checked here
+# first so a refused name never reaches a child process or creates the projects folder.
+STARTER_NAME = re.compile(r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$")
+GUIDE_TIMEOUT = 60  # `next` runs doctor's checks and one `compose ps`
 OPTIONS = {"services-up": ("digest",), "remove": ("deployment", "target")}
 # A console session is code execution as the owner (console spec §10.1 I1), so the browser-side
 # guards are a primary control: scripts and styles from this origin only, no inline code, and
@@ -205,24 +212,57 @@ class Center:
             raise BadRequest(f"That project is registered for {project['environment']}")
         return project
 
+    @staticmethod
+    def projects_folder() -> Path:
+        """`~/agentbreeder-projects`, checked (S-01) before anything is created, then made."""
+        folder = Path.home() / "agentbreeder-projects"
+        if folder.is_symlink() and not folder.exists():
+            raise BadRequest(
+                f"{folder} is a broken link; remove it or point it at a directory you own",
+                "PROJECT_UNSAFE",
+            )
+        existing = folder
+        while not existing.exists():
+            existing = existing.parent
+        check_ancestors(existing.resolve())
+        folder.mkdir(mode=0o755, parents=True, exist_ok=True)
+        check_ancestors(folder.resolve())
+        return folder
+
     def onboard_example(self, name: str) -> dict:
         if name not in EXAMPLES:
             raise BadRequest("Unknown example")
         destination = Path.home() / "agentbreeder-projects" / name
         if not (destination / "agent.yaml").exists():
-            if destination.parent.is_symlink() and not destination.parent.exists():
-                raise BadRequest(
-                    f"{destination.parent} is a broken link; remove it or point it at a "
-                    "directory you own",
-                    "PROJECT_UNSAFE",
-                )
-            existing = destination.parent
-            while not existing.exists():
-                existing = existing.parent
-            check_ancestors(existing.resolve())  # S-01, before anything is created
-            destination.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
-            check_ancestors(destination.parent.resolve())
+            self.projects_folder()
             self.runner.read_text(["example", name, str(destination)], timeout=60)
+        return self.register(destination)
+
+    def create_starter(self, name: object) -> dict:
+        """Create starter (#820): `new agent NAME --model gemini` into the fixed folder, then
+        registered. Only the name comes from the request; `new agent` refuses a destination that
+        is not empty and writes its own coded error, which is shown as it is (guided §14.2)."""
+        if not isinstance(name, str) or not STARTER_NAME.fullmatch(name):
+            raise BadRequest(
+                "A name starts with a lowercase letter, then lowercase letters, digits and "
+                "dashes, at most 31 characters, not ending in a dash",
+                "NAME_INVALID",
+            )
+        destination = self.projects_folder() / name
+        result = self.runner.read(
+            ["new", "agent", name, "--model", "gemini", "--dir", str(destination), "--json"],
+            timeout=60,
+            ok_codes=(0, 2),  # a refusal prints its JSON error and exits 2
+            cache=False,
+        )
+        refused = result["data"].get("error") if isinstance(result["data"], dict) else None
+        if isinstance(refused, dict):
+            # Through the same filter as a stderr line: a fixed code shape, controls stripped.
+            line = f"[{refused.get('code')}] {refused.get('message')}".replace("\n", " ")
+            problem = cli_error(line, 2)
+            raise BadRequest(problem["message"], problem["code"])
+        if result["error"]:
+            raise BadRequest(result["error"]["message"], result["error"]["code"])
         return self.register(destination)
 
     def need_project(self, identifier: str) -> dict:
@@ -240,6 +280,33 @@ class Center:
         match = re.search(r"AGENTBREEDER_STATE_DIR=(\S+)", result or "")
         return match[1].strip("'\"") if match else None
 
+    def guide(self, project: dict) -> dict:
+        """`next --json` with fixed arguments (never `--output` or a path from the request),
+        checked against its own models and the registered path before the browser sees it
+        (`docs/next.md`, "What the console must not do with it"). On a failed run the last good
+        answer comes back marked stale."""
+        path = project["path"]
+        result = self.runner.read(
+            ["next", path, "--environment", project["environment"], "--json"],
+            timeout=GUIDE_TIMEOUT,
+        )
+        if result["data"] is None:
+            return result
+        try:
+            checked = guide.Guide.model_validate(result["data"])
+        except (ValidationError, ValueError, TypeError):
+            checked = None
+        if checked is None or checked.project != path:
+            return envelope(
+                None,
+                error(
+                    "GUIDE_INVALID",
+                    "The guide's answer does not match its contract; run "
+                    "`agentbreeder next` in a terminal",
+                ),
+            )
+        return {**result, "data": checked.model_dump(mode="json")}
+
     def read_view(self, project: dict, view: str) -> dict:
         """The envelope for one view: a single CLI read is its own envelope; a view made of
         several reads carries each read's envelope in `data`."""
@@ -247,6 +314,8 @@ class Center:
         read = self.runner.read
         if view == "services":
             return read(["services", "status", path, "--json"])
+        if view == "guide":
+            return self.guide(project)
         if view == "registry":  # in process: the same functions as `registry list/verify`
             return envelope(
                 {
@@ -434,6 +503,8 @@ def _add_project(request: Request) -> dict:
     body, center = request.body, request.center
     if body.get("example"):
         return envelope(center.onboard_example(str(body["example"])))
+    if "starter" in body:
+        return envelope(center.create_starter(body["starter"]))
     if body.get("path"):
         return envelope(center.register(Path(str(body["path"]))))
     raise BadRequest("Name an example or a path")

@@ -6,6 +6,7 @@ import { href } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import { ROUTES } from "../screens/index.js";
 import { Action, Text, useConfirm, useConsole } from "./components.js";
+import { JobResult, NextPill } from "./guide.js";
 import { html, useEffect, useLayoutEffect, useRef, useState } from "./preact.js";
 
 export function Shell({ match }) {
@@ -68,6 +69,7 @@ function TopBar() {
           ${projects.map((p) => html`<option value=${p.id} selected=${project && project.id === p.id}>${visible(`${p.name} (${p.environment})`)}</option>`)}
         </select>
       </label>
+      <${NextPill} />
       <button type="button" id="activity-pill" class=${`pill${running ? " running" : ""}`} aria-expanded=${dockOpen ? "true" : "false"} aria-controls=${dockOpen ? "dock" : undefined} onClick=${() => setDockOpen(!dockOpen)}>
         ${running ? `${running} running` : followed ? "Jobs" : "No jobs running"}
       </button>
@@ -131,9 +133,13 @@ function ChooseProject() {
 
 /** The dock: every followed job. A finished job collapses to its one-line result. */
 function Dock({ onClose }) {
-  const { jobs, projectName } = useConsole();
+  const { jobs, projectName, project } = useConsole();
   const [dialog, confirm] = useConfirm();
   const entries = jobs.list();
+  // The guided path's result row goes on the newest finished job of the project in scope (the
+  // guide is read for that project only, again when the job ends), and only while no job runs
+  // there: until that one ends, the guide does not reflect it.
+  const latest = project && !jobs.runningIn(project.id) ? entries.filter((e) => e.project === project.id && e.state !== "running").sort((a, b) => b.started - a.started)[0] : null;
   const stopNow = async (entry) => {
     if (await confirm({ title: "Stop the job now?", text: "Cancel has not ended it. Stopping ends every process it started, and may skip restoring the previous production: check Deployments afterwards.", confirm: "Stop now" })) jobs.stop(entry.id);
   };
@@ -150,6 +156,7 @@ function Dock({ onClose }) {
         </div>
         ${outcome ? html`<p class=${`outcome ${outcome.tone}`}><${Text} value=${outcome.text} /></p>` : null}
         ${entry.error ? html`<p class="muted small" role="status"><${Text} value=${entry.error} /></p>` : null}
+        ${entry === latest ? html`<${JobResult} />` : null}
         <div class="row">
           ${entry.state === "running" ? jobControl(entry, jobs, stopNow) : null}
           <button type="button" class="action ghost small" aria-expanded=${entry.collapsed ? "false" : "true"} onClick=${() => jobs.toggle(entry.id)}>${entry.collapsed ? "Show log" : "Hide log"}</button>

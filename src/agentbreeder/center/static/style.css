@@ -168,3 +168,26 @@ dialog::backdrop { background: rgb(0 0 0 / 50%); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
+
+/* The guided path (#820): one row per step; the state is an icon and a word, never colour alone.
+ * Green only marks done steps and the primary action; text stays on --foreground/--text-muted. */
+.pill.next { text-decoration: none; border-color: var(--primary); }
+.pill.next.done { border-color: var(--control-border); }
+.checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.checklist .step { padding: 8px 10px; border-left: 3px solid transparent; border-radius: 4px; }
+.checklist .step[aria-current="step"] { border-left-color: var(--primary); background: var(--secondary); }
+.checklist .step.blocked { border-left-color: var(--destructive); }
+.step-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.step-state { display: inline-block; min-width: 72px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+.step.done .step-state { color: var(--success); }
+.step-reason { margin: 2px 0 0 80px; }
+.step-fix { margin: 8px 0 0 80px; display: grid; gap: 6px; justify-items: start; }
+.step-fix p { margin: 0; }
+.step-fix .copyable { width: 100%; }
+.guide-status:empty { margin: 0; }
+.next-step { margin: 8px 0 12px; }
+.result-row { margin: 4px 0; }
+.starter { margin-bottom: 20px; max-width: 520px; }
+@media (max-width: 640px) {
+  .step-reason, .step-fix { margin-left: 0; }
+}

@@ -1,0 +1,140 @@
+{
+ "schema_version": 1,
+ "project": "@PROJECT@",
+ "environment": "dev",
+ "complete": true,
+ "next": null,
+ "steps": [
+  {
+   "id": "prerequisites",
+   "title": "Prerequisites",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": null,
+   "data": {
+    "checks": [
+     {
+      "name": "Docker",
+      "passed": true,
+      "required": true,
+      "message": "Docker engine 27.5.1 is reachable"
+     }
+    ]
+   }
+  },
+  {
+   "id": "project",
+   "title": "Project",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": null,
+   "data": {
+    "agent": "hello",
+    "agent_file": "@PROJECT@/agent.yaml",
+    "stack_file": "@PROJECT@/stack.yaml",
+    "error_code": null,
+    "newer": []
+   }
+  },
+  {
+   "id": "keys",
+   "title": "Model keys",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": null,
+   "data": {
+    "required": [
+     "GEMINI_API_KEY"
+    ],
+    "present": [],
+    "stored": [
+     "GEMINI_API_KEY"
+    ],
+    "missing": []
+   }
+  },
+  {
+   "id": "services",
+   "title": "Services",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": null,
+   "data": {
+    "services": [
+     {
+      "name": "postgres",
+      "kind": "service",
+      "state": "running",
+      "health": "healthy"
+     },
+     {
+      "name": "litellm",
+      "kind": "service",
+      "state": "running",
+      "health": "healthy"
+     }
+    ],
+    "grant_recorded": true,
+    "environment_written": true
+   }
+  },
+  {
+   "id": "build",
+   "title": "Build",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": null,
+   "data": {
+    "image": "sha256:4f1c0a6c6d3be1a1f4e3c1b5e7a2a0f8d4c3b2a19087f6e5d4c3b2a190876543",
+    "build_manifest": "@PROJECT@/deploy/hello.build.json",
+    "environment": "dev",
+    "agent_yaml_current": true,
+    "lock_current": true
+   }
+  },
+  {
+   "id": "release",
+   "title": "Release (eval gate)",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": null,
+   "data": {
+    "production": {
+     "id": "3f2a9c1d0b8e4a7f9c6d5e4f3a2b1c0d",
+     "image": "sha256:4f1c0a6c6d3be1a1f4e3c1b5e7a2a0f8d4c3b2a19087f6e5d4c3b2a190876543",
+     "state": "ready",
+     "endpoint": "http://127.0.0.1:52011",
+     "manifest_current": true
+    },
+    "released": true,
+    "blocker": false,
+    "gate_failed": false,
+    "failed_tail": false
+   }
+  },
+  {
+   "id": "try",
+   "title": "Try it",
+   "required": true,
+   "state": "done",
+   "reason": null,
+   "fix": {
+    "action": "invoke",
+    "command": "agentbreeder invoke hello Hello --stack @PROJECT@ --environment dev",
+    "note": null,
+    "url": null
+   },
+   "data": {
+    "deployment": "3f2a9c1d0b8e4a7f9c6d5e4f3a2b1c0d",
+    "endpoint": "http://127.0.0.1:52011"
+   }
+  }
+ ],
+ "conditions": []
+}

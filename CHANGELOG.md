@@ -12,6 +12,14 @@ On main, not in a published preview.
 
 ### Added
 
+- Console guided path and Create starter (#820, M4), on `main`, not in a published preview: Home
+  shows the project's `next --json` checklist (state as icon and word, reason, the current step's
+  button, command and note), the top bar a "Next" pill, finished jobs a result row, and empty Home
+  and Deployments screens the next action. Buttons map to fixed console moves; commands are only
+  shown. Create starter runs `new agent NAME --model gemini` into `~/agentbreeder-projects/NAME`
+  and registers it. The server validates `next`'s answer with `guide.Guide`. Try it stays M7
+  (#823). See `docs/command-center.md`.
+
 - `agentbreeder registry fork REF [--as NAME] [--version X.Y.Z] [--project DIR] [--json]` (#825,
   M9a), on `main`, not in a published preview: copies a built-in, `AGENTBREEDER_REGISTRY_PATH` or
   project version into the project's `./registry` as a new version the project owns, with
