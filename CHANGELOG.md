@@ -352,6 +352,9 @@ On main, not in a published preview.
 - CLI commands split into modules (no behaviour change) (#813). Each command's parser and handler
   moved from `cli.py` to `src/agentbreeder/commands/<name>.py`; a golden test checks every
   command's `--help` output byte for byte.
+- Design spec for authenticated `/invoke` and caller-derived customer identity (#780, epic #812):
+  `docs/superpowers/specs/2026-11-13-authenticated-invoke-design.md`. A spec only; nothing is
+  built, and `/invoke` is still unauthenticated.
 
 ### Fixed
 
