@@ -12,6 +12,17 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder watch --stack DIR [--json]` (#821, M5), on `main`, not in a published preview:
+  one stack's container events until stopped, reading only. `died` (a container exited by
+  itself: a `die` with no `kill` or `stop` since it last started, and never for an agent
+  container whose deployment is not `ready`), `unhealthy` and `restarted`, plus a `status`
+  record at the start and every 60 s (one `docker compose ps`, the deployment rows, and a pod
+  check for ready Kubernetes deployments). Agent containers carry no stack label, so they match
+  by this stack's deployment IDs; two `label=` filters on `docker events` combine as AND, so
+  one stream filtered by action is matched in the CLI. It stops with its `docker events` child
+  on stdin EOF, SIGTERM, SIGHUP or Ctrl-C (S-10). On macOS with Docker Desktop: two releases
+  and `services down` reported nothing; Postgres exiting by itself reported one `died` and one
+  `restarted`. Events are not stored yet.
 - `--level warning|error` on `logs ID` and `services logs` (#821, M5), on `main`, not in a
   published preview: keeps only records at that level or above, with one parser module
   (`loglevels.py`) keyed by built-in ref: Postgres (`ERROR`, `FATAL`, `PANIC`, with `DETAIL`,

@@ -544,6 +544,17 @@ real browser passed 61/61 (2026-11-11).
 
 ### Implementation notes (not spec changes)
 
+- **`watch` matching (R5, M5):** on Docker Desktop (2026-11-12) two `label=` filters on
+  `docker events` combine as AND, while several `event=` filters combine as OR. `watch` runs one
+  `docker events` stream filtered by type and action and matches each record in the CLI: stack
+  services by `io.agentbreeder.stack`, agent containers by this stack's deployment IDs. Seen
+  sequences: `docker stop` is kill, kill, stop, die; `rm -f` is kill, die, destroy; a process
+  exiting by itself is a bare die, which is the only `died` event (R1). A kill or stop explains
+  a later die until the container starts again (no time window), so `docker kill` reports
+  nothing: the acceptance's "killed service" is a service whose process exits by itself (a
+  crash, or Postgres stopped from inside). The CLI cannot see the console's jobs, so the
+  console drops `restarted` while its own `services up` runs. Labels are not authenticated
+  (another container on the same engine can claim them), so events are best effort.
 - **`invoke` reply (§9.2 #7, M4):** control characters in the reply are shown as visible escapes
   (`safe_text.visible`, as `logs` does for S-08) rather than removed, so a reply is never silently
   altered; `--json` escapes by construction. Exit 1 also covers failures after the message was

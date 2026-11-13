@@ -68,6 +68,7 @@ COMMAND_MODULES = (
     "next",
     "new",
     "invoke",
+    "watch",
 )
 
 
@@ -192,8 +193,8 @@ def _use_stack(args) -> int | None:
     from agentbreeder.services import engine
     from agentbreeder.services.schema import ServiceError
 
-    if args.command == "cluster":
-        return None  # its --stack names the project; it needs no operator config
+    if args.command in ("cluster", "watch"):
+        return None  # their --stack names the project; they need no operator config
     if getattr(args, "stack", None) is None:
         if args.command in (
             "status",
