@@ -64,6 +64,54 @@ agentbreeder cluster down --stack DIR
 `cluster down` also removes the registry container's anonymous volume, and needs `kind` on `PATH`
 (on `main`, not in a published preview).
 
+### The console shell (#816): on `main`, not in a published preview
+
+On `main` the walkthrough column is replaced by a console shell (Preact + htm, no build step):
+
+- **Sidebar** with one entry per screen that works: Home, Services, Build and release, Deployments,
+  Targets ▸ Kubernetes, Governance ▸ Audit. Each screen has its own address (`#/deployments`), page
+  title and `h1`. Changing screen moves focus to that `h1`, and a skip link goes straight to it.
+- **Top bar**: a scope switcher ("All projects" or one project; a project screen under "All
+  projects" asks which), an activity pill with the number of running jobs that opens the **Jobs**
+  dock, and a user menu (theme, sign out of this tab).
+- **Jobs dock**: every job this tab follows, several at once (one per project), including jobs
+  started elsewhere. Starting a job opens it. The log only appends lines. A finished job collapses
+  to one line ("The eval gate failed. Production is unchanged.") with its log one click away.
+  Cancel is offered once; "Stop now" appears only when the server allows it, behind a confirm.
+  Closing the dock never stops a job.
+- **Sign-in states**: the one-time link is consumed before anything else and removed from the
+  address bar. "Session ended" and "Sign in" pages say how to get a new link, and signing in again
+  returns to the screen you were on. "Console not reachable at this address" (no answer at all)
+  is a separate page that retries every 5 seconds.
+- **Walkthrough fixes (#811)**:
+  - Audit shows each row's time (from `at`), agent deployment, mode, reason codes and whether the
+    actor was verified. Verify is one sentence ("Chain intact: 19 rows checked, head 63639e…" or
+    "Chain broken at row 5: hash mismatch."), plus incomplete attempts in words.
+  - A missing `kind` or `kubectl` names its install command and says to restart `up`, since the
+    console reads `PATH` when it starts.
+  - Every disabled button says why underneath. When several share a reason (a job is running in
+    this project), it is shown once.
+  - Confirm dialogs focus Cancel and give focus back to the button that opened them.
+  - A service without host ports says "internal only".
+  - Release candidates carry a violet "candidate, temporary" label.
+  - Notices belong to their screen and clear when you leave it.
+  - Measured cost figures appear only for the onboarded Northwind example.
+- **GRANT_PENDING**: after Connect local cluster, the Kubernetes screen shows "Next: accept the
+  grant change" with a button to Services. The screen works this out from `cluster status` (the
+  cluster is attached but not in the accepted grant), the same condition `next --json` reports as
+  GRANT_PENDING. It does not call `next`. Deploy to cluster stays off, with that reason, until the
+  reviewed grant has been started (`services up`), so the console no longer offers a `promote`
+  that would fail with `KUBERNETES_UNCONFIGURED`.
+
+Tested with Playwright against the built wheel with a fake CLI: in Chromium in CI, and in the
+installed Chrome on macOS 13, where Playwright's Chromium is not offered. The tests cover every
+screen, each fix above, focus after each action, two projects with jobs at once, sign-in,
+session-ended and unreachable states, zero CSP violations, and axe in light and dark. Axe fails the
+run only on serious or critical findings; the last run reported none at any level. Not tested:
+"Stop now" (the server offers it only after a long cancel wait), and narrow screens. The fake CLI never runs Docker or a model; the
+acceptance run with real services is recorded in `docs/superpowers/verification/M0b.md` once it
+runs.
+
 ## How it stays the same engine
 
 Every action starts the CLI in a child process, with a fixed argument list. The UI does not open the
@@ -206,8 +254,7 @@ run as script. These guards are a primary control, not hardening (console spec �
   `Function(…)`, `createContextualFragment`, `DOMParser` or a string timer, or if any HTML, JS or
   CSS file names an external origin. Agent replies, log lines, notes and file contents are only
   ever placed as text.
-- **Preact + htm, vendored** for the console shell that replaces the current screens (#816, in
-  progress): htm 3.1.1's `preact/standalone.module.js` (htm and the Preact 10 build it bundles,
+- **Preact + htm, vendored** for the console shell (#816): htm 3.1.1's `preact/standalone.module.js` (htm and the Preact 10 build it bundles,
   one ES module), copied unchanged from the npm tarball and pinned by SHA-256 in a test, with no
   build step. Its licences (Apache-2.0 for htm, MIT for Preact) ship beside it in
   `center/static/vendor/`.
@@ -215,8 +262,9 @@ run as script. These guards are a primary control, not hardening (console spec �
   `\x1b`, and bidi controls and invisible format characters (zero-width space, BOM, soft hyphen,
   the Unicode tag block) as `U+202E`, so a log line cannot rewrite the terminal or read
   differently from its bytes, and Copy takes the escaped form. Zero-width joiners stay, since
-  emoji and Persian text need them. The new shell's text views will
-  use it; the current screens do not yet.
+  emoji and Persian text need them. Every text the shell shows from a project, a job or the CLI
+  goes through it; escapes are highlighted, so a literal `\x1b` typed in a line still looks
+  different from a real one.
 
 Tests: `node --test 'tests/js/*.test.mjs'` for the browser modules; `tests/ui/` runs the console from the built
 wheel with a fake CLI in Chromium (Playwright): zero CSP violations on load, HTML sinks throw, and

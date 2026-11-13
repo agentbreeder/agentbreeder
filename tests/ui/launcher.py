@@ -29,7 +29,11 @@ def main(argv: list[str]) -> int:
     login, _ = center.mint_login()
     info = {"origin": center.origin, "login": login, "package": agentbreeder.__file__}
     print(json.dumps(info), flush=True)
-    sys.stdin.read()  # the test closes stdin to stop the server
+    # Each "mint" line on stdin prints a new one-time link (as Enter does in `up`); closing stdin
+    # stops the server.
+    for line in sys.stdin:
+        if line.strip() == "mint":
+            print(json.dumps({"login": center.mint_login()[0]}), flush=True)
     server.shutdown()
     server.server_close()
     center.runner.terminate_all()

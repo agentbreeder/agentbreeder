@@ -40,10 +40,34 @@ On main, not in a published preview.
   `eval` and the other HTML and code sinks outside `vendor/`, and on any external origin in a
   static file. Preact + htm (htm 3.1.1's standalone module, pinned by SHA-256, licences beside
   it) and the pure modules for the new shell (hash router, API client, the S-35 text escaping)
-  are vendored and tested but not yet used by the screens. `center/static/**` is packaged
+  are vendored and tested (slice 2 builds the screens on them). `center/static/**` is packaged
   recursively and a packaging test checks every tracked static file ships. Tests: `node --test
   'tests/js/*.test.mjs'` and a Playwright + axe job against the built wheel with a fake CLI (`tests/ui/`, CI
   jobs `console-js` and `console-ui`).
+- Console shell (#816, M0b, slice 2), on `main`, not in a published preview. The walkthrough
+  column is replaced by a sidebar of the screens that work: Home, Services, Build and release,
+  Deployments, Targets ▸ Kubernetes and Governance ▸ Audit. Each screen has its own hash address,
+  title and focused `h1`, and there is a skip link. The top bar holds a project scope switcher,
+  an activity pill and a user menu. A Jobs dock follows several jobs at once, appends log lines
+  instead of rebuilding the log, and collapses a finished job to one line. Separate pages cover
+  "Session ended" (signing in again returns to the same screen) and "Console not reachable at
+  this address". Walkthrough fixes from #811:
+  - audit time from `at`, plus agent, mode, reasons and verified actor;
+  - Verify in words;
+  - a missing `kind` names its install command and the restart of `up`;
+  - a reason under every disabled control;
+  - confirms focus Cancel and give focus back;
+  - "internal only" ports;
+  - violet "candidate, temporary" labels;
+  - notices scoped to their screen;
+  - Northwind's cost figures only for Northwind.
+
+  After `cluster up`, the Kubernetes screen shows the grant-review step (GRANT_PENDING) instead of
+  offering `promote`. Text from projects, jobs and the CLI shows control, bidi and invisible
+  characters as highlighted escapes (S-35). Tests: 35 Playwright tests (every screen, each fix,
+  focus after each action, two projects with jobs at once, zero CSP violations, axe with no
+  serious or critical findings in light and dark) and `node --test` for the job store and
+  wording.
 
 - `next`'s Kubernetes step gains the reason `GRANT_PENDING` (#820, M4), on `main`, not in a
   published preview: the cluster is attached (typically after `cluster up` without `--yes`, as

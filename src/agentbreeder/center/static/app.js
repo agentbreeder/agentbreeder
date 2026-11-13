@@ -1,446 +1,284 @@
-// The command center UI. Server text is only ever placed with textContent.
+// The AgentBreeder console. Server and agent text is only ever placed as text (Preact text nodes,
+// through <Text>); the CSP requires Trusted Types and allows no policy, so an HTML sink would throw.
 
-const HEADERS = { "X-AgentBreeder-Center": "1" };
-const STEPS = [
-  ["project", "Project"],
-  ["services", "Services"],
-  ["release", "Build and release"],
-  ["deployments", "Deployments"],
-  ["kubernetes", "Kubernetes"],
-  ["audit", "Audit"],
-];
-const ui = { step: null, projects: [], project: null, overview: null, job: null, jobLines: [], lastLine: 0, view: {}, plan: null, notice: null };
+import { createClient } from "./lib/api.js";
+import { jobLabel, jobOutcome } from "./lib/format.js";
+import { createJobs } from "./lib/jobs.js";
+import { createRouter, pathFrom, titleFor, tokenFrom } from "./lib/router.js";
+import { visible } from "./lib/text.js";
+import { ROUTES } from "./screens/index.js";
+import { Console, Text } from "./ui/components.js";
+import { html, render, useEffect, useReducer, useRef, useState } from "./ui/preact.js";
+import { Shell, SignedOut, Unreachable } from "./ui/shell.js";
 
-function sessionToken(value) {
-  // Per tab, and gone with it. Falls back to memory if storage is unavailable.
-  try {
-    if (value) sessionStorage.setItem("center-session", value);
-    return value || sessionStorage.getItem("center-session") || ui.session;
-  } catch { if (value) ui.session = value; return ui.session; }
-}
+const router = createRouter(ROUTES);
+const RETURN_TO = /^#\/[A-Za-z0-9/._-]{0,200}$/;
 
-function h(tag, props = {}, ...children) {
-  const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(props || {})) {
-    if (key === "class") node.className = value;
-    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
-    else if (key === "disabled") node.disabled = Boolean(value);
-    else if (value !== undefined && value !== null) node.setAttribute(key, value);
-  }
-  for (const child of children.flat()) {
-    if (child === null || child === undefined || child === false) continue;
-    node.append(child.nodeType ? child : document.createTextNode(String(child)));
-  }
-  return node;
-}
-
-async function api(path, body) {
-  const options = { headers: { ...HEADERS }, credentials: "omit" };
-  const session = sessionToken();
-  if (session) options.headers["X-AgentBreeder-Session"] = session;
-  if (body !== undefined) {
-    options.method = "POST";
-    options.headers["Content-Type"] = "application/json";
-    options.body = JSON.stringify(body);
-  }
-  const response = await fetch(path, options);
-  // Every reply is an envelope {data, error: null | {code, message}, stale}.
-  const reply = await response.json().catch(() => ({ data: null, error: { code: "UNREADABLE", message: "Unreadable response" }, stale: false }));
-  if (response.status === 401) { showSignIn(); const error = new Error("Sign in again"); error.status = 401; throw error; }
-  if (!response.ok) { const error = new Error(problem(reply) || "Request failed"); error.job = reply.data && reply.data.job; error.status = response.status; throw error; }
-  return reply;
-}
-
-// The data of a reply; views keep the whole envelope (data, error, stale).
-const fetchData = async (path, body) => (await api(path, body)).data;
-const problem = (reply) => (reply && reply.error ? reply.error.message : null);
-
-function announce(text) { document.getElementById("announce").textContent = text; }
-
-function showSignIn() {
-  const app = document.getElementById("app");
-  app.replaceChildren(h("main", {}, h("h2", {}, "Sign in"),
-    h("p", {}, "This link was already used, has expired, or there is no session."),
-    h("p", { class: "muted" }, "In the terminal running agentbreeder up, press Enter for a new one-time link.")));
-  app.setAttribute("aria-busy", "false");
-}
-
-function confirmAction(title, text, label) {
-  return new Promise((resolve) => {
-    const dialog = h("dialog", { "aria-labelledby": "dialog-title" },
-      h("h2", { id: "dialog-title" }, title), h("p", {}, text),
-      h("div", { class: "row" },
-        h("button", { class: "action danger", onclick: () => { dialog.close(); dialog.remove(); resolve(true); } }, label),
-        h("button", { class: "action secondary", onclick: () => { dialog.close(); dialog.remove(); resolve(false); } }, "Cancel")));
-    dialog.addEventListener("cancel", () => { dialog.remove(); resolve(false); });
-    document.body.append(dialog);
-    dialog.showModal();
-  });
-}
-
-// Engine jobs run one at a time per project: only this project's running job disables its actions.
-const running = () => Boolean(ui.job && ui.job.state === "running" && ui.project && ui.job.project === ui.project.id);
-
-async function refresh() {
-  ui.projects = (await fetchData("/api/projects")).projects;
-  if (ui.project) ui.project = ui.projects.find((p) => p.id === ui.project.id) || null;
-  if (!ui.project) ui.project = ui.projects[ui.projects.length - 1] || null;
-  if (ui.project) await loadView();
-  if (!ui.step) ui.step = chooseStep();
-  render();
-}
-
-function chooseStep() {
-  if (!ui.project) return "project";
-  const deployments = ui.view.deployments && ui.view.deployments.data;
-  return deployments && deployments.length ? "deployments" : "services";
-}
-
-async function loadView() {
-  const base = `/api/projects/${ui.project.id}`;
-  const wanted = { services: ["services"], project: ["services"], release: ["deployments"], deployments: ["deployments"], kubernetes: ["cluster", "deployments"], audit: ["audit"] }[ui.step || "services"] || [];
-  if (ui.step === "services") wanted.push("registry");
-  if (!ui.view.deployments && !wanted.includes("deployments")) wanted.push("deployments");
-  await Promise.all(wanted.map(async (view) => { ui.view[view] = await api(`${base}/${view}`); }));
-  if (wanted.includes("registry")) followVerify(ui.project.id);
-}
-
-// Registry verification runs in the background (a CLI child, up to 5 minutes): ask again while
-// it says "verifying" or shows a stale answer, backing off from 2 to 10 seconds, for at most 330
-// seconds and only for the project on screen. One chain at a time: a newer one ends the older.
-function followVerify(projectId, started = Date.now(), delay = 2000, chain = (ui.verifyChain = (ui.verifyChain || 0) + 1)) {
-  const problems = ui.view.registry && ui.view.registry.data && ui.view.registry.data.problems;
-  const pending = problems && (problems.stale || (problems.error && problems.error.code === "VERIFYING"));
-  if (!pending || Date.now() - started > 330000) return;
-  setTimeout(async () => {
-    if (chain !== ui.verifyChain || !ui.project || ui.project.id !== projectId) return;
-    try { ui.view.registry = await api(`/api/projects/${projectId}/registry`); } catch { return; }
-    if (chain !== ui.verifyChain) return;
-    if (ui.step === "services") render();
-    followVerify(projectId, started, Math.min(delay * 1.5, 10000), chain);
-  }, delay);
-}
-
-// Follow one job in the drawer. Each call starts a new generation, so an older poll loop stops
-// at its next tick and two loops never append to the same log. `project` comes from the
-// server's job row on the first poll.
-function follow(job) {
-  ui.pollGeneration = (ui.pollGeneration || 0) + 1;
-  ui.job = job ? { state: "running", ...job } : null;
-  ui.jobLines = [];
-  ui.lastLine = 0;
-  if (job) pollJob(ui.pollGeneration);
-}
-
-async function startJob(kind, options = {}, keys) {
-  try {
-    const { job } = await fetchData(`/api/projects/${ui.project.id}/jobs`, { kind, options, keys });
-    ui.notice = null;
-    follow({ id: job, kind, project: ui.project.id });
-    announce(`${kind} started`);
-    render();
-  } catch (error) {
-    if (error.status === 401) return; // the sign-in screen is already shown
-    ui.notice = { kind: "error", text: error.message };
-    if (error.job) follow({ id: error.job, kind: "job" });
-    render();
-  }
-}
-
-async function pollJob(generation) {
-  if (!ui.job || generation !== ui.pollGeneration) return;
-  let job;
-  try {
-    job = await fetchData(`/api/jobs/${ui.job.id}?after=${ui.lastLine}`);
-  } catch (error) {
-    // A failed poll retries (the sign-in screen handles a 401); the loop never just stops.
-    if (error.status !== 401 && generation === ui.pollGeneration) setTimeout(() => pollJob(generation), 5000);
-    return;
-  }
-  if (generation !== ui.pollGeneration) return;
-  for (const line of job.lines) { ui.jobLines.push(line.text); ui.lastLine = line.seq; }
-  const wasRunning = ui.job.state === "running";
-  const learnedProject = !ui.job.project;
-  ui.job = { ...ui.job, ...job };
-  if (job.state === "running") {
-    // A full render only when the job's project first arrives (it decides which actions are
-    // disabled); otherwise only the drawer, so form inputs are kept.
-    if (learnedProject) render(); else renderDrawer();
-    setTimeout(() => pollJob(generation), 2000);
-    return;
-  }
-  if (wasRunning) { announceEnd(job); await refresh(); } else { renderDrawer(); }
-}
-
-// On a project switch or at start: follow that project's running job, if any. Reads
-// /api/activity, which starts no child process.
-async function followProject() {
-  const activity = await fetchData("/api/activity");
-  const mine = activity.running.find((job) => ui.project && job.project === ui.project.id);
-  if (mine) follow({ id: mine.id, kind: mine.kind, project: mine.project });
-  else if (ui.job && ui.job.state === "running" && ui.project && ui.job.project !== ui.project.id) follow(null);
-}
-
-const ENDINGS = {
-  succeeded: "finished",
-  failed: "failed",
-  waiting_approval: "is waiting for a second person's approval",
-  interrupted: "was interrupted",
+// Per-tab storage (sessionStorage, gone with the tab); memory if storage is unavailable.
+const memory = {};
+const tab = {
+  get(key) {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return memory[key] ?? null;
+    }
+  },
+  set(key, value) {
+    try {
+      if (value === null) sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, value);
+    } catch {
+      if (value === null) delete memory[key];
+      else memory[key] = value;
+    }
+  },
+};
+const prefs = {
+  get(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      /* a preference only */
+    }
+  },
 };
 
-function announceEnd(job) {
-  const text = `${job.kind} ${ENDINGS[job.state] || job.state}`;
-  announce(text);
-  if (job.state === "failed" && (job.kind === "release" || job.kind === "promote")) {
-    ui.notice = { kind: "error", text: job.kind === "release"
-      ? (job.exit_code === 5 ? "The eval gate failed. Production unchanged." : "The release failed. See the log below.")
-      : (job.exit_code === 5 ? "Cluster evals failed. The log says what was restored." : "The promote failed. See the log below.") };
-  } else if (job.state === "waiting_approval") {
-    ui.notice = { kind: "warn", text: "A second person must approve this. The log shows the command. It cannot be approved here, because this session is one person." };
-  } else if (job.state === "interrupted") {
-    ui.notice = { kind: "warn", text: "The job was interrupted. Check Deployments for a leftover candidate and remove it." };
-  } else {
-    ui.notice = job.state === "succeeded" ? { kind: "ok", text } : { kind: "error", text };
-  }
+// Phase changes from outside Preact (a 401 or no answer from any request) go through this hook.
+const bus = { phase: () => {} };
+const session = { get: () => tab.get("console-session"), set: (value) => tab.set("console-session", value) };
+
+function rememberRoute() {
+  if (RETURN_TO.test(location.hash)) tab.set("console-return", location.hash);
 }
 
-function render() {
-  const app = document.getElementById("app");
-  const select = h("select", { "aria-label": "Project", onchange: async (event) => { ui.project = ui.projects.find((p) => p.id === event.target.value); ui.view = {}; ui.plan = null; try { await followProject(); } catch (error) { if (error.status === 401) return; ui.notice = { kind: "error", text: error.message }; } try { await refresh(); } catch (error) { if (error.status !== 401) { ui.notice = { kind: "error", text: error.message }; render(); } } } },
-    ui.projects.map((p) => { const o = h("option", { value: p.id }, `${p.name} (${p.environment})`); o.selected = ui.project && p.id === ui.project.id; return o; }));
-  app.replaceChildren(
-    h("header", { class: "top" },
-      h("div", {}, h("h1", {}, "AgentBreeder Command Center"),
-        h("span", { class: "muted" }, `preview ${ui.overview ? ui.overview.version : ""}, this machine only`)),
-      ui.projects.length ? select : null),
-    h("div", { class: "layout" },
-      h("nav", { class: "steps", "aria-label": "Walkthrough" }, h("ol", {}, STEPS.map(([id, label]) =>
-        h("li", {}, h("button", { "aria-current": ui.step === id ? "step" : null, onclick: () => goto(id) }, label, h("small", {}, stepStatus(id))))))),
-      h("main", {}, ui.notice ? h("div", { class: `banner ${ui.notice.kind}`, role: ui.notice.kind === "error" ? "alert" : "status" }, ui.notice.text) : null, panel())),
-    h("div", { class: "drawer", id: "drawer" }));
-  app.setAttribute("aria-busy", "false");
-  renderDrawer();
-}
-
-async function goto(step) {
-  ui.step = step;
-  if (ui.project) { try { await loadView(); } catch { /* the sign-in screen is already shown */ return; } }
-  render();
-}
-
-function stepStatus(id) {
-  const jobs = (ui.project && ui.project.jobs) || {};
-  const last = (kind) => (jobs[kind] ? ` (last: ${jobs[kind].state})` : "");
-  if (id === "project") return ui.project ? ui.project.name : "None yet";
-  if (id === "services") return `Stack${last("services-up")}`;
-  if (id === "release") return `Eval gate${last("release")}`;
-  if (id === "deployments") { const rows = ui.view.deployments && ui.view.deployments.data; return rows ? `${rows.length} active` : "Not loaded"; }
-  if (id === "kubernetes") return `Local cluster${last("promote")}`;
-  return "Attempts and verify";
-}
-
-function panel() {
-  if (ui.step !== "project" && !ui.project) return panelProject();
-  return { project: panelProject, services: panelServices, release: panelRelease, deployments: panelDeployments, kubernetes: panelKubernetes, audit: panelAudit }[ui.step]();
-}
-
-const staleNote = (view) => (view && view.stale ? h("p", { class: "muted" }, "Showing last-known data. It refreshes when the running job ends.") : null);
-const errorNote = (view) => (view && view.error && !view.stale ? h("p", { class: "muted" }, problem(view)) : null);
-
-function trust() {
-  return h("p", { class: "muted" }, "The local Docker admin has full control. The gate prevents mistakes and policy drift, not a local admin.");
-}
-
-function panelProject() {
-  const path = h("input", { id: "path", placeholder: "/path/to/project", autocomplete: "off" });
-  const add = async (body) => {
-    try { ui.project = await fetchData("/api/projects", body); ui.view = {}; ui.notice = null; ui.step = "services"; await refresh(); } catch (error) { ui.notice = { kind: "error", text: error.message }; render(); }
-  };
-  return h("section", {}, h("h2", {}, "Project"),
-    h("div", { class: "card" }, h("h3", {}, "Start with the Northwind example"),
-      h("p", { class: "muted" }, "A customer support agent with knowledge search, memory, order tools and a 61-case eval set. Copied to ~/agentbreeder-projects/northwind."),
-      h("button", { class: "action", onclick: () => add({ example: "northwind" }) }, "Onboard Northwind")),
-    h("div", { class: "card" }, h("h3", {}, "Or use an existing project"),
-      h("p", { class: "muted" }, "A directory with agent.yaml and stack.yaml. Building runs its code in Docker, so only use projects you trust."),
-      h("label", { for: "path" }, h("span", {}, "Absolute path"), path),
-      h("button", { class: "action secondary", onclick: () => add({ path: path.value }) }, "Add project")),
-    trust());
-}
-
-function diffLines(before, after) {
-  if (!before || before === after) return null;
-  const old = new Set(before.split("\n")); const now = new Set(after.split("\n"));
-  const lines = [...before.split("\n").filter((l) => !now.has(l)).map((l) => ["del", `- ${l}`]), ...after.split("\n").filter((l) => !old.has(l)).map((l) => ["add", `+ ${l}`])];
-  return lines.length ? h("div", {}, h("h3", {}, "Changed since you last accepted"), h("pre", {}, lines.map(([kind, text]) => h("div", { class: `diff-${kind}` }, text)))) : null;
-}
-
-function panelServices() {
-  const services = ui.view.services || {};
-  const rows = services.data ? Object.entries(services.data.services || {}) : [];
-  const review = async () => {
-    try { const reply = await api(`/api/projects/${ui.project.id}/plan`, {}); ui.plan = reply.data; ui.notice = reply.error ? { kind: "error", text: problem(reply) } : null; } catch (error) { ui.notice = { kind: "error", text: error.message }; }
-    render();
-  };
-  return h("section", {}, h("h2", {}, "Services"),
-    h("div", { class: "card" },
-      rows.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Service"), h("th", {}, "State"), h("th", {}, "Host ports"))),
-        h("tbody", {}, rows.map(([name, info]) => h("tr", {}, h("td", {}, name), h("td", {}, `${info.state}${info.health ? ` (${info.health})` : ""}`), h("td", {}, Object.entries(info.host_ports || {}).map(([k, v]) => `${k} 127.0.0.1:${v}`).join(", "))))))) : h("p", { class: "muted" }, "Not started yet."),
-      staleNote(services),
-      h("div", { class: "row" },
-        h("button", { class: "action", disabled: running(), onclick: review }, rows.length ? "Review and update" : "Review what will run"),
-        rows.length ? h("button", { class: "action secondary", disabled: running(), onclick: async () => { if (await confirmAction("Stop the services?", "The containers stop. Their data and generated secrets are kept. Refused while an agent is deployed.", "Stop services")) startJob("services-down"); } }, "Stop services") : null)),
-    ui.plan && ui.plan.grant ? grantCard(ui.plan) : null,
-    registryCard(),
-    trust());
-}
-
-function grantCard(plan) {
-  const data = plan.grant;
-  const inputs = data.keys.filter((key) => !key.stored).map((key) => ({ key, input: h("input", { type: "password", autocomplete: "off", id: `key-${key.name}` }) }));
-  const stored = data.keys.filter((key) => key.stored);
-  const start = () => {
-    const keys = {};
-    for (const { key, input } of inputs) {
-      if (!input.value && !key.optional) { ui.notice = { kind: "error", text: `${key.name} is required.` }; render(); return; }
-      if (input.value) keys[key.name] = input.value;
+const base = createClient({
+  fetchImpl: (...args) => fetch(...args),
+  session,
+  onSessionEnded: () => {
+    rememberRoute();
+    session.set(null);
+    bus.phase({ name: "signed-out", reason: "ended" });
+  },
+});
+const client = {
+  ...base,
+  async request(path, options) {
+    try {
+      return await base.request(path, options);
+    } catch (error) {
+      if (error.kind === "unreachable") bus.phase({ name: "unreachable" });
+      throw error;
     }
-    ui.plan = null;
-    startJob("services-up", { digest: data.digest }, Object.keys(keys).length ? keys : undefined);
+  },
+};
+client.get = async (path) => (await client.request(path)).data;
+client.post = async (path, body = {}) => (await client.request(path, { body })).data;
+
+const jobs = createJobs({ client });
+
+function applyTheme(theme) {
+  const dark = theme === "dark" || (theme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.classList.toggle("dark", dark);
+}
+
+function announce(text) {
+  const region = document.getElementById("announce");
+  if (region) region.textContent = text;
+}
+
+function App({ initial }) {
+  const [phase, setPhase] = useState(initial);
+  const [path, setPath] = useState(pathFrom(location.hash));
+  const [overview, setOverview] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [scope, setScopeState] = useState(tab.get("console-scope"));
+  const [dockOpen, setDockOpen] = useState(false);
+  const [theme, setThemeState] = useState(prefs.get("console-theme") || "system");
+  const [, bump] = useReducer((n) => n + 1, 0);
+  const seen = useRef(new Map());
+  const finished = useRef(0);
+
+  bus.phase = (next) => {
+    jobs.halt();
+    setPhase(next);
   };
-  return h("div", { class: "card" }, h("h3", {}, "What will run"),
-    data.mcp.length ? h("p", { class: "banner" }, `This stack has MCP servers (${data.mcp.join(", ")}). Review their tools with the CLI: agentbreeder services up.`) : null,
-    diffLines(plan.accepted_text, data.text),
-    h("pre", { tabindex: "0" }, data.text),
-    h("p", { class: "muted" }, `Grant digest ${data.digest.slice(0, 16)}…`),
-    inputs.length ? h("h3", {}, "Provider keys") : null,
-    inputs.map(({ key, input }) => h("label", { for: input.id }, h("span", {}, `${key.name}${key.optional ? " (optional)" : ""}`), input)),
-    stored.length ? h("p", { class: "muted" }, `Already stored: ${stored.map((k) => k.name).join(", ")}. Enter a value through the CLI to replace one.`) : null,
-    h("p", { class: "muted" }, "Keys go to the stack's private state and are never shown again."),
-    h("button", { class: "action", disabled: running() || data.mcp.length > 0, onclick: start }, "Confirm and start"));
-}
 
-function registryCard() {
-  const registry = ui.view.registry && ui.view.registry.data;
-  if (!registry) return null;
-  const versions = registry.versions.data || [];
-  const problems = registry.problems.data;
-  return h("div", { class: "card" }, h("h3", {}, "Registries"),
-    h("p", {}, `${versions.length} versions available. `, problems ? (problems.length ? `${problems.length} failed verification.` : "All passed verification (corruption check).") : (problem(registry.problems) || "")),
-    h("details", {}, h("summary", {}, "Show versions"), h("pre", { tabindex: "0" }, versions.map((row) => row.ref).join("\n"))));
-}
-
-function panelRelease() {
-  return h("section", {}, h("h2", {}, "Build and release"),
-    h("div", { class: "card" },
-      h("p", {}, "Builds the image, deploys a candidate, runs the eval gate and promotes the exact evaluated image to local Docker only if every gate passes."),
-      h("p", { class: "muted" }, "For Northwind: 61 evals, about 4 minutes and about $0.24 in model usage (measured)."),
-      h("div", { class: "row" },
-        h("button", { class: "action", disabled: running(), onclick: () => startJob("release") }, "Run release"),
-        h("button", { class: "action secondary", disabled: running(), onclick: () => startJob("build") }, "Build only"),
-        h("button", { class: "action secondary", disabled: running(), onclick: async () => { if (await confirmAction("Roll back local production?", "Redeploys the previous local release. Anything already on the cluster keeps its release.", "Roll back")) startJob("rollback"); } }, "Roll back"))));
-}
-
-function panelDeployments() {
-  const view = ui.view.deployments || {};
-  const rows = view.data || [];
-  return h("section", {}, h("h2", {}, "Deployments"),
-    h("div", { class: "card" }, staleNote(view), errorNote(view),
-      rows.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Name", "Target", "State", "Identity check", "Endpoint", ""].map((t) => h("th", {}, t)))),
-        h("tbody", {}, rows.map((row) => h("tr", {}, h("td", {}, row.name), h("td", {}, row.target), h("td", {}, row.error ? `${row.state}: ${row.error}` : row.state), h("td", {}, row.compliance || "not checked"), h("td", {}, h("code", {}, row.endpoint || "none")),
-          h("td", {}, h("button", { class: "action danger", disabled: running(), onclick: async () => { if (await confirmAction(`Remove ${row.name}?`, `Removes the ${row.target} workload and revokes its gateway key. History and the audit log are kept.`, "Remove")) startJob("remove", { deployment: row.id, target: row.target }); } }, "Remove"))))))) : h("p", { class: "muted" }, "Nothing deployed."),
-      h("p", { class: "muted" }, "Local endpoints are unauthenticated. Cluster deployments have no public address: use agentbreeder forward ID."),
-      h("button", { class: "action secondary", disabled: running(), onclick: () => startJob("reconcile") }, "Re-verify (reconcile)")),
-    h("p", { class: "muted" }, "A deployment needing approval shows its command in the job log. A second person runs it."),
-    trust());
-}
-
-function panelKubernetes() {
-  const cluster = ui.view.cluster || {};
-  const info = cluster.data;
-  const rows = (ui.view.deployments && ui.view.deployments.data) || [];
-  const local = rows.find((row) => row.target === "local" && row.state === "ready" && !row.name.endsWith("-candidate"));
-  const onCluster = rows.filter((row) => row.target === "kubernetes");
-  const missing = info ? Object.entries(info.tools).filter(([, tool]) => !tool.present) : [];
-  const unsupported = info && info.tools.kind.present && !info.tools.kind.supported;
-  return h("section", {}, h("h2", {}, "Kubernetes"),
-    h("p", { class: "muted" }, "Local kind cluster only. Verified there, not on a production cluster. Stack services stay in Docker, and Secrets are unencrypted in kind's etcd."),
-    h("div", { class: "card" }, h("h3", {}, "Local cluster"), staleNote(cluster), errorNote(cluster),
-      missing.map(([name, tool]) => h("p", { class: "banner" }, `${name} is not on PATH. Install it: ${tool.install}`)),
-      unsupported ? h("p", { class: "banner" }, "kind 0.33 or later is required: network policy was measured on that release.") : null,
-      info ? h("p", {}, `Cluster: ${info.cluster ? "running" : "not created"}. Registry: ${info.registry ? "running" : "not created"}. In the accepted grant: ${info.configured ? "yes" : "no"}.`) : null,
-      info && info.cluster && !info.configured ? h("p", {}, h("button", { class: "action", disabled: running(), onclick: () => goto("services") }, "Review the grant change")) : null,
-      h("div", { class: "row" },
-        h("button", { class: "action", disabled: running() || missing.length > 0 || unsupported, onclick: async () => { if (await confirmAction("Connect a local cluster?", "Creates a kind cluster and a registry on 127.0.0.1:5001 and attaches the node to the stack's agents network. You then review the grant change before it applies.", "Connect")) startJob("cluster-up"); } }, "Connect local cluster"),
-        info && info.cluster ? h("button", { class: "action danger", disabled: running(), onclick: async () => { if (await confirmAction("Delete the local cluster?", "Deletes the kind cluster and registry. Refused while something is deployed there.", "Delete cluster")) startJob("cluster-down"); } }, "Delete cluster") : null)),
-    h("div", { class: "card" }, h("h3", {}, "Deploy this release to the cluster"),
-      h("p", {}, local ? `Released locally: ${local.name}.` : "Run a release first. Only an image that passed the eval gate can be promoted."),
-      h("p", { class: "muted" }, "Pushes the evaluated image, deploys it by digest through the same gate, then runs the eval set on the cluster. For Northwind: about 4 minutes and about $0.24."),
-      h("button", { class: "action", disabled: running() || !local || !(info && info.configured), onclick: () => startJob("promote") }, "Deploy to cluster"),
-      onCluster.length ? h("p", { class: "muted" }, `On the cluster: ${onCluster.map((row) => `${row.name} (${row.state})`).join(", ")}.`) : null));
-}
-
-function panelAudit() {
-  const reply = ui.view.audit || {};
-  if (reply.error) return h("section", {}, h("h2", {}, "Audit"), h("p", { class: "muted" }, problem(reply)));
-  const view = reply.data || {};
-  const rows = (view.rows && view.rows.data) || [];
-  const verify = view.verify && view.verify.data;
-  return h("section", {}, h("h2", {}, "Audit"),
-    verify ? h("div", { class: "card" }, h("h3", {}, "Verify"), Object.entries(verify).map(([key, value]) => h("p", {}, h("strong", {}, `${key}: `), typeof value === "object" ? JSON.stringify(value) : String(value)))) : null,
-    h("div", { class: "card" }, staleNote(view.rows), h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Time", "Action", "Decision", "Actor"].map((t) => h("th", {}, t)))),
-      h("tbody", {}, rows.map((row) => h("tr", {}, h("td", {}, row.timestamp || ""), h("td", {}, row.action), h("td", {}, row.decision), h("td", {}, row.actor))))))));
-}
-
-function projectName(id) {
-  const project = ui.projects.find((p) => p.id === id);
-  return project ? `${project.name}: ` : "";
-}
-
-// Cancel sends one SIGINT (release and promote then restore), so it is offered once. If the job
-// is still running long after, the server allows a confirmed stop of its process group.
-function jobControl() {
-  const job = ui.job;
-  // Sticky: a poll answered before the cancel landed must not bring the button back.
-  if (!job.cancelling && ui.cancelAsked !== job.id) {
-    return h("button", { class: "action secondary", onclick: async () => {
-      ui.cancelAsked = job.id; renderDrawer();
-      try { await api(`/api/jobs/${job.id}/cancel`, {}); } catch { /* the poll shows the state */ }
-    } }, "Cancel");
+  async function loadProjects() {
+    const data = await client.get("/api/projects");
+    setProjects(data.projects || []);
+    return data.projects || [];
   }
-  if (!job.can_stop) return h("span", { class: "muted", role: "status" }, "Cancelling…");
-  return h("button", { class: "action danger", onclick: async () => {
-    if (await confirmAction("Stop the job now?", "Cancel has not ended it. Stopping ends every process it started, and may skip restoring the previous production: check Deployments afterwards.", "Stop now")) {
-      try { await api(`/api/jobs/${job.id}/stop`, {}); } catch { /* the poll shows the state */ }
+
+  async function load() {
+    try {
+      const [over] = await Promise.all([client.get("/api/overview"), loadProjects()]);
+      setOverview(over);
+      setPhase({ name: "ready" });
+      jobs.begin();
+    } catch (error) {
+      if (error.kind === "session" || error.kind === "unreachable") return; // the phase is already set
+      setPhase({ name: "ready", error: error.message });
     }
-  } }, "Stop now");
-}
-
-function renderDrawer() {
-  const drawer = document.getElementById("drawer");
-  if (!drawer) return;
-  if (!ui.job) { drawer.hidden = true; return; }
-  drawer.hidden = false;
-  const log = h("pre", { role: "log", tabindex: "0", "aria-label": "Job log" }, ui.jobLines.join("\n"));
-  drawer.replaceChildren(h("div", { class: "row" },
-    h("strong", {}, `${projectName(ui.job.project)}${ui.job.kind}: ${(ui.job.state || "").replace("_", " ")}`),
-    ui.job.state === "running" ? jobControl() : null,
-    h("button", { class: "action secondary", onclick: () => { follow(null); renderDrawer(); } }, "Hide")), log);
-  log.scrollTop = log.scrollHeight;
-}
-
-async function start() {
-  const match = /^#t=([A-Za-z0-9_-]+)$/.exec(location.hash);
-  if (match) {
-    history.replaceState(null, "", "/");
-    try { sessionToken((await fetchData("/api/session", { token: match[1] })).session); } catch { showSignIn(); return; }
   }
-  try {
-    ui.overview = await fetchData("/api/overview");
-    await refresh();
-    // Several jobs can run (one per project): follow this project's, if any.
-    await followProject();
-    render();
-  } catch { showSignIn(); }
+
+  useEffect(() => {
+    // The route is always remembered, so a new one-time link (after a session ends, or pasted
+    // into this tab) brings the tab back to it.
+    rememberRoute();
+    if (!session.get()) {
+      if (phase.name === "loading") setPhase({ name: "signed-out", reason: "none" });
+    } else if (phase.name === "loading") {
+      load();
+    }
+    // Registered in every phase: a new one-time link pasted into a signed-out tab is a
+    // hash-only change, and it must be redeemed (and leave the address bar) at once.
+    const onHash = () => {
+      if (tokenFrom(location.hash)) {
+        location.reload(); // a new one-time link pasted into this tab: boot redeems it
+        return;
+      }
+      rememberRoute();
+      setPath(pathFrom(location.hash));
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  useEffect(() => {
+    if (phase.name !== "unreachable") return undefined;
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
+  }, [phase.name]);
+
+  useEffect(() => {
+    applyTheme(theme);
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => applyTheme(theme);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, [theme]);
+
+  useEffect(
+    () =>
+      jobs.subscribe(() => {
+        // Announce a job's start and end once each; re-read projects when one ends.
+        let ended = 0;
+        for (const entry of jobs.list()) {
+          const before = seen.current.get(entry.id);
+          if (before !== entry.state) {
+            seen.current.set(entry.id, entry.state);
+            if (entry.state === "running" && !before) announce(`${jobLabel(entry.kind)} started`);
+            else if (entry.state !== "running") announce(jobOutcome(entry).text);
+          }
+          if (entry.state !== "running") ended += 1;
+        }
+        if (ended !== finished.current) {
+          finished.current = ended;
+          loadProjects().catch(() => {});
+        }
+        bump();
+      }),
+    [],
+  );
+
+  const match = router.match(path);
+  useEffect(() => {
+    document.title = phase.name === "ready" ? titleFor(match && match.route) : titleFor(null);
+  }, [path, phase.name]);
+
+  if (phase.name === "loading") return html`<main id="main" class="center-page" aria-busy="true"><p class="muted">Loading the console…</p></main>`;
+  if (phase.name === "signed-out") return html`<${SignedOut} reason=${phase.reason} />`;
+  if (phase.name === "unreachable") return html`<${Unreachable} onRetry=${load} />`;
+
+  const project = projects.find((p) => p.id === scope) || null;
+  const value = {
+    client,
+    // Starting a job opens the dock so its log is in view (also for a refused start: the dock
+    // then shows the job holding the lock).
+    jobs: {
+      ...jobs,
+      async start(...args) {
+        try {
+          return await jobs.start(...args);
+        } finally {
+          setDockOpen(true);
+          // The clicked button is now disabled (a job runs in this project), which drops focus
+          // to the page: move it to the dock that just opened.
+          requestAnimationFrame(() => {
+            const active = document.activeElement;
+            if (!active || active === document.body || active.disabled) document.getElementById("dock-title")?.focus();
+          });
+        }
+      },
+    },
+    overview,
+    projects,
+    project,
+    dockOpen,
+    setDockOpen,
+    theme,
+    setTheme(next) {
+      prefs.set("console-theme", next);
+      setThemeState(next);
+    },
+    navigate(to) {
+      location.hash = `#${to}`;
+    },
+    setScope(id, to) {
+      tab.set("console-scope", id);
+      setScopeState(id);
+      if (to) location.hash = `#${to}`;
+    },
+    async addProject(body) {
+      const added = await client.post("/api/projects", body);
+      await loadProjects();
+      return added;
+    },
+    signOut() {
+      rememberRoute();
+      session.set(null);
+      bus.phase({ name: "signed-out", reason: "none" });
+    },
+    versionOf: (id) => jobs.version(id),
+    projectName: (id) => visible((projects.find((p) => p.id === id) || {}).name || ""),
+    busyReason(id) {
+      const entry = jobs.runningIn(id);
+      return entry ? `${jobLabel(entry.kind)} is running in this project. Wait for it, or cancel it in Jobs.` : false;
+    },
+  };
+  return html`<${Console.Provider} value=${value}>
+    ${phase.error ? html`<div class="notice error" role="alert"><${Text} value=${phase.error} /></div>` : null}
+    <${Shell} match=${match} />
+  <//>`;
 }
 
-start();
+async function boot() {
+  const root = document.getElementById("app");
+  let initial = { name: "loading" };
+  const token = tokenFrom(location.hash);
+  if (token) {
+    // Consume the one-time token first and drop it from the address bar and history, then go back
+    // to the screen this tab was on before its session ended (re-auth returns to the route).
+    const back = tab.get("console-return");
+    tab.set("console-return", null);
+    history.replaceState(null, "", `/${back && RETURN_TO.test(back) ? back : "#/"}`);
+    try {
+      session.set((await base.post("/api/session", { token })).session);
+    } catch (error) {
+      initial = error.kind === "unreachable" ? { name: "unreachable" } : { name: "signed-out", reason: "used" };
+    }
+  }
+  applyTheme(prefs.get("console-theme") || "system");
+  render(html`<${App} initial=${initial} />`, root);
+  root.setAttribute("aria-busy", "false");
+}
+
+boot();

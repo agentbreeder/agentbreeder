@@ -83,7 +83,7 @@ def test_preact_htm_renders_text_without_violations(page, console, violations):
         }""",
         MODULE,
     )
-    assert text == {"text": "<img src=x onerror=alert(1)>‮txt", "children": 0}
+    assert text == {"text": "<img src=x onerror=alert(1)>\u202etxt", "children": 0}
     assert violations(page) == []
 
 

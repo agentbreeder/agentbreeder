@@ -27,7 +27,7 @@ test("every C0 and C1 control and DEL is escaped", () => {
 
 test("bidi controls show as code points", () => {
   // "abc" RLO "txt.exe" PDF: reads as "abcexe.txt" when rendered raw.
-  assert.equal(visible("abc‮txt.exe‬"), "abcU+202Etxt.exeU+202C");
+  assert.equal(visible("abc\u202etxt.exe\u202c"), "abcU+202Etxt.exeU+202C");
   for (const code of [0x061c, 0x200e, 0x200f, 0x2028, 0x2029, 0x2066, 0x2067, 0x2068, 0x2069]) {
     assert.match(escapeFor(code), /^U\+[0-9A-F]{4}$/);
   }
@@ -45,7 +45,7 @@ test("invisible format characters and tag characters show as code points", () =>
 test("joiners stay, so emoji sequences and Persian text render", () => {
   assert.equal(escapeFor(0x200c), null);
   assert.equal(escapeFor(0x200d), null);
-  assert.equal(visible("👩‍💻"), "👩‍💻");
+  assert.equal(visible("👩\u200d💻"), "👩\u200d💻");
 });
 
 test("CRLF line endings are kept as lines; a lone CR is visible", () => {
