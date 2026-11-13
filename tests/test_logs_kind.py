@@ -51,7 +51,7 @@ RUNNING_POD = {"name": POD, "reason": None, "readable": True}
 class FakeKube:
     def __init__(self, text="", pod=None, child=None, error=None, fail_logs=False):
         self.text, self.chosen, self.child = text, pod or RUNNING_POD, child
-        self.error, self.fail_logs = error, fail_logs
+        self.error, self.fail_logs = error, fail_logs  # fail_logs: True or an exception
         self.calls = []
         self.process = None
 
@@ -70,6 +70,8 @@ class FakeKube:
 
     def logs(self, info, tail=200, since=None, previous=False, pod=None):
         self.calls.append(("logs", pod, tail, since, previous))
+        if isinstance(self.fail_logs, Exception):
+            raise self.fail_logs
         if self.fail_logs:
             raise DeploymentError("kubectl could not read the pod's logs")
         return self.text, False
@@ -179,6 +181,19 @@ def test_cluster_and_kubectl_errors_are_coded(state, kube, capsys):
     kube.install(FakeKube(fail_logs=True))
     assert run(state, "--json") == 2
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "KUBECTL_LOGS_FAILED"
+
+
+def test_a_missing_previous_log_is_coded_not_printed(state, kube, capsys):
+    from agentbreeder.kubernetes import LogUnavailable
+
+    looping = {"name": POD, "reason": "CrashLoopBackOff", "readable": True}
+    gone = LogUnavailable("the kubelet no longer has the previous container's log")
+    kube.install(FakeKube(pod=looping, fail_logs=gone))
+    assert run(state, "--previous", "--json") == 2
+    captured = capsys.readouterr()
+    assert captured.err.startswith("[LOG_UNAVAILABLE] the kubelet no longer has")
+    error = json.loads(captured.out)["error"]
+    assert error["code"] == "LOG_UNAVAILABLE" and "previous container" in error["message"]
 
 
 def test_cluster_error_text_is_excerpted(state, kube, capsys):
@@ -398,6 +413,49 @@ def test_logs_failure_never_carries_kubectl_stderr(bound, monkeypatch):
     with pytest.raises(DeploymentError) as error:
         bound.logs(INFO, tail=5, previous=True, pod=POD)
     assert "secret path" not in str(error.value) and "restarted" in str(error.value)
+
+
+# Bodies captured from `kubectl logs --timestamps` (exit 0, no trailing newline) on kind, node
+# v1.37, 2026-11-13: `--previous` on a crash-looping pod, and a pod whose log file was removed.
+UNRETRIEVABLE = "unable to retrieve container logs for containerd://" + "4c35e140" * 8
+NO_FILE = (
+    'failed to try resolving symlinks in path "/var/log/pods/ns_pod_uid/agent/2.log": '
+    "lstat /var/log/pods/ns_pod_uid/agent/2.log: no such file or directory"
+)
+
+
+@pytest.mark.parametrize(
+    "body", [UNRETRIEVABLE, NO_FILE, NO_FILE + "\n", "\n" + UNRETRIEVABLE, UNRETRIEVABLE + "\r\n"]
+)
+@pytest.mark.parametrize("previous", [True, False])
+def test_logs_reports_a_kubelet_missing_log_body(bound, monkeypatch, body, previous):
+    from agentbreeder.kubernetes import LogUnavailable
+
+    _fake_kubectl(monkeypatch, bound, f"import sys; sys.stdout.write({body!r})")
+    with pytest.raises(LogUnavailable) as error:
+        bound.logs(INFO, tail=5, previous=previous, pod=POD)
+    message = str(error.value)
+    assert ("previous container's" in message) is previous and "/var/log" not in message
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "2026-11-13T19:23:28.584735824Z " + UNRETRIEVABLE + "\n",  # an app line saying it
+        "2026-11-13T19:23:28Z " + NO_FILE + "\n",
+        UNRETRIEVABLE + " (retrying)",  # not the whole line
+        "app: " + NO_FILE,
+        UNRETRIEVABLE + "\n" + UNRETRIEVABLE + "\n",  # two lines is output, not one message
+        "unable to retrieve container logs for containerd://" + "4c35e140" * 7,  # short ID
+        NO_FILE.replace("no such file or directory", "permission denied"),
+        NO_FILE.replace("2.log", "a" * 1000 + "/2.log") * 4,  # long (past the cap)
+        NO_FILE.replace("try resolving symlinks in path", "open log file"),  # not measured
+    ],
+)
+def test_logs_keeps_lines_that_only_resemble_it(bound, monkeypatch, body):
+    _fake_kubectl(monkeypatch, bound, f"import sys; sys.stdout.write({body!r})")
+    text, truncated = bound.logs(INFO, tail=5, previous=True, pod=POD)
+    assert text == body and not truncated
 
 
 def test_follow_runs_kubectl_follow(bound, monkeypatch):

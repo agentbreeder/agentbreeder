@@ -379,6 +379,12 @@ class Kubernetes:
                 + (" (has the container restarted?)" if previous else "")
             )
         data, truncated = result
+        if not truncated and _log_file_gone(data):
+            raise LogUnavailable(
+                "the kubelet no longer has the "
+                + ("previous container's" if previous else "container's")
+                + " log (the container or its log file is gone); nothing to show"
+            )
         if truncated:
             data = data[data.find(b"\n") + 1 :] if b"\n" in data else b""
         data = b"\n".join(join_partials(line) for line in data.split(b"\n"))
@@ -493,6 +499,28 @@ class Kubernetes:
 
 _POD_NAME = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?")
 _WORD = re.compile(r"[A-Za-z]{1,64}")
+# What the kubelet sends instead of log lines, with kubectl exiting 0 (kind, node v1.37,
+# 2026-11-13): `--previous` on a crash-looping pod whose last container the runtime no longer
+# has, and a container whose log file is gone.
+_GONE = re.compile(
+    rb"unable to retrieve container logs for [a-z][a-z0-9-]{0,31}://[0-9a-f]{64}"
+    rb'|failed to try resolving symlinks in path "[^"\n]{1,1024}": '
+    rb"[^\n]{0,1024}no such file or directory"
+)
+
+
+class LogUnavailable(DeploymentError):
+    """kubectl exited 0, but its output is the kubelet's message for a missing container or log
+    file, not log lines."""
+
+
+def _log_file_gone(data: bytes) -> bool:
+    """Whether kubectl's whole output is one kubelet message for a missing container or log
+    file. It never matches a container line: `--timestamps` starts each with a time."""
+    if len(data) > 4096:
+        return False
+    lines = [line for line in data.split(b"\n") if line.strip()]
+    return len(lines) == 1 and _GONE.fullmatch(lines[0].strip()) is not None
 
 
 def _pod_view(pod: dict) -> dict:

@@ -355,6 +355,16 @@ On main, not in a published preview.
 
 ### Fixed
 
+- `logs ID` for a Kubernetes (local `kind`) deployment, on `main`, not in a published preview:
+  when `kubectl logs` exits 0 but its whole output is one kubelet message saying the container
+  or its log file is gone, it now fails with `LOG_UNAVAILABLE` (exit 2, with the `--json` error
+  object) instead of printing that message as a log line. On kind (node v1.37), `--previous` on
+  a crash-looping pod gave `unable to retrieve container logs for containerd://<id>` in 6 of 6
+  runs, and a container whose log file was removed gave `failed to try resolving symlinks in
+  path "…": lstat …: no such file or directory`. Only one untimestamped line that exactly matches
+  one of these forms counts; a timestamped container line with the same words is still printed.
+  `--follow` is unchanged.
+
 - `logs ID --follow`, `services logs --follow`, `watch` and `services usage --follow`: when the
   terminal's Ctrl-C or a group SIGTERM/SIGHUP ends their docker or kubectl child before the
   CLI's own handler records it, a child exit of 130, 143 or 129 (it caught the signal) now counts
