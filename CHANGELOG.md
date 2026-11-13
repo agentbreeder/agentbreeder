@@ -355,6 +355,9 @@ On main, not in a published preview.
 - Design spec for authenticated `/invoke` and caller-derived customer identity (#780, epic #812):
   `docs/superpowers/specs/2026-11-13-authenticated-invoke-design.md`. A spec only; nothing is
   built, and `/invoke` is still unauthenticated.
+- Design spec for governed agent-to-agent calls (A2A, M19 #835, epic #812):
+  `docs/superpowers/specs/2026-11-13-a2a-design.md`. A spec only, on `main`, not in a published
+  preview; nothing is built, and agents cannot call each other.
 
 ### Fixed
 
