@@ -119,15 +119,18 @@ def test_job_log_appends_and_shows_controls_as_escapes(page, console):
 
 
 def test_running_log_keeps_existing_rows(page, console):
-    console.scenario(job_lines={"build": [f"line {n}" for n in range(6)]}, job_seconds=4.5)
+    # Ten lines, 1.5 s apart: the job is still running (its log open) when the test checks the
+    # middle of it. A finished job collapses its log, so the check must not wait for the end.
+    console.scenario(job_lines={"build": [f"line {n}" for n in range(10)]}, job_seconds=15)
     sign_in(page, console)
     go(page, console, "/release", "Build and release")
     page.get_by_role("button", name="Build only").click()
     log = page.get_by_role("log", name="Build log")
     expect(log.locator(".line").first).to_have_text("line 0", timeout=10000)
     handle = log.locator(".line").first.element_handle()
-    expect(log.locator(".line")).to_have_count(6, timeout=15000)
+    expect(log.locator(".line").nth(3)).to_have_text("line 3", timeout=15000)
     assert handle.evaluate("node => node.isConnected"), "the log rebuilt instead of appending"
+    expect(log.locator(".line").first).to_have_text("line 0")
 
 
 def test_disabled_controls_say_why(page, console):
