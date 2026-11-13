@@ -1,0 +1,127 @@
+2026-11-13T02:23:54.563703281Z 🏃‍♀️‍➡️ Running migrations on the database.
+2026-11-13T02:23:54.563744565Z ---------------------------
+2026-11-13T02:23:54.574005623Z 2026-11-13 02:23:54,573 INFO sqlalchemy.engine.Engine select pg_catalog.version()
+2026-11-13T02:23:54.574034356Z 2026-11-13 02:23:54,573 INFO sqlalchemy.engine.Engine [raw sql] [SQL parameters hidden due to hide_parameters=True]
+2026-11-13T02:23:54.575992574Z 2026-11-13 02:23:54,575 INFO sqlalchemy.engine.Engine select current_schema()
+2026-11-13T02:23:54.576019078Z 2026-11-13 02:23:54,575 INFO sqlalchemy.engine.Engine [raw sql] [SQL parameters hidden due to hide_parameters=True]
+2026-11-13T02:23:54.577878654Z 2026-11-13 02:23:54,577 INFO sqlalchemy.engine.Engine show standard_conforming_strings
+2026-11-13T02:23:54.577901993Z 2026-11-13 02:23:54,577 INFO sqlalchemy.engine.Engine [raw sql] [SQL parameters hidden due to hide_parameters=True]
+2026-11-13T02:23:54.580865252Z 2026-11-13 02:23:54,580 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-11-13T02:23:54.583605246Z 2026-11-13 02:23:54,583 INFO sqlalchemy.engine.Engine SELECT pg_catalog.pg_class.relname 
+2026-11-13T02:23:54.583634026Z FROM pg_catalog.pg_class JOIN pg_catalog.pg_namespace ON pg_catalog.pg_namespace.oid = pg_catalog.pg_class.relnamespace 
+2026-11-13T02:23:54.583635886Z WHERE pg_catalog.pg_class.relname IN ($7::VARCHAR) AND pg_catalog.pg_class.relkind = ANY (ARRAY[$1::VARCHAR, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR]) AND pg_catalog.pg_table_is_visible(pg_catalog.pg_class.oid) AND pg_catalog.pg_namespace.nspname != $6::VARCHAR
+2026-11-13T02:23:54.583637487Z 2026-11-13 02:23:54,583 INFO sqlalchemy.engine.Engine [generated in 0.00026s] [SQL parameters hidden due to hide_parameters=True]
+2026-11-13T02:23:54.587316424Z 2026-11-13 02:23:54,586 INFO sqlalchemy.engine.Engine SELECT alembic_version.version_num 
+2026-11-13T02:23:54.587333361Z FROM alembic_version
+2026-11-13T02:23:54.587348166Z 2026-11-13 02:23:54,587 INFO sqlalchemy.engine.Engine [generated in 0.00019s] [SQL parameters hidden due to hide_parameters=True]
+2026-11-13T02:23:54.625972167Z 2026-11-13 02:23:54,625 INFO sqlalchemy.engine.Engine COMMIT
+2026-11-13T02:23:54.630026988Z ---------------------------
+2026-11-13T02:23:54.630056170Z ✅ Migrations completed in 0.066 seconds.
+2026-11-13T02:23:55.876933666Z /phoenix/.venv/lib/python3.13/site-packages/pydantic/json_schema.py:2666: PydanticJsonSchemaWarning: Default value <phoenix.db.types.db_helper_types.Undefined object at 0x7f7a85fcfa10> is not JSON serializable; excluding default from JSON schema [non-serializable-default]
+2026-11-13T02:23:55.876954733Z   warnings.warn(message, PydanticJsonSchemaWarning)
+2026-11-13T02:23:57.072779351Z INFO:     Started server process [1]
+2026-11-13T02:23:57.074456157Z INFO:     Waiting for application startup.
+2026-11-13T02:23:57.646452338Z <sys>:0: SAWarning: Column-expression-level unary distinct() should not be used outside of an aggregate function. For general 'SELECT DISTINCT' support use select().distinct().
+2026-11-13T02:23:58.308096199Z 
+2026-11-13T02:23:58.308117786Z ██████╗ ██╗  ██╗ ██████╗ ███████╗███╗   ██╗██╗██╗  ██╗
+2026-11-13T02:23:58.308120641Z ██╔══██╗██║  ██║██╔═══██╗██╔════╝████╗  ██║██║╚██╗██╔╝
+2026-11-13T02:23:58.308122734Z ██████╔╝███████║██║   ██║█████╗  ██╔██╗ ██║██║ ╚███╔╝
+2026-11-13T02:23:58.308124493Z ██╔═══╝ ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║██║ ██╔██╗
+2026-11-13T02:23:58.308126163Z ██║     ██║  ██║╚██████╔╝███████╗██║ ╚████║██║██╔╝ ██╗
+2026-11-13T02:23:58.308127823Z ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
+2026-11-13T02:23:58.308129513Z 
+2026-11-13T02:23:58.308131148Z Arize Phoenix v21.0.0 · AI Observability & Evaluation
+2026-11-13T02:23:58.308148886Z 
+2026-11-13T02:23:58.308150411Z ── 💾 Storage ───────────────────────────────────────────────────────
+2026-11-13T02:23:58.308152101Z   Database            postgresql://phoenix:[redacted]@postgres:5432/phoenix
+2026-11-13T02:23:58.308153519Z 
+2026-11-13T02:23:58.308154636Z ── 🔐 Auth & Security ───────────────────────────────────────────────
+2026-11-13T02:23:58.308156187Z   Authentication      ✅ Enabled
+2026-11-13T02:23:58.308159532Z   TLS (HTTP)          ➖ Disabled
+2026-11-13T02:23:58.308160724Z   TLS (gRPC)          ➖ Disabled
+2026-11-13T02:23:58.308161978Z 
+2026-11-13T02:23:58.308163078Z ── 🧩 Features ──────────────────────────────────────────────────────
+2026-11-13T02:23:58.308164373Z   Code sandboxes      ➖ DAYTONA, DENO, DOCKER, E2B, MODAL, MONTY, VERCEL, WASM
+2026-11-13T02:23:58.308165555Z   Prometheus metrics  ➖ Disabled
+2026-11-13T02:23:58.308166738Z   OTLP log export     ➖ Disabled
+2026-11-13T02:23:58.308167887Z   Email (SMTP)        ➖ Not configured
+2026-11-13T02:23:58.308169058Z   Telemetry           ➖ Disabled
+2026-11-13T02:23:58.308170221Z 
+2026-11-13T02:23:58.308172326Z ── ✨ Assistant ─────────────────────────────────────────────────────
+2026-11-13T02:23:58.308173566Z   Agent assistant     ➖ Disabled
+2026-11-13T02:23:58.308174717Z   Trace project       assistant_agent
+2026-11-13T02:23:58.308175862Z   Local traces        ➖ Disabled
+2026-11-13T02:23:58.308176989Z   Remote export       ➖ Disabled
+2026-11-13T02:23:58.308178122Z   Remote collector    ➖ Not configured
+2026-11-13T02:23:58.308179288Z   Collector API key   ➖ Not configured
+2026-11-13T02:23:58.308180439Z   Force tracing       ➖ Disabled
+2026-11-13T02:23:58.308181594Z   Web access          ➖ Disabled
+2026-11-13T02:23:58.308182727Z   Server-side bash    ➖ Disabled
+2026-11-13T02:23:58.308183866Z   GitHub tools        ➖ Disabled
+2026-11-13T02:23:58.308185008Z 
+2026-11-13T02:23:58.308186113Z ── 🌎 Community ─────────────────────────────────────────────────────
+2026-11-13T02:23:58.308187259Z   Star on GitHub      https://github.com/Arize-ai/phoenix
+2026-11-13T02:23:58.308188450Z   Community Slack     https://join.slack.com/t/arize-ai/shared_invite/INVITE
+2026-11-13T02:23:58.308189929Z   Documentation       https://arize.com/docs/phoenix
+2026-11-13T02:23:58.308191080Z   Docs MCP            ➖ Disabled
+2026-11-13T02:23:58.308192224Z 
+2026-11-13T02:23:58.308202836Z ── 🌐 Server ────────────────────────────────────────────────────────
+2026-11-13T02:23:58.308204576Z   Web UI              http://localhost:6006
+2026-11-13T02:23:58.308205732Z   REST API            http://localhost:6006/v1
+2026-11-13T02:23:58.308206876Z   GraphQL API         http://localhost:6006/graphql
+2026-11-13T02:23:58.308208045Z   MCP server          http://localhost:6006/mcp
+2026-11-13T02:23:58.308209182Z   External skills     ➖ Not configured
+2026-11-13T02:23:58.308210399Z 
+2026-11-13T02:23:58.308211531Z ━━ 📡 Tracing — send traces here ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-11-13T02:23:58.308212742Z   ▶ OTLP over gRPC    http://localhost:4317
+2026-11-13T02:23:58.308213909Z   ▶ OTLP over HTTP    http://localhost:6006/v1/traces
+2026-11-13T02:23:58.308215055Z 
+2026-11-13T02:23:58.308216185Z 🚀 Phoenix is up and running — open http://localhost:6006 to get started.
+2026-11-13T02:23:58.308925119Z INFO:     Application startup complete.
+2026-11-13T02:23:58.315358026Z INFO:     Uvicorn running on http://0.0.0.0:6006 (Press CTRL+C to quit)
+2026-11-13T02:23:59.957482299Z INFO:     192.168.32.5:36952 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T02:24:22.706150781Z INFO:     192.168.16.6:46336 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:24:27.730193624Z INFO:     192.168.16.6:46348 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:24:32.744156487Z INFO:     192.168.16.6:51816 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:24:37.760848365Z INFO:     192.168.16.6:51830 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:24:42.776370072Z INFO:     192.168.16.6:53880 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:24:47.789950218Z INFO:     192.168.16.6:53886 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:24:52.804865271Z INFO:     192.168.16.6:39142 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:24:57.819955122Z INFO:     192.168.16.6:39156 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:02.850540613Z INFO:     192.168.16.6:37050 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:07.880328979Z INFO:     192.168.16.6:37062 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:12.899420102Z INFO:     192.168.16.6:46270 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:17.916916679Z INFO:     192.168.16.6:46278 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:22.930746973Z INFO:     192.168.16.6:51096 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:27.945882972Z INFO:     192.168.16.6:51098 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:32.960483030Z INFO:     192.168.16.6:39052 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:37.987721015Z INFO:     192.168.16.6:39068 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:43.001674260Z INFO:     192.168.16.6:44526 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:48.017614332Z INFO:     192.168.16.6:44542 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:53.031612867Z INFO:     192.168.16.6:60474 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:25:58.046463787Z INFO:     192.168.16.6:60490 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:26:03.060821158Z INFO:     192.168.16.6:50486 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:26:08.074841484Z INFO:     192.168.16.6:50496 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:26:13.089194803Z INFO:     192.168.16.6:36814 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:26:18.102639526Z INFO:     192.168.16.6:36830 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:26:28.115830246Z INFO:     192.168.16.6:33502 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:26:33.133463426Z INFO:     192.168.16.6:39110 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:26:38.145837930Z INFO:     192.168.16.6:39112 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:26:43.158286664Z INFO:     192.168.16.6:40474 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:26:48.171944473Z INFO:     192.168.16.6:40476 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:26:58.187128670Z INFO:     192.168.16.6:49944 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:27:07.402249748Z INFO:     192.168.16.6:51742 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:27:17.417654512Z INFO:     192.168.16.6:54350 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:27:22.429965068Z INFO:     192.168.16.6:43560 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:27:27.093388661Z INFO:     192.168.16.5:59576 - "POST /v1/span_annotations?sync=false HTTP/1.1" 200 OK
+2026-11-13T02:27:27.113994693Z INFO:     192.168.16.5:59588 - "POST /v1/span_annotations?sync=false HTTP/1.1" 200 OK
+2026-11-13T02:27:27.441621869Z INFO:     192.168.16.6:43562 - "POST /v1/traces HTTP/1.1" 200 OK
+2026-11-13T02:27:32.494414781Z INFO:     192.168.16.5:60940 - "POST /v1/span_annotations?sync=false HTTP/1.1" 200 OK
+2026-11-13T02:27:32.502524349Z INFO:     192.168.16.5:60944 - "POST /v1/span_annotations?sync=false HTTP/1.1" 200 OK
+2026-11-13T02:27:32.512208027Z INFO:     192.168.16.5:60958 - "POST /v1/span_annotations?sync=false HTTP/1.1" 200 OK
+2026-11-13T02:27:32.523725013Z INFO:     192.168.16.5:60974 - "POST /v1/span_annotations?sync=false HTTP/1.1" 200 OK
+2026-11-13T02:27:32.532313753Z INFO:     192.168.16.5:60982 - "POST /v1/span_annotations?sync=false HTTP/1.1" 200 OK
+2026-11-13T02:27:37.277602656Z INFO:     192.168.16.5:60992 - "POST /v1/span_annotations?sync=false HTTP/1.1" 200 OK
+2026-11-13T02:27:37.293727977Z INFO:     192.168.16.5:32774 - "POST /v1/span_annotations?sync=false HTTP/1.1" 200 OK
+2026-11-13T02:27:37.302739299Z INFO:     192.168.16.5:32786 - "POST /v1/span_annotations?sync=false HTTP/1.1" 200 OK
+2026-11-13T02:27:42.456694153Z INFO:     192.168.16.6:59740 - "POST /v1/traces HTTP/1.1" 200 OK

@@ -18,6 +18,7 @@ from pathlib import Path
 
 from agentbreeder import env_import, hints, registry, secret_files
 from agentbreeder import mcp as mcp_kind
+from agentbreeder.lock import BUILTIN_LABEL
 from agentbreeder.registry import RegistryError
 from agentbreeder.services import mcp_stack
 from agentbreeder.services import operator as operator_writer
@@ -706,6 +707,24 @@ class Engine:
                 "unpinned": sorted(report["new"]),
             }
         return result
+
+    def log_format(self, service: str) -> str | None:
+        """The log format of `service` when its ref is a built-in one (`loglevels.FORMATS`), as
+        `stack.lock` records it; None for project services, MCP relays or an unreadable lock.
+        The lock is read bounded (1 MiB), never through a symlink or from a FIFO."""
+        from agentbreeder import guide_checks, loglevels
+
+        entry = self.stack.services.get(service)
+        if entry is None:
+            return None
+        try:
+            data = json.loads(guide_checks._read_file(self.project / LOCK_FILE) or b"{}")
+            entries = data.get("entries") if isinstance(data, dict) else None
+            locked = (entries or {}).get(str(registry.Ref.parse(entry.ref)))
+        except (RegistryError, ValueError, RecursionError, AttributeError):
+            return None
+        builtin = isinstance(locked, dict) and locked.get("source") == BUILTIN_LABEL
+        return loglevels.format_for(entry.ref, builtin=builtin)
 
     def log_redactor(self, service: str):
         """Check `service` names a stack service (or MCP relay), authorize Docker, and return

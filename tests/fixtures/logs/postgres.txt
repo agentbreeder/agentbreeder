@@ -1,0 +1,77 @@
+2026-11-13T02:22:20.987377024Z chmod: changing permissions of '/var/run/postgresql': Operation not permitted
+2026-11-13T02:22:21.021955078Z The files belonging to this database system will be owned by user "postgres".
+2026-11-13T02:22:21.021978264Z This user must also own the server process.
+2026-11-13T02:22:21.021980272Z 
+2026-11-13T02:22:21.022012772Z The database cluster will be initialized with locale "en_US.utf8".
+2026-11-13T02:22:21.022015012Z The default database encoding has accordingly been set to "UTF8".
+2026-11-13T02:22:21.022016220Z The default text search configuration will be set to "english".
+2026-11-13T02:22:21.022017846Z 
+2026-11-13T02:22:21.022018981Z Data page checksums are disabled.
+2026-11-13T02:22:21.022020232Z 
+2026-11-13T02:22:21.022021385Z fixing permissions on existing directory /var/lib/postgresql/data ... ok
+2026-11-13T02:22:21.022606790Z creating subdirectories ... ok
+2026-11-13T02:22:21.022622434Z selecting dynamic shared memory implementation ... posix
+2026-11-13T02:22:21.052343436Z selecting default max_connections ... 100
+2026-11-13T02:22:21.075314210Z selecting default shared_buffers ... 128MB
+2026-11-13T02:22:21.087826222Z selecting default time zone ... Etc/UTC
+2026-11-13T02:22:21.088367183Z creating configuration files ... ok
+2026-11-13T02:22:21.220157110Z running bootstrap script ... ok
+2026-11-13T02:22:21.594543772Z performing post-bootstrap initialization ... ok
+2026-11-13T02:22:21.821084189Z syncing data to disk ... ok
+2026-11-13T02:22:21.821105525Z 
+2026-11-13T02:22:21.821107213Z 
+2026-11-13T02:22:21.821108432Z Success. You can now start the database server using:
+2026-11-13T02:22:21.821111023Z 
+2026-11-13T02:22:21.821112372Z     pg_ctl -D /var/lib/postgresql/data -l logfile start
+2026-11-13T02:22:21.821113664Z 
+2026-11-13T02:22:21.821091548Z initdb: warning: enabling "trust" authentication for local connections
+2026-11-13T02:22:21.821119017Z initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+2026-11-13T02:22:21.876783242Z waiting for server to start....2026-11-13 02:22:21.876 UTC [35] LOG:  starting PostgreSQL 16.15 (Debian 16.15-1.pgdg12+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+2026-11-13T02:22:21.876867289Z 2026-11-13 02:22:21.876 UTC [35] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-11-13T02:22:21.884231926Z 2026-11-13 02:22:21.883 UTC [38] LOG:  database system was shut down at 2026-11-13 02:22:21 UTC
+2026-11-13T02:22:21.889523374Z 2026-11-13 02:22:21.889 UTC [35] LOG:  database system is ready to accept connections
+2026-11-13T02:22:21.950845188Z  done
+2026-11-13T02:22:21.950877601Z server started
+2026-11-13T02:22:21.990140448Z 
+2026-11-13T02:22:21.990156416Z /usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
+2026-11-13T02:22:21.990158724Z 
+2026-11-13T02:22:21.991707308Z waiting for server to shut down....2026-11-13 02:22:21.991 UTC [35] LOG:  received fast shutdown request
+2026-11-13T02:22:21.997197703Z 2026-11-13 02:22:21.997 UTC [35] LOG:  aborting any active transactions
+2026-11-13T02:22:21.999135907Z 2026-11-13 02:22:21.998 UTC [35] LOG:  background worker "logical replication launcher" (PID 41) exited with exit code 1
+2026-11-13T02:22:21.999154636Z 2026-11-13 02:22:21.999 UTC [36] LOG:  shutting down
+2026-11-13T02:22:22.001528830Z 2026-11-13 02:22:22.001 UTC [36] LOG:  checkpoint starting: shutdown immediate
+2026-11-13T02:22:22.010537039Z 2026-11-13 02:22:22.010 UTC [36] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.012 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/14EA2D8, redo lsn=0/14EA2D8
+2026-11-13T02:22:22.014049511Z 2026-11-13 02:22:22.013 UTC [35] LOG:  database system is shut down
+2026-11-13T02:22:22.093022027Z  done
+2026-11-13T02:22:22.093040070Z server stopped
+2026-11-13T02:22:22.094597816Z 
+2026-11-13T02:22:22.094610151Z PostgreSQL init process complete; ready for start up.
+2026-11-13T02:22:22.094612229Z 
+2026-11-13T02:22:22.117496467Z 2026-11-13 02:22:22.117 UTC [1] LOG:  starting PostgreSQL 16.15 (Debian 16.15-1.pgdg12+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+2026-11-13T02:22:22.117636965Z 2026-11-13 02:22:22.117 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-11-13T02:22:22.117640419Z 2026-11-13 02:22:22.117 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-11-13T02:22:22.119780167Z 2026-11-13 02:22:22.119 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-11-13T02:22:22.125059342Z 2026-11-13 02:22:22.124 UTC [49] LOG:  database system was shut down at 2026-11-13 02:22:22 UTC
+2026-11-13T02:22:22.129639023Z 2026-11-13 02:22:22.129 UTC [1] LOG:  database system is ready to accept connections
+2026-11-13T02:22:53.379658966Z 2026-11-13 02:22:53.379 UTC [131] ERROR:  relation "_prisma_migrations" does not exist at character 28
+2026-11-13T02:22:53.379688182Z 2026-11-13 02:22:53.379 UTC [131] STATEMENT:  SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+2026-11-13T02:22:58.295069026Z 2026-11-13 02:22:58.294 UTC [149] ERROR:  relation "LiteLLM_VerificationTokenView" does not exist at character 15
+2026-11-13T02:22:58.295095169Z 2026-11-13 02:22:58.294 UTC [149] STATEMENT:  SELECT 1 FROM "LiteLLM_VerificationTokenView" LIMIT 1
+2026-11-13T02:22:58.846747563Z 2026-11-13 02:22:58.846 UTC [149] ERROR:  relation "MonthlyGlobalSpend" does not exist at character 15
+2026-11-13T02:22:58.846770834Z 2026-11-13 02:22:58.846 UTC [149] STATEMENT:  SELECT 1 FROM "MonthlyGlobalSpend" LIMIT 1
+2026-11-13T02:22:58.857412507Z 2026-11-13 02:22:58.857 UTC [149] ERROR:  relation "Last30dKeysBySpend" does not exist at character 15
+2026-11-13T02:22:58.857446880Z 2026-11-13 02:22:58.857 UTC [149] STATEMENT:  SELECT 1 FROM "Last30dKeysBySpend" LIMIT 1
+2026-11-13T02:22:58.871400280Z 2026-11-13 02:22:58.871 UTC [149] ERROR:  relation "Last30dModelsBySpend" does not exist at character 15
+2026-11-13T02:22:58.871422176Z 2026-11-13 02:22:58.871 UTC [149] STATEMENT:  SELECT 1 FROM "Last30dModelsBySpend" LIMIT 1
+2026-11-13T02:22:58.954477745Z 2026-11-13 02:22:58.954 UTC [150] ERROR:  relation "MonthlyGlobalSpendPerKey" does not exist at character 15
+2026-11-13T02:22:58.954525184Z 2026-11-13 02:22:58.954 UTC [150] STATEMENT:  SELECT 1 FROM "MonthlyGlobalSpendPerKey" LIMIT 1
+2026-11-13T02:22:58.960976914Z 2026-11-13 02:22:58.960 UTC [150] ERROR:  relation "MonthlyGlobalSpendPerUserPerKey" does not exist at character 15
+2026-11-13T02:22:58.960994687Z 2026-11-13 02:22:58.960 UTC [150] STATEMENT:  SELECT 1 FROM "MonthlyGlobalSpendPerUserPerKey" LIMIT 1
+2026-11-13T02:22:58.968107453Z 2026-11-13 02:22:58.967 UTC [150] ERROR:  relation "DailyTagSpend" does not exist at character 15
+2026-11-13T02:22:58.968128311Z 2026-11-13 02:22:58.967 UTC [150] STATEMENT:  SELECT 1 FROM "DailyTagSpend" LIMIT 1
+2026-11-13T02:22:58.975088930Z 2026-11-13 02:22:58.974 UTC [150] ERROR:  relation "Last30dTopEndUsersSpend" does not exist at character 15
+2026-11-13T02:22:58.975109294Z 2026-11-13 02:22:58.974 UTC [150] STATEMENT:  SELECT 1 FROM "Last30dTopEndUsersSpend" LIMIT 1
+2026-11-13T02:27:22.172749934Z 2026-11-13 02:27:22.172 UTC [47] LOG:  checkpoint starting: time
+2026-11-13T02:27:40.015691331Z 2026-11-13 02:27:40.015 UTC [904] ERROR:  relation "no_such_table" does not exist at character 28
+2026-11-13T02:27:40.015713036Z 2026-11-13 02:27:40.015 UTC [904] STATEMENT:  select no_such_column from no_such_table
+2026-11-13T02:27:40.122958435Z 2026-11-13 02:27:40.122 UTC [911] FATAL:  role "nobody" does not exist

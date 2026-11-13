@@ -82,6 +82,7 @@ def register(commands) -> None:
         ),
     )
     sv_logs.add_argument("--json", action="store_true", help="Print the result as JSON")
+    logs_command.add_level(sv_logs)
     sv_logs.add_argument(
         "--raw",
         action="store_true",
@@ -248,33 +249,44 @@ def _next_after_up(directory: Path, environment: str) -> str | None:
 
 
 def _logs(engine, name: str, args) -> int:
-    """`services logs [DIR] NAME [--tail N] [--since D] [--follow] [--json] [--raw]`, in the same
-    shape as `logs ID` (guided §10): `{"schema_version", "source": "service", "target": "local",
-    "name", "lines", "truncated"}`, or with --follow one object per line plus the end record.
-    Lines are redacted (failing closed) and controls shown as visible escapes unless --raw."""
+    """`services logs [DIR] NAME [--tail N] [--since D] [--follow] [--level L] [--json] [--raw]`,
+    in the same shape as `logs ID` (guided §10): `{"schema_version", "source": "service",
+    "target": "local", "name", "lines", "levels", "format", "level", "truncated"}`, or with
+    --follow one object per line (with its `level`) plus the end record. Lines are redacted
+    (failing closed) and controls shown as visible escapes unless --raw. A built-in service's
+    lines are classified by `loglevels`; `--level` on any other service is LEVELS_UNAVAILABLE."""
     from agentbreeder.commands import logs as logs_command
     from agentbreeder.runtime import SINCE
     from agentbreeder.services.schema import ServiceError
 
     label = {"source": "service", "target": "local", "name": name}
+    level = getattr(args, "level", None)
+    unclassified = "this service (only the built-in postgres-pgvector, litellm and phoenix are)"
     try:
         if args.since is not None and not SINCE.fullmatch(args.since):
             raise logs_command.LogsError(
                 "SINCE_INVALID", "--since must look like 10m, 2h or 2026-11-11T09:00:00Z"
             )
         if args.follow:
-            redactor = engine.log_redactor(name)
+            redactor = engine.log_redactor(name)  # checks the name first (SERVICE_UNKNOWN)
+            fmt = engine.log_format(name)
+            logs_command.check_level(args, fmt, unclassified)
             return logs_command._follow(
                 args, None, _ServiceReader(engine, name), None, redactor, args.tail,
-                "DOCKER_LOGS_FAILED", label=label,
+                "DOCKER_LOGS_FAILED", label=label, fmt=fmt,
             )  # fmt: skip
+        if level is not None and name in engine.stack.services:
+            logs_command.check_level(args, engine.log_format(name), unclassified)
         text, truncated, _ = engine.read_logs(name, args.tail, args.since)
+        fmt = engine.log_format(name)
+        logs_command.check_level(args, fmt, unclassified)  # an MCP relay: never classified
     except (ServiceError, logs_command.LogsError) as error:
         return logs_command._fail(args, error)
-    lines = logs_command._lines(text)
+    lines, levels = logs_command.leveled(logs_command._lines(text), fmt, level)
     if args.json:
         body = {"schema_version": logs_command.SCHEMA_VERSION, **label}
-        print(json.dumps({**body, "lines": lines, "truncated": truncated}, indent=2))
+        extra = {"levels": levels, "format": fmt, "level": level}
+        print(json.dumps({**body, "lines": lines, **extra, "truncated": truncated}, indent=2))
         return 0
     for line in lines:
         sys.stdout.write(logs_command._shown(line, args.raw) + "\n")

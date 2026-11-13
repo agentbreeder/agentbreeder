@@ -1,0 +1,176 @@
+2026-11-13T02:22:57.038088674Z LiteLLM Proxy: Postgres connection budget per pod = 1 worker(s) x writer connection_limit 10 = up to 10 connections; keep pods x that figure under max_connections minus superuser_reserved_connections
+2026-11-13T02:22:57.038123635Z 
+2026-11-13T02:22:57.038125912Z    ██╗     ██╗████████╗███████╗██╗     ██╗     ███╗   ███╗
+2026-11-13T02:22:57.038127866Z    ██║     ██║╚══██╔══╝██╔════╝██║     ██║     ████╗ ████║
+2026-11-13T02:22:57.038129088Z    ██║     ██║   ██║   █████╗  ██║     ██║     ██╔████╔██║
+2026-11-13T02:22:57.038131670Z    ██║     ██║   ██║   ██╔══╝  ██║     ██║     ██║╚██╔╝██║
+2026-11-13T02:22:57.038133004Z    ███████╗██║   ██║   ███████╗███████╗███████╗██║ ╚═╝ ██║
+2026-11-13T02:22:57.038134420Z    ╚══════╝╚═╝   ╚═╝   ╚══════╝╚══════╝╚══════╝╚═╝     ╚═╝
+2026-11-13T02:22:57.038135626Z 
+2026-11-13T02:22:57.063365123Z 02:22:57 - LiteLLM Proxy:WARNING: login_throttle.py:126 - trusted_proxy_ranges is not set or not a valid list of ranges, so failed Admin UI sign-in attempts are limited per source address and username only. Set it to the address ranges of the proxies in front of LiteLLM, or to an empty list when clients connect directly, to also limit each source address across usernames.
+2026-11-13T02:22:58.029491434Z query-engine ac9d7041ed77bcc8a8dbd2ab6616b39013829574
+2026-11-13T02:24:14.329151200Z 02:24:14 - LiteLLM Proxy:ERROR: key_management_endpoints.py:5109 - litellm.proxy.proxy_server.delete_verification_tokens(): Exception occured - 404: {'error': 'No keys found'}
+2026-11-13T02:24:14.329173987Z Traceback (most recent call last):
+2026-11-13T02:24:14.329176765Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5046, in delete_verification_tokens
+2026-11-13T02:24:14.329178975Z     raise HTTPException(
+2026-11-13T02:24:14.329181100Z     ...<2 lines>...
+2026-11-13T02:24:14.329183012Z     )
+2026-11-13T02:24:14.329184823Z fastapi.exceptions.HTTPException: 404: {'error': 'No keys found'}
+2026-11-13T02:24:14.331919584Z 02:24:14 - LiteLLM Proxy:ERROR: key_management_endpoints.py:4214 - litellm.proxy.proxy_server.delete_key_fn(): Exception occured - 404: {'error': 'No keys found'}
+2026-11-13T02:24:14.331932422Z Traceback (most recent call last):
+2026-11-13T02:24:14.331934784Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 4167, in delete_key_fn
+2026-11-13T02:24:14.331936838Z     number_deleted_keys, _keys_being_deleted = await delete_key_aliases(
+2026-11-13T02:24:14.331938868Z                                                ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:14.331940710Z     ...<5 lines>...
+2026-11-13T02:24:14.331944654Z     )
+2026-11-13T02:24:14.331946710Z     ^
+2026-11-13T02:24:14.331948730Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5247, in delete_key_aliases
+2026-11-13T02:24:14.331950727Z     return await delete_verification_tokens(
+2026-11-13T02:24:14.331952406Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:14.331954056Z     ...<4 lines>...
+2026-11-13T02:24:14.331955730Z     )
+2026-11-13T02:24:14.331957471Z     ^
+2026-11-13T02:24:14.331959162Z   File "/app/.venv/lib/python3.13/site-packages/litellm/_internal_context.py", line 86, in run_async
+2026-11-13T02:24:14.331961163Z     return await awaitable_fn(*args, **kwargs)
+2026-11-13T02:24:14.331963061Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:14.331964757Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5113, in delete_verification_tokens
+2026-11-13T02:24:14.331966470Z     raise e
+2026-11-13T02:24:14.331968142Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5046, in delete_verification_tokens
+2026-11-13T02:24:14.331993469Z     raise HTTPException(
+2026-11-13T02:24:14.331995010Z     ...<2 lines>...
+2026-11-13T02:24:14.331996159Z     )
+2026-11-13T02:24:14.331997323Z fastapi.exceptions.HTTPException: 404: {'error': 'No keys found'}
+2026-11-13T02:24:14.334144885Z 02:24:14 - LiteLLM Proxy:ERROR: utils.py:8722 - Exception: 404: {'error': 'No keys found'}
+2026-11-13T02:24:14.334155755Z Traceback (most recent call last):
+2026-11-13T02:24:14.334157532Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 4167, in delete_key_fn
+2026-11-13T02:24:14.334159321Z     number_deleted_keys, _keys_being_deleted = await delete_key_aliases(
+2026-11-13T02:24:14.334160748Z                                                ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:14.334161957Z     ...<5 lines>...
+2026-11-13T02:24:14.334163508Z     )
+2026-11-13T02:24:14.334164690Z     ^
+2026-11-13T02:24:14.334166108Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5247, in delete_key_aliases
+2026-11-13T02:24:14.334167886Z     return await delete_verification_tokens(
+2026-11-13T02:24:14.334169030Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:14.334170183Z     ...<4 lines>...
+2026-11-13T02:24:14.334171397Z     )
+2026-11-13T02:24:14.334172522Z     ^
+2026-11-13T02:24:14.334173718Z   File "/app/.venv/lib/python3.13/site-packages/litellm/_internal_context.py", line 86, in run_async
+2026-11-13T02:24:14.334181322Z     return await awaitable_fn(*args, **kwargs)
+2026-11-13T02:24:14.334184102Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:14.334185405Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5113, in delete_verification_tokens
+2026-11-13T02:24:14.334186640Z     raise e
+2026-11-13T02:24:14.334187831Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5046, in delete_verification_tokens
+2026-11-13T02:24:14.334189073Z     raise HTTPException(
+2026-11-13T02:24:14.334190320Z     ...<2 lines>...
+2026-11-13T02:24:14.334191507Z     )
+2026-11-13T02:24:14.334192699Z fastapi.exceptions.HTTPException: 404: {'error': 'No keys found'}
+2026-11-13T02:24:17.985551177Z 02:24:17 - LiteLLM Proxy:ERROR: key_management_endpoints.py:5109 - litellm.proxy.proxy_server.delete_verification_tokens(): Exception occured - 404: {'error': 'No keys found'}
+2026-11-13T02:24:17.985602922Z Traceback (most recent call last):
+2026-11-13T02:24:17.985605536Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5046, in delete_verification_tokens
+2026-11-13T02:24:17.985607837Z     raise HTTPException(
+2026-11-13T02:24:17.985609938Z     ...<2 lines>...
+2026-11-13T02:24:17.985611651Z     )
+2026-11-13T02:24:17.985613390Z fastapi.exceptions.HTTPException: 404: {'error': 'No keys found'}
+2026-11-13T02:24:17.987887609Z 02:24:17 - LiteLLM Proxy:ERROR: key_management_endpoints.py:4214 - litellm.proxy.proxy_server.delete_key_fn(): Exception occured - 404: {'error': 'No keys found'}
+2026-11-13T02:24:17.987898680Z Traceback (most recent call last):
+2026-11-13T02:24:17.987900998Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 4167, in delete_key_fn
+2026-11-13T02:24:17.987904554Z     number_deleted_keys, _keys_being_deleted = await delete_key_aliases(
+2026-11-13T02:24:17.987906522Z                                                ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:17.987908213Z     ...<5 lines>...
+2026-11-13T02:24:17.987910087Z     )
+2026-11-13T02:24:17.987911937Z     ^
+2026-11-13T02:24:17.987913711Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5247, in delete_key_aliases
+2026-11-13T02:24:17.987915953Z     return await delete_verification_tokens(
+2026-11-13T02:24:17.987917696Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:17.987941336Z     ...<4 lines>...
+2026-11-13T02:24:17.987942807Z     )
+2026-11-13T02:24:17.987944106Z     ^
+2026-11-13T02:24:17.987945281Z   File "/app/.venv/lib/python3.13/site-packages/litellm/_internal_context.py", line 86, in run_async
+2026-11-13T02:24:17.987946569Z     return await awaitable_fn(*args, **kwargs)
+2026-11-13T02:24:17.987947754Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:17.987948892Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5113, in delete_verification_tokens
+2026-11-13T02:24:17.987950058Z     raise e
+2026-11-13T02:24:17.987951225Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5046, in delete_verification_tokens
+2026-11-13T02:24:17.987952389Z     raise HTTPException(
+2026-11-13T02:24:17.987953564Z     ...<2 lines>...
+2026-11-13T02:24:17.987954702Z     )
+2026-11-13T02:24:17.987955834Z fastapi.exceptions.HTTPException: 404: {'error': 'No keys found'}
+2026-11-13T02:24:17.989800992Z 02:24:17 - LiteLLM Proxy:ERROR: utils.py:8722 - Exception: 404: {'error': 'No keys found'}
+2026-11-13T02:24:17.989810186Z Traceback (most recent call last):
+2026-11-13T02:24:17.989812005Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 4167, in delete_key_fn
+2026-11-13T02:24:17.989813414Z     number_deleted_keys, _keys_being_deleted = await delete_key_aliases(
+2026-11-13T02:24:17.989814745Z                                                ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:17.989815919Z     ...<5 lines>...
+2026-11-13T02:24:17.989817267Z     )
+2026-11-13T02:24:17.989818458Z     ^
+2026-11-13T02:24:17.989819760Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5247, in delete_key_aliases
+2026-11-13T02:24:17.989821092Z     return await delete_verification_tokens(
+2026-11-13T02:24:17.989822296Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:17.989823472Z     ...<4 lines>...
+2026-11-13T02:24:17.989824656Z     )
+2026-11-13T02:24:17.989825792Z     ^
+2026-11-13T02:24:17.989827016Z   File "/app/.venv/lib/python3.13/site-packages/litellm/_internal_context.py", line 86, in run_async
+2026-11-13T02:24:17.989828357Z     return await awaitable_fn(*args, **kwargs)
+2026-11-13T02:24:17.989829662Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:24:17.989830858Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5113, in delete_verification_tokens
+2026-11-13T02:24:17.989832128Z     raise e
+2026-11-13T02:24:17.989833313Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5046, in delete_verification_tokens
+2026-11-13T02:24:17.989834513Z     raise HTTPException(
+2026-11-13T02:24:17.989835744Z     ...<2 lines>...
+2026-11-13T02:24:17.989836928Z     )
+2026-11-13T02:24:17.989838080Z fastapi.exceptions.HTTPException: 404: {'error': 'No keys found'}
+2026-11-13T02:26:59.512145172Z 02:26:59 - LiteLLM Proxy:ERROR: key_management_endpoints.py:5109 - litellm.proxy.proxy_server.delete_verification_tokens(): Exception occured - 404: {'error': 'No keys found'}
+2026-11-13T02:26:59.512180575Z Traceback (most recent call last):
+2026-11-13T02:26:59.512183393Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5046, in delete_verification_tokens
+2026-11-13T02:26:59.512185480Z     raise HTTPException(
+2026-11-13T02:26:59.512187409Z     ...<2 lines>...
+2026-11-13T02:26:59.512189088Z     )
+2026-11-13T02:26:59.512190758Z fastapi.exceptions.HTTPException: 404: {'error': 'No keys found'}
+2026-11-13T02:26:59.514920035Z 02:26:59 - LiteLLM Proxy:ERROR: key_management_endpoints.py:4214 - litellm.proxy.proxy_server.delete_key_fn(): Exception occured - 404: {'error': 'No keys found'}
+2026-11-13T02:26:59.514935375Z Traceback (most recent call last):
+2026-11-13T02:26:59.514938057Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 4167, in delete_key_fn
+2026-11-13T02:26:59.514950106Z     number_deleted_keys, _keys_being_deleted = await delete_key_aliases(
+2026-11-13T02:26:59.514951804Z                                                ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:26:59.514953329Z     ...<5 lines>...
+2026-11-13T02:26:59.514954812Z     )
+2026-11-13T02:26:59.514956226Z     ^
+2026-11-13T02:26:59.514957467Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5247, in delete_key_aliases
+2026-11-13T02:26:59.514958856Z     return await delete_verification_tokens(
+2026-11-13T02:26:59.514960041Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:26:59.514961204Z     ...<4 lines>...
+2026-11-13T02:26:59.514962396Z     )
+2026-11-13T02:26:59.514963563Z     ^
+2026-11-13T02:26:59.514964736Z   File "/app/.venv/lib/python3.13/site-packages/litellm/_internal_context.py", line 86, in run_async
+2026-11-13T02:26:59.514966224Z     return await awaitable_fn(*args, **kwargs)
+2026-11-13T02:26:59.514967408Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:26:59.514968606Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5113, in delete_verification_tokens
+2026-11-13T02:26:59.514969823Z     raise e
+2026-11-13T02:26:59.514971025Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5046, in delete_verification_tokens
+2026-11-13T02:26:59.514972196Z     raise HTTPException(
+2026-11-13T02:26:59.514973395Z     ...<2 lines>...
+2026-11-13T02:26:59.514974575Z     )
+2026-11-13T02:26:59.514975735Z fastapi.exceptions.HTTPException: 404: {'error': 'No keys found'}
+2026-11-13T02:26:59.517042529Z 02:26:59 - LiteLLM Proxy:ERROR: utils.py:8722 - Exception: 404: {'error': 'No keys found'}
+2026-11-13T02:26:59.517066175Z Traceback (most recent call last):
+2026-11-13T02:26:59.517068235Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 4167, in delete_key_fn
+2026-11-13T02:26:59.517069824Z     number_deleted_keys, _keys_being_deleted = await delete_key_aliases(
+2026-11-13T02:26:59.517071405Z                                                ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:26:59.517072562Z     ...<5 lines>...
+2026-11-13T02:26:59.517074357Z     )
+2026-11-13T02:26:59.517075799Z     ^
+2026-11-13T02:26:59.517077102Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5247, in delete_key_aliases
+2026-11-13T02:26:59.517078661Z     return await delete_verification_tokens(
+2026-11-13T02:26:59.517079839Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:26:59.517080971Z     ...<4 lines>...
+2026-11-13T02:26:59.517082143Z     )
+2026-11-13T02:26:59.517083274Z     ^
+2026-11-13T02:26:59.517084453Z   File "/app/.venv/lib/python3.13/site-packages/litellm/_internal_context.py", line 86, in run_async
+2026-11-13T02:26:59.517085891Z     return await awaitable_fn(*args, **kwargs)
+2026-11-13T02:26:59.517087362Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-13T02:26:59.517088532Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5113, in delete_verification_tokens
+2026-11-13T02:26:59.517089731Z     raise e
+2026-11-13T02:26:59.517090884Z   File "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints/key_management_endpoints.py", line 5046, in delete_verification_tokens
+2026-11-13T02:26:59.517092031Z     raise HTTPException(
+2026-11-13T02:26:59.517093213Z     ...<2 lines>...
+2026-11-13T02:26:59.517094360Z     )
+2026-11-13T02:26:59.517095511Z fastapi.exceptions.HTTPException: 404: {'error': 'No keys found'}
