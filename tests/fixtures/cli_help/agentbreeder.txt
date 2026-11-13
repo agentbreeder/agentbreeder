@@ -1,5 +1,5 @@
 usage: agentbreeder [-h] [--version]
-                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch}
+                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events}
                     ...
 
 Local development: validate, gate and deploy trusted HTTP containers. The
@@ -8,7 +8,7 @@ Opt-in runtime enforcement covers MCP Streamable HTTP tool calls through the
 egress sidecar only.
 
 positional arguments:
-  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch}
+  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events}
     validate            Validate a deploy manifest or an agent file (kind:
                         agent)
     doctor              Check local Docker prerequisites without changes
@@ -56,6 +56,8 @@ positional arguments:
                         reply
     watch               Report one stack's container events (died, unhealthy,
                         restarted) until stopped
+    events              List stored events (failed jobs, eval gate failures,
+                        containers that exited)
 
 options:
   -h, --help            show this help message and exit

@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import unicodedata
 from argparse import Namespace
 from pathlib import Path
 
@@ -320,3 +321,41 @@ def test_visible_escapes_controls_but_keeps_tab_and_newline():
     text = "a\tb\nc\x1b]52;c;ZXZpbA==\x07d\x9b31m\re‮"
     assert visible(text) == "a\tb\nc\\x1b]52;c;ZXZpbA==\\x07d\\x9b31m\\x0de\\u202e"
     assert excerpt("a\x00b", 10) == "a b"
+
+
+def _spans(*spans: tuple[int, int]) -> set[int]:
+    return {cp for low, high in spans for cp in range(low, high + 1)}
+
+
+# The full set of code points safe_text treats as unsafe, written out once here so a change to the
+# pattern source (for example, writing `_BIDI` as escapes rather than literal characters) is
+# checked over every code point and cannot widen or narrow it.
+_BIDI_CPS = _spans((0x061C, 0x061C), (0x200E, 0x200F), (0x202A, 0x202E), (0x2066, 0x2069))
+_UNSAFE_CPS = _spans((0x00, 0x1F), (0x7F, 0x9F), (0x2028, 0x2029), (0xD800, 0xDFFF)) | _BIDI_CPS
+
+
+def test_safe_text_patterns_match_exactly_the_documented_union():
+    from agentbreeder import safe_text
+
+    any_control = {cp for cp in range(0x110000) if safe_text._ANY_CONTROL.fullmatch(chr(cp))}
+    shown = {cp for cp in range(0x110000) if safe_text._SHOWN.fullmatch(chr(cp))}
+    assert any_control == _UNSAFE_CPS
+    assert shown == _UNSAFE_CPS - {0x09, 0x0A}
+    assert {ord(c) for c in safe_text._BIDI if c != "-"} <= _BIDI_CPS
+    # Escapes in the source, not literal invisible characters a reviewer cannot see.
+    source = Path(safe_text.__file__).read_text(encoding="utf-8")
+    hidden = [
+        c for c in source if c != "\n" and unicodedata.category(c) in {"Cc", "Cf", "Zl", "Zp"}
+    ]
+    assert hidden == []
+
+
+def test_safe_text_renders_each_unsafe_code_point():
+    for cp in sorted(_UNSAFE_CPS):
+        char = chr(cp)
+        if cp in (0x09, 0x0A):
+            assert visible(f"a{char}b") == f"a{char}b"
+        else:
+            escape = f"\\x{cp:02x}" if cp < 0x100 else f"\\u{cp:04x}"
+            assert visible(f"a{char}b") == f"a{escape}b", hex(cp)
+        assert excerpt(f"a{char}b", 10) == "a b", hex(cp)

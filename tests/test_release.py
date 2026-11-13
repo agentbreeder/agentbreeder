@@ -519,6 +519,29 @@ def test_cli_eval_and_release(project, operator, state, monkeypatch, capsys):
         ]
     )
     assert code == EXIT_EVAL and "Eval gate failed" in capsys.readouterr().out
+    # A gate failure is stored as an event: counts, case ids and the report, nothing else (#827).
+    monkeypatch.setenv("AGENTBREEDER_CENTER_DIR", str(project / "center"))
+    details = {
+        "agent": "helper",
+        "eval": {"passed": 1, "cases": 2},
+        "eval_report": str(project / "deploy" / "helper.eval-1.json"),
+        "failed_cases": [{"id": "refund", "failed_checks": ["x"], "reason": "judge text"}],
+    }
+    monkeypatch.setattr(
+        release_module,
+        "release",
+        lambda *a, **k: release_module.Outcome(EXIT_EVAL, "Eval gate failed", details),
+    )
+    argv = ["release", str(project / "agent.yaml"), "--state-dir", str(state.directory)]
+    assert cli.main(argv) == EXIT_EVAL
+    capsys.readouterr()
+    from agentbreeder import events
+
+    rows = events.read_recent(project / "center")
+    assert [(r["kind"], r["project"], r["data"]["failed"]) for r in rows] == [
+        ("gate_failed", str(project.resolve()), ["refund"])
+    ]
+    assert "judge text" not in json.dumps(rows)
     code = cli.main(
         ["release", str(project / "agent.yaml"), "--rollback", "--state-dir", str(state.directory)]
     )

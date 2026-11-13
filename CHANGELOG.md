@@ -19,6 +19,16 @@ On main, not in a published preview.
   version (`FORK_UNCHANGED` otherwise), and a source that no longer declares `REF` when it is
   staged is refused (`MANIFEST_INVALID`). See `docs/registry.md`.
 
+- `agentbreeder events [--project DIR] [--limit N] [--unread] [--mark-read ID] [--mark-all-read]
+  [--json]` and `watch --record` (#827, M11), on `main`, not in a published preview: stored
+  events, newest 500, in `~/.agentbreeder/center/events.sqlite3` (0600). The kinds are fixed:
+  `job_failed`, `gate_failed` (stored by `release` on exit 5, with case ids and counts),
+  `container_died` and `container_unhealthy` (from `watch --record`; `restarted` is not stored).
+  Fields are validated and messages are rendered from templates; no text from logs, stderr or
+  models is stored. Conditions are not stored: with `--project` they come from the function
+  behind `next`. The console does not call `job_failed` or `--record` yet. Tested with fakes;
+  the real-Docker acceptance has not run. See `docs/events.md`.
+
 - `agentbreeder registry import PATH [--as NAME] [--version X.Y.Z] [--project DIR] [--json]`
   (#825, M9a), on `main`, not in a published preview: copies a version directory from anywhere
   into the project's `./registry` with `publish`'s checks, plus a `REF_CONFLICT` check against the
@@ -380,9 +390,20 @@ On main, not in a published preview.
 - Design spec for governed agent-to-agent calls (A2A, M19 #835, epic #812):
   `docs/superpowers/specs/2026-11-13-a2a-design.md`. A spec only, on `main`, not in a published
   preview; nothing is built, and agents cannot call each other.
+- `safe_text` writes its bidirectional-control character class as `\u` escapes instead of seven
+  literal invisible characters (#820), on `main`, not in a published preview. No behaviour
+  change: a test checks every code point (U+0000 to U+10FFFF) against the documented set
+  (C0, DEL and C1, bidi controls, U+2028/U+2029, lone surrogates) and that the module source
+  holds no invisible control character.
 
 ### Fixed
 
+- Console, Services: after `services down` a service with no running container (absent,
+  exited, created or dead) no longer lists its last host port as if something listened there;
+  it reads "not listening (last: NAME → 127.0.0.1:PORT)", muted. **Stop services** is off,
+  with "The services are stopped.", only when every service is absent: `services down` also
+  removes exited containers, so it stays on for those (#882).
+  On `main`, not in a published preview.
 - `invoke`: a state directory it cannot look into (no search permission on it or a parent,
   another OS error, named by its errno) is now `[STATE_UNREADABLE] cannot read the
   AgentBreeder state at DIR (permission denied)`, exit 2, with the `--json` error object

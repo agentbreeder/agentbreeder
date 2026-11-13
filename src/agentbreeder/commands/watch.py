@@ -18,6 +18,9 @@ with `--json`:
   SIGTERM, SIGHUP or Ctrl-C; `dropped` counts records lost because more than QUEUE_LIMIT were
   waiting. If `docker events` itself ends, an error object instead (exit 2).
 
+With `--record`, `died` and `unhealthy` events are also stored (`agentbreeder events`, #827);
+that is its only write.
+
 Stopping follows S-10, as `logs --follow`: the child stays in the CLI's process group and is
 stopped with its descendants. Errors are `[CODE] message` (with `--json` also the one-line
 `{"schema_version": 1, "error": {...}}`), exit 2.
@@ -56,6 +59,11 @@ def register(commands) -> None:
         "--stack", type=Path, required=True, metavar="DIR", help="The stack's project directory"
     )
     watch.add_argument("--json", action="store_true", help="One JSON object per line")
+    watch.add_argument(
+        "--record",
+        action="store_true",
+        help="Also store died and unhealthy events (`agentbreeder events`)",
+    )
 
 
 def run(args) -> int:
@@ -206,6 +214,28 @@ def _status_text(status: dict) -> str:
     return f"{status['time']} status: " + (", ".join(parts) or "nothing running")
 
 
+def _event_store(args, state):
+    """(events module, project, open store) for `--record`, else None (#827)."""
+    if not getattr(args, "record", False):
+        return None
+    from agentbreeder import events
+
+    try:
+        return events, events.project_dir(args.stack), events.EventStore.open()
+    except events.EventError as error:
+        state.close()
+        raise LogsError(error.code, str(error).removeprefix(f"[{error.code}] ")) from error
+    except OSError as error:
+        state.close()
+        raise LogsError("EVENTS_UNREADABLE", "cannot open the events store") from error
+
+
+def _store(stored, event: dict) -> None:
+    """Store a printed event (`--record`); a failure is never the watch's."""
+    module, project, store = stored
+    module.record(lambda: module.from_watch(event, project), store)
+
+
 def _events_argv(docker) -> list[str]:
     from agentbreeder.watch import ACTIONS
 
@@ -302,6 +332,7 @@ def _watch(args) -> int:
         state.close()
         raise LogsError(error.code, _message(error)) from error
     events = watch.Events(state.id, read, time.monotonic)
+    stored = _event_store(args, state)
     follow = logs_command._Follow()
     previous = logs_command._handlers(follow)
     process = None
@@ -353,6 +384,8 @@ def _watch(args) -> int:
                     elif item is not False:
                         for event in events.feed(item):
                             _emit(args, event, watch.text(event))
+                            if stored is not None:
+                                _store(stored, event)
                     # A status still pending after two periods (a hung kubectl) does not hold
                     # up the next one.
                     stalled = time.monotonic() >= due + RESYNC
@@ -385,6 +418,8 @@ def _watch(args) -> int:
         for number, handler in previous.items():
             signal.signal(number, handler)
         state.close()
+        if stored is not None:
+            stored[2].close()
     reason = follow.reason
     if reason == "pipe":
         return 0

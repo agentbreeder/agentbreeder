@@ -1,6 +1,7 @@
-usage: agentbreeder watch [-h] --stack DIR [--json]
+usage: agentbreeder watch [-h] --stack DIR [--json] [--record]
 
 options:
   -h, --help   show this help message and exit
   --stack DIR  The stack's project directory
   --json       One JSON object per line
+  --record     Also store died and unhealthy events (`agentbreeder events`)
