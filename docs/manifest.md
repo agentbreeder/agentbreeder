@@ -7,7 +7,7 @@ This contract is under development. Validation does not deploy resources or chec
 | `schema_version` | Required integer `1` or `2`. Under operator `enforce` mode, deploy requires `2` |
 | `name` | Required lowercase DNS label, 1–63 characters |
 | `image` | Required image reference ending in `@sha256:` and 64 lowercase hexadecimal characters, or local-only `sha256:<64 hex>` image ID |
-| `target` | `local` (default) or `kubernetes` (preview, local clusters only; see `command-center.md`) |
+| `target` | `local` (default) or `kubernetes` (preview, local clusters only; see the console page, `command-center.md`) |
 | `port` | Integer 1–65535; default 8080 |
 | `health_path` | Absolute HTTP path containing letters, digits, `/`, `_`, `-`; default `/health`; no query string |
 | `secrets` | Optional map of uppercase environment names to `secret://name` references; no literal values. Locally, values come from secret files (below) |

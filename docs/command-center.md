@@ -1,8 +1,12 @@
-# Local command center and the Kubernetes target (preview)
+# Local console and the Kubernetes target (preview)
 
 `agentbreeder up` starts a web UI on `127.0.0.1` for one person on one machine. From it you onboard
 an agent project, start its backing services, run the eval-gated release to local Docker, and deploy
 that same image to a local Kubernetes cluster.
+
+`3.0.0a2` and earlier call it the command center, and the runs recorded below used that name; on
+`main` it is the console (#816). This page keeps its file name, `command-center.md`, because
+links point to it.
 
 **What has been run.** From a source checkout on macOS with Docker Desktop, on 2026-11-10, against
 `kind` 0.33 and Kubernetes 1.37: Northwind onboarded through the command center's API, services

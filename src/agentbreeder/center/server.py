@@ -953,7 +953,7 @@ def _run(args, center: Center, server: ThreadingHTTPServer, instance: SingleInst
             return 2
     instance.publish(center.origin)  # only once there is a console to answer at it
     url, page = center.mint_login()
-    print(f"AgentBreeder command center: {center.origin} (this machine only, single user)")
+    print(f"AgentBreeder console: {center.origin} (this machine only, single user)")
     print(f"One-time link, valid {TOKEN_TTL // 60} minutes: {url}", flush=True)
     if sys.stdin.isatty():
         print("Press Enter here for a new link.", flush=True)
@@ -1023,7 +1023,7 @@ def _serve(args, directory: Path, instance: SingleInstance) -> int:
     if code:
         return code
     _say(
-        "Command center stopped. Services and deployments keep running: use "
+        "Console stopped. Services and deployments keep running: use "
         "`agentbreeder services down` and `agentbreeder remove`."
     )
     return 0

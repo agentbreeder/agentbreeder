@@ -42,8 +42,8 @@ positional arguments:
     promote             Deploy the released image to Kubernetes, without
                         rebuilding it
     cluster             A local kind cluster for one stack (preview)
-    up                  Start the local command center on 127.0.0.1 (single
-                        user, preview)
+    up                  Start the local console on 127.0.0.1 (single user,
+                        preview)
     login               Sign in with the operator's OIDC device flow
     migrate             Upgrade the local state to this version's schema (no
                         IdP calls)

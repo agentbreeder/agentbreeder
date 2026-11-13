@@ -1,4 +1,4 @@
-"""`agentbreeder up`: start the local command center on 127.0.0.1 (single user, preview).
+"""`agentbreeder up`: start the local console on 127.0.0.1 (single user, preview).
 
 This process is the full CLI, which has imported the engine. After the Docker checks it replaces
 itself (`os.execv`, same pid, same terminal) with `python -I -m agentbreeder.center`, so the
@@ -25,7 +25,7 @@ def _port(text: str) -> int:
 
 def register(commands) -> None:
     center = commands.add_parser(
-        "up", help="Start the local command center on 127.0.0.1 (single user, preview)"
+        "up", help="Start the local console on 127.0.0.1 (single user, preview)"
     )
     center.add_argument("dir", nargs="?", type=Path, help="A project with agent.yaml, stack.yaml")
     center.add_argument("--environment", default="dev")

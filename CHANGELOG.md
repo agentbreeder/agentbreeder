@@ -250,6 +250,12 @@ On main, not in a published preview.
 
 ### Changed
 
+- "Command center" is now "console" (#816, M0b, slice 3), on `main`, not in a published
+  preview: `agentbreeder up`'s help, its startup line ("AgentBreeder console: URL") and stop
+  line ("Console stopped. …"), and `docs/`. The page keeps its file name,
+  `docs/command-center.md`, because the README, the website and `MANIFEST.in` link to it. The
+  README and website change at the release milestone (#836). A milestone verification template
+  is at `docs/superpowers/verification/TEMPLATE.md`.
 - Console backend foundation (#815), on main, not in a published preview:
   - Every API route goes through one table that applies the host, API-header, `Sec-Fetch-Site`,
     `Origin`, content-type and session checks before any handler, `404` or `405`.
