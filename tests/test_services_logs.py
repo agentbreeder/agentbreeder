@@ -61,6 +61,9 @@ def test_json_shape_matches_logs_id(stack, fake_docker, capsys, monkeypatch):  #
         "target": "local",
         "name": "echo",
         "lines": [f"2026-11-12T10:00:00Z a {redaction.MARK}", "2026-11-12T10:00:01Z b"],
+        "levels": [None, None],  # a project service: unclassified
+        "format": None,
+        "level": None,
         "truncated": True,
     }
     assert seen == [("echo", 50, "2h")]
@@ -151,6 +154,7 @@ def test_follow_streams_ndjson_and_ends_with_the_end_record(
         "target": "local",
         "name": "echo",
         "line": f"2026-11-12T10:00:00Z up {redaction.MARK}",
+        "level": None,
     }
     assert lines[-1] == {
         "schema_version": 1,

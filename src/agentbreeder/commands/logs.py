@@ -23,6 +23,12 @@ CLI process alone leaves the reader until its next write. Run with stdin from `/
 follow ends at once. A line over 1 MiB is dropped whole, never printed in part. Docker's 16 KiB
 partial records of a long line are joined before redaction (`runtime.join_partials`).
 
+`--level warning|error` keeps only the records at that level or above (`loglevels.py`, a
+heuristic). An agent's format is its runtime's: with `--stack DIR`, `DIR/deploy/NAME.build.json`
+names it (`runtime/adk`); without one, or for any other image, `--level` fails with
+LEVELS_UNAVAILABLE. `--json` always carries `format` and `levels` (one per line, null when
+unclassified), and under `--follow` each line's `level`.
+
 `logs --failed NAME` reads only the file `release` saved (no Docker, no state database).
 
 Exit 0 when the logs were read; 1 for `--failed` when there is no saved tail; 2 with
@@ -109,12 +115,26 @@ def register(commands) -> None:
         action="store_true",
         help="With a Kubernetes ID: the last restarted container's output (a crash loop)",
     )
+    add_level(logs, "With ID: only")
     logs.add_argument(
         "--raw",
         action="store_true",
         help="Print control characters as they are (unsafe; --json always escapes)",
     )
     cli.add_stack(logs, environment=True)
+
+
+def add_level(command, prefix: str = "Only") -> None:
+    from agentbreeder import loglevels
+
+    command.add_argument(
+        "--level",
+        choices=loglevels.CHOICES,
+        help=(
+            f"{prefix} records at this level or above, for a known log format "
+            "(a heuristic; continuation lines stay with their record)"
+        ),
+    )
 
 
 def _fail(args, error: LogsError) -> int:
@@ -133,9 +153,16 @@ def run(args) -> int:
         if (args.id is None) == (args.failed is None):
             raise LogsError("USAGE", "give a deployment ID or --failed NAME (one of them)")
         if args.failed is not None:
-            if args.tail is not None or args.since is not None or args.follow or args.previous:
+            if (
+                args.tail is not None
+                or args.since is not None
+                or args.follow
+                or args.previous
+                or args.level is not None
+            ):
                 raise LogsError(
-                    "USAGE", "--tail, --since, --follow and --previous go with a deployment ID"
+                    "USAGE",
+                    "--tail, --since, --follow, --previous and --level go with a deployment ID",
                 )
             return _failed(args)
         if args.previous and args.follow:
@@ -332,10 +359,58 @@ def _shown(line: str, raw: bool) -> str:
     return line if raw else safe_text.visible(line)
 
 
+def agent_format(stack: Path | None, name: str) -> str | None:
+    """The log format of deployment `name` (an agent or its `-candidate`): the runtime its
+    build record names, read from `STACK/deploy/AGENT.build.json` (bounded, no symlink), when
+    the record's locked refs say that runtime came from the built-in registry."""
+    from agentbreeder import guide_checks, loglevels
+
+    if stack is None:
+        return None
+    agent = name.removesuffix("-candidate")
+    if not re.fullmatch(NAME_PATTERN, agent):
+        return None
+    record = guide_checks._read_json(stack / "deploy" / f"{agent}.build.json")
+    if record is None or record.get("name") != agent or not isinstance(record.get("runtime"), str):
+        return None
+    refs = record.get("refs")
+    builtin = isinstance(refs, list) and any(
+        isinstance(entry, dict)
+        and entry.get("ref") == record["runtime"]
+        and entry.get("source") == "builtin"
+        for entry in refs
+    )
+    return loglevels.format_for(record["runtime"], builtin=builtin)
+
+
+def check_level(args, fmt: str | None, what: str) -> None:
+    if getattr(args, "level", None) is not None and fmt is None:
+        raise LogsError(
+            "LEVELS_UNAVAILABLE",
+            f"--level needs a known log format and {what} has none (Postgres, LiteLLM, Phoenix "
+            "and runtime/adk are known)",
+        )
+
+
+def leveled(lines: list[str], fmt: str | None, threshold: str | None):
+    """(lines, their levels), keeping only the records `--level` shows."""
+    from agentbreeder import loglevels
+
+    levels = loglevels.classify(fmt, lines)
+    kept = [
+        (ln, lv) for ln, lv in zip(lines, levels, strict=True) if loglevels.shown(lv, threshold)
+    ]
+    return [ln for ln, _ in kept], [lv for _, lv in kept]
+
+
 def _deployment(args) -> int:
     from agentbreeder.store import DeploymentError
 
     record, target, runtime, info, redact = _prepare(args)
+    fmt = agent_format(getattr(args, "stack", None), record["name"])
+    check_level(
+        args, fmt, "this deployment (pass --stack DIR so its build record names the runtime)"
+    )
     codes = TARGETS[target]
     tail = args.tail or DEFAULT_TAIL
     pod = {"name": None, "reason": None, "readable": True}
@@ -353,7 +428,9 @@ def _deployment(args) -> int:
                 f"the pod of {args.id} has no output yet ({pod['reason']}); nothing to follow",
             )
         options = {"pod": pod["name"]} if target == "kubernetes" else {}
-        return _follow(args, record, runtime, info, redact, tail, codes["failed"], options, target)
+        return _follow(
+            args, record, runtime, info, redact, tail, codes["failed"], options, target, fmt=fmt
+        )
     text, truncated = "", False
     if readable:
         options = {"pod": pod["name"], "previous": args.previous} if target == "kubernetes" else {}
@@ -361,7 +438,7 @@ def _deployment(args) -> int:
             text, truncated = runtime.logs(info, tail, args.since, **options)
         except DeploymentError as error:
             raise LogsError(codes["failed"], str(error)) from error
-    lines = _lines(redact(text))
+    lines, levels = leveled(_lines(redact(text)), fmt, args.level)
     if args.json:
         body = {
             "schema_version": SCHEMA_VERSION,
@@ -370,6 +447,9 @@ def _deployment(args) -> int:
             "deployment": args.id,
             "name": record["name"],
             "lines": lines,
+            "levels": levels,
+            "format": fmt,
+            "level": args.level,
             "truncated": truncated,
             "previous": bool(args.previous),
             "pod_reason": pod["reason"],
@@ -492,16 +572,20 @@ def _follow(
     options=None,
     target: str = "local",
     label: dict | None = None,
+    fmt: str | None = None,
 ) -> int:
     """Stream until stopped. With --json each line is `{"schema_version", **label, "line"}`
     (for a deployment, `label` is `{"source": "agent", "target", "name", "deployment"}`; for a
     stack service, `{"source": "service", "target", "name"}`) and the stream ends with
     `{"schema_version", "event": "end", "reason", "dropped"}` (reason: container, stdin, signal
     or interrupt), or with an error object when the log reader itself failed. `runtime.follow`
-    must raise DeploymentError for a reader that cannot start."""
+    must raise DeploymentError for a reader that cannot start. Each line is classified as it
+    arrives (`fmt`); `--level` drops the records below it, and `--json` carries `level`."""
+    from agentbreeder import loglevels
     from agentbreeder.runtime import join_partials, stop_follow
     from agentbreeder.store import DeploymentError
 
+    classifier = loglevels.Classifier(fmt)
     if label is None:
         label = {"source": "agent", "target": target, "name": record["name"]}
         label["deployment"] = args.id
@@ -540,8 +624,16 @@ def _follow(
                         continue
                     joined = join_partials(line.rstrip(b"\n"))
                     text = redact(joined.decode("utf-8", "replace"))
+                    level = classifier.feed(text)
+                    if not loglevels.shown(level, getattr(args, "level", None)):
+                        continue
                     if args.json:
-                        entry = {"schema_version": SCHEMA_VERSION, **label, "line": text}
+                        entry = {
+                            "schema_version": SCHEMA_VERSION,
+                            **label,
+                            "line": text,
+                            "level": level,
+                        }
                         print(json.dumps(entry), flush=True)
                     else:
                         print(_shown(text, args.raw), flush=True)
