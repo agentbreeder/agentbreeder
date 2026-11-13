@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from .conftest import sign_in
-from .test_shell import AUDIT_ROW, DEPLOYMENTS, ROUTES
+from .test_shell import AUDIT_ROW, DEPLOYMENTS, RELEASED_THEN_REMOVED, ROUTES
 
 pytestmark = pytest.mark.ui
 
@@ -75,3 +75,12 @@ def test_deployments_with_a_job_running_has_no_serious_axe_findings(scheme_page,
     scheme_page.get_by_role("dialog").get_by_role("button", name="Remove").click()
     scheme_page.locator(".reason").wait_for()
     assert blocking(scheme_page, "deployments, busy") == []
+
+
+def test_kubernetes_with_nothing_running_locally_has_no_serious_axe_findings(scheme_page, console):
+    # #880: the released-then-removed card, with Deploy to cluster off and its reason shown.
+    console.scenario(**RELEASED_THEN_REMOVED)
+    sign_in(scheme_page, console)
+    scheme_page.goto(f"{console.origin}/#/targets/kubernetes")
+    scheme_page.get_by_text("No ready release is running locally").wait_for()
+    assert blocking(scheme_page, "kubernetes, nothing running locally") == []
