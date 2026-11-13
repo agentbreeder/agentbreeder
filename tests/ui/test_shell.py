@@ -353,7 +353,9 @@ def test_a_used_link_says_so(page, console):
 def test_unreachable_is_not_session_ended(page, console):
     sign_in(page, console)
     page.route("**/api/**", lambda route: route.abort())
-    page.get_by_role("link", name="Deployments").click()
+    # No click: an aborted background poll can switch to the unreachable page first, and the
+    # link would be gone. Either the poll or this navigation's read gets no answer.
+    page.evaluate("location.hash = '#/deployments'")
     expect(page.get_by_role("heading", level=1)).to_have_text(
         "Console not reachable at this address", timeout=10000
     )
@@ -380,8 +382,11 @@ def add_project(page, console, name: str) -> None:
     page.get_by_label("Absolute path").fill(str(console.project(name)))
     page.get_by_role("button", name="Add project").click()
     page.wait_for_url("**/#/services")
-    # The route change moves focus to the new h1 after rendering; wait for it before the next step.
+    # Wait for the Services h1 itself to take focus: the scope change can focus the same h1 while
+    # it still reads "Home", and the route change then focuses it again a moment later.
+    expect(page.locator("main h1")).to_contain_text("Services")
     expect(page.locator("main h1")).to_be_focused()
+    page.get_by_role("heading", name="Stack services").wait_for()
 
 
 def test_two_projects_run_jobs_at_once(page, console):

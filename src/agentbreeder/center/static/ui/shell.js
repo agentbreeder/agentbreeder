@@ -23,7 +23,11 @@ export function Shell({ match }) {
     const before = previous.current;
     previous.current = { path, projectId };
     if (!before || !h1.current) return;
-    const lost = !document.activeElement || document.activeElement === document.body;
+    const active = document.activeElement;
+    const lost = !active || active === document.body;
+    // Focus being used in the top bar (scope switcher, pill, menu) is never taken away.
+    const inTopBar = Boolean(active && active.closest && active.closest("header.top"));
+    if (inTopBar) return;
     if (before.path !== path || (before.projectId !== projectId && lost)) h1.current.focus();
   }, [path, projectId]);
   const Screen = route && route.screen;
