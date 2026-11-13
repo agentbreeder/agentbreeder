@@ -113,8 +113,11 @@ screen, each fix above, focus after each action, two projects with jobs at once,
 session-ended and unreachable states, zero CSP violations, and axe in light and dark. Axe fails the
 run only on serious or critical findings; the last run reported none at any level. Not tested:
 "Stop now" (the server offers it only after a long cancel wait), and narrow screens. The fake CLI never runs Docker or a model; the
-acceptance run with real services is recorded in `docs/superpowers/verification/M0b.md` once it
-runs.
+acceptance run with real services is recorded in `docs/superpowers/verification/M0b.md`: from a
+wheel built from `main` in a clean sandbox on macOS (2026-11-13), Northwind passed 61/61 on local
+Docker and on `kind` through the console's API, every screen was opened in Chrome, and the teardown
+ran from the UI (three leftover Docker objects of the stack were then removed by hand). Onboarding,
+the grant review, a full release and the cluster connect and deploy were not clicked in the browser.
 
 ## How it stays the same engine
 
