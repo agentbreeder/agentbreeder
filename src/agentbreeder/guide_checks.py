@@ -957,7 +957,6 @@ def _kubernetes(ctx: _Context) -> dict | None:
         "promoted_image": promoted,
         "production_image": production_image,
     }
-    where = {"stack": ctx.project, "environment": ctx.environment}
     agent_file = ctx.project / "agent.yaml"
     if ctx.kube_approval:
         return _step(
@@ -970,13 +969,28 @@ def _kubernetes(ctx: _Context) -> dict | None:
             _fix(note=_approve_note(ctx)),
             data,
         )
-    promote = _fix("promote", hints.command("promote", agent_file, "--to", "kubernetes", **where))
+    promote = _fix(
+        "promote",
+        hints.command(
+            "promote",
+            agent_file,
+            "--to",
+            "kubernetes",
+            stack=ctx.project,
+            environment=ctx.environment,
+        ),
+    )
     if not up:
         return _step(
             "kubernetes",
             "next",
             _reason("CLUSTER_DOWN", "The local kind cluster is not running"),
-            _fix("cluster-up", hints.command("cluster", "up", **where)),
+            _fix(
+                "cluster-up",
+                hints.command(
+                    "cluster", "up", "--yes", stack=ctx.project, environment=ctx.environment
+                ),
+            ),
             data,
         )
     if deployment is None or deployment["state"] != "ready" or promoted is None:

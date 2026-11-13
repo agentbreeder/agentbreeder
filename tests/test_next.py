@@ -466,6 +466,9 @@ def test_kubernetes_step_only_with_a_cluster(stacked, operator, stacks):  # noqa
     result = guide_checks.compute(stacked, probe=probe(stacks, Calls(clusters=[])))
     kube = steps(result)["kubernetes"]
     assert kube.reason.code == "CLUSTER_DOWN" and kube.fix.action == "cluster-up"
+    # Without --yes, `cluster up` leaves the grant (and the operator config) unchanged and the
+    # `promote` that follows fails with KUBERNETES_UNCONFIGURED.
+    assert shlex.split(kube.fix.command)[-7:-4] == ["cluster", "up", "--yes"]
     assert result.complete and result.next == "kubernetes"
     result = guide_checks.compute(stacked, probe=probe(stacks, Calls(clusters=["agentbreeder"])))
     kube = steps(result)["kubernetes"]

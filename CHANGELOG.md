@@ -12,6 +12,16 @@ On main, not in a published preview.
 
 ### Added
 
+- `docs/your-first-agent.md` (#820, M4), on `main`, not in a published preview: from an empty
+  directory to a released starter agent and an `invoke` reply, one section per `next` step
+  (prerequisites, project, model keys, services, build, release, try it, optional Kubernetes)
+  with the commands `next` suggests and what each prints, then clean up. Steps 1 to 7 ran once
+  with the starter from a checkout on macOS (2026-11-12); step 8 has not been run with it.
+  `tests/test_your_first_agent_doc.py` fails when the page and `guide.py`/`guide_checks.py`
+  drift: a missing, duplicated or reordered step, a suggested command the page does not show
+  with the same subcommand words and flags, a command in a block that the guide never
+  suggests, a non-`sh` block, or a command (in a block or inline) the CLI parser rejects. The
+  website page waits for the next published preview.
 - `agentbreeder services logs [DIR] NAME` gains `--since D`, `--follow`, `--json` and `--raw`
   (#821, M5), on `main`, not in a published preview: the same shape, redaction and escaping as
   `logs ID`. It reads `docker compose logs --no-color --no-log-prefix --timestamps` (4 MiB cap,
@@ -259,6 +269,10 @@ On main, not in a published preview.
 
 ### Fixed
 
+- `next`'s Kubernetes step suggested `cluster up` without `--yes`, which leaves the grant and the
+  operator config unchanged, so the `promote` it suggested next failed with
+  `KUBERNETES_UNCONFIGURED`; it now suggests `cluster up --yes` (on `main`, not in a published
+  preview).
 - Five small findings from the M3/M8 verification (#854), on `main`, not in a published preview:
   `cluster down` removes the registry container's anonymous volume (`docker rm --volumes`) and,
   without `kind` on `PATH`, fails with `CLUSTER_TOOL_MISSING` as `cluster up` does; `migrate` on
