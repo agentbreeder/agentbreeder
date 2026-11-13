@@ -97,6 +97,8 @@ button.action.danger { background: transparent; color: var(--destructive); borde
 button.action.ghost { background: transparent; color: var(--foreground); border-color: transparent; font-weight: 500; }
 button.action.small { padding: 3px 10px; min-height: 28px; font-size: 13px; }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
+/* #881: a faded red outline still reads as live, so an off danger button looks like an off secondary. */
+button.action.danger:disabled { color: var(--foreground); border-color: var(--control-border); }
 .reason { font-size: 12.5px; color: var(--text-muted); }
 
 input, select {
