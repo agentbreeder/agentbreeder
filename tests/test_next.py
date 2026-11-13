@@ -470,9 +470,96 @@ def test_kubernetes_step_only_with_a_cluster(stacked, operator, stacks):  # noqa
     # `promote` that follows fails with KUBERNETES_UNCONFIGURED.
     assert shlex.split(kube.fix.command)[-7:-4] == ["cluster", "up", "--yes"]
     assert result.complete and result.next == "kubernetes"
+    configure_cluster(state, "u")
     result = guide_checks.compute(stacked, probe=probe(stacks, Calls(clusters=["agentbreeder"])))
     kube = steps(result)["kubernetes"]
     assert kube.reason.code == "NOT_PROMOTED" and kube.fix.action == "promote"
+    assert kube.data.cluster_configured is True
+
+
+def configure_cluster(state, uid, environment="dev"):
+    """What an accepted grant with the cluster leaves: the operator config names it."""
+    config = {"environments": {environment: {"kubernetes": {"cluster_uid": uid}}}}
+    (state.env_dir(environment) / "operator.yaml").write_text(json.dumps(config))
+
+
+def test_cluster_attached_without_an_accepted_grant_points_at_services_up(
+    stacked,
+    operator,
+    stacks,  # noqa: F811
+    monkeypatch,
+):
+    """`cluster up` without --yes (the console's job) records the cluster in the stack state but
+    not in the operator config, so `promote` would fail with KUBERNETES_UNCONFIGURED."""
+    state, _, _ = released(stacked, operator, stacks)
+    state.put("kubernetes", json.dumps({"cluster_uid": "u"}))
+    up = probe(stacks, Calls(clusters=["agentbreeder"]))
+    operator_yaml = state.env_dir("dev") / "operator.yaml"
+    for config in (
+        None,  # as `services up` wrote it, before the cluster
+        json.dumps({"environments": {"dev": {"kubernetes": {"cluster_uid": "other"}}}}),
+        json.dumps({"environments": {"prod": {"kubernetes": {"cluster_uid": "u"}}}}),
+        "environments: [unclosed",
+        "- a list",
+    ):
+        if config is not None:
+            operator_yaml.write_text(config)
+        result = guide_checks.compute(stacked, probe=up)
+        kube = steps(result)["kubernetes"]
+        assert kube.state == "next" and kube.reason.code == "GRANT_PENDING", config
+        assert kube.fix.action == "services-up" and kube.data.cluster_configured is False
+        assert shlex.split(kube.fix.command)[-5:] == [
+            "up", str(stacked.resolve()), "--environment", "dev", "--yes",
+        ]  # fmt: skip
+        assert "services plan" in kube.fix.note
+    operator_yaml.unlink()
+    assert steps(guide_checks.compute(stacked, probe=up))["kubernetes"].reason.code == (
+        "GRANT_PENDING"
+    )
+    # A promoted, ready deployment does not hide a grant that no longer names the cluster
+    # (recreated with a new uid): the next `promote` would still fail.
+    production = IMAGE  # what released() deployed
+    deployed = {"id": "c" * 32, "state": "ready", "manifest": json.dumps({"image": "reg/x@1"})}
+    promoted = {
+        "reasons": [
+            {"code": "PROMOTE_IMAGE", "message": "reg/x@1"},
+            {"code": "RELEASE_IMAGE", "message": production},
+        ]
+    }
+    active, audit = Store.active, Store.audit_matching
+    monkeypatch.setattr(
+        Store,
+        "active",
+        lambda self, name, target="local": (
+            deployed if target == "kubernetes" else active(self, name, target)
+        ),
+    )
+    monkeypatch.setattr(
+        Store,
+        "audit_matching",
+        lambda self, action, decision: (
+            [promoted]
+            if (action, decision) == ("promote", "promoted")
+            else audit(self, action, decision)
+        ),
+    )
+    configure_cluster(state, "u")
+    assert steps(guide_checks.compute(stacked, probe=up))["kubernetes"].state == "done"
+    configure_cluster(state, "new-uid")
+    kube = steps(guide_checks.compute(stacked, probe=up))["kubernetes"]
+    assert kube.reason.code == "GRANT_PENDING" and kube.data.deployment == "c" * 32
+    # Neither side naming a uid is not a match.
+    state.put("kubernetes", json.dumps({}))
+    (state.env_dir("dev") / "operator.yaml").write_text(
+        json.dumps({"environments": {"dev": {"kubernetes": {}}}})
+    )
+    assert steps(guide_checks.compute(stacked, probe=up))["kubernetes"].reason.code == (
+        "GRANT_PENDING"
+    )
+    state.put("kubernetes", json.dumps({"cluster_uid": "u"}))
+    # A cluster that is down is reported first: `cluster up` comes before the grant.
+    down = guide_checks.compute(stacked, probe=probe(stacks, Calls(clusters=[])))
+    assert steps(down)["kubernetes"].reason.code == "CLUSTER_DOWN"
 
 
 # -- safety ----------------------------------------------------------------------------------

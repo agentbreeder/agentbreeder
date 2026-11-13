@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+import yaml
+
 from agentbreeder import guide, hints, safe_text
 
 MAX_BUILD_RECORD = 1024 * 1024
@@ -926,6 +928,27 @@ def _try(ctx: _Context, release: dict) -> dict:
     )
 
 
+def _cluster_configured(ctx: _Context) -> bool:
+    """Whether this environment's operator config names the stack's attached cluster, as
+    `promote` needs (the same match `cluster status` uses: the cluster's `kube-system` uid)."""
+    try:
+        block = json.loads(ctx.stack_state.get("kubernetes") or "null")
+        raw = _read_file(ctx.stack_state.env_dir(ctx.environment) / "operator.yaml")
+        if not isinstance(block, dict) or raw is None:
+            return False
+        config = yaml.safe_load(raw) or {}
+        target = ((config.get("environments") or {}).get(ctx.environment) or {}).get("kubernetes")
+        uid = block.get("cluster_uid")
+        return (
+            isinstance(uid, str)
+            and bool(uid)
+            and isinstance(target, dict)
+            and target.get("cluster_uid") == uid
+        )
+    except Exception:  # noqa: BLE001 - unreadable or malformed: not configured
+        return False
+
+
 def _kubernetes(ctx: _Context) -> dict | None:
     from agentbreeder import cluster
 
@@ -950,9 +973,11 @@ def _kubernetes(ctx: _Context) -> dict | None:
                 promoted = reasons.get("RELEASE_IMAGE")
                 break
     production_image = _manifest_image(ctx.production)
+    configured = _cluster_configured(ctx)
     data = {
         "cluster": cluster.NAME,
         "cluster_up": up,
+        "cluster_configured": configured,
         "deployment": deployment["id"] if deployment else None,
         "promoted_image": promoted,
         "production_image": production_image,
@@ -990,6 +1015,23 @@ def _kubernetes(ctx: _Context) -> dict | None:
                 hints.command(
                     "cluster", "up", "--yes", stack=ctx.project, environment=ctx.environment
                 ),
+            ),
+            data,
+        )
+    if not configured:
+        return _step(
+            "kubernetes",
+            "next",
+            _reason(
+                "GRANT_PENDING",
+                "The cluster is attached but not in the accepted grant; promote needs it",
+            ),
+            _fix(
+                "services-up",
+                hints.command(
+                    "services", "up", ctx.project, "--environment", ctx.environment, "--yes"
+                ),
+                "Review the grant first with services plan, or run services up without --yes",
             ),
             data,
         )

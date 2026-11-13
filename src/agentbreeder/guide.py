@@ -99,7 +99,13 @@ REASONS: dict[str, tuple[str, ...]] = {
         "PRODUCTION_NOT_READY",
     ),
     "try": (),
-    "kubernetes": ("APPROVAL_PENDING", "CLUSTER_DOWN", "NOT_PROMOTED", "PROMOTION_STALE"),
+    "kubernetes": (
+        "APPROVAL_PENDING",
+        "CLUSTER_DOWN",
+        "GRANT_PENDING",
+        "NOT_PROMOTED",
+        "PROMOTION_STALE",
+    ),
 }
 
 # Codes whose step is `blocked` (nothing can be run from this step until it is fixed by hand);
@@ -129,7 +135,7 @@ ACTIONS: dict[str, frozenset[str]] = {
     "build": frozenset({"build"}),
     "release": frozenset({"release"}),
     "try": frozenset({"invoke"}),
-    "kubernetes": frozenset({"cluster-up", "promote"}),
+    "kubernetes": frozenset({"cluster-up", "services-up", "promote"}),
 }
 
 # The console action each reason code allows (none for a code not listed). A done `try` allows
@@ -150,6 +156,9 @@ CODE_ACTIONS: dict[str, frozenset[str]] = {
     "RELEASE_EVALSET_CHANGED": frozenset({"release"}),
     "PRODUCTION_NOT_READY": frozenset({"release"}),
     "CLUSTER_DOWN": frozenset({"cluster-up"}),
+    # `cluster up` without `--yes` (the console's job) attaches the cluster but leaves the grant
+    # and the operator config unchanged; a reviewed `services up` records it.
+    "GRANT_PENDING": frozenset({"services-up"}),
     "NOT_PROMOTED": frozenset({"promote"}),
     "PROMOTION_STALE": frozenset({"promote"}),
 }
@@ -359,6 +368,8 @@ class TryData(_Model):
 class KubernetesData(_Model):
     cluster: ClusterName
     cluster_up: bool
+    # The environment's operator config names this stack's cluster (a grant with it was accepted).
+    cluster_configured: bool
     deployment: DeploymentId | None  # the active kubernetes deployment
     promoted_image: Image | None  # RELEASE_IMAGE of its promote/promoted audit row
     production_image: Image | None

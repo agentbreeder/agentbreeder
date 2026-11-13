@@ -128,7 +128,7 @@ column, capitalised as shown in the examples), `required` (`false` only for `kub
 | `build` | yes | `agent.yaml` has no `path:` ref, and `NAME.build.json` in the output directory was written for this environment and records the current `agent.yaml` and `agent.lock` hashes, and the lock's keys (`path:` keys included) are exactly the agent's refs | `REF_UNPINNED`, `LOCK_STALE`, `NOT_BUILT`, `BUILD_STALE` | `build` for `NOT_BUILT` and `BUILD_STALE`; none for `REF_UNPINNED` and `LOCK_STALE` |
 | `release` | yes | the active local production deployment is `ready`, runs the image and deploy manifest the current build wrote, **and** a matching `release/promoted` audit row exists | **`STATE_NEEDS_MIGRATION`**, **`APPROVAL_PENDING`**, **`PRODUCTION_DISABLED`**, `RELEASE_GATE_FAILED`, `NOT_RELEASED`, `PRODUCTION_STALE`, `NO_RELEASE_EVIDENCE`, `RELEASE_THRESHOLD_LOWERED`, `RELEASE_EVALSET_CHANGED`, `PRODUCTION_NOT_READY` | `release`, except none for the blocking codes |
 | `try` | yes | exactly when `release` is done (no request is sent) | only `NOT_CHECKED` | `invoke`, as a suggestion on the done step |
-| `kubernetes` | no | (`NOT_CHECKED` while Docker is unreachable) an active, `ready` kubernetes deployment exists and its `promote/promoted` audit row's image is production's image | **`APPROVAL_PENDING`**, `CLUSTER_DOWN`, `NOT_PROMOTED`, `PROMOTION_STALE` | `cluster-up` for `CLUSTER_DOWN`; `promote` for `NOT_PROMOTED` and `PROMOTION_STALE` |
+| `kubernetes` | no | (`NOT_CHECKED` while Docker is unreachable) an active, `ready` kubernetes deployment exists and its `promote/promoted` audit row's image is production's image | **`APPROVAL_PENDING`**, `CLUSTER_DOWN`, `GRANT_PENDING`, `NOT_PROMOTED`, `PROMOTION_STALE` | `cluster-up` for `CLUSTER_DOWN`; `services-up` for `GRANT_PENDING` (the cluster is attached but the environment's operator config does not name it, typically because `cluster up` ran without `--yes`; `promote` would fail with `KUBERNETES_UNCONFIGURED`); `promote` for `NOT_PROMOTED` and `PROMOTION_STALE` |
 
 Any step can also carry **`NOT_CHECKED`**: it cannot be checked until an earlier step is done (no
 agent name or stack to read, Docker not reachable, state that needs `migrate`). Its `data` is
@@ -266,7 +266,9 @@ reachable that way (use `forward`).
   saved failed-candidate log tail exists; it is best effort and is not tied to an image).
 - `try`: `deployment`, `endpoint`: production's. When `release` is not done, `try` is
   `NOT_CHECKED` and the guide gives no endpoint; the console's Try it reads state itself.
-- `kubernetes`: `cluster` (name), `cluster_up`, `deployment` (the active kubernetes deployment),
+- `kubernetes`: `cluster` (name), `cluster_up`, `cluster_configured` (the environment's operator
+  config names this stack's cluster by its `kube-system` uid, so a grant with it was accepted;
+  added in schema version 1), `deployment` (the active kubernetes deployment),
   `promoted_image` (the image recorded by its `promote/promoted` audit row), `production_image`.
 
 ### `conditions`

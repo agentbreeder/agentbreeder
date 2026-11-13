@@ -12,6 +12,13 @@ On main, not in a published preview.
 
 ### Added
 
+- `next`'s Kubernetes step gains the reason `GRANT_PENDING` (#820, M4), on `main`, not in a
+  published preview: the cluster is attached (typically after `cluster up` without `--yes`, as
+  the console's job runs it) but the environment's operator config does not name it, so
+  `promote` would fail with `KUBERNETES_UNCONFIGURED`. The fix is `services up DIR --environment ENV --yes`
+  (`services-up`), with a note to review the grant first with `services plan`. Before, `next`
+  pointed at that failing `promote`. `next --json` adds `cluster_configured` to the step's
+  `data`; additive, `schema_version` stays 1 (`docs/next.md`, `docs/next.schema.json`).
 - `docs/your-first-agent.md` (#820, M4), on `main`, not in a published preview: from an empty
   directory to a released starter agent and an `invoke` reply, one section per `next` step
   (prerequisites, project, model keys, services, build, release, try it, optional Kubernetes)
