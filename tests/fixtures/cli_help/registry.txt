@@ -1,10 +1,13 @@
 usage: agentbreeder registry [-h]
-                             {new,publish,list,verify,show,diff,used-by} ...
+                             {new,publish,import,list,verify,show,diff,used-by}
+                             ...
 
 positional arguments:
-  {new,publish,list,verify,show,diff,used-by}
+  {new,publish,import,list,verify,show,diff,used-by}
     new                 Scaffold a version directory to edit
     publish             Publish an immutable version
+    import              Copy a version directory from anywhere into the
+                        project registry
     list                List versions in the search roots
     verify              Re-check every version's integrity
     show                Show one version's manifest and files
