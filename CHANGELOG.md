@@ -12,6 +12,13 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder registry fork REF [--as NAME] [--version X.Y.Z] [--project DIR] [--json]` (#825,
+  M9a), on `main`, not in a published preview: copies a built-in, `AGENTBREEDER_REGISTRY_PATH` or
+  project version into the project's `./registry` as a new version the project owns, with
+  `import`'s checks, `--dry-run`/`--expect-digest` and JSON. A fork must change the name or the
+  version (`FORK_UNCHANGED` otherwise), and a source that no longer declares `REF` when it is
+  staged is refused (`MANIFEST_INVALID`). See `docs/registry.md`.
+
 - `agentbreeder events [--project DIR] [--limit N] [--unread] [--mark-read ID] [--mark-all-read]
   [--json]` and `watch --record` (#827, M11), on `main`, not in a published preview: stored
   events, newest 500, in `~/.agentbreeder/center/events.sqlite3` (0600). The kinds are fixed:
@@ -21,6 +28,7 @@ On main, not in a published preview.
   models is stored. Conditions are not stored: with `--project` they come from the function
   behind `next`. The console does not call `job_failed` or `--record` yet. Tested with fakes;
   the real-Docker acceptance has not run. See `docs/events.md`.
+
 - `agentbreeder registry import PATH [--as NAME] [--version X.Y.Z] [--project DIR] [--json]`
   (#825, M9a), on `main`, not in a published preview: copies a version directory from anywhere
   into the project's `./registry` with `publish`'s checks, plus a `REF_CONFLICT` check against the

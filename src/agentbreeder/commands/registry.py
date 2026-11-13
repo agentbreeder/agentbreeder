@@ -1,5 +1,5 @@
-"""`agentbreeder registry new|publish|import|list|verify|show|diff|used-by`: author and inspect
-registry versions."""
+"""`agentbreeder registry new|publish|import|fork|list|verify|show|diff|used-by`: author and
+inspect registry versions."""
 
 from __future__ import annotations
 
@@ -31,7 +31,14 @@ def register(commands) -> None:
     reg_import.add_argument("--as", dest="name", metavar="NAME", help="Import under this name")
     reg_import.add_argument("--version", metavar="X.Y.Z", help="Import as this version")
     reg_import.add_argument("--project", type=Path, default=Path("."))
-    for command in (reg_publish, reg_import):
+    reg_fork = reg_commands.add_parser(
+        "fork", help="Copy a built-in or shared version into the project registry to change"
+    )
+    reg_fork.add_argument("ref", help="kind/name@X.Y.Z")
+    reg_fork.add_argument("--as", dest="name", metavar="NAME", help="Fork under this name")
+    reg_fork.add_argument("--version", metavar="X.Y.Z", help="Fork as this version")
+    reg_fork.add_argument("--project", type=Path, default=Path("."))
+    for command in (reg_publish, reg_import, reg_fork):
         mode = command.add_mutually_exclusive_group()
         mode.add_argument(
             "--dry-run", action="store_true", help="Check and hash a staged copy; write nothing"
@@ -75,7 +82,8 @@ def register(commands) -> None:
         help="Local deploy state to read (default: the local state); a project's stack state "
         "is always read",
     )
-    for command in (reg_publish, reg_import, reg_list, reg_verify, reg_show, reg_diff, reg_used):
+    placing = (reg_publish, reg_import, reg_fork)
+    for command in (*placing, reg_list, reg_verify, reg_show, reg_diff, reg_used):
         command.add_argument("--json", action="store_true")
     for command in (reg_list, reg_verify, reg_show, reg_diff):
         command.add_argument("--project", type=Path, default=Path("."))
@@ -116,6 +124,16 @@ def _run(args) -> int:
                 dry_run=args.dry_run,
             )
             return _placed(args, result, "import", notice=True)
+        if args.registry_command == "fork":
+            result = registry.fork_version(
+                registry.Ref.parse(args.ref),
+                args.project,
+                name=args.name,
+                version=args.version,
+                expect_digest=args.expect_digest,
+                dry_run=args.dry_run,
+            )
+            return _placed(args, result, "fork", notice=True)
         if args.registry_command == "used-by":
             return _used_by(args)
         search = registry.roots(args.project)
@@ -163,8 +181,9 @@ def _placed(args, result: dict, verb: str, notice: bool) -> int:
     if notice:
         print(_notice(result["kind"]), file=sys.stderr)
     if args.json:
-        # publish keeps its one-line JSON (scripts read the last line); import matches `show`.
-        print(json.dumps(result, indent=2 if verb == "import" else None))
+        # publish keeps its one-line JSON (scripts read the last line); import and fork match
+        # `show`.
+        print(json.dumps(result, indent=None if verb == "publish" else 2))
         return 0
     line = f"{result['ref']} {result['sha256']} {result['path']}"
     if result["source_ref"] != result["ref"]:

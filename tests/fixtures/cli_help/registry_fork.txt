@@ -1,0 +1,19 @@
+usage: agentbreeder registry fork [-h] [--as NAME] [--version X.Y.Z]
+                                  [--project PROJECT]
+                                  [--dry-run | --expect-digest SHA256]
+                                  [--json]
+                                  ref
+
+positional arguments:
+  ref                   kind/name@X.Y.Z
+
+options:
+  -h, --help            show this help message and exit
+  --as NAME             Fork under this name
+  --version X.Y.Z       Fork as this version
+  --project PROJECT
+  --dry-run             Check and hash a staged copy; write nothing
+  --expect-digest SHA256
+                        Refuse unless the staged copy has this digest (from
+                        --dry-run)
+  --json

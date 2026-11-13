@@ -34,6 +34,7 @@ agentbreeder registry new tool orders --dir .         # scaffold ./tool-orders t
 agentbreeder registry publish ./tool-orders [--to registry] [--dry-run | --expect-digest SHA256] [--json]
 #   prints ref, sha256, path
 agentbreeder registry import ../shared/prompt-x [--as NAME] [--version X.Y.Z] [--project DIR] [--json]
+agentbreeder registry fork service/litellm@1.0.0 [--as NAME] [--version X.Y.Z] [--project DIR] [--json]
 agentbreeder registry list [tool/] [--json]
 agentbreeder registry verify [--json]                 # exit 2 if any version is unsafe or inconsistent
 agentbreeder registry show prompt/support@1.0.0 [--project DIR] [--json]
@@ -261,6 +262,30 @@ agent. The note is a reminder, not a security boundary: an imported version take
 an `agent.yaml` references it and `release` passes. Text output is `REF SHA256 PATH` (with
 `(from SOURCE_REF)` after a rename), as `publish` prints; a dry run prefixes `Would import` and
 prints the `--expect-digest` to pass. Errors are `[CODE] message` on stderr, exit 2.
+
+## Forking a built-in or shared version (on `main`, not in a published preview)
+
+Versions are immutable, and the built-in registry and `AGENTBREEDER_REGISTRY_PATH` roots are not
+the project's to change. **`registry fork REF [--as NAME] [--version X.Y.Z] [--project DIR]`**
+resolves `REF` in the project's search roots (built-in, path roots or the project itself) and copies
+that version into the project's `./registry` as a new version the project owns. To change it
+later, copy the fork, edit the copy, bump its `version:` and `publish` it (a version is never
+edited in place).
+
+```
+agentbreeder registry fork service/echo@1.0.0 --version 1.0.1
+agentbreeder registry fork service/echo@1.0.0 --as my-echo     # service/my-echo@1.0.0
+```
+
+A fork needs `--as`, `--version` or both. Forking a ref unchanged is refused (`FORK_UNCHANGED`):
+an identical project copy adds nothing, and once edited it would conflict with the original
+(`REF_CONFLICT`) rather than be a new version. The rest is `import` with the resolved version
+directory as `PATH`: the same staging, checks, rename of the top-level `name:`/`version:` lines,
+`REF_CONFLICT` check (forking to a version another root already has with different content is
+refused), `--dry-run`/`--expect-digest`, stderr note and output. `--json` prints the `import`
+object (indented); `source_ref` is `REF` and `source` is the resolved directory. If the staged copy
+declares a ref other than `REF` (the source changed after it was resolved), nothing is written
+(`MANIFEST_INVALID`). A missing `REF` is `REF_NOT_FOUND`.
 
 ## Publishing and integrity
 

@@ -440,6 +440,7 @@ def place(
     dry_run: bool = False,
     search: list[Path] | None = None,
     project_dir: Path | None = None,
+    source_ref: Ref | None = None,
 ) -> dict:
     """Copy a version directory into a registry root as an immutable version: `publish` and
     `import`. `name`/`version` rename it (the staged manifest is rewritten).
@@ -449,7 +450,8 @@ def place(
     written and the result carries the staged files (as `show`); its `sha256` is what a later
     call passes as `expect_digest`, which refuses unless the new staged copy hashes the same
     (S-04: the bytes written are the bytes reviewed). `search` adds a REF_CONFLICT check against
-    the other roots, so the new version resolves."""
+    the other roots, so the new version resolves. `source_ref` refuses a staged copy whose
+    manifest declares another ref (`fork`: the source changed after it was resolved)."""
     if expect_digest is not None and not DIGEST.fullmatch(expect_digest):
         raise RegistryError("DIGEST_INVALID", "--expect-digest must be sha256:<64 hex digits>")
     if trusted_root(root):
@@ -480,6 +482,11 @@ def place(
             copy_and_hash(source, staged)
             data = _staged_manifest(source, staged)
             original = Ref.parse(f"{data['kind']}/{data['name']}@{data['version']}")
+            if source_ref is not None and original != source_ref:
+                raise RegistryError(
+                    "MANIFEST_INVALID",
+                    f"{_shown(source)} now declares {original}, not {source_ref}; try again",
+                )
             ref = Ref.parse(
                 f"{original.kind}/{original.name if name is None else name}"
                 f"@{original.version if version is None else version}"
@@ -574,6 +581,42 @@ def import_version(
         dry_run=dry_run,
         search=roots(project_dir),
         project_dir=project_dir,
+    )
+
+
+def fork_version(
+    ref: Ref,
+    project_dir: Path,
+    *,
+    name: str | None = None,
+    version: str | None = None,
+    expect_digest: str | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """`registry fork`: copy a resolvable version (built-in, an AGENTBREEDER_REGISTRY_PATH
+    entry, or the project itself) into the project's `./registry` under a new name or version,
+    which the project then owns: change a copy of it and `publish` a bump (console §8.4).
+
+    An unchanged ref is refused: an identical project copy adds nothing, and once edited in
+    place it would conflict with the original (REF_CONFLICT) instead of being a new version."""
+    search = roots(project_dir)
+    hit = resolve(ref, search)
+    if (name is None or name == ref.name) and (version is None or version == ref.version):
+        raise RegistryError(
+            "FORK_UNCHANGED",
+            f"forking {ref} unchanged would only copy it; pass --as NAME or --version X.Y.Z "
+            "to fork it as a new version the project owns",
+        )
+    return place(
+        hit.path,
+        project_dir / "registry",
+        name=name,
+        version=version,
+        expect_digest=expect_digest,
+        dry_run=dry_run,
+        search=search,
+        project_dir=project_dir,
+        source_ref=ref,
     )
 
 
