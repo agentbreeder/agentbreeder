@@ -4,8 +4,8 @@ From an empty directory to a released agent of your own that answers a message. 
 `main`, not in a published preview: `3.0.0a2` has no `new agent`, `next` or `invoke`. Steps 1
 to 7 ran once end to end with this starter from a checkout on macOS with Docker Desktop and a
 Gemini key (2026-11-12: `release` 2/2, then an `invoke` reply). Step 8 has not been run with the
-starter (Northwind passed it on local `kind`, see `command-center.md`). Nothing here has been
-run from a published package or on Linux.
+starter (Northwind passed it on local `kind`, see the console page, `command-center.md`).
+Nothing here has been run from a published package or on Linux.
 
 The steps are the ones `agentbreeder next` checks, in the same order and with the same commands
 (`src/agentbreeder/guide.py` and `guide_checks.py` define them;
@@ -195,7 +195,7 @@ identities. Use it on a single-user machine and do not expose or forward the por
 Optional, and not yet run with this starter. This step appears in `next` once `cluster up` has
 attached the stack to the local `kind` cluster; if the cluster is later deleted, `next` offers
 `cluster up` again. Only local `kind` is supported and no production cluster has been tested
-(`command-center.md`).
+(the console page, `command-center.md`).
 
 ```sh
 agentbreeder cluster up --yes --stack . --environment dev

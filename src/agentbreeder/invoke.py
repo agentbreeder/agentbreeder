@@ -203,7 +203,7 @@ def call(
     joined against `timeout`; on expiry the command reports TIMEOUT and the thread is abandoned
     (it holds only its own socket; the process exits or, in tests, the server closes it). A
     long-lived process calling this would keep one such thread and socket per timeout until the
-    peer closes: the CLI and the command center's child processes are short-lived."""
+    peer closes: the CLI and the console's child processes are short-lived."""
     if not _port(endpoint):
         raise InvokeError("ENDPOINT_REFUSED", "only http://127.0.0.1:<port> endpoints are called")
     body = {"message": message}
