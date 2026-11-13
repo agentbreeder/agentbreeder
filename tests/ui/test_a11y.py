@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from .conftest import sign_in
-from .test_shell import AUDIT_ROW, DEPLOYMENTS, ROUTES
+from .test_shell import AUDIT_ROW, DEPLOYMENTS, RELEASED_THEN_REMOVED, ROUTES, STOPPED
 
 pytestmark = pytest.mark.ui
 
@@ -63,3 +63,32 @@ def test_signed_out_page_has_no_serious_axe_findings(scheme_page, console):
     scheme_page.goto(console.origin + "/")
     scheme_page.locator("main h1").wait_for()
     assert blocking(scheme_page, "signed out") == []
+
+
+def test_deployments_with_a_job_running_has_no_serious_axe_findings(scheme_page, console):
+    # #881: the off row Remove buttons and their shared reason, light and dark.
+    rows = [dict(row, id=f"{n:032x}") for n, row in enumerate(DEPLOYMENTS, 1)]
+    console.scenario(deployments=rows, job_seconds=20)
+    sign_in(scheme_page, console)
+    scheme_page.goto(f"{console.origin}/#/deployments")
+    scheme_page.get_by_role("button", name="Remove").first.click()
+    scheme_page.get_by_role("dialog").get_by_role("button", name="Remove").click()
+    scheme_page.locator(".reason").wait_for()
+    assert blocking(scheme_page, "deployments, busy") == []
+
+
+def test_stopped_services_have_no_serious_axe_findings(scheme_page, console):
+    # #882: the muted last ports and the off Stop services with its reason, light and dark.
+    console.scenario(services=STOPPED)
+    sign_in(scheme_page, console)
+    scheme_page.locator(".reason").wait_for()
+    assert blocking(scheme_page, "services, stopped") == []
+
+
+def test_kubernetes_with_nothing_running_locally_has_no_serious_axe_findings(scheme_page, console):
+    # #880: the released-then-removed card, with Deploy to cluster off and its reason shown.
+    console.scenario(**RELEASED_THEN_REMOVED)
+    sign_in(scheme_page, console)
+    scheme_page.goto(f"{console.origin}/#/targets/kubernetes")
+    scheme_page.get_by_text("No ready release is running locally").wait_for()
+    assert blocking(scheme_page, "kubernetes, nothing running locally") == []

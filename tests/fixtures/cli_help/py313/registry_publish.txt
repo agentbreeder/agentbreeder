@@ -1,0 +1,15 @@
+usage: agentbreeder registry publish [-h] [--to TO] [--dry-run |
+                                     --expect-digest SHA256] [--json]
+                                     source
+
+positional arguments:
+  source
+
+options:
+  -h, --help            show this help message and exit
+  --to TO               Registry root
+  --dry-run             Check and hash a staged copy; write nothing
+  --expect-digest SHA256
+                        Refuse unless the staged copy has this digest (from
+                        --dry-run)
+  --json

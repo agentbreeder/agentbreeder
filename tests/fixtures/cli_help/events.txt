@@ -1,0 +1,15 @@
+usage: agentbreeder events [-h] [--project DIR] [--environment ENVIRONMENT]
+                           [--limit LIMIT] [--unread] [--mark-read ID]
+                           [--mark-all-read] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --project DIR         Only this project's events
+  --environment ENVIRONMENT
+                        Environment for the project's conditions (default:
+                        dev)
+  --limit LIMIT         Most events to list, 1-500 (default: 50)
+  --unread              Only unread events
+  --mark-read ID        Mark an event read
+  --mark-all-read       Mark every event read (with --project, that project's)
+  --json                Print JSON

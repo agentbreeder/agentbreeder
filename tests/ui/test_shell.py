@@ -46,6 +46,21 @@ DEPLOYMENTS = [
     },
 ]
 
+# A release passed, then its local deployment was removed; the cluster is attached and granted.
+# `list --json` leaves removed deployments out (`store.active_all()`), so nothing is listed.
+RELEASED_THEN_REMOVED = {
+    "deployments": [],
+    "cluster": {
+        "tools": {
+            "kind": {"present": True, "supported": True, "install": ""},
+            "kubectl": {"present": True, "supported": True, "install": ""},
+        },
+        "cluster": True,
+        "registry": True,
+        "configured": True,
+    },
+}
+
 
 def go(page, console, route: str, heading: str) -> None:
     page.goto(f"{console.origin}/#{route}")
@@ -81,6 +96,69 @@ def test_services_show_internal_only_ports(page, console):
     expect(page.get_by_role("combobox", name="Project scope")).to_have_value(
         re.compile("[0-9a-f]{12}")
     )
+
+
+STOPPED = {
+    "postgres": {"state": "absent", "health": "", "host_ports": {"pg": 65534}},
+    "litellm": {"state": "absent", "health": "", "host_ports": {}},
+}
+
+
+def test_stopped_services_list_no_live_port_and_no_stop(page, console):
+    # After `services down` every service is absent; state still records the last host port (#882).
+    console.scenario(services=STOPPED)
+    sign_in(page, console)
+    row = page.get_by_role("row", name=re.compile("postgres"))
+    expect(row).to_contain_text("absent")
+    expect(row).to_contain_text("not listening (last: pg → 127.0.0.1:65534)")
+    stop = page.get_by_role("button", name="Stop services")
+    expect(stop).to_be_disabled()
+    reason_id = stop.get_attribute("aria-describedby")
+    assert reason_id
+    expect(page.locator(f"#{reason_id}")).to_have_text("The services are stopped.")
+    expect(page.get_by_role("button", name="Review and update")).to_be_enabled()
+
+
+def test_a_running_service_keeps_stop_and_its_port(page, console):
+    console.scenario(
+        services={
+            **STOPPED,
+            "litellm": {"state": "running", "health": "", "host_ports": {"4000": 4000}},
+        }
+    )
+    sign_in(page, console)
+    expect(page.get_by_role("row", name=re.compile("postgres"))).to_contain_text("not listening")
+    litellm = page.get_by_role("row", name=re.compile("litellm"))
+    expect(litellm).to_contain_text("4000 → 127.0.0.1:4000")
+    expect(litellm).not_to_contain_text("not listening")
+    expect(page.get_by_role("button", name="Stop services")).to_be_enabled()
+
+
+def test_exited_containers_keep_stop_but_show_no_live_port(page, console):
+    # `services down` also removes exited containers, so Stop stays on to clean them up (#882).
+    exited = {name: dict(info, state="exited") for name, info in STOPPED.items()}
+    console.scenario(services=exited)
+    sign_in(page, console)
+    row = page.get_by_role("row", name=re.compile("postgres"))
+    expect(row).to_contain_text("not listening (last: pg → 127.0.0.1:65534)")
+    expect(page.get_by_role("button", name="Stop services")).to_be_enabled()
+    expect(page.get_by_text("The services are stopped.")).to_have_count(0)
+
+
+def test_stopped_services_show_only_the_busy_reason_while_a_job_runs(page, console):
+    console.scenario(services=STOPPED, job_seconds=20)
+    sign_in(page, console)
+    page.get_by_role("button", name="Review and update").click()
+    page.get_by_label("GOOGLE_API_KEY").fill("x")
+    page.get_by_role("button", name="Confirm and start").click()
+    stop = page.get_by_role("button", name="Stop services")
+    # Once the job runs, its shared reason replaces "The services are stopped.", never both.
+    expect(page.get_by_role("button", name="Review and update")).to_be_disabled()
+    expect(stop).to_be_disabled()
+    reason_id = stop.get_attribute("aria-describedby")
+    assert reason_id
+    expect(page.locator(f"#{reason_id}")).to_contain_text("running in this project")
+    expect(page.get_by_text("The services are stopped.")).to_have_count(0)
 
 
 def test_grant_review_keeps_typed_values_and_starts_the_job(page, console):
@@ -300,6 +378,23 @@ def test_grant_pending_shows_the_services_step_not_promote(page, console):
     page.wait_for_url("**/#/services")
 
 
+def test_released_then_removed_does_not_claim_nothing_was_released(page, console):
+    # #880: `promote` needs a ready local deployment, so once the released deployment is removed
+    # the card says no release runs locally (not that nothing was released) and Deploy stays off.
+    console.scenario(**RELEASED_THEN_REMOVED)
+    sign_in(page, console)
+    go(page, console, "/targets/kubernetes", "Kubernetes")
+    card = page.locator("section", has=page.get_by_role("heading", name="Deploy this release"))
+    expect(card).to_contain_text("No ready release is running locally")
+    expect(card).not_to_contain_text("Nothing released")
+    deploy = page.get_by_role("button", name="Deploy to cluster")
+    expect(deploy).to_be_disabled()
+    reason = page.locator(f"#{deploy.get_attribute('aria-describedby')}")
+    expect(reason).to_contain_text("Needs a release running locally")
+    deploy.focus()
+    expect(deploy).not_to_be_focused()
+
+
 def test_cost_figures_only_for_northwind(page, console):
     sign_in(page, console)
     go(page, console, "/release", "Build and release")
@@ -449,3 +544,37 @@ def test_a_new_link_in_a_signed_in_tab_keeps_the_route(page, console):
     page.evaluate("(hash) => { location.hash = hash; }", "#" + token)
     expect(page.get_by_role("heading", level=1)).to_contain_text("Deployments")
     assert "#t=" not in page.url
+
+
+def test_row_remove_is_off_while_a_job_runs(page, console):
+    # #881: with a job running in the project, every row Remove is off with one shared reason.
+    # The server only starts `remove` for a real (32-hex) deployment id.
+    rows = [dict(row, id=f"{n:032x}") for n, row in enumerate(DEPLOYMENTS, 1)]
+    console.scenario(deployments=rows, job_seconds=20)
+    sign_in(page, console)
+    go(page, console, "/deployments", "Deployments")
+    first = page.get_by_role("row", name=re.compile(r"demo\b(?!-)")).get_by_role(
+        "button", name="Remove"
+    )
+    first.click()
+    page.get_by_role("dialog").get_by_role("button", name="Remove").click()
+    expect(page.locator("#activity-pill")).to_have_text("1 running")
+    page.get_by_role("complementary", name="Jobs").get_by_role("button", name="Close").click()
+    removes = page.get_by_role("button", name="Remove")
+    expect(removes).to_have_count(2)
+    reason = page.locator(".reason")
+    expect(reason).to_have_count(1)  # shown once, not once per row
+    expect(reason).to_contain_text("Remove is running in this project")
+    reason_id = reason.get_attribute("id")
+    for n in range(2):
+        expect(removes.nth(n)).to_be_disabled()
+        assert removes.nth(n).get_attribute("aria-describedby") == reason_id
+    reverify = page.get_by_role("button", name="Re-verify (reconcile)")
+    expect(reverify).to_be_disabled()
+    # The bug as seen: the buttons were disabled but kept their red outline, so they looked live.
+    # An off Remove must look like the off Re-verify, not like an enabled danger button.
+    look = "b => { const s = getComputedStyle(b); return [s.color, s.borderTopColor]; }"
+    for n in range(2):
+        assert removes.nth(n).evaluate(look) == reverify.evaluate(look)
+    removes.first.focus()
+    expect(removes.first).not_to_be_focused()  # a disabled button takes no focus

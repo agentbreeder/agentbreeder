@@ -49,7 +49,19 @@ export function isCandidate(row) {
 export function portsText(info) {
   const ports = Object.entries((info && info.host_ports) || {});
   if (!ports.length) return "internal only";
-  return ports.map(([name, port]) => `${name} → 127.0.0.1:${port}`).join(", ");
+  const text = ports.map(([name, port]) => `${name} → 127.0.0.1:${port}`).join(", ");
+  // Stack state keeps the last ports after `services down`: a stopped service is not listening (#882).
+  return serviceUp(info) ? text : `not listening (last: ${text})`;
+}
+
+const UP_STATES = new Set(["running", "restarting", "paused"]);
+
+/**
+ * Whether a service has a container that holds its host ports. Absent, exited, created, dead and
+ * removing do not; paused and restarting keep their bindings.
+ */
+export function serviceUp(info) {
+  return Boolean(info) && UP_STATES.has(info.state);
 }
 
 /** A service's state with its health. */

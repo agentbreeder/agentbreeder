@@ -69,6 +69,7 @@ COMMAND_MODULES = (
     "new",
     "invoke",
     "watch",
+    "events",
 )
 
 

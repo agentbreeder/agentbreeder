@@ -31,7 +31,9 @@ never silently shadows another.
 
 ```
 agentbreeder registry new tool orders --dir .         # scaffold ./tool-orders to edit
-agentbreeder registry publish ./tool-orders [--to registry] [--json]   # prints ref, sha256, path
+agentbreeder registry publish ./tool-orders [--to registry] [--dry-run | --expect-digest SHA256] [--json]
+#   prints ref, sha256, path
+agentbreeder registry import ../shared/prompt-x [--as NAME] [--version X.Y.Z] [--project DIR] [--json]
 agentbreeder registry list [tool/] [--json]
 agentbreeder registry verify [--json]                 # exit 2 if any version is unsafe or inconsistent
 agentbreeder registry show prompt/support@1.0.0 [--project DIR] [--json]
@@ -206,10 +208,70 @@ directory are reported in `errors` and the rest is still shown; the exit status 
 otherwise. `recorded_not_running` entries have the same fields as `deployed`;
 `deployed_undetermined` entries have `reason` instead of `build_record`.
 
+## Importing, and writing exactly what was reviewed (on `main`, not in a published preview)
+
+**`registry import PATH [--as NAME] [--version X.Y.Z] [--project DIR]`** copies a version
+directory from anywhere (another project, a shared folder, a download) into the project's
+`./registry` as an immutable version. `--as` and `--version` import it under another name or
+version: only the top-level `name:` and `version:` lines of the staged copy's `manifest.yaml` are
+replaced (every other byte, comments included, is kept). A manifest that does not write them once
+each as plain top-level lines (a flow mapping, a value on the next line) is refused
+(`MANIFEST_INVALID`) rather than re-serialised. Without them the manifest is copied byte for byte.
+It runs `publish`'s checks (below) and one more: if another search root (an
+`AGENTBREEDER_REGISTRY_PATH` entry or the built-in registry) already has that ref with different
+content, the import is refused (`REF_CONFLICT`), so the imported version always resolves.
+
+Both `publish` and `import` copy the source **once** into a private staging directory, and every
+check runs on that copy: the entry checks, the manifest, the hash and the rename into place.
+What is written is the staged copy, so a file changed during the copy cannot slip past the checks.
+Errors name the source, never the staging directory. A write stages inside the target root
+(`<root>/.import-*`, removed afterwards); a process killed mid-write can leave one behind, which
+`list`, `verify` and resolution ignore and which is safe to delete.
+
+**Preview, then write the reviewed bytes (S-04).** `--dry-run` stages and checks the version,
+writes nothing, and prints its digest; with `--json` it also lists the staged files in the shape
+`show` uses (`files[]`, text capped and cleaned the same way), including a rewritten manifest.
+Passing that digest back as `--expect-digest sha256:…` writes the version only if the new staged
+copy hashes the same; otherwise it fails with `DIGEST_MISMATCH` and writes nothing. A source
+edited after the preview, a different `--as`/`--version`, or a changed executable bit all change
+the digest. `--dry-run` and `--expect-digest` cannot be combined.
+
+```
+agentbreeder registry import ../shared/tool-orders --version 1.1.0 --dry-run --json
+agentbreeder registry import ../shared/tool-orders --version 1.1.0 --expect-digest sha256:…
+```
+
+`import --json` prints (indented, as `show`; `publish --json` prints the same object on one line):
+
+```json
+{
+  "ref": "tool/orders@1.1.0", "kind": "tool", "name": "orders", "version": "1.1.0",
+  "source_ref": "tool/orders@1.0.0", "sha256": "sha256:…",
+  "source": "/abs/shared/tool-orders", "root": "/abs/project/registry", "root_kind": "project",
+  "path": "/abs/project/registry/tool/orders/1.1.0",
+  "dry_run": true, "runs_code": true, "files": [ … ]
+}
+```
+
+`source_ref` is the ref the source's manifest declares; `files` is present only for `--dry-run`.
+Paths are absolute. `runs_code` is true for `tool`, `service`, `eval`, `mcp` and `runtime`: these
+versions are code that runs inside agents (or is the agent server) with their privileges. `import`
+prints a note to stderr saying so, or, for `prompt` and `knowledge`, that the text steers the
+agent. The note is a reminder, not a security boundary: an imported version takes effect only when
+an `agent.yaml` references it and `release` passes. Text output is `REF SHA256 PATH` (with
+`(from SOURCE_REF)` after a rename), as `publish` prints; a dry run prefixes `Would import` and
+prints the `--expect-digest` to pass. Errors are `[CODE] message` on stderr, exit 2.
+
 ## Publishing and integrity
 
-- **Versions are immutable.** `publish` refuses to overwrite an existing version
-  (`VERSION_EXISTS`).
+- **Versions are immutable.** `publish` and `import` refuse to overwrite an existing version
+  (`VERSION_EXISTS`), also when another command published it between the check and the final
+  rename. They refuse a symlinked `<root>/<kind>` or `<root>/<kind>/<name>` directory
+  (`ENTRY_UNSAFE`), so nothing is written outside the root; `import` also refuses when another
+  search root has a symlinked directory on the ref's path, since the ref would not resolve. Any
+  other write failure (permissions, a full disk) is `ENTRY_UNSAFE` naming the target.
+  A source directory that contains the target root (for example `publish . --to registry` from a
+  project) is refused (`ENTRY_UNSAFE`): publish a version directory, not the project.
 - **What a version may contain.** Only regular files and directories. Symlinks, hardlinks,
   FIFOs and devices are rejected (`ENTRY_UNSAFE`), as are `..` paths and non-UTF-8 names.
 - **Versions shipped with AgentBreeder** (the built-in registry and the shipped examples) may be

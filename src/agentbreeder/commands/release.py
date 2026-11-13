@@ -91,6 +91,11 @@ def run(args) -> int:
     finally:
         if store:
             store.close()
+    if outcome.code == 5 and outcome.details.get("eval"):  # the eval gate failed (#827)
+        from agentbreeder import events
+
+        project = args.stack if args.stack is not None else Path(args.agent)
+        events.record(lambda: events.gate_failed(events.project_dir(project), outcome.details))
     advice = _advice(args, where, outcome.details)
     if advice:
         outcome.details["advice"] = advice
