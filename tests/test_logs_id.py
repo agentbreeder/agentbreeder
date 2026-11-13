@@ -357,6 +357,7 @@ def test_follow_json_lines_and_end_record(state, docker, capsys, monkeypatch):
         "name": "hello",
         "deployment": IDENTIFIER,
         "line": f"2026-11-12T10:00:00Z first {redaction.MARK}",
+        "level": None,  # no build record names this deployment's runtime
     }
     assert lines[1]["line"].endswith("second \x1b[2J")  # JSON escapes it on output
     assert lines[-1] == {"schema_version": 1, "event": "end", "reason": "stdin", "dropped": False}

@@ -12,6 +12,16 @@ On main, not in a published preview.
 
 ### Added
 
+- `--level warning|error` on `logs ID` and `services logs` (#821, M5), on `main`, not in a
+  published preview: keeps only records at that level or above, with one parser module
+  (`loglevels.py`) keyed by built-in ref: Postgres (`ERROR`, `FATAL`, `PANIC`, with `DETAIL`,
+  `HINT` and `STATEMENT` kept with their record), LiteLLM, Phoenix (Python logging, Uvicorn,
+  `warnings`, tracebacks) and `runtime/adk` (its own failure messages). Continuation lines stay
+  with their record. A heuristic: project services, MCP relays and images not built from a
+  known runtime stay unclassified, and `--level` on them fails with `LEVELS_UNAVAILABLE`. An
+  agent's runtime comes from `--stack DIR`'s build record (built-in runtimes only). `--json`
+  adds `format`, `levels` and `level`, and `--follow --json` each line's `level`. Tested against logs captured from a
+  Northwind run (`tests/fixtures/logs/`); `runtime/adk` printed nothing in the runs captured.
 - `next`'s Kubernetes step gains the reason `GRANT_PENDING` (#820, M4), on `main`, not in a
   published preview: the cluster is attached (typically after `cluster up` without `--yes`, as
   the console's job runs it) but the environment's operator config does not name it, so
