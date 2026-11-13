@@ -434,9 +434,13 @@ def _deployment(args) -> int:
         )
     text, truncated = "", False
     if readable:
+        from agentbreeder.kubernetes import LogUnavailable
+
         options = {"pod": pod["name"], "previous": args.previous} if target == "kubernetes" else {}
         try:
             text, truncated = runtime.logs(info, tail, args.since, **options)
+        except LogUnavailable as error:
+            raise LogsError("LOG_UNAVAILABLE", str(error)) from error
         except DeploymentError as error:
             raise LogsError(codes["failed"], str(error)) from error
     lines, levels = leveled(_lines(redact(text)), fmt, args.level)

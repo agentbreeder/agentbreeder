@@ -390,6 +390,16 @@ On main, not in a published preview.
 
 ### Fixed
 
+- `logs ID` for a Kubernetes (local `kind`) deployment, on `main`, not in a published preview:
+  when `kubectl logs` exits 0 but its whole output is one kubelet message saying the container
+  or its log file is gone, it now fails with `LOG_UNAVAILABLE` (exit 2, with the `--json` error
+  object) instead of printing that message as a log line. On kind (node v1.37), `--previous` on
+  a crash-looping pod gave `unable to retrieve container logs for containerd://<id>` in 6 of 6
+  runs, and a container whose log file was removed gave `failed to try resolving symlinks in
+  path "…": lstat …: no such file or directory`. Only one untimestamped line that exactly matches
+  one of these forms counts; a timestamped container line with the same words is still printed.
+  `--follow` is unchanged.
+
 - Console, Services: after `services down` a service with no running container (absent,
   exited, created or dead) no longer lists its last host port as if something listened there;
   it reads "not listening (last: NAME → 127.0.0.1:PORT)", muted. **Stop services** is off,
