@@ -46,6 +46,21 @@ DEPLOYMENTS = [
     },
 ]
 
+# A release passed, then its local deployment was removed; the cluster is attached and granted.
+# `list --json` leaves removed deployments out (`store.active_all()`), so nothing is listed.
+RELEASED_THEN_REMOVED = {
+    "deployments": [],
+    "cluster": {
+        "tools": {
+            "kind": {"present": True, "supported": True, "install": ""},
+            "kubectl": {"present": True, "supported": True, "install": ""},
+        },
+        "cluster": True,
+        "registry": True,
+        "configured": True,
+    },
+}
+
 
 def go(page, console, route: str, heading: str) -> None:
     page.goto(f"{console.origin}/#{route}")
@@ -298,6 +313,23 @@ def test_grant_pending_shows_the_services_step_not_promote(page, console):
     )
     page.get_by_role("button", name="Review the grant change").click()
     page.wait_for_url("**/#/services")
+
+
+def test_released_then_removed_does_not_claim_nothing_was_released(page, console):
+    # #880: `promote` needs a ready local deployment, so once the released deployment is removed
+    # the card says no release runs locally (not that nothing was released) and Deploy stays off.
+    console.scenario(**RELEASED_THEN_REMOVED)
+    sign_in(page, console)
+    go(page, console, "/targets/kubernetes", "Kubernetes")
+    card = page.locator("section", has=page.get_by_role("heading", name="Deploy this release"))
+    expect(card).to_contain_text("No ready release is running locally")
+    expect(card).not_to_contain_text("Nothing released")
+    deploy = page.get_by_role("button", name="Deploy to cluster")
+    expect(deploy).to_be_disabled()
+    reason = page.locator(f"#{deploy.get_attribute('aria-describedby')}")
+    expect(reason).to_contain_text("Needs a release running locally")
+    deploy.focus()
+    expect(deploy).not_to_be_focused()
 
 
 def test_cost_figures_only_for_northwind(page, console):
