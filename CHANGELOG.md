@@ -12,6 +12,21 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder registry import PATH [--as NAME] [--version X.Y.Z] [--project DIR] [--json]`
+  (#825, M9a), on `main`, not in a published preview: copies a version directory from anywhere
+  into the project's `./registry` with `publish`'s checks, plus a `REF_CONFLICT` check against the
+  other search roots so the imported version resolves. `--as`/`--version` replace only the staged
+  manifest's top-level `name:` and `version:` lines (anything else fails closed). `registry
+  publish` and `import` now take `--dry-run` (stage and check, write nothing, print the digest
+  and, with `--json`, the staged files) and
+  `--expect-digest SHA256`, which writes only if the new staged copy has the reviewed digest
+  (`DIGEST_MISMATCH` otherwise; security review S-04). Both now check the manifest from the staged
+  copy rather than the source, refuse a symlinked kind or name directory in the target root, and
+  report a version published between the check and the rename as `VERSION_EXISTS`. The JSON
+  carries `runs_code` (tool, service, eval, mcp, runtime; S-05) for the console's confirm, and
+  `import` prints a matching note. `publish --json` keeps its one-line object and gains fields;
+  its `path` is now absolute. See `docs/registry.md`.
+
 - `agentbreeder services usage [DIR] [--follow] [--json]` (#821 S-10, M6), on `main`, not in a
   published preview: one stack's CPU, memory, network and block IO, and its disk, reading only.
   Containers match as `watch` matches them (stack services by label, agent containers by this
@@ -355,6 +370,9 @@ On main, not in a published preview.
 - Design spec for authenticated `/invoke` and caller-derived customer identity (#780, epic #812):
   `docs/superpowers/specs/2026-11-13-authenticated-invoke-design.md`. A spec only; nothing is
   built, and `/invoke` is still unauthenticated.
+- Design spec for governed agent-to-agent calls (A2A, M19 #835, epic #812):
+  `docs/superpowers/specs/2026-11-13-a2a-design.md`. A spec only, on `main`, not in a published
+  preview; nothing is built, and agents cannot call each other.
 
 ### Fixed
 
@@ -369,6 +387,12 @@ On main, not in a published preview.
   AgentBreeder state at DIR (permission denied)`, exit 2, with the `--json` error object
   (`sent: false`), instead of a Python traceback; a missing state is still `NO_STATE` (#820).
   On `main`, not in a published preview.
+- Console, Targets ▸ Kubernetes: after a released deployment was removed, the "Deploy this
+  release to the cluster" card said "Nothing released locally yet." It reads the ready local
+  deployment, which is what `promote` needs (`NO_LOCAL_RELEASE`), not the release history. It now
+  says "No ready release is running locally." (and "Running locally: NAME" when there is one),
+  and Deploy to cluster stays off with "Needs a release running locally: run a release first."
+  (#880, on `main`, not in a published preview).
 - `logs ID --follow`, `services logs --follow`, `watch` and `services usage --follow`: when the
   terminal's Ctrl-C or a group SIGTERM/SIGHUP ends their docker or kubectl child before the
   CLI's own handler records it, a child exit of 130, 143 or 129 (it caught the signal) now counts

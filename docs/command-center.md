@@ -110,6 +110,11 @@ On `main` the walkthrough column is replaced by a console shell (Preact + htm, n
   GRANT_PENDING. It does not call `next`. Deploy to cluster stays off, with that reason, until the
   reviewed grant has been started (`services up`), so the console no longer offers a `promote`
   that would fail with `KUBERNETES_UNCONFIGURED`.
+- **Nothing running locally**: Deploy to cluster promotes the release that is running locally
+  (`promote` reads the agent's ready local deployment, not the release history). When no local
+  deployment is ready (for example after it was removed), the card says "No ready release is
+  running locally." and Deploy to cluster stays off with "Needs a release running locally"
+  instead of offering a `promote` that fails with `NO_LOCAL_RELEASE` (#880).
 
 Tested with Playwright against the built wheel with a fake CLI: in Chromium in CI, and in the
 installed Chrome on macOS 13, where Playwright's Chromium is not offered. The tests cover every
