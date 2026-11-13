@@ -355,6 +355,16 @@ On main, not in a published preview.
 
 ### Fixed
 
+- `logs ID --follow`, `services logs --follow`, `watch` and `services usage --follow`: when the
+  terminal's Ctrl-C or a group SIGTERM/SIGHUP ends their docker or kubectl child before the
+  CLI's own handler records it, a child exit of 130, 143 or 129 (it caught the signal) now counts
+  as that stop, like a child killed by the signal: reason `interrupt` or `signal`, exit 0,
+  instead of `DOCKER_LOGS_FAILED`, `DOCKER_EVENTS_FAILED` or a `docker stats` restart. The
+  child's own exit code is read before the CLI stops it, so the CLI's own SIGTERM is never taken
+  for one. On Docker 27.5, `docker compose logs -f` (used by `services logs`) exits 130 after
+  SIGINT and SIGTERM; `docker logs -f` and `docker events` exit 1, which still reads as a
+  failure in that rare race; `docker stats` ignores both, so its case is covered by tests only;
+  kubectl was not checked (#821, on `main`, not in a published preview).
 - `next`'s Kubernetes step suggested `cluster up` without `--yes`, which leaves the grant and the
   operator config unchanged, so the `promote` it suggested next failed with
   `KUBERNETES_UNCONFIGURED`; it now suggests `cluster up --yes` (on `main`, not in a published

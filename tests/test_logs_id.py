@@ -413,6 +413,44 @@ def test_a_child_stopped_by_the_terminals_ctrl_c_is_an_interrupt(
     assert lines[-1]["reason"] == "interrupt"
 
 
+@pytest.mark.parametrize(
+    "code, reason",
+    [(130, "interrupt"), (143, "signal"), (129, "signal"), (137, None), (2, None)],
+)
+def test_a_reader_exiting_128_plus_a_stop_signal_is_a_stop(
+    state, docker, capsys, monkeypatch, code, reason
+):
+    # A reader that catches SIGINT/SIGTERM/SIGHUP may exit 128 + N (#863 review): `docker compose
+    # logs -f` exits 130 (Docker 27.5); kubectl was not checked.
+    # 137 (SIGKILL) and other codes stay failures.
+    docker.install(FakeDocker(child=f"import sys; print('x', flush=True); sys.exit({code})"))
+    _no_stdin_watch(monkeypatch)
+    expected = 0 if reason else 2
+    assert run(state, IDENTIFIER, "--follow", "--json") == expected
+    last = json.loads(capsys.readouterr().out.splitlines()[-1])
+    if reason:
+        assert last["reason"] == reason
+    else:
+        assert last["error"]["code"] == "DOCKER_LOGS_FAILED"
+
+
+def test_a_reader_failing_just_after_its_output_ends_is_not_our_sigterm(
+    state, docker, capsys, monkeypatch
+):
+    # Its own exit code is read before the CLI stops it: without that, the stop's SIGTERM
+    # (-15) would be read as a group signal and the failure hidden (#863 follow-up review).
+    child = (
+        "import os, sys, time; print('x', flush=True); os.close(1); time.sleep(0.3); sys.exit(1)"
+    )
+    docker.install(FakeDocker(child=child))
+    _no_stdin_watch(monkeypatch)
+    assert run(state, IDENTIFIER, "--follow", "--json") == 2
+    last = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert (
+        last["error"]["code"] == "DOCKER_LOGS_FAILED" and "exit code 1" in last["error"]["message"]
+    )
+
+
 def test_follow_drops_an_over_long_line_whole(state, docker, capsys, monkeypatch):
     monkeypatch.setattr(logs_command, "LINE_LIMIT", 64)
     child = f"print('x' * 200 + '{SECRET}', flush=True); print('after', flush=True)"

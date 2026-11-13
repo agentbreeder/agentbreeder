@@ -16,6 +16,7 @@ from test_services_engine import env, fake_docker  # noqa: F401
 from test_watch import _deploy, _state, stack, stopper  # noqa: F401
 
 from agentbreeder import cli, runtime, usage, watch
+from agentbreeder.commands import logs as logs_command
 from agentbreeder.commands import usage as usage_command
 from agentbreeder.services.compose import DockerCLI
 from agentbreeder.services.schema import ServiceError
@@ -439,6 +440,28 @@ def test_stats_ending_by_itself_is_an_error(stack, fake_docker, capsys, monkeypa
     out, err = _out(capsys)
     assert "[DOCKER_STATS_FAILED] docker stats ended unexpectedly" in err
     assert out[-1]["error"]["code"] == "DOCKER_STATS_FAILED"
+
+
+@pytest.mark.parametrize("code, reason", [(130, "interrupt"), (143, "signal"), (129, "signal")])
+def test_stats_exiting_on_a_stop_signal_is_a_stop(
+    stack, fake_docker, capsys, monkeypatch, stopper, code, reason
+):
+    # The group's Ctrl-C or SIGTERM reached `docker stats` first: a stop, not a restart.
+    _containers(monkeypatch, fake_docker, [([[ID1, "postgres", ""]], [])])
+    _disk(monkeypatch, fake_docker, [{}])
+    started = _children(monkeypatch, [f"import sys; sys.exit({code})"])
+    assert cli.main(["services", "usage", str(stack), "--follow", "--json"]) == 0
+    out, _ = _out(capsys)
+    assert out[-1]["reason"] == reason and len(started) == 1
+
+
+def test_exit_code_of_a_child_that_has_not_exited():
+    class Hung:
+        def wait(self, timeout):
+            raise subprocess.TimeoutExpired("docker", timeout)
+
+    assert logs_command.exit_code(None) is None
+    assert logs_command.exit_code(Hung()) is None
 
 
 def test_listing_failures_end_the_follow_after_a_few(

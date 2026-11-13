@@ -43,6 +43,7 @@ import os
 import re
 import signal
 import stat
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -477,6 +478,35 @@ def _deployment(args) -> int:
 STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 
 
+def stop_reason(returncode: int | None) -> str | None:
+    """The stop a reader's exit code shows, when a signal for the whole group (the terminal's
+    Ctrl-C, a supervisor's SIGTERM/SIGHUP) ended it before the CLI's own handler recorded a
+    reason (a fallback: the handler usually wins): "interrupt", "signal", or None.
+
+    A reader killed by the signal reports -N; one that catches it may exit 128 + N (#863
+    review). Observed on Docker 27.5 (2026-11-13): `docker compose logs -f` exits 130 after
+    SIGINT and after SIGTERM (so a SIGTERM reads as "interrupt" here), and -1 after SIGHUP;
+    `docker logs -f` and `docker events` exit 1 after SIGINT or SIGTERM, which cannot be told
+    from a failure and stays one; `docker stats` ignores both. kubectl was not checked."""
+    if returncode in (-signal.SIGINT, 128 + signal.SIGINT):
+        return "interrupt"
+    if returncode in {code for number in STOP_SIGNALS for code in (-number, 128 + number)}:
+        return "signal"
+    return None
+
+
+def exit_code(process, wait: float = 1.0) -> int | None:
+    """A reader's own exit code once its output ended, read BEFORE the CLI stops it (so the
+    CLI's own SIGTERM is never mistaken for the reader's); None if it has not exited within
+    `wait` seconds."""
+    if process is None:
+        return None
+    try:
+        return process.wait(wait)
+    except subprocess.TimeoutExpired:
+        return None
+
+
 class _Follow:
     """The follow child and how it is stopped: by the end of stdin (a watcher thread), by
     SIGTERM/SIGHUP (handlers that only record the reason and stop the child), by Ctrl-C or by
@@ -593,6 +623,7 @@ def _follow(
     previous = _handlers(follow)
     dropped = False
     process = None
+    ended = None  # the reader's own exit code, read before we stop it
     try:
         with follow.lock:
             if follow.reason is None:  # a stop signal may arrive before the child starts
@@ -614,6 +645,8 @@ def _follow(
                 while True:
                     line = process.stdout.readline(LINE_LIMIT)
                     if not line:
+                        if follow.reason is None:  # it ended by itself (or a group signal)
+                            ended = exit_code(process)
                         break
                     if not line.endswith(b"\n") and len(line) >= LINE_LIMIT:
                         while (rest := process.stdout.readline(LINE_LIMIT)) and not rest.endswith(
@@ -658,11 +691,10 @@ def _follow(
     if reason == "pipe":
         return 0
     if reason is None:
-        returncode = process.returncode if process is not None else 0
-        if returncode == -signal.SIGINT:  # the terminal's Ctrl-C reached the child first
-            reason = "interrupt"
-        elif returncode in (-signal.SIGTERM, -signal.SIGHUP):  # a group signal reached it first
-            reason = "signal"
+        returncode = ended if ended is not None else (process.returncode if process else 0)
+        stopped = stop_reason(ended)  # the signal reached the reader first (never our SIGTERM)
+        if stopped is not None:
+            reason = stopped
         elif returncode not in (0, None):
             raise LogsError(failed, f"the log stream ended with exit code {returncode}")
         else:
