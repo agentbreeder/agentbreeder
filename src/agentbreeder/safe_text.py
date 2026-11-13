@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import re
 
-_BIDI = "‪-‮⁦-⁩‎‏؜"
+# Bidirectional embeddings and overrides (U+202A-U+202E), isolates (U+2066-U+2069), the LRM and
+# RLM marks and the Arabic letter mark, written as escapes so the source has no invisible
+# characters.
+_BIDI = "\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c"
 # Line and paragraph separators: some readers break lines on them (a forged log line).
 _SEPARATORS = "\u2028\u2029"
 # Lone surrogates (valid in JSON's \\uXXXX, never encodable as UTF-8) would make `print` raise.
