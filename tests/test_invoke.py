@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
@@ -374,6 +376,75 @@ def test_missing_state_is_not_created(tmp_path, docker, capsys):
     assert captured.err.startswith("[NO_STATE]")
     assert json.loads(captured.out)["error"]["code"] == "NO_STATE"
     assert not missing.exists()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX permissions, not root"
+)
+def test_an_unsearchable_state_dir_is_coded_not_a_traceback(tmp_path, docker, capsys):
+    docker.install(FakeDocker())
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o000)
+    try:
+        assert run(locked / "state", "hello", "hi", "--json") == 2
+    finally:
+        locked.chmod(0o700)
+    captured = capsys.readouterr()
+    assert captured.err.startswith("[STATE_UNREADABLE] cannot read the AgentBreeder state at ")
+    assert "(permission denied)" in captured.err
+    assert "Traceback" not in captured.err
+    error = json.loads(captured.out)["error"]
+    assert (error["code"], error["sent"]) == ("STATE_UNREADABLE", False)
+    assert not (locked / "state").exists()
+
+
+def test_an_io_error_on_the_state_file_is_coded(state, docker, capsys, monkeypatch):
+    import errno
+
+    docker.install(FakeDocker())
+    real = os.stat
+
+    def failing(path, *args, **kwargs):
+        if str(path).endswith("deployments.sqlite3"):
+            raise OSError(errno.EIO, "Input/output error")
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", failing)
+    assert run(state, "hello", "hi") == 2
+    err = capsys.readouterr().err
+    assert err.startswith("[STATE_UNREADABLE]")
+    assert err.rstrip().endswith("(EIO)")
+    assert "Input/output" not in err  # the errno name, never the OS message
+
+
+def test_what_is_file_called_missing_stays_no_state(tmp_path, docker, capsys, monkeypatch):
+    docker.install(FakeDocker())
+    loop = tmp_path / "deployments.sqlite3"
+    loop.symlink_to(loop.name)  # ELOOP, which pathlib's is_file ignores
+    assert run(tmp_path, "hello", "hi") == 2
+    assert capsys.readouterr().err.startswith("[NO_STATE]")
+    real = os.stat
+
+    def nul(path, *args, **kwargs):  # what os.stat does with a NUL (e.g. from a stack config)
+        if str(path).endswith("deployments.sqlite3"):
+            raise ValueError("embedded null byte")
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", nul)
+    assert run(tmp_path / "x", "hello", "hi", "--json") == 2
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NO_STATE"
+
+
+def test_a_state_path_that_is_not_a_file_is_no_state(tmp_path, docker, capsys):
+    docker.install(FakeDocker())
+    (tmp_path / "deployments.sqlite3").mkdir()
+    assert run(tmp_path, "hello", "hi") == 2
+    assert capsys.readouterr().err.startswith("[NO_STATE]")
+    blocked = tmp_path / "file"
+    blocked.write_text("")
+    assert run(blocked, "hello", "hi") == 2  # a file where the directory should be: ENOTDIR
+    assert capsys.readouterr().err.startswith("[NO_STATE]")
 
 
 def test_a_state_read_error_while_verifying_is_coded_not_sent(
