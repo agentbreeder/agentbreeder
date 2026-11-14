@@ -24,7 +24,7 @@ group, and never on macOS, where the default group `staff` holds every local use
 stays 0700 until the end.
 Everything is written and checked in a hidden staging directory inside it, then moved into
 place; on failure what was created is removed. Files are 0644, directories (and any parents it
-creates) 0755. A path with control or bidi characters is refused rather than echoed.
+creates) 0755. A path with control, bidi or invisible characters is refused rather than echoed.
 
 Based on the starter walked by hand on 3.0.0a2, with `traces: none` and `agent_events: none`
 added (§9.2 #8); this template ran end to end from a checkout on 2026-11-12 (`services up`,
@@ -333,10 +333,10 @@ def plan(
     )
     target = Path(os.path.abspath(directory if directory is not None else Path(name)))
     if registry.clean(str(target), name=True)[0] != str(target):
-        # Never echoed: control or bidi characters would reach the terminal (and could forge
-        # a `Next:` line).
+        # Never echoed: control, bidi or invisible characters would reach the terminal (and
+        # could forge a `Next:` line).
         raise NewAgentError(
-            "DESTINATION_UNSAFE", "the destination path has control or bidi characters"
+            "DESTINATION_UNSAFE", "the destination path has control, bidi or invisible characters"
         )
     return Plan(name, model, target, review_by, files, publishes, model_id=resolved)
 

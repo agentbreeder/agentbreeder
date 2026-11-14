@@ -70,7 +70,7 @@ class RegistryError(ValueError):
 
 
 def _shown(value) -> str:
-    """A path or name for an error message: one line, no control or bidi characters."""
+    """A path or name for an error message: one line, no control, bidi or invisible characters."""
     return clean(str(value), name=True)[0]
 
 

@@ -139,7 +139,7 @@ def _project(directory: Path) -> str | None:
     finally:
         state.close()
     # Untrusted data to whoever shows or registers it (they re-check it, as registration does):
-    # only an absolute, normalised path with no control or bidi characters is passed on.
+    # only an absolute, normalised path with no control, bidi or invisible characters is passed on.
     if (
         isinstance(value, str)
         and os.path.isabs(value)
