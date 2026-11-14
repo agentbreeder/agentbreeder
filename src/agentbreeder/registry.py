@@ -39,7 +39,12 @@ from pathlib import Path
 
 from agentbreeder.strict_yaml import StrictYamlError, load_file, load_text
 
-KINDS = ("runtime", "prompt", "tool", "knowledge", "eval", "service", "mcp")
+KINDS = ("runtime", "prompt", "tool", "knowledge", "eval", "service", "mcp", "agent")
+# `agent/<name>/<X.Y.Z>` holds an agent package (M13 #763, `package.py`). Only `release` writes
+# one: publish, import, fork, edit and scaffold refuse the kind (PACKAGE_RELEASE_ONLY), and no
+# agent.yaml or stack.yaml field takes an agent/ ref, so build never copies one.
+PACKAGE_KIND = "agent"
+PACKAGE_RELEASE_ONLY = "PACKAGE_RELEASE_ONLY"
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 VERSION = re.compile(r"(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})")
 REF = re.compile(rf"(?P<kind>{'|'.join(KINDS)})/(?P<name>{NAME.pattern})@(?P<version>[0-9.]+)")
@@ -444,6 +449,7 @@ def place(
     source_ref: Ref | None = None,
     edit=None,
     context: int = 3,
+    package: bool = False,
 ) -> dict:
     """Copy a version directory into a registry root as an immutable version: `publish`,
     `import`, `fork` and `edit`. `name`/`version` rename it (the staged manifest is rewritten).
@@ -458,7 +464,11 @@ def place(
 
     `edit(staged)` (`registry edit`) changes the private staged copy before any check; the result
     then carries `diff` (as `registry diff --json`) from the copy as staged to the edited one,
-    and an edit that changes nothing is refused (EDIT_UNCHANGED)."""
+    and an edit that changes nothing is refused (EDIT_UNCHANGED).
+
+    An `agent/` version (a package) is refused (PACKAGE_RELEASE_ONLY) unless `package` is set,
+    which only `release` does; the staged copy must then load as a package (`package.load`)
+    and keep its name and version. `package` refuses any other kind."""
     if expect_digest is not None and not DIGEST.fullmatch(expect_digest):
         raise RegistryError("DIGEST_INVALID", "--expect-digest must be sha256:<64 hex digits>")
     if trusted_root(root):
@@ -496,6 +506,7 @@ def place(
                     )
             data = _staged_manifest(source, staged)
             original = Ref.parse(f"{data['kind']}/{data['name']}@{data['version']}")
+            _check_package(original, staged, package, renamed=(name, version) != (None, None))
             if source_ref is not None and original != source_ref:
                 raise RegistryError(
                     "MANIFEST_INVALID",
@@ -581,9 +592,32 @@ def place(
     return result
 
 
-def publish(source: Path, root: Path) -> tuple[Ref, str, Path]:
-    """Copy a prepared version directory into a registry root. Versions are immutable."""
-    result = place(source, root)
+def _check_package(ref: Ref, staged: Path, package: bool, renamed: bool) -> None:
+    """Only `release` writes `agent/` versions (spec §9), and what it writes is a package."""
+    if ref.kind != PACKAGE_KIND:
+        if package:
+            raise RegistryError("PACKAGE_INVALID", f"{ref} is not an agent/ package")
+        return
+    if not package:
+        raise RegistryError(
+            PACKAGE_RELEASE_ONLY,
+            f"agent/ versions are written by release; {ref} cannot be published, imported, "
+            "forked or edited",
+        )
+    if renamed:
+        raise RegistryError("PACKAGE_INVALID", f"{ref} cannot be renamed or re-versioned")
+    from agentbreeder.package import PackageError, load  # package imports this module
+
+    try:
+        load(staged, ref.name, ref.version)
+    except PackageError as error:
+        raise RegistryError(error.code, f"{ref}: {error.message}") from None
+
+
+def publish(source: Path, root: Path, *, package: bool = False) -> tuple[Ref, str, Path]:
+    """Copy a prepared version directory into a registry root. Versions are immutable.
+    `package` is for `release` only: it writes an `agent/` package (see `place`)."""
+    result = place(source, root, package=package)
     ref = Ref.parse(result["ref"])
     return ref, result["sha256"], root / ref.relative()
 
@@ -626,6 +660,8 @@ def fork_version(
 
     An unchanged ref is refused: an identical project copy adds nothing, and once edited in
     place it would conflict with the original (REF_CONFLICT) instead of being a new version."""
+    if ref.kind == PACKAGE_KIND:  # refused up front, before any copy (also checked in place)
+        _check_package(ref, Path(), package=False, renamed=False)
     search = roots(project_dir)
     hit = resolve(ref, search)
     if (name is None or name == ref.name) and (version is None or version == ref.version):
@@ -769,6 +805,8 @@ def edit_version(
     Only project versions are edited: a built-in or AGENTBREEDER_REGISTRY_PATH version is forked
     first (`registry fork`). `--dry-run` returns the digest a later call passes as
     `expect_digest` (S-04), and both return `diff` from REF to the new version."""
+    if ref.kind == PACKAGE_KIND:  # refused up front, before any copy (also checked in place)
+        _check_package(ref, Path(), package=False, renamed=False)
     search = roots(project_dir)
     hit = resolve(ref, search)
     root = project_dir / "registry"
@@ -843,7 +881,9 @@ def listing(search: list[Path], prefix: str = "") -> list[dict]:
 
 
 def verify(search: list[Path]) -> list[dict]:
-    """Re-check every version: safe entries, manifest matches its path. Returns problems.
+    """Re-check every version: safe entries, manifest matches its path, and an `agent/` version
+    loads as a package (`package.load`: its four files, a strict package.json naming it, and
+    agent.yaml matching its recorded hash). Returns problems.
     A symlinked kind or name directory is a problem too: every ref under it fails to resolve,
     even when a later root has the version (fail closed)."""
     problems = []
@@ -865,8 +905,11 @@ def verify(search: list[Path]) -> list[dict]:
         if row.pop("symlinked"):
             continue  # reported above
         try:
-            read_manifest(Path(row["path"]), Ref.parse(row["ref"]))
+            ref = Ref.parse(row["ref"])
+            read_manifest(Path(row["path"]), ref)
             row["sha256"] = copy_and_hash(Path(row["path"]))
+            if ref.kind == PACKAGE_KIND:
+                _check_package(ref, Path(row["path"]), True, renamed=False)
         except RegistryError as error:
             problems.append({"ref": row["ref"], "path": row["path"], "error": str(error)})
     return problems
@@ -904,6 +947,8 @@ SCAFFOLD = {
 
 
 def scaffold(kind: str, name: str, directory: Path, version: str = "0.1.0") -> Path:
+    if kind == PACKAGE_KIND:
+        raise RegistryError(PACKAGE_RELEASE_ONLY, "agent/ versions are written by release")
     if kind not in SCAFFOLD:
         raise RegistryError("REF_INVALID", f"kind must be one of {', '.join(SCAFFOLD)}")
     ref = Ref.parse(f"{kind}/{name}@{version}")
@@ -1159,13 +1204,17 @@ def show(ref: Ref, search: list[Path], project_dir: Path | None = None) -> dict:
     `registry show --json` prints this dict: ref, kind, name, version, description, root,
     root_kind, path, sha256, manifest, omitted (the version's text budget ran out), and files[]:
     {path, type: "dir", stripped} or {path, type: "file", size, executable, sha256, binary,
-    truncated, omitted, text, stripped}. `text` is null for binary or omitted files."""
+    truncated, omitted, text, stripped}. `text` is null for binary or omitted files.
+
+    An `agent/` version adds `package` (package.json's fields, cleaned) and `package_error`
+    (null, or why the shown bytes are not a valid package, with `package` then null)."""
     with _reads():
         hit = resolve(ref, search)
         items, digest, data = _read_checked(ref, hit)
     files = [_file_view(item) for item in items]
     manifest = _clean_value(data)
     description = manifest.get("description")
+    extra = _package_view(ref, items) if ref.kind == PACKAGE_KIND else {}
     return {
         "ref": str(ref),
         "kind": ref.kind,
@@ -1179,7 +1228,37 @@ def show(ref: Ref, search: list[Path], project_dir: Path | None = None) -> dict:
         "manifest": manifest,
         "omitted": any(f.get("omitted") for f in files),
         "files": files,
+        **extra,
     }
+
+
+def _package_view(ref: Ref, items: list[_File]) -> dict:
+    """`package.json` as cleaned fields, checked from the bytes `show` read (as `package.load`
+    checks a directory), so what is shown is what was checked."""
+    from agentbreeder import package  # package imports this module
+
+    def refused(message: str) -> dict:
+        return {"package": None, "package_error": str(RegistryError("PACKAGE_INVALID", message))}
+
+    by_path = {item.relative: item for item in items}
+    if sorted(by_path) != sorted(package.FILES) or any(i.type != "file" for i in items):
+        return refused(f"a package holds exactly {', '.join(package.FILES)}; found other files")
+    raw = by_path["package.json"]
+    if raw.head is None or raw.truncated:
+        return refused("package.json is too large to show")
+    try:
+        record = package.parse(raw.head)
+    except package.PackageError as error:
+        return {"package": None, "package_error": str(RegistryError(error.code, error.message))}
+    if (record.agent.name, record.agent.version) != (ref.name, ref.version):
+        return refused("package.json does not name this agent version")
+    if by_path["agent.yaml"].size > package.AGENT_YAML_LIMIT:
+        return refused("agent.yaml is too large")
+    if by_path["agent.lock"].size > package.LOCK_LIMIT:
+        return refused("agent.lock is too large")
+    if by_path["agent.yaml"].sha256 != record.inputs.agent_yaml_sha256:
+        return refused("agent.yaml differs from the hash in package.json")
+    return {"package": _clean_value(record.model_dump(mode="json")), "package_error": None}
 
 
 MAX_CONTEXT = 1000
