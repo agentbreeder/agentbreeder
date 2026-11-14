@@ -913,6 +913,29 @@ listings, pairing release rows, rollbacks, the 1,000-row cut, `stack.yaml` error
 values, a symlinked `stack.yaml`). Not yet run against real deployments; that is the M7
 verification.
 
+### Docker-down blocker (#822, M6, first part): on `main`, not in a published preview
+
+While Docker is not reachable, every signed-in screen shows a blocker at the top of the page:
+"Docker is not reachable.", doctor's own message, the remedy (start Docker, then run
+`agentbreeder doctor`) and a Retry button. The page asks `GET /api/docker` every 5 seconds while
+the tab is visible (at once when it comes back into view, and on Retry); the server runs
+`doctor --json --only docker` (the engine check alone, which gives up after 10 s, so a hung engine
+also shows the blocker, up to about 18 s after it hangs), never answers from its read cache, and
+lets one check answer every tab for 3 seconds; Retry never takes an answer older than the click.
+A check that itself fails keeps the last answer and says so under Retry. When Docker is back the
+blocker clears on the next check, without a reload, and Home's doctor card is read again.
+Polls of `/api/docker` do not keep a session alive, and signing out drops the last answer. Home's
+doctor card lists the other failed checks; Docker's own failure is only in the blocker.
+
+Before this, the console read `doctor --json` as a failure when a required check failed (doctor
+exits 1 then), so it kept showing the last passing answer, or nothing, and Home's Docker notice
+never appeared. `/api/overview` now keeps doctor's exit-1 answer too.
+
+The service controls, the usage child and the Home services table (the rest of M6) come in later
+parts. The M6 acceptance (stop Docker with Northwind running: the blocker within 15 s; start it:
+the blocker clears without a reload) is batched with the milestone verifications; the UI tests run
+it against the fake CLI.
+
 ## How it stays the same engine
 
 Every action starts the CLI in a child process, with a fixed argument list. The UI does not open the

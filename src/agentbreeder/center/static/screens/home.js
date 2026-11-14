@@ -1,4 +1,4 @@
-// Home: what this console runs on (doctor), the guided path of the project in scope (#820), the
+// Home: what this console runs on (doctor; Docker's own state is the page blocker), the guided path of the project in scope (#820), the
 // registered projects, and adding one (Create starter, Northwind, an existing directory, or an
 // agent.yaml alone, #823).
 
@@ -17,8 +17,7 @@ export function Home() {
   const [name, setName] = useState("");
   const nameProblem = starterNameProblem(name.trim());
   const checks = (overview && overview.doctor && overview.doctor.data) || [];
-  const docker = checks.find((check) => check.name === "Docker");
-  const failed = checks.filter((check) => !check.passed && !check.info && check !== docker);
+  const failed = checks.filter((check) => !check.passed && !check.info && check.name !== "Docker");
 
   const add = async (body, to = "/services") => {
     setBusy(true);
@@ -33,13 +32,8 @@ export function Home() {
     }
   };
 
+  // Docker itself is the page blocker every screen shows (ui/docker.js), so it is not listed here.
   return html`
-    ${docker && !docker.passed
-      ? html`<div class="notice error blocker" role="alert">
-          <strong>Docker is not reachable.</strong> <${Text} value=${docker.message} /> Start Docker, then run
-          <code>agentbreeder doctor</code> in a terminal. Services, builds and releases need it.
-        </div>`
-      : null}
     ${failed.length
       ? html`<${Card} title="Doctor">
           <ul class="plain">${failed.map((check) => html`<li><strong><${Text} value=${check.name} />:</strong> <${Text} value=${check.message} />${check.required ? "" : " (optional)"}</li>`)}</ul>

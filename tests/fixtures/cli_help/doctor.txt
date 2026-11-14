@@ -1,5 +1,7 @@
-usage: agentbreeder doctor [-h] [--json]
+usage: agentbreeder doctor [-h] [--json] [--only {docker}]
 
 options:
-  -h, --help  show this help message and exit
+  -h, --help       show this help message and exit
   --json
+  --only {docker}  Run only this check (the console's Docker blocker polls
+                   `--only docker`)

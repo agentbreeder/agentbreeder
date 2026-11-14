@@ -125,6 +125,8 @@ MAX_TURNS_IN_FLIGHT = 4
 SERVICES_BUSY_TEXT = "Another operation is running on this stack; retry when it finishes"
 MAX_TRACES_IN_FLIGHT = 4  # Try it trace reads (#907), each a `traces` child of up to 120 s
 MAX_TOOL_LOGS_IN_FLIGHT = 4  # tool execution log reads (#828), each a `tool log` child
+DOCKER_REUSE = 3.0  # seconds one Docker check answers every tab (M6 #822)
+DOCKER_TIMEOUT = 15  # `doctor --only docker`: one engine check with its own 10 s timeout
 AUDIT_PAGE = 50  # rows per Audit page; one more is read to know whether an older page exists
 AUDIT_BEFORE = re.compile(r"[1-9][0-9]{0,17}")  # `audit list --before SEQ`
 AGENT = r"(?P<agent>[a-z0-9][a-z0-9-]{0,52})"
@@ -175,10 +177,42 @@ class Center:
         self.turns = threading.BoundedSemaphore(MAX_TURNS_IN_FLIGHT)
         self.traces = threading.BoundedSemaphore(MAX_TRACES_IN_FLIGHT)
         self.tool_logs = threading.BoundedSemaphore(MAX_TOOL_LOGS_IN_FLIGHT)
+        self.docker_lock = threading.Lock()
+        self.docker_seen: tuple[float, dict] | None = None
 
     @property
     def origin(self) -> str:
         return f"http://127.0.0.1:{self.port}"
+
+    def docker(self, fresh: bool = False) -> dict:
+        """Whether Docker is reachable, for the page blocker (console §8.5, M6 #822):
+        `doctor --json --only docker`, the engine check alone, so a hung engine is reported
+        after that check's 10 s timeout (the full doctor would run its compose and PATH checks
+        after it). Read with exit 1 allowed (doctor's answer when the check fails, which is the
+        answer wanted here), never from the cache, so a stopped engine shows and a started one
+        clears, and tracked, so shutdown stops a check in flight. One check runs at a time and
+        its answer serves every tab for DOCKER_REUSE seconds after the check started. `fresh`
+        (Retry) takes only an answer from a check that STARTED after the request arrived (one
+        already running may have seen Docker before it came back), so a burst of Retries costs
+        the check in flight plus one more, not one each."""
+        arrived = time.monotonic()
+        with self.docker_lock:
+            seen = self.docker_seen  # (when the check started, its answer)
+            if seen and (
+                seen[0] >= arrived if fresh else time.monotonic() - seen[0] < DOCKER_REUSE
+            ):
+                return seen[1]
+            started = time.monotonic()
+            answer = self.runner.read(
+                ["doctor", "--json", "--only", "docker"],
+                timeout=DOCKER_TIMEOUT,
+                ok_codes=(0, 1),
+                cache=False,
+                track=True,
+            )
+            result = docker_state(answer)
+            self.docker_seen = (started, result)
+            return result
 
     # -- login -----------------------------------------------------------------------------------
 
@@ -916,6 +950,23 @@ def envelope(data: Any = None, problem: dict | None = None, stale: bool = False)
     return {"data": data, "error": problem, "stale": stale}
 
 
+def docker_state(answer: dict) -> dict:
+    """`{reachable, message}` from a `doctor --json` read: reachable is None when the answer
+    has no Docker check (so no blocker shows), and the read's error is passed on."""
+    if answer["error"] or not isinstance(answer["data"], list):
+        problem = answer["error"] or error("BAD_OUTPUT", "The command returned unreadable output")
+        return envelope(None, problem)
+    for check in answer["data"]:
+        if isinstance(check, dict) and check.get("name") == "Docker":
+            return envelope(
+                {
+                    "reachable": check.get("passed") is True,
+                    "message": str(check.get("message", "")),
+                }
+            )
+    return envelope({"reachable": None, "message": ""})
+
+
 @dataclass(frozen=True)
 class Request:
     center: Center
@@ -946,7 +997,9 @@ class Route:
 
 def _overview(request: Request) -> dict:
     runner = request.center.runner
-    doctor = runner.read(["doctor", "--json"])
+    # Exit 1 is doctor's answer when a required check fails (Docker down): keep it, or the
+    # last passing answer would be shown instead.
+    doctor = runner.read(["doctor", "--json"], ok_codes=(0, 1))
     return envelope({"version": __version__, "jobs": runner.running(), "doctor": doctor})
 
 
@@ -954,6 +1007,10 @@ def _activity(request: Request) -> dict:
     """Running jobs, and the latest jobs of every project, newest first."""
     center = request.center
     return envelope({"running": center.runner.running(), "recent": center.state.recent_jobs()})
+
+
+def _docker(request: Request) -> dict:
+    return request.center.docker(fresh=request.query.get("fresh") == ["1"])
 
 
 def _projects(request: Request) -> dict:
@@ -1280,6 +1337,7 @@ ROUTES: tuple[Route, ...] = (
         _set_ref,
         "/api/projects/0123456789ab/agent/set-ref",
     ),
+    Route("GET", r"/api/docker", _docker, "/api/docker", poll=True),
 )
 
 

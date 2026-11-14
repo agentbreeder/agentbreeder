@@ -13,10 +13,18 @@ NAMES = ("doctor",)
 def register(commands) -> None:
     doctor = commands.add_parser("doctor", help="Check local Docker prerequisites without changes")
     doctor.add_argument("--json", action="store_true")
+    doctor.add_argument(
+        "--only",
+        choices=("docker",),
+        help="Run only this check (the console's Docker blocker polls `--only docker`)",
+    )
 
 
 def run(args) -> int:
-    checks = check_docker() + check_compose() + check_path() + check_legacy()
+    if args.only == "docker":  # one engine check, bounded by its own 10 s timeout
+        checks = check_docker()
+    else:
+        checks = check_docker() + check_compose() + check_path() + check_legacy()
     if args.json:
         print(json.dumps([asdict(check) for check in checks], indent=2))
     else:

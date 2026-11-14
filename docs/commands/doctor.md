@@ -8,4 +8,6 @@ Implemented: `doctor`.
 
 `doctor` also checks, as advice only (never a failure), that the `agentbreeder` on `PATH` is this version: none is expected with npx or uvx (uv's temporary environment is skipped, so a stale install behind it is found), and a stale one from another install is named with the command to use instead.
 
+`doctor --only docker` runs only the Docker engine check (`docker version`, 10 s timeout) and keeps the exit code (1 when it fails); the console's Docker-down blocker polls `doctor --json --only docker` (on `main`, not in a published preview).
+
 Flags: `agentbreeder doctor --help`.
