@@ -38,7 +38,7 @@ from pydantic import ValidationError
 
 from agentbreeder import __version__, guide, registry
 from agentbreeder.center import agents as agent_rows
-from agentbreeder.center import builder, edits, onboard, toollog, tryit
+from agentbreeder.center import builder, edits, mcpgrants, onboard, toollog, tryit
 from agentbreeder.center import evals as eval_reads
 from agentbreeder.center.files import (
     BadRequest,
@@ -779,6 +779,34 @@ class Center:
             return self.runner.read(argv, timeout=60, cache=False)
         return self.runner.short_write(edits.SET_REF_KIND, project["id"], argv, project=project)
 
+    def mcp_grant(self, project: dict, body: object) -> dict:
+        """Grant or revoke (#831): `mcp grant|revoke --json`. Without `base` a dry run (the diff
+        and the digest of stack.yaml, nothing written, uncached); with it the write, bound to the
+        reviewed file, as a short write that also holds the project (no job reads a half-changed
+        stack). The answer is checked by `mcpgrants.grant_answer`."""
+        request = mcpgrants.grant_request(body)
+        self.recheck(project)
+        argv = mcpgrants.grant_argv(project, request)
+        if request["base"] is None:
+            result = self.runner.read(argv, timeout=60, cache=False)
+        else:
+            result = self.runner.short_write(mcpgrants.KIND, project["id"], argv, project=project)
+        if result["data"] is None:
+            return result
+        summary, problem = mcpgrants.grant_answer(result["data"], request)
+        return envelope(summary, problem)
+
+    def mcp_tools(self, project: dict, ref: registry.Ref) -> dict:
+        """The tools an `mcp/` version declares (#831), from `registry show --json` (cached as
+        the registry browser's reads are), parsed by `mcpgrants.declared_tools`."""
+        if ref.kind != "mcp" or ref.version is None:
+            raise BadRequest("ref must be mcp/NAME@X.Y.Z", "REF_INVALID")
+        shown = self.reads.show(project["path"], ref)
+        if shown["data"] is None:
+            return shown
+        rows, problem = mcpgrants.declared_tools(shown["data"])
+        return envelope(rows, problem, shown["stale"])
+
     def start_job(self, project: dict, body: dict) -> str:
         self.recheck(project)
         kind = str(body.get("kind", ""))
@@ -996,6 +1024,14 @@ def _registry_fork(request: Request) -> dict:
     return request.center.registry_fork(request.project(), request.body)
 
 
+def _mcp_grant(request: Request) -> dict:
+    return request.center.mcp_grant(request.project(), request.body)
+
+
+def _mcp_tools(request: Request) -> dict:
+    return request.center.mcp_tools(request.project(), _query_ref(request, "ref"))
+
+
 def _set_ref(request: Request) -> dict:
     return request.center.set_ref(request.project(), request.body)
 
@@ -1111,6 +1147,12 @@ ROUTES: tuple[Route, ...] = (
     ),
     Route(
         "GET",
+        rf"/api/projects/{PROJECT_ID}/mcp/tools",
+        _mcp_tools,
+        "/api/projects/0123456789ab/mcp/tools",
+    ),
+    Route(
+        "GET",
         rf"/api/projects/{PROJECT_ID}/tools/log",
         _tool_log,
         "/api/projects/0123456789ab/tools/log",
@@ -1181,6 +1223,12 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/registry/fork",
         _registry_fork,
         "/api/projects/0123456789ab/registry/fork",
+    ),
+    Route(
+        "POST",
+        rf"/api/projects/{PROJECT_ID}/mcp/grant",
+        _mcp_grant,
+        "/api/projects/0123456789ab/mcp/grant",
     ),
     Route(
         "POST",

@@ -9,6 +9,8 @@ state directory) before the console first reads them: the console caches reads b
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -95,6 +97,11 @@ DEFAULT = {
     # `services status --json`'s `mcp` part (the MCP screen, #831): {server: {state, pinned,
     # changed, missing, unpinned, error}}, as `Engine._mcp_status` answers it.
     "mcp_status": {},
+    # `mcp grant|revoke --json` (#831): null runs the real command on the project's stack.yaml;
+    # an object is printed as the answer instead (to show an `in_use` revoke).
+    "mcp_grant": None,
+    # ...and for the write only (`--expect-base`): the real write runs, then this is printed.
+    "mcp_grant_write": None,
 }
 
 TOOL_CALLS = [
@@ -285,10 +292,10 @@ def job(name: str, data: dict) -> int:
 
 
 def real(argv: list[str]) -> int:
-    """`registry show` and `registry diff` read only registry files; `registry edit` and
-    `agent set-ref` (#826) write only the project's files, `new agent --stack-for`
-    writes only stack.yaml beside an agent.yaml, and `new agent --from-spec` (#833) only the new
-    project's folder: the real commands."""
+    """`registry show` and `registry diff` read only registry files; `registry edit`,
+    `agent set-ref` (#826) and `mcp grant|revoke` (#831) write only the project's files,
+    `new agent --stack-for` writes only stack.yaml beside an agent.yaml, and `new agent
+    --from-spec` (#833) only the new project's folder: the real commands."""
     from agentbreeder import cli
 
     return cli.main(argv)
@@ -414,6 +421,15 @@ def main(argv: list[str]) -> int:
         return real(argv)  # onboarding an agent.yaml alone (#823) only writes beside it
     elif head == ["new", "agent"] and any(arg.startswith("--from-spec=") for arg in argv):
         return real(argv)  # the agent builder (#833) writes only the new project's folder
+    elif head in (["mcp", "grant"], ["mcp", "revoke"]):
+        if "--expect-base" in argv and data["mcp_grant_write"] is not None:
+            with contextlib.redirect_stdout(io.StringIO()):
+                real(argv)  # the file changes; only the scripted answer is printed
+            print(json.dumps(data["mcp_grant_write"]))
+            return 0
+        if data["mcp_grant"] is None:
+            return real(argv)  # #831: the real grant and revoke on the project's stack.yaml
+        print(json.dumps(data["mcp_grant"]))  # a scripted answer (an active deployment's in_use)
     elif head == ["new", "agent"]:
         if data["new_error"]:
             print(json.dumps({"schema_version": 1, "error": data["new_error"]}))

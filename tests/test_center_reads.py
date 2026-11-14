@@ -46,6 +46,8 @@ ALLOWED = {
     "agentbreeder.center.evals",
     # Prompt editing and set-ref (#826): pure request checks and argv; imports only registry.
     "agentbreeder.center.edits",
+    # MCP grant and revoke (#831): pure request/answer checks; imports registry, strict_yaml.
+    "agentbreeder.center.mcpgrants",
     # Agents (#823): pure shaping of `list --all` and `audit list` answers.
     "agentbreeder.center.agents",
     # The tool execution log (#828): pure query and answer checks; imports only registry and

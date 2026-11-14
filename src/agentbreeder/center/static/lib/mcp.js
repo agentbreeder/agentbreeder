@@ -4,7 +4,8 @@
 // is untrusted text; the screen renders it through <Text>. Nothing here touches the DOM.
 //
 // Stable exports: RELAY_STATES, TOOL_STATES, serverRows, grantRows, repinCommand, shellWord,
-// shortHash.
+// shortHash; for grant and revoke (part 2): grantProblem, grantWriteProblem, grantChoices, grantedTools,
+// grantSteps.
 
 /** `services status --json` `mcp.<server>.state`, in words. */
 export const RELAY_STATES = {
@@ -76,6 +77,9 @@ export function serverRows(files, status) {
       name,
       ref: text(server.ref),
       relay: text(server.relay),
+      // The console's log route takes service names of at most 31 characters (`SERVICE`): a
+      // longer relay name (a server name of 28+) is read with `services logs` in a terminal.
+      relayLogs: /^[a-z][a-z0-9-]{0,30}$/.test(text(server.relay)),
       origin: text(locked && locked.origin),
       upstream: text(locked && locked.upstream),
       lockCurrent: server.lock_current === true,
@@ -114,4 +118,92 @@ export function grantRows(files) {
     }
   }
   return rows;
+}
+
+// -- grant and revoke (`mcp grant|revoke --json`, #831 part 2) -------------------------------------
+
+/** Refusals a person can act on, in fixed words (others show the CLI's own message). */
+const GRANT_WORDS = {
+  MCP_AGENT_UNKNOWN: "stack.yaml has no such agent under environment.agents. Add the agent (with its sponsor and review date) by hand first.",
+  MCP_UNKNOWN: "stack.yaml has no such MCP server under mcp:.",
+  MCP_TOOL_UNDECLARED: "The server's version doesn't declare that tool, so it can't be granted.",
+  MCP_TOOL_INVALID: "That is not a valid tool name.",
+  STACK_EDIT_AMBIGUOUS: "The grant can't be rewritten without changing more of stack.yaml. Edit stack.yaml by hand.",
+  STACK_TOO_LARGE: "The change would take stack.yaml over the 64 KiB limit every command reads. Shorten it first.",
+  BASE_MISMATCH: "stack.yaml changed after your review. Review the change again.",
+  WRITE_BUSY: null, // the server's own message says what holds it
+};
+
+/** A grant or revoke refusal as {code, text, review}: `review` when it must be reviewed again. */
+export function grantProblem(problem) {
+  if (!problem) return null;
+  const code = typeof problem.code === "string" ? problem.code : null;
+  const words = code && Object.hasOwn(GRANT_WORDS, code) ? GRANT_WORDS[code] : null;
+  return { code, text: words || text(problem.message) || "The request failed.", review: code === "BASE_MISMATCH" };
+}
+
+/** Other refusals `mcp grant|revoke` makes before it writes (mcpgrant.change). */
+const BEFORE_WRITE = ["STACK_MISSING", "STACK_INVALID", "ENTRY_UNSAFE", "DIGEST_INVALID", "PROJECT_UNSAFE"];
+
+/**
+ * A write's problem: `uncertain` unless it is a refusal the CLI makes before writing (the codes
+ * above); a timeout or an answer that fails its check may come after stack.yaml changed.
+ */
+export function grantWriteProblem(problem) {
+  const shown = grantProblem(problem);
+  if (!shown) return null;
+  const known = shown.code !== null && (Object.hasOwn(GRANT_WORDS, shown.code) || BEFORE_WRITE.includes(shown.code));
+  if (known) return { ...shown, uncertain: false };
+  return { ...shown, uncertain: true, text: `${shown.text} The write may have happened: check the grants above (or git diff stack.yaml) before trying again.` };
+}
+
+/**
+ * The tools a form offers: to grant, the declared tools not granted yet; to revoke, the granted
+ * tools (also one a newer version no longer declares). `declared` is [{name, effect}] or null
+ * (unreadable: nothing to offer for a grant).
+ */
+export function grantChoices(verb, declared, granted) {
+  const held = names(granted);
+  if (verb === "revoke") return held.map((name) => ({ name, effect: effectOf(declared, name) }));
+  return (Array.isArray(declared) ? declared : [])
+    .filter((tool) => object(tool) && typeof tool.name === "string" && !held.includes(tool.name))
+    .map((tool) => ({ name: tool.name, effect: text(tool.effect) }));
+}
+
+function effectOf(declared, name) {
+  const hit = (Array.isArray(declared) ? declared : []).find((tool) => object(tool) && tool.name === name);
+  return hit ? text(hit.effect) : "";
+}
+
+/** One agent's current grant on one server, from the `mcp` view's data. */
+export function grantedTools(files, agent, server) {
+  const row = (Array.isArray(files && files.agents) ? files.agents : []).find((item) => object(item) && item.name === agent);
+  return names(own(object(row && row.grants), server));
+}
+
+/**
+ * What follows a reviewed or written change, as sentences and commands: a grant reaches the relay
+ * at the next `services up`; a revoke still held by an active deployment is refused there
+ * (MCP_GRANT_IN_USE) until that deployment is removed, or (an unreadable grant file) reconciled.
+ */
+export function grantSteps(summary, path, environment) {
+  const dir = text(path) ? shellWord(path) : "DIR";
+  const env = text(environment) ? shellWord(environment) : "ENV";
+  const steps = [];
+  for (const item of Array.isArray(summary && summary.in_use) ? summary.in_use : []) {
+    if (!object(item)) continue;
+    if (typeof item.deployment === "string") {
+      steps.push({
+        text: `Deployment ${item.deployment} (${text(item.environment)}) still holds ${names(item.tools).join(", ")}. services up refuses to narrow the grant (MCP_GRANT_IN_USE) until it is removed:`,
+        command: `agentbreeder remove ${shellWord(item.deployment)} --local --stack ${dir}`,
+      });
+    } else {
+      steps.push({
+        text: `An unreadable grant file in ${text(item.environment)} blocks services up until it is cleared:`,
+        command: `agentbreeder reconcile --stack ${dir} --environment ${shellWord(item.environment)}`,
+      });
+    }
+  }
+  steps.push({ text: "The relay gets the change at the next services up:", command: `agentbreeder services up ${dir} --environment ${env}` });
+  return steps;
 }
