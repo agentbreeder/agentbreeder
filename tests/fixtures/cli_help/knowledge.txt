@@ -1,0 +1,8 @@
+usage: agentbreeder knowledge [-h] {status} ...
+
+positional arguments:
+  {status}
+    status    Compare a knowledge version's documents with the runtime's index
+
+options:
+  -h, --help  show this help message and exit
