@@ -221,7 +221,10 @@ def test_import_into_a_shipped_tree_is_refused(project, elsewhere, monkeypatch):
 )
 def test_code_bearing_kinds_are_marked(project, tmp_path, kind, runs_code):
     """S-05: the console asks for the "this code runs in agents" confirm when `runs_code`."""
-    source = make_source(tmp_path / "src", kind, "thing", "1.0.0", {"README.md": "x\n"})
+    files = {"README.md": "x\n"}
+    if kind == "tool":  # a tool version must pass the tool checks (M12)
+        files["tool.yaml"] = "functions: []\n"
+    source = make_source(tmp_path / "src", kind, "thing", "1.0.0", files)
     result = _import(source, project, dry_run=True)
     assert result["runs_code"] is runs_code
     assert registry.runs_code(kind) is runs_code
@@ -362,7 +365,11 @@ def test_cli_end_to_end_preview_then_import(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     source = make_source(
-        tmp_path / "tools" / "orders", "tool", "orders", "1.0.0", {"src/orders.py": "x = 1\n"}
+        tmp_path / "tools" / "orders",
+        "tool",
+        "orders",
+        "1.0.0",
+        {"tool.yaml": "functions: []\n", "src/orders.py": "x = 1\n"},
     )
     env = {"AGENTBREEDER_REGISTRY_PATH": ""}
     args = ("registry", "import", str(source), "--version", "1.1.0")
