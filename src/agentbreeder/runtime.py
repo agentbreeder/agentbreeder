@@ -27,6 +27,52 @@ _STAMP = re.compile(
 )
 
 
+# A host port another process or container holds. Docker's port allocator says "Bind for
+# IP:PORT failed: port is already allocated" (IPv6 as `:::PORT` or `[::]:PORT`); Docker Engine
+# 28's bridge driver says "failed to bind host port for IP:PORT:CIP:CPORT/tcp: address already
+# in use"; a bind the OS refuses (Docker Desktop's "Ports are not available", docker-proxy,
+# podman's rootlessport) ends in "listen tcp[46] IP:PORT: bind: address already in use".
+# Bounded runs keep the search linear on crafted stderr.
+_HOST = r"(?:\[[^\]\s]{0,64}\]|[0-9A-Fa-f:.]{0,64})"
+_PORT_BUSY = re.compile(
+    rf"Bind for {_HOST}:([0-9]{{1,5}}) failed: port is already allocated"
+    rf"|failed to bind host port for {_HOST}:([0-9]{{1,5}}):\S{{0,80}}: address already in use"
+    rf"|listen (?:tcp|udp)[46]? {_HOST}:([0-9]{{1,5}}): bind: address already in use"
+)
+PORT_BUSY_SCAN = 64 * 1024  # the stderr tail searched
+
+
+def busy_port(stderr: bytes | str | None) -> int | None:
+    """The host port a failed docker or compose call could not bind, from its stderr, or None.
+    Only the number leaves this function: the rest of stderr is never echoed."""
+    if not stderr:
+        return None
+    if isinstance(stderr, bytes):
+        stderr = stderr[-PORT_BUSY_SCAN:].decode("utf-8", "replace")
+    match = _PORT_BUSY.search(stderr[-PORT_BUSY_SCAN:])
+    if match is None:
+        return None
+    port = int(next(group for group in match.groups() if group))
+    return port if 1 <= port <= 65535 else None
+
+
+def port_busy_message(port: int, what: str | None = None) -> str:
+    """The PORT_BUSY text, without the `[PORT_BUSY]` prefix."""
+    during = f" ({what})" if what else ""
+    return (
+        f"port {port} is already in use on this machine{during}; "
+        "stop what uses it, then run the command again"
+    )
+
+
+class PortBusy(DeploymentError):
+    code = "PORT_BUSY"
+
+    def __init__(self, port: int):
+        super().__init__(f"[PORT_BUSY] {port_busy_message(port)}")
+        self.port = port
+
+
 def join_partials(line: bytes) -> bytes:
     """One `docker logs --timestamps` line with the timestamps of its continuation records
     removed: after the leading timestamp, a timestamp that starts exactly PARTIAL payload bytes
@@ -222,6 +268,10 @@ class Docker:
                 "Docker operation failed or timed out; check docker context"
             ) from error
         if result.returncode:
+            # Only a container start binds host ports; other calls' stderr is not a bind.
+            port = busy_port(result.stderr) if arguments[:2] == ("container", "start") else None
+            if port is not None:
+                raise PortBusy(port)
             raise DeploymentError("Docker rejected the operation; check image, engine and context")
         output = result.stdout
         if isinstance(output, bytes):

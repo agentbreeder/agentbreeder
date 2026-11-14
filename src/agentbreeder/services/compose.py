@@ -76,8 +76,16 @@ class DockerCLI:
         return ["docker", *(["--context", self.context] if self.context else []), *arguments]
 
     def run(
-        self, *arguments: str, timeout: int = 120, what: str | None = None, stdin: bytes = b""
+        self,
+        *arguments: str,
+        timeout: int = 120,
+        what: str | None = None,
+        stdin: bytes = b"",
+        binds: bool = False,
     ) -> str:
+        """`binds`: the call publishes host ports (compose up|start|restart), so a taken port in
+        its stderr is PORT_BUSY. Never set for exec or one-shot runs, whose stderr is the
+        container's own output."""
         try:
             result = self._run(
                 self._argv(arguments),
@@ -93,6 +101,13 @@ class DockerCLI:
             ) from None
         stdout = _text(result.stdout)
         if result.returncode:
+            from agentbreeder.runtime import busy_port, port_busy_message
+
+            port = busy_port(_text(result.stderr)) if binds else None
+            if port is not None:
+                raise ServiceError(
+                    "PORT_BUSY", port_busy_message(port, what or f"docker {arguments[0]}")
+                )
             tail = redact(_text(result.stderr) or stdout, self.redactions).strip().splitlines()
             detail = "; ".join(line[:300] for line in tail[-5:])
             raise ServiceError(
@@ -111,7 +126,9 @@ class DockerCLI:
         if not empty.exists():
             write_private(empty, b"")
 
-    def compose(self, state: StackState, *arguments: str, timeout: int = 300, what=None) -> str:
+    def compose(
+        self, state: StackState, *arguments: str, timeout: int = 300, what=None, binds=False
+    ) -> str:
         return self.run(
             "compose",
             "-p",
@@ -125,6 +142,7 @@ class DockerCLI:
             *arguments,
             timeout=timeout,
             what=what or f"docker compose {arguments[0]}",
+            binds=binds,
         )
 
     def relay_probe(self, state: StackState, service: str, admin_token: bytes) -> str:
@@ -166,6 +184,7 @@ class DockerCLI:
             service,
             timeout=timeout + 60,
             what=f"starting service {service}",
+            binds=True,
         )
 
     def control(self, state: StackState, verb: str, service: str, timeout: int = 180) -> None:
@@ -176,7 +195,12 @@ class DockerCLI:
             raise ValueError(f"unknown verb {verb!r}")
         arguments = ("restart", "--no-deps") if verb == "restart" else (verb,)
         self.compose(
-            state, *arguments, service, timeout=timeout, what=f"docker compose {verb} {service}"
+            state,
+            *arguments,
+            service,
+            timeout=timeout,
+            what=f"docker compose {verb} {service}",
+            binds=verb != "stop",
         )
 
     def containers(self, state: StackState) -> dict[str, dict]:
