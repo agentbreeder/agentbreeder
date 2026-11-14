@@ -23,7 +23,7 @@ agentbreeder services down --purge --yes                       # remove everythi
 
 `agent.yaml` doesn't change and still grants nothing. `services up` writes the operator config
 for a **local demo environment** outside the repo, and `--stack DIR` points `build`, `deploy`,
-`eval`, `release`, `status`, `remove` and `reconcile` at it.
+`eval`, `release`, `status`, `remove` and `reconcile` at it. When `--stack DIR` cannot be resolved, every command that takes it (except `cluster` and `watch`, whose `--stack` names the project) prints a coded line on stderr (for example `STACK_MISSING`, `STACK_INVALID`, `STACK_ENVIRONMENT`, `STACK_NOT_UP`, or `STACK_UNREADABLE` when the directory cannot be read) and, with `--json`, `{"schema_version": 1, "error": {"code", "message"}}` on stdout; exit 2 (on `main`, not in a published preview).
 
 ## `stack.yaml`
 
