@@ -344,6 +344,18 @@
    "exec": false,
    "sha256": "614dbe330292e4b34df11fa7075bf92d21a96114cb6f91f17805d6699af59403"
   },
+  "builtin_registry/service/postgres-pgvector/1.2.0/files/init.sh": {
+   "exec": true,
+   "sha256": "614b601d056e95a5151d4cd4ea7e9eb638f2a71cb7b03c3588b15ea1b8ad97a4"
+  },
+  "builtin_registry/service/postgres-pgvector/1.2.0/manifest.yaml": {
+   "exec": false,
+   "sha256": "1ef53a70dc2903357aae2acd8629771afcc6c1ebbf93aa4f9985a3b6b99f9c8e"
+  },
+  "builtin_registry/service/postgres-pgvector/1.2.0/service.yaml": {
+   "exec": false,
+   "sha256": "f006a5884e3e153b7fcb6d8a51989f7b65c611f005b318ce5013f995f39d8875"
+  },
   "examples/http-agent/Dockerfile": {
    "exec": false,
    "sha256": "83056b1fda560fe9e70aed2637c7bc53c56afd92da2c9bcb948433057c441d74"
@@ -366,7 +378,7 @@
   },
   "examples/northwind/README.md": {
    "exec": false,
-   "sha256": "a92b3c1b5b650219798d593911f58b1c6be70fb134f1cc1ab0096d32afd6c2fc"
+   "sha256": "cdcd0de7d25f5284fd8e4d6e294eb9d93cc3b8beb38a739872059b2b9a018070"
   },
   "examples/northwind/agent.lock": {
    "exec": false,
@@ -570,11 +582,11 @@
   },
   "examples/northwind/stack.lock": {
    "exec": false,
-   "sha256": "f61c1ef0a48d2fbea84d1a5f500932214b01ae7804fe16b4307888d20c1abc43"
+   "sha256": "05b5dc963e31888c2a7e9a6bd84301bd4e5d131b6aba9f9f596e4dffdc1cc8cc"
   },
   "examples/northwind/stack.yaml": {
    "exec": false,
-   "sha256": "92d574bf80dfdc51d838bc2a8d6d00dcb890deebe3c0337c2514290a4183f455"
+   "sha256": "3e6b7e82beede0dd86305733bc198141f615a6a4d2f0c9b50cb36137d06fc117"
   },
   "examples/northwind/stack/.dockerignore": {
    "exec": false,
@@ -582,7 +594,7 @@
   },
   "examples/northwind/stack/db/commerce.sql": {
    "exec": false,
-   "sha256": "8ff44370ddd14555186244b19e98b418a8c81bcdb470e0636b0ec7e154f39686"
+   "sha256": "c9abeed196074eaba7a17a8d92d61ebde2f0692c7e22b19f9d2657f602c349d1"
   },
   "examples/northwind/stack/litellm/config.yaml": {
    "exec": false,

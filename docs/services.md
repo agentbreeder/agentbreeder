@@ -33,13 +33,14 @@ schema_version: 1
 name: northwind
 services:
   postgres:
-    ref: service/postgres-pgvector@1.1.0
+    ref: service/postgres-pgvector@1.2.0
     with:
       databases: [support, litellm, phoenix]   # one database and one login role each
       init_sql: stack/db/commerce.sql          # schema, seed data and grants, as the support role
       init_sql_database: support
       roles: [support_agent, support_ops]      # least-privilege roles in `support`
       roles_database: support
+      console_database: support                # AgentBreeder's console role, for CLI reads
   litellm:
     ref: service/litellm@1.0.0
     with: {config: stack/litellm/config.yaml}
@@ -88,6 +89,28 @@ environment:
   after themselves; the database owner's `init_sql` grants them exactly what they use. In
   Northwind the agent can read orders and file cancellation requests but can't approve one or
   change an order: only the ops role can.
+- **The console role** (`postgres-pgvector@1.2.0`, `console_database`). The login role
+  `agentbreeder_console` can connect only to that database among the stack's databases (and
+  `postgres`/`template1` are closed) and has no rights of its own: no schema, no membership, no
+  `CREATE` or `TEMP`. The database owner's `init_sql` grants it rights
+  on tables **the owner made** (Northwind: `turns`, `audit_events`, `notes`, `tickets`), never on
+  tables the agent's role owns, because a role that reads another role's table runs that table's
+  triggers with its own rights. A `GRANT` to a missing role fails the whole `init_sql`, so guard
+  it:
+
+  ```sql
+  DO $$ BEGIN
+    IF to_regrole('agentbreeder_console') IS NOT NULL THEN
+      GRANT SELECT ON turns, audit_events TO agentbreeder_console;
+    END IF;
+  END $$;
+  ```
+
+  Its URL is the `console` output, `operator_only`: never bound into an agent, wired to a service
+  or used as `eval_database`. `agentbreeder_console` is reserved as a `databases` or `roles` name.
+  Removing `console_database` makes the role `NOLOGIN`, revokes its `CONNECT` and ends its
+  sessions on the next `services up`. Where the agent's role is the database owner (the starter
+  from `new agent`), there is no console role: there is no boundary inside that database to keep.
 
 ## Commands
 
@@ -120,6 +143,7 @@ agentbreeder services down   [DIR] [--volumes | --purge] [--yes] [--json]
 
 | Service | What it runs | Params | Outputs |
 |---|---|---|---|
+| `service/postgres-pgvector@1.2.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.1.0, plus `console_database` | as 1.1.0, plus `console` (operator only): a URL for `agentbreeder_console`, which can connect only to `console_database` and has no rights until `init_sql` grants them. |
 | `service/postgres-pgvector@1.1.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | as 1.0.0, plus `roles` (list) and `roles_database` | as 1.0.0, plus `roles.<name>`: a URL for a role that can connect only to `roles_database`, owns only a schema of its own name and has no other rights until `init_sql` grants them. `postgres` and `template1` are closed to applications. |
 | `service/postgres-pgvector@1.0.0` | PostgreSQL 16 with pgvector 0.8, data volume, uid 999 | `databases` (list), `init_sql` (file, ≤ 64 KiB, no `\` meta-commands), `init_sql_database` | `databases.<name>`: a URL with that database's own role (never the superuser) |
 | `service/litellm@1.0.0` | LiteLLM 1.106.2 proxy, `provides: gateway/litellm` | `config` (file, required; reviewed: allow-listed keys, each provider key only to its provider) | `url`; `master_key` (operator only) |

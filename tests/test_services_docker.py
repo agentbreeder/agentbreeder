@@ -296,6 +296,343 @@ def test_postgres_pgvector_least_privilege_roles(tmp_path, monkeypatch):
             one.close()
 
 
+CONSOLE_SEED = """
+CREATE TABLE IF NOT EXISTS turns (id text PRIMARY KEY, tools jsonb NOT NULL DEFAULT '[]');
+CREATE TABLE IF NOT EXISTS audit_events (
+  id BIGSERIAL PRIMARY KEY, actor text NOT NULL, action text NOT NULL,
+  detail jsonb NOT NULL DEFAULT '{}');
+CREATE TABLE IF NOT EXISTS customers (id text PRIMARY KEY);
+INSERT INTO turns VALUES ('t1') ON CONFLICT DO NOTHING;
+ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS db_role TEXT;
+CREATE OR REPLACE FUNCTION audit_events_db_role() RETURNS trigger LANGUAGE plpgsql
+  SET search_path = pg_catalog AS $$
+BEGIN NEW.db_role := session_user; RETURN NEW; END $$;
+CREATE OR REPLACE TRIGGER audit_events_set_db_role BEFORE INSERT ON audit_events
+  FOR EACH ROW EXECUTE FUNCTION audit_events_db_role();
+GRANT INSERT ON audit_events TO alpha_agent;
+GRANT USAGE ON SEQUENCE audit_events_id_seq TO alpha_agent;
+DO $$ BEGIN
+  IF to_regrole('agentbreeder_console') IS NOT NULL THEN
+    GRANT SELECT, DELETE ON turns TO agentbreeder_console;
+    GRANT SELECT ON audit_events TO agentbreeder_console;
+    GRANT INSERT (actor, action, detail) ON audit_events TO agentbreeder_console;
+    GRANT USAGE ON SEQUENCE audit_events_id_seq TO agentbreeder_console;
+  END IF;
+END $$;
+"""
+
+
+def test_postgres_pgvector_console_role(tmp_path, monkeypatch):
+    """1.2.0 `console_database`: `agentbreeder_console` connects only there, holds nothing but
+    what the owner's init_sql grants, `db_role` records the login, the name is reserved, and
+    unsetting the param stops the credential working (M12 delta §3.2–3.4)."""
+    import psycopg
+
+    monkeypatch.delenv(registry.PATH_ENV, raising=False)
+    monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))
+    stack = json.loads(json.dumps(STACK))
+    with_ = {
+        "databases": ["alpha", "beta"],
+        "init_sql": "db/seed.sql",
+        "init_sql_database": "alpha",
+        "roles": ["alpha_agent"],
+        "roles_database": "alpha",
+        "console_database": "alpha",
+    }
+    stack["services"] = {
+        "postgres": {"ref": "service/postgres-pgvector@1.2.0", "with": with_},
+        "gateway": stack["services"]["gateway"],
+    }
+    stack["environment"]["services"] = {}
+    stack["environment"]["bindings"] = {"DATABASE_URL": {"ref": "postgres.roles.alpha_agent"}}
+    stack["environment"]["eval_database"] = {"ref": "postgres.databases.alpha"}
+    project = write_project(tmp_path / "pg", stack=stack)
+    (project / "db").mkdir()
+    (project / "db" / "seed.sql").write_text(CONSOLE_SEED)
+    one = Engine(project)
+    try:
+        assert up(one)["services"]["postgres"] == "created"
+        assert up(one)["services"]["postgres"] == "unchanged"  # init is idempotent
+        port = one.status()["services"]["postgres"]["host_ports"]["pg"]
+        plan = one.plan()
+        one.secrets(plan, None)
+        secret = one.state.read_secret("postgres", "console").decode()
+        console_url = plan.output(Reference("postgres", "console"), "host").decode()
+        assert console_url == f"postgresql://agentbreeder_console:{secret}@127.0.0.1:{port}/alpha"
+        agent = one.state.read_secret("postgres", "login.alpha_agent").decode()
+        agent_url = f"postgresql://alpha_agent:{agent}@127.0.0.1:{port}/alpha"
+
+        with psycopg.connect(console_url, connect_timeout=10, autocommit=True) as conn:
+            assert conn.execute("SELECT id FROM public.turns").fetchall() == [("t1",)]
+            conn.execute(
+                "INSERT INTO public.audit_events (actor, action, detail) "
+                "VALUES ('console', 'note', '{}')"
+            )
+            for denied in (
+                "SELECT * FROM public.customers",
+                "UPDATE public.turns SET tools = '[]'",
+                "INSERT INTO public.audit_events (actor, action, db_role) VALUES ('a', 'b', 'x')",
+                "CREATE TABLE public.x (id int)",
+                "CREATE TEMP TABLE x (id int)",
+                "CREATE SCHEMA console_own",
+            ):
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    conn.execute(denied)
+            row = conn.execute(
+                "SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication "
+                "OR rolbypassrls, rolconnlimit FROM pg_roles WHERE rolname = current_user"
+            ).fetchone()
+            assert row == (False, 10)
+            assert conn.execute(
+                "SELECT count(*) FROM pg_auth_members m JOIN pg_roles r "
+                "ON r.oid IN (m.member, m.roleid) WHERE r.rolname = 'agentbreeder_console'"
+            ).fetchone() == (0,)
+        base = console_url.rsplit("/", 1)[0]
+        for other in ("beta", "postgres", "template1"):
+            with pytest.raises(psycopg.OperationalError):
+                psycopg.connect(f"{base}/{other}", connect_timeout=10).close()
+        with psycopg.connect(agent_url, connect_timeout=10, autocommit=True) as conn:
+            conn.execute(
+                "INSERT INTO public.audit_events (actor, action, db_role) "
+                "VALUES ('runtime', 'tool:x', 'agentbreeder_console')"  # forged: overridden
+            )
+        owner = one.state.read_secret("postgres", "role.alpha").decode()
+        with psycopg.connect(
+            f"postgresql://alpha:{owner}@127.0.0.1:{port}/alpha", connect_timeout=10
+        ) as conn:
+            assert conn.execute(
+                "SELECT actor, db_role FROM audit_events ORDER BY id"
+            ).fetchall() == [("console", "agentbreeder_console"), ("runtime", "alpha_agent")]
+
+        # The reserved name can't be a `roles` (or `databases`) item.
+        stack["services"]["postgres"]["with"] = {
+            **with_,
+            "roles": ["alpha_agent", "agentbreeder_console"],
+        }
+        write_project(project, stack=stack)
+        one.close()
+        one = Engine(project)  # an engine reads stack.yaml once
+        with pytest.raises(ServiceError, match="postgres.init exited"):
+            up(one)
+
+        # Unset: the role can't log in any more; init_sql's guarded grants still apply cleanly.
+        stack["services"]["postgres"]["with"] = {
+            k: v for k, v in with_.items() if k != "console_database"
+        }
+        write_project(project, stack=stack)
+        one.close()
+        one = Engine(project)
+        up(one)
+        with pytest.raises(psycopg.OperationalError):
+            psycopg.connect(console_url, connect_timeout=10).close()
+    finally:
+        try:
+            one.active_deployments = lambda: []
+            one.down(volumes=True)
+        finally:
+            one.close()
+
+
+def test_northwind_commerce_sql_on_console_role(tmp_path, monkeypatch):
+    """Northwind's real `commerce.sql` applies on 1.2.0 twice, keeps the agent's grants, gives
+    the console role exactly its table and stamps `db_role` (M12 delta §3.3–3.4)."""
+    import psycopg
+
+    northwind = Path(registry.__file__).parent / "examples" / "northwind"
+    monkeypatch.delenv(registry.PATH_ENV, raising=False)
+    monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))
+    stack = json.loads(json.dumps(STACK))
+    stack["services"] = {
+        "postgres": {
+            "ref": "service/postgres-pgvector@1.2.0",
+            "with": {
+                "databases": ["support"],
+                "init_sql": "db/commerce.sql",
+                "init_sql_database": "support",
+                "roles": ["support_agent", "support_ops"],
+                "roles_database": "support",
+                "console_database": "support",
+            },
+        },
+        "gateway": stack["services"]["gateway"],
+    }
+    stack["environment"]["services"] = {}
+    stack["environment"]["bindings"] = {"DATABASE_URL": {"ref": "postgres.roles.support_agent"}}
+    stack["environment"]["eval_database"] = {"ref": "postgres.databases.support"}
+    project = write_project(tmp_path / "nw", stack=stack)
+    (project / "db").mkdir()
+    (project / "db" / "commerce.sql").write_bytes(
+        (northwind / "stack" / "db" / "commerce.sql").read_bytes()
+    )
+    one = Engine(project)
+    try:
+        assert up(one)["services"]["postgres"] == "created"
+        assert up(one)["services"]["postgres"] == "unchanged"
+        port = one.status()["services"]["postgres"]["host_ports"]["pg"]
+        plan = one.plan()
+        one.secrets(plan, None)
+        console_url = plan.output(Reference("postgres", "console"), "host").decode()
+        agent = one.state.read_secret("postgres", "login.support_agent").decode()
+        agent_url = f"postgresql://support_agent:{agent}@127.0.0.1:{port}/support"
+        with psycopg.connect(agent_url, connect_timeout=10, autocommit=True) as conn:
+            conn.execute(
+                "INSERT INTO turns (id, session, customer, message, reply, latency_ms, "
+                "model_calls, tools, sources, evidence, retrieval, prompt_tokens, output_tokens) "
+                "VALUES ('t1', 's', 'cust-001', 'm', 'r', 1, 1, '[]', '[]', '[]', 'none', 1, 1)"
+            )
+            conn.execute(
+                "INSERT INTO audit_events (turn_id, actor, action, detail) "
+                "VALUES ('t1', 'agent', 'tool:order_status', '{}')"
+            )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("SELECT * FROM turns")
+        with psycopg.connect(console_url, connect_timeout=10, autocommit=True) as conn:
+            assert conn.execute("SELECT action, db_role FROM public.audit_events").fetchall() == [
+                ("tool:order_status", "support_agent")
+            ]
+            assert conn.execute("SELECT id FROM public.turns").fetchall() == [("t1",)]
+            conn.execute("INSERT INTO public.notes (customer, note) VALUES ('cust-001', 'n')")
+            for denied in (
+                "SELECT * FROM public.customers",
+                "SELECT * FROM public.orders",
+                "UPDATE public.audit_events SET actor = 'x'",
+                "SELECT * FROM adk_sessions.anything",
+            ):
+                with pytest.raises(
+                    (psycopg.errors.InsufficientPrivilege, psycopg.errors.UndefinedTable)
+                ):
+                    conn.execute(denied)
+    finally:
+        try:
+            one.active_deployments = lambda: []
+            one.down(volumes=True)
+        finally:
+            one.close()
+
+
+def _without_console(sql: str) -> str:
+    """Northwind's commerce.sql as it was before 1.2.0: no db_role column and no console grants."""
+    start = sql.index("-- Which database login inserted")
+    end = sql.index("FUNCTION public.audit_events_db_role();\n") + len(
+        "FUNCTION public.audit_events_db_role();\n"
+    )
+    console = sql.index("-- AgentBreeder's console role")
+    return sql[:start] + sql[end:console]
+
+
+def test_postgres_pgvector_console_upgrade_and_fail_closed(tmp_path, monkeypatch):
+    """1.1.0 → 1.2.0 on a populated audit_events keeps old rows' db_role NULL; unsetting
+    console_database ends the role's open sessions; a database named agentbreeder_console, a
+    console role with a membership, and an undeclared console_database each stop `init`."""
+    import psycopg
+
+    real = (
+        Path(registry.__file__).parent / "examples" / "northwind" / "stack" / "db" / "commerce.sql"
+    ).read_text()
+    monkeypatch.delenv(registry.PATH_ENV, raising=False)
+    monkeypatch.setenv(ROOT_ENV, str(tmp_path / "stacks"))
+    base_with = {
+        "databases": ["support"],
+        "init_sql": "db/commerce.sql",
+        "init_sql_database": "support",
+        "roles": ["support_agent", "support_ops"],
+        "roles_database": "support",
+    }
+    stack = json.loads(json.dumps(STACK))
+    gateway = stack["services"]["gateway"]
+    stack["environment"]["services"] = {}
+    stack["environment"]["bindings"] = {"DATABASE_URL": {"ref": "postgres.roles.support_agent"}}
+    stack["environment"]["eval_database"] = {"ref": "postgres.databases.support"}
+    project = tmp_path / "up"
+
+    def configure(ref: str, sql: str, **extra) -> Engine:
+        stack["services"] = {
+            "postgres": {"ref": ref, "with": {**base_with, **extra}},
+            "gateway": gateway,
+        }
+        write_project(project, stack=stack)
+        (project / "db").mkdir(exist_ok=True)
+        (project / "db" / "commerce.sql").write_text(sql)
+        return Engine(project)
+
+    def bring_up(instance: Engine) -> dict:
+        return instance.up("dev", mode="update", confirm=lambda grant: True)
+
+    one = configure("service/postgres-pgvector@1.1.0", _without_console(real))
+    try:
+        bring_up(one)
+        port = one.status()["services"]["postgres"]["host_ports"]["pg"]
+        host = f"127.0.0.1:{port}"
+        agent = one.state.read_secret("postgres", "login.support_agent").decode()
+        owner = one.state.read_secret("postgres", "role.support").decode()
+        superuser = one.state.read_secret("postgres", "superuser").decode()
+        agent_url = f"postgresql://support_agent:{agent}@{host}/support"
+        owner_url = f"postgresql://support:{owner}@{host}/support"
+        super_url = f"postgresql://postgres:{superuser}@{host}/postgres"
+        audit = "INSERT INTO audit_events (actor, action) VALUES (%s, 'tool:x')"
+        with psycopg.connect(agent_url, connect_timeout=10, autocommit=True) as conn:
+            conn.execute(audit, ("before",))
+
+        one.close()
+        one = configure("service/postgres-pgvector@1.2.0", real, console_database="support")
+        bring_up(one)
+        bring_up(one)  # init and the migration run twice cleanly
+        with psycopg.connect(agent_url, connect_timeout=10, autocommit=True) as conn:
+            conn.execute(audit, ("after",))
+        with psycopg.connect(owner_url, connect_timeout=10) as conn:
+            assert conn.execute(
+                "SELECT actor, db_role FROM audit_events ORDER BY id"
+            ).fetchall() == [("before", None), ("after", "support_agent")]
+
+        plan = one.plan()
+        one.secrets(plan, None)
+        console_url = plan.output(Reference("postgres", "console"), "host").decode()
+        held = psycopg.connect(console_url, connect_timeout=10, autocommit=True)
+        try:
+            assert held.execute("SELECT count(*) FROM public.turns").fetchone() == (0,)
+            one.close()
+            one = configure("service/postgres-pgvector@1.2.0", real)  # console_database unset
+            bring_up(one)
+            with pytest.raises(psycopg.OperationalError):
+                held.execute("SELECT 1")  # its session was ended
+        finally:
+            held.close()
+        with pytest.raises(psycopg.OperationalError):
+            psycopg.connect(console_url, connect_timeout=10).close()
+
+        # Fail closed: an undeclared console_database, a database of the reserved name, and a
+        # console role with a membership (not made by init) each stop init.
+        one.close()
+        one = configure("service/postgres-pgvector@1.2.0", real, console_database="other")
+        with pytest.raises(ServiceError, match="postgres.init exited"):
+            bring_up(one)
+        for setup, teardown in (
+            ("CREATE DATABASE agentbreeder_console", "DROP DATABASE agentbreeder_console"),
+            (
+                "GRANT support_agent TO agentbreeder_console",
+                "REVOKE support_agent FROM agentbreeder_console",
+            ),
+        ):
+            with psycopg.connect(super_url, connect_timeout=10, autocommit=True) as conn:
+                conn.execute(setup)
+            one.close()
+            one = configure("service/postgres-pgvector@1.2.0", real, console_database="support")
+            with pytest.raises(ServiceError, match="postgres.init exited"):
+                bring_up(one)
+            with psycopg.connect(super_url, connect_timeout=10, autocommit=True) as conn:
+                conn.execute(teardown)
+        one.close()
+        one = configure("service/postgres-pgvector@1.2.0", real, console_database="support")
+        bring_up(one)  # back to a clean state: the console credential works again
+        psycopg.connect(console_url, connect_timeout=10).close()
+    finally:
+        try:
+            one.active_deployments = lambda: []
+            one.down(volumes=True)
+        finally:
+            one.close()
+
+
 def test_litellm_gateway_on_postgres(tmp_path, monkeypatch):
     """The built-in litellm runs read-only as 65532 on its own postgres role, answers health, and
     takes only the generated `sk-` master key, which never enters the container config."""
