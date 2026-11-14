@@ -1,7 +1,10 @@
 # Google Cloud through GKE: the Kubernetes target on a real cluster (#908): design
 
-- Status: **r4, reviews converged** (architecture and `/security` lenses, Claude Sonnet; review log in §17). No code in
+- Status: **r4, reviews converged; amended for #770 (r4a, review in §17)** (architecture and `/security` lenses, Claude Sonnet). No code in
   this PR. Owner decisions in §15 (§owner-decisions).
+- **Amended by the #770 production-Kubernetes spec** (`docs/superpowers/specs/2026-11-14-production-kubernetes-design.md`, §12): where the two differ, that spec
+  owns the provider-neutral part (K0 = G0, K5 = G1b, identities, admission policies, network model,
+  cluster state) and this one owns what is GKE-specific. The four amended passages below say so inline.
 - Issue #908, part of epic #770 (production target: Kubernetes with Helm). Depends on #771 (deployer
   behind the lifecycle), #772 (Helm chart for the services), #773 (secrets and network policy), and on
   #909 (agent identity at creation, spec merged in #919) through epic #742.
@@ -90,9 +93,11 @@ EKS/AKS beyond leaving room in §4.
 
 `target: kubernetes` stays the only cluster target, so `promote`, `deploy --cluster`, `forward`,
 `logs`, `remove`, `disable` and `reconcile` keep one path. What differs per cluster kind moves behind a
-provider selected by a new field. A stack still has one cluster: the stack state holds one
-`kubernetes` key (`services/engine.py`, `services/operator.py`), so a stack is bound to `kind` or to
-GKE, not both.
+provider selected by a new field. *(Amended by #770 §5.3.)* Cluster state is per environment: the
+stack's single `kubernetes` key (`services/engine.py`, `services/operator.py`) moves under the
+environment `cluster up` granted, and a cluster environment keeps its own state in
+`envs/<env>/cluster/`. A stack may therefore have a local environment and a cluster environment (`kind`
+or GKE); each environment is bound to one cluster.
 
 ```yaml
 environments:
@@ -303,7 +308,8 @@ Allow rules added for GKE, each its own egress entry:
   enabled *(address `169.254.20.10` and whether the kube-dns rule already covers it, to measure)*.
   DNS is an exfiltration channel; accepted (T3).
 - **In-cluster services.** The Helm chart's services (#772) by `podSelector` on their labels and ports,
-  not by address. #773 owns the rule; §10 says what #908 needs from it.
+  not by address, one rule per service the agent's grant names, on that service's port (§10; #770 §6.3
+  owns the rule).
 - **Metadata server, only with a runtime identity.** `169.254.169.254` port 80 for an agent granted
   `runtime.gcp` (§7.2), nothing for others *(to measure: whether Dataplane V2 or the network policy
   add-on serves Workload Identity on another address, such as `169.254.169.252:988`; `connect` refuses
@@ -357,8 +363,8 @@ adapts if it does not.
    contract; #909's I-slices or G3 add it to `docs/identity-gate.md`.
 
 The service account object is created with the deployment's other objects over stdin, labelled with
-the deployment label and `io.agentbreeder/agent`, and deleted with them (`serviceaccounts` joins
-`_KINDS`). Replacing a deployment deletes and recreates an object with the same name; IAM bindings
+the deployment label and `io.agentbreeder/agent`, admitted by the G3 extension of #770's policies
+(§9), and deleted by name with them. Replacing a deployment deletes and recreates an object with the same name; IAM bindings
 attach to the principal string, not the object, so they persist. `reconcile` compares the live
 Deployment's `serviceAccountName` with the computed one (it is part of the pod spec AgentBreeder wrote,
 checked like the image annotation today).
@@ -447,35 +453,36 @@ covers project-level bindings only, and the docs say so. It reports; it does not
 
 ## 9. Secrets, RBAC and IAM
 
-**Secrets.** The first delivery keeps today's mechanism: an immutable `Secret` per deployment created
-over stdin. `_delete` and `inspect` list objects by label, and `kubectl delete -l` resolves the
-selector with `list`; `list` on secrets returns their data. So the deployer **can read every Secret in
-the namespace**. That is acceptable only because the namespace is dedicated and the deployer already
-holds every secret it deploys. Anyone with project-level `container.admin`/Owner, or `get secrets` in
-the namespace, can read the stack's provider keys too; etcd is encrypted at rest by Google *(documented;
+**Secrets.** *(Amended by #770 §4.3, §7.)* The deployer has **no Secret read verb**: a deployment's
+immutable `Secret` is created over stdin with an owner reference to its Deployment and removed by the
+garbage collector with a foreground delete, so the deployer needs only `create` on Secrets. Because RBAC
+alone would still let it mount any Secret into a pod it creates, the #770 admission policies
+(`ValidatingAdmissionPolicy`, Kubernetes ≥ 1.30) and the separate `ab-operator` identity for the
+operator-only Secrets are **prerequisites for G4**; #770 §7.2 states what a deployer token can still
+reach. The RBAC rules are #770 §7.1 (below). Anyone with project-level
+`container.admin`/Owner, or `get secrets` in the namespace, can read the stack's provider keys; etcd is encrypted at rest by Google *(documented;
 not measured)* and application-layer encryption with Cloud KMS is reported, not required (D9).
 Moving to Secret Manager through the CSI driver is #773's scope; when it lands, the GKE provider uses it
-and the deployer loses `list secrets` (D12 decides whether G4 waits for it).
+for agent secrets that name a store (`secret-store://`, #770 K7; D12 decides whether G4 waits for it).
 
 **Logs.** Container output on GKE goes to Cloud Logging by default, a store outside the cluster,
 retained after teardown and readable by project roles. `agentbreeder logs` redaction does not apply
 there. Agents must not log secrets; `docs/gke.md` says so.
 
-**Kubernetes RBAC for the deployer** (the runbook applies it). `connect` runs a fixed list of `kubectl
-auth can-i` probes and refuses on any yes: `create pods` and `get secrets` in other namespaces,
-`create clusterrolebindings`, `impersonate users`, `* *` cluster-wide; it also runs `kubectl auth
-can-i --list` in the namespace and refuses any rule beyond §9's table, where IAM-granted rules appear as
-wildcards *(the listing's shape under IAM roles is to measure)*. Probes cannot prove the absence
-of other rights, and GKE rights granted through IAM (`container.developer`, `container.admin`) add to
-RBAC, so the runbook grants the deployer only the IAM roles below.
-
-| Scope | Resources | Verbs |
-|---|---|---|
-| namespace | deployments, services, networkpolicies, secrets, serviceaccounts | create, delete, get, list |
-| namespace | replicasets, pods | get, list |
-| namespace | pods/log | get |
-| namespace | pods/portforward | create |
-| cluster | namespaces (`resourceNames`: `kube-system`, the namespace) | get |
+**Kubernetes RBAC** *(amended by #770 §7)*. The Roles of the deployer, installer, operator and canary
+identities, the admission policies and the probes are #770 §7.1–§7.4 (the runbook applies them;
+`connect` probes them and refuses any rule beyond them). In particular the deployer has `secrets:
+create` only and no pod create. GKE adds one thing: with a runtime identity (G3) the deployer also needs
+`serviceaccounts: create, delete, get` for `ab-<agent>-<h>` (deleted by name, so no `list`), and G3
+extends #770's admission policies: a ServiceAccount the deployer creates must be named exactly the
+`<agent>.sa` entry of `ab-grants` (written by the installer, which computes `<h>`; CEL cannot recompute
+the hash), with `automountServiceAccountToken: false` and no annotations, finalizers or
+ownerReferences (so no `iam.gke.io/gcp-service-account`-style annotation), and a Deployment may name it
+only for that agent.
+IAM-granted rules appear as wildcards in `kubectl auth can-i --list` *(the listing's shape under IAM
+roles is to measure)*. Probes cannot prove the absence of other rights, and GKE rights granted through
+IAM (`container.developer`, `container.admin`) add to RBAC, so the runbook grants the deployer only the
+IAM roles below.
 
 **IAM** (granted by the runbook; AgentBreeder grants nothing):
 
@@ -495,13 +502,13 @@ principal there), push to the repository, and read project IAM if D4 grants it.
 
 On `kind` pods reach services in Docker because the node joins the stack's agents network. On GKE the
 services run in the cluster from the Helm chart (#772), and the laptop reaches them only through
-bounded port-forwards. What #908 needs from #772/#773, and what changes:
+bounded port-forwards. What #908 needs from #770's chart and secrets slices (K3–K5), and what changes:
 
 | Need | On `kind` | On GKE |
 |---|---|---|
 | Model gateway for agents | stack's LiteLLM in Docker, by service name | LiteLLM from the chart, by Service DNS name; `Environment.services` and `gateway` hold cluster DNS URLs |
 | Per-deployment gateway key (minted by the CLI) | `gateway_keys.client(operator, gateway)` calls the fixed `gateways.X` URL with the `master_key` secret file | a new `gateways.X.cluster_service: <name>:<port>` (instead of a URL) makes `gateway_keys.client` open a port-forward in the **same session** as the deploy (or the `remove`'s session for revoke) and use `http://127.0.0.1:<ephemeral port>` for that call only |
-| Gateway master key | local secret file (`master_key: secret://…`) | a new reference form `kubernetes-secret://<name>/<key>` read in the session from the chart's Secret in the namespace (the deployer can read every Secret there, §9); never written to disk |
+| Gateway master key | local secret file (`master_key: secret://…`) | a new reference form `kubernetes-secret://<name>/<key>` read in the session from the chart's Secret in the namespace by the `ab-operator` identity (#770 §6.1, §7.1); never written to disk |
 | `eval_database` (host-reachable, fixture resets) | Postgres in Docker | the same `cluster_service` form for the database; the eval runner gets a port-forwarded DSN for the eval run; the password via `kubernetes-secret://` |
 | `network` field | the stack's agents network | unset; refused with `provider: gke` |
 | Service secrets | stack secret files | chart-managed Secrets or #773's store; never in values files |
@@ -513,14 +520,16 @@ for these services, stable Service names and labels (for §6's allow rules), an 
 gateway, and the master key and database password in named Secrets. `gateways` are global in the
 operator config, so `gateway_keys.client` gains the deploying environment's session as a parameter and a
 `cluster_service` gateway resolves against that environment's binding. A `kubernetes-secret://` value is
-read with `kubectl get secret … -o jsonpath` through a pipe (never argv), held in memory only and added to
+read by the `ab-operator` identity with `kubectl get secret … -o jsonpath` through a pipe (never argv), held in memory only and added to
 the redaction set like any other secret; `eval_database`'s pattern (today `^secret://` only) is relaxed
 to accept it.
 
 Handling rules for these paths (G1b acceptance):
 
 - **Forwards.** `kubectl port-forward --address 127.0.0.1 svc/<name> 0:<port>`, as `Kubernetes.forward`
-  already does: kubectl picks the port and the CLI uses only the port its own child reports, after
+  already does, in a session of the `ab-operator` identity (#770 §6.1, §7.1) for the gateway admin
+  path and the eval database: kubectl picks the port and the CLI uses only the port its own child
+  reports, after
   reading the `Forwarding from 127.0.0.1:N` line, and checks the child is alive before each call. The
   CLI never pre-picks a port, so a local squatter cannot receive the master key. The forward is open to
   any local user while it lives; the master key and the database password are its only protection. It
@@ -537,17 +546,21 @@ Handling rules for these paths (G1b acceptance):
   in argv, a child environment, the job log, the store, the audit log or the eval record. The eval DSN is
   built in process and passed to the driver as connection parameters. A unit test checks that a failing
   read's error carries no value.
-- **Eval database.** Fixture resets run destructive SQL. `eval_database` must name a database used
-  only for evals, distinct from the services' database; G1b checks what guard exists for the local
-  stack today and applies the same, or adds one, before G4.
-- **Agents cannot reach them.** §6's allow rule names the gateway Service and its inference port only.
-  Agents get no route to Postgres, and the chart puts each service behind an ingress NetworkPolicy that
-  admits agent pods on the inference port only (port-forward goes through the kubelet *(to measure that
-  it is unaffected)*). LiteLLM serves admin and inference on one port, so the master key is the only
-  barrier between an injected agent and key management; the record says so.
+- **Eval database.** *(Amended by #770 §6.1.)* Fixture resets run destructive SQL as the owner, and
+  evals need the agent to see the fixtures, so Northwind's `eval_database` is the agent's own `support`
+  database. A cluster environment whose `eval_database` is also an agent binding's database is refused
+  (`EVAL_DATABASE_SHARED`) unless its operator config sets `eval_resets: allowed` (#770 D13).
+- **Agents reach only what their grant names.** *(Amended by #770 §6.3.)* An agent's egress allows each
+  in-cluster service its operator grant reaches (gateway, `services` URLs, binding hosts), on that
+  service's port only; an agent whose environment binds a database URL (Northwind does) reaches Postgres
+  on 5432, and the database role's grants are the boundary there, as locally. Each chart service admits
+  agents only on its port, behind a namespace default-deny baseline (port-forward goes through the
+  kubelet *(to measure that it is unaffected)*). LiteLLM serves admin and inference on one port, so the
+  master key is the only barrier between an injected agent and key management; the record says so.
 
 The two new config forms are an operator config schema change (G1b in §14); D13 asks whether to build
-them or to run G4 with the gateway outside the cluster. Until #772 and #773 land, G4 cannot run (§14).
+them or to run G4 with the gateway outside the cluster. Until #770's K0–K8 land (the chart, the
+admission policies and the `ab-operator` identity among them), G4 cannot run (§14).
 
 ## 11. Threat model
 
@@ -556,11 +569,11 @@ them or to run G4 with the gateway outside the cluster. Until #772 and #773 land
 | T1 | Operator workstation compromised (gcloud login theft, or a replaced `gcloud`/`kubectl` binary) | Impersonation only, no keys; TokenCreator on two SAs only; namespace-scoped RBAC; allowlisted mint environment; binary paths recorded and checked by `doctor` | Full deployer and pusher rights for the login's lifetime; outside AgentBreeder |
 | T2 | Token sent to a rogue endpoint (DNS, routing, swapped file) | IP endpoint, CA pin, argv `--server`/`--certificate-authority`, per-call check, proxy variables dropped | A CA the operator accepted at review |
 | T3 | Malicious or injected agent code exfiltrates, with or without Google credentials | Private ranges and metadata blocked by default; runtime identity opt-in by operator; least-privilege bindings | Open public egress and DNS (FQDN policy is a follow-up) |
-| T4 | Another namespace user runs a pod as an agent's KSA | Dedicated namespace; only the deployer creates pods/SAs (`connect` checks) | A cluster admin can |
+| T4 | Another namespace user runs a pod as an agent's KSA | Dedicated namespace; the deployer creates no Pods; #770's admission policies (extended in G3) let a deployer Deployment name `ab-<agent>-<h>` only for that agent | A deployer-token holder can name any granted agent, so it can run as that agent's KSA (#770 §7.2 residual); the installer equals a namespace admin; a cluster admin can |
 | T5 | Registry poisoning by another writer | Deploy by digest, digest compared with the evaluated image, immutable tags | No signing; Binary Authorization reported only |
 | T6 | Node token via metadata (WI misconfigured on a pool) | `connect` refuses unless every pool runs `GKE_METADATA`; metadata blocked unless granted | A pool added after connect, for agents without a runtime identity: only the metadata block guards them; `reconcile` re-checks the cluster description |
 | T7 | Stale IAM bindings inherited by a new agent | Principal name derived from the gate principal; `reconcile` reports orphans; `remove` prints removal | Resource-level bindings are not read |
-| T8 | Secrets and logs outside AgentBreeder's view | Stdin-only Secrets; no secrets in env; dedicated namespace | Readable by project admins; Cloud Logging retention |
+| T8 | Secrets and logs outside AgentBreeder's view | Stdin-only Secrets; no secrets in env; no deployer Secret read; operator-only Secrets read only by `ab-operator`; dedicated namespace | Readable by project admins, the installer and (for its Secrets) `ab-operator`; the deployer reads any pod's log; Cloud Logging retention |
 | T9 | Tokens left on disk after a crash | Per-session temp dir, signal cleanup, sweep of dirs older than 70 min, `doctor` | Up to one hour of a valid token in a 0700 directory after SIGKILL; any same-user process can read a live session; an orphaned port-forward until `doctor` finds it |
 
 ## 12. The live run (G4) and the runbook
@@ -569,9 +582,11 @@ them or to run G4 with the gateway outside the cluster. Until #772 and #773 land
 
 1. The owner creates the project (D1), a budget alert at the cap (D3), the repository (immutable tags,
    cleanup policy), the node, deployer and pusher service accounts, the TokenCreator grants, the
-   cluster per D2/D6 in the D3 region, the namespace with its labels, and the RBAC of §9, all with
+   cluster per D2/D6 in the D3 region, the namespace with its labels, the #770 §7.1 Roles and the §7.2
+   admission policies (`agentbreeder cluster policy print`), quota and limit range, all with
    `gcloud`/`kubectl` commands from the runbook.
-2. `cluster connect gke`, grant review, the Helm services (#772) installed into the namespace.
+2. `cluster connect gke`, grant review, the chart services installed with `services up --cluster`
+   (#770 K3/K4).
 3. Northwind: release locally (61/61), `promote` to GKE (61/61 on the cluster), the §13 probes,
    `remove`, `disable`, `reconcile`, a replacement promote, and a rollback through failing evals.
 4. Teardown (A6): `remove` all; `cluster down`; delete images; then the runbook's delete commands for
@@ -594,7 +609,7 @@ them or to run G4 with the gateway outside the cluster. Until #772 and #773 land
 | DNS resolution with and without NodeLocal DNSCache | works with the rules of §6 |
 | Readiness probe with no-ingress policy | pod becomes ready |
 | Another pod to the agent; privileged pod | blocked; refused by Pod Security admission |
-| Deployer `auth can-i`, the fixed probe list of §9 | all no |
+| Deployer `auth can-i`, the probes of #770 §7.3–§7.4 | all no; refusals named by the policy |
 | Mint with hostile `CLOUDSDK_*`, proxy and CA variables set | none reach `gcloud`; token minted from the recorded account |
 | CA rotated (or endpoint changed), then `disable` | `KUBERNETES_UNREACHABLE`; the reviewed `connect` re-run updates the binding in place and `disable` stops the agent; break-glass scale reported by `reconcile` |
 | `deploy --cluster` of a manifest naming another repository or a tag | `IMAGE_NOT_IN_REGISTRY`, nothing created |
@@ -608,7 +623,7 @@ them or to run G4 with the gateway outside the cluster. Until #772 and #773 land
 | Pods scheduled on `gke.arch` nodes | `nodeSelector` honoured; arm64 image runs as evaluated (D11) |
 | Gateway key mint/revoke and eval DB through session port-forwards | key minted and revoked; fixture reset works; master key never on disk |
 | A local listener squatting a port during a gateway forward | does not receive the master key |
-| Agent pod to Postgres and to the gateway beyond the inference port; another pod to the gateway | blocked |
+| An agent without a database binding to Postgres; a bound agent to Postgres on 5432 and on another port; a pod without a `uses-*` label to the gateway (#770 paired probes) | blocked; allowed; blocked; blocked. The gateway's admin API shares the inference port, so for an agent with gateway access only the master key protects it (planned rows, not results) |
 | `kubernetes-secret://` naming an agent's Secret or an unlabelled one | refused before reading |
 | Eval DSN or password in `ps`, store, audit, eval record, job logs | none found |
 | Rebind that changes the project or the registry | `KUBERNETES_BINDING_CHANGED` |
@@ -623,10 +638,10 @@ them or to run G4 with the gateway outside the cluster. Until #772 and #773 land
 |---|---|---|---|
 | G0 | Provider interface and tagged binding (`cluster_bindings`, migration); `kind` unchanged; a sub-issue of #771 | — | yes: existing tests and a `kind` run |
 | G1 | `provider: gke` config and validators, `cluster connect gke`, sessions (§5.1), §5.2 checks, `blocked_cidrs`, `doctor` sweep report | G0 | unit tests with recorded API fixtures and a fake `gcloud` |
-| G1b | `cluster_service` and `kubernetes-secret://` for gateways and `eval_database` (§10) | G1, #772 | unit tests with a fake forward |
+| G1b | `cluster_service` and `kubernetes-secret://` for gateways and `eval_database` (§10); built as #770's K5 | G1, #770 K4/K5 | unit tests with a fake forward |
 | G2 | Pusher session, temporary Docker config, HTTPS digest check without redirects, platform check | G1 | unit tests; a local TLS registry fixture |
-| G3 | Runtime identity: operator grant, manifest field and schema, KSA naming, `RUNTIME_*` checks, policy input, `identity runtime-plan`, `reconcile` IAM read | G1; #909's resolved-principal fields | unit tests |
-| G4 | The live run (§12) and the §13 table | G1–G3, #772, #773, D1–D4, D11–D13 | no |
+| G3 | Runtime identity: operator grant, manifest field and schema, KSA naming, `RUNTIME_*` checks, policy input, `identity runtime-plan`, `reconcile` IAM read | G1; #770 K2 (the policies it extends); #909's resolved-principal fields | unit tests |
+| G4 | The live run (§12) and the §13 table | G1–G3, #770 K0–K8 (incl. the admission policies and `ab-operator`), D1–D4, D11–D13 | no |
 | G5 | `docs/gke.md`, `command-center.md` section, changelog; claims limited to G4's record | G4 | — |
 
 Until G4 has run, docs say "GKE: designed, not run" and the website says nothing (release R, #836).
@@ -647,7 +662,7 @@ Until G4 has run, docs say "GKE: designed, not run" and the website says nothing
 | D10 | Runtime identity naming: derived from the gate principal (§7.1), or one fixed name per agent? | Derived from the gate principal: stable across replacements, and no inheritance when the principal changes |
 | D11 | Image architecture: (a) GKE Arm nodes so the arm64 image built on a Mac runs as evaluated; (b) build `linux/amd64` for releases bound for the cluster and evaluate that image locally under emulation; (c) multi-platform release images, each platform evaluated | (a) for the run if the D3 region offers Arm on Autopilot *(to measure)*, else (b); (c) later |
 | D13 | How the CLI reaches the in-cluster gateway admin API and eval database for G4: build `cluster_service` and `kubernetes-secret://` (G1b), or run the gateway outside the cluster on a host-reachable URL for the first run | Build G1b; the outside-gateway shortcut would make the record test a topology nobody deploys, and would put the master key on the operator's machine with agents reaching the gateway over the internet (a threat row if chosen) |
-| D12 | Secrets for G4: run with namespace Secrets (the deployer can read them, §9), or wait for #773's Secret Manager CSI? | Namespace Secrets for the preview run, stated in the record; #773 before any non-preview claim |
+| D12 | Secrets for G4: run with namespace Secrets (no deployer read, under #770's admission policies, §9), or wait for #773's Secret Manager CSI? | Namespace Secrets for the preview run, stated in the record; #773's CSI (#770 K7) before any non-preview claim |
 
 ## 16. Cross-repo split and files
 
@@ -673,3 +688,5 @@ Until G4 has run, docs say "GKE: designed, not run" and the website says nothing
 | 2 | Claude Sonnet | security | r2 (uncommitted) | 0 Critical/High, 3 Medium, 5 Low, 4 Nit: mint environment is a denylist (now an allowlist, gcloud login not ADC); kill switch can fail closed; `deploy --cluster` image not pinned to the registry; agent name in the KSA hash and a required pin; node pools re-checked at deploy; sweep symlink safety; `can-i` cannot prove absence; config validators; operator account in audit; binary paths | APPROVED; all applied in r3 (§4, §5.1, §5.2, §7.1, §8, §9, §11, §13) |
 | 3 | Claude Sonnet | architecture | r3 (uncommitted) | 0 Blocker/Major, 4 Minor, 2 Nit: `gateways` are global (session per environment); `kubernetes-secret://` off argv and `eval_database` pattern; §7.1 numbering; session ownership and injection | APPROVED; applied in r4 (§5.1, §7.1, §10, D13) |
 | 3 | Claude Sonnet | security | r3 (uncommitted) | 0 Critical/High, 5 Medium, 3 Low, 5 Nit: master key over a squattable forward port; agents' route to Postgres and the gateway admin; reference validators and scope; eval DSN handling and a dedicated eval database; rebind bounds; `default` KSA IAM; revoke order in the kill switch; orphaned forwards | APPROVED; applied in r4 (§5.2, §7.1, §10, §11, §13, D13) |
+| 4a | Claude Sonnet | architecture + security | r4a (uncommitted) | 4 Major, 7 Minor, 2 Nit: the §9 RBAC table still granted the deployer Secret read; G4's dependency sentence still named #772/#773; a §13 row still expected agents blocked from Postgres; plus T4/T8, the in-cluster services rule, the run steps (Roles, policies, `services up --cluster`), the `ab-operator` identity in §10's handling rules, the status line | Applied in r4a (§6, §9, §10, §11, §12, §13, status) |
+| 4a | Claude Sonnet | architecture + security | r4a, second pass (uncommitted) | 0 Major; Minor: service account deleted by name, G3 rule keyed to `ab-grants` `<agent>.sa` with no annotations, G3 depends on #770 K2, T4 wording, §7.1 lifecycle sentence; Nits: probe list, §10 intro, dangling table reference | APPROVED; all applied |

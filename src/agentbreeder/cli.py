@@ -195,6 +195,23 @@ def _file_kind(path: Path) -> str:
         return "unknown"  # let the manifest loader report the precise problem
 
 
+def fail(args, code: str, text: str) -> int:
+    """A coded refusal, exit 2: `[CODE] message` on stderr and, with `--json`, the error object
+    `{"schema_version": 1, "error": {"code", "message"}}` on stdout (one line under
+    `--follow`, so an NDJSON reader can parse every line). `text` may carry the `[CODE] `
+    prefix already; control characters are escaped on stderr and in the JSON, and the stderr
+    line stays one line (`\\n` escaped), so no message can forge a later `[CODE]` line."""
+    from agentbreeder import safe_text
+
+    message = safe_text.visible(text.removeprefix(f"[{code}] "))
+    print(f"[{code}] {message.replace(chr(10), chr(92) + 'n')}", file=sys.stderr)
+    if getattr(args, "json", False):
+        indent = None if getattr(args, "follow", False) else 2
+        body = {"schema_version": 1, "error": {"code": code, "message": message}}
+        print(json.dumps(body, indent=indent))
+    return 2
+
+
 def _use_stack(args) -> int | None:
     """`--stack DIR`: point the operator config and state dir at what `services up` wrote."""
     from agentbreeder.operator_config import CONFIG_ENV
@@ -224,9 +241,11 @@ def _use_stack(args) -> int | None:
         _parser().error("use --stack or --state-dir, not both")
     try:
         resolved = engine.context(args.stack, getattr(args, "environment", None))
-    except (ServiceError, OSError) as error:
-        print(_message(error), file=sys.stderr)
-        return 2
+    except ServiceError as error:
+        return fail(args, error.code, str(error))
+    except OSError as error:  # e.g. EACCES on the stack dir or the stacks root
+        reason = error.strerror or type(error).__name__
+        return fail(args, "STACK_UNREADABLE", f"cannot read the stack at {args.stack}: {reason}")
     os.environ[CONFIG_ENV] = str(resolved.operator_config)
     if hasattr(args, "state_dir"):
         args.state_dir = resolved.state_dir

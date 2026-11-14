@@ -146,8 +146,7 @@ def run(args) -> int:
         directory = args.dir
     if command == "down" and (args.volumes or args.purge) and not args.yes:
         flag = "--purge" if args.purge else "--volumes"
-        print(f"[CONFIRM_REQUIRED] down {flag} deletes data; add --yes", file=sys.stderr)
-        return 2
+        return cli.fail(args, "CONFIRM_REQUIRED", f"down {flag} deletes data; add --yes")
     engine = None
     log = (
         (lambda message: None)
@@ -253,6 +252,8 @@ def run(args) -> int:
             from agentbreeder.commands import logs as logs_command
 
             return logs_command._fail(args, error)  # `--json` gets the error object too
+        if getattr(args, "json", False):  # up, plan, status, down: the console reads the code
+            return cli.fail(args, error.code, str(error))
         print(cli._message(error), file=sys.stderr)
         return 2
     except (OSError, sqlite3.Error):
@@ -265,6 +266,9 @@ def run(args) -> int:
                     "STATE_UNREADABLE", "cannot access the stack state; check permissions"
                 ),
             )
+        if getattr(args, "json", False):
+            message = "cannot access the stack state; check permissions and disk space"
+            return cli.fail(args, "STATE_UNREADABLE", message)
         print("Cannot access the stack state; check permissions and disk space", file=sys.stderr)
         return 2
     finally:

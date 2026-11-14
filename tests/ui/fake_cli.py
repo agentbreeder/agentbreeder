@@ -76,6 +76,11 @@ DEFAULT = {
     # `list --all --json` (Agents, #823): {"deployments", "skipped"}; null lists `deployments`
     # as rows of a stack whose project is not registered.
     "list_all": None,
+    # `evals list|show --json` (the eval report viewer, #932): {"report": the `show` answer,
+    # "reports": the `list` rows, "error": {code, message}, "content_error": the same, only for
+    # `show --content`}. `show --content` adds each case's
+    # `reply` and `explanation`. Every call's argv is appended to `evals-calls.json`.
+    "evals": {},
     # `traces --trace ID ... --json` (Try it's trace panel, #907): {"spans", "status",
     # "attribution", "notes"} change the answer; {"error": {code, message}} fails it (exit 2);
     # {"missing": N} answers TRACES_NOT_FOUND to the first N calls. Every call's argv is appended
@@ -129,6 +134,31 @@ def invoke(argv: list[str], data: dict) -> int:
     answer = {"schema_version": 1, "deployment": "d" * 32, "name": argv[1], "status": 200}
     answer |= {"endpoint": "http://127.0.0.1:9001", "response": response}
     print(json.dumps(answer, indent=2))
+    return 0
+
+
+def evals(argv: list[str], data: dict) -> int:
+    calls = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "evals-calls.json"
+    previous = json.loads(calls.read_text()) if calls.is_file() else []
+    calls.write_text(json.dumps([*previous, argv]))
+    spec = data["evals"]
+    problem = spec.get("error") or ("--content" in argv and spec.get("content_error"))
+    if problem:
+        print(json.dumps({"schema_version": 1, "error": problem}))
+        print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+        return 2
+    if argv[1] == "list":
+        rows = spec.get("reports", [])
+        print(json.dumps({"schema_version": 1, "reports": rows, "total": len(rows)}))
+        return 0
+    report = dict(spec["report"])
+    if "--content" in argv:
+        report["content"] = True
+        report["results"] = [
+            {"reply": f"Reply to {row['id']}", "explanation": f"Why {row['id']}", **row}
+            for row in report["results"]
+        ]
+    print(json.dumps(report))
     return 0
 
 
@@ -330,6 +360,8 @@ def main(argv: list[str]) -> int:
         print(json.dumps(summary))
     elif argv and argv[0] == "invoke":
         return invoke(argv, data)
+    elif argv and argv[0] == "evals":
+        return evals(argv, data)
     elif argv and argv[0] == "traces":
         return traces(argv, data)
     elif argv and argv[0] == "doctor":

@@ -29,6 +29,6 @@ A package is a record, not a credential, and is not signed. Deploy refuses a pac
 | `PACKAGE_TARGET_UNSUPPORTED` | 2 | `--cluster`: deploy by ref is local only for now |
 | `PROJECT_UNUSED` | 2 | `--project` with a manifest path |
 
-`--json` prints `{"code", "error"}` for these. Each refusal except `AUDIT_CORRUPT` is recorded in the audit log as a `deploy` deny with the ref and code only; the gate's own deny and abort events name the package too. If a deployment of that name is running with a different spec, deploy refuses as for a manifest (remove it, or `release --rollback`); with the same spec it is reused, and a link to another package is kept with a warning. To roll production back to an earlier package: `remove ID`, then `deploy agent/NAME@<previous> --local`.
+`--json` prints `{"code", "error"}` for these; a `--stack DIR` that cannot be resolved fails before deploy runs and prints `{"schema_version": 1, "error": {"code", "message"}}` instead (see docs/services.md). Each refusal except `AUDIT_CORRUPT` is recorded in the audit log as a `deploy` deny with the ref and code only; the gate's own deny and abort events name the package too. If a deployment of that name is running with a different spec, deploy refuses as for a manifest (remove it, or `release --rollback`); with the same spec it is reused, and a link to another package is kept with a warning. To roll production back to an earlier package: `remove ID`, then `deploy agent/NAME@<previous> --local`.
 
 Flags: `agentbreeder deploy --help`.
