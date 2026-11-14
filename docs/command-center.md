@@ -327,6 +327,35 @@ arguments gone on Hide while a slow read runs, scope, window and agent reach the
 and an empty log, axe in light and dark). Not yet run against a real stack's database: that is
 the M12 acceptance, batched with the milestone checks.
 
+### Knowledge index status (#830, M14, first part): on `main`, not in a published preview
+
+Below a knowledge version's facts, **Index status** compares the version's documents with the
+table the runtime indexed them into: the state (**Fresh**, **Stale** or **Not indexed**, with
+what changes it), the table, chunks indexed of expected (fresh, stale, missing, extra), documents
+indexed of expected, the oldest and newest index time, and the embedding alias and dimensions
+(and the table's, when they differ). The console runs `agentbreeder knowledge status REF
+--project DIR --environment ENV --json` ([`docs/commands/knowledge.md`](commands/knowledge.md),
+[`docs/knowledge.md`](knowledge.md)) as an uncached child, at most four at once; **Refresh**
+reads it again.
+
+- **It reads with the agent's own credential**, in a read-only session; the console server never
+  reads a credential. **Chunk text is never read**: only counts, names, times and the
+  embedding go to the browser, checked again by the console before it sees them.
+- **Documents change through `registry edit`** (in a terminal, for now) and are re-indexed after
+  the next `release`, whose eval makes the runtime index the new version.
+- **A refusal shows as "Unavailable: reason" with the next step**: for example, services not
+  running (`SERVICES_DOWN`) or a refused credential (`DB_LOGIN_FAILED`) name `services up`; other
+  codes show the CLI's message and the `knowledge status` command to run in a terminal.
+
+Tested: server tests over a scripted `knowledge status` (fixed argv, never cached, bad refs
+refused before the CLI, unknown keys dropped, hostile values nulled, a version of another name
+refused, a version listed twice refused, at most four reads at once), the CLI's own `--json`
+answers over a faked database session (fresh, stale, not indexed) and its refusals passed through
+the same checks, and Playwright over a copy of Northwind with a
+scripted `knowledge status` (fresh, stale with a note, a refusal, Refresh, no status on other
+kinds, axe in light and dark). Not yet run against a real stack's database: that is the M14
+acceptance, batched with the milestone checks.
+
 ### MCP grants (#831, M15, first part): on `main`, not in a published preview
 
 **MCP grants** (`#/mcp`, next to Services) shows the project's MCP servers and who may use their
