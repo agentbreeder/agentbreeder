@@ -174,6 +174,45 @@ class Reads:
 
         return self._cached(("agent", project), _file_signature([path]), compute)
 
+    def stack_agents(self, project: str) -> dict:
+        """What `stack.yaml` declares for each agent of its environment (`environment.agents`:
+        sponsor, review date, whether release tests a candidate), parsed with the same model as
+        `services` (`services.schema.Stack`) from bytes read through `read_project_file`. The
+        identity strip shows this until #909 adds the principal to `list --json`."""
+        from agentbreeder import strict_yaml
+        from agentbreeder.services import schema
+
+        path = Path(project) / "stack.yaml"
+
+        def compute() -> dict:
+            try:
+                raw = registry.read_project_file(path, schema.MAX_BYTES)
+                if raw is None:
+                    return envelope(None, {"code": "NO_STACK_FILE", "message": "No stack.yaml"})
+                stack = schema.Stack.model_validate(strict_yaml.load_text(raw.decode("utf-8")))
+            except (registry.RegistryError, OSError) as error:
+                return envelope(None, _problem(error))
+            except (strict_yaml.StrictYamlError, UnicodeDecodeError) as error:
+                return envelope(
+                    None, {"code": "STACK_INVALID", "message": f"stack.yaml: {error}"[:300]}
+                )
+            except ValueError as error:  # pydantic's ValidationError; values are never echoed
+                problems = schema._problems(error) if hasattr(error, "errors") else ""
+                return envelope(
+                    None, {"code": "STACK_INVALID", "message": f"stack.yaml: {problems}"[:300]}
+                )
+            agents = {
+                name: {
+                    "sponsor": entry.sponsor,
+                    "review_by": entry.review_by,
+                    "candidate": entry.candidate,
+                }
+                for name, entry in stack.environment.agents.items()
+            }
+            return envelope({"stack": stack.name, "agents": agents})
+
+        return self._cached(("stack_agents", project), _file_signature([path]), compute)
+
     def lock(self, project: str) -> dict:
         """`agent.lock`'s entries, parsed as `lock.Lock.load` does, from bytes read with
         `registry.read_project_file` (regular file, non-blocking, at most 1 MiB); an absent lock
