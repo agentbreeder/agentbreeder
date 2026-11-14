@@ -196,6 +196,76 @@ def test_advice_carries_the_stack_or_state_dir(monkeypatch, capsys, tmp_path):
     }
 
 
+@pytest.mark.parametrize(
+    "message, details",
+    [
+        ("Released x: 2/2 evals passed", {"production": {"id": "p1", "endpoint": "http://e"}}),
+        ("x is already in production", {}),
+        ("Rolled back to x (ready)", {"production": {"id": "p1", "endpoint": "http://e"}}),
+    ],
+)
+def test_success_ends_with_next_invoke(monkeypatch, capsys, tmp_path, message, details):
+    """M4 finding 1 (#820): a successful release ends with `Next: … invoke NAME Hello …` in the
+    same place it ran, so the user need not run `next` again."""
+    from agentbreeder import cli
+    from agentbreeder import release as release_module
+    from agentbreeder.release import Outcome
+
+    outcome = Outcome(EXIT_OK, message, {"agent": "hello", **details})
+    monkeypatch.setattr(release_module, "release", lambda *a, **k: outcome)
+    monkeypatch.setattr(release_module, "rollback", lambda *a, **k: outcome)
+    monkeypatch.setattr("agentbreeder.commands.release.resolve_deployer", lambda o: None)
+    state = tmp_path / "s"
+    argv = ["release", "agent.yaml", "--state-dir", str(state)]
+    if message.startswith("Rolled back"):
+        argv.append("--rollback")
+    assert cli.main(argv) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-1] == f"Next: agentbreeder invoke hello Hello --state-dir {state}"
+    # --environment without --stack is not a flag `invoke` takes.
+    with_env = ["release", "agent.yaml", "--environment", "dev", *argv[2:]]
+    assert cli.main(with_env) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        f"Next: agentbreeder invoke hello Hello --state-dir {state}"
+    )
+
+    from agentbreeder.services import engine
+
+    monkeypatch.setattr(
+        engine,
+        "context",
+        lambda directory, env: engine.StackContext(
+            "demo-1", "dev", tmp_path / "operator" / "operator.yaml", tmp_path / "stack-state"
+        ),
+    )
+    folder = tmp_path / "my proj"
+    assert cli.main(["release", "agent.yaml", "--stack", str(folder), *argv[4:]]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        f"Next: agentbreeder invoke hello Hello --stack '{folder}' --environment dev"
+    )
+    assert cli.main(["release", "agent.yaml", "--stack", str(folder), *argv[4:], "--json"]) == 0
+    printed = json.loads(capsys.readouterr().out)  # no `Next:` line on stdout with --json
+    assert printed["advice"] == {
+        "invoke": f"agentbreeder invoke hello Hello --stack '{folder}' --environment dev"
+    }
+
+
+@pytest.mark.parametrize("code", [EXIT_EVAL, 1, 2, 3])
+def test_no_invoke_unless_released(monkeypatch, capsys, tmp_path, code):
+    from agentbreeder import cli
+    from agentbreeder import release as release_module
+    from agentbreeder.release import Outcome
+
+    outcome = Outcome(code, "not released", {"agent": "hello"})
+    monkeypatch.setattr(release_module, "release", lambda *a, **k: outcome)
+    monkeypatch.setattr("agentbreeder.commands.release.resolve_deployer", lambda o: None)
+    assert cli.main(["release", "agent.yaml", "--state-dir", str(tmp_path / "s")]) == code
+    assert "Next:" not in capsys.readouterr().out
+    argv = ["release", "agent.yaml", "--state-dir", str(tmp_path / "s"), "--json"]
+    assert cli.main(argv) == code
+    assert "advice" not in json.loads(capsys.readouterr().out)
+
+
 def test_the_printed_logs_command_finds_the_tail(monkeypatch, capsys, tmp_path):
     """The reviewer's repro: `logs --failed` as printed after a --state-dir release reads that
     state, not the default."""

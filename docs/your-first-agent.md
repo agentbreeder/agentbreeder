@@ -12,8 +12,7 @@ The steps are the ones `agentbreeder next` checks, in the same order and with th
 `tests/test_your_first_agent_doc.py` fails when this page and the guide drift apart). `next DIR`
 shows the checklist (✓ done, → next, ✗ blocked, · not yet) and the one command to run next. It
 only reads, and its text output exits 1 while steps remain (`next.md` describes `next --json`).
-`new agent`, `services up` and `build` also end with a `Next:` line; after `release`, run
-`next`.
+`new agent`, `services up`, `build` and a successful `release` also end with a `Next:` line.
 
 Commands are shown as `agentbreeder …`, run in the project directory from step 3 on. With
 `npx agentbreeder@<version>`, `uvx --from 'agentbreeder[eval]==<version>' agentbreeder` or
@@ -141,7 +140,8 @@ agentbreeder release agent.yaml --stack . --environment dev
 
 What you see: "Deploying candidate hello-candidate ...", "Running 2 evals against …",
 "Released sha256:…: 2/2 evals passed", the production endpoint (`http://127.0.0.1:<port>`) and
-its deployment id, and the eval report's path. Production is deployed only when the gate passes.
+its deployment id, the eval report's path and `Next: … invoke hello Hello --stack …
+--environment dev` (step 7). Production is deployed only when the gate passes.
 
 When the gate fails, `release` lists each failed case. When it saved the failed candidate's log
 tail, `next` points at it (otherwise at `release` again):
