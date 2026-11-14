@@ -8,6 +8,7 @@ import { Deployments } from "./deployments.js";
 import { Home } from "./home.js";
 import { Kubernetes } from "./kubernetes.js";
 import { Logs } from "./logs.js";
+import { REGISTRY_ROUTES } from "./registry.js";
 import { Release } from "./release.js";
 import { Services } from "./services.js";
 import { TryIt } from "./try.js";
@@ -20,6 +21,7 @@ export const ROUTES = [
   { pattern: "/logs", title: "Logs", nav: "Logs", scoped: true, screen: Logs },
   { pattern: "/logs/:kind/:name", title: "Logs", section: "/logs", scoped: true, screen: Logs },
   { pattern: "/agents/:name/try", title: "Try it", navAs: "/deployments", scoped: true, screen: TryIt },
+  ...REGISTRY_ROUTES,
   { pattern: "/targets/kubernetes", title: "Kubernetes", nav: "Kubernetes", group: "Targets", scoped: true, screen: Kubernetes },
   { pattern: "/audit", title: "Audit", nav: "Audit", group: "Governance", scoped: true, screen: Audit },
 ];

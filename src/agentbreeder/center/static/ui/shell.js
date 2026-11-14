@@ -2,7 +2,7 @@
 // screens that work, the main region with the route's h1, and the job dock.
 
 import { jobLabel, jobOutcome } from "../lib/format.js";
-import { href } from "../lib/router.js";
+import { href, routeTitle } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import { ROUTES } from "../screens/index.js";
 import { Action, Text, useConfirm, useConsole } from "./components.js";
@@ -14,7 +14,13 @@ export function Shell({ match }) {
   const route = match ? match.route : null;
   const h1 = useRef(null);
   const previous = useRef(null);
-  const path = route ? route.section || route.pattern : "missing";
+  // What moves focus to the h1: a route with `section` (one screen whose parameter is a picker,
+  // like Logs) only when the section changes; any other route on a change of its parameters too,
+  // so list → detail and name → name move focus.
+  const path = route ? route.section || `${route.pattern} ${JSON.stringify(match.params || {})}` : "missing";
+  // The sidebar link kept current: a detail route without a nav entry names its list's pattern
+  // as `navAs`.
+  const section = route ? route.navAs || route.section || route.pattern : null;
   const projectId = project ? project.id : null;
   useEffect(() => {
     // A route change moves focus to the new h1, so keyboard and screen-reader users land on it.
@@ -37,9 +43,9 @@ export function Shell({ match }) {
     <a class="skip" href="#main" onClick=${(event) => { event.preventDefault(); h1.current && h1.current.focus(); }}>Skip to content</a>
     <${TopBar} />
     <div class="layout">
-      <${Sidebar} current=${path} />
+      <${Sidebar} current=${section} />
       <main id="main">
-        <h1 tabindex="-1" ref=${h1}>${route ? route.title : "Not found"}${route && route.scoped && project ? html` <span class="scope-chip"><${Text} value=${`${project.name} · ${project.environment}`} /></span>` : null}</h1>
+        <h1 tabindex="-1" ref=${h1}>${route ? routeTitle(route, match.params) : "Not found"}${route && route.scoped && project ? html` <span class="scope-chip"><${Text} value=${`${project.name} · ${project.environment}`} /></span>` : null}</h1>
         ${!route ? html`<p>There is no screen at this address. <a href="#/">Go to Home</a>.</p>` : needsProject ? html`<${ChooseProject} />` : html`<${Screen} project=${project} params=${match.params} key=${project ? project.id : "all"} />`}
       </main>
     </div>
