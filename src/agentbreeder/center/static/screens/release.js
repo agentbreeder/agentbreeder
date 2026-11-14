@@ -1,8 +1,24 @@
-// Build and release: the eval-gated release, a plain build, and rollback.
+// Build and release: the eval-gated release, a plain build, and rollback. When the project's latest
+// release failed the eval gate, the gate-failed view (#826) follows: the failed cases with edit
+// links and the candidate's saved log tail.
 
+import { releasesFor } from "../lib/agents.js";
+import { isAgentName } from "../lib/evals.js";
 import { isNorthwind } from "../lib/format.js";
+import { gateFailedRun } from "../lib/gate.js";
 import { Action, Actions, Card, Notice, useConfirm, useConsole } from "../ui/components.js";
+import { useView } from "../ui/data.js";
 import { html, useState } from "../ui/preact.js";
+import { GateFailed } from "./gate.js";
+
+/** The gate-failed view of the project's own agent (release rows name no agent), or nothing. */
+function LastGate({ project }) {
+  const [releases] = useView(`/api/projects/${project.id}/releases`, project.id);
+  const [agent] = useView(`/api/projects/${project.id}/agent`, project.id);
+  const name = releases.data && isAgentName(releases.data.agent) ? releases.data.agent : null;
+  const run = name ? gateFailedRun(releasesFor(releases.data, name).entries) : null;
+  return run ? html`<${GateFailed} key=${run} project=${project} name=${name} run=${run} agentFile=${agent.data} />` : null;
+}
 
 export function Release({ project }) {
   const { jobs, busyReason } = useConsole();
@@ -33,5 +49,6 @@ export function Release({ project }) {
         <${Action} tone="secondary" onClick=${rollback}>Roll back<//>
       <//>
     <//>
+    <${LastGate} project=${project} />
   `;
 }

@@ -20,7 +20,7 @@ const preview = (data) => {
  * had it ({raw, data}, or null for a new case): an edit that puts every field back writes that
  * line again, so "No changes" comes back.
  */
-function CaseRow({ number, data, initial, problems, invalid, open, checks, onToggle, onChange, onRemove }) {
+function CaseRow({ number, data, initial, problems, invalid, open, checks, rowRef = null, onToggle, onChange, onRemove }) {
   const [form, setForm] = useState(() => caseForm(data));
   const start = useRef(initial).current; // the line at mount: later edits change `raw`
   const ids = useRef({ id: nextId("case-id"), reference: nextId("case-ref") }).current;
@@ -34,7 +34,7 @@ function CaseRow({ number, data, initial, problems, invalid, open, checks, onTog
   const setTurn = (index, text) => set({ turns: form.turns.map((turn, i) => (i === index ? { ...turn, text } : turn)) });
   const id = typeof data.id === "string" && data.id ? data.id : "(no id)";
   const flagged = problems.length || invalid;
-  return html`<details class=${`case${flagged ? " invalid" : ""}`} open=${open} onToggle=${(event) => onToggle(event.currentTarget.open)}>
+  return html`<details ref=${rowRef} class=${`case${flagged ? " invalid" : ""}`} open=${open} onToggle=${(event) => onToggle(event.currentTarget.open)}>
     <summary>
       <span class="case-number">${number}.</span> <code><${Text} value=${id} /></code>
       <span class="muted"> <${Text} value=${preview(data)} /></span>
@@ -78,9 +78,20 @@ function CaseRow({ number, data, initial, problems, invalid, open, checks, onTog
  * shown at its case (which opens); any edit clears it. A file that is not JSON lines is shown with
  * why, and `fallback` (the plain text editor) instead. `checks` (default all of CHECKS) are the
  * checks a case's form offers, and `max` the most cases (the agent builder's spec takes fewer).
+ * `focus` is a case id to open and scroll to when the body first shows (the gate-failed view's
+ * "Edit case" link); an id no case has opens nothing.
  */
-export function CasesBody({ parsed, original, onText, invalid, fallback, checks = CHECKS, max = MAX_CASES }) {
-  const [open, setOpen] = useState(() => new Set());
+export function CasesBody({ parsed, original, onText, invalid, fallback, checks = CHECKS, max = MAX_CASES, focus = null }) {
+  // The focused case's line at mount (the first case with that id); only the mount uses it.
+  const focusLine = useRef(focus === null || parsed.error ? -1 : parsed.entries.findIndex((entry) => entry.data && entry.data.id === focus)).current;
+  const [open, setOpen] = useState(() => new Set(focusLine >= 0 ? [focusLine] : []));
+  const focused = useRef(null);
+  useEffect(() => {
+    if (focused.current) {
+      focused.current.scrollIntoView({ block: "center" });
+      focused.current.querySelector("summary")?.focus();
+    }
+  }, []);
   const [generation, setGeneration] = useState(0); // re-made forms after an add or remove
   const initial = useRef(null);
   if (initial.current === null) {
@@ -122,6 +133,7 @@ export function CasesBody({ parsed, original, onText, invalid, fallback, checks 
     setGeneration((n) => n + 1);
   };
   return html`<div class="cases">
+    ${focus !== null && focusLine < 0 ? html`<p class="notice warn">Case <code><${Text} value=${focus} /></code> is not in this version: it was renamed or removed.</p>` : null}
     <p class="muted small" role="status">${cases.length} ${cases.length === 1 ? "case" : "cases"}${problems.count ? `, ${problems.count} to fix before review` : ""}.</p>
     ${problems.set ? html`<p class="notice error"><${Text} value=${problems.set} /></p>` : null}
     ${cases.map(({ entry, line }, index) => html`<${CaseRow}
@@ -131,6 +143,7 @@ export function CasesBody({ parsed, original, onText, invalid, fallback, checks 
       initial=${initial.current.get(entry.raw) || null}
       problems=${problems.cases[index]}
       invalid=${invalid && invalid.index === index ? invalid.message : null}
+      rowRef=${line === focusLine ? focused : null}
       open=${open.has(line)}
       checks=${checks}
       onToggle=${(isOpen) => toggle(line, isOpen)}

@@ -828,6 +828,7 @@ class Runner:
         cache: bool = True,
         track: bool = False,
         input: str | None = None,  # noqa: A002 (subprocess's own name)
+        empty_codes: Sequence[int] = (),
     ) -> dict:
         """Run a read-only command that prints JSON; on failure, keep the last good answer.
         `ok_codes`: exit codes whose JSON is still the answer (`registry used-by` and `registry
@@ -835,7 +836,10 @@ class Runner:
         last good answer. `track=True`: a long read (verify) is tracked as a child, so shutdown
         stops it even when it is blocked. `input`: text for the child's stdin (Try it's message,
         S-12: free text never goes in argv, which every local user can read through `ps`);
-        without it stdin is /dev/null. Nothing here writes the input or the answer anywhere."""
+        without it stdin is /dev/null. `empty_codes`: exit codes that mean "nothing there"
+        (`logs --failed` exits 1 when no tail is saved), answered `{data: None, error: None}`
+        and never cached; with a Python traceback on stderr it is an error as usual. Nothing
+        here writes the input or the answer anywhere."""
         cache_key = key or " ".join(argv)
         if not cache:
             cache_key = f"uncached {uuid.uuid4().hex}"
@@ -884,6 +888,9 @@ class Runner:
         finally:
             if track:
                 self.forget(process)
+        # A crash also exits 1: a traceback is never "nothing there".
+        if process.returncode in empty_codes and "Traceback (most recent call last)" not in stderr:
+            return {"data": None, "error": None, "stale": False}
         if process.returncode not in ok_codes:
             return self._stale(cache_key, cli_error(stderr, process.returncode))
         try:

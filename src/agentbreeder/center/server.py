@@ -590,6 +590,41 @@ class Center:
             )
         return envelope(checked)
 
+    def failed_tail(self, project: dict, agent: str) -> dict:
+        """The log tail `release` saved from the agent's last failed candidate (#826, the
+        gate-failed view): `logs --failed NAME --stack DIR --environment ENV --json`, fixed argv,
+        never cached. The CLI read the file `release` wrote (0600, already redacted) and escapes
+        nothing in JSON; the browser shows every line through Text. Exit 1 (no tail: none failed
+        yet, or a later release passed) is `{saved: false}`. The file's path is not passed on:
+        it names the state directory, which holds the stack's secrets."""
+        if not eval_reads.AGENT.fullmatch(agent):
+            raise BadRequest("The agent must be an agent name", "AGENT_INVALID")
+        argv = ["logs", "--failed", agent, "--stack", project["path"]]
+        argv += ["--environment", project["environment"], "--json"]
+        result = self.runner.read(
+            argv, timeout=LOG_TIMEOUT, cache=False, track=True, empty_codes=(1,)
+        )
+        if result["error"] is not None:
+            return result
+        if result["data"] is None:
+            return envelope({"agent": agent, "saved": False, "lines": []})
+        data = result["data"]
+        lines = data.get("lines") if isinstance(data, dict) else None
+        if (
+            not isinstance(data, dict)
+            or data.get("agent") != agent
+            or not isinstance(lines, list)
+            or not all(isinstance(line, str) for line in lines)
+        ):
+            return envelope(
+                None,
+                error(
+                    "LOGS_INVALID",
+                    "The log answer does not match its contract; run the command in a terminal",
+                ),
+            )
+        return envelope({"agent": agent, "saved": True, "lines": lines})
+
     def eval_reports(self, project: dict, run: str | None, query: dict[str, list[str]]) -> dict:
         """The saved eval reports (`evals list`), or one run's report (`evals show RUN`), from the
         project's default `deploy/` folder (#932): fixed argv from `center/evals.py`, redacted
@@ -1000,6 +1035,10 @@ def _deployment_logs(request: Request) -> dict:
     )
 
 
+def _failed_tail(request: Request) -> dict:
+    return request.center.failed_tail(request.project(), request.match["agent"])
+
+
 def _eval_report(request: Request) -> dict:
     return request.center.eval_reports(request.project(), request.match["run"], request.query)
 
@@ -1168,6 +1207,12 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/logs/deployment/{DEPLOYMENT}",
         _deployment_logs,
         "/api/projects/0123456789ab/logs/deployment/" + "0" * 32,
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/logs/failed/{AGENT}",
+        _failed_tail,
+        "/api/projects/0123456789ab/logs/failed/demo",
     ),
     Route(
         "GET",
