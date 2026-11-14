@@ -38,7 +38,7 @@ from pydantic import ValidationError
 
 from agentbreeder import __version__, guide, registry
 from agentbreeder.center import agents as agent_rows
-from agentbreeder.center import tryit
+from agentbreeder.center import edits, tryit
 from agentbreeder.center.files import (
     BadRequest,
     check_ancestors,
@@ -84,7 +84,12 @@ EXAMPLES = ("northwind",)
 RELEASE_ROWS = 1000  # audit rows read for an agent's releases: `audit list`'s maximum
 STARTER_NAME = re.compile(r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$")
 GUIDE_TIMEOUT = 60  # `next` runs doctor's checks and one `compose ps`
-OPTIONS = {"services-up": ("digest",), "remove": ("deployment", "target")}
+# `build`'s `lock: "update"` drops --locked after "Move agent to this version" (#826).
+OPTIONS = {
+    "services-up": ("digest",),
+    "remove": ("deployment", "target"),
+    "build": ("lock",),
+}
 # A console session is code execution as the owner (console spec §10.1 I1), so the browser-side
 # guards are a primary control: scripts and styles from this origin only, no inline code, and
 # Trusted Types required with no policy allowed, so every HTML sink (innerHTML and the like)
@@ -505,9 +510,9 @@ class Center:
         )
         return {**result, "accepted_text": project.get("accepted_grant")}
 
-    def start_job(self, project: dict, body: dict) -> str:
-        # S-01, re-checked at every job start: the path must still resolve to itself (no
-        # component swapped for a link since registration) and pass the ownership checks.
+    def recheck(self, project: dict) -> None:
+        """S-01, re-checked before every job and write: the path must still resolve to itself
+        (no component swapped for a link since registration) and pass the ownership checks."""
         stored = Path(project["path"])
         try:
             moved = stored.resolve(strict=True) != stored
@@ -519,6 +524,33 @@ class Center:
                 "PROJECT_UNSAFE",
             )
         check_project(stored)
+
+    def registry_edit(self, project: dict, body: object) -> dict:
+        """The prompt editor's review and save (#826): `registry edit` with the text on stdin.
+        Without `digest` a dry run (diff and digest, nothing written, uncached); with it the
+        write, bound to the reviewed bytes, as a short write locked per name."""
+        request = edits.edit_request(body)
+        self.recheck(project)
+        argv = edits.edit_argv(project, request)
+        if request["digest"] is None:
+            return self.runner.read(argv, timeout=60, cache=False, input=request["text"])
+        ref = request["ref"]
+        target = f"{project['id']}:{ref.kind}/{ref.name}"
+        return self.runner.short_write(edits.EDIT_KIND, target, argv, input=request["text"])
+
+    def set_ref(self, project: dict, body: object) -> dict:
+        """ "Move agent to this version" (#826): `agent set-ref`, a dry run (the diff and the
+        digest of the agent.yaml it read), then the write bound to that digest. The write also
+        holds the project, so it never lands while a build or release reads agent.yaml."""
+        request = edits.set_ref_request(body)
+        self.recheck(project)
+        argv = edits.set_ref_argv(project, request)
+        if request["base"] is None:
+            return self.runner.read(argv, timeout=60, cache=False)
+        return self.runner.short_write(edits.SET_REF_KIND, project["id"], argv, project=project)
+
+    def start_job(self, project: dict, body: dict) -> str:
+        self.recheck(project)
         kind = str(body.get("kind", ""))
         options = body.get("options") or {}
         if isinstance(options, dict):
@@ -716,6 +748,14 @@ def _try_turn(request: Request) -> dict:
     return request.center.try_turn(request.project(), request.match["agent"], request.body)
 
 
+def _registry_edit(request: Request) -> dict:
+    return request.center.registry_edit(request.project(), request.body)
+
+
+def _set_ref(request: Request) -> dict:
+    return request.center.set_ref(request.project(), request.body)
+
+
 def _job(request: Request) -> dict:
     after = request.query.get("after", ["0"])[0]
     job = request.center.state.job(
@@ -828,6 +868,19 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/agents/{AGENT}/try",
         _try_turn,
         "/api/projects/0123456789ab/agents/support/try",
+    ),
+    Route(
+        "POST",
+        rf"/api/projects/{PROJECT_ID}/registry/edit",
+        _registry_edit,
+        "/api/projects/0123456789ab/registry/edit",
+        limit=MAX_EDITOR_BODY,
+    ),
+    Route(
+        "POST",
+        rf"/api/projects/{PROJECT_ID}/agent/set-ref",
+        _set_ref,
+        "/api/projects/0123456789ab/agent/set-ref",
     ),
 )
 

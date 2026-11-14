@@ -336,6 +336,10 @@ def argv_for(kind: str, project: dict, options: dict) -> list[str]:
     if kind == "services-down":
         return ["services", "down", path]
     if kind == "build":
+        # `--locked` unless asked to update agent.lock: after "Move agent to this version"
+        # (`agent set-ref`, #826) the lock lacks the new ref, and `release` builds --locked.
+        if options.get("lock") == "update":
+            return ["build", agent, *stack]
         return ["build", agent, *stack, "--locked"]
     if kind == "release":
         return ["release", agent, *stack]
@@ -718,6 +722,7 @@ class Runner:
         argv: Sequence[str],
         timeout: int | None = None,
         project: dict | None = None,
+        input: str | None = None,  # noqa: A002 (as `read`: free text on stdin, S-12)
     ) -> dict:
         """A short write as a synchronous CLI child, locked per target (`kind:target`), plus
         its project for writes that change a project's files (`agent set-ref`). A policy save
@@ -738,6 +743,7 @@ class Runner:
                 argv,
                 timeout=timeout or SHORT_TIMEOUTS.get(kind, SHORT_TIMEOUT),
                 key=f"{keys[0]} {uuid.uuid4().hex}",  # writes are never served from the cache
+                **({} if input is None else {"input": input}),
             )
         finally:
             self.invalidate()

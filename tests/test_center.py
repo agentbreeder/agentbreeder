@@ -537,6 +537,9 @@ STACK = ["--stack", "/work/proj", "--environment", "dev"]
     [
         ("services-down", {}, ["services", "down", "/work/proj"]),
         ("build", {}, ["build", "/work/proj/agent.yaml", *STACK, "--locked"]),
+        ("build", {"lock": "yes"}, ["build", "/work/proj/agent.yaml", *STACK, "--locked"]),
+        # After "Move agent to this version" (#826): a plain build updates agent.lock.
+        ("build", {"lock": "update"}, ["build", "/work/proj/agent.yaml", *STACK]),
         ("release", {}, ["release", "/work/proj/agent.yaml", *STACK]),
         ("rollback", {}, ["release", "/work/proj/agent.yaml", *STACK, "--rollback"]),
         ("cluster-down", {}, ["cluster", "down", "--stack", "/work/proj"]),

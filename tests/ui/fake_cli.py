@@ -139,7 +139,8 @@ def job(name: str, data: dict) -> int:
 
 
 def real(argv: list[str]) -> int:
-    """`registry show` and `registry diff` read only registry files: the real commands."""
+    """`registry show` and `registry diff` read only registry files, and `registry edit` and
+    `agent set-ref` (#826) write only the project's files: the real commands."""
     from agentbreeder import cli
 
     return cli.main(argv)
@@ -220,6 +221,8 @@ def main(argv: list[str]) -> int:
     elif head == ["registry", "verify"]:
         print(json.dumps(data["registry_problems"]))
         return 2 if data["registry_problems"] else 0
+    elif head in (["registry", "edit"], ["agent", "set-ref"]):
+        return real(argv)  # #826: the real edit and set-ref on the project's files
     elif argv and argv[0] == "registry":
         print("[]")
     elif argv[:2] == ["list", "--all"]:
