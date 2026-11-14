@@ -14,7 +14,7 @@ test("bumped raises one part and resets the lower ones", () => {
   assert.equal(bumped("1.2", "patch"), null);
   assert.equal(bumped(undefined, "patch"), null);
   assert.deepEqual(BUMPS, ["patch", "minor", "major"]);
-  assert.deepEqual(EDITABLE_KINDS, ["prompt"]);
+  assert.deepEqual(EDITABLE_KINDS, ["prompt", "eval"]); // PR 2 adds eval sets (#826)
 });
 
 test("saveVersion skips versions the name already has", () => {

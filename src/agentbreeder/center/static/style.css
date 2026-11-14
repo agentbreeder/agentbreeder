@@ -330,3 +330,15 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .editor:focus-within { outline: 2px solid var(--ring); outline-offset: 1px; }
 .edit-review { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--control-border); }
 .params { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+
+/* Eval-set case editor (#826, M10 PR 2): one collapsible row per case. */
+.cases { display: flex; flex-direction: column; gap: 6px; }
+.cases details.case { border: 1px solid var(--control-border); border-radius: 6px; padding: 6px 12px; }
+.cases details.case.invalid { border-color: var(--warning); }
+.cases summary { cursor: pointer; overflow-wrap: anywhere; }
+.cases .case-number { color: var(--text-muted); }
+.cases .case-problem { color: var(--warning); font-weight: 600; }
+.cases .case-form { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 4px; }
+.cases .case-form fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.cases .case-form textarea, .cases .case-form input { width: 100%; box-sizing: border-box; font: inherit; }
+.cases .turn, .cases .check-field { display: flex; flex-direction: column; gap: 4px; }

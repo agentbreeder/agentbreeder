@@ -10,16 +10,38 @@ Each is two requests (S-04): a dry run that returns the diff and the digest of w
 written, then the write with that digest, which the CLI refuses when the bytes changed since the
 review (`DIGEST_MISMATCH`, `BASE_MISMATCH`). The version is exact (`--version`, never `--bump`),
 so the button's "Save as X.Y.Z" is what is written; a version that exists already (another tab)
-is the CLI's `VERSION_EXISTS`. Imports only `registry` (already on the server's allowlist)."""
+is the CLI's `VERSION_EXISTS`. Imports only `registry` (already on the server's allowlist).
+
+Each kind the console edits is an `EditKind` in `KINDS`: which files of a version it may change,
+and whether a save needs the code confirm (the three-tier confirm of `onboard.py`: the preview,
+the "this code runs in agents" checkbox, the button). Prompts edit any text file; eval sets only
+their cases files (JSON lines, checked by the CLI as `release` loads them: EVAL_INVALID). M12
+adds `tool` (its source files, with the code confirm) as one more entry."""
 
 from __future__ import annotations
+
+import re
+from dataclasses import dataclass
 
 from agentbreeder import registry
 from agentbreeder.center.files import BadRequest
 
-# Kinds the console edits as text. Eval sets come with their case editor (M10 PR 2); tools have
-# their own flow and confirm (M12).
-EDITABLE = frozenset({"prompt"})
+
+@dataclass(frozen=True)
+class EditKind:
+    """A kind the console edits: `paths` must match the whole edit path; `code` makes a save
+    (not a review) need `code_confirmed: true`, because the files run in agents."""
+
+    paths: re.Pattern
+    what: str  # the files, as words for the refusal ("eval case files (*.jsonl)")
+    code: bool = False
+
+
+KINDS = {
+    "prompt": EditKind(re.compile(r".+"), "files"),
+    # The console opens only the cases file the manifest names; the CLI checks that one.
+    "eval": EditKind(re.compile(r"[^/]+\.jsonl"), "eval case files (NAME.jsonl at the top)"),
+}
 MAX_TEXT = 512 * 1024  # characters; under the editor body cap (1 MiB of JSON)
 EDIT_KIND = "registry-edit"
 SET_REF_KIND = "agent-set-ref"
@@ -45,8 +67,8 @@ def edit_request(body: object) -> dict:
     if not isinstance(body, dict):
         raise BadRequest("Send a JSON object", "EDIT_INVALID")
     ref = _ref(body.get("ref"), "ref")
-    if ref.kind not in EDITABLE:
-        raise BadRequest(f"The console edits {', '.join(sorted(EDITABLE))} versions", "EDIT_KIND")
+    if ref.kind not in KINDS:
+        raise BadRequest(f"The console edits {', '.join(sorted(KINDS))} versions", "EDIT_KIND")
     path = body.get("path")
     if not isinstance(path, str):
         raise BadRequest("Name the file to change", "EDIT_INVALID")
@@ -54,6 +76,9 @@ def edit_request(body: object) -> dict:
         path = registry.edit_path(path)
     except registry.RegistryError as problem:
         raise BadRequest(registry.clean(str(problem))[0], problem.code) from None
+    kind = KINDS[ref.kind]
+    if not kind.paths.fullmatch(path):
+        raise BadRequest(f"The console edits only {kind.what} of a {ref.kind}", "EDIT_PATH")
     text = body.get("text")
     if not isinstance(text, str):
         raise BadRequest("Send the file's text", "EDIT_INVALID")
@@ -62,13 +87,12 @@ def edit_request(body: object) -> dict:
     version = body.get("version")
     if not isinstance(version, str) or not registry.VERSION.fullmatch(version):
         raise BadRequest("version must be X.Y.Z", "VERSION_INVALID")
-    return {
-        "ref": ref,
-        "path": path,
-        "text": text,
-        "version": version,
-        "digest": _digest(body.get("digest"), "digest"),
-    }
+    digest = _digest(body.get("digest"), "digest")
+    if kind.code and digest is not None and body.get("code_confirmed") is not True:
+        raise BadRequest(
+            "Confirm that you reviewed this code: it runs in agents", "CODE_NOT_CONFIRMED"
+        )
+    return {"ref": ref, "path": path, "text": text, "version": version, "digest": digest}
 
 
 def edit_argv(project: dict, request: dict) -> list[str]:
