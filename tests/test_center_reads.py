@@ -42,6 +42,8 @@ ALLOWED = {
     "agentbreeder.center.server",
     # Try it (#823): pure request and answer checks; it imports only center.files.
     "agentbreeder.center.tryit",
+    # Prompt editing and set-ref (#826): pure request checks and argv; imports only registry.
+    "agentbreeder.center.edits",
     # Agents (#823): pure shaping of `list --all` and `audit list` answers.
     "agentbreeder.center.agents",
     # Onboard an agent.yaml alone (#823): pure request and answer checks; imports center.files.

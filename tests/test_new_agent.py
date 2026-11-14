@@ -400,12 +400,13 @@ def test_cli_refuses_a_bad_name_with_exit_2(tmp_path, capsys):
 @pytest.mark.parametrize(
     "argv",
     [
-        ["new", "agent", "hello"],  # --model is required: no default provider
         ["new", "agent", "hello", "--model", "mistral"],
         ["new", "hello", "--model", "gemini"],
     ],
 )
 def test_parser_refuses(argv, capsys):
+    # `new agent hello` without --model is refused by `run` (USAGE), since --from-spec needs
+    # no --model: tests/test_agent_spec.py
     with pytest.raises(SystemExit) as error:
         cli.main(argv)
     assert error.value.code == 2

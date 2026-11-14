@@ -455,14 +455,21 @@ class EventStore:
             "SELECT count(*) FROM events WHERE read = 0 AND project = ?", (project,)
         ).fetchone()[0]
 
-    def mark_read(self, ids: list[int] | None, project: str | None = None) -> None:
-        """Mark these ids read, or (ids None) every event, or every event of `project`."""
+    def mark_read(self, ids: list[int] | None, project: str | None = None) -> list[int]:
+        """Mark these ids read, or (ids None) every event, or every event of `project`. Returns
+        the ids that matched no stored event (#897), once each, in the order given."""
         if ids is not None:
-            self.db.executemany("UPDATE events SET read = 1 WHERE id = ?", [(i,) for i in ids])
-        elif project is not None:
+            unknown = []
+            for identifier in dict.fromkeys(ids):
+                cursor = self.db.execute("UPDATE events SET read = 1 WHERE id = ?", (identifier,))
+                if cursor.rowcount == 0:
+                    unknown.append(identifier)
+            return unknown
+        if project is not None:
             self.db.execute("UPDATE events SET read = 1 WHERE project = ?", (project,))
         else:
             self.db.execute("UPDATE events SET read = 1")
+        return []
 
 
 def _too_new(version: int) -> EventError:

@@ -188,6 +188,13 @@ class Plan:
     publishes: tuple[tuple[str, str], ...]  # (source directory, ref)
     published: dict[str, str] = field(default_factory=dict)  # ref -> sha256, after create
     model_id: str = ""  # the LiteLLM model string both aliases use
+    cases: tuple[str, ...] | None = None  # the case ids, when not the starter's (`--from-spec`)
+    # True when a ref may resolve outside the project's registry and the built-ins (a picked
+    # tool or MCP server on AGENTBREEDER_REGISTRY_PATH): agent.lock is then written after the
+    # move, in the final directory, so its source labels are relative to the project.
+    lock_after_move: bool = False
+    # ref -> sha256 of picked versions as previewed (`--from-spec`): agent.lock must agree.
+    pinned: dict[str, str] = field(default_factory=dict)
 
     def summary(self, dry_run: bool) -> dict:
         """The `--json` shape: what is (or would be) written, without file content."""
@@ -211,7 +218,7 @@ class Plan:
             "aliases": ["chat", "judge"],
             "key": PROVIDERS[self.model].key,
             "review_by": self.review_by,
-            "cases": [case["id"] for case in _cases()],
+            "cases": list(self.cases) if self.cases is not None else [c["id"] for c in _cases()],
             "files": files,
             "published": [
                 {"ref": ref, "source": source, "sha256": self.published.get(ref)}
@@ -386,7 +393,7 @@ def _write(path: Path, content: str) -> None:
     os.chmod(path, 0o644)
 
 
-def _lock(project: Path, refs: list[str]) -> None:
+def _lock(project: Path, refs: list[str], search: list[Path] | None = None) -> None:
     """Write agent.lock as `build` would (plain mode), from the versions just published.
 
     Every ref must still resolve over the full search path (an `AGENTBREEDER_REGISTRY_PATH`
@@ -404,7 +411,7 @@ def _lock(project: Path, refs: list[str]) -> None:
             refs=refs,
             paths=[],
             project_dir=project,
-            search=[project / "registry", registry.BUILTIN_ROOT],
+            search=search or [project / "registry", registry.BUILTIN_ROOT],
             lock=lock,
             context=Path(temporary) / "context",
         )
@@ -450,6 +457,21 @@ def _validate(project: Path, model_id: str) -> list[str]:
     return agent.refs()
 
 
+def _check_pinned(project: Path, pinned: dict[str, str]) -> None:
+    """The lock just written must hold the versions that were previewed: one replaced on a
+    registry root between the plan and the lock is refused, not locked."""
+    if not pinned:
+        return
+    from agentbreeder.lock import Lock
+
+    entries = Lock.load(project / "agent.lock").entries
+    for ref, digest in pinned.items():
+        if (entries.get(ref) or {}).get("sha256") != digest:
+            raise NewAgentError(
+                "DIGEST_MISMATCH", f"{ref} changed after it was checked; preview it again"
+            )
+
+
 def _modes(root: Path) -> None:
     for directory, dirnames, filenames in os.walk(root):
         for name in dirnames:
@@ -476,7 +498,10 @@ def create(plan: Plan) -> Plan:
             if str(ref) != expected:  # a template bug
                 raise NewAgentError("TEMPLATE_INVALID", f"published {ref}, expected {expected}")
             published[str(ref)] = digest
-        _lock(staging, _validate(staging, plan.model_id))
+        refs = _validate(staging, plan.model_id)
+        if not plan.lock_after_move:
+            _lock(staging, refs)
+            _check_pinned(staging, plan.pinned)
         _modes(staging)
         example._check_destination(plan.directory, allow=staging)
         for entry in sorted(staging.iterdir()):
@@ -486,6 +511,13 @@ def create(plan: Plan) -> Plan:
             os.rename(entry, target)
             moved.append(target)
         staging.rmdir()
+        staging = None
+        if plan.lock_after_move:
+            lock = plan.directory / "agent.lock"
+            moved.append(lock)  # removed with the rest if the lock cannot be made
+            _lock(plan.directory, refs, registry.roots(plan.directory))
+            os.chmod(lock, 0o644)
+            _check_pinned(plan.directory, plan.pinned)
         if not existed:
             os.chmod(plan.directory, 0o755)
     except BaseException as error:

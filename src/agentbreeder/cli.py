@@ -56,6 +56,7 @@ COMMAND_MODULES = (
     "build",
     "eval",
     "evals",
+    "knowledge",
     "release",
     "registry",
     "tool",

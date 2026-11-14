@@ -56,9 +56,9 @@ ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 STACK_YAML = """\
 # Local backing services for the {name} agent: Postgres and the LiteLLM model gateway.
-# Written by `agentbreeder new agent {name} --stack-for agent.yaml` on {today}.
+# Written by `agentbreeder new agent {name} {written_by}` on {today}.
 # `agentbreeder services up --environment dev --env-file FILE` starts them; FILE holds
-# {key}=... (mode 0600). See docs/services.md.
+# {keys} (mode 0600). See docs/services.md.
 kind: stack
 schema_version: 1
 name: {name}
@@ -70,7 +70,7 @@ services:
     ref: service/litellm@1.0.0
     with: {{config: stack/litellm/config.yaml}}
     wire: {{database-url: postgres.databases.litellm}}
-environment:
+{mcp_block}environment:
   gateway: litellm
   models: [{models}]
   ceilings: {{budget_usd: {budget}, rpm: {rpm}}}
@@ -314,30 +314,17 @@ def plan(
         )
     today = today or date.today()
     review_by = (today + timedelta(days=REVIEW_DAYS)).isoformat()
-    provider = PROVIDERS[model]
-    quoted = [json.dumps(alias) for alias in aliases]
     # The gate refuses a deploy whose model budget or rpm exceeds the environment's ceilings, so
     # they are at least the agent's own (the starter's 5 USD and 60 rpm otherwise).
-    budget = max(5.0, agent.model.budget_usd or 0)
-    rpm = max(60, agent.model.rpm or 0)
-    stack = STACK_YAML.format(
-        budget=json.dumps(int(budget) if budget.is_integer() else budget),
-        rpm=rpm,
-        name=name,
-        today=today.isoformat(),
-        key=provider.key,
-        models=", ".join(quoted),
-        agent_entry=_agent_entry(name, review_by),
-    )
-    config = (
-        LITELLM_HEAD
-        + "".join(
-            LITELLM_MODEL.format(
-                alias=alias, model=newagent.model_yaml(resolved), key=provider.key
-            )
-            for alias in quoted
-        )
-        + LITELLM_TAIL
+    files = render(
+        name,
+        model,
+        resolved,
+        aliases,
+        budget=max(5.0, agent.model.budget_usd or 0),
+        rpm=max(60, agent.model.rpm or 0),
+        today=today,
+        review_by=review_by,
     )
     return StackForPlan(
         name,
@@ -346,12 +333,62 @@ def plan(
         directory,
         review_by,
         tuple(aliases),
-        {STACK_FILE: stack, LITELLM_CONFIG: config},
+        files,
         tuple(warnings),
         resolved,
         digest,
         refs,
     )
+
+
+def render(
+    name: str,
+    model: str,
+    model_id: str,
+    aliases: list[str],
+    *,
+    budget: float,
+    rpm: int,
+    today: date,
+    review_by: str,
+    written_by: str = "--stack-for agent.yaml",
+    mcp: dict[str, str] | None = None,
+    keys: tuple[str, ...] = (),
+) -> dict[str, str]:
+    """`stack.yaml` and the gateway config for a checked NAME, provider, model id and aliases
+    (also used by `--from-spec`, `agentspec`). `mcp`: server name -> checked `mcp/` ref, added
+    as the stack's `mcp:` block (no grants; those are added with `mcpgrant`); `keys`: the keys
+    its servers import, named in the header. `written_by` is a fixed string from the caller,
+    never user text."""
+    provider = PROVIDERS[model]
+    quoted = [json.dumps(alias) for alias in aliases]
+    mcp_block = ""
+    if mcp:
+        mcp_block = "mcp:\n" + "".join(
+            f"  {server}: {{ref: {json.dumps(ref)}}}\n" for server, ref in mcp.items()
+        )
+    stack = STACK_YAML.format(
+        budget=json.dumps(int(budget) if float(budget).is_integer() else budget),
+        rpm=rpm,
+        name=name,
+        today=today.isoformat(),
+        written_by=written_by,
+        keys=" and ".join(f"{key}=..." for key in (provider.key, *keys)),
+        models=", ".join(quoted),
+        mcp_block=mcp_block,
+        agent_entry=_agent_entry(name, review_by),
+    )
+    config = (
+        LITELLM_HEAD
+        + "".join(
+            LITELLM_MODEL.format(
+                alias=alias, model=newagent.model_yaml(model_id), key=provider.key
+            )
+            for alias in quoted
+        )
+        + LITELLM_TAIL
+    )
+    return {STACK_FILE: stack, LITELLM_CONFIG: config}
 
 
 def check(plan: StackForPlan) -> None:

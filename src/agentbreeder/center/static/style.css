@@ -313,4 +313,16 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .code-confirm { border: 1px solid var(--warning); border-radius: 6px; padding: 8px 12px 12px; margin: 0; background: var(--warning-subtle); }
 .code-confirm legend { font-weight: 600; padding: 0 4px; }
 .code-confirm .check { align-self: auto; margin-top: 8px; }
+
+/* Prompt editor (#826, M10): a mono textarea with a line gutter that scrolls with it. */
+.edit-bar { align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.editor {
+  display: grid; grid-template-columns: max-content 1fr; height: 360px; min-height: 160px; resize: vertical; overflow: hidden;
+  border: 1px solid var(--control-border); border-radius: 6px; background: var(--background);
+}
+.editor .gutter, .editor textarea { font: 13px/20px "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px; margin: 0; }
+.editor .gutter { overflow: hidden; text-align: right; color: var(--text-muted); border-right: 1px solid var(--control-border); user-select: none; min-width: 3ch; }
+.editor textarea { width: 100%; height: 100%; resize: none; border: 0; outline: none; color: inherit; background: transparent; tab-size: 4; white-space: pre; overflow: auto; }
+.editor:focus-within { outline: 2px solid var(--ring); outline-offset: 1px; }
+.edit-review { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--control-border); }
 .params { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }

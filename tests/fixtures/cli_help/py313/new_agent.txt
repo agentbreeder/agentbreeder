@@ -1,8 +1,8 @@
 usage: agentbreeder new agent [-h]
-                              --model {anthropic,gemini,openai,openrouter}
+                              [--model {anthropic,gemini,openai,openrouter}]
                               [--model-id ID] [--dir DIR |
-                              --stack-for AGENT_YAML] [--dry-run]
-                              [--expect-digest SHA256] [--json]
+                              --stack-for AGENT_YAML] [--from-spec FILE]
+                              [--dry-run] [--expect-digest SHA256] [--json]
                               name
 
 Write a starter agent project to DIR (default ./NAME): agent.yaml, stack.yaml
@@ -17,8 +17,9 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --model {anthropic,gemini,openai,openrouter}
-                        Model provider, called through LiteLLM; only gemini
-                        has been run end to end, the others are config-only
+                        Model provider, called through LiteLLM (required,
+                        except with --from-spec); only gemini has been run end
+                        to end, the others are config-only
   --model-id ID         LiteLLM model id, PROVIDER/... (default: the
                         provider's own; openrouter needs one, e.g.
                         openrouter/<vendor>/<model>)
@@ -27,8 +28,14 @@ options:
                         Instead of a starter, write stack.yaml and
                         stack/litellm/config.yaml beside an existing
                         agent.yaml named NAME (onboarding an agent.yaml alone)
+  --from-spec FILE      Write the project from an agent-builder spec: a
+                        private JSON file (mode 0600) with the model, prompt
+                        text, eval cases, tools and MCP servers
+                        (docs/commands/new.md)
   --dry-run             Show what would be written
   --expect-digest SHA256
                         With --stack-for: refuse unless agent.yaml still has
-                        this digest (agent_sha256 from --dry-run --json)
+                        this digest (agent_sha256 from --dry-run --json); with
+                        --from-spec: unless the plan is the previewed one
+                        (plan_sha256)
   --json                Print the result as JSON

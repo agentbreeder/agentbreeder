@@ -132,7 +132,8 @@ the grant review, a full release and the cluster connect and deploy were not cli
 ### The registry browser (#824): on `main`, not in a published preview
 
 Registry ▸ one page per kind (prompt, eval set, tool, knowledge, MCP server, service definition,
-runtime) for the project in scope. Read-only: editing, import and fork are later milestones.
+runtime) for the project in scope. Prompts are edited from the detail (#826, below); import and
+fork are later milestones.
 
 - **List**: one row per name with its latest version, how many versions there are, the root the
   latest resolves from (project, shared path from `AGENTBREEDER_REGISTRY_PATH`, or built-in), its
@@ -159,6 +160,44 @@ Northwind's versions and the built-ins, the `prompt/northwind-support` 1.0.0 →
 Python's `difflib.unified_diff` of the files, `tool/orders@1.0.0` shows Northwind as declared, locked and
 deployed, a failed verification shows on the list and the version, and axe passes in light and dark.
 Not yet run against a real deployment: that is the M8 console verification.
+
+### Prompt editing and "Move agent to this version" (#826, first part): on `main`, not in a published preview
+
+A prompt's detail page (`#/registry/prompts/NAME`) has an **Edit X.Y.Z** card for the version
+shown, when that version is in the project's `./registry`. A built-in or shared-path version
+(`AGENTBREEDER_REGISTRY_PATH`) is not edited in place; the card shows the `registry fork` command
+to make a project copy first.
+
+- **Edit**: the version's text files (not `manifest.yaml`; not binary, truncated or
+  control-character files, which are named with the reason) open in a mono textarea with a line
+  gutter. The new version is picked as patch, minor or major and skips versions the name already
+  has. Closing or reloading the tab with unsaved changes asks first, as do Discard, switching
+  files and showing another version; moving to another page of the console does not ask yet.
+  A file with CRLF line endings is flagged: the browser edits it with LF endings.
+- **Review, then save** (S-04): Review changes (or Cmd+S or Ctrl+S in the text) runs
+  `registry edit REF --set PATH - --version X.Y.Z --dry-run --json` with the text on stdin
+  (S-12: never in argv) and shows its diff. **Save as X.Y.Z** sends the same text with
+  `--expect-digest` of the reviewed copy, so what is written is what was reviewed. While a request
+  is in flight the shortcut does nothing. A version that appeared meanwhile (another tab or a
+  terminal) is `VERSION_EXISTS`: the console re-reads the registry, keeps the text, and the next
+  review offers the next free version. `REF` itself never changes, and the version shown stays
+  pinned when the registry is re-read.
+- **Move agent to this version**: when the project's `agent.yaml` declares another version of the
+  name, the card shows the `agent set-ref OLD NEW --dry-run` diff; **Write agent.yaml** runs it
+  again with `--expect-base` (the digest of the file that was reviewed), so a file changed since
+  is refused (`BASE_MISMATCH`). Then **Build and update agent.lock** starts a build without
+  `--locked` (Build only and `release` build with `--locked`, which refuses a lock that lacks the
+  new ref), and Build and release runs the eval-gated release.
+- **Locks**: an edit save is a short write locked per project and name; a running job does not
+  block it. The `agent.yaml` write also holds the project, so it waits for (is refused during) a
+  build or release of that project.
+- **Record**: neither write adds an audit-chain row; the record is the new version directory,
+  `agent.yaml` and your git history (spec S-30).
+
+Tested with the real `registry edit` and `agent set-ref` (server tests over a starter project) and
+with Playwright over a copy of Northwind: edit, review, save 1.0.2, move the agent and start the
+build; a second save of an existing version; Discard. Not yet run as the M10 acceptance (edit the
+starter's prompt, move, release with the eval gate): that is batched with the milestone checks.
 
 ### Tool detail (#828, M12): on `main`, not in a published preview
 
