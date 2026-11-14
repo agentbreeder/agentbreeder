@@ -1,0 +1,9 @@
+# `agentbreeder list`
+
+List deployments that are not removed (read-only, no IdP calls).
+
+`list` opens the local state read-only (no directory or database is created, no migration, no write lock, so it never blocks a running job); when the state is from an older version or an interrupted write left a journal, it says to run `agentbreeder migrate [--state-dir DIR | --stack DIR [--environment ENV]]`, which only upgrades the local state (no identity-provider calls; `status` re-verifies at the IdP and is not a substitute).
+
+`list --all [--json] [--state-dir DIR]` also lists every stack's deployments, reading only: the default state (or `--state-dir`) and, under `~/.agentbreeder/stacks/` (or `AGENTBREEDER_STACKS_DIR`), the deploy state of every environment a stack wrote, each with the project path `services up` recorded (`services up` now records it in the stack's meta; a stack brought up before that, or a recorded value that is not a clean absolute path, shows `project: null`; a consumer re-checks the path before acting on it). Nothing is created, migrated or locked. A stack directory is read only if its name has the `<stack>-<8 hex>` form and it, its `envs/` and each environment directory are real directories you own that others cannot write to (not symlinks); anything else, and a store it cannot read (`STATE_NEEDS_MIGRATION`, `STATE_UNSUPPORTED`, `STATE_BUSY`, `STATE_UNSAFE`, `STATE_UNREADABLE`), is reported and skipped while the rest is listed, on stderr as `skipped STACK (ENV): [CODE] reason`. `--json` prints `{"schema_version": 1, "deployments": [...], "skipped": [{"stack", "environment", "code", "reason"}]}`; each deployment has `list --json`'s fields plus `stack` and `project` (null for the default state). Invalid names are never echoed raw, and text output escapes control characters. It exits 0 with skipped entries; `--all` with `--stack` is a usage error (on `main`, not in a published preview).
+
+Flags: `agentbreeder list --help`.
