@@ -110,9 +110,10 @@ class _Strict(BaseModel):
 
 
 def _text(value: str, limit: int, where: str) -> str:
-    """Text without control or bidi characters (tab and newline are allowed)."""
+    """Text without control, bidi or invisible format characters (tab, newline and the
+    zero-width joiners are allowed)."""
     if registry.clean(value)[1]:
-        raise ValueError(f"{where} has control or bidi characters")
+        raise ValueError(f"{where} has control, bidi or invisible characters")
     if len(value.encode("utf-8")) > limit:
         raise ValueError(f"{where} is over {limit} bytes")
     if not value.strip():
