@@ -687,6 +687,19 @@ class Center:
         target = f"{project['id']}:{ref.kind}/{ref.name}"
         return self.runner.short_write(edits.EDIT_KIND, target, argv, input=request["text"])
 
+    def registry_fork(self, project: dict, body: object) -> dict:
+        """Fork to edit (#828): `registry fork REF --version X.Y.Z`. Without `digest` a dry
+        run (the copy's files and digest, nothing written, uncached); with it the copy, bound to
+        the reviewed digest, as a short write locked per name like an edit."""
+        request = edits.fork_request(body)
+        self.recheck(project)
+        argv = edits.fork_argv(project, request)
+        if request["digest"] is None:
+            return self.runner.read(argv, timeout=60, cache=False)
+        ref = request["ref"]
+        target = f"{project['id']}:{ref.kind}/{ref.name}"
+        return self.runner.short_write(edits.EDIT_KIND, target, argv)
+
     def set_ref(self, project: dict, body: object) -> dict:
         """ "Move agent to this version" (#826): `agent set-ref`, a dry run (the diff and the
         digest of the agent.yaml it read), then the write bound to that digest. The write also
@@ -911,6 +924,10 @@ def _registry_edit(request: Request) -> dict:
     return request.center.registry_edit(request.project(), request.body)
 
 
+def _registry_fork(request: Request) -> dict:
+    return request.center.registry_fork(request.project(), request.body)
+
+
 def _set_ref(request: Request) -> dict:
     return request.center.set_ref(request.project(), request.body)
 
@@ -1063,6 +1080,12 @@ ROUTES: tuple[Route, ...] = (
         _registry_edit,
         "/api/projects/0123456789ab/registry/edit",
         limit=MAX_EDITOR_BODY,
+    ),
+    Route(
+        "POST",
+        rf"/api/projects/{PROJECT_ID}/registry/fork",
+        _registry_fork,
+        "/api/projects/0123456789ab/registry/fork",
     ),
     Route(
         "POST",

@@ -152,7 +152,8 @@ def test_a_shared_version_is_not_edited_in_place(
 @pytest.mark.parametrize(
     "body,code",
     [
-        ({"ref": "tool/t@1.0.0"}, "EDIT_KIND"),
+        ({"ref": "service/s@1.0.0"}, "EDIT_KIND"),
+        ({"ref": "tool/t@1.0.0"}, "EDIT_PATH"),  # prompt.md is not tool source
         ({"ref": EVAL_OLD, "path": "manifest.yaml"}, "EDIT_INVALID"),
         ({"ref": EVAL_OLD, "path": "fixtures.sql"}, "EDIT_PATH"),
         ({"ref": EVAL_OLD, "path": "more/golden.jsonl"}, "EDIT_PATH"),

@@ -50,7 +50,14 @@ class Console:
 
 
 @pytest.fixture
-def console(tmp_path):
+def console_env() -> dict[str, str]:
+    """Extra environment for the console under test (a test module overrides this fixture),
+    such as AGENTBREEDER_REGISTRY_PATH for a shared registry root."""
+    return {}
+
+
+@pytest.fixture
+def console(tmp_path, console_env):
     state = tmp_path / "state"
     state.mkdir(mode=0o700)
     env = {
@@ -58,6 +65,7 @@ def console(tmp_path):
         "HOME": str(tmp_path / "home"),
         "TMPDIR": str(tmp_path),
         "AGENTBREEDER_FAKE_DIR": str(state),
+        **console_env,
     }
     process = subprocess.Popen(
         [sys.executable, "-I", str(HERE / "launcher.py"), str(state)],

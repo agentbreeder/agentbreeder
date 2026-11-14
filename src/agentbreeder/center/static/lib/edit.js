@@ -11,7 +11,8 @@ import { compareVersions } from "./registry.js";
  * words). `body`: how the
  * file is edited ("text", the mono textarea; "cases", the eval case editor). `confirm`: null, or
  * "code" for files that run in agents (the save then needs the "this code runs in agents"
- * checkbox, sent as `code_confirmed`). `note`: what a saved change does. M12 adds `tool`.
+ * checkbox, sent as `code_confirmed`). `note`: what a saved change does. `tool` (M12, #828) edits
+ * only Python under src/; tool.yaml, which the model sees, is not edited here.
  */
 export const EDIT_KINDS = {
   prompt: {
@@ -28,6 +29,13 @@ export const EDIT_KINDS = {
     body: "cases",
     confirm: null,
     note: "These cases are the release's eval gate: a release of an agent that uses the new version must pass them. The review loads the edited set the way a release does.",
+  },
+  tool: {
+    file: (path) => /^src\/.+\.py$/.test(path),
+    files: "Python source files (src/**/*.py)",
+    body: "text",
+    confirm: "code",
+    note: "This code runs inside the agents that use the new version, as you, once an agent is moved to it and a release passes the eval gate. The review runs the CLI's tool check (allowed files, no module that shadows the runtime, every function still a top-level def); the eval gate is a quality gate, not a security review.",
   },
 };
 
@@ -125,6 +133,7 @@ const WORDS = {
   BASE_MISMATCH: "agent.yaml changed after your review. Review the change again.",
   EDIT_UNCHANGED: "Nothing changed: the text is the same as this version's.",
   CODE_NOT_CONFIRMED: "Tick the box to confirm you reviewed this code, then save.",
+  FORK_UNCHANGED: "Fork it as a new version.",
   WRITE_BUSY: null, // the server's own message says what holds it
 };
 
