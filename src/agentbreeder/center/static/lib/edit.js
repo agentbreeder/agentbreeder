@@ -12,7 +12,9 @@ import { compareVersions } from "./registry.js";
  * file is edited ("text", the mono textarea; "cases", the eval case editor). `confirm`: null, or
  * "code" for files that run in agents (the save then needs the "this code runs in agents"
  * checkbox, sent as `code_confirmed`). `note`: what a saved change does. `tool` (M12, #828) edits
- * only Python under src/; tool.yaml, which the model sees, is not edited here.
+ * only Python under src/; tool.yaml, which the model sees, is not edited here. `add` (a new file:
+ * `newFile` turns a name into its path), `remove` (`registry edit --remove`) and `warning` (shown
+ * in the review, before Save) are set for knowledge documents (M14, #830).
  */
 export const EDIT_KINDS = {
   prompt: {
@@ -37,7 +39,43 @@ export const EDIT_KINDS = {
     confirm: "code",
     note: "This code runs inside the agents that use the new version, as you, once an agent is moved to it and a release passes the eval gate. The review runs the CLI's tool check (allowed files, no module that shadows the runtime, every function still a top-level def); the eval gate is a quality gate, not a security review.",
   },
+  knowledge: {
+    file: (path) => DOCUMENT.test(path),
+    files: "documents (docs/NAME.md or docs/NAME.txt, plain names)",
+    body: "text",
+    confirm: null,
+    add: { label: "New document", folder: "docs/", hint: "refunds-policy.md or faq.txt" },
+    remove: true,
+    warning: "Documents land in this project's registry, which is committed to git: do not add customer data or secrets.",
+    note: "The agent searches these documents. A saved version is indexed only after you move the agent to it and release: the release's eval makes the runtime index it.",
+  },
 };
+
+/** A knowledge document the console edits (center/edits.py KINDS["knowledge"]). */
+const DOCUMENT = /^docs\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.(md|txt)$/;
+
+/** A document's stem as the runtime's chunk ids use it (`<stem>#<n>`), case-folded. */
+const stem = (path) => String(path).split("/").pop().replace(/\.(md|txt)$/, "").toLowerCase();
+
+/**
+ * The path of a new file of `kind` named `name` (`add` kinds only): {path} or {error}. A name
+ * the version already has is refused (open it instead), and so is one whose stem another
+ * document has in any case (faq.md beside faq.txt or FAQ.md): the runtime's chunk ids are
+ * `<stem>#<n>`, and a case-insensitive disk would land FAQ.md on faq.md.
+ */
+export function newFile(kind, name, show) {
+  const spec = editKind(kind);
+  if (!spec || !spec.add) return { error: "Files of this kind are not added here." };
+  const trimmed = String(name ?? "").trim();
+  if (!trimmed) return { error: "Name the file." };
+  const path = `${spec.add.folder}${trimmed}`;
+  if (!spec.file(path)) return { error: `Use a plain name ending in .md or .txt, like ${spec.add.hint}: letters, digits, ".", "_" and "-", not starting with ".".` };
+  const files = (show && Array.isArray(show.files) && show.files) || [];
+  if (files.some((file) => file && file.path === path)) return { error: `${path} exists already: choose it under File.` };
+  const clash = files.find((file) => file && spec.file(String(file.path)) && stem(file.path) === stem(path));
+  if (clash) return { error: `${clash.path} has the same name: the agent's search would mix their chunks. Choose another name, or edit ${clash.path}.` };
+  return { path };
+}
 
 /** Kinds the console edits. */
 export const EDITABLE_KINDS = Object.keys(EDIT_KINDS);
@@ -134,6 +172,7 @@ const WORDS = {
   EDIT_UNCHANGED: "Nothing changed: the text is the same as this version's.",
   CODE_NOT_CONFIRMED: "Tick the box to confirm you reviewed this code, then save.",
   FORK_UNCHANGED: "Fork it as a new version.",
+  EDIT_REMOVE: "Files of this kind are not removed here; use agentbreeder registry edit --remove in a terminal.",
   WRITE_BUSY: null, // the server's own message says what holds it
 };
 

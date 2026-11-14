@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  BUMPS, EDITABLE_KINDS, agentUses, bumped, editKind, editProblem, editableFile, editableFiles, gutterLines, isSaveShortcut, movableFrom, needsNewReview,
+  BUMPS, EDITABLE_KINDS, agentUses, bumped, editKind, editProblem, editableFile, editableFiles, gutterLines, isSaveShortcut, movableFrom, needsNewReview, newFile,
   notEditableReason, saveVersion,
 } from "../../src/agentbreeder/center/static/lib/edit.js";
 
@@ -14,7 +14,7 @@ test("bumped raises one part and resets the lower ones", () => {
   assert.equal(bumped("1.2", "patch"), null);
   assert.equal(bumped(undefined, "patch"), null);
   assert.deepEqual(BUMPS, ["patch", "minor", "major"]);
-  assert.deepEqual(EDITABLE_KINDS, ["prompt", "eval", "tool"]); // PR 2 adds eval sets (#826)
+  assert.deepEqual(EDITABLE_KINDS, ["prompt", "eval", "tool", "knowledge"]); // eval sets (#826), knowledge (#830)
 });
 
 test("saveVersion skips versions the name already has", () => {
@@ -119,4 +119,41 @@ test("a tool edits only Python under src/, with the code confirm", () => {
 test("a fork refusal has its own words", () => {
   assert.equal(editProblem({ code: "FORK_UNCHANGED", message: "x" }).text, "Fork it as a new version.");
   assert.equal(editProblem({ code: "TOOL_INVALID", message: "lookup_orders is not a top-level def" }).text, "lookup_orders is not a top-level def");
+});
+
+test("knowledge edits only its documents, adds and removes them, and warns before Save", () => {
+  const spec = editKind("knowledge");
+  assert.equal(spec.body, "text");
+  assert.equal(spec.confirm, null);
+  assert.equal(spec.remove, true);
+  assert.match(spec.warning, /committed to git/);
+  assert.match(spec.note, /release/);
+  for (const name of ["prompt", "eval", "tool"]) {
+    assert.ok(!editKind(name).remove && !editKind(name).add && !editKind(name).warning, name);
+  }
+  const show = { files: [file("manifest.yaml"), file("docs/refunds.md"), file("docs/faq.txt"), file("docs/notes.pdf"), file("docs/sub/a.md"), file("README.md"), file("docs/.x.md")] };
+  assert.deepEqual(editableFiles(show, "knowledge").map((f) => f.path), ["docs/faq.txt", "docs/refunds.md"]);
+  assert.match(notEditableReason(file("README.md"), "knowledge"), /documents/);
+});
+
+test("newFile names a new document under docs/", () => {
+  const show = { files: [file("docs/refunds.md")] };
+  assert.deepEqual(newFile("knowledge", " warranty.md ", show), { path: "docs/warranty.md" });
+  assert.deepEqual(newFile("knowledge", "v1.2_notes.txt", show), { path: "docs/v1.2_notes.txt" });
+  assert.match(newFile("knowledge", "refunds.md", show).error, /exists already/);
+  for (const bad of ["", "  ", "a.MD", "a.pdf", "../x.md", "sub/a.md", ".x.md", "a b.md", "a\u202eb.md", `${"a".repeat(101)}.md`]) {
+    assert.ok(newFile("knowledge", bad, show).error, JSON.stringify(bad));
+  }
+  // Same stem in any case: the runtime's chunk ids are <stem>#<n>.
+  for (const clash of ["refunds.txt", "Refunds.md", "REFUNDS.txt"]) {
+    assert.match(newFile("knowledge", clash, show).error, /same name/, clash);
+  }
+  assert.deepEqual(newFile("knowledge", "refunds-2.md", show), { path: "docs/refunds-2.md" });
+  assert.deepEqual(newFile("knowledge", "refunds.md.txt", { files: [file("docs/refunds.md")] }), { path: "docs/refunds.md.txt" });
+  assert.ok(newFile("prompt", "a.md", show).error);
+  assert.ok(newFile("nope", "a.md", show).error);
+});
+
+test("a kind the console does not remove from has fixed words", () => {
+  assert.match(editProblem({ code: "EDIT_REMOVE", message: "x" }).text, /registry edit --remove/);
 });

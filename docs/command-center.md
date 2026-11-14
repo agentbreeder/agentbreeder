@@ -341,8 +341,8 @@ reads it again.
 - **It reads with the agent's own credential**, in a read-only session; the console server never
   reads a credential. **Chunk text is never read**: only counts, names, times and the
   embedding go to the browser, checked again by the console before it sees them.
-- **Documents change through `registry edit`** (in a terminal, for now) and are re-indexed after
-  the next `release`, whose eval makes the runtime index the new version.
+- **Documents change through the version's Edit card** (below; or `registry edit` in a terminal)
+  and are re-indexed after the next `release`, whose eval makes the runtime index the new version.
 - **A refusal shows as "Unavailable: reason" with the next step**: for example, services not
   running (`SERVICES_DOWN`) or a refused credential (`DB_LOGIN_FAILED`) name `services up`; other
   codes show the CLI's message and the `knowledge status` command to run in a terminal.
@@ -355,6 +355,35 @@ the same checks, and Playwright over a copy of Northwind with a
 scripted `knowledge status` (fresh, stale with a note, a refusal, Refresh, no status on other
 kinds, axe in light and dark). Not yet run against a real stack's database: that is the M14
 acceptance, batched with the milestone checks.
+
+### Knowledge documents (#830, M14, second part): on `main`, not in a published preview
+
+A project knowledge version's **Edit** card changes its documents, `docs/NAME.md` or
+`docs/NAME.txt` (the files the runtime indexes), the same way prompts are edited: every change
+publishes a new version, and the old one never changes.
+
+- **Edit** a document, **add** one (**New document**: a plain name, letters, digits, `.`, `_` and
+  `-`, ending in `.md` or `.txt`, and not the name of another document in any case or extension,
+  since the runtime's chunk ids are `<name>#<n>`; it is saved with `registry edit REF --set
+  docs/NAME -`), or
+  **remove** one (**Remove this document**: `registry edit REF --remove docs/NAME --version X.Y.Z
+  --project DIR`, with nothing on stdin). Each is a dry run that shows the diff and the digest,
+  then a write bound to that digest (`--expect-digest`; `DIGEST_MISMATCH` means review again).
+- **The review warns before Save** that documents land in the project's registry, which is
+  committed to git: no customer data or secrets.
+- **Only documents are changed here**: the manifest and other files are listed as not editable,
+  and a name outside the plain pattern is edited in a terminal. Only knowledge takes the remove
+  mode (`EDIT_REMOVE` for other kinds). Text is up to 512 KiB; there is no binary upload.
+- A saved version is indexed only after the agent is moved to it (**Move agent to this
+  version**, as for prompts) and a release runs: the release's eval makes the runtime index it.
+  A built-in or shared knowledge version is forked into the project first (**Fork to edit**).
+
+Tested with the real `registry edit` (server tests over a copy of Northwind: an edited, an added
+and a removed document, a removal refused with another digest or a missing file, paths and bad
+removals refused before the CLI, nothing on stdin for a removal) and Playwright over a copy of
+Northwind (edit, add with refused names, remove refused while there are unsaved changes, the
+warning in each review, axe in light and dark). Not yet run: a release after the change and the
+retrieval and status checks of the M14 acceptance, batched with the milestone checks.
 
 ### MCP grants (#831, M15, first part): on `main`, not in a published preview
 
