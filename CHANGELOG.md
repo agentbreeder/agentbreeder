@@ -341,6 +341,16 @@ On main, not in a published preview.
 
 ### Changed
 
+- `agentbreeder services up` also writes `agent-database` (the `DATABASE_URL` binding in host
+  form) and, when the database service's `console_database` param is set, `console-database`
+  (its `operator_only` `console` output in host form) beside `eval-database` in the
+  environment's deploy state, for CLI commands on the host (#828, M12 prerequisite), on `main`,
+  not in a published preview. A removed binding or console role deletes the stale file. The three
+  names are reserved: a deploy manifest that references `secret://eval-database`,
+  `secret://agent-database` or `secret://console-database` is now denied with
+  `SECRET_RESERVED` (before, `eval-database` could be mounted into an agent). See
+  `docs/services.md`.
+
 - "Command center" is now "console" (#816, M0b, slice 3), on `main`, not in a published
   preview: `agentbreeder up`'s help, its startup line ("AgentBreeder console: URL") and stop
   line ("Console stopped. …"), and `docs/`. The page keeps its file name,
