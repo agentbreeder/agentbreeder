@@ -14,7 +14,7 @@ export function Shell({ match }) {
   const route = match ? match.route : null;
   const h1 = useRef(null);
   const previous = useRef(null);
-  const path = route ? route.pattern : "missing";
+  const path = route ? route.section || route.pattern : "missing";
   const projectId = project ? project.id : null;
   useEffect(() => {
     // A route change moves focus to the new h1, so keyboard and screen-reader users land on it.
@@ -110,7 +110,7 @@ function UserMenu() {
 
 function Sidebar({ current }) {
   const groups = [];
-  for (const route of ROUTES) {
+  for (const route of ROUTES.filter((r) => r.nav)) {
     const name = route.group || "";
     let group = groups.find((g) => g.name === name);
     if (!group) groups.push((group = { name, routes: [] }));

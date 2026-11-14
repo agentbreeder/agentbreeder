@@ -164,6 +164,50 @@ models (every step's state, title and reason match the JSON; a stale lock; a fai
 result row after a build), with axe in light and dark. Not yet run against real services: that is
 the M4 verification (`superpowers/verification/M4.md`).
 
+### Logs (#821, first part): on `main`, not in a published preview
+
+**Logs** (in the sidebar, and a **Logs** link on every Services and Deployments row) reads one
+snapshot of a stack service's or a deployment's logs:
+
+- a service: `agentbreeder services logs PROJECT NAME --tail N [--since D] --json`;
+- a deployment: `agentbreeder logs ID --stack PROJECT --environment ENV [--previous] --tail N
+  [--since D] --json`. `--previous` (the container before its last restart) is offered for
+  Kubernetes deployments only.
+
+Only the name or deployment ID, the line count (Last 200, 1000, 5000 or 10000), `--since` and
+`--previous` come from the browser, and the server checks each against the CLI's own rules before
+anything runs (`TAIL_INVALID`, `SINCE_INVALID`, `PREVIOUS_INVALID`; a name or ID of the wrong
+shape is a 404). The CLI redacts every line, failing closed (`REDACTION_INCOMPLETE`), and escapes
+controls. The server checks the answer's shape (`LOGS_INVALID` otherwise) and passes on only the
+known keys. A log read is never cached, never stored in `center.sqlite3` and never shown stale: a
+failed read shows its own coded error.
+
+In the viewer:
+
+- **Filter** keeps the lines that contain the text. **Level** keeps warnings and errors, or errors
+  only, from the levels the CLI gave each line (`loglevels.py`, a heuristic). It filters the lines
+  already read; it is off, with its reason, when the log's format is not known. **Search** marks
+  matches, counts them and steps through them with Previous match and Next match (Enter and
+  Shift+Enter). **Wrap lines** wraps long lines. **Copy** copies the lines shown, in their escaped
+  form (a control character is never put on the clipboard as itself).
+- Unwrapped, only the rows in view (plus a margin) are in the page, even with 10,000 lines.
+  Wrapped rows are all in the page; the browser skips laying out the ones out of view.
+- Notes under the lines: how many lines were read, that known secret values show as `[redacted]`
+  (logs can still hold customer messages and model output), when the read's 4 MiB limit cut it,
+  and when the lines are from the previous container. With a filter on, how many lines are shown.
+- Empty states, not errors: no lines in the range; a pod with no output yet (its reason, or
+  `POD_NOT_RUNNING`); and `LOG_UNAVAILABLE`, when Kubernetes no longer has the container's log.
+  An address that names no service or deployment says so.
+
+**Not yet**: Follow (with pause and "Jump to latest") needs one CLI child per open log, with the
+S-10 limits; it is the next part of #821. Then `watch` per project, and the M5 console
+verification (both deployments, local and kind, and the leak scan of API output).
+
+Tested with Playwright against a fake CLI (10,000 lines windowed, the level and text filters,
+search, wrap, copy, the coded empty states, a deployment's Previous container) with axe in light
+and dark, and on the server with a fake CLI (argv, refused options, the answer's shape, no cache).
+Not yet run against real services.
+
 ## How it stays the same engine
 
 Every action starts the CLI in a child process, with a fixed argument list. The UI does not open the
