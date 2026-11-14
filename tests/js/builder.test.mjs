@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  FIRST_CASE, MAX_CASES, buildSpec, createBody, createProblem, formProblem, initialCases, initialForm, previewBody, specCases, unverifiedText,
+  FIRST_CASE, MAX_CASES, MAX_SERVERS, MAX_TOOLS, buildSpec, createBody, createProblem, formProblem, grantTool, initialCases, initialForm, keepOffered, pickGroups,
+  pickServer, pickTool, picksProblem, previewBody, specCases, unverifiedText,
 } from "../../src/agentbreeder/center/static/lib/builder.js";
 import { pyJson } from "../../src/agentbreeder/center/static/lib/cases.js";
 
@@ -77,9 +78,9 @@ test("an unverified combination names what has not been run end to end", () => {
   const openai = preview({ model: "openai", combination: { parts: ["model", "prompt", "evals"], verified: false } });
   assert.match(unverifiedText(openai), /^Not run end to end yet: the openai provider\./);
   const tools = preview({ combination: { parts: ["model", "prompt", "evals", "tools", "mcp"], verified: false } });
-  assert.match(unverifiedText(tools), /yet: a new agent with tools and mcp\./);
+  assert.match(unverifiedText(tools), /yet: a new agent with tools and MCP servers\./);
   const both = { ...tools, model: "anthropic" };
-  assert.match(unverifiedText(both), /the anthropic provider, and a new agent with tools and mcp/);
+  assert.match(unverifiedText(both), /the anthropic provider, and a new agent with tools and MCP servers/);
 });
 
 test("create waits for a fresh, verified, confirmed preview", () => {
@@ -89,4 +90,68 @@ test("create waits for a fresh, verified, confirmed preview", () => {
   assert.match(createProblem(preview({ runs_code: true }), false, false), /Confirm/);
   assert.equal(createProblem(preview({ runs_code: true }), false, true), null);
   assert.equal(createProblem(preview(), false, false), null);
+});
+
+const SERVERS = [
+  { ref: "mcp/github@1.1.0", name: "github", version: "1.1.0", tools: [{ name: "get_me", effect: "read" }, { name: "list_issues", effect: "read" }] },
+  { ref: "mcp/github@1.0.0", name: "github", version: "1.0.0", tools: [{ name: "get_me", effect: "read" }, { name: "issue_read", effect: "read" }] },
+  { ref: "mcp/notes@0.1.0", name: "notes", version: "0.1.0", tools: [{ name: "add", effect: "write" }] },
+];
+
+test("pickers group versions by name in the server's order", () => {
+  assert.deepEqual(pickGroups(SERVERS).map((group) => [group.name, group.versions.map((entry) => entry.version)]), [
+    ["github", ["1.1.0", "1.0.0"]],
+    ["notes", ["0.1.0"]],
+  ]);
+  assert.deepEqual(pickGroups(undefined), []);
+});
+
+test("a tool pick puts one version per tool in the spec, sorted by name", () => {
+  let picked = pickTool(form(), "weather", "tool/weather@1.0.0");
+  picked = pickTool(picked, "clock", "tool/clock@0.2.0");
+  picked = pickTool(picked, "weather", "tool/weather@1.1.0");
+  assert.deepEqual(buildSpec(picked, initialCases()).tools, ["tool/clock@0.2.0", "tool/weather@1.1.0"]);
+  assert.deepEqual(buildSpec(pickTool(picked, "clock", ""), initialCases()).tools, ["tool/weather@1.1.0"]);
+  assert.deepEqual(form().tools, {}, "picking never changes the form it was given");
+});
+
+test("an MCP server needs at least one granted tool, in its declared order", () => {
+  let picked = pickServer(form(), "github", "mcp/github@1.1.0", SERVERS);
+  assert.match(formProblem(picked, initialCases()), /Grant github at least one of its tools/);
+  picked = grantTool(picked, "github", "list_issues", true, SERVERS);
+  picked = grantTool(picked, "github", "get_me", true, SERVERS);
+  assert.equal(formProblem(picked, initialCases()), null);
+  assert.deepEqual(buildSpec(picked, initialCases()).mcp, [{ ref: "mcp/github@1.1.0", tools: ["get_me", "list_issues"] }]);
+  const fewer = grantTool(picked, "github", "list_issues", false, SERVERS);
+  assert.deepEqual(fewer.mcp.github.tools, ["get_me"]);
+  assert.equal(grantTool(form(), "github", "get_me", true, SERVERS).mcp.github, undefined, "no grant without a picked server");
+});
+
+test("another version keeps only the grants it still declares; Not used removes the server", () => {
+  let picked = pickServer(form(), "github", "mcp/github@1.1.0", SERVERS);
+  picked = grantTool(grantTool(picked, "github", "get_me", true, SERVERS), "github", "list_issues", true, SERVERS);
+  const older = pickServer(picked, "github", "mcp/github@1.0.0", SERVERS);
+  assert.deepEqual(older.mcp.github, { ref: "mcp/github@1.0.0", tools: ["get_me"] });
+  assert.deepEqual(buildSpec(pickServer(older, "github", "", SERVERS), initialCases()).mcp, []);
+});
+
+test("the picks' limits match the spec's", () => {
+  const tools = Object.fromEntries(Array.from({ length: MAX_TOOLS + 1 }, (_, index) => [`t${index}`, `tool/t${index}@1.0.0`]));
+  assert.match(picksProblem(form({ tools })), new RegExp(`at most ${MAX_TOOLS} tools`));
+  const mcp = Object.fromEntries(Array.from({ length: MAX_SERVERS + 1 }, (_, index) => [`s${index}`, { ref: `mcp/s${index}@1.0.0`, tools: ["a"] }]));
+  assert.match(picksProblem(form({ mcp })), new RegExp(`at most ${MAX_SERVERS} MCP servers`));
+  assert.equal(picksProblem(form()), null);
+});
+
+test("a pick the newest list no longer offers is dropped, and so are grants it no longer declares", () => {
+  let picked = pickTool(form(), "clock", "tool/clock@0.2.0");
+  picked = grantTool(pickServer(picked, "github", "mcp/github@1.1.0", SERVERS), "github", "list_issues", true, SERVERS);
+  picked = grantTool(picked, "github", "get_me", true, SERVERS);
+  const parts = { tools: [{ ref: "tool/clock@0.2.0" }], mcp: SERVERS };
+  assert.equal(keepOffered(picked, parts), picked, "the same form when everything is still offered");
+  const fewer = { tools: [], mcp: [{ ...SERVERS[0], tools: [{ name: "get_me", effect: "read" }] }] };
+  const kept = keepOffered(picked, fewer);
+  assert.deepEqual(kept.tools, {});
+  assert.deepEqual(kept.mcp.github, { ref: "mcp/github@1.1.0", tools: ["get_me"] });
+  assert.deepEqual(keepOffered(picked, { tools: [], mcp: [{ ...SERVERS[0], unusable: "no" }] }).mcp, {});
 });

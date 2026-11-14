@@ -13,8 +13,12 @@ either way.
 
 Only combinations run end to end are created (`combination.verified`, the CLI's
 `agentspec.VERIFIED`); others are previewed with a note. Knowledge is refused for now (the CLI's
-SPEC_UNSUPPORTED, checked here first so no child runs), and so are tools and MCP servers until
-the builder's pickers exist.
+SPEC_UNSUPPORTED, checked here first so no child runs).
+
+The pickers offer `parts`: the `tool/` versions and `mcp/` servers (with the tools each declares)
+over the roots a new project resolves, AGENTBREEDER_REGISTRY_PATH and the built-ins. It is an
+offer, not a check: the CLI resolves every picked ref again (REF_NOT_FOUND, REF_CONFLICT,
+ENTRY_UNSAFE) and refuses a tool a server does not declare (MCP_TOOL_UNDECLARED).
 
 Pure request and answer checks plus the temporary file: no engine module is loaded, so the
 server process keeps its allowlist (`tests/test_center_reads.py`). The CLI validates the spec
@@ -26,11 +30,14 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shutil
+import stat
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
+from agentbreeder import registry
 from agentbreeder.center.files import BadRequest
 from agentbreeder.center.onboard import (
     DIGEST,
@@ -40,6 +47,8 @@ from agentbreeder.center.onboard import (
     ROOT_KINDS,
     BadOutput,
 )
+from agentbreeder.services.schema import MCP_TOOL, RESERVED, SERVICE_NAME
+from agentbreeder.strict_yaml import StrictYamlError, load_file
 
 SPEC_VERSION = 1  # `agentspec.SPEC_VERSION`
 MAX_SPEC_BYTES = 256 * 1024  # `agentspec.MAX_SPEC_BYTES`
@@ -47,6 +56,15 @@ FIELDS = frozenset(
     {"schema_version", "name", "model", "model_id", "max_model_calls", "prompt", "evals"}
     | {"tools", "knowledge", "mcp"}
 )
+MAX_TOOLS = 50  # `agentspec.Spec.tools`
+MAX_SERVERS = 10  # `agentspec.Spec.mcp`
+MAX_SERVER_TOOLS = 100  # `agentspec.Mcp.tools`
+STACK_SERVICES = frozenset({"postgres", "litellm"})  # `agentspec.STACK_SERVICES`
+PART_KINDS = ("tool", "mcp")
+MAX_PARTS = 500  # versions offered per kind
+MAX_DESCRIPTION = 300
+MCP_FILE_LIMIT = 64 * 1024  # `mcp.MAX_BYTES`
+EFFECTS = ("read", "write")
 MAX_FILES = 40
 MAX_CONTENT = 2 * 1024 * 1024  # all files' text together: the prompt is at most 32 KiB
 
@@ -82,17 +100,155 @@ def request(body: object) -> tuple[str, dict]:
             "model or index",
             "SPEC_UNSUPPORTED",
         )
-    if spec.get("tools", []) != [] or spec.get("mcp", []) != []:
-        # The pickers (and their code confirm) are the builder's next part.
-        raise BadRequest(
-            "Tools and MCP servers are not part of the builder yet", "SPEC_UNSUPPORTED"
-        )
+    _picks(spec.get("tools", []), spec.get("mcp", []))
     if len(encode(spec)) > MAX_SPEC_BYTES:
         raise BadRequest(
             f"The spec is larger than {MAX_SPEC_BYTES // 1024} KiB; shorten the prompt or cases",
             "SPEC_TOO_LARGE",
         )
     return name, spec
+
+
+def _picks(tools: object, servers: object) -> None:
+    """The picked refs' shape (the CLI resolves them): `tool/` refs, one version per tool; `mcp/`
+    servers with at least one tool each."""
+    if not isinstance(tools, list) or len(tools) > MAX_TOOLS:
+        raise BadRequest(f"Pick at most {MAX_TOOLS} tools", "SPEC_INVALID")
+    names = set()
+    for text in tools:
+        ref = _ref(text, "tool")
+        if ref.name in names:
+            raise BadRequest(f"Pick one version of tool {ref.name}", "SPEC_INVALID")
+        names.add(ref.name)
+    if not isinstance(servers, list) or len(servers) > MAX_SERVERS:
+        raise BadRequest(f"Pick at most {MAX_SERVERS} MCP servers", "SPEC_INVALID")
+    names = set()
+    for entry in servers:
+        if not isinstance(entry, dict) or set(entry) != {"ref", "tools"}:
+            raise BadRequest("An MCP server is {ref, tools}", "SPEC_INVALID")
+        ref = _ref(entry["ref"], "mcp")
+        if ref.name in names:
+            raise BadRequest(f"Pick one version of MCP server {ref.name}", "SPEC_INVALID")
+        names.add(ref.name)
+        granted = entry["tools"]
+        if not isinstance(granted, list) or not 0 < len(granted) <= MAX_SERVER_TOOLS:
+            raise BadRequest(
+                f"Grant {ref.name} 1 to {MAX_SERVER_TOOLS} of its tools", "SPEC_INVALID"
+            )
+        if not all(isinstance(tool, str) and re.fullmatch(MCP_TOOL, tool) for tool in granted):
+            raise BadRequest(f"{ref.name}: not a tool name", "SPEC_INVALID")
+        if len(set(granted)) != len(granted):
+            raise BadRequest(f"{ref.name}: a tool is granted twice", "SPEC_INVALID")
+
+
+def _ref(text: object, kind: str) -> registry.Ref:
+    try:
+        ref = registry.Ref.parse(text if isinstance(text, str) else "")
+    except registry.RegistryError:
+        ref = None
+    if ref is None or ref.kind != kind:
+        raise BadRequest(f"Not a pinned {kind}/name@X.Y.Z ref", "SPEC_INVALID")
+    return ref
+
+
+def _description(data: dict) -> str:
+    text = data.get("description")
+    if not isinstance(text, str):
+        return ""
+    text = " ".join(registry.clean(text)[0].split())
+    return text if len(text) <= MAX_DESCRIPTION else text[: MAX_DESCRIPTION - 1] + "…"
+
+
+def _server_name(name: str) -> str | None:
+    """Why `name` cannot name a stack's MCP server (`agentspec._servers`), or None."""
+    if not re.fullmatch(SERVICE_NAME, name) or name in RESERVED or name in STACK_SERVICES:
+        return f"{name} cannot name a stack's MCP server"
+    return None
+
+
+def _declared(version_dir: Path) -> list[dict] | None:
+    """The tools `mcp.yaml` declares, with their effect, read only from a regular file (not a
+    link or a FIFO); None when the file or any tool in it cannot be read (the CLI's `McpSpec`
+    would refuse it: MCP_INVALID)."""
+    path = version_dir / "mcp.yaml"
+    try:
+        if not stat.S_ISREG(path.lstat().st_mode):
+            return None
+        data = load_file(path, MCP_FILE_LIMIT)
+    except (OSError, StrictYamlError):
+        return None
+    tools = data.get("tools") if isinstance(data, dict) else None
+    if not isinstance(tools, dict) or not 0 < len(tools) <= MAX_SERVER_TOOLS:
+        return None
+    shown = []
+    for name, value in tools.items():
+        effect = value.get("effect") if isinstance(value, dict) else None
+        if not isinstance(name, str) or not re.fullmatch(MCP_TOOL, name) or effect not in EFFECTS:
+            return None
+        shown.append({"name": name, "effect": effect})
+    return shown
+
+
+def parts(search: list[Path]) -> dict:
+    """What the pickers offer: every `tool/` and `mcp/` version in `search` (as `registry.resolve`
+    reads them: the first root that has a version, none under a symlinked directory), newest
+    version of a name first, with each server's declared tools. Unreadable versions are left out
+    and counted in `skipped`."""
+
+    def place(row: dict) -> tuple:
+        ref = registry.Ref.parse(row["ref"])
+        return (ref.kind, ref.name, tuple(-int(part) for part in ref.version.split(".")))
+
+    listed = [row for row in registry.listing(search) if row["ref"].split("/")[0] in PART_KINDS]
+    # By kind and name, newest version first. The sort is stable, so the rows of one ref keep
+    # their root order and the first is the one `resolve` reads; the cap cuts in shown order.
+    rows = sorted(listed, key=place)
+    # `resolve` refuses every version of a name whose directory is a link in any root.
+    unsafe = {row["ref"].split("@")[0] for row in rows if row["symlinked"]}
+    seen: set[str] = set()
+    shown: dict[str, list[dict]] = {kind: [] for kind in PART_KINDS}
+    skipped, truncated = 0, False
+    for row in rows:
+        ref = registry.Ref.parse(row["ref"])
+        if row["ref"] in seen:
+            continue
+        seen.add(row["ref"])
+        if row["ref"].split("@")[0] in unsafe:
+            skipped += 1
+            continue
+        if len(shown[ref.kind]) >= MAX_PARTS:
+            truncated = True
+            continue
+        path = Path(row["path"])
+        try:
+            manifest = registry.read_manifest(path, ref)
+        except registry.RegistryError:
+            skipped += 1
+            continue
+        entry = {
+            "ref": str(ref),
+            "name": ref.name,
+            "version": ref.version,
+            "root_kind": registry.root_kind(Path(row["root"])),
+            "runs_code": registry.runs_code(ref.kind),
+            "description": _description(manifest),
+        }
+        if ref.kind == "mcp":
+            declared = _declared(path)
+            entry["tools"] = declared or []
+            entry["unusable"] = _server_name(ref.name)
+            if declared is None and entry["unusable"] is None:
+                entry["unusable"] = (
+                    f"{ref}'s mcp.yaml cannot be read; `agentbreeder registry show {ref}` shows it"
+                )
+        shown[ref.kind].append(entry)
+
+    return {
+        "tools": shown["tool"],
+        "mcp": shown["mcp"],
+        "skipped": skipped,
+        "truncated": truncated,
+    }
 
 
 def write_request(body: object) -> tuple[str, bool]:

@@ -379,3 +379,11 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
   .builder { grid-template-columns: minmax(0, 1fr); }
   .builder-preview { position: static; max-height: none; }
 }
+/* The builder's tool and MCP pickers (#833 part 2). */
+.picks { display: flex; flex-direction: column; gap: 12px; }
+.pick { display: flex; flex-direction: column; gap: 4px; }
+.pick p { margin: 0; overflow-wrap: anywhere; }
+.grants { border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px 8px; margin: 0; display: flex; flex-direction: column; }
+.grants legend { padding: 0 4px; font-size: 13px; }
+.grants .check { align-self: flex-start; }
+.builder form .check input { width: auto; }
