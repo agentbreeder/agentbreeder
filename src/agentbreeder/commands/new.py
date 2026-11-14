@@ -1,6 +1,6 @@
-"""`agentbreeder new agent NAME --model gemini [--dir DIR] [--dry-run] [--json]`: write a starter
-project (see `newagent`). Exit 2 with `[CODE] message` on stderr when it refuses, and with
-`--json` also `{"schema_version": 1, "error": {"code", "message"}}` on stdout."""
+"""`agentbreeder new agent NAME --model PROVIDER [--model-id ID] [--dir DIR] [--dry-run] [--json]`:
+write a starter project (see `newagent`). Exit 2 with `[CODE] message` on stderr when it refuses,
+and with `--json` also `{"schema_version": 1, "error": {"code", "message"}}` on stdout."""
 
 from __future__ import annotations
 
@@ -34,7 +34,18 @@ def register(commands) -> None:
         "--model",
         required=True,
         choices=sorted(newagent.PROVIDERS),
-        help="Model provider (only providers run end to end are offered)",
+        help=(
+            "Model provider, called through LiteLLM; only gemini has been run end to end, the "
+            "others are config-only"
+        ),
+    )
+    agent.add_argument(
+        "--model-id",
+        metavar="ID",
+        help=(
+            "LiteLLM model id, PROVIDER/... (default: the provider's own; openrouter needs one, "
+            "e.g. openrouter/<vendor>/<model>)"
+        ),
     )
     where = agent.add_mutually_exclusive_group()
     where.add_argument("--dir", type=Path, help="Destination (default ./NAME)")
@@ -57,7 +68,7 @@ def run(args) -> int:
     if args.stack_for is not None:
         return _stack_for(args)
     try:
-        plan = newagent.plan(args.name, args.model, args.dir)
+        plan = newagent.plan(args.name, args.model, args.dir, model_id=args.model_id)
         if args.dry_run:
             newagent.check(plan)
         else:
@@ -93,7 +104,7 @@ def _stack_for(args) -> int:
     from agentbreeder.safe_text import visible
 
     try:
-        plan = stackfor.plan(args.name, args.model, args.stack_for)
+        plan = stackfor.plan(args.name, args.model, args.stack_for, model_id=args.model_id)
         if args.dry_run:
             stackfor.check(plan)
         else:
@@ -111,6 +122,8 @@ def _stack_for(args) -> int:
     lines.append(f"Gateway aliases: {', '.join(summary['aliases'])} ({summary['model']}).")
     lines.append(f"The gate refuses deploys after review_by {summary['review_by']} (stack.yaml).")
     lines += [f"Warning: {warning}" for warning in summary["warnings"]]
+    if not summary["verified"]:
+        lines.append(_config_only(summary["model"]))
     if args.dry_run:
         lines.append("Dry run: nothing was written.")
     else:
@@ -134,6 +147,8 @@ def _text(summary: dict) -> str:
         f"and {'write' if summary['dry_run'] else 'wrote'} agent.lock"
     )
     lines.append(f"The gate refuses deploys after review_by {summary['review_by']} (stack.yaml).")
+    if not summary["verified"]:
+        lines.append(_config_only(summary["model"]))
     if summary["dry_run"]:
         lines.append("Dry run: nothing was written.")
         return "\n".join(lines)
@@ -143,3 +158,10 @@ def _text(summary: dict) -> str:
     )
     lines.append(hints.next_line("next", directory))
     return "\n".join(lines)
+
+
+def _config_only(model: str) -> str:
+    return (
+        f"{model} is config-only: this starter has not been run end to end with it (the eval "
+        "judge needs strict json_schema output)."
+    )

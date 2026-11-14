@@ -227,7 +227,7 @@ A stack without a LiteLLM config has `keys` done with empty lists.
 | `action` | What a console button does. `services-up`, `build`, `release`, `cluster-up` and `promote` are the console job kinds of the same name (the console supplies the job's arguments itself, including the grant review for `services-up`). `new-agent` (Create starter), `example` (Onboard Northwind), `set-keys` (the key fields of the services form) and `invoke` (Try it) are console actions, not jobs. `null`: no button; show `command` and `note`. Each step allows only the actions in the table above. |
 | `command` | The CLI command in the form of the process that ran `next` (`agentbreeder`, `npx agentbreeder@<ver>`, `uvx --from … agentbreeder` or `python -m agentbreeder`), one line, every interpolated value shell-quoted, values only as placeholders (`<your key>`). **Display only**: neither the CLI nor the console runs it. |
 | `note` | One extra line, e.g. `export GEMINI_API_KEY=<your key>` or a `doctor` remedy. |
-| `url` | A link from a fixed table built into the CLI (today only `https://aistudio.google.com/apikey`), never from project, registry or state content. |
+| `url` | A link from a fixed table built into the CLI (the provider key pages `https://aistudio.google.com/apikey`, `https://platform.claude.com/settings/keys`, `https://platform.openai.com/api-keys` and `https://openrouter.ai/keys`), never from project, registry or state content. |
 
 At least one of `action`, `command` and `note` is set.
 

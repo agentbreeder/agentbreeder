@@ -40,8 +40,9 @@ cd hello
 
 What you see: the files written (`agent.yaml`, `stack.yaml`, `stack/litellm/config.yaml`,
 `src/prompt/`, `src/evals/`), "Published prompt/hello-prompt@0.1.0 and eval/hello-evals@0.1.0
-into registry/ and wrote agent.lock", and `Next: … next …`. `--model gemini` is the only model
-offered, because it is the only provider run end to end. `agentbreeder quickstart` ends with the
+into registry/ and wrote agent.lock", and `Next: … next …`. This page uses `--model gemini`, the
+only provider run end to end; `anthropic`, `openai` and `openrouter` are also offered, config-only
+(see `commands/new.md`). `agentbreeder quickstart` ends with the
 same `new agent` command. For a directory you already made and left empty, `next DIR` suggests
 writing the starter into it (with the directory's absolute path, and its name as the agent's
 name when that is a valid one); run inside that empty directory, that is:

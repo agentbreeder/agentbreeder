@@ -180,7 +180,12 @@ _CONDITION_NEEDS = {
 }
 
 # Links come only from this table, never from project, registry or state content.
-URLS: tuple[str, ...] = ("https://aistudio.google.com/apikey",)
+URLS: tuple[str, ...] = (
+    "https://aistudio.google.com/apikey",
+    "https://platform.claude.com/settings/keys",
+    "https://platform.openai.com/api-keys",
+    "https://openrouter.ai/keys",
+)
 
 # Refused in every string, so each one is a single line a terminal shows as written and a shell
 # tokenises as it reads: controls (newline and tab included), format characters (bidi,

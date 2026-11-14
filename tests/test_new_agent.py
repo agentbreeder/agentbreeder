@@ -85,11 +85,11 @@ def test_valid_names_fit_the_agent_and_stack_patterns(name):
     assert yaml.safe_load(plan.files["stack.yaml"])["name"] == name
 
 
-def test_only_gemini_is_offered():
+def test_an_unknown_provider_is_refused():
     with pytest.raises(newagent.NewAgentError) as error:
-        newagent.plan("hello", "openai")
+        newagent.plan("hello", "mistral")
     assert error.value.code == "MODEL_UNSUPPORTED"
-    assert sorted(newagent.PROVIDERS) == ["gemini"]
+    assert sorted(newagent.PROVIDERS) == ["anthropic", "gemini", "openai", "openrouter"]
 
 
 def test_plan_fills_the_stated_fields():
@@ -401,7 +401,7 @@ def test_cli_refuses_a_bad_name_with_exit_2(tmp_path, capsys):
     "argv",
     [
         ["new", "agent", "hello"],  # --model is required: no default provider
-        ["new", "agent", "hello", "--model", "openai"],
+        ["new", "agent", "hello", "--model", "mistral"],
         ["new", "hello", "--model", "gemini"],
     ],
 )

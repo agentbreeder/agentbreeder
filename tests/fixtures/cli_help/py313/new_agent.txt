@@ -1,4 +1,6 @@
-usage: agentbreeder new agent [-h] --model {gemini} [--dir DIR |
+usage: agentbreeder new agent [-h]
+                              --model {anthropic,gemini,openai,openrouter}
+                              [--model-id ID] [--dir DIR |
                               --stack-for AGENT_YAML] [--dry-run] [--json]
                               name
 
@@ -13,8 +15,12 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --model {gemini}      Model provider (only providers run end to end are
-                        offered)
+  --model {anthropic,gemini,openai,openrouter}
+                        Model provider, called through LiteLLM; only gemini
+                        has been run end to end, the others are config-only
+  --model-id ID         LiteLLM model id, PROVIDER/... (default: the
+                        provider's own; openrouter needs one, e.g.
+                        openrouter/<vendor>/<model>)
   --dir DIR             Destination (default ./NAME)
   --stack-for AGENT_YAML
                         Instead of a starter, write stack.yaml and

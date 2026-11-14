@@ -1,6 +1,7 @@
-"""`agentbreeder new agent NAME --stack-for DIR/agent.yaml --model gemini`: write a `stack.yaml`
-(and `stack/litellm/config.yaml`) beside an existing `agent.yaml`, so a project that has only an
-agent file can be brought up and released (#823, console spec §4.5 "Onboard").
+"""`agentbreeder new agent NAME --stack-for DIR/agent.yaml --model PROVIDER [--model-id ID]`:
+write a `stack.yaml` (and `stack/litellm/config.yaml`) beside an existing `agent.yaml`, so a
+project that has only an agent file can be brought up and released (#823, console spec §4.5
+"Onboard"; providers #905).
 
 The stack is the starter's (`newagent`): Postgres with `app` and `litellm` databases and the
 LiteLLM gateway, with one gateway alias per model the agent uses (its `model.alias` and, with
@@ -105,6 +106,7 @@ class StackForPlan:
     aliases: tuple[str, ...]
     files: dict[str, str]  # relative path -> content, in write order
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    model_id: str = ""  # the LiteLLM model string every alias uses (#905)
 
     def summary(self, dry_run: bool) -> dict:
         """The `--json` shape (docs/commands.md)."""
@@ -115,6 +117,8 @@ class StackForPlan:
             "directory": str(self.directory),
             "agent_file": str(self.agent_file),
             "model": self.model,
+            "model_id": self.model_id,
+            "verified": PROVIDERS[self.model].verified,
             "key": PROVIDERS[self.model].key,
             "aliases": list(self.aliases),
             "review_by": self.review_by,
@@ -181,11 +185,18 @@ def _judge_alias(ref: str, directory: Path) -> str:
         raise NewAgentError(error.code, newagent._bare(error)) from error
 
 
-def plan(name: str, model: str, agent_path: Path, today: date | None = None) -> StackForPlan:
+def plan(
+    name: str,
+    model: str,
+    agent_path: Path,
+    today: date | None = None,
+    model_id: str | None = None,
+) -> StackForPlan:
     """Check the agent file and fill the templates; writes nothing."""
     from agentbreeder.agentfile import AgentFileError, load_agent_file
 
     newagent.check_inputs(name, model)  # the same name and model checks as the starter
+    resolved = newagent.model_id_for(model, model_id)
     given = Path(os.path.abspath(agent_path))
     if registry.clean(str(given), name=True)[0] != str(given):
         raise NewAgentError(
@@ -265,7 +276,9 @@ def plan(name: str, model: str, agent_path: Path, today: date | None = None) -> 
     config = (
         LITELLM_HEAD
         + "".join(
-            LITELLM_MODEL.format(alias=alias, model=provider.model, key=provider.key)
+            LITELLM_MODEL.format(
+                alias=alias, model=newagent.model_yaml(resolved), key=provider.key
+            )
             for alias in quoted
         )
         + LITELLM_TAIL
@@ -279,6 +292,7 @@ def plan(name: str, model: str, agent_path: Path, today: date | None = None) -> 
         tuple(aliases),
         {STACK_FILE: stack, LITELLM_CONFIG: config},
         tuple(warnings),
+        resolved,
     )
 
 
@@ -328,6 +342,7 @@ def create(plan: StackForPlan) -> StackForPlan:
             ) from error
         if stack.name != plan.name or plan.name not in stack.environment.agents:
             raise NewAgentError("TEMPLATE_INVALID", "the generated stack names another agent")
+        newagent.check_gateway(staging / LITELLM_CONFIG, set(plan.aliases), plan.model_id)
         for relative in plan.files:
             target = plan.directory / relative
             for parent in reversed(Path(relative).parents[:-1]):
