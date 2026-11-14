@@ -12,6 +12,14 @@ On main, not in a published preview.
 
 ### Added
 
+- `new agent NAME --model anthropic|openai|openrouter [--model-id ID]` (#905), on `main`, not in
+  a published preview: model providers beside `gemini`, all through LiteLLM with the key read from
+  the stack's local secret file. Defaults `anthropic/claude-opus-5-5` and `openai/gpt-5.6`;
+  openrouter needs `--model-id openrouter/<vendor>/<model>`. Only gemini has been run end to end;
+  the others are config-only, not run end to end. `--stack-for` takes the same providers and
+  `--model-id`. `--json` adds `model_id` and `verified`; `next` links each provider's key page
+  for `KEYS_MISSING`. `--model gemini` alone is unchanged. See `docs/commands.md`.
+
 - `agentbreeder list --all [--json]` and `new agent NAME --model gemini --stack-for agent.yaml`
   (#823, M7, CLI half), on `main`, not in a published preview: `services up` records the project
   path in the stack's meta; `list --all` lists the default state and every stack's deployments

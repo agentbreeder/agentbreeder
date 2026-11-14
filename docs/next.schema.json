@@ -283,7 +283,12 @@
         "url": {
           "anyOf": [
             {
-              "const": "https://aistudio.google.com/apikey",
+              "enum": [
+                "https://aistudio.google.com/apikey",
+                "https://platform.claude.com/settings/keys",
+                "https://platform.openai.com/api-keys",
+                "https://openrouter.ai/keys"
+              ],
               "type": "string"
             },
             {

@@ -1,4 +1,5 @@
-"""`agentbreeder new agent NAME --model gemini`: write a starter project (#769, guided §9.2 #8).
+"""`agentbreeder new agent NAME --model PROVIDER [--model-id ID]`: write a starter project (#769,
+guided §9.2 #8; providers #905).
 
 The starter is based on the one walked by hand on 3.0.0a2
 (`website/content/docs/your-own-agent.mdx`): a help-desk prompt and the two eval cases that were
@@ -8,9 +9,13 @@ project's own `registry/` (release refuses path prompts, and evals have no path 
 `agent.lock` is written, so `build --locked` passes on the new project. `src/prompt/` and
 `src/evals/` stay as the editable sources for the next version.
 
-Only Gemini is offered (§9.1): it is the only provider run end to end, and the eval judge needs
-strict `json_schema` output, unverified elsewhere. Templates are string constants here, filled
-only with a validated name, a date and fixed provider values, so no user text reaches YAML.
+Four providers are offered through LiteLLM (#905): gemini, anthropic, openai and openrouter, each
+with its key read by LiteLLM from a local secret file (`os.environ/KEY` in the config, never the
+value). Only gemini has been run end to end; the others are config-only (`verified` false in
+`--json`): the eval judge needs strict `json_schema` output, unverified on them. `--model-id`
+replaces the provider's default model; openrouter has none, so it needs one. Templates are string
+constants here, filled only with a validated name, a date, fixed provider values and a model id
+checked against a strict pattern, so no other user text reaches YAML.
 
 Writes go only under the new directory. It must be absent or an empty real directory (not a
 symlink) that this user owns and others cannot write to (group write only for the user's own
@@ -28,13 +33,14 @@ added (§9.2 #8); this template ran end to end from a checkout on 2026-11-12 (`s
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
 import stat
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -51,11 +57,22 @@ NAME_PATTERN = r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$"
 
 @dataclass(frozen=True)
 class Provider:
-    model: str  # the LiteLLM model string
-    key: str  # the environment variable LiteLLM reads the key from
+    model: str | None  # the default LiteLLM model string; None: `--model-id` is required
+    key: str  # the environment variable LiteLLM reads the key from (gateway_keys.PROVIDER_KEYS)
+    verified: bool  # run end to end with this starter (services up, release, invoke)
+    segments: int = 1  # path segments `--model-id` needs after `PROVIDER/`
 
 
-PROVIDERS = {"gemini": Provider("gemini/gemini-3.8-flash", "GEMINI_API_KEY")}
+# Defaults are model ids in the LiteLLM 1.106.2 model map (the pinned service/litellm@1.0.0).
+PROVIDERS = {
+    "anthropic": Provider("anthropic/claude-opus-5-5", "ANTHROPIC_API_KEY", False),
+    "gemini": Provider("gemini/gemini-3.8-flash", "GEMINI_API_KEY", True),
+    "openai": Provider("openai/gpt-5.6", "OPENAI_API_KEY", False),
+    "openrouter": Provider(None, "OPENROUTER_API_KEY", False, segments=2),
+}
+# The gateway's model-name alphabet (gateway_keys._MODEL_NAME), at most 128 characters.
+MODEL_ID_PATTERN = r"[A-Za-z0-9._:/-]{1,128}"
+_PLAIN = re.compile(r"[A-Za-z0-9._/-]+")  # a plain YAML scalar in a flow mapping as it stands
 
 AGENT_YAML = """\
 # The {name} agent, written by `agentbreeder new agent` on {today}.
@@ -113,9 +130,9 @@ environment:
 LITELLM_CONFIG = """\
 model_list:
   - model_name: chat
-    litellm_params: {{model: {model}, api_key: os.environ/{key}}}
+    litellm_params: {{model: {model_yaml}, api_key: os.environ/{key}}}
   - model_name: judge
-    litellm_params: {{model: {model}, api_key: os.environ/{key}}}
+    litellm_params: {{model: {model_yaml}, api_key: os.environ/{key}}}
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
@@ -169,6 +186,7 @@ class Plan:
     files: dict[str, str]  # relative path -> content, in write order
     publishes: tuple[tuple[str, str], ...]  # (source directory, ref)
     published: dict[str, str] = field(default_factory=dict)  # ref -> sha256, after create
+    model_id: str = ""  # the LiteLLM model string both aliases use
 
     def summary(self, dry_run: bool) -> dict:
         """The `--json` shape: what is (or would be) written, without file content."""
@@ -186,6 +204,8 @@ class Plan:
             "name": self.name,
             "directory": str(self.directory),
             "model": self.model,
+            "model_id": self.model_id,
+            "verified": PROVIDERS[self.model].verified,
             "runtime": RUNTIME,
             "aliases": ["chat", "judge"],
             "key": PROVIDERS[self.model].key,
@@ -201,8 +221,6 @@ class Plan:
 
 
 def _cases() -> list[dict]:
-    import json
-
     return [json.loads(line) for line in CASES.splitlines()]
 
 
@@ -231,14 +249,55 @@ def check_inputs(name: str, model: str) -> None:
     if model not in PROVIDERS:
         raise NewAgentError(
             "MODEL_UNSUPPORTED",
-            f"--model must be one of: {', '.join(sorted(PROVIDERS))} (the only providers run "
-            "end to end)",
+            f"--model must be one of: {', '.join(sorted(PROVIDERS))}",
         )
 
 
-def plan(name: str, model: str, directory: Path | None = None, today: date | None = None) -> Plan:
+def model_id_for(model: str, model_id: str | None) -> str:
+    """The LiteLLM model string for `--model` and `--model-id`: the provider's default, or the
+    given id when it is `PROVIDER/…` in the gateway's alphabet with no empty segment. The id is
+    never echoed in an error."""
+    provider = PROVIDERS[model]
+    if model_id is None:
+        if provider.model is None:
+            raise NewAgentError(
+                "MODEL_ID_REQUIRED",
+                f"--model {model} needs --model-id {model}/"
+                + "/".join(["<vendor>", "<model>"][-provider.segments :]),
+            )
+        return provider.model
+    segments = model_id.split("/") if isinstance(model_id, str) else []
+    if (
+        not segments
+        or re.fullmatch(MODEL_ID_PATTERN, model_id) is None
+        or segments[0] != model
+        or len(segments) < 1 + provider.segments
+        or any(not part or part in (".", "..") for part in segments[1:])
+    ):
+        shape = "/".join(["<vendor>", "<model>"][-provider.segments :])
+        raise NewAgentError(
+            "MODEL_ID_INVALID",
+            f"--model-id must be {model}/{shape}: letters, digits and . _ : / -, at most 128 "
+            "characters, no empty segment",
+        )
+    return model_id
+
+
+def model_yaml(model_id: str) -> str:
+    """A checked model id as a YAML flow-mapping value: plain when it has no `:`, else quoted."""
+    return model_id if _PLAIN.fullmatch(model_id) else json.dumps(model_id)
+
+
+def plan(
+    name: str,
+    model: str,
+    directory: Path | None = None,
+    today: date | None = None,
+    model_id: str | None = None,
+) -> Plan:
     """Check the inputs and fill the templates; writes nothing."""
     check_inputs(name, model)
+    resolved = model_id_for(model, model_id)
     today = today or date.today()
     review_by = (today + timedelta(days=REVIEW_DAYS)).isoformat()
     provider = PROVIDERS[model]
@@ -248,7 +307,7 @@ def plan(name: str, model: str, directory: Path | None = None, today: date | Non
         "runtime": RUNTIME,
         "version": VERSION,
         "review_by": review_by,
-        "model": provider.model,
+        "model_yaml": model_yaml(resolved),
         "key": provider.key,
     }
     files = {
@@ -271,7 +330,7 @@ def plan(name: str, model: str, directory: Path | None = None, today: date | Non
         raise NewAgentError(
             "DESTINATION_UNSAFE", "the destination path has control or bidi characters"
         )
-    return Plan(name, model, target, review_by, files, publishes)
+    return Plan(name, model, target, review_by, files, publishes, model_id=resolved)
 
 
 def check(plan: Plan) -> bool:
@@ -351,8 +410,31 @@ def _lock(project: Path, refs: list[str]) -> None:
     lock.save(project / "agent.lock")
 
 
-def _validate(project: Path) -> list[str]:
-    """The written files must load as an agent and a stack; returns the agent's refs."""
+def check_gateway(config: Path, aliases: set[str], model_id: str) -> None:
+    """A generated gateway config must pass the review `services up` applies and serve exactly
+    `aliases`, every one with `model_id` (also used by `--stack-for`)."""
+    from agentbreeder import gateway_keys
+    from agentbreeder.strict_yaml import StrictYamlError, load_file
+
+    try:
+        review = gateway_keys.config_review(config)
+        models = {
+            entry["litellm_params"]["model"]
+            for entry in load_file(config, 256 * 1024)["model_list"]
+        }
+    except (gateway_keys.GatewayError, StrictYamlError, OSError) as error:
+        raise NewAgentError(
+            "TEMPLATE_INVALID", f"the generated gateway config does not validate: {error}"
+        ) from error
+    if review.aliases != aliases or models != {model_id}:
+        raise NewAgentError(
+            "TEMPLATE_INVALID", f"{config.name} does not serve the chosen model on every alias"
+        )
+
+
+def _validate(project: Path, model_id: str) -> list[str]:
+    """The written files must load as an agent and a stack, and the gateway config must serve
+    `chat` and `judge` with `model_id`; returns the agent's refs."""
     from agentbreeder.agentfile import AgentFileError, load_agent_file
     from agentbreeder.services.schema import ServiceError, load_stack
 
@@ -363,6 +445,7 @@ def _validate(project: Path) -> list[str]:
         raise NewAgentError(
             "TEMPLATE_INVALID", f"the starter does not validate: {error}"
         ) from error
+    check_gateway(project / "stack/litellm/config.yaml", {"chat", "judge"}, model_id)
     return agent.refs()
 
 
@@ -392,7 +475,7 @@ def create(plan: Plan) -> Plan:
             if str(ref) != expected:  # a template bug
                 raise NewAgentError("TEMPLATE_INVALID", f"published {ref}, expected {expected}")
             published[str(ref)] = digest
-        _lock(staging, _validate(staging))
+        _lock(staging, _validate(staging, plan.model_id))
         _modes(staging)
         example._check_destination(plan.directory, allow=staging)
         for entry in sorted(staging.iterdir()):
@@ -423,12 +506,4 @@ def create(plan: Plan) -> Plan:
                 "WRITE_FAILED", f"cannot write {plan.directory}: {error.strerror or error}"
             ) from error
         raise
-    return Plan(
-        plan.name,
-        plan.model,
-        plan.directory,
-        plan.review_by,
-        plan.files,
-        plan.publishes,
-        published,
-    )
+    return replace(plan, published=published)

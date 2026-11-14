@@ -31,7 +31,12 @@ import yaml
 from agentbreeder import guide, hints, safe_text
 
 MAX_BUILD_RECORD = 1024 * 1024
-KEY_URLS = {"GEMINI_API_KEY": "https://aistudio.google.com/apikey"}
+KEY_URLS = {
+    "ANTHROPIC_API_KEY": "https://platform.claude.com/settings/keys",
+    "GEMINI_API_KEY": "https://aistudio.google.com/apikey",
+    "OPENAI_API_KEY": "https://platform.openai.com/api-keys",
+    "OPENROUTER_API_KEY": "https://openrouter.ai/keys",
+}
 
 
 class GuideError(Exception):
