@@ -7,6 +7,7 @@
 // from the list switches the scope to that row's project. Releases come from the project's audit
 // chain; the identity strip shows what the stack declares until #909 adds the principal's fields.
 
+import { reportHref } from "../lib/evals.js";
 import { auditTime, isCandidate } from "../lib/format.js";
 import {
   STEP_WORDS, TABS, agentName, candidateOf, gateStrip, identityText, identityTone, lastReleaseCell, latestRun, listRows, releasedImage, localDate, projectStatus,
@@ -181,6 +182,12 @@ function Overview({ agent, production, candidate }) {
   `;
 }
 
+/** A release's eval run, linked to its report in the eval viewer (#932). */
+function EvalLink({ release, name }) {
+  const target = release.score ? reportHref(release.score.run, name) : null;
+  return target ? html` <a class="small" href=${target}>Eval report</a>` : null;
+}
+
 function Releases({ name, releases }) {
   const { entries, own, truncated } = releasesFor(releases.data, name);
   return html`<${Card} title="Releases" busy=${releases.loading}>
@@ -191,7 +198,7 @@ function Releases({ name, releases }) {
       ? html`<${Table} label="Releases" columns=${["When", "Result", "Image", "By"]}>
           ${entries.map((release) => html`<tr key=${release.seq}>
             <td class="nowrap"><${Text} value=${auditTime(release.at)} /></td>
-            <td><span class=${`gated ${releaseTone(release)}`}><${Text} value=${releaseText(release)} /></span>${release.problem && release.problem.message ? html`<br /><span class="muted small"><${Text} value=${release.problem.message} /></span>` : null}</td>
+            <td><span class=${`gated ${releaseTone(release)}`}><${Text} value=${releaseText(release)} /></span><${EvalLink} release=${release} name=${name} />${release.problem && release.problem.message ? html`<br /><span class="muted small"><${Text} value=${release.problem.message} /></span>` : null}</td>
             <td>${release.image ? html`<code title=${visible(release.image)}><${Text} value=${shortImage(release.image)} /></code>` : html`<span class="muted">none</span>`}</td>
             <td><${Text} value=${release.actor} />${release.actor_verified ? null : html` <span class="muted small">(unverified)</span>`}</td>
           </tr>`)}

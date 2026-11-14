@@ -1,10 +1,12 @@
 // Governance ▸ Audit: the deploy audit chain in words, and its rows, 50 to a page, newest first.
 // Each row names its agent (a candidate is marked), its enforcement mode and reason codes; an
 // agent with a ready local production deployment links to Try it and shows its endpoint, and a
-// release row shows its eval run and the report file `release` wrote (#824). The agent's name
-// opens its detail (#823); a candidate's row opens the agent it belongs to.
+// release row shows its eval run, linked to the eval report viewer (#932), and the report file
+// `release` wrote (#824). The agent's name opens its detail (#823); a candidate's row opens the
+// agent it belongs to.
 
 import { pageLabel, production, releaseEval, rowAgents } from "../lib/audit.js";
+import { reportHref } from "../lib/evals.js";
 import { auditTime, incompleteSentence, reasonCodes, verifySentence } from "../lib/format.js";
 import { href } from "../lib/router.js";
 import { visible } from "../lib/text.js";
@@ -23,11 +25,18 @@ function AgentCell({ agent, deployments, newest }) {
       : null}`;
 }
 
+/** The run id, linked to its report in the eval viewer (#932). */
+function RunLink({ run, agent }) {
+  const target = reportHref(run, agent || null);
+  const code = html`<code><${Text} value=${run} /></code>`;
+  return target ? html`<a href=${target} aria-label=${`Eval report of run ${run}`}>${code}</a>` : code;
+}
+
 function ReasonCell({ row, agent }) {
   const run = releaseEval(row, agent && agent.name);
   return html`<${Text} value=${reasonCodes(row)} />
     ${run
-      ? html`<div class="small">Evals ${run.passed}/${run.cases}, run <code><${Text} value=${run.run} /></code>${run.report
+      ? html`<div class="small">Evals ${run.passed}/${run.cases}, run <${RunLink} run=${run.run} agent=${agent && agent.name} />${run.report
           ? html`<br />Report <code><${Text} value=${run.report} /></code>`
           : null}</div>`
       : null}`;

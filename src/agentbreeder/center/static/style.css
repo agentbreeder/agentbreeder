@@ -299,6 +299,10 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .identity-strip dd { margin: 0; overflow-wrap: anywhere; }
 .identity.failed, .gated.failed { color: var(--destructive); font-weight: 600; }
 .identity.passed, .gated.passed { color: var(--success); font-weight: 600; }
+/* Eval report viewer (#932): a case's reply and explanation, opened on request. */
+.case-content { margin-top: 6px; min-width: 16rem; }
+.case-content summary { cursor: pointer; font-size: 12.5px; }
+.case-content p { margin: 6px 0 2px; }
 .agent-tabs ul { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 16px; padding: 0; border-bottom: 1px solid var(--border); }
 .agent-tabs a { display: inline-block; padding: 8px 12px; color: var(--text-muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .agent-tabs a[aria-current="page"] { color: var(--foreground); border-bottom-color: var(--primary); font-weight: 600; }

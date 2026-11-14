@@ -6,6 +6,7 @@
 import { AGENT_ROUTES } from "./agents.js";
 import { Audit } from "./audit.js";
 import { Deployments } from "./deployments.js";
+import { EVAL_ROUTES } from "./evals.js";
 import { Home } from "./home.js";
 import { Kubernetes } from "./kubernetes.js";
 import { Logs } from "./logs.js";
@@ -24,4 +25,5 @@ export const ROUTES = [
   ...REGISTRY_ROUTES,
   { pattern: "/targets/kubernetes", title: "Kubernetes", nav: "Kubernetes", group: "Targets", scoped: true, screen: Kubernetes },
   { pattern: "/audit", title: "Audit", nav: "Audit", group: "Governance", scoped: true, screen: Audit },
+  ...EVAL_ROUTES,
 ];

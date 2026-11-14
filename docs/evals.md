@@ -12,7 +12,8 @@ Every `release` that runs its eval set saves the report as
 `<output>/<agent>.eval-<run>.json`, where `<output>` is `release --output DIR` or, by default,
 `deploy/` next to `agent.yaml`. `evals` reads those files back and changes nothing. The file
 format belongs to `release` and is unchanged; `evals` is the supported way to read it. The
-console's report viewer reads `evals show --json`.
+console's report viewer reads `evals show --json` (`docs/command-center.md`, "The eval report
+viewer").
 
 - `evals list` lists the reports in the directory, newest run first, at most 100.
 - `evals show RUN` shows one report. Without `RUN`, it shows the newest. A run id saved under
