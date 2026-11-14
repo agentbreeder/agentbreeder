@@ -424,6 +424,12 @@ On main, not in a published preview.
 
 ### Fixed
 
+- `registry publish --json` reports `root_kind: "project"` when `--to` resolves to `DIR/registry`
+  and DIR holds an `agent.yaml` or `stack.yaml` file (#898), on `main`, not in a published
+  preview. It reported `path` for a project's own `./registry`, including `publish DIR` run from
+  the project with the default `--to registry`; `import`, `fork` and `show` already said
+  `project`. Any other `--to` stays `path`; the write is unchanged. See `docs/registry.md`.
+
 - `logs ID` for a Kubernetes (local `kind`) deployment, on `main`, not in a published preview:
   when `kubectl logs` exits 0 but its whole output is one kubelet message saying the container
   or its log file is gone, it now fails with `LOG_UNAVAILABLE` (exit 2, with the `--json` error
