@@ -98,6 +98,7 @@ export function registryList(meta) {
           <//>`
         : html`<p class="muted">No ${meta.nav.toLowerCase()} in this project's search roots. <code>agentbreeder registry new ${meta.kind} NAME</code> scaffolds one to publish.</p>`}
       <${Roots} roots=${view.data.roots} />
+      <p class="muted small"><a href=${href("/registry/import")}>Import a version from a directory</a></p>
     <//>`;
   };
 }
@@ -188,7 +189,7 @@ function Version({ project, version, entry, kind, focusCase, onSaved, onMoved })
   ${data && !view.error ? html`<${Editor} project=${project} kind=${kind} entry=${entry} version=${version} show=${data} focusCase=${focusCase} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onMoved} />` : null}`;
 }
 
-function FileView({ file }) {
+export function FileView({ file }) {
   if (file.type === "dir") return html`<span class="muted"><${Text} value=${`${file.path}/`} /></span>`;
   const notes = [`${file.size} bytes`];
   if (file.executable) notes.push("executable");

@@ -9,6 +9,7 @@ import { BUILDER_ROUTES } from "./builder.js";
 import { Deployments } from "./deployments.js";
 import { EVAL_ROUTES } from "./evals.js";
 import { Home } from "./home.js";
+import { ImportVersion } from "./import.js";
 import { Kubernetes } from "./kubernetes.js";
 import { Logs } from "./logs.js";
 import { Mcp } from "./mcp.js";
@@ -28,6 +29,7 @@ export const ROUTES = [
   { pattern: "/logs", title: "Logs", nav: "Logs", scoped: true, screen: Logs },
   { pattern: "/logs/:kind/:name", title: "Logs", section: "/logs", scoped: true, screen: Logs },
   ...REGISTRY_ROUTES,
+  { pattern: "/registry/import", title: "Import a version", nav: "Import", group: "Registry", scoped: true, screen: ImportVersion },
   { pattern: "/targets/kubernetes", title: "Kubernetes", nav: "Kubernetes", group: "Targets", scoped: true, screen: Kubernetes },
   { pattern: "/audit", title: "Audit", nav: "Audit", group: "Governance", scoped: true, screen: Audit },
   ...EVAL_ROUTES,

@@ -375,7 +375,8 @@ def job(name: str, data: dict) -> int:
 
 def real(argv: list[str]) -> int:
     """`registry show` and `registry diff` read only registry files; `registry edit`,
-    `agent set-ref` (#826) and `mcp grant|revoke` (#831) write only the project's files,
+    `registry import` (#825), `agent set-ref` (#826) and `mcp grant|revoke` (#831) write only
+    the project's files,
     `new agent --stack-for` writes only stack.yaml beside an agent.yaml, and `new agent
     --from-spec` (#833) only the new project's folder: the real commands."""
     from agentbreeder import cli
@@ -496,6 +497,8 @@ def main(argv: list[str]) -> int:
         return 2 if data["registry_problems"] else 0
     elif head in (["registry", "edit"], ["registry", "fork"], ["agent", "set-ref"]):
         return real(argv)  # #826: the real edit and set-ref on the project's files
+    elif head == ["registry", "import"]:
+        return real(argv)  # #825: the real import into the project's registry
     elif argv and argv[0] == "registry":
         print("[]")
     elif argv[:2] == ["list", "--all"]:

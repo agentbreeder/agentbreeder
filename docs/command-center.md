@@ -274,6 +274,47 @@ tool check's refusal, axe in light and dark). Not yet run as the M12 acceptance 
 `tool/orders`, move Northwind to it, release with the eval gate, 61/61): that is batched with the
 milestone checks.
 
+### Import a version by path (#825, M9a, first part): on `main`, not in a published preview
+
+**Registry ▸ Import** (`#/registry/import`, also linked under every registry list) copies a
+registry version directory from anywhere on this machine (another project, a shared folder, a
+download) into the project's `./registry` as an immutable version. The fields are the directory's
+absolute path and, optionally, the name and version to import it as (`--as`, `--version`).
+
+- **Review import** runs `registry import --project DIR [--as NAME] [--version X.Y.Z] --dry-run
+  --json -- PATH`. The review lists the staged copy's files (text capped and cleaned by the CLI, as
+  `registry show`), where it lands and its hash. It writes nothing. A changed field needs a new
+  review.
+- **Import as REF** sends the reviewed digest. The server runs a fresh dry run, then the write
+  with `--expect-digest`, so what is written is what was reviewed. A source changed since the
+  review is `DIGEST_MISMATCH`, and a version that exists already is `VERSION_EXISTS`.
+- **Code confirm.** Tool, service, eval, MCP server and runtime versions run in agents, so their
+  import needs the "This code runs in agents" checkbox (the same three-tier confirm as the tool
+  editor). The server refuses the write without it (`CODE_NOT_CONFIRMED`). Prompt and knowledge
+  versions get a note that they steer the agent. An imported version runs nowhere until an
+  `agent.yaml` references it and a release passes.
+- **The path.** It must be absolute, with no control, bidi or invisible characters, and it reaches
+  the CLI as one word after `--`. The console server never reads it. The CLI child copies it once
+  into a private staging directory and refuses anything that is not a version directory before it
+  lists a file: no valid `manifest.yaml` is `MANIFEST_INVALID`, and a link, hard link, special
+  file, a directory over the size caps, or one that contains the project's registry is
+  `ENTRY_UNSAFE`. A refusal can name the first offending entry's path inside the directory, never
+  a file's contents. Review shows the text of every file in an accepted version directory,
+  dotfiles included, so point it only at a version directory. The server checks the CLI's answer against the contract (fields, no raw
+  control or bidi characters, the text cap) and shows anything else as `BAD_OUTPUT`.
+
+Tested with the real `registry import` (server tests: a prompt imported from another directory
+then resolved, an import under another name, a tool import refused without the confirm, a
+source changed after the review, a digest not from a review refused before the write lock, a
+directory without a manifest, a file, a symlinked or hard-linked file, a symlinked directory and
+`/` refused without their contents in the answer, a manifest changed from prompt to tool after the
+review, a control or bidi character in a file cleaned by the CLI, bad requests refused before any
+CLI call; the answer check's refusal of raw control or bidi characters is unit-tested) and with
+Playwright over Northwind (the main flows: prompt and tool imports, a refused directory, a source
+changed after its review, the link from the registry lists, axe in light and dark). Not yet run as the M9a acceptance (an imported prompt used by an agent and released, a
+built-in service forked, a tool import's confirm), which is batched with the milestone checks.
+Forking from the registry browser is the second part.
+
 ### Tool detail (#828, M12): on `main`, not in a published preview
 
 A tool's version card in Registry ▸ Tools (`#/registry/tools/NAME`) adds, above its files:

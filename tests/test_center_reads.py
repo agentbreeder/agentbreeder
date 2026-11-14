@@ -42,6 +42,8 @@ ALLOWED = {
     "agentbreeder.center.server",
     # Try it (#823): pure request and answer checks; it imports only center.files.
     "agentbreeder.center.tryit",
+    # Import by path (#825): pure request and answer checks; imports registry, center.files.
+    "agentbreeder.center.registryimport",
     # The eval report viewer (#932): fixed argv and answer shape checks; imports only `re`.
     "agentbreeder.center.evals",
     # Prompt editing and set-ref (#826): pure request checks and argv; imports only registry.
