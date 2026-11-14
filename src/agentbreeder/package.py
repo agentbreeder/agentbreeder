@@ -13,8 +13,9 @@ row (spec §7.2), not on anything in the package. The deploy template (§5.4) ha
 identity, secrets, policy, capabilities, requirements, a target, an image or a gateway, so a
 package cannot grant itself any of them.
 
-This module assembles a package into a private staging directory and loads one back. Writing it
-into a registry root (`registry.publish`) and the `agent` registry kind come with later slices.
+This module assembles a package into a private staging directory and loads one back. `agent` is a
+registry kind (`registry.KINDS`); only `release` writes it, with `registry.publish(...,
+package=True)`, which checks the staged copy with `load`.
 """
 
 from __future__ import annotations
@@ -40,8 +41,14 @@ from pydantic import (
 from agentbreeder.agentfile import MAX_BYTES as AGENT_YAML_LIMIT
 from agentbreeder.agentfile import NAME_PATTERN
 from agentbreeder.manifest import _ALIAS, _ENVIRONMENT, McpAccess
-from agentbreeder.registry import KINDS, copy_and_hash
-from agentbreeder.strict_yaml import StrictYamlError, load_text
+from agentbreeder.registry import (
+    KINDS,
+    PACKAGE_KIND,
+    Ref,
+    RegistryError,
+    copy_and_hash,
+    read_manifest,
+)
 
 PACKAGE_VERSION = 1
 PACKAGE_LIMIT = 64 * 1024
@@ -224,7 +231,8 @@ def parse(data: bytes) -> Package:
         ) from None
 
 
-_REF_KEY = re.compile(rf"(?:{'|'.join(KINDS)})/{_PART}@{_VERSION}")
+# No lock entry may reference a package in M13 (spec §9): `agent/` keys are refused.
+_REF_KEY = re.compile(rf"(?:{'|'.join(k for k in KINDS if k != PACKAGE_KIND)})/{_PART}@{_VERSION}")
 
 
 def _path_key(path: str) -> bool:
@@ -349,8 +357,7 @@ def load(version_dir: Path, name: str, version: str) -> Package:
 
     It also checks `agent.yaml` against `inputs.agent_yaml_sha256` (the lock copy is redacted, so
     its hash cannot be checked). It does not compare the tree with a release row. The manifest
-    is checked here until slice 1b adds `agent` to `registry.KINDS`; then it moves to
-    `registry.read_manifest`. Deploy (spec §7.2 step 3) checks
+    is checked with `registry.read_manifest` (spec §12.4). Deploy (spec §7.2 step 3) checks
     the tree hash against this state directory's audit log before it trusts a package."""
     if not (re.fullmatch(NAME_PATTERN, name) and re.fullmatch(_VERSION, version)):
         raise PackageError("PACKAGE_INVALID", "agent packages are agent/<name>@X.Y.Z")
@@ -366,12 +373,13 @@ def load(version_dir: Path, name: str, version: str) -> Package:
         )
     record = parse(_read(version_dir / "package.json", PACKAGE_LIMIT))
     try:
-        manifest = load_text(_read(version_dir / "manifest.yaml", PACKAGE_LIMIT).decode("utf-8"))
-    except (UnicodeDecodeError, StrictYamlError):
-        raise PackageError("PACKAGE_INVALID", "manifest.yaml is not valid") from None
-    declared = (manifest.get("kind"), manifest.get("name"), manifest.get("version"))
-    if declared != ("agent", name, version):
-        raise PackageError("PACKAGE_INVALID", "manifest.yaml does not name this agent version")
+        text = _read(version_dir / "manifest.yaml", PACKAGE_LIMIT).decode("utf-8")
+        read_manifest(version_dir, Ref(PACKAGE_KIND, name, version), text=text)
+    except (UnicodeDecodeError, RegistryError):
+        # Never the RegistryError text: it names the directory and can quote the parser.
+        raise PackageError(
+            "PACKAGE_INVALID", "manifest.yaml is not valid or does not name this agent version"
+        ) from None
     if (record.agent.name, record.agent.version) != (name, version):
         raise PackageError("PACKAGE_INVALID", "package.json does not name this agent version")
     if (
