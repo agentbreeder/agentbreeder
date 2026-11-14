@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
 
 from agentbreeder import cli, cluster
 from agentbreeder.services.schema import ServiceError
+from agentbreeder.services.state import services_lock, stacks_root
+
+FAKE_STACK_ID = "x-12345678"
 
 
 class Tools:
@@ -143,6 +147,7 @@ class FakeEngine:
 
 class FakeState:
     project = "agentbreeder-x"
+    id = FAKE_STACK_ID
 
     def __init__(self, directory):
         self.directory = directory
@@ -167,6 +172,14 @@ def fake_engine(monkeypatch):
 
     FakeEngine.instances = []
     monkeypatch.setattr(engine, "Engine", FakeEngine)
+
+    # The real per-stack lock (S-11) under the test's stacks root, for a fake stack id.
+    @contextmanager
+    def write_lock(project, root=None):
+        with services_lock(stacks_root(), FAKE_STACK_ID):
+            yield FAKE_STACK_ID
+
+    monkeypatch.setattr(engine, "write_lock", write_lock)
     return FakeEngine
 
 
@@ -393,3 +406,28 @@ def test_the_cluster_lock_ignores_the_stacks_override(tmp_path, monkeypatch):
         with cluster.cluster_lock():
             pass
     assert not (tmp_path / "elsewhere").exists()
+
+
+def test_up_and_down_take_the_stack_lock_inside_the_cluster_lock(tools, fake_engine, tmp_path):
+    """S-11: a terminal `cluster up|down` and a `services` write on the same stack never overlap;
+    the second fails fast with SERVICES_BUSY (lock order: cluster, then stack)."""
+    tools.networks["agentbreeder-x-agents"] = {"IPAddress": "172.31.0.6"}
+    with services_lock(stacks_root(), FAKE_STACK_ID):
+        with pytest.raises(ServiceError, match="SERVICES_BUSY"):
+            cluster.up(tmp_path, "dev")
+        with pytest.raises(ServiceError, match="SERVICES_BUSY"):
+            cluster.down(tmp_path)
+    assert not any(c[:2] in (["kind", "create"], ["kind", "delete"]) for c in tools.calls)
+    assert fake_engine.instances == []  # the lock comes before Engine() opens the state
+    assert cluster.up(tmp_path, "dev")["cluster"] == cluster.CONTEXT  # released
+
+
+def test_a_renamed_stack_between_lock_and_state_is_refused(tools, fake_engine, tmp_path):
+    FakeState.id = "y-12345678"
+    try:
+        with pytest.raises(ServiceError, match="STACK_CHANGED"):
+            cluster.up(tmp_path, "dev")
+        with pytest.raises(ServiceError, match="STACK_CHANGED"):
+            cluster.down(tmp_path)
+    finally:
+        FakeState.id = FAKE_STACK_ID

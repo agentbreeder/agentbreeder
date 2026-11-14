@@ -336,26 +336,30 @@ def up(
 
 
 def _up(project: Path, environment: str, *, confirm, expect_grant, log) -> dict:
-    from agentbreeder.services.engine import Engine
+    from agentbreeder.services.engine import Engine, check_locked, write_lock
 
-    engine = Engine(project, log=log)
-    try:
-        network = engine.state.project + "-agents"
-        if not _exists("docker", "network", "inspect", network, what="inspect the agents network"):
-            raise ServiceError(
-                "STACK_NOT_UP", "the stack's agents network is missing; run services up first"
-            )
-        log("Starting the local registry ...")
-        ensure_registry()
-        log("Creating the kind cluster (the first run pulls its image) ...")
-        ensure_cluster(engine.state.directory / "kubeconfig")
-        engine.state.put("kubernetes", json.dumps(block_for(engine.state, network)))
-        if confirm is None:
-            return {"cluster": CONTEXT, "grant": "review the change with services plan"}
-        log("Recording the cluster in the stack's grant ...")
-        return engine.up(environment, confirm=confirm, expect_grant=expect_grant)
-    finally:
-        engine.close()
+    with write_lock(project) as locked:  # S-11: cluster lock, then stack lock, before Engine()
+        engine = Engine(project, log=log)
+        try:
+            check_locked(engine, locked)
+            network = engine.state.project + "-agents"
+            if not _exists(
+                "docker", "network", "inspect", network, what="inspect the agents network"
+            ):
+                raise ServiceError(
+                    "STACK_NOT_UP", "the stack's agents network is missing; run services up first"
+                )
+            log("Starting the local registry ...")
+            ensure_registry()
+            log("Creating the kind cluster (the first run pulls its image) ...")
+            ensure_cluster(engine.state.directory / "kubeconfig")
+            engine.state.put("kubernetes", json.dumps(block_for(engine.state, network)))
+            if confirm is None:
+                return {"cluster": CONTEXT, "grant": "review the change with services plan"}
+            log("Recording the cluster in the stack's grant ...")
+            return engine.up(environment, confirm=confirm, expect_grant=expect_grant)
+        finally:
+            engine.close()
 
 
 def _in_operator_config(state) -> bool:
@@ -393,42 +397,51 @@ def down(project: Path) -> dict:
 
 
 def _down(project: Path) -> dict:
-    from agentbreeder.services.engine import Engine
+    from agentbreeder.services.engine import Engine, check_locked, write_lock
 
     _require("kind")  # as `cluster up`: name the missing tool, not a failed `kind get clusters`
-    engine = Engine(project)
-    try:
-        active = engine.active_cluster_deployments()
-        if active:
-            raise ServiceError(
-                "CLUSTER_IN_USE",
-                "remove these cluster deployments first (remove ID --cluster): "
-                + ", ".join(active),
-            )
-        if NAME in _clusters():
-            _require("kubectl")
-            path = engine.state.directory / "kubeconfig"
-            _require_owned(path)  # the cluster is machine-wide: other stacks may use it
-            workloads = kubectl(
-                path,
-                "get",
-                "deployments",
-                "--namespace",
-                NAMESPACE,
-                "--selector",
-                f"{MANAGED_BY}=agentbreeder",
-                "--ignore-not-found",
-                "-o",
-                "name",
-            )
-            if workloads:
-                raise ServiceError("CLUSTER_IN_USE", "Agents are still deployed on the cluster")
-            _run(["kind", "delete", "cluster", "--name", NAME], timeout=180, what="kind delete")
-        if _registry_owned():
-            # registry:2 declares VOLUME /var/lib/registry; without --volumes it is orphaned
-            _run(["docker", "rm", "--force", "--volumes", REGISTRY], what="removing the registry")
-        (engine.state.directory / "kubeconfig").unlink(missing_ok=True)
-        engine.state.put("kubernetes", "")
-        return {"removed": [NAME, REGISTRY]}
-    finally:
-        engine.close()
+    with write_lock(project) as locked:  # S-11: cluster lock, then stack lock, before Engine()
+        engine = Engine(project)
+        try:
+            check_locked(engine, locked)
+            active = engine.active_cluster_deployments()
+            if active:
+                raise ServiceError(
+                    "CLUSTER_IN_USE",
+                    "remove these cluster deployments first (remove ID --cluster): "
+                    + ", ".join(active),
+                )
+            if NAME in _clusters():
+                _require("kubectl")
+                path = engine.state.directory / "kubeconfig"
+                _require_owned(path)  # the cluster is machine-wide: other stacks may use it
+                workloads = kubectl(
+                    path,
+                    "get",
+                    "deployments",
+                    "--namespace",
+                    NAMESPACE,
+                    "--selector",
+                    f"{MANAGED_BY}=agentbreeder",
+                    "--ignore-not-found",
+                    "-o",
+                    "name",
+                )
+                if workloads:
+                    raise ServiceError(
+                        "CLUSTER_IN_USE", "Agents are still deployed on the cluster"
+                    )
+                _run(
+                    ["kind", "delete", "cluster", "--name", NAME], timeout=180, what="kind delete"
+                )
+            if _registry_owned():
+                # registry:2 declares VOLUME /var/lib/registry; without --volumes it is orphaned
+                _run(
+                    ["docker", "rm", "--force", "--volumes", REGISTRY],
+                    what="removing the registry",
+                )
+            (engine.state.directory / "kubeconfig").unlink(missing_ok=True)
+            engine.state.put("kubernetes", "")
+            return {"removed": [NAME, REGISTRY]}
+        finally:
+            engine.close()

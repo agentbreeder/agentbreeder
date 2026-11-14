@@ -1,0 +1,8 @@
+usage: agentbreeder services start [-h] [--json] [DIR] NAME [[DIR] NAME ...]
+
+positional arguments:
+  [DIR] NAME
+
+options:
+  -h, --help  show this help message and exit
+  --json      Print the result as JSON
