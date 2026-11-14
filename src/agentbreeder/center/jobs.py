@@ -383,7 +383,9 @@ MACHINE_KINDS = frozenset({"cluster-up", "cluster-down", "promote"})
 # blocked by engine jobs; `agent set-ref` also holds its project (it rewrites agent.yaml), and a
 # policy save excludes every engine job in both directions.
 SHORT_TIMEOUT = 60
-SHORT_TIMEOUTS = {"tool-publish": 300}  # publishing a tool re-locks its dependencies
+# Publishing a tool re-locks its dependencies; a service stop or restart waits for Compose's
+# 10 s stop timeout, and a start for a healthy container's own start.
+SHORT_TIMEOUTS = {"tool-publish": 300, "service-control": 120}
 SHUTDOWN_GRACE = 5.0
 # A cancel before the job's first output waits for that line (or this long): a SIGINT that
 # reaches the CLI while its interpreter is still starting can be lost, and the job runs on.

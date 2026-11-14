@@ -55,7 +55,7 @@ export function Services({ project }) {
       ${rows.length
         ? html`<${Table} label="Stack services" columns=${["Service", "State", "Host ports", ""]}>
             ${rows.map(([name, info]) => html`<tr key=${name}>
-              <td><${Text} value=${name} /></td>
+              <td><a href=${href("/services/:name", { name })}><${Text} value=${name} /></a></td>
               <td><${Text} value=${serviceState(info)} /></td>
               <td><${Ports} info=${info} /></td>
               <td><${LogsLink} kind="service" name=${name} label=${`Logs of ${visible(name)}`} /></td>

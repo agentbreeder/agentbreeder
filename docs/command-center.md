@@ -989,10 +989,43 @@ Before this, the console read `doctor --json` as a failure when a required check
 exits 1 then), so it kept showing the last passing answer, or nothing, and Home's Docker notice
 never appeared. `/api/overview` now keeps doctor's exit-1 answer too.
 
-The service controls, the usage child and the Home services table (the rest of M6) come in later
-parts. The M6 acceptance (stop Docker with Northwind running: the blocker within 15 s; start it:
+The service controls follow below; the usage child and the Home services table (the rest of M6)
+come in later parts. The M6 acceptance (stop Docker with Northwind running: the blocker within 15 s; start it:
 the blocker clears without a reload) is batched with the milestone verifications; the UI tests run
 it against the fake CLI.
+
+### Service controls (#822, M6, second part): on `main`, not in a published preview
+
+Each service name on **Services** links to its detail, `#/services/NAME` ("Service litellm"; the
+sidebar keeps Services current). It shows the service's **Config** from `services status --json`
+(state, health, host ports, with "internal only" explained), a **Logs** link, and **Start**,
+**Stop** and **Restart**. Each button runs `agentbreeder services start|stop|restart DIR NAME
+--json` on that one container: nothing is rebuilt, recreated or pulled. A button that does not
+apply says why (already running, not running, or no container yet, which needs Services' review
+and start first). MCP relays (`mcp-NAME`) have the same detail and controls
+(their Logs link works for names up to 31 characters, the Logs route's limit). After an
+action, focus goes back to the button used, or to the first one that applies to the new state. While
+the Docker blocker shows, the three buttons are off and say so.
+
+- The request is `POST /api/projects/ID/services/NAME/start|stop|restart` with an empty JSON
+  body, a short write that also holds the project, so it never overlaps a console job on the
+  same stack (`WRITE_BUSY`). The CLI's per-stack lock stays the authority: `SERVICES_BUSY` is
+  shown as "Another operation is running on this stack; retry when it finishes".
+- **Stop** and **Restart** while deployments use the stack come back `SERVICE_IN_USE`. The
+  console then asks ("Stop litellm anyway?"), naming the deployments from the CLI's message, and
+  only on confirm sends the request again with `{"yes": true}` (the CLI's `--yes`). Cancel sends
+  nothing more. `start` takes no `yes`.
+- Every other refusal is the CLI's coded message as written: `PORT_BUSY` names the port another
+  process holds, and `SERVICE_NOT_CREATED`, `SERVICE_UNKNOWN` and `DOCKER_FAILED` are passed
+  through. Docker's own text never reaches the browser; an answer in an unexpected shape is
+  `BAD_OUTPUT`, and only the service, action, state, health and `in_use` are passed on.
+
+Tested with Playwright against a fake CLI (each button, the in-use confirm and its cancel, focus
+after both, `PORT_BUSY`, buttons held while an action runs or Docker is down, an internal-only and an unknown
+service), with axe in light and dark, and on the server against a fake CLI (argv, `--yes` only after the refusal,
+malformed bodies and names, coded refusals, unexpected answers, a running job and a second control
+on the project). Not yet run against real Docker; that is the M6 acceptance (`services restart
+litellm` restarts only that container).
 
 ## How it stays the same engine
 

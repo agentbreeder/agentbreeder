@@ -321,6 +321,41 @@ def scenario() -> dict:
     return data
 
 
+def service_control(argv: list[str], data: dict) -> int:
+    """`services start|stop|restart DIR NAME --json [--yes]` (#822): scenario key
+    `service_control` = {"in_use": [deployment, ...], "error": "[CODE] message", "seconds": N}.
+    Each call's argv is appended to `service-argv` in the fake directory."""
+    settings = data.get("service_control") or {}
+    with open(Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "service-argv", "a") as log:
+        log.write(json.dumps(argv) + "\n")
+    time.sleep(settings.get("seconds", 0))
+    action, name = argv[1], argv[3]
+    if settings.get("error"):
+        print(settings["error"], file=sys.stderr)
+        return 2
+    in_use = settings.get("in_use") or []
+    if in_use and action != "start" and "--yes" not in argv:
+        names = ", ".join(in_use)
+        print(
+            f"[SERVICE_IN_USE] these deployments use the stack: {names}; add --yes to {action} "
+            f"{name} anyway",
+            file=sys.stderr,
+        )
+        return 2
+    stopped = action == "stop"
+    answer = {
+        "schema_version": 1,
+        "stack": "0123456789ab",
+        "service": name,
+        "action": action,
+        "state": "exited" if stopped else "running",
+        "health": "" if stopped else "starting",
+        "in_use": [] if action == "start" else in_use,
+    }
+    print(json.dumps(answer))
+    return 0
+
+
 def job(name: str, data: dict) -> int:
     lines = data["job_lines"].get(name) or [
         f"{name}: Starting",
@@ -450,6 +485,8 @@ def main(argv: list[str]) -> int:
         return job("services-up", data)
     elif head == ["services", "down"]:
         return job("services-down", data)
+    elif head in (["services", "start"], ["services", "stop"], ["services", "restart"]):
+        return service_control(argv, data)
     elif head in (["registry", "show"], ["registry", "diff"]):
         return real(argv)
     elif head == ["registry", "used-by"]:
