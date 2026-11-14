@@ -39,6 +39,7 @@ Run `agentbreeder COMMAND --help` for flags; see the root README for the demo.
 - [`list`](commands/list.md): List deployments that are not removed (read-only, no IdP calls).
 - [`login`](commands/login.md): Sign in with the operator's OIDC device flow.
 - [`logs`](commands/logs.md): Show a local deployment's logs (redacted), or the saved tail of a failed candidate.
+- [`mcp`](commands/mcp.md): Grant or revoke an agent's MCP tools in stack.yaml.
 - [`migrate`](commands/migrate.md): Upgrade the local state to this version's schema (no IdP calls).
 - [`new`](commands/new.md): Write a starter project (`new agent NAME`).
 - [`next`](commands/next.md): Show where this project is on the guided path and the command to run next.

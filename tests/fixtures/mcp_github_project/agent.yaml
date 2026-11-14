@@ -1,0 +1,16 @@
+# M15 (#831) MCP fixture: the `agentbreeder new agent gh-reader --model gemini` starter, plus the
+# built-in mcp/github server with two read-only tools. The stack grants neither at first, so
+# `deploy` refuses (MCP_TOOL_NOT_GRANTED) until `agentbreeder mcp grant gh-reader github get_me
+# list_issues` and `services up`. See tests/test_mcp_grant.py.
+kind: agent
+schema_version: 1
+name: gh-reader
+runtime: runtime/adk@1.2.0
+model: {alias: chat, reasoning: low, max_model_calls: 2}
+prompt: {ref: prompt/gh-reader-prompt@0.1.0}
+evals: {ref: eval/gh-reader-evals@0.1.0, threshold: 1.0, retries: 1}
+mcp:
+  - ref: mcp/github@1.0.0
+    tools: [get_me, list_issues]   # requested; the stack decides what is granted
+traces: none        # this stack has no trace collector
+agent_events: none  # and no event log for the agent

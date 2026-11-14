@@ -1,0 +1,4 @@
+kind: prompt
+name: gh-reader-prompt
+version: 0.1.0
+description: The gh-reader agent's system prompt.

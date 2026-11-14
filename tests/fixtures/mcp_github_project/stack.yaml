@@ -1,0 +1,28 @@
+# M15 (#831) MCP fixture: the gh-reader starter's services, plus the built-in mcp/github server.
+# `agentbreeder services up --environment dev --env-file FILE` starts them; FILE holds
+# GEMINI_API_KEY=... and GITHUB_MCP_TOKEN=... (a fine-grained, read-only token; mode 0600).
+kind: stack
+schema_version: 1
+name: gh-reader
+services:
+  postgres:
+    ref: service/postgres-pgvector@1.1.0
+    with: {databases: [app, litellm]}
+  litellm:
+    ref: service/litellm@1.0.0
+    with: {config: stack/litellm/config.yaml}
+    wire: {database-url: postgres.databases.litellm}
+mcp:
+  github: {ref: mcp/github@1.0.0}
+environment:
+  gateway: litellm
+  models: [chat, judge]          # chat for the agent, judge for its evals
+  ceilings: {budget_usd: 5, rpm: 60}
+  bindings:
+    DATABASE_URL: {ref: postgres.databases.app}
+  eval_database: {ref: postgres.databases.app}
+  agents:
+    gh-reader:
+      sponsor: you@example.com   # who answers for this agent
+      review_by: "2027-05-12"     # the gate refuses deploys after this date (move it for live runs)
+      candidate: true            # release tests a candidate before production

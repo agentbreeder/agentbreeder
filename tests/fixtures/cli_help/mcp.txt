@@ -1,0 +1,11 @@
+usage: agentbreeder mcp [-h] {grant,revoke} ...
+
+positional arguments:
+  {grant,revoke}
+    grant         Grant TOOLs of SERVER to AGENT in stack.yaml (shown as a
+                  diff)
+    revoke        Revoke TOOLs of SERVER from AGENT in stack.yaml (shown as a
+                  diff)
+
+options:
+  -h, --help      show this help message and exit

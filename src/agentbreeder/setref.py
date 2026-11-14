@@ -50,12 +50,12 @@ def _refs(text: str, where: str) -> list[tuple[str, str]]:
     return [(at, value) for at, value in registry._ref_positions("agent", data)]
 
 
-def _unified(before: str, after: str) -> str:
+def _unified(before: str, after: str, name: str = AGENT_FILE) -> str:
     lines = difflib.unified_diff(
         before.splitlines(keepends=True),
         after.splitlines(keepends=True),
-        f"a/{AGENT_FILE}",
-        f"b/{AGENT_FILE}",
+        f"a/{name}",
+        f"b/{name}",
     )
     return "".join(line if line.endswith("\n") else line + "\n" for line in lines)
 
@@ -147,7 +147,7 @@ def set_ref(
     return result
 
 
-def _replace(path: Path, base: bytes, data: bytes) -> None:
+def _replace(path: Path, base: bytes, data: bytes, limit: int = MAX_BYTES) -> None:
     """Write `data` over `path` atomically (a temp file in the same directory, then a rename),
     keeping its mode, unless the file is no longer `base`. That re-check narrows, but cannot
     close, the window for a writer that does not take the console's project lock (an editor,
@@ -156,22 +156,22 @@ def _replace(path: Path, base: bytes, data: bytes) -> None:
     try:
         mode = os.lstat(path).st_mode & 0o777
         descriptor, temporary = tempfile.mkstemp(
-            prefix=".agent.yaml-", suffix=".tmp", dir=path.parent
+            prefix=f".{path.name}-", suffix=".tmp", dir=path.parent
         )
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(temporary, mode)
-        if read_project_file(path, MAX_BYTES) != base:
+        if read_project_file(path, limit) != base:
             raise RegistryError(
-                "BASE_MISMATCH", f"{AGENT_FILE} changed while it was being rewritten; try again"
+                "BASE_MISMATCH", f"{path.name} changed while it was being rewritten; try again"
             )
         os.replace(temporary, path)
         temporary = None
     except OSError as error:
         raise RegistryError(
-            "WRITE_FAILED", f"cannot write {AGENT_FILE}: {error.strerror or error}"
+            "WRITE_FAILED", f"cannot write {path.name}: {error.strerror or error}"
         ) from None
     finally:
         if temporary is not None:

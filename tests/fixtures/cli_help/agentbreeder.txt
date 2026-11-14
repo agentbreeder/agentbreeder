@@ -1,5 +1,5 @@
 usage: agentbreeder [-h] [--version]
-                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,evals,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,traces,next,new,invoke,watch,events,cost}
+                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,evals,release,registry,agent,secret,services,mcp,promote,cluster,up,login,migrate,logs,traces,next,new,invoke,watch,events,cost}
                     ...
 
 Local development: validate, gate and deploy trusted HTTP containers. The
@@ -8,7 +8,7 @@ Opt-in runtime enforcement covers MCP Streamable HTTP tool calls through the
 egress sidecar only.
 
 positional arguments:
-  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,evals,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,traces,next,new,invoke,watch,events,cost}
+  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,evals,release,registry,agent,secret,services,mcp,promote,cluster,up,login,migrate,logs,traces,next,new,invoke,watch,events,cost}
     validate            Validate a deploy manifest or an agent file (kind:
                         agent)
     doctor              Check local Docker prerequisites without changes
@@ -43,6 +43,7 @@ positional arguments:
     secret              Manage local secret files (secret:// refs)
     services            Local backing services from stack.yaml (local-only
                         preview)
+    mcp                 Grant or revoke an agent's MCP tools in stack.yaml
     promote             Deploy the released image to Kubernetes, without
                         rebuilding it
     cluster             A local kind cluster for one stack (preview)
