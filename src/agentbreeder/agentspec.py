@@ -184,7 +184,8 @@ def _pattern(pattern: str, where: str) -> None:
     exponentially (nested repeats, a repeated alternation, a backreference), or that has more
     than `MAX_REPEATS` variable repeats and alternations (`a?a?a?…aaa` and `(?:a|aa)…` are
     exponential, `a*a*a*b` a high-degree polynomial). Two adjacent repeats can still cost
-    O(n^3), seconds on a 1,000-character reply: not refused, see the spec's S-34 #10."""
+    O(n^3), seconds on a 1,000-character reply: not refused here, but `evals` stops a case's
+    patterns at `evals.PATTERN_TIMEOUT` and fails the case (S-34 #10)."""
     import re._parser as parser  # private, present on 3.11-3.13; the compile below is the API
 
     try:

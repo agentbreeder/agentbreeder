@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -338,6 +339,34 @@ def test_run_case_checks():
     down = evals.run_case("http://127.0.0.1:9", "run", case, FakeJudge())
     assert not down["passed"] and not down["checks"]["agent_responded"]
     agent.server.shutdown()
+
+
+def test_slow_or_invalid_patterns_fail_the_case_instead_of_stalling(monkeypatch):
+    """S-34 #10: a pattern that backtracks on the reply is stopped at PATTERN_TIMEOUT and fails
+    its case, as does one that is not a regular expression; other checks are unaffected."""
+    monkeypatch.setattr(evals, "PATTERN_TIMEOUT", 1.0)
+    agent = Agent(reply="a" * 40 + "!")
+    expect = {"must_match": ["(a+)+$"], "must_not_match": ["poem"]}
+    case = {"id": "slow", "turns": ["hi"], "reference": "r", "expect": expect}
+    started = time.monotonic()
+    slow = evals.run_case(agent.url, "run", case, FakeJudge())
+    assert time.monotonic() - started < 10
+    assert not slow["passed"] and slow["checks"]["patterns_finished"] is False
+    assert slow["checks"]["matches:(a+)+$"] is False and slow["checks"]["avoids:poem"] is False
+    assert slow["checks"]["agent_responded"] and slow["checks"]["judge_correct"]
+    case["expect"] = {"must_match": ["a"], "must_not_match": ["("]}
+    invalid = evals.run_case(agent.url, "run", case, FakeJudge())
+    assert not invalid["passed"] and invalid["checks"]["patterns_finished"] is False
+    case["expect"] = {"must_match": ["A{40}!"], "must_not_match": ["poem"]}
+    fine = evals.run_case(agent.url, "run", case, FakeJudge())
+    assert fine["passed"] and "patterns_finished" not in fine["checks"]
+    agent.server.shutdown()
+
+
+def test_search_handles_unprintable_replies_and_no_patterns():
+    assert evals._search([], "anything") == []
+    assert evals._search([b"x"], "x") is None  # not JSON: fails closed, no traceback
+    assert evals._search(["x\\ud800y", "^$"], "x\ud800y") == [True, False]
 
 
 def test_run_with_injected_judge_and_retries(project, operator, state):

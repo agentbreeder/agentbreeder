@@ -6,6 +6,8 @@ answer at least CORRECTNESS_PASS. The judge goes through the operator's LiteLLM 
 its own short-lived key (alias `agentbreeder-eval-<run>`), minted for the run and revoked after.
 
 Rule checks: sources_any, tools_include / tools_exclude, must_match / must_not_match.
+The patterns run in a child process with a time limit (PATTERN_TIMEOUT), so a pattern that
+backtracks on a long reply fails its case instead of stalling `release`.
 A turn is a message string, or {"message": ..., "new_session": true} (same customer, new
 session) to test long-term memory. Fixtures (e.g. cancellation requests the cases create) are
 reset first with the eval set's fixtures.sql against the environment's `eval_database`.
@@ -18,6 +20,8 @@ import hashlib
 import json
 import re
 import statistics
+import subprocess
+import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -34,6 +38,15 @@ JUDGE_KEY_DURATION = "6h"  # judge keys expire even if a killed run never revoke
 
 CORRECTNESS_PASS = 0.7
 MAX_CASES = 1000
+# Seconds for all of one case's must_match / must_not_match patterns (S-34 #10). Python's `re`
+# cannot be interrupted, and a polynomial pattern such as `a*a*b` takes seconds to minutes on a
+# long reply, so the patterns run in an isolated child process that is killed at the limit.
+PATTERN_TIMEOUT = 5.0
+_MATCHER = (
+    "import json, re, sys\n"
+    "d = json.load(sys.stdin)\n"
+    "print(json.dumps([re.search(p, d['reply'], re.I) is not None for p in d['patterns']]))\n"
+)
 _OPENER = build_opener(ProxyHandler({}))
 SCHEMA = {
     "type": "object",
@@ -214,6 +227,28 @@ wrong or invented; 0.5 = partially correct or missing an essential point; 0 = wr
 policy, or harmful. Extra helpful detail is fine if it is not wrong. Explain in one sentence."""
 
 
+def _search(patterns: list, reply: str) -> list[bool] | None:
+    """Whether each pattern matches `reply` (ignoring case), or None when a pattern is not a
+    regular expression or they did not all finish within PATTERN_TIMEOUT."""
+    if not patterns:
+        return []
+    try:
+        done = subprocess.run(
+            [sys.executable, "-I", "-S", "-c", _MATCHER],
+            input=json.dumps({"patterns": patterns, "reply": reply}),  # ASCII: surrogates escaped
+            capture_output=True,
+            text=True,
+            timeout=PATTERN_TIMEOUT,
+            check=False,
+        )
+        found = json.loads(done.stdout) if done.returncode == 0 else None
+    except (subprocess.TimeoutExpired, OSError, TypeError, ValueError):
+        return None
+    if not isinstance(found, list) or len(found) != len(patterns):
+        return None
+    return [value is True for value in found]
+
+
 def run_case(endpoint: str, run_id: str, case: dict, judge: Judge, attempt: int = 1) -> dict:
     suffix = f"-r{attempt}" if attempt > 1 else ""
     # run id (22) + a short hash of the full case id keeps sessions unique per case and attempt
@@ -250,10 +285,15 @@ def run_case(endpoint: str, run_id: str, case: dict, judge: Judge, attempt: int 
         checks[f"called:{tool}"] = tool in tools
     for tool in expect.get("tools_exclude", []):
         checks[f"did_not_call:{tool}"] = tool not in tools
-    for pattern in expect.get("must_match", []):
-        checks[f"matches:{pattern}"] = bool(re.search(pattern, reply, re.I))
-    for pattern in expect.get("must_not_match", []):
-        checks[f"avoids:{pattern}"] = not re.search(pattern, reply, re.I)
+    must_match = list(expect.get("must_match", []))
+    must_not_match = list(expect.get("must_not_match", []))
+    found = _search(must_match + must_not_match, reply)
+    if found is None:  # invalid or too slow: every pattern check fails
+        checks["patterns_finished"] = False
+    for index, pattern in enumerate(must_match):
+        checks[f"matches:{pattern}"] = found is not None and found[index]
+    for index, pattern in enumerate(must_not_match, len(must_match)):
+        checks[f"avoids:{pattern}"] = found is not None and not found[index]
     correctness, explanation = 0.0, error or ""
     if reply and not error:
         try:
