@@ -261,6 +261,16 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .inspector .facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0 0; }
 .inspector .facts dt { color: var(--text-muted); }
 .inspector .facts dd { margin: 0; overflow-wrap: anywhere; }
+/* A turn's trace (#907): its span tree as nested lists, indented by depth. */
+.trace { margin-top: 6px; font-size: 13px; }
+.trace summary { cursor: pointer; }
+.trace-body { margin-top: 6px; }
+.trace-status { margin: 0; }
+.span-tree { list-style: none; margin: 4px 0 0; padding-left: 16px; border-left: 1px solid var(--control-border); }
+.trace-body > .span-tree { padding-left: 8px; }
+.span-tree li { margin: 2px 0; overflow-wrap: anywhere; }
+.span-tree .span-name { font-weight: 600; }
+.span-tree .span-error-text { color: var(--destructive); }
 .try-form { display: grid; gap: 8px; }
 .try-form .field.wide { display: flex; width: 100%; }
 .try-form textarea {

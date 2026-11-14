@@ -12,12 +12,17 @@ Pure functions: the server checks the request with `turn_request`, builds the ar
 - The agent's answer is untrusted. Only an allow-listed set of fields is passed on, each checked
   for type and size; the reply stays text (the browser shows it through <Text>, with no Markdown
   or auto-linking, S-12b). A trace id is passed only as 32 lowercase hex characters; there is no
-  trace link yet (`trace.url` is null until #907 records a Phoenix origin the console can link
-  to). `cost` is the turn's cost in USD that `runtime/adk@1.2.0` reports (`cost_usd`, the sum of
+  trace link (`trace.url` stays null): the span tree is read on request instead (below).
+  `cost` is the turn's cost in USD that `runtime/adk@1.2.0` reports (`cost_usd`, the sum of
   LiteLLM's per-call estimates, #906), passed only as a finite number from 0 up to `MAX_USD`;
   older runtimes don't report it and it is null.
 - `customer_id` and `session_id` are sent as typed; the runtime does not authenticate them
   (S-12c, #780), which the screen says.
+- A turn's trace (#907): `traces --trace ID --stack DIR --environment ENV --json` (contract:
+  docs/traces.md), built by `trace_argv` and checked by `trace_answer`. Only the span tree's
+  names, kinds, models, token counts, tool names, latency, status and error text are passed on.
+  `traces` never reads prompts, replies or tool arguments and results; error text is redacted and
+  cut by `traces` but is the runtime's own text, so it can quote what the agent was given.
 """
 
 from __future__ import annotations
@@ -41,6 +46,15 @@ MAX_ITEM = 200  # characters per tool name or source title
 MAX_SHORT = 100  # model alias, framework, runtime ref
 MAX_ERROR = 300
 MAX_USD = 10**6  # a turn's cost at or above this is not believed
+# A turn's trace (#907): `traces`' own limits (phoenix_traces.py) bound what is passed on.
+HEX16 = re.compile(r"[0-9a-f]{16}")  # span ids
+KIND = re.compile(r"[A-Z]{1,20}")  # OpenInference span kinds, upper-cased by `traces`
+TRACE_TIMEOUT = 150  # `traces` stops itself after 120 s (TRACES_LIMIT)
+MAX_SPANS = 500  # `phoenix_traces.MAX_SPANS`
+MAX_TEXT = 200  # `phoenix_traces.TEXT`
+MAX_NOTES = 10
+SPAN_STATUS = ("ok", "error", "unset")
+ATTRIBUTION = ("exact", "window")
 
 
 def turn_request(name: str, body: dict) -> dict:
@@ -171,3 +185,112 @@ def turn_answer(data: object, latency_ms: int) -> tuple[dict | None, dict | None
         "cost": _usd(response.get("cost_usd")),
     }
     return turn, None
+
+
+# -- a turn's trace (#907) -----------------------------------------------------------------------
+
+
+def trace_argv(project: dict, trace_id: str) -> list[str]:
+    """`traces --trace ID --stack DIR --environment ENV --json`: a fixed argv; the id is checked
+    by the route (32 lowercase hex characters)."""
+    if not HEX32.fullmatch(trace_id):
+        raise BadRequest("A trace ID is 32 lowercase hex characters", "TRACE_ID_INVALID")
+    return [
+        "traces", "--trace", trace_id, "--stack", project["path"],
+        "--environment", project["environment"], "--json",
+    ]  # fmt: skip
+
+
+def _pick(value: object, choices: tuple[str, ...]) -> str | None:
+    return value if isinstance(value, str) and value in choices else None
+
+
+def _span_tokens(value: object) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    prompt, completion = _count(value.get("prompt")), _count(value.get("completion"))
+    if prompt is None and completion is None:
+        return None
+    return {"prompt": prompt, "completion": completion}
+
+
+def _span(value: object) -> dict | None:
+    if not isinstance(value, dict) or _id(value.get("span_id"), HEX16) is None:
+        return None
+    return {
+        "span_id": value["span_id"],
+        "parent_id": _id(value.get("parent_id"), HEX16),
+        "name": _text(value.get("name"), MAX_TEXT) or "?",
+        "kind": _id(value.get("kind"), KIND) or "UNKNOWN",
+        "status": _pick(value.get("status"), SPAN_STATUS) or "unset",
+        "latency_ms": _count(value.get("latency_ms")),
+        "model": _text(value.get("model"), MAX_TEXT),
+        "tokens": _span_tokens(value.get("tokens")),
+        "tool": _text(value.get("tool"), MAX_TEXT),
+        "error": _text(value.get("error"), MAX_ERROR),
+    }
+
+
+def trace_answer(data: object, trace_id: str) -> tuple[dict | None, dict | None]:
+    """`(trace, None)`, or `(None, problem)` with `problem` `{code, message}`: `traces`' own coded
+    error, TRACES_NOT_FOUND when its answer holds no trace with this id, or TRACE_INVALID when the
+    answer does not match its contract."""
+    invalid = {"code": "TRACE_INVALID", "message": "The trace answer does not match its contract"}
+    if not isinstance(data, dict):
+        return None, invalid
+    failure = data.get("error")
+    if isinstance(failure, dict):  # `traces --json`'s coded error object (exit 2)
+        code = failure.get("code")
+        return None, {
+            "code": code if isinstance(code, str) and CODE.fullmatch(code) else "TRACES_FAILED",
+            "message": _text(failure.get("message"), MAX_ERROR) or "traces failed",
+        }
+    traces = data.get("traces")
+    if not isinstance(traces, list):
+        return None, invalid
+    found = next(
+        (t for t in traces if isinstance(t, dict) and t.get("trace_id") == trace_id), None
+    )
+    if found is None:
+        return None, {
+            "code": "TRACES_NOT_FOUND",
+            "message": f"trace {trace_id} is not in Phoenix (yet)",
+        }
+    raw = found.get("spans")
+    spans: list[dict] = []
+    seen: set[str] = set()
+    for item in raw[:MAX_SPANS] if isinstance(raw, list) else []:
+        span = _span(item)
+        if span is not None and span["span_id"] not in seen:
+            seen.add(span["span_id"])
+            spans.append(span)
+    tokens = found.get("tokens") if isinstance(found.get("tokens"), dict) else {}
+    tools = found.get("tool_calls") if isinstance(found.get("tool_calls"), list) else []
+    notes = data.get("notes") if isinstance(data.get("notes"), list) else []
+    trace = {
+        "trace_id": trace_id,
+        "deployment_id": _id(found.get("deployment_id"), HEX32),
+        "attribution": _pick(found.get("attribution"), ATTRIBUTION),
+        "latency_ms": _count(found.get("latency_ms")),
+        "status": _pick(found.get("status"), ("ok", "error")),
+        "models": _names(found.get("models")),
+        "tokens": {
+            "prompt": _count(tokens.get("prompt")),
+            "completion": _count(tokens.get("completion")),
+            "total": _count(tokens.get("total")),
+        },
+        "tool_calls": [
+            {
+                "name": _text(item.get("name"), MAX_TEXT) or "?",
+                "status": _pick(item.get("status"), SPAN_STATUS) or "unset",
+                "latency_ms": _count(item.get("latency_ms")),
+            }
+            for item in tools[:MAX_SPANS]
+            if isinstance(item, dict)
+        ][:MAX_ITEMS],
+        "spans": spans,
+        "truncated": found.get("spans_truncated") is True
+        or (isinstance(raw, list) and len(raw) > MAX_SPANS),
+        "notes": [n[:MAX_ERROR] for n in notes[:MAX_NOTES] if isinstance(n, str) and n],
+    }
+    return trace, None

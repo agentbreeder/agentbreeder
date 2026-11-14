@@ -74,7 +74,24 @@ DEFAULT = {
     # `list --all --json` (Agents, #823): {"deployments", "skipped"}; null lists `deployments`
     # as rows of a stack whose project is not registered.
     "list_all": None,
+    # `traces --trace ID ... --json` (Try it's trace panel, #907): {"spans", "status",
+    # "attribution", "notes"} change the answer; {"error": {code, message}} fails it (exit 2);
+    # {"missing": N} answers TRACES_NOT_FOUND to the first N calls. Every call's argv is appended
+    # to `traces-calls.json` in the fake directory.
+    "traces": {},
 }
+
+TRACE_SPANS = [
+    {"span_id": "a" * 16, "parent_id": None, "name": "agent_turn", "kind": "AGENT",
+     "status": "unset", "latency_ms": 41, "model": None, "tokens": None, "tool": None,
+     "error": None},
+    {"span_id": "b" * 16, "parent_id": "a" * 16, "name": "litellm.completion", "kind": "LLM",
+     "status": "ok", "latency_ms": 20, "model": "gemini-2.5-flash",
+     "tokens": {"prompt": 321, "completion": 70}, "tool": None, "error": None},
+    {"span_id": "c" * 16, "parent_id": "a" * 16, "name": "lookup_order", "kind": "TOOL",
+     "status": "error", "latency_ms": 11, "model": None, "tokens": None, "tool": "lookup_order",
+     "error": "order not found"},
+]  # fmt: skip
 
 
 def invoke(argv: list[str], data: dict) -> int:
@@ -110,6 +127,40 @@ def invoke(argv: list[str], data: dict) -> int:
     answer = {"schema_version": 1, "deployment": "d" * 32, "name": argv[1], "status": 200}
     answer |= {"endpoint": "http://127.0.0.1:9001", "response": response}
     print(json.dumps(answer, indent=2))
+    return 0
+
+
+def traces(argv: list[str], data: dict) -> int:
+    calls = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "traces-calls.json"
+    recorded = json.loads(calls.read_text()) if calls.is_file() else []
+    calls.write_text(json.dumps([*recorded, argv]))
+    settings = data["traces"]
+    problem = settings.get("error")
+    if problem is None and len(recorded) < settings.get("missing", 0):
+        problem = {"code": "TRACES_NOT_FOUND", "message": "trace is not in Phoenix (yet)"}
+    if problem:
+        print(json.dumps({"schema_version": 1, "error": problem}))
+        print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+        return 2
+    spans = settings.get("spans", TRACE_SPANS)
+    trace = {
+        "trace_id": argv[argv.index("--trace") + 1],
+        "project": "demo",
+        "deployment_id": "d" * 32,
+        "attribution": settings.get("attribution", "exact"),
+        "latency_ms": 41,
+        "status": settings.get("status", "error"),
+        "session_id": "session-1",
+        "models": ["gemini-2.5-flash"],
+        "tokens": {"prompt": 321, "completion": 70, "total": 391},
+        "tool_calls": [{"name": "lookup_order", "status": "error", "latency_ms": 11,
+                        "span_id": "c" * 16}],
+        "spans": spans,
+        "spans_truncated": False,
+    }  # fmt: skip
+    answer = {"schema_version": 1, "phoenix": "http://127.0.0.1:6006", "traces": [trace]}
+    answer |= {"overlapping": [], "truncated": False, "notes": settings.get("notes", [])}
+    print(json.dumps(answer))
     return 0
 
 
@@ -270,6 +321,8 @@ def main(argv: list[str]) -> int:
         print(json.dumps(summary))
     elif argv and argv[0] == "invoke":
         return invoke(argv, data)
+    elif argv and argv[0] == "traces":
+        return traces(argv, data)
     elif argv and argv[0] == "doctor":
         print(json.dumps(data["doctor"]))
     elif argv and argv[0] in ("build", "release", "promote", "reconcile", "remove", "rollback"):
