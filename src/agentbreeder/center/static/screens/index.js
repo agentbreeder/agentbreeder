@@ -14,12 +14,14 @@ import { Logs } from "./logs.js";
 import { Mcp } from "./mcp.js";
 import { REGISTRY_ROUTES } from "./registry.js";
 import { Release } from "./release.js";
+import { SERVICE_ROUTES } from "./service.js";
 import { Services } from "./services.js";
 
 export const ROUTES = [
   { pattern: "/", title: "Home", nav: "Home", screen: Home },
   ...AGENT_ROUTES,
   { pattern: "/services", title: "Services", nav: "Services", scoped: true, screen: Services },
+  ...SERVICE_ROUTES,
   { pattern: "/mcp", title: "MCP grants", nav: "MCP grants", scoped: true, screen: Mcp },
   { pattern: "/release", title: "Build and release", nav: "Build and release", scoped: true, screen: Release },
   { pattern: "/deployments", title: "Deployments", nav: "Deployments", scoped: true, screen: Deployments },

@@ -131,6 +131,12 @@ LOG_TIMEOUT = 60  # one `docker logs` or `kubectl logs`, after the CLI's own che
 MAX_TURNS_IN_FLIGHT = 4
 # SERVICES_BUSY (#822 S-11): another services write holds the stack; the console says so plainly.
 SERVICES_BUSY_TEXT = "Another operation is running on this stack; retry when it finishes"
+# Service controls (#822, M6): one container, through `services start|stop|restart NAME --json`.
+SERVICE_ACTIONS = ("start", "stop", "restart")
+SERVICE_CONTROL = "service-control"  # the short-write kind; it also holds the project
+# A stack service (`SERVICE`) or an MCP relay, `mcp-` + a server name of up to 32 characters
+# (`services.schema.MCP_SERVER`, `_` written as `-`): the names `services start|stop|restart` take.
+SERVICE_OR_RELAY = r"(?P<service>[a-z][a-z0-9-]{0,35})"
 MAX_TRACES_IN_FLIGHT = 4  # Try it trace reads (#907), each a `traces` child of up to 120 s
 MAX_TOOL_LOGS_IN_FLIGHT = 4  # tool execution log reads (#828), each a `tool log` child
 DOCKER_REUSE = 3.0  # seconds one Docker check answers every tab (M6 #822)
@@ -913,6 +919,34 @@ class Center:
         rows, problem = mcpgrants.declared_tools(shown["data"])
         return envelope(rows, problem, shown["stale"])
 
+    def service_action(self, project: dict, name: str, action: str, body: object) -> dict:
+        """Start, stop or restart one stack service (#822): `services ACTION DIR NAME --json`
+        as a short write per service that also holds the project, so it never overlaps a
+        console job on the stack. The CLI's per-stack lock stays authoritative (SERVICES_BUSY,
+        said plainly). `stop` and `restart` refuse with SERVICE_IN_USE, naming the deployments,
+        until the request is sent again with `{"yes": true}`; every other refusal (PORT_BUSY,
+        SERVICE_NOT_CREATED, DOCKER_FAILED) is the CLI's coded message, never Docker's text."""
+        if action not in SERVICE_ACTIONS:
+            raise BadRequest("Unknown service action")
+        if not isinstance(body, dict) or not set(body) <= {"yes"}:
+            raise BadRequest("Invalid request")
+        yes = body.get("yes", False)
+        if not isinstance(yes, bool) or (yes and action == "start"):
+            raise BadRequest("Invalid request")
+        self.recheck(project)
+        argv = ["services", action, project["path"], name, "--json"]
+        if yes:
+            argv.append("--yes")
+        result = self.runner.short_write(
+            SERVICE_CONTROL, f"{project['id']}:{name}", argv, project=project
+        )
+        problem = result.get("error")
+        if problem and problem.get("code") == "SERVICES_BUSY":
+            return envelope(None, error("SERVICES_BUSY", SERVICES_BUSY_TEXT))
+        if result["data"] is None:
+            return result
+        return envelope(*_service_answer(result["data"], name, action))
+
     def start_job(self, project: dict, body: dict) -> str:
         self.recheck(project)
         kind = str(body.get("kind", ""))
@@ -946,6 +980,29 @@ class Center:
             text = data.get("text", "")
             on_success = lambda: self.state.accept_grant(project["id"], text)  # noqa: E731
         return self.runner.start(project, kind, options, keys, on_success)
+
+
+def _service_answer(data: Any, name: str, action: str) -> tuple[dict | None, dict | None]:
+    """`services start|stop|restart --json` checked: the service and action asked for, a state,
+    and `in_use` as a list of deployment names. Only those fields reach the browser."""
+    ok = (
+        isinstance(data, dict)
+        and data.get("service") == name
+        and data.get("action") == action
+        and isinstance(data.get("state"), str)
+        and isinstance(data.get("health", ""), str)
+        and isinstance(data.get("in_use", []), list)
+        and all(isinstance(item, str) for item in data.get("in_use", []))
+    )
+    if not ok:
+        return None, error("BAD_OUTPUT", "The services command answered in an unexpected shape")
+    return {
+        "service": name,
+        "action": action,
+        "state": data["state"],
+        "health": data.get("health", ""),
+        "in_use": data.get("in_use", []),
+    }, None
 
 
 def _log_answer(data: Any, source: str, name: str) -> dict | None:
@@ -1168,6 +1225,12 @@ def _mcp_tools(request: Request) -> dict:
     return request.center.mcp_tools(request.project(), _query_ref(request, "ref"))
 
 
+def _service_action(request: Request) -> dict:
+    return request.center.service_action(
+        request.project(), request.match["service"], request.match["action"], request.body
+    )
+
+
 def _set_ref(request: Request) -> dict:
     return request.center.set_ref(request.project(), request.body)
 
@@ -1385,6 +1448,12 @@ ROUTES: tuple[Route, ...] = (
         "/api/projects/0123456789ab/agent/set-ref",
     ),
     Route("GET", r"/api/docker", _docker, "/api/docker", poll=True),
+    Route(
+        "POST",
+        rf"/api/projects/{PROJECT_ID}/services/{SERVICE_OR_RELAY}/(?P<action>start|stop|restart)",
+        _service_action,
+        "/api/projects/0123456789ab/services/litellm/restart",
+    ),
 )
 
 
