@@ -329,6 +329,7 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .editor textarea { width: 100%; height: 100%; resize: none; border: 0; outline: none; color: inherit; background: transparent; tab-size: 4; white-space: pre; overflow: auto; }
 .editor:focus-within { outline: 2px solid var(--ring); outline-offset: 1px; }
 .edit-review { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--control-border); }
+.params { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 
 /* Eval-set case editor (#826, M10 PR 2): one collapsible row per case. */
 .cases { display: flex; flex-direction: column; gap: 6px; }

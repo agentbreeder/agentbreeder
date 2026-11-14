@@ -250,6 +250,12 @@ def test_unicode_text_is_kept(tmp_path):
     assert load_eval_set(project / "src/evals").cases[0]["reference"] == "9 h à 17 h"
 
 
+def test_zero_width_joiners_are_kept(tmp_path):
+    text = "\U0001f468\u200d\U0001f469 \u0645\u200c\u06cc"
+    make(tmp_path, spec(prompt={"text": text}))
+    assert (tmp_path / "helper/src/prompt/prompt.md").read_text() == text + "\n"
+
+
 def test_a_yaml_looking_prompt_stays_text(tmp_path):
     text = "kind: agent\nname: other\n---\n{ref: tool/x@1.0.0}"
     make(tmp_path, spec(prompt={"text": text}))
@@ -286,6 +292,8 @@ def test_names_get_the_starter_checks(tmp_path, name):
         ({"prompt": {"text": "   "}}, "SPEC_INVALID"),
         ({"prompt": {"text": "a\x1b[31mb"}}, "SPEC_INVALID"),
         ({"prompt": {"text": "a‮b"}}, "SPEC_INVALID"),
+        ({"prompt": {"text": "a\u00adb"}}, "SPEC_INVALID"),
+        ({"prompt": {"text": "a\U000e0041b"}}, "SPEC_INVALID"),
         ({"prompt": {"text": "x" * (agentspec.MAX_PROMPT + 1)}}, "SPEC_INVALID"),
         ({"evals": {"cases": []}}, "SPEC_INVALID"),
         ({"evals": {"cases": [{"id": "a", "turns": ["x"]}]}}, "SPEC_INVALID"),

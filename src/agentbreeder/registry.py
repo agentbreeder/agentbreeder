@@ -1013,24 +1013,40 @@ def _span(first: int, last: int | None = None) -> str:
     return chr(first) if last is None else f"{chr(first)}-{chr(last)}"
 
 
-# Bidi controls, line/paragraph separators, invisible format characters (zero-width, word
-# joiner, BOM, tags) and lone surrogates, which YAML can produce and which cannot be encoded.
+# Bidi controls, line/paragraph separators, invisible format characters and lone surrogates,
+# which YAML can produce and which cannot be encoded. The format set is `safe_text`'s (#901):
+# soft hyphen, Mongolian vowel separator, zero-width space, word joiner and invisible operators
+# (U+2060-U+2064), the deprecated format controls (U+206A-U+206F), the BOM and the tag block
+# that can hide ASCII. A test checks that content is stripped of exactly what `safe_text.visible`
+# escapes, so the registry browser, the CLI and the console agree.
 _BIDI = _span(0x061C) + _span(0x200E, 0x200F) + _span(0x202A, 0x202E) + _span(0x2066, 0x2069)
 _SEPARATORS = _span(0x2028, 0x2029)
-_INVISIBLE = _span(0x200B, 0x200D) + _span(0x2060) + _span(0xFEFF) + _span(0xE0000, 0xE007F)
+_FORMAT = (
+    _span(0x00AD)
+    + _span(0x180E)
+    + _span(0x200B)
+    + _span(0x2060, 0x2064)
+    + _span(0x206A, 0x206F)
+    + _span(0xFEFF)
+    + _span(0xE0000, 0xE007F)
+)
+_JOINERS = _span(0x200C, 0x200D)  # zero-width non-joiner and joiner
+_INVISIBLE = _FORMAT + _JOINERS  # also removed from tool descriptions (tool_check)
 _SURROGATES = _span(0xD800, 0xDFFF)
+# Names also lose tab, newline and the joiners.
 _STRIP_NAME = re.compile(
     f"[{_span(0x00, 0x1F)}{_span(0x7F, 0x9F)}{_BIDI}{_SEPARATORS}{_INVISIBLE}{_SURROGATES}]"
 )
-# Content keeps tab and newline, and zero-width joiners (emoji, scripts that need them).
+# Content keeps tab and newline, and the zero-width joiners (emoji, scripts that need them).
 _STRIP_TEXT = re.compile(
-    f"[{_span(0x00, 0x08)}{_span(0x0B, 0x1F)}{_span(0x7F, 0x9F)}{_BIDI}{_SEPARATORS}{_SURROGATES}]"
+    f"[{_span(0x00, 0x08)}{_span(0x0B, 0x1F)}{_span(0x7F, 0x9F)}{_BIDI}{_SEPARATORS}{_FORMAT}"
+    f"{_SURROGATES}]"
 )
 
 
 def clean(text: str, *, name: bool = False) -> tuple[str, bool]:
-    """`text` without control and bidi characters (a name also loses tab and newline), and
-    whether anything was removed."""
+    """`text` without control, bidi and invisible format characters (a name also loses tab,
+    newline and the zero-width joiners), and whether anything was removed."""
     cleaned = (_STRIP_NAME if name else _STRIP_TEXT).sub("", text)
     return cleaned, cleaned != text
 
@@ -1593,7 +1609,7 @@ def diff(first: Ref, second: Ref, search: list[Path], context: int = 3, project_
     {from_start, from_count, to_start, to_count, lines[] of {op: " "|"-"|"+", text,
     no_newline?}}. A file with no hunks changed in a way that is not shown as text: binary, over
     the cap, over the diff's shared budget of work and output lines (`too_large`), only its
-    executable bit, or only in removed control or bidi characters (`stripped`)."""
+    executable bit, or only in removed control, bidi or invisible characters (`stripped`)."""
     if not 0 <= context <= MAX_CONTEXT:
         raise RegistryError("DIFF_INVALID", f"context must be 0 to {MAX_CONTEXT} lines")
     if (first.kind, first.name) != (second.kind, second.name):
@@ -1682,7 +1698,8 @@ def unified(result: dict) -> str:
             elif status == "modified" and change["from_sha256"] != change["to_sha256"]:
                 # Only removed characters changed: say so rather than show nothing.
                 out.append(
-                    f"Files {old} and {new} differ only in removed control or bidi characters"
+                    f"Files {old} and {new} differ only in removed control, bidi or invisible"
+                    " characters"
                 )
             elif status != "modified":
                 out += [f"--- {old}", f"+++ {new}"]  # an empty file added or removed

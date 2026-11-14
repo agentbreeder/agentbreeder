@@ -223,8 +223,8 @@ picker and the same Move agent card. What differs:
   number such as `1.0` is written as `1`, and keys that look like integers come first (the
   browser's JSON).
 - **Checks before review**: a case with no id, the same id as another, no turn or no reference
-  answer is marked with "!" and the reason (the field is marked invalid), and Review changes stays off until it is fixed; so
-  does a set with no case or more than 1000. The review then loads the edited set as `release`
+  answer is marked with "!" and the reason (the field is marked invalid), and Review changes
+  stays off until it is fixed; so does a set with no case or more than 1000. The review then loads the edited set as `release`
   does: the CLI's `EVAL_INVALID` (for example `golden.jsonl:3 needs id, turns, reference`) is
   shown at its case, which opens, as well as in the notice; the next edit clears it.
 - A file that is not one JSON case per line opens as text, with the line that does not parse.
@@ -240,6 +240,27 @@ case without a reference refused as `EVAL_INVALID` at line 3) and with Playwrigh
 61 cases: one case edited is the only changed line of the saved 1.0.2; a new case is checked
 before review; Discard. The M10 acceptance (a broken case blocks a release) is batched with the
 milestone checks.
+
+### Tool detail (#828, M12): on `main`, not in a published preview
+
+A tool's version card in Registry ▸ Tools (`#/registry/tools/NAME`) adds, above its files:
+
+- **Functions**: one row per `tool.yaml` function with its module and Python function, the
+  signature the CLI read from the module with `ast` (`registry show --json` `functions`, #930: the
+  source is parsed, never imported, and size-capped), the description and the parameters (what the
+  model sees). A function with no signature says why (the module is over the size cap, does not
+  parse, or the module or function was not found); an unreadable `tool.yaml` says so instead of a
+  table. Everything from `tool.yaml` renders as text.
+- **Dependencies**: none of its own; a tool runs with the locked packages of its agent's runtime
+  (`runtime/adk`, linked).
+- **Grants**: available to the agents that reference it in `agent.yaml` (the Used by card). MCP
+  grants are M15's.
+
+The source is the Files list. The code editor and the execution log come in later M12 PRs.
+Tested with Playwright over a copy of Northwind with the real `registry show`: `tool/orders`
+shows both functions and their signatures, a module whose top level raises still shows its
+signatures (nothing is imported), a renamed function says why it has no signature, other kinds
+show no Functions, and axe passes in light and dark.
 
 ### The Audit view (#824, part 2): on `main`, not in a published preview
 
