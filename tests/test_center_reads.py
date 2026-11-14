@@ -57,6 +57,9 @@ ALLOWED = {
     "agentbreeder.center.onboard",
     # Build an agent (#833): request and answer checks and the private spec file; no engine.
     "agentbreeder.center.builder",
+    # Knowledge index status (#830): pure query and answer checks; imports only registry and
+    # center.files.
+    "agentbreeder.center.knowledgestatus",
     # stack.yaml's agents for the identity strip (#823): pydantic models, no state or Docker.
     "agentbreeder.services",
     "agentbreeder.services.schema",
