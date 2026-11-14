@@ -273,9 +273,14 @@ The server passes on only these checked fields of `invoke --json`'s answer:
 
 It adds the latency it measured. Each reply has a **Turn details** inspector with the tools,
 sources, latency, tokens (prompt and output, over N model calls) and the trace ID as text. A
-trace link waits for #907, which records a Phoenix origin the console can link to. Cost shows as
-"Not measured yet" until #906. The answer keeps a `cost` field and a `trace.url` field, both null,
-for those two.
+trace link waits for #907, which records a Phoenix origin the console can link to; the answer
+keeps a `trace.url` field, null, for it. **Cost** is the turn's cost in USD that
+`runtime/adk@1.2.0` and later report (`cost_usd`, the sum of LiteLLM's per-call estimates; see
+[`cost.md`](cost.md#per-turn-cost-runtimeadk120)), shown in the inspector and its summary, such as
+"$0.000444". The server passes it on only as a finite number from 0 to under 1,000,000, otherwise
+null. Older runtimes don't report it, and neither does 1.2.0 when a call in the turn had no cost
+header: the inspector then says "Not measured" and why. Tested with a fake CLI and with the runtime's
+scripted gateway responses; no live gateway cost has been shown yet.
 
 A later message continues the conversation's session (`--session`); **New conversation** starts a
 new one. **Customer ID** is optional and sent as `--customer`.

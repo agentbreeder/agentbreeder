@@ -77,13 +77,23 @@ def test_a_message_goes_by_stdin_and_the_reply_shows_its_inspector(page, console
     expect(facts).to_contain_text("Sources" + "Returns policy")
     expect(facts).to_contain_text("over 2 model calls")
     expect(facts).to_contain_text("ab" * 16)
-    expect(facts).to_contain_text("Not measured yet")
+    expect(facts).to_contain_text("Not measured: this runtime did not report it (runtime/adk 1.2.0 and later do when every model call had a cost)")
     expect(details.locator("a")).to_have_count(0)  # no trace link until #907
     [call] = calls(console)
     assert call["argv"][:3] == ["invoke", "demo", "-"] and "--json" in call["argv"]
     assert call["stdin"] == "Where is order 1001? ✓"
     assert not any("1001" in part for part in call["argv"])
     assert "--candidate" not in call["argv"]
+
+
+def test_a_turn_shows_the_cost_the_runtime_reports(page, console):
+    console.scenario(deployments=DEPLOYMENTS, invoke={"cost_usd": 0.000444})
+    open_try(page, console)
+    send(page, "hi")
+    details = turns(page).first.locator("details.inspector")
+    expect(details.locator("summary")).to_contain_text("64 out tokens · $0.000444")
+    details.locator("summary").click()
+    expect(details.locator("dl.facts")).to_contain_text("$0.000444 (LiteLLM's estimate, reported by the runtime)")
 
 
 def test_later_messages_continue_the_session_until_a_new_conversation(page, console):

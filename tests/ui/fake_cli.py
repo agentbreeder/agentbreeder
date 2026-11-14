@@ -105,6 +105,8 @@ def invoke(argv: list[str], data: dict) -> int:
         "prompt_tokens": 1812,
         "output_tokens": 64,
     }
+    if "cost_usd" in settings:  # runtime/adk@1.2.0 and later; older runtimes send no field
+        response["cost_usd"] = settings["cost_usd"]
     answer = {"schema_version": 1, "deployment": "d" * 32, "name": argv[1], "status": 200}
     answer |= {"endpoint": "http://127.0.0.1:9001", "response": response}
     print(json.dumps(answer, indent=2))

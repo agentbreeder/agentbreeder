@@ -114,7 +114,8 @@ and returns the total in the turn body (`invoke --json`'s `response`), next to t
 
 `cost_usd` is the sum of the headers LiteLLM sent (USD, its estimate), or `null` when any call in
 the turn had no cost header. Each `model_called` event also has that call's `cost_usd`. Older
-runtimes (`1.1.0` and earlier) don't send the field; consumers show the cost as not measured, as
-the console's Try it inspector does today (`cost: null`). It is covered by the runtime's tests
+runtimes (`1.1.0` and earlier) don't send the field; consumers show the cost as not measured. The
+console's Try it inspector shows `cost_usd` when it is there (#906) and "Not measured" when it is
+null or missing. It is covered by the runtime's tests
 with scripted gateway responses; no live gateway has been checked yet. See
 [`agent-yaml.md`](agent-yaml.md#runtimeadk120).
