@@ -7,13 +7,14 @@ schema_version: 1
 name: northwind
 services:
   postgres:
-    ref: service/postgres-pgvector@1.1.0
+    ref: service/postgres-pgvector@1.2.0
     with:
       databases: [support, litellm, phoenix]
       init_sql: stack/db/commerce.sql          # schema, seed data and grants, as the support role
       init_sql_database: support
       roles: [support_agent, support_ops]      # least privilege in `support`: see commerce.sql
       roles_database: support
+      console_database: support                # agentbreeder_console: see commerce.sql
   litellm:
     ref: service/litellm@1.0.0
     with: {config: stack/litellm/config.yaml}  # Gemini direct, OpenRouter fallback

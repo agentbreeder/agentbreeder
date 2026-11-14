@@ -12,6 +12,17 @@ On main, not in a published preview.
 
 ### Added
 
+- `service/postgres-pgvector@1.2.0` (#828, M12 slice 1), on `main`, not in a published preview:
+  a new `console_database` param creates the login role `agentbreeder_console`, which can
+  connect only to that database and has no rights until the database owner's `init_sql` grants
+  them; its URL is the new `operator_only` `console` output. The name is reserved for
+  `databases` and `roles`; removing the param makes the role `NOLOGIN` on the next `services up`.
+  Northwind moves to 1.2.0 with `console_database: support`: `commerce.sql` grants the role
+  SELECT/DELETE on `turns` and `tickets`, SELECT, INSERT and UPDATE/DELETE on `notes`, SELECT and
+  a column INSERT on `audit_events`, and adds `audit_events.db_role`, set by a trigger to the
+  inserting login (attribution, not tamper-evidence). Existing Northwind stacks need
+  `services up --update`. No CLI command uses the role yet. See `docs/services.md`.
+
 - `agentbreeder list --all [--json]` and `new agent NAME --model gemini --stack-for agent.yaml`
   (#823, M7, CLI half), on `main`, not in a published preview: `services up` records the project
   path in the stack's meta; `list --all` lists the default state and every stack's deployments

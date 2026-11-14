@@ -56,13 +56,18 @@ remove the agent (`agentbreeder remove ID --local --stack .`), then
 stack's state (generated secrets, operator config, history). After editing `commerce.sql` or the
 gateway config, run `services up --update` to accept their new hashes in `stack.lock`.
 
-**Database roles.** The `support` database has three login roles (`postgres-pgvector@1.1.0`).
+**Database roles.** The `support` database has four login roles (`postgres-pgvector@1.2.0`).
 `support` owns every table, and only the eval gate uses it, to reset fixtures. The agent runs
 as `support_agent`. It can read orders and the catalog, file cancellation *requests* (their
 status stays `pending`), and add notes, tickets, turns and audit events. It can't approve a
 request, change an order, alter a table or read customer records. The ops dashboard runs as
-`support_ops`. It decides requests and keeps its eval tables in its own schema. `commerce.sql`
-holds the grants.
+`support_ops`. It decides requests and keeps its eval tables in its own schema.
+`agentbreeder_console` is reserved for AgentBreeder's own CLI commands (#828; none uses it yet):
+it can read turns and audit events and keep notes, only on tables `support` made. Every audit row
+records the login that inserted it in `db_role`, set by a trigger, so an inserting role can't
+forge it (`support` owns the table and could still drop the trigger: attribution, not
+tamper-evidence).
+`commerce.sql` holds the grants.
 
 Or step by step: `agentbreeder build agent.yaml --stack . --environment dev`, then
 `agentbreeder deploy deploy/northwind-support.deploy.yaml --local --stack . --environment dev`.

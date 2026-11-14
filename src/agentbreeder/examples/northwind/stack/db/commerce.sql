@@ -2,7 +2,8 @@
 -- Applied by postgres's init step on every `services up`, as the `support` role that owns the
 -- database; idempotent (seed rows use ON CONFLICT DO NOTHING, so edits you make in the database
 -- are kept). The end of the file creates the agent runtime's tables and grants the two
--- least-privilege roles (`support_agent`, `support_ops`) only what they use.
+-- least-privilege roles (`support_agent`, `support_ops`) and AgentBreeder's console role
+-- (`agentbreeder_console`) only what they use.
 -- Money is stored in integer cents (USD). Prices match the help-center articles in agent/kb/.
 
 CREATE TABLE IF NOT EXISTS customers (
@@ -159,6 +160,16 @@ CREATE OR REPLACE TRIGGER audit_events_no_update BEFORE UPDATE OR DELETE ON audi
   FOR EACH ROW EXECUTE FUNCTION audit_events_append_only();
 CREATE OR REPLACE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON audit_events
   FOR EACH STATEMENT EXECUTE FUNCTION audit_events_append_only();
+-- Which database login inserted each audit row (postgres-pgvector@1.2.0 era). `session_user`
+-- is the login role, which a member role can't change with SET ROLE. The trigger overrides any
+-- value the inserter sends. Nullable with no default: rows from before this change stay NULL.
+-- Attribution of the login, not tamper-evidence: this table's owner can drop the trigger.
+ALTER TABLE public.audit_events ADD COLUMN IF NOT EXISTS db_role TEXT;
+CREATE OR REPLACE FUNCTION public.audit_events_db_role() RETURNS trigger LANGUAGE plpgsql
+  SET search_path = pg_catalog AS $$
+BEGIN NEW.db_role := session_user; RETURN NEW; END $$;
+CREATE OR REPLACE TRIGGER audit_events_set_db_role BEFORE INSERT ON public.audit_events
+  FOR EACH ROW EXECUTE FUNCTION public.audit_events_db_role();
 -- ADK's session tables live here; the agent's role owns this schema (and its own `support_agent`
 -- schema, where the knowledge index goes) and nothing else.
 CREATE SCHEMA IF NOT EXISTS adk_sessions AUTHORIZATION support_agent;
@@ -184,3 +195,20 @@ GRANT UPDATE (status, decided_at, decided_by, decision_note), DELETE
   ON cancellation_requests TO support_ops;
 GRANT INSERT ON audit_events TO support_ops;
 GRANT USAGE ON SEQUENCE audit_events_id_seq TO support_ops;
+
+-- AgentBreeder's console role (`console_database` in stack.yaml), for AgentBreeder's own CLI
+-- commands (#828): read turns and audit events, keep notes, delete a customer's turns and
+-- tickets, and add audit rows (marked by db_role). Only tables this owner made are granted;
+-- the agent's own session and knowledge tables are read with the agent's credential. Guarded,
+-- because a GRANT to a missing role would fail this whole file when `console_database` is unset.
+DO $$ BEGIN
+  IF to_regrole('agentbreeder_console') IS NOT NULL THEN
+    GRANT SELECT, DELETE ON public.turns, public.tickets TO agentbreeder_console;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON public.notes TO agentbreeder_console;
+    GRANT SELECT ON public.audit_events TO agentbreeder_console;
+    GRANT INSERT (turn_id, session, customer, actor, action, detail)
+      ON public.audit_events TO agentbreeder_console;
+    GRANT USAGE ON SEQUENCE public.notes_id_seq, public.audit_events_id_seq
+      TO agentbreeder_console;
+  END IF;
+END $$;
