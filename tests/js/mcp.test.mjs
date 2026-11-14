@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { RELAY_STATES, TOOL_STATES, grantRows, repinCommand, serverRows, shellWord, shortHash } from "../../src/agentbreeder/center/static/lib/mcp.js";
+import { RELAY_STATES, TOOL_STATES, grantChoices, grantProblem, grantRows, grantWriteProblem, grantSteps, grantedTools, repinCommand, serverRows, shellWord, shortHash } from "../../src/agentbreeder/center/static/lib/mcp.js";
 
 const PIN = `sha256:${"a".repeat(64)}`;
 const OTHER = `sha256:${"b".repeat(64)}`;
@@ -119,4 +119,81 @@ test("grants list each agent and mark tools not pinned yet", () => {
     },
     { agent: "other", server: "", tools: [] },
   ]);
+});
+
+test("a relay name the log route can't take has no Logs link", () => {
+  const long = `mcp-${"a".repeat(28)}`;
+  const [short] = serverRows(FILES, STATUS);
+  assert.equal(short.relayLogs, true);
+  const [row] = serverRows({ servers: [{ ...FILES.servers[0], relay: long }] }, null);
+  assert.equal(row.relayLogs, false);
+  assert.equal(serverRows({ servers: [{ ...FILES.servers[0], relay: `mcp-${"a".repeat(27)}` }] }, null)[0].relayLogs, true);
+});
+
+// -- grant and revoke (#831 part 2) --
+
+const DECLARED = [
+  { name: "get_me", effect: "read" },
+  { name: "issue_read", effect: "read" },
+  { name: "list_issues", effect: "read" },
+];
+
+test("a grant offers the declared tools not granted yet", () => {
+  assert.deepEqual(grantChoices("grant", DECLARED, ["get_me"]).map((tool) => tool.name), ["issue_read", "list_issues"]);
+  assert.deepEqual(grantChoices("grant", null, []), []);
+  assert.deepEqual(grantChoices("grant", [null, { name: 3 }], []), []);
+});
+
+test("a revoke offers the granted tools, also one no longer declared", () => {
+  assert.deepEqual(grantChoices("revoke", DECLARED, ["get_me", "gone"]), [
+    { name: "get_me", effect: "read" },
+    { name: "gone", effect: "" },
+  ]);
+});
+
+test("an agent's current grant on one server", () => {
+  assert.deepEqual(grantedTools(FILES, "gh-reader", "github"), ["get_me", "list_issues", "issue_read"]);
+  assert.deepEqual(grantedTools(FILES, "other", "github"), []);
+  assert.deepEqual(grantedTools(FILES, "nobody", "github"), []);
+  assert.deepEqual(grantedTools(FILES, "gh-reader", "__proto__"), []);
+});
+
+test("refusals a person can act on have fixed words", () => {
+  for (const code of ["MCP_AGENT_UNKNOWN", "MCP_UNKNOWN", "MCP_TOOL_UNDECLARED", "MCP_TOOL_INVALID", "STACK_EDIT_AMBIGUOUS", "STACK_TOO_LARGE", "BASE_MISMATCH"]) {
+    const shown = grantProblem({ code, message: "cli text" });
+    assert.notEqual(shown.text, "cli text", code);
+    assert.equal(shown.review, code === "BASE_MISMATCH");
+  }
+  assert.equal(grantProblem({ code: "WRITE_BUSY", message: "Held by a job" }).text, "Held by a job");
+  assert.equal(grantProblem({ code: "toString", message: "m" }).text, "m");
+  assert.equal(grantProblem(null), null);
+});
+
+test("next steps: remove a deployment holding a revoked tool, reconcile an unreadable file, then services up", () => {
+  const summary = {
+    in_use: [
+      { deployment: "d".repeat(32), environment: "dev", tools: ["get_me"] },
+      { deployment: null, environment: "dev", tools: ["get_me"] },
+    ],
+  };
+  const steps = grantSteps(summary, "/p/my gh", "dev");
+  assert.deepEqual(steps.map((step) => step.command), [
+    `agentbreeder remove ${"d".repeat(32)} --local --stack '/p/my gh'`,
+    "agentbreeder reconcile --stack '/p/my gh' --environment dev",
+    "agentbreeder services up '/p/my gh' --environment dev",
+  ]);
+  assert.match(steps[0].text, /MCP_GRANT_IN_USE/);
+  assert.deepEqual(grantSteps({ in_use: [] }, "/p", "dev").map((step) => step.command), ["agentbreeder services up /p --environment dev"]);
+});
+
+test("a write problem other than a refusal before writing may have changed the file", () => {
+  for (const code of ["MCP_GRANT_INVALID", "TIMEOUT", "COMMAND_FAILED", "BAD_OUTPUT", undefined]) {
+    const shown = grantWriteProblem({ code, message: "m" });
+    assert.equal(shown.uncertain, true, String(code));
+    assert.match(shown.text, /may have happened/);
+  }
+  for (const code of ["BASE_MISMATCH", "WRITE_BUSY", "MCP_TOOL_UNDECLARED", "STACK_INVALID", "ENTRY_UNSAFE"]) {
+    assert.equal(grantWriteProblem({ code, message: "m" }).uncertain, false, code);
+  }
+  assert.equal(grantWriteProblem(null), null);
 });

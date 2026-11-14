@@ -5,6 +5,7 @@ stack.lock, relay state and drift from the fake `services status --json`."""
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -149,3 +150,106 @@ def test_mcp_screen_has_no_serious_axe_findings(scheme_page, console):  # noqa: 
     open_mcp(scheme_page, console)
     scheme_page.wait_for_timeout(300)
     assert blocking(scheme_page, "mcp") == []
+
+
+# -- grant and revoke (#831 part 2): the real `mcp grant|revoke` on the copy's stack.yaml ---------
+
+
+def change_card(page):
+    return page.get_by_role("region", name="Change a grant", exact=True)
+
+
+def review(page, verb: str, *tools: str):
+    card = change_card(page)
+    card.get_by_role("radio", name=f"{verb.capitalize()} tools").check()
+    for tool in tools:
+        card.get_by_role("checkbox", name=re.compile(rf"^{tool}\b")).check()
+    card.get_by_role("button", name="Review change").click()
+    return card
+
+
+def test_grant_is_reviewed_then_written(page, console):
+    console.scenario(services=RUNNING)
+    project = open_mcp(page, console)
+    card = review(page, "grant", "search_repositories")
+    diff = card.get_by_label("stack.yaml change")
+    expect(diff).to_contain_text("search_repositories")
+    expect(card).to_contain_text("takes effect at the next services up")
+    assert "search_repositories" not in (project / "stack.yaml").read_text()
+    card.get_by_role("button", name="Write grant").click()
+    expect(card).to_contain_text("Granted search_repositories for gh-reader on mcp.github.")
+    expect(card).to_contain_text(f"agentbreeder services up {project} --environment dev")
+    assert "search_repositories" in (project / "stack.yaml").read_text()
+    grants = page.get_by_role("table", name="Grants per agent")
+    expect(grants).to_contain_text("search_repositories")
+
+
+def test_a_stack_changed_after_review_is_reviewed_again(page, console):
+    console.scenario(services=RUNNING)
+    project = open_mcp(page, console)
+    card = review(page, "revoke", "issue_read")
+    expect(card.get_by_label("stack.yaml change")).to_contain_text("issue_read")
+    stack = project / "stack.yaml"
+    stack.write_text(stack.read_text() + "# edited meanwhile\n")
+    card.get_by_role("button", name="Write revoke").click()
+    expect(card).to_contain_text("stack.yaml changed after your review")
+    expect(card.get_by_role("button", name="Write revoke")).to_have_count(0)
+    assert "issue_read" in stack.read_text()
+
+
+IN_USE = {
+    "schema_version": 1,
+    "file": "/x/stack.yaml",
+    "verb": "revoke",
+    "agent": "gh-reader",
+    "server": "github",
+    "ref": "mcp/github@1.0.0",
+    "removed": ["get_me"],
+    "tools": [{"name": "list_issues", "effect": "read"}, {"name": "issue_read", "effect": "read"}],
+    "changed": True,
+    "base_sha256": "sha256:" + "a" * 64,
+    "sha256": "sha256:" + "b" * 64,
+    "diff": "--- stack.yaml\n+++ stack.yaml\n-      mcp: {github: [get_me]}\n",
+    "dry_run": True,
+    "in_use": [{"deployment": "d" * 32, "environment": "dev", "tools": ["get_me"]}],
+}
+
+
+def test_a_revoke_held_by_a_deployment_names_the_next_steps(page, console):
+    console.scenario(services=RUNNING, mcp_grant=IN_USE)
+    project = open_mcp(page, console)
+    card = review(page, "revoke", "get_me")
+    warning = card.locator(".notice.warn")
+    expect(warning).to_contain_text("MCP_GRANT_IN_USE")
+    expect(warning).to_contain_text(f"agentbreeder remove {'d' * 32} --local --stack {project}")
+    expect(warning).to_contain_text("The revoke is still written.")
+
+
+def test_the_grant_review_has_no_serious_axe_findings(scheme_page, console):  # noqa: F811
+    console.scenario(services=RUNNING, mcp_grant=IN_USE)
+    open_mcp(scheme_page, console)
+    card = review(scheme_page, "revoke", "get_me")
+    card.get_by_role("button", name="Write revoke").wait_for()
+    assert blocking(scheme_page, "mcp grant review") == []
+
+
+def test_a_write_whose_answer_fails_its_check_reads_the_grants_again(page, console):
+    console.scenario(services=RUNNING, mcp_grant_write={"schema_version": 1, "verb": "x"})
+    project = open_mcp(page, console)
+    card = review(page, "grant", "search_repositories")
+    card.get_by_role("button", name="Write grant").click()
+    expect(card).to_contain_text("The write may have happened")
+    expect(card.get_by_role("button", name="Write grant")).to_have_count(0)
+    assert "search_repositories" in (project / "stack.yaml").read_text()
+    grants = page.get_by_role("table", name="Grants per agent")
+    expect(grants).to_contain_text("search_repositories")  # read again
+
+
+def test_a_new_choice_clears_the_last_result(page, console):
+    console.scenario(services=RUNNING)
+    open_mcp(page, console)
+    card = review(page, "grant", "search_repositories")
+    card.get_by_role("button", name="Write grant").click()
+    expect(card).to_contain_text("Granted search_repositories")
+    card.get_by_role("radio", name="Revoke tools").check()
+    expect(card).not_to_contain_text("Granted search_repositories")

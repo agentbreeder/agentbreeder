@@ -330,9 +330,7 @@ the M12 acceptance, batched with the milestone checks.
 ### MCP grants (#831, M15, first part): on `main`, not in a published preview
 
 **MCP grants** (`#/mcp`, next to Services) shows the project's MCP servers and who may use their
-tools. It is read-only for now: grants change with `agentbreeder mcp grant|revoke`
-([`docs/commands/mcp.md`](commands/mcp.md)), and the console's own grant and revoke come in the
-next M15 part.
+tools, and changes a grant (see the next section).
 
 - **Per server** (`stack.yaml` `mcp:`): its version, and from `stack.lock` its origin
   (built-in, project or registry-path) and upstream origin; its relay `mcp-NAME` with its
@@ -363,6 +361,54 @@ no lock yet; pins of another version not shown; bad and linked lock files; the l
 a scripted `services status` (pins and grants, drift naming the terminal repin, no pins before the
 first `services up`, axe in light and dark). Not run against live relays: that is the M15
 acceptance (Docker and a `GITHUB_MCP_TOKEN`), batched with the milestone checks.
+
+### Grant and revoke MCP tools (#831, M15, second part): on `main`, not in a published preview
+
+**Change a grant**, on the MCP grants screen, edits one agent's grant in `stack.yaml`
+(`environment.agents.AGENT.mcp.SERVER`) through `agentbreeder mcp grant|revoke AGENT SERVER
+TOOL... --json` ([`docs/commands/mcp.md`](commands/mcp.md)). The console never writes the file
+itself.
+
+- **Choose** an agent, a server, Grant or Revoke, and tools. To grant, it offers the tools the
+  server's version declares and the agent doesn't have yet. The console reads them from that
+  version's `mcp.yaml` (`registry show --json`, parsed as text and never run) and shows each
+  one's `effect`. To revoke, it offers the agent's granted tools, including one a newer version
+  no longer declares. The CLI makes the real check (`MCP_TOOL_UNDECLARED`).
+- **Review, then write exactly that**, as with "Move agent to this version". A dry run shows the
+  diff and the tools the agent has after it. The write is bound to the digest of the
+  `stack.yaml` it reviewed (`--expect-base`). If the file changed in between, the write is
+  refused (`BASE_MISMATCH`) and you review again. The write holds the project, so it never lands
+  while a console job (`services up`, build or release) of that project reads the stack; a
+  command run in a terminal is not held. A write that times out or whose answer fails the
+  console's check may have changed the file: the screen reads the grants again and says so.
+  Asking for a grant that is already held, or a revoke of a tool not granted, writes nothing.
+- **When it takes effect.** The review says that a grant reaches the relay only at the next
+  `services up`, and that an agent uses a tool only when its `agent.yaml` asks for it. After a
+  write the screen names the `services up` command. Starting services for a stack with MCP
+  servers is still done in a terminal; it comes to the console in the next M15 part.
+- **A revoke an active deployment still holds** is written and reported, with the CLI's next
+  steps. `services up` refuses to narrow the grant (`MCP_GRANT_IN_USE`) until you run
+  `agentbreeder remove ID --local --stack DIR`. An unreadable grant file names `reconcile`.
+- **Refusals a person can act on have fixed words**: an unknown agent (add it with its sponsor
+  and review date by hand) or server, an undeclared or invalid tool, a rewrite that would change
+  more of `stack.yaml` than the grant (`STACK_EDIT_AMBIGUOUS`: edit by hand), and a file that
+  would go over 64 KiB. Other refusals show the CLI's message.
+
+The console checks the request before any CLI child starts: the verb, the names against the
+CLI's patterns, and 1 to 100 tools, passed after `--`. It checks the CLI's answer again and keeps
+only the known fields. No audit row is written; the record is the file and git.
+
+Tested: server tests over the real `mcp grant|revoke` on copies of
+`tests/fixtures/mcp_github_project` (review then write; `BASE_MISMATCH`; the last tool dropping
+the server; nothing to change; the CLI's refusals; bad requests never reaching the CLI; the
+write held by a running job; the declared tools from `mcp.yaml`). Also tested: answer-shape and
+pattern checks, JS tests of the choices, fixed words and next steps, and Playwright with the real
+command (grant reviewed then written and listed; a stack edited after the review reviewed again),
+a scripted in-use revoke, and axe in light and dark. Not run: the grant reaching a live relay
+(`services up` with Docker and a `GITHUB_MCP_TOKEN`), batched with the M15 acceptance.
+
+The relay's Logs link is hidden when its name is over the console log route's 31 characters (a
+server name of 28 or more); read those logs with `agentbreeder services logs DIR mcp-NAME`.
 
 ### The Audit view (#824, part 2): on `main`, not in a published preview
 
