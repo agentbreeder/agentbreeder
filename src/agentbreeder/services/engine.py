@@ -28,6 +28,7 @@ from agentbreeder.services.lock import LockedStack, StackLock, lock_stack
 from agentbreeder.services.plan import Plan, grant_digest, grant_text
 from agentbreeder.services.schema import ServiceError, Stack, load_stack
 from agentbreeder.services.state import (
+    PROJECT_KEY,
     StackState,
     stack_id,
     stacks_root,
@@ -282,6 +283,8 @@ class Engine:
                 "GRANT_NOT_CONFIRMED",
                 "the stack's grant is new or changed; review it and pass --yes to confirm",
             )
+        # Where this stack's project lives, for `list --all` and the console (guided §14.5).
+        self.state.put(PROJECT_KEY, str(self.project))
         if self._pending_lock is not None:
             lock, path = self._pending_lock
             lock.save(path)
