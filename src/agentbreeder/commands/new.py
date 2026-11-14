@@ -1,5 +1,6 @@
 """`agentbreeder new agent NAME --model PROVIDER [--model-id ID] [--dir DIR] [--dry-run] [--json]`:
-write a starter project (see `newagent`). Exit 2 with `[CODE] message` on stderr when it refuses,
+write a starter project (see `newagent`); `--from-spec FILE` writes one from the agent builder's
+JSON spec instead (see `agentspec`). Exit 2 with `[CODE] message` on stderr when it refuses,
 and with `--json` also `{"schema_version": 1, "error": {"code", "message"}}` on stdout."""
 
 from __future__ import annotations
@@ -32,11 +33,10 @@ def register(commands) -> None:
     agent.add_argument("name", help="Agent name: [a-z][a-z0-9-], at most 31 characters")
     agent.add_argument(
         "--model",
-        required=True,
         choices=sorted(newagent.PROVIDERS),
         help=(
-            "Model provider, called through LiteLLM; only gemini has been run end to end, the "
-            "others are config-only"
+            "Model provider, called through LiteLLM (required, except with --from-spec); only "
+            "gemini has been run end to end, the others are config-only"
         ),
     )
     agent.add_argument(
@@ -58,13 +58,23 @@ def register(commands) -> None:
             "existing agent.yaml named NAME (onboarding an agent.yaml alone)"
         ),
     )
+    agent.add_argument(
+        "--from-spec",
+        type=Path,
+        metavar="FILE",
+        help=(
+            "Write the project from an agent-builder spec: a private JSON file (mode 0600) "
+            "with the model, prompt text, eval cases, tools and MCP servers (docs/commands/new.md)"
+        ),
+    )
     agent.add_argument("--dry-run", action="store_true", help="Show what would be written")
     agent.add_argument(
         "--expect-digest",
         metavar="SHA256",
         help=(
             "With --stack-for: refuse unless agent.yaml still has this digest (agent_sha256 "
-            "from --dry-run --json)"
+            "from --dry-run --json); with --from-spec: unless the plan is the previewed one "
+            "(plan_sha256)"
         ),
     )
     agent.add_argument("--json", action="store_true", help="Print the result as JSON")
@@ -73,10 +83,15 @@ def register(commands) -> None:
 def run(args) -> int:
     from agentbreeder import newagent
 
+    if args.from_spec is not None:
+        return _from_spec(args)
+    if args.model is None:
+        error = newagent.NewAgentError("USAGE", "--model is required (or use --from-spec)")
+        return _refused(error, args)
     if args.stack_for is not None:
         return _stack_for(args)
     if args.expect_digest is not None:
-        error = newagent.NewAgentError("USAGE", "--expect-digest needs --stack-for")
+        error = newagent.NewAgentError("USAGE", "--expect-digest needs --stack-for or --from-spec")
         return _refused(error, args)
     try:
         plan = newagent.plan(args.name, args.model, args.dir, model_id=args.model_id)
@@ -108,6 +123,54 @@ def _refused(error, args) -> int:
             json.dumps({"schema_version": newagent.SUMMARY_VERSION, "error": error_body}, indent=2)
         )
     return 2
+
+
+def _from_spec(args) -> int:
+    from agentbreeder import agentspec, newagent
+
+    clashing = [
+        flag
+        for flag, value in (
+            ("--model", args.model),
+            ("--model-id", args.model_id),
+            ("--stack-for", args.stack_for),
+        )
+        if value is not None
+    ]
+    if clashing:
+        error = newagent.NewAgentError(
+            "USAGE", f"--from-spec takes the model from the spec; drop {', '.join(clashing)}"
+        )
+        return _refused(error, args)
+    try:
+        plan, extra = agentspec.plan(
+            args.name, args.from_spec, args.dir, expect_digest=args.expect_digest
+        )
+        if args.dry_run:
+            newagent.check(plan)
+        else:
+            plan = newagent.create(plan)
+    except newagent.NewAgentError as error:
+        return _refused(error, args)
+    summary = agentspec.summary(plan, extra, dry_run=args.dry_run)
+    if args.json:
+        print(json.dumps(summary, indent=2))
+        return 0
+    notes = []
+    if summary["grants"]:
+        grants = "; ".join(f"{g['server']}: {', '.join(g['tools'])}" for g in summary["grants"])
+        notes.append(f"MCP grants in stack.yaml: {grants}.")
+    code = [e for e in summary["refs"] if e["runs_code"] and e["root_kind"] != "builtin"]
+    if code:
+        refs = ", ".join(f"{e['ref']} ({e['root_kind']})" for e in code)
+        notes.append(f"Code that runs in agents, not shipped with AgentBreeder: {refs}.")
+    if not summary["combination"]["verified"]:
+        parts = " + ".join(summary["combination"]["parts"])
+        notes.append(f"This combination ({parts}) has not been run end to end.")
+    from agentbreeder.safe_text import visible
+
+    print(visible(_text(summary, notes)))
+    return 0
 
 
 def _stack_for(args) -> int:
@@ -158,7 +221,7 @@ def _stack_for(args) -> int:
     return 0
 
 
-def _text(summary: dict) -> str:
+def _text(summary: dict, notes: list[str] | tuple[str, ...] = ()) -> str:
     directory = summary["directory"]
     verb = "Would write" if summary["dry_run"] else "Wrote"
     lines = [f"{verb} the {summary['name']} agent in {directory}:"]
@@ -169,15 +232,14 @@ def _text(summary: dict) -> str:
         f"and {'write' if summary['dry_run'] else 'wrote'} agent.lock"
     )
     lines.append(f"The gate refuses deploys after review_by {summary['review_by']} (stack.yaml).")
+    lines += notes
     if not summary["verified"]:
         lines.append(_config_only(summary["model"]))
     if summary["dry_run"]:
         lines.append("Dry run: nothing was written.")
         return "\n".join(lines)
-    lines.append(
-        f"Put {summary['key']}=<your key> in a file only you can read (chmod 600); the next "
-        "step asks for it."
-    )
+    keys = " and ".join(f"{key}=<your key>" for key in summary.get("keys", [summary["key"]]))
+    lines.append(f"Put {keys} in a file only you can read (chmod 600); the next step asks for it.")
     lines.append(hints.next_line("next", directory))
     return "\n".join(lines)
 

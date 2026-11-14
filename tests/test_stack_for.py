@@ -596,3 +596,38 @@ def test_the_text_output_names_code_from_outside_the_built_ins(tmp_path, capsys)
     out = capsys.readouterr().out
     assert "Code that runs in agents, not shipped with AgentBreeder: " in out
     assert "eval/hello-evals@0.1.0 (project)" in out and "runtime/" not in out.split("Code")[1]
+
+
+# -- golden: `render` was extracted for --from-spec (#833); --stack-for output is unchanged ----
+
+GOLDEN = {
+    "plain": (
+        "4b96e4fcb87fc4ad79714e999f34193bad3525ab59210f87a9b00adeb0c9cab5",
+        "a22ee06d033cbbe3fbd85f5be8071c1283983844ff3c6136130bcfa4a13e4167",
+    ),
+    "budget": (
+        "63b596a158c545ad565fad0bfe98afeeaad2ce7b4f14134e070db991d128f00f",
+        "085f9794672faf902cbb976307ce2b64e4e7e1ff089491b9992bdc1f1a6aabec",
+    ),
+    "openrouter": (
+        "c73ddfb0fb7793e40c454452c4cf77d33e0c8565142f1a8d3df3026956e98d84",
+        "c226e920f65550c1667213cf9cf296b44170a744294b239b58df137ef2cc9c86",
+    ),
+}
+
+
+@pytest.mark.parametrize("variant", sorted(GOLDEN))
+def test_stack_for_output_is_byte_identical_to_before_render(tmp_path, variant):
+    """Digests taken from the pre-#833 code on 2026-11-13, for three shapes."""
+    project, _ = starter(tmp_path)
+    model, model_id = "gemini", None
+    if variant == "budget":
+        edit_agent(project, model={"alias": "support-model", "budget_usd": 25.5, "rpm": 120})
+    if variant == "openrouter":
+        model, model_id = "openrouter", "openrouter/google/gemini-x"
+    files = stackfor.plan("hello", model, project / "agent.yaml", today=TODAY, model_id=model_id)
+    digests = tuple(
+        hashlib.sha256(files.files[name].encode()).hexdigest()
+        for name in (stackfor.STACK_FILE, stackfor.LITELLM_CONFIG)
+    )
+    assert digests == GOLDEN[variant]
