@@ -12,6 +12,15 @@ On main, not in a published preview.
 
 ### Added
 
+- Console log viewer (#821, M5, first part), on `main`, not in a published preview: a Logs
+  screen, and a Logs link on every Services and Deployments row, reading one snapshot through
+  `services logs --json` or `logs ID --json` (`--previous` for Kubernetes). Filter, level filter,
+  search, wrap and copy work on the lines read; unwrapped rows are windowed (10,000 lines). Notes
+  say what was read, that secrets are redacted and when the read was cut. `LOG_UNAVAILABLE` and a
+  pending pod are empty states. The server checks every option and the answer's shape, and never
+  caches or stores log lines. Follow, `watch` and the S-10 limits are the next parts. See
+  `docs/command-center.md`.
+
 - Console guided path and Create starter (#820, M4), on `main`, not in a published preview: Home
   shows the project's `next --json` checklist (state as icon and word, reason, the current step's
   button, command and note), the top bar a "Next" pill, finished jobs a result row, and empty Home

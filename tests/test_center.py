@@ -108,6 +108,12 @@ FAKE_CLI = textwrap.dedent(
                 handle.write("kind: x\\n")
         summary = {{"schema_version": 1, "dry_run": False, "name": argv[2], "directory": target}}
         print(json.dumps(summary))
+    elif argv[:2] == ["services", "logs"] or argv[0] == "logs":
+        open(marker + "/logs-argv", "w").write(json.dumps(argv))
+        if os.path.exists(marker + "/logs-error"):
+            sys.stderr.write(open(marker + "/logs-error").read())
+            sys.exit(2)
+        print(open(marker + "/logs.json").read())
     elif argv[0] == "env-dump":
         print(json.dumps(dict(os.environ)))
     elif argv[0] == "garbage":
@@ -2984,3 +2990,173 @@ def test_a_cached_answer_for_another_project_is_never_served_as_stale(
     _, data, _ = api(center, "GET", path, cookie=cookie)
     assert data["data"] is None and data["error"]["code"] == "GUIDE_INVALID"
     assert "/elsewhere" not in json.dumps(data)
+
+
+# -- logs (#821, M5 console half): one snapshot read per request, never cached -------------------
+
+DEPLOYMENT_ID = "0123456789abcdef0123456789abcdef"
+
+
+def _logs(tmp_path, **fields):
+    body = {
+        "schema_version": 1,
+        "source": "service",
+        "target": "local",
+        "name": "litellm",
+        "lines": ["INFO: started", "ERROR: boom \\x1b[31m"],
+        "levels": ["info", "error"],
+        "format": "python",
+        "level": None,
+        "truncated": False,
+        **fields,
+    }
+    (tmp_path / "logs.json").write_text(json.dumps(body))
+    return body
+
+
+def test_service_logs_run_services_logs_with_fixed_arguments(center, project, cookie, tmp_path):
+    _logs(tmp_path)
+    path = f"/api/projects/{project['id']}/logs/service/litellm?tail=1000&since=10m"
+    status, data, _ = api(center, "GET", path, cookie=cookie)
+    assert status == 200 and data["error"] is None, data
+    assert data["data"]["lines"] == ["INFO: started", "ERROR: boom \\x1b[31m"]
+    assert data["data"]["levels"] == ["info", "error"] and data["data"]["format"] == "python"
+    argv = json.loads((tmp_path / "logs-argv").read_text())
+    assert argv == [
+        "services", "logs", project["path"], "litellm",
+        "--tail", "1000", "--since", "10m", "--json",
+    ]  # fmt: skip
+
+
+def test_deployment_logs_run_logs_against_the_projects_stack(center, project, cookie, tmp_path):
+    _logs(
+        tmp_path,
+        source="agent",
+        target="kubernetes",
+        name="demo",
+        deployment=DEPLOYMENT_ID,
+        previous=True,
+        pod_reason=None,
+    )
+    path = f"/api/projects/{project['id']}/logs/deployment/{DEPLOYMENT_ID}?previous=1"
+    status, data, _ = api(center, "GET", path, cookie=cookie)
+    assert status == 200 and data["error"] is None, data
+    assert data["data"]["source"] == "deployment" and data["data"]["previous"] is True
+    argv = json.loads((tmp_path / "logs-argv").read_text())
+    assert argv == [
+        "logs", DEPLOYMENT_ID, "--stack", project["path"], "--environment", "dev",
+        "--previous", "--tail", "200", "--json",
+    ]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "suffix, code",
+    [
+        ("service/litellm?tail=0", "TAIL_INVALID"),
+        ("service/litellm?tail=10001", "TAIL_INVALID"),
+        ("service/litellm?tail=-5", "TAIL_INVALID"),
+        ("service/litellm?tail=12abc", "TAIL_INVALID"),
+        ("service/litellm?since=--follow", "SINCE_INVALID"),
+        ("service/litellm?since=10d", "SINCE_INVALID"),
+        ("service/litellm?previous=1", "PREVIOUS_INVALID"),
+    ],
+)
+def test_log_reads_refuse_bad_options_before_running_anything(
+    center, project, cookie, tmp_path, suffix, code
+):
+    status, data, _ = api(
+        center, "GET", f"/api/projects/{project['id']}/logs/{suffix}", cookie=cookie
+    )
+    assert status == 400 and data["error"]["code"] == code
+    assert not (tmp_path / "logs-argv").exists()
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "service/Lite",
+        "service/a..b",
+        "service/-x",
+        "deployment/d1",
+        "deployment/" + "A" * 32,
+        "other/x",
+    ],
+)
+def test_log_routes_take_only_a_service_name_or_a_deployment_id(
+    center, project, cookie, tmp_path, suffix
+):
+    status, _, _ = api(
+        center, "GET", f"/api/projects/{project['id']}/logs/{suffix}", cookie=cookie
+    )
+    assert status == 404
+    assert not (tmp_path / "logs-argv").exists()
+
+
+def test_a_log_read_needs_a_session(center, project, tmp_path):
+    _logs(tmp_path)
+    status, _, _ = api(center, "GET", f"/api/projects/{project['id']}/logs/service/litellm")
+    assert status == 401
+    assert not (tmp_path / "logs-argv").exists()
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"name": "phoenix"},  # another service's answer
+        {"source": "agent"},
+        {"lines": "not a list"},
+        {"lines": ["a", 3], "levels": [None, None]},
+        {"levels": ["info"]},  # not one per line
+        {"levels": ["info", "loud"]},
+        {"format": 7},
+    ],
+)
+def test_a_log_answer_that_breaks_the_contract_is_refused(
+    center, project, cookie, tmp_path, fields
+):
+    _logs(tmp_path, **fields)
+    path = f"/api/projects/{project['id']}/logs/service/litellm"
+    _, data, _ = api(center, "GET", path, cookie=cookie)
+    assert data["data"] is None and data["error"]["code"] == "LOGS_INVALID"
+
+
+def test_a_log_answer_passes_only_known_keys(center, project, cookie, tmp_path):
+    _logs(tmp_path, extra="/home/someone/secret")
+    _, data, _ = api(
+        center, "GET", f"/api/projects/{project['id']}/logs/service/litellm", cookie=cookie
+    )
+    assert "extra" not in data["data"] and "/home/someone" not in json.dumps(data)
+
+
+def test_log_reads_are_never_cached(center, project, cookie, tmp_path):
+    # A failed read shows its own coded error (LOG_UNAVAILABLE is the viewer's empty state), never
+    # the lines an earlier read returned.
+    _logs(tmp_path)
+    path = f"/api/projects/{project['id']}/logs/service/litellm"
+    assert api(center, "GET", path, cookie=cookie)[1]["error"] is None
+    (tmp_path / "logs-error").write_text("[LOG_UNAVAILABLE] the pod's log is gone\n")
+    _, data, _ = api(center, "GET", path, cookie=cookie)
+    assert data["data"] is None and data["stale"] is False
+    assert data["error"]["code"] == "LOG_UNAVAILABLE"
+    assert "INFO: started" not in json.dumps(data)
+    assert not center.runner.cache
+
+
+def test_the_log_patterns_are_the_clis():
+    from agentbreeder import runtime
+    from agentbreeder.services import schema
+
+    assert server.LOG_SINCE.pattern == runtime.SINCE.pattern
+    assert server.MAX_LOG_TAIL == runtime.MAX_TAIL
+    assert (
+        server.SERVICE == f"(?P<service>{schema.SERVICE_NAME.removeprefix('^').removesuffix('$')})"
+    )
+
+
+def test_the_browser_log_patterns_are_the_clis():
+    from agentbreeder import loglevels, runtime
+
+    source = (server.STATIC / "lib" / "logs.js").read_text()
+    assert f"export const SINCE = /^(?:{runtime.SINCE.pattern})$/;" in source
+    assert f"export const LEVELS = {json.dumps(list(loglevels.LEVELS))};" in source
+    assert f"export const LEVEL_CHOICES = {json.dumps(list(loglevels.CHOICES))};" in source

@@ -5,6 +5,7 @@ import { visible } from "../lib/text.js";
 import { Action, Actions, Card, Notice, Table, Text, ViewState, useConfirm, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { NextStep } from "../ui/guide.js";
+import { LogsLink } from "./logs.js";
 import { html, useState } from "../ui/preact.js";
 
 export function Deployments({ project }) {
@@ -40,7 +41,7 @@ export function Deployments({ project }) {
               <td><${Text} value=${row.state} />${row.error ? html`: <${Text} value=${row.error} />` : null}</td>
               <td><${Text} value=${row.compliance || "not checked"} /></td>
               <td>${row.endpoint ? html`<code><${Text} value=${row.endpoint} /></code>` : html`<span class="muted">none</span>`}</td>
-              <td><${Action} small tone="danger" onClick=${() => remove(row)}>Remove<//></td>
+              <td class="row-actions"><${LogsLink} kind="deployment" name=${row.id} label=${`Logs of ${visible(row.name)}`} /><${Action} small tone="danger" onClick=${() => remove(row)}>Remove<//></td>
             </tr>`)}
           <//>`
         : null}
