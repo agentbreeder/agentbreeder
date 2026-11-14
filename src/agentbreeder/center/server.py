@@ -113,6 +113,8 @@ LOG_TIMEOUT = 60  # one `docker logs` or `kubectl logs`, after the CLI's own che
 # Try it (#823, M7): turns in flight across the console. Each holds a child for up to
 # `tryit.TIMEOUT`; the screen sends one at a time per tab.
 MAX_TURNS_IN_FLIGHT = 4
+AUDIT_PAGE = 50  # rows per Audit page; one more is read to know whether an older page exists
+AUDIT_BEFORE = re.compile(r"[1-9][0-9]{0,17}")  # `audit list --before SEQ`
 AGENT = r"(?P<agent>[a-z0-9][a-z0-9-]{0,52})"
 
 
@@ -323,9 +325,12 @@ class Center:
             )
         return {**result, "data": checked.model_dump(mode="json")}
 
-    def read_view(self, project: dict, view: str) -> dict:
+    def read_view(
+        self, project: dict, view: str, query: dict[str, list[str]] | None = None
+    ) -> dict:
         """The envelope for one view: a single CLI read is its own envelope; a view made of
-        several reads carries each read's envelope in `data`."""
+        several reads carries each read's envelope in `data`. Only `audit` reads the query
+        (`before`, a seq: the page of rows older than it)."""
         path, environment = project["path"], project["environment"]
         read = self.runner.read
         if view == "services":
@@ -353,12 +358,28 @@ class Center:
             state = self.state_dir(project)
             if not state:
                 return envelope(None, error("STACK_NOT_UP", "Start the services first"))
+            before = (query or {}).get("before", [""])[0]
+            if before and not AUDIT_BEFORE.fullmatch(before):
+                raise BadRequest(
+                    "Before must be a row's seq (a positive number)", "BEFORE_INVALID"
+                )
+            argv = ["audit", "list", "--state-dir", state, "--limit", str(AUDIT_PAGE + 1)]
+            rows = read([*argv, *(["--before", before] if before else []), "--json"])
+            older = None
+            if isinstance(rows["data"], list) and len(rows["data"]) > AUDIT_PAGE:
+                rows = {**rows, "data": rows["data"][:AUDIT_PAGE]}
+                last = rows["data"][-1]
+                older = last.get("seq") if isinstance(last, dict) else None
             return envelope(
                 {
-                    "rows": read(
-                        ["audit", "list", "--state-dir", state, "--limit", "50", "--json"]
-                    ),
+                    "rows": rows,
+                    "before": int(before) if before else None,  # the page this answers
+                    "older": older if type(older) is int else None,
                     "verify": read(["audit", "verify", "--state-dir", state, "--json"]),
+                    # Production endpoints, and the agent of a `release` row (by its image).
+                    "deployments": read(
+                        ["list", "--stack", path, "--environment", environment, "--json"]
+                    ),
                 }
             )
         raise BadRequest("Unknown view", "UNKNOWN_VIEW")
@@ -579,7 +600,7 @@ def _projects(request: Request) -> dict:
 
 
 def _view(request: Request) -> dict:
-    return request.center.read_view(request.project(), request.match["view"])
+    return request.center.read_view(request.project(), request.match["view"], request.query)
 
 
 def _used_by(request: Request) -> dict:
