@@ -265,9 +265,9 @@ tool would not be caught.
   `center.sqlite3` is their only record: kind, project, start, end, exit code and the redacted log
   (at most 20,000 lines of 4,000 characters), for the last 100 finished jobs, not chained, so a
   local user can edit it. Job options (such as which deployment a `remove` targeted) are not
-  stored. Sign-in events arrive with the password milestone. The registry and `set-ref` edits of
-  later milestones will change only the project's files (and git history, if you commit them);
-  the console will keep no record of them.
+  stored. Sign-in events arrive with the password milestone. `registry edit` and `agent set-ref`
+  (CLI on `main`; the console's editors come later) change only the project's files (and git
+  history, if you commit them); the console will keep no record of them.
 - **Reads of project files run in the server.** Registry versions (`registry list`),
   `agent.yaml`, `agent.lock` and where a version is declared and locked (`registry used-by`) are
   read in process with the same functions as the CLI. Each file is checked first: a regular file
