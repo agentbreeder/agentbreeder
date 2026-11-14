@@ -1129,3 +1129,132 @@ def test_cli_services_plan(env, monkeypatch, capsys):
     monkeypatch.setattr(engine_module, "DockerCLI", FakeDocker)
     assert cli.main(["services", "plan", str(env), "--environment", "dev"]) == 0
     assert "Services:" in capsys.readouterr().out
+
+
+FAKEDB = {
+    "image": PY,
+    "command": ["python3", "-m", "http.server", "5432"],
+    "user": "65532:65532",
+    "ports": {"pg": {"port": 5432, "protocol": "tcp", "expose": ["agents", "host"]}},
+    "params": {"console_database": {"type": "string", "required": False}},
+    "secrets": {"role": {"generate": "token"}, "console": {"generate": "token"}},
+    "health": {"command": ["true"]},
+    "outputs": {
+        "app": {
+            "type": "secret",
+            "port": "pg",
+            "template": "postgresql://app:{secret.role}@{address}/app",
+        },
+        "console": {
+            "type": "secret",
+            "port": "pg",
+            "operator_only": True,
+            "template": "postgresql://agentbreeder_console:{secret.console}@{address}/"
+            "{params.console_database}",
+        },
+    },
+}
+
+
+def db_project(project: Path, console: str | None) -> Path:
+    version = project / "registry" / "service" / "fakedb" / "1.0.0"
+    (version / "files").mkdir(parents=True, exist_ok=True)
+    (version / "manifest.yaml").write_text("kind: service\nname: fakedb\nversion: 1.0.0\n")
+    (version / "service.yaml").write_text(yaml.safe_dump(FAKEDB))
+    stack = copy.deepcopy(STACK)
+    stack["services"]["db"] = {"ref": "service/fakedb@1.0.0"}
+    if console is not None:
+        stack["services"]["db"]["with"] = {"console_database": console}
+    stack["environment"]["bindings"]["DATABASE_URL"] = {"ref": "db.app"}
+    return write_project(project, stack)
+
+
+def test_up_writes_host_form_agent_and_console_database_secrets(env):
+    result, _ = up(db_project(env, "app"))
+    state_dir = Path(result["state_dir"])
+    stack_dir = state_dir.parents[2]
+    secrets_dir = state_dir / "secrets"
+    role = (stack_dir / "service-secrets" / "db" / "role").read_text()
+    console = (stack_dir / "service-secrets" / "db" / "console").read_text()
+    agent_url = (secrets_dir / "agent-database").read_text()
+    console_url = (secrets_dir / "console-database").read_text()
+    assert re.fullmatch(rf"postgresql://app:{role}@127\.0\.0\.1:\d+/app", agent_url)
+    assert re.fullmatch(
+        rf"postgresql://agentbreeder_console:{console}@127\.0\.0\.1:\d+/app", console_url
+    )
+    # The agent's binding stays in agents scope; neither host URL reaches the operator config.
+    assert (
+        secrets_dir / "binding-database-url"
+    ).read_text() == f"postgresql://app:{role}@db:5432/app"
+    for name in ("agent-database", "console-database"):
+        assert stat.S_IMODE((secrets_dir / name).stat().st_mode) == 0o600
+    generated = all_files(stack_dir)
+    assert console not in generated and "console-database" not in generated
+    from agentbreeder.redaction import redaction_values
+
+    values = redaction_values(state_dir)
+    assert agent_url.encode() in values and console_url.encode() in values
+    assert console.encode() in values  # still redacted after the URL file is deleted
+
+    # A changed console_database rewrites the file.
+    up(db_project(env, "other"))
+    assert (secrets_dir / "console-database").read_text().endswith("/other")
+
+    # Console role removed: its host credential goes too; the agent's stays.
+    result, _ = up(db_project(env, None))
+    assert (secrets_dir / "agent-database").exists()
+    assert not (secrets_dir / "console-database").exists()
+    # DATABASE_URL binding removed: no stale agent credential either.
+    stack = yaml.safe_load((env / "stack.yaml").read_text())
+    del stack["environment"]["bindings"]["DATABASE_URL"]
+    write_project(env, stack)
+    up(env)
+    assert not (secrets_dir / "agent-database").exists()
+
+
+def test_no_host_database_secrets_without_a_host_port(env):
+    internal = copy.deepcopy(FAKEDB)
+    internal["ports"]["pg"]["expose"] = ["agents"]
+    db_project(env, "app")
+    version = env / "registry" / "service" / "fakedb" / "1.0.0"
+    (version / "service.yaml").write_text(yaml.safe_dump(internal))
+    result, _ = up(env)
+    secrets_dir = Path(result["state_dir"]) / "secrets"
+    assert (secrets_dir / "binding-database-url").exists()
+    assert not (secrets_dir / "agent-database").exists()
+    assert not (secrets_dir / "console-database").exists()
+
+
+def test_console_secret_needs_an_operator_only_output(env):
+    exposed = copy.deepcopy(FAKEDB)
+    exposed["outputs"]["console"]["operator_only"] = False
+    db_project(env, "app")
+    version = env / "registry" / "service" / "fakedb" / "1.0.0"
+    (version / "service.yaml").write_text(yaml.safe_dump(exposed))
+    result, _ = up(env)
+    secrets_dir = Path(result["state_dir"]) / "secrets"
+    assert (secrets_dir / "agent-database").exists()
+    assert not (secrets_dir / "console-database").exists()
+
+
+def test_purge_deletes_the_host_database_secrets(env):
+    result, _ = up(db_project(env, "app"))
+    stack_dir = Path(result["state_dir"]).parents[2]
+    secrets_dir = Path(result["state_dir"]) / "secrets"
+    assert {"eval-database", "agent-database", "console-database"} <= {
+        p.name for p in secrets_dir.iterdir()
+    }
+    engine(env).down(purge=True)
+    assert not stack_dir.exists()
+
+
+def test_up_records_the_project_path_in_stack_meta(env):
+    from agentbreeder.services.state import PROJECT_KEY, StackState
+
+    result, _ = up(env)
+    stack = Path(result["state_dir"]).parents[2]
+    state = StackState.open_directory(stack)
+    try:
+        assert state.get(PROJECT_KEY) == str(env.resolve())
+    finally:
+        state.close()

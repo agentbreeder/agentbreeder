@@ -43,7 +43,7 @@ from agentbreeder import example, registry
 RUNTIME = "runtime/adk@1.0.6"
 VERSION = "0.1.0"
 REVIEW_DAYS = 180
-SUMMARY_VERSION = 1  # the `--json` shape (and its `error` form) in docs/commands.md
+SUMMARY_VERSION = 1  # the `--json` shape (and its `error` form) in docs/commands/new.md
 # The agent name is also the stack name: a stack name starts with a letter and is at most 31
 # characters (services.schema), an agent name ends with a letter or digit (agentfile).
 NAME_PATTERN = r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$"
@@ -219,8 +219,8 @@ def valid_name(name: object) -> bool:
     )
 
 
-def plan(name: str, model: str, directory: Path | None = None, today: date | None = None) -> Plan:
-    """Check the inputs and fill the templates; writes nothing."""
+def check_inputs(name: str, model: str) -> None:
+    """The name and `--model` checks (also used by `--stack-for`)."""
     if not valid_name(name):
         raise NewAgentError(
             "NAME_INVALID",
@@ -234,6 +234,11 @@ def plan(name: str, model: str, directory: Path | None = None, today: date | Non
             f"--model must be one of: {', '.join(sorted(PROVIDERS))} (the only providers run "
             "end to end)",
         )
+
+
+def plan(name: str, model: str, directory: Path | None = None, today: date | None = None) -> Plan:
+    """Check the inputs and fill the templates; writes nothing."""
+    check_inputs(name, model)
     today = today or date.today()
     review_by = (today + timedelta(days=REVIEW_DAYS)).isoformat()
     provider = PROVIDERS[model]

@@ -1,4 +1,5 @@
-usage: agentbreeder new agent [-h] --model {gemini} [--dir DIR] [--dry-run]
+usage: agentbreeder new agent [-h] --model {gemini}
+                              [--dir DIR | --stack-for AGENT_YAML] [--dry-run]
                               [--json]
                               name
 
@@ -9,11 +10,16 @@ evals@0.1.0 into DIR/registry and writes agent.lock. DIR must not exist or be
 an empty directory.
 
 positional arguments:
-  name              Agent name: [a-z][a-z0-9-], at most 31 characters
+  name                  Agent name: [a-z][a-z0-9-], at most 31 characters
 
 options:
-  -h, --help        show this help message and exit
-  --model {gemini}  Model provider (only providers run end to end are offered)
-  --dir DIR         Destination (default ./NAME)
-  --dry-run         Show what would be written
-  --json            Print the result as JSON
+  -h, --help            show this help message and exit
+  --model {gemini}      Model provider (only providers run end to end are
+                        offered)
+  --dir DIR             Destination (default ./NAME)
+  --stack-for AGENT_YAML
+                        Instead of a starter, write stack.yaml and
+                        stack/litellm/config.yaml beside an existing
+                        agent.yaml named NAME (onboarding an agent.yaml alone)
+  --dry-run             Show what would be written
+  --json                Print the result as JSON

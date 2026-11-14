@@ -187,9 +187,9 @@ Gemini key page) opens only on a click, with its host shown.
   `~/agentbreeder-projects` as Onboard Northwind does, runs `agentbreeder new agent NAME --model
   gemini --dir ~/agentbreeder-projects/NAME --json` and registers the result. A refusal shows
   `new agent`'s own coded message (for example a folder that is not empty).
-- **Not yet**: Try it. The done "Try it" step shows the `invoke` command to copy and a link to
-  Deployments; the console's Try it is M7 (#823). So the console path from Create starter reaches
-  a released agent, and the first reply still needs a terminal.
+- **Try it**: the Try it step's button opens Try it for the project's agent (#823, below), with
+  the `invoke` command to copy as well. So the console path goes from Create starter to the
+  first reply. That path has not yet been run end to end against a real deployment.
 
 Tested with Playwright against a fake CLI that serves `next --json` answers checked by the same
 models (every step's state, title and reason match the JSON; a stale lock; a failed read; the job
@@ -239,6 +239,67 @@ Tested with Playwright against a fake CLI (10,000 lines windowed, the level and 
 search, wrap, copy, the coded empty states, a deployment's Previous container) with axe in light
 and dark, and on the server with a fake CLI (argv, refused options, the answer's shape, no cache).
 Not yet run against real services.
+
+### Try it (#823, first part): on `main`, not in a published preview
+
+**Try it** chats with a project's production deployment. It opens from a **Try it** link on a
+Deployments row (production, local and `ready` only) and from the guided path's Try it step, at
+`#/agents/NAME/try`. Each message runs:
+
+`agentbreeder invoke NAME - --stack PROJECT --environment ENV --json [--session ID] [--customer ID]`
+
+- **The message goes to `invoke` on stdin, never in argv**, which every local user can read
+  through `ps` (S-12). It is at most 4,000 characters (`invoke`'s own limit).
+- **Production only.** A name ending in `-candidate` is refused (`CANDIDATE_REFUSED`), and
+  `--candidate` is never sent. A Kubernetes deployment, or one that is not `ready`, shows why
+  instead of the chat (`invoke` refuses them the same way).
+- **Not a job, and not stored.** The turn is an uncached read, with no stale answer, `invoke`'s
+  180 s deadline plus its state checks (200 s), and a child that a console shutdown stops.
+  Nothing goes into `center.sqlite3`, which survives `--purge`. The conversation is kept in the
+  tab's memory: it survives moving between screens, a reload clears it, and it never goes into
+  browser storage.
+- **One message in flight per tab.** The console as a whole has at most 4 at once
+  (`TRY_BUSY`), and a refusal like that is "Not sent".
+- **Replies are plain text.** There is no Markdown and no auto-linking, and no link is ever built
+  from agent output. Controls show as visible escapes.
+
+The server passes on only these checked fields of `invoke --json`'s answer:
+
+- the reply (at most 65,536 characters shown);
+- session, customer and turn IDs (the runtime's ID rule);
+- the model alias and runtime ref;
+- tools and sources (names and titles, at most 50 of each);
+- the model-call and token counts.
+
+It adds the latency it measured. Each reply has a **Turn details** inspector with the tools,
+sources, latency, tokens (prompt and output, over N model calls) and the trace ID as text. A
+trace link waits for #907, which records a Phoenix origin the console can link to. Cost shows as
+"Not measured yet" until #906. The answer keeps a `cost` field and a `trace.url` field, both null,
+for those two.
+
+A later message continues the conversation's session (`--session`); **New conversation** starts a
+new one. **Customer ID** is optional and sent as `--customer`.
+
+The screen says three things before you send:
+
+- each message calls the model and costs money;
+- the local endpoint is unauthenticated, so anything on this machine that can reach its port can
+  call it and name any customer or session ID (#780);
+- replies are plain text, and the conversation stays in the tab.
+
+A failure says whether the message was sent. "Not sent" means nothing reached the agent. "No
+usable reply" means the agent may have run the turn, so sending it again is a second turn. This
+follows `invoke`'s `sent` flag. A request the console itself refuses (a 4xx such as `TRY_BUSY`)
+and an `invoke` exit 2 without its JSON (a usage error) also count as "Not sent". No answer at
+all, a timeout or a crash count as possibly sent.
+
+**Not yet**: the Agents list and agent detail with the gate strip (the next part of #823, after
+the M7 CLI half), and onboarding an `agent.yaml` alone.
+
+Tested with Playwright against a fake CLI with axe in light and dark, and on the server with a
+fake `invoke` (argv and stdin, refused requests, the answer's allow-list, no stale answer, nothing
+stored, the in-flight cap, shutdown). Not yet run against a real deployment; that is the M7
+verification.
 
 ## How it stays the same engine
 

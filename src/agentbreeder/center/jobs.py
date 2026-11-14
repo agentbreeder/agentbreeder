@@ -821,12 +821,15 @@ class Runner:
         ok_codes: Sequence[int] = (0,),
         cache: bool = True,
         track: bool = False,
+        input: str | None = None,  # noqa: A002 (subprocess's own name)
     ) -> dict:
         """Run a read-only command that prints JSON; on failure, keep the last good answer.
         `ok_codes`: exit codes whose JSON is still the answer (`registry used-by` and `registry
         verify` exit 2 after printing what they found). `cache=False`: neither use nor keep the
         last good answer. `track=True`: a long read (verify) is tracked as a child, so shutdown
-        stops it even when it is blocked."""
+        stops it even when it is blocked. `input`: text for the child's stdin (Try it's message,
+        S-12: free text never goes in argv, which every local user can read through `ps`);
+        without it stdin is /dev/null. Nothing here writes the input or the answer anywhere."""
         cache_key = key or " ".join(argv)
         if not cache:
             cache_key = f"uncached {uuid.uuid4().hex}"
@@ -843,10 +846,11 @@ class Runner:
                 [*self.prefix, *argv],
                 cwd=self.directory,
                 env=child_environment(),
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL if input is None else subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
                 errors="replace",
                 start_new_session=track,
             )
@@ -855,7 +859,7 @@ class Runner:
         if track:
             self.adopt(process)
         try:
-            stdout, stderr = process.communicate(timeout=timeout)
+            stdout, stderr = process.communicate(input=input, timeout=timeout)
         except subprocess.TimeoutExpired:
             if track:
                 _stop_process(process, 1.0)  # its whole group
@@ -901,6 +905,7 @@ class Runner:
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 errors="replace",
                 timeout=timeout,
             )

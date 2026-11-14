@@ -203,3 +203,48 @@ def test_cleanup_unlinks_symlinked_dir(tmp_path):
     os.symlink(target, directory)
     secret_files.cleanup(tmp_path, DEPLOYMENT)
     assert not directory.exists() and target.exists()  # never follows into the target
+
+
+@pytest.mark.parametrize("name", sorted(secret_files.RESERVED))
+def test_reserved_names_never_mount_into_an_agent(tmp_path, name):
+    # `services up` writes these host-form database URLs for CLI children (M12 delta §3.5).
+    secret_files.set_secret(tmp_path, name, b"postgresql://owner:pw@127.0.0.1:5432/db")
+    for check in (
+        lambda: secret_files.preflight(tmp_path, {"DATABASE_URL": f"secret://{name}"}),
+        lambda: secret_files.materialise(tmp_path, DEPLOYMENT, {"X": f"secret://{name}"}),
+    ):
+        with pytest.raises(SecretError) as error:
+            check()
+        assert error.value.code == "SECRET_RESERVED"
+        assert "pw" not in str(error.value)
+    assert not secret_files.deployment_dir(tmp_path, DEPLOYMENT).exists() or not any(
+        secret_files.deployment_dir(tmp_path, DEPLOYMENT).iterdir()
+    )
+
+
+def test_delete_secret_is_idempotent_and_checks_names(tmp_path):
+    path = secret_files.set_secret(tmp_path, "agent-database", b"v")
+    secret_files.delete_secret(tmp_path, "agent-database")
+    assert not path.exists()
+    secret_files.delete_secret(tmp_path, "agent-database")
+    with pytest.raises(SecretError):
+        secret_files.delete_secret(tmp_path, "../x")
+    # A symlink is removed, never followed; a directory in its place is a SecretError.
+    target = tmp_path / "elsewhere"
+    target.write_bytes(b"keep")
+    os.symlink(target, tmp_path / "secrets" / "agent-database")
+    secret_files.delete_secret(tmp_path, "agent-database")
+    assert target.read_bytes() == b"keep"
+    (tmp_path / "secrets" / "console-database").mkdir()
+    with pytest.raises(SecretError) as error:
+        secret_files.delete_secret(tmp_path, "console-database")
+    assert error.value.code == "SECRET_MODE"
+
+
+def test_a_reserved_name_beside_a_normal_one_copies_nothing(tmp_path):
+    secret_files.set_secret(tmp_path, "mine", b"ok")
+    secret_files.set_secret(tmp_path, "agent-database", b"postgresql://x")
+    references = {"API_KEY": "secret://mine", "DATABASE_URL": "secret://agent-database"}
+    with pytest.raises(SecretError, match="agent-database"):
+        secret_files.materialise(tmp_path, DEPLOYMENT, references)
+    assert not (secret_files.deployment_dir(tmp_path, DEPLOYMENT) / "mine").exists()

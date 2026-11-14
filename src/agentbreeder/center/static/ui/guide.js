@@ -2,7 +2,7 @@
 // "Next" pill and a finished job's result row, all from `next --json` (lib/guide.js). Every text
 // from the guide goes through <Text>; commands are shown to copy, never run.
 
-import { actionFor, currentStep, linkHost, pillText, resultText, stateWord } from "../lib/guide.js";
+import { actionFor, currentStep, linkHost, pillText, resultText, stateWord, tryRoute } from "../lib/guide.js";
 import { Action, Card, Notice, Skeleton, Text, useConsole } from "./components.js";
 import { html, useState } from "./preact.js";
 
@@ -10,7 +10,7 @@ const ICONS = { done: "✓", next: "→", blocked: "!", todo: "○" };
 
 /** Runs a step's console move. Returns [notice element, run(step)]. */
 function useStepAction(project) {
-  const { jobs, navigate, addProject, setScope } = useConsole();
+  const { jobs, navigate, addProject, setScope, guide } = useConsole();
   const [notice, setNotice] = useState(null);
   const run = async (step) => {
     const action = actionFor(step);
@@ -19,6 +19,7 @@ function useStepAction(project) {
     try {
       if (action.job) await jobs.start(project.id, action.job);
       else if (action.route) navigate(action.route);
+      else if (action.try) navigate(tryRoute(guide.data) || "/deployments");
       else if (action.starter) {
         navigate("/");
         requestAnimationFrame(() => document.getElementById("starter-name")?.focus());
@@ -44,12 +45,11 @@ function StepFix({ step, project, run }) {
   return html`<div class="step-fix">
     ${action ? html`<${Action} small tone=${step.state === "done" ? "secondary" : "primary"} disabled=${busy} onClick=${() => run(step)}>${action.label}<//>` : null}
     ${fix.command
-      ? html`<p class="muted small">${action ? "Or in a terminal:" : step.id === "try" ? "Send it a message from a terminal:" : "Run this in a terminal:"}</p>
+      ? html`<p class="muted small">${action ? "Or in a terminal:" : "Run this in a terminal:"}</p>
           <${Text} value=${fix.command} block copy label=${`${step.title} command`} />`
       : null}
     ${fix.note ? html`<p class="muted small"><${Text} value=${fix.note} /></p>` : null}
     ${host ? html`<p class="small"><a href=${fix.url} target="_blank" rel="noopener noreferrer">Open the provider's key page</a> <span class="muted">(${host})</span></p>` : null}
-    ${step.id === "try" && step.state === "done" ? html`<p class="small"><a href="#/deployments">See it in Deployments</a></p>` : null}
   </div>`;
 }
 
