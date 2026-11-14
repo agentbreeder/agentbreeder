@@ -66,6 +66,7 @@ COMMAND_MODULES = (
     "login",
     "migrate",
     "logs",
+    "traces",
     "next",
     "new",
     "invoke",
@@ -209,6 +210,7 @@ def _use_stack(args) -> int | None:
             "list",
             "migrate",
             "logs",
+            "traces",
             "invoke",
             "cost",
         ) and (args.environment):
