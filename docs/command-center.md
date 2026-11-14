@@ -199,6 +199,27 @@ with Playwright over a copy of Northwind: edit, review, save 1.0.2, move the age
 build; a second save of an existing version; Discard. Not yet run as the M10 acceptance (edit the
 starter's prompt, move, release with the eval gate): that is batched with the milestone checks.
 
+### Tool detail (#828, M12): on `main`, not in a published preview
+
+A tool's version card in Registry ▸ Tools (`#/registry/tools/NAME`) adds, above its files:
+
+- **Functions**: one row per `tool.yaml` function with its module and Python function, the
+  signature the CLI read from the module with `ast` (`registry show --json` `functions`, #930: the
+  source is parsed, never imported, and size-capped), the description and the parameters (what the
+  model sees). A function with no signature says why (the module is over the size cap, does not
+  parse, or the module or function was not found); an unreadable `tool.yaml` says so instead of a
+  table. Everything from `tool.yaml` renders as text.
+- **Dependencies**: none of its own; a tool runs with the locked packages of its agent's runtime
+  (`runtime/adk`, linked).
+- **Grants**: available to the agents that reference it in `agent.yaml` (the Used by card). MCP
+  grants are M15's.
+
+The source is the Files list. The code editor and the execution log come in later M12 PRs.
+Tested with Playwright over a copy of Northwind with the real `registry show`: `tool/orders`
+shows both functions and their signatures, a module whose top level raises still shows its
+signatures (nothing is imported), a renamed function says why it has no signature, other kinds
+show no Functions, and axe passes in light and dark.
+
 ### The Audit view (#824, part 2): on `main`, not in a published preview
 
 Governance ▸ Audit shows the verify result in words and the project's audit rows, 50 to a page,

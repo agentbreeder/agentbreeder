@@ -5,6 +5,7 @@
 // into a new version, and the agent moved to it, from `edit.js` (#826, M10); forking is M9a.
 
 import { href } from "../lib/router.js";
+import { ToolFacts } from "./tool.js";
 import {
   KINDS, ROOT_LABELS, deployedLines, diffStats, groupByName, hunkHeader, noHunkReason, usedByText, useText, verifyLabel, verifyState,
 } from "../lib/registry.js";
@@ -172,6 +173,7 @@ function Version({ project, version, entry, kind, onSaved, onMoved }) {
           <dt>Version hash</dt><dd><code><${Text} value=${data.sha256} /></code></dd>
           <dt>Root</dt><dd><span class="badge">${ROOT_LABELS[data.root_kind] || data.root_kind}</span> <code><${Text} value=${data.path} /></code></dd>
         </dl>
+        <${ToolFacts} data=${data} />
         ${data.omitted ? html`<p class="muted small">Some files are not shown: the version's text budget ran out. <code>agentbreeder registry show</code> prints the same view.</p>` : null}
         <h3>Files</h3>
         <ul class="files">${(data.files || []).map((file) => html`<li key=${file.path}><${FileView} file=${file} /></li>`)}</ul>`
