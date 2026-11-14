@@ -12,14 +12,6 @@ On main, not in a published preview.
 
 ### Added
 
-- Console Try it (#823, M7 console half, first part), on `main`, not in a published preview: chat
-  with a project's production deployment from a Deployments row or the guided path's Try it step.
-  Each message runs `invoke NAME - --json` with the text on stdin, never argv, as an uncached
-  read that is not a job and is never stored. Candidates are refused. Replies are plain text with
-  a Turn details inspector (tools, sources, latency, tokens, the trace ID; cost and a trace link
-  wait for #906 and #907). The screen states the cost and that the endpoint is unauthenticated.
-  See `docs/command-center.md`.
-
 - `agentbreeder list --all [--json]` and `new agent NAME --model gemini --stack-for agent.yaml`
   (#823, M7, CLI half), on `main`, not in a published preview: `services up` records the project
   path in the stack's meta; `list --all` lists the default state and every stack's deployments
@@ -348,6 +340,16 @@ On main, not in a published preview.
   `--state-dir` it ran with.
 
 ### Changed
+
+- `agentbreeder services up` also writes `agent-database` (the `DATABASE_URL` binding in host
+  form) and, when the database service's `console_database` param is set, `console-database`
+  (its `operator_only` `console` output in host form) beside `eval-database` in the
+  environment's deploy state, for CLI commands on the host (#828, M12 prerequisite), on `main`,
+  not in a published preview. A removed binding or console role deletes the stale file. The three
+  names are reserved: a deploy manifest that references `secret://eval-database`,
+  `secret://agent-database` or `secret://console-database` is now denied with
+  `SECRET_RESERVED` (before, `eval-database` could be mounted into an agent). See
+  `docs/services.md`.
 
 - "Command center" is now "console" (#816, M0b, slice 3), on `main`, not in a published
   preview: `agentbreeder up`'s help, its startup line ("AgentBreeder console: URL") and stop
