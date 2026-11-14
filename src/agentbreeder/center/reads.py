@@ -285,7 +285,8 @@ class Reads:
                     {
                         "name": name,
                         "ref": entry.ref,
-                        "relay": f"mcp-{name}",
+                        # `mcp_stack.relay_name`: `_` becomes `-`.
+                        "relay": "mcp-" + name.replace("_", "-"),
                         "locked": identity,
                         # A changed ref is pinned again (with consent) at the next `services up`.
                         # A changed origin or upstream is too, but needs the registry to see.

@@ -84,6 +84,15 @@ def test_pins_of_another_version_are_not_shown(center, project, cookie, project_
     assert server["lock_current"] is False and server["pins"] == {}
 
 
+def test_the_relay_is_named_as_the_cli_names_it(center, project, cookie, project_dir):
+    text = GRANTED.replace(
+        "  github: {ref: mcp/github@1.0.0}", "  git_hub: {ref: mcp/github@1.0.0}"
+    )
+    (project_dir / "stack.yaml").write_text(text.replace("mcp: {github:", "mcp: {git_hub:"))
+    server = _view(center, project, cookie)["data"]["servers"][0]
+    assert server["relay"] == mcp_stack.relay_name("git_hub") == "mcp-git-hub"
+
+
 def test_a_stack_without_mcp_servers(center, project, cookie, project_dir):
     text = GRANTED.replace("mcp:\n  github: {ref: mcp/github@1.0.0}\n", "").replace(
         "      mcp: {github: [get_me, list_issues]}\n", ""
