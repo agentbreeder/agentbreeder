@@ -1,0 +1,9 @@
+usage: agentbreeder evals [-h] {list,show} ...
+
+positional arguments:
+  {list,show}
+    list       List saved eval reports, newest first
+    show       Show one saved eval report, per case
+
+options:
+  -h, --help   show this help message and exit
