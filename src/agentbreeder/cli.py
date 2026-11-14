@@ -196,6 +196,8 @@ def _use_stack(args) -> int | None:
 
     if args.command in ("cluster", "watch"):
         return None  # their --stack names the project; they need no operator config
+    if args.command == "list" and args.all and args.stack is not None:
+        _parser().error("use --all or --stack, not both")
     if getattr(args, "stack", None) is None:
         if args.command in (
             "status",

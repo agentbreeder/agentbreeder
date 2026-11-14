@@ -1129,3 +1129,15 @@ def test_cli_services_plan(env, monkeypatch, capsys):
     monkeypatch.setattr(engine_module, "DockerCLI", FakeDocker)
     assert cli.main(["services", "plan", str(env), "--environment", "dev"]) == 0
     assert "Services:" in capsys.readouterr().out
+
+
+def test_up_records_the_project_path_in_stack_meta(env):
+    from agentbreeder.services.state import PROJECT_KEY, StackState
+
+    result, _ = up(env)
+    stack = Path(result["state_dir"]).parents[2]
+    state = StackState.open_directory(stack)
+    try:
+        assert state.get(PROJECT_KEY) == str(env.resolve())
+    finally:
+        state.close()

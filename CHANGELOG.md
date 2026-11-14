@@ -12,6 +12,14 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder list --all [--json]` and `new agent NAME --model gemini --stack-for agent.yaml`
+  (#823, M7, CLI half), on `main`, not in a published preview: `services up` records the project
+  path in the stack's meta; `list --all` lists the default state and every stack's deployments
+  read-only (validated directory names, no symlinks, `AGENTBREEDER_STACKS_DIR`, unreadable or
+  unsupported stores reported and skipped); `--stack-for` writes the starter's `stack.yaml` and
+  LiteLLM config beside an existing `agent.yaml` (gemini; agents with knowledge, tools or MCP
+  refused), after the console's ownership check (S-01). See `docs/commands.md`.
+
 - Console guided path and Create starter (#820, M4), on `main`, not in a published preview: Home
   shows the project's `next --json` checklist (state as icon and word, reason, the current step's
   button, command and note), the top bar a "Next" pill, finished jobs a result row, and empty Home

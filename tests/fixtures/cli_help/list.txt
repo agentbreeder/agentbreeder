@@ -1,5 +1,5 @@
 usage: agentbreeder list [-h] [--state-dir STATE_DIR] [--json] [--stack DIR]
-                         [--environment ENVIRONMENT]
+                         [--environment ENVIRONMENT] [--all]
 
 options:
   -h, --help            show this help message and exit
@@ -9,3 +9,6 @@ options:
                         wrote for DIR
   --environment ENVIRONMENT
                         With --stack: the stack environment
+  --all                 Also list every stack's deployments under
+                        ~/.agentbreeder/stacks (AGENTBREEDER_STACKS_DIR),
+                        read-only; stacks it cannot read are reported
