@@ -20,6 +20,7 @@ from agentbreeder.center.files import BadRequest
 
 OLD = "prompt/hello-prompt@0.1.0"
 NEW = "prompt/hello-prompt@0.1.1"
+EVAL_OLD = "eval/hello-evals@0.1.0"
 
 
 @pytest.fixture(autouse=True)
@@ -151,8 +152,11 @@ def test_a_shared_version_is_not_edited_in_place(
 @pytest.mark.parametrize(
     "body,code",
     [
-        ({"ref": "eval/hello-evals@0.1.0"}, "EDIT_KIND"),
         ({"ref": "tool/t@1.0.0"}, "EDIT_KIND"),
+        ({"ref": EVAL_OLD, "path": "manifest.yaml"}, "EDIT_INVALID"),
+        ({"ref": EVAL_OLD, "path": "fixtures.sql"}, "EDIT_PATH"),
+        ({"ref": EVAL_OLD, "path": "more/golden.jsonl"}, "EDIT_PATH"),
+        ({"ref": EVAL_OLD}, "EDIT_PATH"),  # prompt.md is not an eval cases file
         ({"ref": "prompt/hello-prompt"}, "REF_INVALID"),
         ({"ref": None}, "REF_INVALID"),
         ({"path": "../x"}, "ENTRY_UNSAFE"),
@@ -172,6 +176,81 @@ def test_bad_edit_requests_never_reach_the_cli(center, project, cookie, calls, b
     status, data, _ = edit(center, project, cookie, **request)
     assert status == 400 and data["error"]["code"] == code, data
     assert calls == []
+
+
+EVALS = "registry/eval/hello-evals"
+
+
+def test_an_eval_set_edit_is_reviewed_then_saved_like_a_prompt(
+    center,
+    project,
+    cookie,
+    project_dir,
+    calls,  # noqa: F811
+):
+    """M10 PR 2: the case editor sends the rebuilt cases file; the CLI loads the edited set as
+    `release` does and writes exactly the reviewed bytes."""
+    original = (project_dir / EVALS / "0.1.0/golden.jsonl").read_text()
+    added = (
+        '{"id": "refund", "turns": ["Can I get a refund?"], "expect": {"must_match": ["30 days"]},'
+        ' "reference": "Refunds are given within 30 days."}\n'
+    )
+    text = original + added
+    _, review, _ = edit(
+        center, project, cookie, ref=EVAL_OLD, path="golden.jsonl", text=text, version="0.1.1"
+    )
+    assert review["error"] is None, review
+    assert review["data"]["ref"] == "eval/hello-evals@0.1.1"
+    assert calls[-1][1] == text  # on stdin
+    _, saved, _ = edit(
+        center, project, cookie,
+        ref=EVAL_OLD, path="golden.jsonl", text=text, version="0.1.1",
+        digest=review["data"]["sha256"],
+    )  # fmt: skip
+    assert saved["error"] is None, saved
+    assert (project_dir / EVALS / "0.1.1/golden.jsonl").read_text() == text
+    assert (project_dir / EVALS / "0.1.0/golden.jsonl").read_text() == original
+
+
+def test_a_broken_case_is_the_clis_eval_invalid_with_its_line(
+    center,
+    project,
+    cookie,
+    project_dir,  # noqa: F811
+):
+    original = (project_dir / EVALS / "0.1.0/golden.jsonl").read_text()
+    text = original + '{"id": "no-reference", "turns": ["hi"]}\n'
+    _, review, _ = edit(
+        center, project, cookie, ref=EVAL_OLD, path="golden.jsonl", text=text, version="0.1.1"
+    )
+    assert review["data"] is None and review["error"]["code"] == "EVAL_INVALID"
+    assert "golden.jsonl:3 needs id, turns, reference" in review["error"]["message"]
+    assert not (project_dir / EVALS / "0.1.1").exists()
+
+
+def test_a_code_kind_save_needs_the_code_confirm(monkeypatch):
+    """The kind hook M12 uses for tools: a review needs no confirm, a save does."""
+    import re
+
+    code = edits.EditKind(re.compile(r"src/.+\.py"), "source files", code=True)
+    monkeypatch.setitem(edits.KINDS, "tool", code)
+    body = {"ref": "tool/t@1.0.0", "path": "src/t.py", "text": "x = 1\n", "version": "1.0.1"}
+    assert edits.edit_request(body)["digest"] is None
+    digest = "sha256:" + "a" * 64
+    for confirmed in (None, False, "true", 1):
+        with pytest.raises(BadRequest) as refused:
+            edits.edit_request({**body, "digest": digest, "code_confirmed": confirmed})
+        assert refused.value.code == "CODE_NOT_CONFIRMED"
+    confirmed = edits.edit_request({**body, "digest": digest, "code_confirmed": True})
+    assert confirmed["digest"] == digest
+    with pytest.raises(BadRequest) as refused:
+        edits.edit_request({**body, "path": "README.md"})
+    assert refused.value.code == "EDIT_PATH"
+    # A kind not in KINDS (EDITABLE follows KINDS at import) is refused before its paths.
+    monkeypatch.delitem(edits.KINDS, "tool")
+    with pytest.raises(BadRequest) as refused:
+        edits.edit_request({**body, "ref": "service/s@1.0.0"})
+    assert refused.value.code == "EDIT_KIND"
 
 
 def test_edit_path_codes_match_the_cli():
