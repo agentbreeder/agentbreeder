@@ -283,8 +283,9 @@ def job(name: str, data: dict) -> int:
 
 def real(argv: list[str]) -> int:
     """`registry show` and `registry diff` read only registry files; `registry edit` and
-    `agent set-ref` (#826) write only the project's files, and `new agent --stack-for`
-    writes only stack.yaml beside an agent.yaml: the real commands."""
+    `agent set-ref` (#826) write only the project's files, `new agent --stack-for`
+    writes only stack.yaml beside an agent.yaml, and `new agent --from-spec` (#833) only the new
+    project's folder: the real commands."""
     from agentbreeder import cli
 
     return cli.main(argv)
@@ -408,6 +409,8 @@ def main(argv: list[str]) -> int:
         print(text.replace("@PROJECT@", argv[1]))
     elif head == ["new", "agent"] and any(arg.startswith("--stack-for=") for arg in argv):
         return real(argv)  # onboarding an agent.yaml alone (#823) only writes beside it
+    elif head == ["new", "agent"] and any(arg.startswith("--from-spec=") for arg in argv):
+        return real(argv)  # the agent builder (#833) writes only the new project's folder
     elif head == ["new", "agent"]:
         if data["new_error"]:
             print(json.dumps({"schema_version": 1, "error": data["new_error"]}))

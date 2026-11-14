@@ -53,6 +53,8 @@ ALLOWED = {
     "agentbreeder.center.toollog",
     # Onboard an agent.yaml alone (#823): pure request and answer checks; imports center.files.
     "agentbreeder.center.onboard",
+    # Build an agent (#833): request and answer checks and the private spec file; no engine.
+    "agentbreeder.center.builder",
     # stack.yaml's agents for the identity strip (#823): pydantic models, no state or Docker.
     "agentbreeder.services",
     "agentbreeder.services.schema",
