@@ -37,6 +37,7 @@ from urllib.parse import parse_qs, urlsplit
 from pydantic import ValidationError
 
 from agentbreeder import __version__, guide, registry
+from agentbreeder.center import agents as agent_rows
 from agentbreeder.center import tryit
 from agentbreeder.center.files import (
     BadRequest,
@@ -80,6 +81,7 @@ STATIC_TYPES = {
 EXAMPLES = ("northwind",)
 # `new agent`'s own name rule (`newagent.NAME_PATTERN`; a test keeps them equal). Checked here
 # first so a refused name never reaches a child process or creates the projects folder.
+RELEASE_ROWS = 1000  # audit rows read for an agent's releases: `audit list`'s maximum
 STARTER_NAME = re.compile(r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$")
 GUIDE_TIMEOUT = 60  # `next` runs doctor's checks and one `compose ps`
 OPTIONS = {"services-up": ("digest",), "remove": ("deployment", "target")}
@@ -359,7 +361,43 @@ class Center:
                     "verify": read(["audit", "verify", "--state-dir", state, "--json"]),
                 }
             )
+        if view == "identity":
+            return self.reads.stack_agents(path)
+        if view == "releases":  # the project's release history, from its audit chain (#823)
+            state = self.state_dir(project)
+            if not state:
+                return envelope(None, error("STACK_NOT_UP", "Start the services first"))
+            rows = read(
+                ["audit", "list", "--state-dir", state, "--limit", str(RELEASE_ROWS), "--json"]
+            )
+            if rows["data"] is None:
+                return rows
+            agent = self.reads.agent(path)["data"]
+            return envelope(
+                {
+                    # Release rows name no agent: they are this project's agent.yaml's runs.
+                    "agent": agent.get("name") if isinstance(agent, dict) else None,
+                    "releases": agent_rows.releases(rows["data"]),
+                    # Only the newest RELEASE_ROWS audit rows are read (the CLI's maximum).
+                    "truncated": isinstance(rows["data"], list)
+                    and len(rows["data"]) >= RELEASE_ROWS,
+                },
+                rows["error"],
+                rows["stale"],
+            )
         raise BadRequest("Unknown view", "UNKNOWN_VIEW")
+
+    def agents(self) -> dict:
+        """Every deployment of every stack (`list --all --json`, read-only), each marked with the
+        registered project it belongs to (#823)."""
+        result = self.runner.read(["list", "--all", "--json"])
+        if result["data"] is None:
+            return result
+        try:
+            linked = agent_rows.link_projects(result["data"], self.state.projects())
+        except agent_rows.BadListing as problem:
+            return envelope(None, error("BAD_OUTPUT", str(problem)))
+        return envelope(linked, result["error"], result["stale"])
 
     def logs(self, project: dict, source: str, name: str, query: dict[str, list[str]]) -> dict:
         """One snapshot of a service's or a deployment's logs (#821): `services logs DIR NAME`
@@ -610,6 +648,10 @@ def _deployment_logs(request: Request) -> dict:
     )
 
 
+def _agents(request: Request) -> dict:
+    return request.center.agents()
+
+
 def _try_turn(request: Request) -> dict:
     return request.center.try_turn(request.project(), request.match["agent"], request.body)
 
@@ -669,6 +711,7 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", r"/api/overview", _overview, "/api/overview"),
     Route("GET", r"/api/activity", _activity, "/api/activity", poll=True),
     Route("GET", r"/api/projects", _projects, "/api/projects"),
+    Route("GET", r"/api/agents", _agents, "/api/agents"),
     Route(
         "GET",
         rf"/api/projects/{PROJECT_ID}/(?P<view>[a-z]+)",

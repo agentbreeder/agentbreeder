@@ -29,7 +29,9 @@ def calls(console) -> list[dict]:
 def open_try(page, console, name="demo"):
     sign_in(page, console)
     page.goto(f"{console.origin}/#/agents/{name}/try")
-    expect(page.locator("main h1")).to_contain_text("Try it")
+    expect(
+        page.get_by_role("navigation", name="Agent sections").get_by_role("link", name="Try it")
+    ).to_have_attribute("aria-current", "page")
 
 
 def send(page, text):
@@ -196,7 +198,9 @@ def test_the_conversation_stays_in_the_tab_and_a_reload_clears_it(page, console)
     stored = page.evaluate("JSON.stringify(localStorage) + JSON.stringify(sessionStorage)")
     assert "remember me" not in stored
     page.reload()
-    expect(page.locator("main h1")).to_contain_text("Try it")
+    expect(
+        page.get_by_role("navigation", name="Agent sections").get_by_role("link", name="Try it")
+    ).to_have_attribute("aria-current", "page")
     expect(page.get_by_text("No messages yet.")).to_be_visible()
 
 

@@ -1,0 +1,15 @@
+kind: stack
+schema_version: 1
+name: demo
+services:
+  litellm:
+    ref: service/litellm@1.0.0
+environment:
+  gateway: litellm
+  models: [chat]
+  ceilings: {budget_usd: 5, rpm: 60}
+  agents:
+    demo:
+      sponsor: owner@example.com
+      review_by: "2099-01-01"
+      candidate: true

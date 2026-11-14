@@ -67,6 +67,9 @@ DEFAULT = {
     # it (exit 2, or 1 when sent). The reply defaults to an echo of the message. Every call's
     # argv and stdin are appended to `invoke-calls.json` in the fake directory.
     "invoke": {},
+    # `list --all --json` (Agents, #823): {"deployments", "skipped"}; null lists `deployments`
+    # as rows of a stack whose project is not registered.
+    "list_all": None,
 }
 
 
@@ -181,6 +184,15 @@ def main(argv: list[str]) -> int:
         return job("services-down", data)
     elif argv and argv[0] == "registry":
         print("[]")
+    elif argv[:2] == ["list", "--all"]:
+        listing = data["list_all"] or {
+            "deployments": [
+                {**row, "stack": "demo-0123abcd", "project": None, "environment": "dev"}
+                for row in data["deployments"]
+            ],
+            "skipped": [],
+        }
+        print(json.dumps({"schema_version": 1, **listing}))
     elif argv and argv[0] == "list":
         print(json.dumps(data["deployments"]))
     elif head == ["audit", "list"]:

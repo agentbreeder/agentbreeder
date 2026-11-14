@@ -261,12 +261,83 @@ follows `invoke`'s `sent` flag. A request the console itself refuses (a 4xx such
 and an `invoke` exit 2 without its JSON (a usage error) also count as "Not sent". No answer at
 all, a timeout or a crash count as possibly sent.
 
-**Not yet**: the Agents list and agent detail with the gate strip (the next part of #823, after
-the M7 CLI half), and onboarding an `agent.yaml` alone.
+Try it is also the **Try it** tab of the agent's detail (below), at the same address.
+
+**Not yet**: onboarding an `agent.yaml` alone (the next part of #823).
 
 Tested with Playwright against a fake CLI with axe in light and dark, and on the server with a
 fake `invoke` (argv and stdin, refused requests, the answer's allow-list, no stale answer, nothing
 stored, the in-flight cap, shutdown). Not yet run against a real deployment; that is the M7
+verification.
+
+### Agents (#823, second part): on `main`, not in a published preview
+
+**Agents** (in the sidebar, under Home) lists every deployment of every stack on this machine
+from one `agentbreeder list --all --json`, which reads the default state and every stack's state
+without creating, migrating or locking anything. An answer that is not its documented shape
+(`schema_version` 1) is shown as an error, never as an empty list. Each row shows the agent, its
+project, target, state, image, identity check, endpoint and last release:
+
+- **Candidates** (`NAME-candidate`) are marked "candidate, temporary" in violet: a release
+  removes its candidate when it ends.
+- **Project**: a stack whose recorded project path (resolved, so a symlinked path matches) and
+  environment match a project registered in this console links to the agent's detail. Any other
+  stack shows "not registered" (add its project on Home to open it), and the default state shows
+  "default state". Stacks that could not be read are listed under **Not read** with their code
+  (`STATE_BUSY`, `STATE_NEEDS_MIGRATION`, …). A modified click on an agent opens a new tab.
+- **Identity check** is the value recorded at deploy or by the last `reconcile` (`compliant`,
+  `noncompliant: CODE`, `unverifiable: CODE`, `unbound`), with the time the deployment last
+  changed. Nothing here calls the identity provider.
+- **Last release** is the newest release entry of the project's audit log ("passed 5/5", "eval
+  failed 2/5", "failed (CODE)", "no outcome recorded", "rolled back"), with its time. Audit rows
+  of a release name no agent, so they count as the runs of the project's `agent.yaml` only: any
+  other agent deployed in that stack shows "unknown", as do unregistered projects. The list reads
+  each registered project's releases one after another (each is a `services env` and an `audit
+  list` child), again whenever the list is read again.
+
+Opening an agent from "All projects" switches the scope to its project. The detail
+(`#/agents/NAME`) has:
+
+- **The gate strip**: Build → Candidate → Evals n/N → Identity → Production. Build, Candidate and
+  Evals come from the newest release run in the audit log. A run is the `started` row, which
+  `release` writes once the image is built, paired with its outcome (`promoted`, `eval_failed`, or
+  `failed`, which records only its error). So an eval run that crashed shows Build and Candidate
+  passed and Evals failed with its code, and a run with no outcome (the candidate failed to
+  start, the run stopped, or it is still running) leaves Candidate and Evals "not run". A running
+  `NAME-candidate` shows Candidate in progress. Identity and Production come from the production
+  deployment. Production running another image than the newest promoted or rolled-back one (for
+  example after a plain `deploy`) shows "differs from the last release"; a failed run, or one with
+  no outcome, is not counted as a release. A release that failed at promotion, after its evals passed, says so
+  under Production. Each step has an icon and a word, never
+  colour alone. An agent deployed with a plain `deploy` and never released shows the first three
+  steps as "not run".
+- **The identity strip** shows what `stack.yaml` declares for the agent
+  (`environment.agents.NAME`): that it is declared (the static demo principal `services up`
+  writes for a declared agent), its sponsor and its review date (a date before today, where the
+  browser is, means the gate refuses deploys), and the recorded identity check. Nothing checks
+  that `services up` has run. `stack.yaml` is read in the console process with the same model as
+  `services`, through the same safe file read as `agent.yaml` (a regular file, no symlink, at most
+  64 KiB); an invalid file shows "unknown" with a message that names fields, never values. The
+  principal's own fields (owner, roles, granted actions) wait for #909, which adds them to
+  `list --json`.
+- **Tabs** (a navigation list with the current tab marked): **Overview** (the production
+  deployment and what `agent.yaml` declares: runtime, model alias, prompt, tools, knowledge, MCP
+  servers, evals and threshold), **Try it** (above), **Releases** and **Logs** (a link to the log
+  viewer for each running deployment of the agent, candidates included). Switching tabs keeps
+  focus on the tab and does not read the views again. **Releases** lists the release runs and
+  rollbacks among the newest 1,000 audit rows (`audit list --limit 1000 --json`, the CLI's
+  maximum), newest first: time, result, image and who ran it. When that limit was reached it says
+  older releases are not shown. For an agent that is not the project's `agent.yaml`, it says the
+  project's releases are another agent's and shows none.
+
+Until the shell computes titles from the route (#915), every detail's heading is "Agent", and
+going straight from one agent's detail to another's (back and forward) keeps focus where it was.
+
+Tested with Playwright against a fake CLI (the list across stacks, opening from "All projects",
+both strips, every tab, an agent with nothing deployed, another agent's releases), with axe in
+light and dark, and on the server against a fake CLI (argv, linking rows to projects, unexpected
+listings, pairing release rows, rollbacks, the 1,000-row cut, `stack.yaml` errors that never echo
+values, a symlinked `stack.yaml`). Not yet run against real deployments; that is the M7
 verification.
 
 ## How it stays the same engine
