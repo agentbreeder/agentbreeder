@@ -26,11 +26,12 @@ Run `agentbreeder COMMAND --help` for flags; see the root README for the demo.
 - [`build`](commands/build.md): Build an agent file into an image and a deploy manifest (never deploys).
 - [`cluster`](commands/cluster.md): A local kind cluster for one stack (preview).
 - [`cost`](commands/cost.md): Show LLM cost per deployment or per model from the gateway's spend logs (read-only).
-- [`deploy`](commands/deploy.md): Gate and deploy a manifest.
+- [`deploy`](commands/deploy.md): Gate and deploy a manifest, or a released agent/NAME@X.Y.Z package.
 - [`disable`](commands/disable.md): Persist a principal blocker and stop its workloads.
 - [`doctor`](commands/doctor.md): Check local Docker prerequisites without changes.
 - [`enable`](commands/enable.md): Clear a principal blocker (starts nothing).
 - [`eval`](commands/eval.md): Run an agent's eval set against a running endpoint.
+- [`evals`](commands/evals.md): List or show the eval reports release saved (read-only).
 - [`events`](commands/events.md): List stored events (failed jobs, eval gate failures, containers that exited).
 - [`example`](commands/example.md): Copy a shipped example project (`example list` shows them).
 - [`forward`](commands/forward.md): Open a loopback port to a Kubernetes deployment.
@@ -38,6 +39,7 @@ Run `agentbreeder COMMAND --help` for flags; see the root README for the demo.
 - [`list`](commands/list.md): List deployments that are not removed (read-only, no IdP calls).
 - [`login`](commands/login.md): Sign in with the operator's OIDC device flow.
 - [`logs`](commands/logs.md): Show a local deployment's logs (redacted), or the saved tail of a failed candidate.
+- [`mcp`](commands/mcp.md): Grant or revoke an agent's MCP tools in stack.yaml.
 - [`migrate`](commands/migrate.md): Upgrade the local state to this version's schema (no IdP calls).
 - [`new`](commands/new.md): Write a starter project (`new agent NAME`).
 - [`next`](commands/next.md): Show where this project is on the guided path and the command to run next.
@@ -52,6 +54,7 @@ Run `agentbreeder COMMAND --help` for flags; see the root README for the demo.
 - [`secret`](commands/secret.md): Manage local secret files (secret:// refs).
 - [`services`](commands/services.md): Local backing services from stack.yaml (local-only preview).
 - [`status`](commands/status.md): Show a deployment and re-verify its principal.
+- [`tool`](commands/tool.md): List a registry tool's recorded calls from the stack's database (read-only).
 - [`traces`](commands/traces.md): Show recent agent traces per deployment from the stack's Phoenix (read-only).
 - [`up`](commands/up.md): Start the local console on 127.0.0.1 (single user, preview).
 - [`validate`](commands/validate.md): Validate a deploy manifest or an agent file (kind: agent).

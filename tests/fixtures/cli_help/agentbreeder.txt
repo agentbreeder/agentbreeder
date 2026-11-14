@@ -1,5 +1,5 @@
 usage: agentbreeder [-h] [--version]
-                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,traces,next,new,invoke,watch,events,cost}
+                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,evals,release,registry,tool,agent,secret,services,mcp,promote,cluster,up,login,migrate,logs,traces,next,new,invoke,watch,events,cost}
                     ...
 
 Local development: validate, gate and deploy trusted HTTP containers. The
@@ -8,7 +8,7 @@ Opt-in runtime enforcement covers MCP Streamable HTTP tool calls through the
 egress sidecar only.
 
 positional arguments:
-  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,traces,next,new,invoke,watch,events,cost}
+  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,evals,release,registry,tool,agent,secret,services,mcp,promote,cluster,up,login,migrate,logs,traces,next,new,invoke,watch,events,cost}
     validate            Validate a deploy manifest or an agent file (kind:
                         agent)
     doctor              Check local Docker prerequisites without changes
@@ -16,7 +16,8 @@ positional arguments:
                         them)
     quickstart          Build, gate, deploy, invoke and remove the sample
                         (needs Docker)
-    deploy              Gate and deploy a manifest
+    deploy              Gate and deploy a manifest, or a released
+                        agent/NAME@X.Y.Z package
     status              Show a deployment and re-verify its principal
     remove              Remove a deployment
     forward             Open a loopback port to a Kubernetes deployment
@@ -33,13 +34,18 @@ positional arguments:
     build               Build an agent file into an image and a deploy
                         manifest (never deploys)
     eval                Run an agent's eval set against a running endpoint
+    evals               List or show the eval reports release saved (read-
+                        only)
     release             Build, deploy a candidate, run the eval gate, promote
                         the exact image if it passes
     registry            Author and inspect registry versions
+    tool                List a registry tool's recorded calls from the stack's
+                        database (read-only)
     agent               Change the project's agent.yaml
     secret              Manage local secret files (secret:// refs)
     services            Local backing services from stack.yaml (local-only
                         preview)
+    mcp                 Grant or revoke an agent's MCP tools in stack.yaml
     promote             Deploy the released image to Kubernetes, without
                         rebuilding it
     cluster             A local kind cluster for one stack (preview)

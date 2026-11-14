@@ -81,7 +81,7 @@ def test_a_message_goes_by_stdin_and_the_reply_shows_its_inspector(page, console
         "Not measured: this runtime did not report it"
         " (runtime/adk 1.2.0 and later do when every model call had a cost)"
     )
-    expect(details.locator("a")).to_have_count(0)  # no trace link until #907
+    expect(details.locator("a")).to_have_count(0)  # no trace link: the span tree opens in place
     [call] = calls(console)
     assert call["argv"][:3] == ["invoke", "demo", "-"] and "--json" in call["argv"]
     assert call["stdin"] == "Where is order 1001? ✓"
@@ -128,7 +128,7 @@ def test_a_reply_is_plain_text_never_markdown_or_links(page, console, violations
     expect(agent.locator(".turn-text")).to_contain_text("<img src=x onerror=alert(1)>")
     expect(agent.locator(".esc")).to_have_text("\\x1b")  # the control shown escaped
     expect(agent.locator("a, img, b, strong")).to_have_count(0)
-    agent.locator("summary").click()
+    agent.locator("details.inspector summary").click()
     expect(agent.locator("dl.facts")).to_contain_text("<b>t</b>")
     assert violations(page) == []
 
@@ -235,12 +235,149 @@ def test_the_done_try_step_opens_try_it_for_the_guides_agent(page, console):
     expect(turns(page).first.locator(".bubble.agent .turn-text")).to_have_text("You said: Hello")
 
 
+def trace_calls(console) -> list[list[str]]:
+    path = Path(console.state) / "traces-calls.json"
+    return json.loads(path.read_text()) if path.is_file() else []
+
+
+def open_trace(turn):
+    """Open a replied turn's trace disclosure (beside its Turn details)."""
+    trace = turn.locator("details.trace")
+    trace.locator("summary").click()
+    return trace
+
+
+def test_a_turns_trace_opens_as_a_span_tree(page, console):
+    console.scenario(deployments=DEPLOYMENTS)
+    open_try(page, console)
+    send(page, "Where is order 1001?")
+    turn = turns(page).first
+    expect(turn.locator(".bubble.agent .turn-text")).to_be_visible()
+    assert trace_calls(console) == []  # read only when opened
+    trace = open_trace(turn)
+    expect(trace).to_contain_text(
+        "Error · 41 ms · 3 spans · model gemini-2.5-flash · 391 tokens · 1 tool call"
+    )
+    expect(trace).to_contain_text("Recorded by the agent's runtime for this deployment.")
+    expect(trace).to_contain_text("Prompts, replies and tool arguments are never read")
+    tree = trace.get_by_role("list", name="Spans of this trace")
+    root = tree.locator(":scope > li")
+    expect(root).to_have_count(1)
+    expect(root.locator(".span-name").first).to_have_text("agent_turn")
+    children = root.locator(":scope > ul > li")
+    expect(children).to_have_count(2)
+    expect(children.nth(0)).to_contain_text(
+        "litellm.completion llm · 20 ms · model gemini-2.5-flash · 321 in, 70 out tokens"
+    )
+    expect(children.nth(1)).to_contain_text("lookup_order tool · error · 11 ms")
+    expect(children.nth(1)).to_contain_text("Error: order not found")
+    expect(trace.locator("a")).to_have_count(0)
+    [argv] = trace_calls(console)
+    assert argv[:3] == ["traces", "--trace", "ab" * 16]
+    assert argv[3:] == ["--stack", argv[4], "--environment", "dev", "--json"]
+    # Closing and opening again does not read it again.
+    trace.locator("summary").click()
+    trace.locator("summary").click()
+    expect(tree).to_be_visible()
+    assert len(trace_calls(console)) == 1
+
+
+def test_a_trace_phoenix_does_not_have_yet_can_be_read_again(page, console):
+    console.scenario(deployments=DEPLOYMENTS, traces={"missing": 1})
+    open_try(page, console)
+    send(page, "hi")
+    expect(turns(page).first.locator(".bubble.agent .turn-text")).to_be_visible()
+    trace = open_trace(turns(page).first)
+    expect(trace.get_by_role("alert")).to_contain_text(
+        "Phoenix does not have this trace yet; it can take a few seconds to arrive."
+        " [TRACES_NOT_FOUND]"
+    )
+    trace.get_by_role("button", name="Read again").click()
+    expect(trace.get_by_role("list", name="Spans of this trace")).to_be_visible()
+    # The button is gone while reading; focus stays in the panel, on its status line.
+    expect(trace.locator(".trace-status")).to_be_focused()
+    expect(trace.locator(".trace-status")).to_have_text("Trace read: 3 spans.")
+    expect(trace.get_by_role("alert")).to_have_count(0)
+    assert len(trace_calls(console)) == 2
+
+
+def test_a_stack_without_phoenix_says_so(page, console):
+    problem = {"code": "TRACES_NO_PHOENIX", "message": "no phoenix"}
+    console.scenario(deployments=DEPLOYMENTS, traces={"error": problem})
+    open_try(page, console)
+    send(page, "hi")
+    expect(turns(page).first.locator(".bubble.agent .turn-text")).to_be_visible()
+    trace = open_trace(turns(page).first)
+    expect(trace.get_by_role("alert")).to_contain_text("This stack does not run Phoenix")
+
+
+def test_a_deep_chain_nests_eight_levels_then_lists_the_rest(page, console):
+    spans = [
+        {"span_id": f"{i + 1:016x}", "parent_id": f"{i:016x}" if i else None, "name": f"s{i}"}
+        for i in range(500)
+    ]
+    console.scenario(deployments=DEPLOYMENTS, traces={"spans": spans})
+    open_try(page, console)
+    send(page, "hi")
+    expect(turns(page).first.locator(".bubble.agent .turn-text")).to_be_visible()
+    trace = open_trace(turns(page).first)
+    tree = trace.get_by_role("list", name="Spans of this trace")
+    expect(tree.locator("li")).to_have_count(500)
+    assert tree.locator("ul").count() == 9  # depths 1-8, then one flat list
+    expect(tree.locator("li").last).to_contain_text("s499")
+
+
+def test_a_trace_with_no_spans_says_so(page, console):
+    console.scenario(deployments=DEPLOYMENTS, traces={"spans": []})
+    open_try(page, console)
+    send(page, "hi")
+    expect(turns(page).first.locator(".bubble.agent .turn-text")).to_be_visible()
+    trace = open_trace(turns(page).first)
+    expect(trace).to_contain_text("Phoenix returned no spans for this trace.")
+    expect(trace.get_by_role("list", name="Spans of this trace")).to_have_count(0)
+
+
+def test_a_turn_without_a_trace_id_has_no_trace_panel(page, console):
+    console.scenario(deployments=DEPLOYMENTS, invoke={"trace_id": None})
+    open_try(page, console)
+    send(page, "hi")
+    turn = turns(page).first
+    expect(turn.locator(".bubble.agent .turn-text")).to_be_visible()
+    turn.locator("details.inspector summary").click()
+    expect(turn.locator("dl.facts")).to_contain_text("No trace for this turn")
+    expect(turn.locator("details.trace")).to_have_count(0)
+
+
+def test_span_text_is_shown_as_text(page, console):
+    hostile = {
+        "span_id": "d" * 16,
+        "parent_id": None,
+        "name": "<img src=x onerror=alert(1)>\u202e",
+        "kind": "TOOL",
+        "status": "error",
+        "tool": "<b>t</b>",
+        "error": "<script>alert(1)</script>",
+    }
+    console.scenario(deployments=DEPLOYMENTS, traces={"spans": [hostile]})
+    open_try(page, console)
+    send(page, "hi")
+    expect(turns(page).first.locator(".bubble.agent .turn-text")).to_be_visible()
+    trace = open_trace(turns(page).first)
+    tree = trace.get_by_role("list", name="Spans of this trace")
+    expect(tree).to_contain_text("<img src=x onerror=alert(1)>")
+    expect(tree).to_contain_text("tool <b>t</b>")
+    expect(tree).to_contain_text("Error: <script>alert(1)</script>")
+    assert tree.locator("img, b, script").count() == 0
+    assert "\u202e" not in tree.inner_text()
+
+
 def test_try_it_with_a_conversation_has_no_serious_axe_findings(scheme_page, console):  # noqa: F811
     console.scenario(deployments=DEPLOYMENTS)
     open_try(scheme_page, console)
     send(scheme_page, "hello")
     expect(turns(scheme_page).first.locator(".bubble.agent .turn-text")).to_be_visible()
-    turns(scheme_page).first.locator("summary").click()
+    trace = open_trace(turns(scheme_page).first)
+    expect(trace.get_by_role("list", name="Spans of this trace")).to_be_visible()
     found = blocking(scheme_page, "try it, reply")
     console.scenario(
         deployments=DEPLOYMENTS,

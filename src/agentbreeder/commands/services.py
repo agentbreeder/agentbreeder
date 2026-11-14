@@ -1,17 +1,27 @@
-"""`agentbreeder services up|plan|status|logs|usage|env|down`: local backing services from
-stack.yaml (local-only preview)."""
+"""`agentbreeder services up|plan|status|logs|usage|env|down|start|stop|restart`: local backing
+services from stack.yaml (local-only preview). Every write (up, down, start, stop, restart) runs
+under the per-stack lock (S-11, `state.services_lock`)."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import sys
 from pathlib import Path
 
-from agentbreeder import cli, hints, registry, secret_files
+from agentbreeder import cli, hints, registry, safe_text, secret_files
 from agentbreeder.store import DeploymentError
 
 NAMES = ("services",)
+CONTROL_HELP = {
+    "start": "Start one service's existing container",
+    "stop": "Stop one service's container (keeps it and its data)",
+    "restart": "Restart one service's container (only that one)",
+}
+SCHEMA_VERSION = 1
+# Every command that changes the stack or its state dir (`plan` records ports and file copies).
+WRITES = ("up", "down", "plan", *CONTROL_HELP)
 
 
 def register(commands) -> None:
@@ -91,6 +101,16 @@ def register(commands) -> None:
     from agentbreeder.commands import usage as usage_command
 
     usage_command.register(service_commands)
+    for verb, text in CONTROL_HELP.items():
+        control = service_commands.add_parser(verb, help=text)
+        control.add_argument("target", nargs="+", metavar="[DIR] NAME")
+        if verb != "start":
+            control.add_argument(
+                "--yes",
+                action="store_true",
+                help=f"{verb.capitalize()} it even while deployments use the stack",
+            )
+        control.add_argument("--json", action="store_true", help="Print the result as JSON")
     sv_env = service_commands.add_parser("env", help="Print exports for the stack's config")
     sv_env.add_argument("dir", nargs="?", type=Path, default=Path("."))
     sv_env.add_argument("--environment")
@@ -109,7 +129,7 @@ def register(commands) -> None:
 
 def run(args) -> int:
     from agentbreeder.services import plan as stack_plan
-    from agentbreeder.services.engine import Engine
+    from agentbreeder.services.engine import Engine, check_locked, write_lock
     from agentbreeder.services.schema import ServiceError
 
     command = args.services_command
@@ -117,9 +137,9 @@ def run(args) -> int:
         from agentbreeder.commands import usage as usage_command
 
         return usage_command.run(args)
-    if command == "logs":
+    if command in ("logs", *CONTROL_HELP):
         if len(args.target) > 2:
-            cli._parser().error("logs takes [DIR] NAME")
+            cli._parser().error(f"{command} takes [DIR] NAME")
         directory = Path(args.target[0]) if len(args.target) == 2 else Path(".")
         name = args.target[-1]
     else:
@@ -134,8 +154,16 @@ def run(args) -> int:
         if getattr(args, "json", False)
         else (lambda message: print(message, file=sys.stderr))
     )
+    held = contextlib.ExitStack()
     try:
+        locked = None
+        if command in WRITES:  # S-11: one services write per stack, taken before Engine()
+            locked = held.enter_context(write_lock(directory))
         engine = Engine(directory, log=log)
+        if locked is not None:
+            check_locked(engine, locked)
+        if command in CONTROL_HELP:
+            return _control(engine, command, name, args)
         if command == "up":
 
             def confirm(grant: dict) -> bool:
@@ -221,14 +249,14 @@ def run(args) -> int:
         secret_files.SecretError,
         DeploymentError,
     ) as error:
-        if command == "logs" and getattr(error, "code", None):
+        if command in ("logs", *CONTROL_HELP) and getattr(error, "code", None):
             from agentbreeder.commands import logs as logs_command
 
             return logs_command._fail(args, error)  # `--json` gets the error object too
         print(cli._message(error), file=sys.stderr)
         return 2
     except (OSError, sqlite3.Error):
-        if command == "logs":
+        if command in ("logs", *CONTROL_HELP):
             from agentbreeder.commands import logs as logs_command
 
             return logs_command._fail(
@@ -240,8 +268,26 @@ def run(args) -> int:
         print("Cannot access the stack state; check permissions and disk space", file=sys.stderr)
         return 2
     finally:
+        held.close()
         if engine is not None:
             engine.close()
+
+
+def _control(engine, verb: str, name: str, args) -> int:
+    """`services start|stop|restart [DIR] NAME [--yes] [--json]`: `{"schema_version", "stack",
+    "service", "action", "state", "health", "in_use"}`; errors as `logs` (a coded line on
+    stderr, plus `{"schema_version", "error": {"code", "message"}}` under --json)."""
+    result = engine.control(verb, name, force=getattr(args, "yes", False))
+    if result["in_use"]:
+        names = safe_text.visible(", ".join(result["in_use"]))
+        print(f"WARNING: {verb} with active deployments: {names}", file=sys.stderr)
+    if args.json:
+        print(json.dumps({"schema_version": SCHEMA_VERSION, **result}, indent=2))
+        return 0
+    health = f", {result['health']}" if result["health"] else ""
+    past = {"start": "started", "stop": "stopped", "restart": "restarted"}[verb]
+    print(f"{name} {past} ({result['state']}{health})")
+    return 0
 
 
 def _next_after_up(directory: Path, environment: str) -> str | None:

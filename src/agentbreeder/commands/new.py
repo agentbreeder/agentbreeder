@@ -59,6 +59,14 @@ def register(commands) -> None:
         ),
     )
     agent.add_argument("--dry-run", action="store_true", help="Show what would be written")
+    agent.add_argument(
+        "--expect-digest",
+        metavar="SHA256",
+        help=(
+            "With --stack-for: refuse unless agent.yaml still has this digest (agent_sha256 "
+            "from --dry-run --json)"
+        ),
+    )
     agent.add_argument("--json", action="store_true", help="Print the result as JSON")
 
 
@@ -67,6 +75,9 @@ def run(args) -> int:
 
     if args.stack_for is not None:
         return _stack_for(args)
+    if args.expect_digest is not None:
+        error = newagent.NewAgentError("USAGE", "--expect-digest needs --stack-for")
+        return _refused(error, args)
     try:
         plan = newagent.plan(args.name, args.model, args.dir, model_id=args.model_id)
         if args.dry_run:
@@ -104,7 +115,13 @@ def _stack_for(args) -> int:
     from agentbreeder.safe_text import visible
 
     try:
-        plan = stackfor.plan(args.name, args.model, args.stack_for, model_id=args.model_id)
+        plan = stackfor.plan(
+            args.name,
+            args.model,
+            args.stack_for,
+            model_id=args.model_id,
+            expect_digest=args.expect_digest,
+        )
         if args.dry_run:
             stackfor.check(plan)
         else:
@@ -120,6 +137,11 @@ def _stack_for(args) -> int:
     lines = [f"{verb} a stack for the {summary['name']} agent in {directory}:"]
     lines += [f"  {entry['path']}" for entry in summary["files"]]
     lines.append(f"Gateway aliases: {', '.join(summary['aliases'])} ({summary['model']}).")
+    code = [entry for entry in summary["refs"] if entry["runs_code"]]
+    code = [entry for entry in code if entry["root_kind"] != "builtin"]
+    if code:
+        refs = ", ".join(f"{entry['ref']} ({entry['root_kind']})" for entry in code)
+        lines.append(f"Code that runs in agents, not shipped with AgentBreeder: {refs}.")
     lines.append(f"The gate refuses deploys after review_by {summary['review_by']} (stack.yaml).")
     lines += [f"Warning: {warning}" for warning in summary["warnings"]]
     if not summary["verified"]:

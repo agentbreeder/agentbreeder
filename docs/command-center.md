@@ -342,15 +342,28 @@ The server passes on only these checked fields of `invoke --json`'s answer:
 - the model-call and token counts.
 
 It adds the latency it measured. Each reply has a **Turn details** inspector with the tools,
-sources, latency, tokens (prompt and output, over N model calls) and the trace ID as text. A
-trace link waits for #907, which records a Phoenix origin the console can link to; the answer
-keeps a `trace.url` field, null, for it. **Cost** is the turn's cost in USD that
+sources, latency, tokens (prompt and output, over N model calls) and the trace ID as text. There
+is no trace link (the answer's `trace.url` stays null). **Cost** is the turn's cost in USD that
 `runtime/adk@1.2.0` and later report (`cost_usd`, the sum of LiteLLM's per-call estimates; see
 [`cost.md`](cost.md#per-turn-cost-runtimeadk120)), shown in the inspector and its summary, such as
 "$0.000444". The server passes it on only as a finite number from 0 to under 1,000,000, otherwise
 null. Older runtimes don't report it, and neither does 1.2.0 when a call in the turn had no cost
 header: the inspector then says "Not measured" and why. Tested with a fake CLI and with the runtime's
 scripted gateway responses; no live gateway cost has been shown yet.
+
+**Trace spans** (#907, on `main`, not in a published preview): a turn with a trace ID has a
+second disclosure beside Turn details. The first time it is opened, the server runs
+`traces --trace ID --stack DIR --environment ENV --json` (a fixed argv, never cached; see
+[`traces.md`](traces.md)) through `GET /api/projects/ID/traces/TRACE_ID`. It shows the trace in
+one line (status, latency, span count, models, total tokens, tool calls), how the trace was
+attributed to a deployment (`exact` or by time window), and the span tree as nested lists: each
+span's name, kind, status, latency, model, tool and tokens, and its error text. The server passes on
+only those fields, and the Phoenix address, session and turn IDs stay on the server. `traces` never
+reads prompts, replies or tool arguments and results. Error text is redacted and cut, but it is the
+runtime's own text and can quote what the agent was given. At most 4 trace reads run at once
+(`TRACE_BUSY` otherwise). Phoenix can receive a trace a few seconds after the reply, so
+`TRACES_NOT_FOUND` says so and offers **Read again**; a stack without `service/phoenix` says it has
+no traces. Tested with a fake CLI; the panel has not been run against a live Phoenix yet.
 
 A later message continues the conversation's session (`--session`); **New conversation** starts a
 new one. **Customer ID** is optional and sent as `--customer`.
@@ -370,7 +383,44 @@ all, a timeout or a crash count as possibly sent.
 
 Try it is also the **Try it** tab of the agent's detail (below), at the same address.
 
-**Not yet**: onboarding an `agent.yaml` alone (the next part of #823).
+### Onboard an agent.yaml alone (#823, third part): on `main`, not in a published preview
+
+Home's **Add a project** card has a fourth form, **An agent.yaml alone**: the path of an
+`agent.yaml` (or its directory), the agent's `name:` and a model provider (gemini, or anthropic,
+openai and openrouter, which are config-only), with an optional model id. It is a three-tier
+confirm:
+
+1. **Preview** runs `agentbreeder new agent NAME --model PROVIDER [--model-id=ID]
+   --stack-for=PATH --dry-run --json` and shows what it would write (`stack.yaml` and
+   `stack/litellm/config.yaml`, with their digests), the gateway aliases, the key the stack needs,
+   `review_by`, any warning, and every registry ref the agent uses: where it resolved (this
+   project's registry, `AGENTBREEDER_REGISTRY_PATH` or built in) and whether its kind is code
+   (`tool`, `service`, `eval`, `mcp`, `runtime`). Nothing is written. Editing any field drops the
+   preview.
+2. When a code ref comes from outside the built-in registry (a starter's own eval set, for
+   example), a **This code runs in agents** box names it and says that building and releasing
+   runs it as you, with the stack's model key and database, and that the eval gate is a quality
+   gate, not a security review. Its checkbox must be ticked.
+3. **Write stack.yaml and add project** sends the previewed `agent_sha256`. The server runs the
+   dry run again with `--expect-digest`, refuses `CODE_CONFIRM_REQUIRED` if that run reports code
+   and the box was not ticked, then runs the write with `--expect-digest` (a changed `agent.yaml`
+   is `DIGEST_MISMATCH`: preview again) and registers the directory of the path it checked,
+   which applies the ownership check again (a `stack.yaml` others can write is refused). The
+   project then opens on Services. If the files were written but the project was not added, the
+   error says so: fix the cause, then add the directory under **An existing project** (previewing
+   again would meet `STACK_EXISTS`).
+
+The confirm is a prompt, not a security boundary: anyone with a session can already run project
+code. Refusals show `new agent`'s own coded message (for example `NAME_MISMATCH`,
+`STACK_EXISTS`, `STACK_FOR_UNSUPPORTED` for an agent with tools, knowledge or MCP servers).
+Request text reaches the command only as checked `--flag=value` words.
+
+Tested on the server against a fake CLI and once against the real `new agent --stack-for` (a
+starter's `agent.yaml`: preview, refused without the confirm, written and registered with it),
+and with Playwright and axe in light and dark, where the fake CLI hands `new agent --stack-for`
+to the real command (every other read is faked). An onboarded
+project has not yet been taken through `services up` and `release` from the console: that is the
+M7 verification.
 
 Tested with Playwright against a fake CLI with axe in light and dark, and on the server with a
 fake `invoke` (argv and stdin, refused requests, the answer's allow-list, no stale answer, nothing

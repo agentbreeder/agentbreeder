@@ -1,6 +1,6 @@
 usage: agentbreeder deploy [-h] [--state-dir STATE_DIR] [--json]
                            (--local | --cluster) [--environment ENVIRONMENT]
-                           [--stack DIR]
+                           [--project DIR] [--stack DIR]
                            manifest
 
 positional arguments:
@@ -14,5 +14,7 @@ options:
   --cluster             Target: Kubernetes
   --environment ENVIRONMENT
                         Operator-defined environment name
+  --project DIR         With agent/NAME@X.Y.Z: the project whose ./registry
+                        holds it (default: .)
   --stack DIR           Use the operator config and state that `services up`
                         wrote for DIR

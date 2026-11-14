@@ -15,7 +15,7 @@ from urllib.parse import quote
 from agentbreeder import audit as audit_log
 from agentbreeder.audit import AuditError, AuditEvent
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 _V2_DEPLOYMENT_COLUMNS = (
     ("principal_key", "TEXT"),
     ("principal", "TEXT"),
@@ -103,6 +103,24 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _package_value(text: str | None) -> dict | None:
+    """The `package` column decoded; a value that is not a {ref, sha256} object reads as None."""
+    try:
+        value = json.loads(text) if text else None
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(value, dict) or set(value) != {"ref", "sha256"}:
+        return None
+    return value
+
+
+def _package_text(package: dict | None) -> str | None:
+    """The `package` column: {"ref", "sha256"} as compact JSON, or NULL."""
+    if package is None:
+        return None
+    return json.dumps({"ref": package["ref"], "sha256": package["sha256"]}, separators=(",", ":"))
+
+
 class Store:
     def __init__(self, directory: Path):
         # Secret files are bind-mounted from here with `--mount type=bind,src=…`: Docker needs
@@ -137,7 +155,7 @@ class Store:
                 tables = self.db.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
-                if version not in (0, 1, 2, SCHEMA_VERSION) or (version == 0 and tables):
+                if version not in (0, 1, 2, 3, SCHEMA_VERSION) or (version == 0 and tables):
                     raise DeploymentError(UNSUPPORTED_SCHEMA)
                 if version == 0:
                     self.db.execute("""
@@ -162,6 +180,11 @@ class Store:
                 if version in (0, 1, 2):
                     for statement in _V3_TABLES:
                         self.db.execute(statement)
+                if version in (0, 1, 2, 3):
+                    # v4 (M13 #763): the agent package a deployment runs, {"ref", "sha256"}.
+                    columns = {row[1] for row in self.db.execute("PRAGMA table_info(deployments)")}
+                    if "package" not in columns:
+                        self.db.execute("ALTER TABLE deployments ADD COLUMN package TEXT")
                     self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         except Exception:
             self.db.close()
@@ -214,7 +237,7 @@ class Store:
                 ) from error
             if version == SCHEMA_VERSION:
                 pass
-            elif version in (1, 2) or (version == 0 and not has_tables):
+            elif version in (1, 2, 3) or (version == 0 and not has_tables):
                 raise StateNeedsMigration(
                     f"The local state at {directory} uses schema v{version} and this "
                     f"AgentBreeder uses v{SCHEMA_VERSION}; " + _migrate_hint()
@@ -329,6 +352,7 @@ class Store:
         result = dict(row)
         result.pop("manifest")
         result["principal"] = json.loads(result["principal"]) if result["principal"] else None
+        result["package"] = _package_value(result["package"])
         result["events"] = [
             dict(event)
             for event in self.db.execute(
@@ -411,14 +435,15 @@ class Store:
         revision: str | None = None,
         approval_id: str | None = None,
         audit: AuditEvent | None = None,
+        package: dict | None = None,
     ) -> dict:
         now = _now()
         with self.transaction():
             self.db.execute(
                 "INSERT INTO deployments (id,name,digest,manifest,context,container,resource,"
                 "state,endpoint,error,created,updated,principal_key,principal,environment,"
-                "revision,approval_id,compliance) "
-                "VALUES (?,?,?,?,?,?,NULL,'pending',NULL,NULL,?,?,?,?,?,?,?,NULL)",
+                "revision,approval_id,compliance,package) "
+                "VALUES (?,?,?,?,?,?,NULL,'pending',NULL,NULL,?,?,?,?,?,?,?,NULL,?)",
                 (
                     identifier,
                     manifest["name"],
@@ -433,6 +458,7 @@ class Store:
                     environment,
                     revision,
                     approval_id,
+                    _package_text(package),
                 ),
             )
             self.db.execute(
@@ -477,21 +503,42 @@ class Store:
         principal: dict | None = None,
         principal_key: str | None = None,
         environment: str | None = None,
+        package: dict | None = None,
     ):
+        """`package` is set only while the column is NULL: a deploy by ref never replaces
+        another package's link (M13 spec §7.2 step 7); `link_package` does."""
         with self.transaction():
             self.db.execute(
                 "UPDATE deployments SET revision=?,approval_id=?,"
                 "principal=COALESCE(?,principal),principal_key=COALESCE(?,principal_key),"
-                "environment=COALESCE(?,environment) WHERE id=?",
+                "environment=COALESCE(?,environment),package=COALESCE(package,?) WHERE id=?",
                 (
                     revision,
                     approval_id,
                     json.dumps(principal) if principal else None,
                     principal_key,
                     environment,
+                    _package_text(package),
                     identifier,
                 ),
             )
+
+    def link_package(self, identifier: str, package: dict, audit: AuditEvent) -> dict | None:
+        """Link a deployment to the package `release` just recorded, and audit it, in one
+        transaction (M13 spec §7.3). It may replace an earlier link, so production always names
+        its newest release; returns the previous link, if any."""
+        with self.transaction():
+            row = self.db.execute(
+                "SELECT package FROM deployments WHERE id=?", (identifier,)
+            ).fetchone()
+            if row is None:
+                raise DeploymentError("Deployment not found in this state directory")
+            self.db.execute(
+                "UPDATE deployments SET package=? WHERE id=?",
+                (_package_text(package), identifier),
+            )
+            self._append(audit)
+        return _package_value(row[0])
 
     def set_compliance(self, identifier: str, compliance: str):
         with self.transaction():

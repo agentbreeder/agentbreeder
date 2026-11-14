@@ -122,7 +122,8 @@ def test_v1_state_migrates_to_v2(tmp_path):
     path.chmod(0o600)
     store = Store(directory)
     try:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert store.get("old")["package"] is None
         assert store.get("old")["principal"] is None
         assert store.verify_audit()["rows"] == 0
     finally:

@@ -1,0 +1,21 @@
+usage: agentbreeder mcp grant [-h] [--project DIR] [--dry-run |
+                              --expect-base SHA256] [--json]
+                              AGENT SERVER TOOL [TOOL ...]
+
+Grant TOOLs of SERVER to AGENT in stack.yaml (shown as a diff). Only
+environment.agents.AGENT.mcp changes; run `services up` to apply it to the
+relay. Deploy uses only tools the agent requests in agent.yaml and the stack
+grants.
+
+positional arguments:
+  AGENT                 an environment.agents name
+  SERVER                an mcp: entry name
+  TOOL                  tool name(s)
+
+options:
+  -h, --help            show this help message and exit
+  --project DIR
+  --dry-run             Show the diff; write nothing
+  --expect-base SHA256  Refuse unless stack.yaml is still this digest (from
+                        --dry-run)
+  --json

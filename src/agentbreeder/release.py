@@ -30,6 +30,7 @@ import os
 import re
 import shutil
 import signal
+import sqlite3
 import tempfile
 import threading
 import time
@@ -44,7 +45,12 @@ from agentbreeder import __version__, evals, evidence, hints, package, registry
 from agentbreeder.agentfile import load_agent_file
 from agentbreeder.build import BuildError, build, docker_build, docker_platform
 from agentbreeder.deployer import Deployer
-from agentbreeder.deployment import AuditIncomplete, AuditUnavailable, DeploymentService
+from agentbreeder.deployment import (
+    AuditIncomplete,
+    AuditUnavailable,
+    DeploymentService,
+    _linked_package,
+)
 from agentbreeder.gate import GateDenied
 from agentbreeder.lock import Lock
 from agentbreeder.manifest import Manifest, load_manifest
@@ -374,6 +380,28 @@ def _package_details(published: _Published, project: Path) -> dict:
     }
 
 
+def _link(service, deployment_id: str, published: _Published, deployer, where) -> str | None:
+    """Link production to the package just recorded (spec §6 step 3). Called right after the
+    `promoted` row, inside its `defer_interrupt` block. A crash between the two, or a link that
+    could not be written, leaves the old link, which the next release of the same image repairs
+    (`PACKAGE_EXISTS`). Returns the problem to report, or None: the release itself stands."""
+    try:
+        service.link_package(deployment_id, published.ref, published.sha256, deployer)
+    except (DeploymentError, sqlite3.Error) as error:  # AuditUnavailable included
+        return (
+            f"[PACKAGE_LINK_FAILED] production runs {published.ref} but is not linked to it "
+            f"({error}); run `{where.command('release', 'agent.yaml')}` again to repair the link"
+        )
+    return None
+
+
+def _outcome(code: int, message: str, details: dict, problem: str | None) -> Outcome:
+    if problem is None:
+        return Outcome(code, message, details)
+    details = {**details, "code": "PACKAGE_LINK_FAILED"}
+    return Outcome(EXIT_RUNTIME, f"{message}\n{problem}", details)
+
+
 def _existing_package(project: Path, name: str, reasons: dict) -> _Published | None:
     """The package a matching release row names, if its directory still holds exactly what
     was released (spec §5.5 step 1); None means "not packaged here: release again"."""
@@ -462,6 +490,14 @@ def release(
                         "PACKAGE_MISSING",
                         "its package is missing, changed or from another project",
                     )
+                problem = None
+                if _linked_package(current.get("package")) != {
+                    "ref": existing.ref,
+                    "sha256": existing.sha256,
+                }:
+                    # A crash between the `promoted` row and the link (spec §5.5 step 1).
+                    with defer_interrupt():
+                        problem = _link(service, current["id"], existing, deployer, where)
                 message = (
                     f"{built.image} is already in production. [PACKAGE_EXISTS] This image was "
                     f"released as {existing.ref}."
@@ -470,7 +506,7 @@ def release(
                     message += f" --version {version} was not used: a released image is not "
                     message += "released again under another version"
                 details["package"] = _package_details(existing, project)
-                return Outcome(EXIT_OK, message, details)
+                return _outcome(EXIT_OK, message, details, problem)
             except ReleaseError as error:
                 unreleased = current
                 warning = (
@@ -641,15 +677,17 @@ def release(
                         reasons + _package_reasons(run.published, project),
                     )
                     run.recorded = True
+                    problem = _link(service, unreleased["id"], run.published, deployer, where)
                 details |= {
                     "production": {"id": unreleased["id"], "endpoint": unreleased.get("endpoint")},
                     "package": _package_details(run.published, project),
                 }
-                return Outcome(
+                return _outcome(
                     EXIT_OK,
                     f"Released {built.image}: {summary['passed']}/{summary['cases']} evals "
                     "passed; production already ran this image and was not replaced",
                     details,
+                    problem,
                 )
 
             journal = _journal_path(state, agent.name)
@@ -727,11 +765,13 @@ def release(
                     reasons + _package_reasons(run.published, project),
                 )
                 run.recorded = True
+                problem = _link(service, promoted["id"], run.published, deployer, where)
             details |= {"production": {"id": promoted["id"], "endpoint": promoted["endpoint"]}}
-            return Outcome(
+            return _outcome(
                 EXIT_OK,
                 f"Released {built.image}: {summary['passed']}/{summary['cases']} evals passed",
                 details,
+                problem,
             )
 
         except ReleaseError as error:

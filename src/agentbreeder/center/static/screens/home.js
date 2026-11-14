@@ -1,8 +1,10 @@
 // Home: what this console runs on (doctor), the guided path of the project in scope (#820), the
-// registered projects, and adding one (Create starter, Northwind, or an existing directory).
+// registered projects, and adding one (Create starter, Northwind, an existing directory, or an
+// agent.yaml alone, #823).
 
 import { Action, Card, Notice, Table, Text, useConsole } from "../ui/components.js";
 import { Checklist } from "../ui/guide.js";
+import { OnboardAgentFile } from "../ui/onboard.js";
 import { html, useState } from "../ui/preact.js";
 import { jobLabel } from "../lib/format.js";
 import { starterNameProblem } from "../lib/guide.js";
@@ -80,6 +82,7 @@ export function Home() {
           <${Action} type="submit" tone="secondary" disabled=${busy ? "Adding a project…" : !path.trim() && "Type the project's absolute path first."}>Add project<//>
         </form>
       </div>
+      <${OnboardAgentFile} busy=${busy && "Adding a project…"} onAdded=${(added) => setScope(added.id, "/services")} />
     <//>
     <p class="muted small">The local Docker admin has full control. The gate prevents mistakes and policy drift, not a local admin.</p>
   `;

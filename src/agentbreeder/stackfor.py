@@ -19,6 +19,14 @@ allowed). Files are staged in a hidden directory inside the project, validated a
 hard-linked into place (a link never replaces an existing file); on failure what was created is
 removed. User text reaches the YAML only as validated names and JSON-quoted aliases.
 
+The `--json` summary also says what the project brings that runs in agents: `refs` lists every
+registry ref in `agent.yaml` with its kind, where it resolved (`project`, `path` or `builtin`) and
+whether its kind is code (`registry.runs_code`), and `runs_code` is true when any code-kind ref
+resolves outside the built-in registry. The console shows that before it writes (its "this code
+runs in agents" confirm). `agent_sha256` is the digest of the `agent.yaml` that was read; a later
+call with `--expect-digest` refuses (`DIGEST_MISMATCH`) when the file is no longer the one that
+was previewed, and the write itself refuses (`AGENT_CHANGED`) when it changed after the plan.
+
 Identity (#909, later): the generated `environment.agents.NAME` entry is the single place where
 an identity principal created at onboarding would be added; see `_agent_entry`.
 """
@@ -107,6 +115,8 @@ class StackForPlan:
     files: dict[str, str]  # relative path -> content, in write order
     warnings: tuple[str, ...] = field(default_factory=tuple)
     model_id: str = ""  # the LiteLLM model string every alias uses (#905)
+    agent_sha256: str = ""  # "sha256:<hex>" of the agent.yaml that was read
+    refs: tuple[dict, ...] = field(default_factory=tuple)  # {ref, kind, root_kind, runs_code}
 
     def summary(self, dry_run: bool) -> dict:
         """The `--json` shape (docs/commands.md)."""
@@ -131,6 +141,11 @@ class StackForPlan:
                 for relative, content in self.files.items()
             ],
             "warnings": list(self.warnings),
+            "agent_sha256": self.agent_sha256,
+            "refs": [dict(entry) for entry in self.refs],
+            "runs_code": any(
+                entry["runs_code"] and entry["root_kind"] != "builtin" for entry in self.refs
+            ),
         }
 
 
@@ -173,6 +188,34 @@ def _check_owned(directory: Path, agent_file: Path) -> None:
         raise NewAgentError(error.code, message) from error
 
 
+def _digest(agent_file: Path) -> str:
+    try:
+        with open(agent_file, "rb") as reader:
+            return "sha256:" + hashlib.sha256(reader.read()).hexdigest()
+    except OSError as error:
+        raise NewAgentError("AGENT_FILE_MISSING", f"{agent_file} cannot be read") from error
+
+
+def _refs(agent, directory: Path) -> tuple[dict, ...]:
+    """Every registry ref in the agent file, resolved as `build` resolves it."""
+    search = registry.roots(directory)
+    result = []
+    for text in agent.refs():
+        try:
+            hit = registry.resolve(registry.Ref.parse(text), search)
+        except registry.RegistryError as error:
+            raise NewAgentError(error.code, newagent._bare(error)) from error
+        result.append(
+            {
+                "ref": text,
+                "kind": hit.ref.kind,
+                "root_kind": registry.root_kind(hit.root, directory),
+                "runs_code": registry.runs_code(hit.ref.kind),
+            }
+        )
+    return tuple(result)
+
+
 def _judge_alias(ref: str, directory: Path) -> str:
     from agentbreeder.evals import EvalError, load_eval_set
 
@@ -191,8 +234,10 @@ def plan(
     agent_path: Path,
     today: date | None = None,
     model_id: str | None = None,
+    expect_digest: str | None = None,
 ) -> StackForPlan:
-    """Check the agent file and fill the templates; writes nothing."""
+    """Check the agent file and fill the templates; writes nothing. `expect_digest`: refuse
+    unless `agent.yaml` is still the file a dry run read (its `agent_sha256`)."""
     from agentbreeder.agentfile import AgentFileError, load_agent_file
 
     newagent.check_inputs(name, model)  # the same name and model checks as the starter
@@ -210,10 +255,20 @@ def plan(
         raise NewAgentError("AGENT_FILE_MISSING", f"{given.parent} does not exist") from error
     agent_file = directory / AGENT_FILE
     _check_owned(directory, agent_file)
+    if expect_digest is not None and not registry.DIGEST.fullmatch(expect_digest):
+        raise NewAgentError("DIGEST_INVALID", "--expect-digest must be sha256:<64 hex digits>")
+    digest = _digest(agent_file)
     try:
         agent = load_agent_file(agent_file)
     except AgentFileError as error:
         raise NewAgentError(error.code, newagent._bare(error)) from error
+    if _digest(agent_file) != digest:
+        raise NewAgentError("AGENT_CHANGED", f"{agent_file} changed while it was read; try again")
+    if expect_digest is not None and digest != expect_digest:
+        raise NewAgentError(
+            "DIGEST_MISMATCH",
+            f"{agent_file} is not the file that was previewed (it is {digest}); preview it again",
+        )
     if agent.name != name:
         raise NewAgentError(
             "NAME_MISMATCH",
@@ -235,6 +290,7 @@ def plan(
             f"{AGENT_FILE} uses {', '.join(unsupported)}, which need services the generated "
             "stack does not have; write stack.yaml by hand (docs/services.md)",
         )
+    refs = _refs(agent, directory)
     aliases = [agent.model.alias]
     if agent.evals is not None:
         judge = _judge_alias(agent.evals.ref, directory)
@@ -293,12 +349,19 @@ def plan(
         {STACK_FILE: stack, LITELLM_CONFIG: config},
         tuple(warnings),
         resolved,
+        digest,
+        refs,
     )
 
 
 def check(plan: StackForPlan) -> None:
-    """The `--dry-run` checks, again at write time: ownership and no existing files."""
+    """The `--dry-run` checks, again at write time: ownership, the same agent file, and no
+    existing files."""
     _check_owned(plan.directory, plan.agent_file)
+    if plan.agent_sha256 and _digest(plan.agent_file) != plan.agent_sha256:
+        raise NewAgentError(
+            "AGENT_CHANGED", f"{plan.agent_file} changed after it was checked; try again"
+        )
     for relative in plan.files:
         if os.path.lexists(plan.directory / relative):
             raise NewAgentError("STACK_EXISTS", f"{plan.directory / relative} already exists")
