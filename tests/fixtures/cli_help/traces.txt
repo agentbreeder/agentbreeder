@@ -1,0 +1,23 @@
+usage: agentbreeder traces [-h] [--state-dir STATE_DIR] [--json]
+                           [--trace TRACE_ID] [--stack DIR]
+                           [--environment ENVIRONMENT] [--last N] [--since D]
+                           [--project NAME]
+                           [ID]
+
+positional arguments:
+  ID                    Deployment ID (from `list`): its newest traces
+
+options:
+  -h, --help            show this help message and exit
+  --state-dir STATE_DIR
+  --json
+  --trace TRACE_ID      One trace (32 hex, as a turn returns it), as a tree
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR
+  --environment ENVIRONMENT
+                        With --stack: the stack environment
+  --last N              The newest N traces per deployment (default 20, at
+                        most 200)
+  --since D             Only traces started since D (2026-11-13 or an ISO
+                        time, UTC)
+  --project NAME        With --trace: the Phoenix project (the agent name)
