@@ -355,6 +355,26 @@ and per environment the operator config, demo identities and deploy state. The g
 config can only describe a local demo environment, and `up` refuses to overwrite one you edited
 (`OPERATOR_CONFIG_MODIFIED`).
 
+Beside the bindings, `up` writes host-form database URLs into the environment's deploy state
+(`envs/<env>/state/secrets/`, 0600) for AgentBreeder's own commands on the host, never for an
+agent (on `main`, not in a published preview):
+
+- `eval-database`: the `eval_database` reference, used by `release` to reset eval fixtures.
+- `agent-database`: the `DATABASE_URL` binding as seen from the host (`127.0.0.1:<port>` instead
+  of `postgres:5432`). Written only when that output's port is exposed to `host`.
+- `console-database`: the `console` output of the `DATABASE_URL` service, written only when it is
+  `operator_only` and the service's `console_database` param is set (the read-only console role,
+  planned for `service/postgres-pgvector@1.2.0`, M12).
+
+`up` deletes `agent-database` or `console-database` when the binding or the console role is
+removed, and `down --purge` deletes all of them with the rest of the stack's state. They are
+redacted from command output like every stored secret. The three names are reserved: a deploy
+manifest that references `secret://eval-database`, `secret://agent-database` or
+`secret://console-database` is denied with `SECRET_RESERVED`, so an agent cannot mount the
+owner's or the console's credential. Deploy is the boundary: `build` copies the operator config's
+bindings as they are, and deploy denies them. `up` owns these three files and overwrites or
+deletes them; don't store your own secrets under these names.
+
 ## Limits (preview)
 
 - Local Docker only; not a production deployment path.

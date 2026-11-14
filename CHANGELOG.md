@@ -12,6 +12,23 @@ On main, not in a published preview.
 
 ### Added
 
+- `agentbreeder list --all [--json]` and `new agent NAME --model gemini --stack-for agent.yaml`
+  (#823, M7, CLI half), on `main`, not in a published preview: `services up` records the project
+  path in the stack's meta; `list --all` lists the default state and every stack's deployments
+  read-only (validated directory names, no symlinks, `AGENTBREEDER_STACKS_DIR`, unreadable or
+  unsupported stores reported and skipped); `--stack-for` writes the starter's `stack.yaml` and
+  LiteLLM config beside an existing `agent.yaml` (gemini; agents with knowledge, tools or MCP
+  refused), after the console's ownership check (S-01). See `docs/commands.md`.
+
+- Console log viewer (#821, M5, first part), on `main`, not in a published preview: a Logs
+  screen, and a Logs link on every Services and Deployments row, reading one snapshot through
+  `services logs --json` or `logs ID --json` (`--previous` for Kubernetes). Filter, level filter,
+  search, wrap and copy work on the lines read; unwrapped rows are windowed (10,000 lines). Notes
+  say what was read, that secrets are redacted and when the read was cut. `LOG_UNAVAILABLE` and a
+  pending pod are empty states. The server checks every option and the answer's shape, and never
+  caches or stores log lines. Follow, `watch` and the S-10 limits are the next parts. See
+  `docs/command-center.md`.
+
 - `agentbreeder registry edit REF --set PATH FILE|--remove PATH [--bump patch|minor|major |
   --version X.Y.Z] [--project DIR] [--dry-run | --expect-digest SHA256] [--json]` and
   `agentbreeder agent set-ref OLD NEW [--project DIR] [--dry-run | --expect-base SHA256] [--json]`
@@ -324,6 +341,16 @@ On main, not in a published preview.
 
 ### Changed
 
+- `agentbreeder services up` also writes `agent-database` (the `DATABASE_URL` binding in host
+  form) and, when the database service's `console_database` param is set, `console-database`
+  (its `operator_only` `console` output in host form) beside `eval-database` in the
+  environment's deploy state, for CLI commands on the host (#828, M12 prerequisite), on `main`,
+  not in a published preview. A removed binding or console role deletes the stale file. The three
+  names are reserved: a deploy manifest that references `secret://eval-database`,
+  `secret://agent-database` or `secret://console-database` is now denied with
+  `SECRET_RESERVED` (before, `eval-database` could be mounted into an agent). See
+  `docs/services.md`.
+
 - "Command center" is now "console" (#816, M0b, slice 3), on `main`, not in a published
   preview: `agentbreeder up`'s help, its startup line ("AgentBreeder console: URL") and stop
   line ("Console stopped. …"), and `docs/`. The page keeps its file name,
@@ -416,6 +443,9 @@ On main, not in a published preview.
 - Design spec for governed agent-to-agent calls (A2A, M19 #835, epic #812):
   `docs/superpowers/specs/2026-11-13-a2a-design.md`. A spec only, on `main`, not in a published
   preview; nothing is built, and agents cannot call each other.
+- Spec delta for M12, tools and the read-only console role (#828, epic #812):
+  `docs/superpowers/specs/2026-11-13-m12-tools-console-role-design.md`. A spec only, on `main`,
+  not in a published preview; nothing is built, and there is no console role or `tool log` yet.
 - `safe_text` writes its bidirectional-control character class as `\u` escapes instead of seven
   literal invisible characters (#820), on `main`, not in a published preview. No behaviour
   change: a test checks every code point (U+0000 to U+10FFFF) against the documented set
@@ -423,6 +453,12 @@ On main, not in a published preview.
   holds no invisible control character.
 
 ### Fixed
+
+- `registry publish --json` reports `root_kind: "project"` when `--to` resolves to `DIR/registry`
+  and DIR holds an `agent.yaml` or `stack.yaml` file (#898), on `main`, not in a published
+  preview. It reported `path` for a project's own `./registry`, including `publish DIR` run from
+  the project with the default `--to registry`; `import`, `fork` and `show` already said
+  `project`. Any other `--to` stays `path`; the write is unchanged. See `docs/registry.md`.
 
 - `logs ID` for a Kubernetes (local `kind`) deployment, on `main`, not in a published preview:
   when `kubectl logs` exits 0 but its whole output is one kubelet message saying the container

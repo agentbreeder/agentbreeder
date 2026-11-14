@@ -22,6 +22,9 @@ from pathlib import Path
 NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,62}")
 MAX_BYTES = 64 * 1024
 MOUNT_ROOT = "/run/secrets"
+# Written by `services up` for CLI children only (host-form database URLs, some from
+# `operator_only` outputs). An agent manifest may not mount them (M12 delta §3.5).
+RESERVED = frozenset({"eval-database", "agent-database", "console-database"})
 
 
 class SecretError(ValueError):
@@ -45,6 +48,16 @@ def secret_name(reference: str) -> str:
         raise SecretError(
             "SECRET_NAME",
             f"Local secret names must match {NAME.pattern}: {reference!r}",
+        )
+    return name
+
+
+def _not_reserved(name: str) -> str:
+    if name in RESERVED:
+        raise SecretError(
+            "SECRET_RESERVED",
+            f"Secret {name!r} is written by `services up` for AgentBreeder on the host and "
+            "cannot be mounted into an agent; bind the agent's own credential instead",
         )
     return name
 
@@ -92,6 +105,16 @@ def set_secret(state: Path, name: str, data: bytes) -> Path:
     return path
 
 
+def delete_secret(state: Path, name: str) -> None:
+    """Remove a stored value if present (never follows a symlink; safe to repeat)."""
+    if not NAME.fullmatch(name):
+        raise SecretError("SECRET_NAME", f"Secret names must match {NAME.pattern}")
+    try:
+        (_store(state) / name).unlink(missing_ok=True)
+    except OSError as error:  # a directory in its place, or no permission
+        raise SecretError("SECRET_MODE", f"Secret {name!r} could not be removed") from error
+
+
 def _read(path: Path) -> bytes:
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -120,7 +143,7 @@ def preflight(state: Path, references: dict[str, str]) -> None:
     """Check every referenced secret exists with safe type, ownership and mode. Metadata only:
     no value is read until the deploy is allowed and approved (materialise)."""
     for reference in references.values():
-        name = secret_name(reference)
+        name = _not_reserved(secret_name(reference))
         path = _store(state) / name
         try:
             info = path.lstat()
@@ -153,7 +176,7 @@ def materialise(state: Path, deployment_id: str, references: dict[str, str]) -> 
     _private_dir(target_dir)
     by_name: dict[str, list[str]] = {}
     for env, reference in sorted(references.items()):
-        by_name.setdefault(secret_name(reference), []).append(env)
+        by_name.setdefault(_not_reserved(secret_name(reference)), []).append(env)
     mounts = []
     for name, envs in sorted(by_name.items()):
         data = _read(_store(state) / name)

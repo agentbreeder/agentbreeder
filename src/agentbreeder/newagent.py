@@ -219,8 +219,8 @@ def valid_name(name: object) -> bool:
     )
 
 
-def plan(name: str, model: str, directory: Path | None = None, today: date | None = None) -> Plan:
-    """Check the inputs and fill the templates; writes nothing."""
+def check_inputs(name: str, model: str) -> None:
+    """The name and `--model` checks (also used by `--stack-for`)."""
     if not valid_name(name):
         raise NewAgentError(
             "NAME_INVALID",
@@ -234,6 +234,11 @@ def plan(name: str, model: str, directory: Path | None = None, today: date | Non
             f"--model must be one of: {', '.join(sorted(PROVIDERS))} (the only providers run "
             "end to end)",
         )
+
+
+def plan(name: str, model: str, directory: Path | None = None, today: date | None = None) -> Plan:
+    """Check the inputs and fill the templates; writes nothing."""
+    check_inputs(name, model)
     today = today or date.today()
     review_by = (today + timedelta(days=REVIEW_DAYS)).isoformat()
     provider = PROVIDERS[model]

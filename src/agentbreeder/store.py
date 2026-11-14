@@ -58,6 +58,10 @@ _V3_TABLES = (
 )
 
 
+# The message for state from a newer (or unknown) schema; `list --all` reports it by this text.
+UNSUPPORTED_SCHEMA = "Unsupported state schema; use the matching AgentBreeder version"
+
+
 class DeploymentError(ValueError):
     """Safe, actionable lifecycle error."""
 
@@ -134,9 +138,7 @@ class Store:
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
                 if version not in (0, 1, 2, SCHEMA_VERSION) or (version == 0 and tables):
-                    raise DeploymentError(
-                        "Unsupported state schema; use the matching AgentBreeder version"
-                    )
+                    raise DeploymentError(UNSUPPORTED_SCHEMA)
                 if version == 0:
                     self.db.execute("""
                         CREATE TABLE deployments (
@@ -218,9 +220,7 @@ class Store:
                     f"AgentBreeder uses v{SCHEMA_VERSION}; " + _migrate_hint()
                 )
             else:
-                raise DeploymentError(
-                    "Unsupported state schema; use the matching AgentBreeder version"
-                )
+                raise DeploymentError(UNSUPPORTED_SCHEMA)
         except Exception:
             db.close()
             raise

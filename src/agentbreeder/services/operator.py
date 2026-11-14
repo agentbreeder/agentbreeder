@@ -30,6 +30,13 @@ from agentbreeder.services.state import StackState, private_dir, write_private
 
 PROVIDER = "demo"
 EVAL_SECRET = "eval-database"
+# Host-form database URLs for CLI children only (M12 delta §3.5): never bound into an agent;
+# `secret_files.RESERVED` makes deploy refuse a manifest that references them.
+AGENT_SECRET = "agent-database"
+CONSOLE_SECRET = "console-database"
+DATABASE_BINDING = "DATABASE_URL"
+CONSOLE_OUTPUT = "console"
+CONSOLE_PARAM = "console_database"
 
 
 def grants_dir(state: StackState, environment: str, server: str) -> Path:
@@ -40,6 +47,27 @@ def grants_dir(state: StackState, environment: str, server: str) -> Path:
 
 def binding_secret(env_name: str) -> str:
     return "binding-" + env_name.lower().replace("_", "-")
+
+
+def host_database_secrets(plan: Plan) -> dict[str, bytes]:
+    """`agent-database`: the `DATABASE_URL` binding seen from the host. `console-database`: the
+    `console` output of that binding's service, when its `console_database` param is set
+    (`service/postgres-pgvector@1.2.0`). A binding whose port is not exposed to the host gets
+    neither: CLI children cannot reach it."""
+    binding = plan.locked.stack.environment.bindings.get(DATABASE_BINDING)
+    if binding is None:
+        return {}
+    reference = Reference.parse(binding.ref, DATABASE_BINDING)
+    spec = plan.spec(reference.service)
+    port = spec.outputs[reference.output].port
+    if port is None or "host" not in spec.ports[port].scopes:
+        return {}
+    values = {AGENT_SECRET: plan.output(reference, "host")}
+    console = spec.outputs.get(CONSOLE_OUTPUT)
+    configured = plan.locked.resolved.params[reference.service].get(CONSOLE_PARAM)
+    if console is not None and console.operator_only and isinstance(configured, str):
+        values[CONSOLE_SECRET] = plan.output(Reference(reference.service, CONSOLE_OUTPUT), "host")
+    return values
 
 
 def documents(plan: Plan, state: StackState, environment: str) -> tuple[dict, dict]:
@@ -169,6 +197,12 @@ def write(plan: Plan, state: StackState, environment: str) -> Path:
         if env.eval_database is not None:
             value = plan.output(Reference.parse(env.eval_database.ref, "eval_database"), "host")
             secret_files.set_secret(deploy_state, EVAL_SECRET, value)
+        host = host_database_secrets(plan)
+        for name in (AGENT_SECRET, CONSOLE_SECRET):
+            if name in host:
+                secret_files.set_secret(deploy_state, name, host[name])
+            else:  # a removed binding or console role: no stale credential for CLI children
+                secret_files.delete_secret(deploy_state, name)
     except secret_files.SecretError as error:
         raise ServiceError(error.code, str(error)) from None
     for name, data in files.items():

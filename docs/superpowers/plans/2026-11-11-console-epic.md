@@ -278,17 +278,19 @@ by lane, acceptance, type). Types decide the common checklist: `cli` (no UI test
 - Acceptance: a clean Northwind release and a `services down` store zero events; killing a service stores one event and raises a condition that clears after restart.
 
 ### M12: Tools, and the read-only console role
-- Depends: M10, M4
+- Depends: M10, M4; and lane A writing host-form `agent-database`/`console-database` secrets at `services up` (M12 delta §3.5)
 - Type: full
-- Lanes: D (role), C (CLI), B (Console)
+- Lanes: C (role, versions and CLI; lane D folded into C), A (the `services up` secrets), B (Console)
 - Spec: console §4.3, §8.3
 - Tasks:
-  - Data: New `service/postgres-pgvector@1.2.0` creating per-stack console roles, and a new `runtime/adk` version that grants them access after creating its tables. One version carries every grant this epic needs: read-only SELECT on `turns` and the knowledge chunk tables (M12, M14) and the write privileges M16 uses (notes, session schema, `audit_events` INSERT), so M14 and M16 add no new service version. The grant mechanism (runtime-side `GRANT` after table creation, or a dedicated schema; not `ALTER DEFAULT PRIVILEGES`, which would expose every table) is decided in the M12 spec delta. The starter template and Northwind are relocked; `services up --update` adds the roles to existing stacks
-  - CLI: `tool log REF --project DIR [--since] [--agent NAME] [--json]` reads `turns.tools` through the console role, time-windowed with a LIMIT, default columns time, agent, status, latency, turn id, trace link; arguments and results only with `--content`
-  - Console: Tool detail (docs from `tool.yaml`, function signatures, source, hash-locked dependencies, grants)
+  - Data: New `service/postgres-pgvector@1.2.0` and `runtime/adk@1.2.0`; one version each carries what M12, M14 and M16 need, so M14 and M16 add no new service version. Decided in the M12 spec delta (`docs/superpowers/specs/2026-11-13-m12-tools-console-role-design.md` §3): one login role `agentbreeder_console` per stack (`console_database` param, `operator_only` output), granted **only on tables the database owner made** (`turns`, `audit_events`, `notes`, `tickets`, incl. DELETE on `turns`/`tickets` for M16's `forget`) by the owner's `init_sql` with guarded plain `GRANT`s, never `ALTER DEFAULT PRIVILEGES`; agent-owned objects (session and knowledge tables, everything in the starter, where the agent owns the database) are read with the agent's own credential, so the runtime grants nothing (a console grant on them would lend its rights to agent-planted triggers). The starter template and Northwind are relocked (Northwind with `console_database: support`); `services up --update` applies an existing stack's changed `init_sql`
+  - CLI: `tool log REF --project DIR [--since] [--agent NAME] [--limit N] [--content] [--json]` reads `audit_events` (one row per tool call) joined to `turns` (console role on owner-managed stacks, else the agent's credential; M12 delta §4; `turns.tools` holds function names only), time-windowed with a LIMIT, default columns time, agent, version, function, status, latency, turn id, trace id; arguments and error text only with `--content` (results are not stored; the trace holds them)
+  - CLI: Tool checks (`TOOL_INVALID`: allowed files only, no shadowing of stdlib/runtime/locked packages, functions resolve, `ast.parse` only) and `registry show` tool `functions` with `ast` signatures (delta §5)
+  - Data: S-32 as a `BEFORE INSERT` trigger setting `audit_events.db_role` to `session_user` (nullable; older rows stay NULL); `runtime/adk@1.2.0` also writes `detail.tool` on errors, `detail.agent` and `detail.latency_ms` (delta §3.4, §4.5)
+  - Console: Tool detail (docs from `tool.yaml`, function signatures, source, "no dependencies of its own; the runtime's locked packages", grants)
   - Console: Tool code editor with the three-tier confirm ("this code runs in agents"; the eval gate is a quality gate, not a security review); save as a new version
-  - Console: Execution log tab (customer content behind the customer-data marker); unavailable without the role, with the reason
-- Acceptance: forking Northwind's `tool/orders`, editing it and moving Northwind to the new version publishes and releases; its execution log lists recent calls without arguments by default; Northwind still passes 61/61 after the relock.
+  - Console: Execution log tab (customer content behind the customer-data marker); on an owner-managed stack without the console role, unavailable with the reason
+- Acceptance: editing Northwind's `tool/orders` (project-owned; a built-in tool is forked first, covered by a CLI end-to-end test) and moving Northwind to the new version publishes and releases; its execution log lists recent calls without arguments by default; Northwind still passes 61/61 after the relock.
 
 ### M9b: Remote registry sources
 - Depends: M10 (lane order, not a technical dependency)
@@ -316,10 +318,10 @@ by lane, acceptance, type). Types decide the common checklist: `cli` (no UI test
 ### M14: Knowledge (RAG)
 - Depends: M10, M12
 - Type: full
-- Lanes: C (CLI), D (role grants), B (Console)
+- Lanes: C (CLI; no grants, M12 delta §3.1), B (Console)
 - Spec: console §4.3; #766 for lineage alignment
 - Tasks:
-  - Data: Use the knowledge-chunk SELECT grant already shipped in M12's versions (no new service version)
+  - Data: Read knowledge tables with the agent's own credential (M12 delta §3.1; no grant, no new service version)
   - CLI: `knowledge status REF --project DIR [--json]`: documents, chunk count and freshness per agent DB, embedding model and dimensions
   - CLI: Add or edit documents by path through the M10 edit flow; re-index at the next release
   - Console: Knowledge list and detail; browser upload as a streamed `PUT` with a per-kind cap; a warning that documents land in a git-tracked registry
@@ -340,11 +342,12 @@ by lane, acceptance, type). Types decide the common checklist: `cli` (no UI test
 ### M16: Memory
 - Depends: M2, M12
 - Type: full
-- Lanes: D (CLI and role), B (Console)
+- Lanes: C (CLI; lane D folded into C), B (Console)
 - Spec: console §4.4, §8.3
 - Tasks:
-  - Data: Use the write privileges already shipped in M12's versions (notes SELECT/INSERT/UPDATE/DELETE, SELECT and DELETE on the session schema, INSERT on `audit_events`)
+  - Data: Use the console-role grants already shipped in M12's versions (notes SELECT/INSERT/UPDATE/DELETE, DELETE on `turns` and `tickets`, INSERT on `audit_events`); list and delete sessions with the agent's own credential (M12 delta §3.1)
   - Data: The M12 `runtime/adk` version also declares its memory schema version in its manifest; the CLI refuses unknown versions
+  - Data: `forget` and session deletes span two credentials (sessions with the agent's, notes/turns/tickets and audit rows with the console role; M12 delta §3.1): the M16 spec fixes the order (an intent audit row first, then the deletes, then a completion row), idempotent retry and partial-failure reporting; S-32 attribution holds on owner-managed stacks only (delta §3.4)
   - CLI: `memory sessions list|show|delete` and `memory notes list|add|edit|delete` with `--json`; actor `console:admin@localhost`; every edit and each session view writes an `audit_events` row (hashes, not text)
   - CLI: `memory forget CUSTOMER` deleting per table (notes, sessions, turns, tickets); `audit_events` rows remain
   - Console: Sessions (view, delete) and notes (full edit) under a customer-data strip; typed confirmation for deletes

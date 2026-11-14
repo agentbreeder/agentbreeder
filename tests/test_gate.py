@@ -102,6 +102,18 @@ def test_missing_secret_file_denied_before_runtime(identity_env, state, runtime)
     assert ("deploy", "deny") in audit_actions(state)
 
 
+@pytest.mark.parametrize("name", ["eval-database", "agent-database", "console-database"])
+def test_reserved_secret_denied_before_runtime(identity_env, state, runtime, name):
+    from agentbreeder import secret_files
+
+    secret_files.set_secret(state.directory, name, b"postgresql://c:pw@h/db")
+    data = v2_manifest_data(secrets={"DATABASE_URL": f"secret://{name}"})
+    with pytest.raises(GateDenied, match="SECRET_RESERVED"):
+        deploy(identity_env, state, runtime, data)
+    assert runtime.mock_calls == []
+    assert ("deploy", "deny") in audit_actions(state)
+
+
 def test_secret_file_mounted_and_value_never_recorded(identity_env, state, runtime):
     from agentbreeder import secret_files
 

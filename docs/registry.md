@@ -265,6 +265,13 @@ an `agent.yaml` references it and `release` passes. Text output is `REF SHA256 P
 `(from SOURCE_REF)` after a rename), as `publish` prints; a dry run prefixes `Would import` and
 prints the `--expect-digest` to pass. Errors are `[CODE] message` on stderr, exit 2.
 
+`root_kind` is as in `show`. For `publish` (which has no `--project`; on `main`, not in a published
+preview, #898) it is `project` when `--to` resolves to `DIR/registry` and DIR holds an `agent.yaml`
+or `stack.yaml` file, as for `import`, `fork` and `edit`; so `publish DIR` run from a project
+directory, with the default `--to registry`, reports `project`. Any other `--to` is `path`, and
+the built-in root is `builtin`. The field only describes the root: the write is the same either
+way.
+
 ## Forking a built-in or shared version (on `main`, not in a published preview)
 
 Versions are immutable, and the built-in registry and `AGENTBREEDER_REGISTRY_PATH` roots are not

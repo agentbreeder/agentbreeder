@@ -1,8 +1,10 @@
 // Services: the project's stack, the grant review that starts it, and its registries.
 
+import { visible } from "../lib/text.js";
 import { portsText, serviceState, serviceUp } from "../lib/format.js";
 import { Action, Actions, Card, Notice, Table, Text, ViewState, useConfirm, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
+import { LogsLink } from "./logs.js";
 import { html, useEffect, useRef, useState } from "../ui/preact.js";
 
 export function Services({ project }) {
@@ -49,11 +51,12 @@ export function Services({ project }) {
     <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
     <${Card} title="Stack services" busy=${services.loading}>
       ${rows.length
-        ? html`<${Table} label="Stack services" columns=${["Service", "State", "Host ports"]}>
+        ? html`<${Table} label="Stack services" columns=${["Service", "State", "Host ports", ""]}>
             ${rows.map(([name, info]) => html`<tr key=${name}>
               <td><${Text} value=${name} /></td>
               <td><${Text} value=${serviceState(info)} /></td>
               <td><${Ports} info=${info} /></td>
+              <td><${LogsLink} kind="service" name=${name} label=${`Logs of ${visible(name)}`} /></td>
             </tr>`)}
           <//>`
         : null}
