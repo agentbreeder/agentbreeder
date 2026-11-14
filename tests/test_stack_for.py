@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -455,3 +456,143 @@ def test_a_newline_quoted_from_the_agent_file_stays_on_one_line(tmp_path, capsys
     assert cli.main([*argv, str(project / "agent.yaml")]) == 2
     err = capsys.readouterr().err
     assert err.count("\n") == 1 and "\\n[FAKE]" in err
+
+
+# -- what the project brings, and the reviewed agent file (console onboarding, #823) ---------
+
+STACK_FOR = ["new", "agent", "hello", "--model", "gemini", "--stack-for"]
+
+
+def test_refs_name_each_kind_and_where_it_resolved(tmp_path):
+    project, _ = starter(tmp_path)
+    summary = plan(project).summary(dry_run=True)
+    agent = yaml.safe_load((project / "agent.yaml").read_text())
+    assert summary["refs"] == [
+        {"ref": agent["runtime"], "kind": "runtime", "root_kind": "builtin", "runs_code": True},
+        {
+            "ref": "prompt/hello-prompt@0.1.0",
+            "kind": "prompt",
+            "root_kind": "project",
+            "runs_code": False,
+        },
+        {
+            "ref": "eval/hello-evals@0.1.0",
+            "kind": "eval",
+            "root_kind": "project",
+            "runs_code": True,
+        },
+    ]
+    # The project's own eval set is code that does not ship with AgentBreeder.
+    assert summary["runs_code"] is True
+    raw = (project / "agent.yaml").read_bytes()
+    assert summary["agent_sha256"] == "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def test_only_built_in_code_does_not_count(tmp_path):
+    project, _ = starter(tmp_path)
+    data = yaml.safe_load((project / "agent.yaml").read_text())
+    del data["evals"]
+    (project / "agent.yaml").write_text(yaml.safe_dump(data))
+    summary = plan(project).summary(dry_run=True)
+    assert [entry["kind"] for entry in summary["refs"]] == ["runtime", "prompt"]
+    assert summary["runs_code"] is False
+
+
+def test_a_path_root_counts_as_code_from_elsewhere(tmp_path, monkeypatch):
+    project, _ = starter(tmp_path)
+    shared = tmp_path / "shared"
+    (project / "registry").rename(shared)
+    monkeypatch.setenv(registry.PATH_ENV, str(shared))
+    summary = plan(project).summary(dry_run=True)
+    assert {entry["kind"]: entry["root_kind"] for entry in summary["refs"]}["eval"] == "path"
+    assert summary["runs_code"] is True
+
+
+def test_an_unresolvable_ref_is_refused_with_the_registry_code(tmp_path):
+    project, _ = starter(tmp_path)
+    edit_agent(project, prompt={"ref": "prompt/missing@1.0.0"})
+    assert refused(project) == "REF_NOT_FOUND"
+
+
+def test_expect_digest_writes_the_previewed_file(tmp_path, capsys):
+    project, _ = starter(tmp_path)
+    argv = [*STACK_FOR, str(project / "agent.yaml")]
+    assert cli.main([*argv, "--dry-run", "--json"]) == 0
+    digest = json.loads(capsys.readouterr().out)["agent_sha256"]
+    assert cli.main([*argv, "--expect-digest", digest, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["agent_sha256"] == digest
+    assert (project / "stack.yaml").is_file()
+
+
+def test_expect_digest_refuses_a_changed_agent_file(tmp_path, capsys):
+    project, _ = starter(tmp_path)
+    argv = [*STACK_FOR, str(project / "agent.yaml")]
+    assert cli.main([*argv, "--dry-run", "--json"]) == 0
+    digest = json.loads(capsys.readouterr().out)["agent_sha256"]
+    edit_agent(project, description="changed after the preview")
+    assert cli.main([*argv, "--expect-digest", digest, "--json"]) == 2
+    out = capsys.readouterr()
+    assert json.loads(out.out)["error"]["code"] == "DIGEST_MISMATCH"
+    assert "[DIGEST_MISMATCH]" in out.err and "preview it again" in out.err
+    assert not (project / "stack.yaml").exists()
+
+
+@pytest.mark.parametrize("value", ["abc", "sha256:" + "A" * 64, "sha256:" + "a" * 63, ""])
+def test_expect_digest_must_be_a_digest(tmp_path, capsys, value):
+    project, _ = starter(tmp_path)
+    assert cli.main([*STACK_FOR, str(project / "agent.yaml"), "--expect-digest", value]) == 2
+    assert "[DIGEST_INVALID]" in capsys.readouterr().err
+    assert not (project / "stack.yaml").exists()
+
+
+def test_expect_digest_needs_stack_for(tmp_path, capsys):
+    argv = ["new", "agent", "hello", "--model", "gemini", "--dir", str(tmp_path / "x")]
+    assert cli.main([*argv, "--expect-digest", "sha256:" + "a" * 64, "--json"]) == 2
+    out = capsys.readouterr()
+    assert json.loads(out.out)["error"]["code"] == "USAGE"
+    assert not (tmp_path / "x").exists()
+
+
+def test_a_change_between_plan_and_write_is_refused(tmp_path):
+    project, _ = starter(tmp_path)
+    made = plan(project)
+    edit_agent(project, description="changed after the plan")
+    with pytest.raises(newagent.NewAgentError) as error:
+        stackfor.create(made)
+    assert error.value.code == "AGENT_CHANGED"
+    assert not (project / "stack.yaml").exists()
+
+
+def test_a_change_while_reading_is_refused(tmp_path, monkeypatch):
+    project, _ = starter(tmp_path)
+    real = stackfor._digest
+    calls = []
+
+    def changing(path):
+        calls.append(path)
+        return real(path) if len(calls) == 1 else "sha256:" + "0" * 64
+
+    monkeypatch.setattr(stackfor, "_digest", changing)
+    with pytest.raises(newagent.NewAgentError) as error:
+        plan(project)
+    assert error.value.code == "AGENT_CHANGED"
+
+
+def test_an_unreadable_agent_file_is_refused(tmp_path, monkeypatch):
+    project, _ = starter(tmp_path)
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("builtins.open", unreadable)
+    with pytest.raises(newagent.NewAgentError) as error:
+        stackfor._digest(project / "agent.yaml")
+    assert error.value.code == "AGENT_FILE_MISSING"
+
+
+def test_the_text_output_names_code_from_outside_the_built_ins(tmp_path, capsys):
+    project, _ = starter(tmp_path)
+    assert cli.main([*STACK_FOR, str(project / "agent.yaml"), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Code that runs in agents, not shipped with AgentBreeder: " in out
+    assert "eval/hello-evals@0.1.0 (project)" in out and "runtime/" not in out.split("Code")[1]

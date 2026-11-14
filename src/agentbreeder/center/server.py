@@ -38,7 +38,7 @@ from pydantic import ValidationError
 
 from agentbreeder import __version__, guide, registry
 from agentbreeder.center import agents as agent_rows
-from agentbreeder.center import tryit
+from agentbreeder.center import onboard, tryit
 from agentbreeder.center.files import (
     BadRequest,
     check_ancestors,
@@ -267,21 +267,66 @@ class Center:
                 "NAME_INVALID",
             )
         destination = self.projects_folder() / name
-        result = self.runner.read(
-            ["new", "agent", name, "--model", "gemini", "--dir", str(destination), "--json"],
-            timeout=60,
-            ok_codes=(0, 2),  # a refusal prints its JSON error and exits 2
-            cache=False,
+        self._new_agent(
+            ["new", "agent", name, "--model", "gemini", "--dir", str(destination), "--json"]
         )
+        return self.register(destination)
+
+    def _new_agent(self, argv: list[str]) -> object:
+        """Run `new agent ... --json` (a refusal prints its JSON error and exits 2); its coded
+        error goes through the same filter as a stderr line: a fixed code shape, no controls."""
+        result = self.runner.read(argv, timeout=onboard.TIMEOUT, ok_codes=(0, 2), cache=False)
         refused = result["data"].get("error") if isinstance(result["data"], dict) else None
         if isinstance(refused, dict):
-            # Through the same filter as a stderr line: a fixed code shape, controls stripped.
             line = f"[{refused.get('code')}] {refused.get('message')}".replace("\n", " ")
             problem = cli_error(line, 2)
             raise BadRequest(problem["message"], problem["code"])
         if result["error"]:
             raise BadRequest(result["error"]["message"], result["error"]["code"])
-        return self.register(destination)
+        return result["data"]
+
+    def _stack_for(self, body: object, digest: str | None = None) -> tuple[dict, dict]:
+        """`new agent --stack-for` as a dry run (the preview); with `digest`, refused unless the
+        agent file is still the previewed one. Returns (checked request, checked summary)."""
+        name, path, argv = onboard.request(body)
+        expect = [] if digest is None else [f"--expect-digest={digest}"]
+        data = self._new_agent([*argv, *expect, "--dry-run", "--json"])
+        try:
+            shown = onboard.summary(data, name, dry_run=True, model=argv[4])
+        except onboard.BadOutput as problem:
+            raise BadRequest(str(problem), "BAD_OUTPUT") from problem
+        return {"name": name, "path": path, "argv": argv, "model": argv[4]}, shown
+
+    def preview_stack_for(self, body: object) -> dict:
+        """Onboard an agent.yaml alone, step 1 (#823): what `--stack-for` would write and what
+        the project brings that runs in agents. Writes nothing."""
+        return self._stack_for(body)[1]
+
+    def onboard_agent_yaml(self, body: object) -> dict:
+        """Onboard an agent.yaml alone, step 3: re-check the previewed file and the code confirm
+        on a fresh dry run, write `stack.yaml` beside it, then register its directory (S-01
+        again, `check_project`)."""
+        digest, code_confirmed = onboard.write_request(body)
+        checked, shown = self._stack_for(body, digest)
+        if shown["runs_code"] and not code_confirmed:
+            raise BadRequest(
+                "This project brings code that runs in agents; confirm that before it is added",
+                "CODE_CONFIRM_REQUIRED",
+            )
+        data = self._new_agent([*checked["argv"], f"--expect-digest={digest}", "--json"])
+        # The directory of the path that was checked, not one named by the child's output.
+        directory = Path(checked["path"]).parent
+        try:
+            onboard.summary(data, checked["name"], dry_run=False, model=checked["model"])
+            return self.register(directory)
+        except (onboard.BadOutput, BadRequest) as problem:
+            # The files are on disk now, so a retry would only meet STACK_EXISTS: say so.
+            code = problem.code if isinstance(problem, BadRequest) else "BAD_OUTPUT"
+            raise BadRequest(
+                f"{problem} stack.yaml was written but the project was not added; fix that, "
+                f"then add {directory} under An existing project",
+                code,
+            ) from problem
 
     def need_project(self, identifier: str) -> dict:
         project = self.state.project(identifier)
@@ -719,9 +764,15 @@ def _add_project(request: Request) -> dict:
         return envelope(center.onboard_example(str(body["example"])))
     if "starter" in body:
         return envelope(center.create_starter(body["starter"]))
+    if "stack_for" in body:
+        return envelope(center.onboard_agent_yaml(body["stack_for"]))
     if body.get("path"):
         return envelope(center.register(Path(str(body["path"]))))
     raise BadRequest("Name an example or a path")
+
+
+def _preview_stack_for(request: Request) -> dict:
+    return envelope(request.center.preview_stack_for(request.body))
 
 
 def _plan(request: Request) -> dict:
@@ -796,6 +847,7 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", rf"/api/jobs/{JOB_ID}", _job, "/api/jobs/" + "0" * 32, poll=True),
     Route("POST", r"/api/session", _session, "/api/session", session=False),
     Route("POST", r"/api/projects", _add_project, "/api/projects"),
+    Route("POST", r"/api/projects/stack-for", _preview_stack_for, "/api/projects/stack-for"),
     Route("POST", rf"/api/projects/{PROJECT_ID}/plan", _plan, "/api/projects/0123456789ab/plan"),
     Route(
         "POST", rf"/api/projects/{PROJECT_ID}/jobs", _start_job, "/api/projects/0123456789ab/jobs"
