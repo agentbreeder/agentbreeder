@@ -43,7 +43,7 @@ from agentbreeder import example, registry
 RUNTIME = "runtime/adk@1.0.6"
 VERSION = "0.1.0"
 REVIEW_DAYS = 180
-SUMMARY_VERSION = 1  # the `--json` shape (and its `error` form) in docs/commands.md
+SUMMARY_VERSION = 1  # the `--json` shape (and its `error` form) in docs/commands/new.md
 # The agent name is also the stack name: a stack name starts with a letter and is at most 31
 # characters (services.schema), an agent name ends with a letter or digit (agentfile).
 NAME_PATTERN = r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$"

@@ -26,8 +26,8 @@ Messages are made from a fixed template when the events are read. A `restarted` 
 stored: the condition clearing already shows the recovery.
 
 Stopping a container never stores an event. `docker stop`, `docker kill`, `remove`, a release
-replacing its candidate and `services down` all stop containers on purpose (see `watch` in
-`commands.md`). A clean release therefore stores nothing, and so does a `services down`.
+replacing its candidate and `services down` all stop containers on purpose (see
+[`watch`](commands/watch.md)). A clean release therefore stores nothing, and so does a `services down`.
 
 Events are kept in `~/.agentbreeder/center/events.sqlite3`, or under `AGENTBREEDER_CENTER_DIR`
 when it is set. The directory is 0700 and the file 0600. Only the newest 500 events are kept.
