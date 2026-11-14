@@ -24,6 +24,12 @@ On main, not in a published preview.
   changed after the review. Neither writes an audit row: the record is the project's files and
   git. The console editors are not built yet. See `docs/registry.md`.
 
+- `release` ends with `Next: … invoke NAME Hello` after a successful release, including
+  `--rollback` and an image already released (#820, M4 finding 1), on `main`, not in a published
+  preview: with the `--stack` and `--environment` or `--state-dir` it used; `--json` carries the
+  command as `advice.invoke`. `your-first-agent.md` no longer says to run `next` after
+  `release`.
+
 - Console guided path and Create starter (#820, M4), on `main`, not in a published preview: Home
   shows the project's `next --json` checklist (state as icon and word, reason, the current step's
   button, command and note), the top bar a "Next" pill, finished jobs a result row, and empty Home
