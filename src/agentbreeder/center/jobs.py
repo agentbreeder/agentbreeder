@@ -14,6 +14,7 @@ import os
 import re
 import signal
 import sqlite3
+import stat
 import subprocess
 import sys
 import threading
@@ -24,11 +25,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agentbreeder import redaction
-from agentbreeder.center.files import BadRequest
+from agentbreeder.center.files import BadRequest, write_private
 
 __all__ = [
     "BadRequest",
     "Busy",
+    "ChildRecords",
+    "Follow",
+    "FollowRefused",
     "WriteBusy",
     "CenterState",
     "Runner",
@@ -130,6 +134,26 @@ def _wait_all(processes: Sequence[subprocess.Popen], deadline: float) -> None:
             process.wait(timeout=max(0.0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
             pass
+
+
+def _reap_group(process: subprocess.Popen) -> None:
+    """Once a follow's CLI has exited, kill what it left in its group (a reader, after a crash
+    or a SIGKILL): it would hold the pipes, and the pump with them, open. While any member is
+    left, the group's id cannot belong to anyone else. The CLI stops its readers before it
+    exits, so normally nothing is left."""
+    process.wait()
+    if _group_alive(process.pid):
+        _signal_group(process, signal.SIGKILL)
+
+
+def _drain(pipe, keep: list[str]) -> None:
+    """Read a follow's stderr to its end, keeping the last MAX_STDERR lines."""
+    try:
+        for line in pipe:
+            keep.append(line.rstrip("\n")[:MAX_LINE])
+            del keep[:-MAX_STDERR]
+    except (OSError, ValueError):
+        pass
 
 
 def redact(text: str, values: Sequence[str]) -> str:
@@ -395,6 +419,12 @@ STARTUP_GRACE = 2.0
 # moves it into the call, which it interrupts.
 CANCEL_SETTLE = 0.2
 STOP_AFTER = 15.0  # a cancel this old can be escalated to a stop (the UI asks first)
+# Long-lived children (S-10: log follows, `watch`, `services usage --follow`). Each runs with
+# stdin a pipe the console holds, so it ends when the console does, however the console ends.
+MAX_FOLLOWS = 16  # across the console; each kind adds its own cap (one usage child per project)
+FOLLOW_STOP_GRACE = 2.0  # after closing its stdin, before the group SIGTERM
+CHILDREN_FILE = "children.json"  # 0600: the PIDs and start times of the live follows
+MAX_STDERR = 20  # lines of a follow's stderr kept for its coded error
 
 
 class WriteBusy(Exception):
@@ -454,6 +484,144 @@ class Running:
     signalled: bool = False
 
 
+def process_start(pid: int) -> str | None:
+    """A process's start time as `ps` prints it (`lstart`, to the second), or None when there is
+    no such process. With the PID it names one process: a PID reused later starts later."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env={**child_environment(), "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    started = result.stdout.strip()
+    return started if result.returncode == 0 and started else None
+
+
+class ChildRecords:
+    """The follows a console has running, in a 0600 file (`children.json`) in its directory:
+    `[{"pid", "started"}]`. A console killed with SIGKILL cannot stop its children; each one
+    sees its stdin end and stops itself, and this file is the backstop for one that does not:
+    the next `up` (holding the lock) kills the process group of each recorded PID whose start
+    time still matches (`sweep`), never a single PID and never a reused one."""
+
+    def __init__(self, directory: Path):
+        self.path = directory / CHILDREN_FILE
+        self.mutex = threading.Lock()
+
+    def _load(self) -> list[dict]:
+        try:
+            info = self.path.lstat()
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.getuid()
+                or info.st_mode & 0o077
+            ):
+                return []  # not ours alone: never act on it
+            rows = json.loads(self.path.read_text())
+        except (OSError, ValueError):
+            return []
+        if not isinstance(rows, list):
+            return []
+        return [
+            row
+            for row in rows
+            if isinstance(row, dict)
+            and type(row.get("pid")) is int
+            and row["pid"] > 1
+            and isinstance(row.get("started"), str)
+        ]
+
+    def _save(self, rows: list[dict]) -> None:
+        try:
+            write_private(self.path, json.dumps(rows).encode())
+        except OSError:
+            pass  # the stdin pipe still stops the child; only the backstop is lost
+
+    def add(self, pid: int, started: str) -> None:
+        with self.mutex:
+            rows = [row for row in self._load() if row["pid"] != pid]
+            self._save([*rows, {"pid": pid, "started": started}])
+
+    def remove(self, pid: int) -> None:
+        with self.mutex:
+            rows = self._load()
+            kept = [row for row in rows if row["pid"] != pid]
+            if kept != rows:
+                self._save(kept)
+
+    def sweep(self, grace: float = FOLLOW_STOP_GRACE) -> int:
+        """Kill what a console that died left running; returns the number of groups killed.
+        Call only while holding the console lock, before any follow starts."""
+        with self.mutex:
+            rows = self._load()
+            killed = []
+            for row in rows:
+                pid = row["pid"]
+                if process_start(pid) != row["started"]:
+                    continue  # gone, or the PID now belongs to another process
+                try:
+                    if os.getpgid(pid) != pid:
+                        continue  # a follow leads its own group; this one does not
+                    os.killpg(pid, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError, OSError):
+                    continue
+                killed.append(pid)
+            deadline = time.monotonic() + grace
+            for pid in killed:
+                while time.monotonic() < deadline and _group_alive(pid):
+                    time.sleep(0.05)
+                if _group_alive(pid):
+                    try:
+                        os.killpg(pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+            if rows:
+                try:
+                    self.path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            return len(killed)
+
+
+def _group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return False  # macOS: a group left with only a zombie leader
+    return True
+
+
+class FollowRefused(Exception):
+    """A follow was not started: `code` is STOPPING (the console is stopping) or
+    FOLLOWS_FULL (MAX_FOLLOWS are running)."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code, self.message = code, message
+
+
+@dataclass
+class Follow:
+    """A long-lived CLI child started by `Runner.follow`."""
+
+    process: subprocess.Popen
+    pump: threading.Thread
+    stderr: list[str]
+
+    def error(self) -> dict | None:
+        """Its coded error once it has exited non-zero, else None (S-17: only `[CODE] message`)."""
+        code = self.process.poll()
+        if code is None or code == 0:
+            return None
+        return cli_error("\n".join(self.stderr), code)
+
+
 class Runner:
     def __init__(self, state: CenterState, directory: Path, prefix: Sequence[str] | None = None):
         self.state = state
@@ -463,6 +631,8 @@ class Runner:
         self.jobs: dict[str, Running] = {}
         self.held: dict[str, str] = {}  # lock key -> the job or short write holding it
         self.children: set[subprocess.Popen] = set()  # long-lived children (follows, watch, usage)
+        self.follows: set[subprocess.Popen] = set()  # the subset started by `follow`
+        self.records = ChildRecords(directory)
         self.cache: dict[str, dict] = {}
         self.on_invalidate: list[Callable[[], None]] = []  # other caches to drop with this one
         self.stopping = False
@@ -771,6 +941,137 @@ class Runner:
     def forget(self, process: subprocess.Popen) -> None:
         with self.mutex:
             self.children.discard(process)
+
+    def follow(
+        self,
+        argv: Sequence[str],
+        on_line: Callable[[str], None],
+        on_end: Callable[[Follow], None] | None = None,
+        max_line: int = MAX_LINE,
+    ) -> Follow:
+        """Start a long-lived CLI child (S-10) and pump its stdout lines to `on_line`, on a
+        thread; `on_end(follow)` runs once it has exited. The generic part for every follow
+        (`services usage --follow`, and M5's log follows and `watch`), so each kind only adds
+        its own caps and parsing:
+
+        - stdin is a pipe the console holds, so the CLI's `--follow` ends on its EOF when the
+          console exits, even by SIGKILL; `end_follow` closes it first.
+        - It leads its own process group (`start_new_session`), so a stop reaches the docker or
+          kubectl reader the CLI runs, and a terminal Ctrl-C reaches only the console.
+        - Its PID and start time are in `children.json` (0600) while it runs, and the next `up`
+          kills a matching leftover group (`ChildRecords.sweep`).
+        - It is adopted, so `shutdown` stops it; at most MAX_FOLLOWS run at once; none start
+          once the console is stopping (FollowRefused).
+        - A line longer than `max_line` characters is dropped whole (read in pieces, so memory
+          stays bounded); stderr is drained on its own thread, keeping the last MAX_STDERR
+          lines for `Follow.error`.
+        - When the CLI has exited, a group member it left behind (a reader, after a crash) is
+          killed before the PID record goes."""
+        with self.mutex:
+            if self.stopping:
+                raise FollowRefused("STOPPING", "The console is stopping")
+            self.follows = {child for child in self.follows if child.poll() is None}
+            if len(self.follows) >= MAX_FOLLOWS:
+                raise FollowRefused(
+                    "FOLLOWS_FULL",
+                    f"{MAX_FOLLOWS} live views are already open; close some tabs and retry",
+                )
+            try:
+                process = subprocess.Popen(
+                    [*self.prefix, *argv],
+                    cwd=self.directory,
+                    env=child_environment(),
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    start_new_session=True,
+                )
+            except OSError as problem:
+                raise FollowRefused("COMMAND_FAILED", "The command could not start") from problem
+            # Held under the mutex: shutdown's snapshot cannot miss a follow started now.
+            self.follows.add(process)
+            self.children = {child for child in self.children if child.poll() is None}
+            self.children.add(process)
+        try:
+            started = process_start(process.pid)
+            if started is not None:
+                self.records.add(process.pid, started)
+            stderr: list[str] = []
+            drain = threading.Thread(target=_drain, args=(process.stderr, stderr), daemon=True)
+            drain.start()
+            threading.Thread(target=_reap_group, args=(process,), daemon=True).start()
+            follow = Follow(process, threading.Thread(daemon=True), stderr)
+            follow.pump = threading.Thread(
+                target=self._pump_follow,
+                args=(follow, drain, on_line, on_end, max_line),
+                daemon=True,
+            )
+            follow.pump.start()
+        except Exception as problem:  # no thread (RuntimeError) or a record write: no orphan
+            _stop_process(process, FOLLOW_STOP_GRACE)
+            self.records.remove(process.pid)
+            with self.mutex:
+                self.follows.discard(process)
+                self.children.discard(process)
+            raise FollowRefused("COMMAND_FAILED", "The command could not start") from problem
+        return follow
+
+    def _pump_follow(self, follow: Follow, drain, on_line, on_end, max_line: int) -> None:
+        process = follow.process
+        try:
+            # Always drained, so the child never blocks on a pipe.
+            while line := process.stdout.readline(max_line + 1):
+                if not line.endswith("\n") and len(line) > max_line:
+                    while (rest := process.stdout.readline(max_line + 1)) and not rest.endswith(
+                        "\n"
+                    ):
+                        pass  # the rest of an over-long line: dropped whole
+                    continue
+                try:
+                    on_line(line.rstrip("\n"))
+                except Exception:
+                    pass  # a bad line must not stop the pump (and so block the child)
+            process.wait()
+        except Exception:
+            _stop_process(process, FOLLOW_STOP_GRACE)
+        finally:
+            drain.join(timeout=FOLLOW_STOP_GRACE)
+            # stderr only once drained: closing it under a blocked read would wait on its lock.
+            pipes = (process.stdin, process.stdout, None if drain.is_alive() else process.stderr)
+            for pipe in pipes:
+                try:
+                    if pipe:
+                        pipe.close()
+                except (OSError, ValueError):
+                    pass
+            self.records.remove(process.pid)
+            with self.mutex:
+                self.follows.discard(process)
+                self.children.discard(process)
+        if on_end is not None:
+            try:
+                on_end(follow)
+            except Exception:
+                pass
+
+    def end_follow(self, follow: Follow, grace: float = FOLLOW_STOP_GRACE) -> None:
+        """Stop a follow: close its stdin (the CLI ends its reader and prints its end record),
+        then, if it is still there after `grace`, SIGTERM and SIGKILL its process group. Blocks
+        for at most about three grace periods; call it off the request thread."""
+        process = follow.process
+        try:
+            if process.stdin:
+                process.stdin.close()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            _stop_process(process, grace)
+        follow.pump.join(timeout=grace)  # the pump kills a group the CLI left behind
 
     def shutdown(self, grace: float = SHUTDOWN_GRACE) -> list[str]:
         """Stop every engine job and long-lived child (S-18). First SIGINT to each CLI child

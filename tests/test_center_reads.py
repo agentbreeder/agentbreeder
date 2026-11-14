@@ -60,6 +60,9 @@ ALLOWED = {
     # Knowledge index status (#830): pure query and answer checks; imports only registry and
     # center.files.
     "agentbreeder.center.knowledgestatus",
+    # Usage feeds (#822): the follow child's answer checks and the in-memory ring; imports only
+    # center.jobs.
+    "agentbreeder.center.usage",
     # stack.yaml's agents for the identity strip (#823): pydantic models, no state or Docker.
     "agentbreeder.services",
     "agentbreeder.services.schema",

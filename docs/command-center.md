@@ -1027,6 +1027,41 @@ malformed bodies and names, coded refusals, unexpected answers, a running job an
 on the project). Not yet run against real Docker; that is the M6 acceptance (`services restart
 litellm` restarts only that container).
 
+### Service usage feed (#822, M6, third part): on `main`, not in a published preview
+
+`GET /api/projects/ID/usage` returns the project's usage history: `{running, window, samples,
+disk, dropped}`. The first request starts one `agentbreeder services usage DIR --follow --json`
+child for that project (see [`commands/services.md`](commands/services.md)); later requests read
+what it has printed. Samples (at most one every 2 seconds) are kept in memory for the last 5
+minutes (`window`, 300 seconds), so a page opened later has history at once; `disk` is the latest
+disk reading with its `as_of` time. Nothing is written to disk. Only the contract's fields pass,
+each checked (service and volume names, deployment IDs, numbers that are not negative); a line
+that does not match is dropped and counted in `dropped` (the CLI's own error object is not
+counted), and a line over 64 KiB is discarded without being parsed or counted. History is capped at 160 samples per project.
+CPU and memory are of the Docker VM on Docker Desktop.
+
+The child stops about 15 seconds after the last request (requests to this route are polls: they do not
+keep a session alive) and when the console stops, and the next request starts a new one; the
+history stays. A child that fails (for example `DOCKER_STATS_FAILED` when Docker goes away)
+shows its coded error, with the history kept and marked stale, and is not started again for 10
+seconds. There is one child per project and at most 16 follows (usage now, log follows later)
+in the console (`FOLLOWS_FULL` past that).
+
+Long-lived children (S-10): each runs with its stdin a pipe the console holds, so when the console
+exits, even when it is killed, the CLI sees the end of its stdin and stops with its `docker stats`
+reader. Each leads its own process group; when the CLI exits, anything it left in that group (a
+reader, after a crash) is killed. Its PID and start time are kept in a 0600 `children.json` in
+the console directory while it runs. The next `agentbreeder up` kills the process group of any
+recorded PID whose start time still matches (a child that ignored its stdin) and says how many it
+stopped; a group whose leader is already gone is not swept, and a child whose start time
+could not be read is protected by its stdin alone. M5's log follows will use the same
+plumbing.
+
+The Home services table and the service detail's Usage tab, which read this route, are the last
+part of M6. The M6 acceptance (Northwind's 5 services with usage updating within 10 seconds) is
+batched with the milestone verifications; the tests run the route, the idle stop, the failure
+path and a SIGKILLed console against a fake CLI.
+
 ## How it stays the same engine
 
 Every action starts the CLI in a child process, with a fixed argument list. The UI does not open the
