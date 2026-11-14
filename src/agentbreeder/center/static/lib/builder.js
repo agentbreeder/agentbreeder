@@ -13,6 +13,9 @@ export const MAX_CASES = 100; // `agentspec.MAX_CASES`
 export const MAX_TURNS = 10;
 export const MAX_TEXT = 4000; // a turn or a reference, `agentspec.MAX_TEXT`
 export const MAX_SPEC = 256 * 1024; // bytes of JSON, `agentspec.MAX_SPEC_BYTES`
+export const MAX_TOOLS = 50; // `agentspec.Spec.tools`
+export const MAX_SERVERS = 10; // `agentspec.Spec.mcp`
+export const MAX_SERVER_TOOLS = 100; // `agentspec.Mcp.tools`
 const CASE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/; // `agentspec.CASE_ID`
 const MODEL_ID = /^[A-Za-z0-9._:/-]{1,128}$/; // `newagent.MODEL_ID_PATTERN`
 // The checks a spec case takes (`agentspec.Expect`); a new agent has no knowledge to cite.
@@ -36,7 +39,104 @@ export const initialForm = () => ({
   maxCalls: "2",
   threshold: "1",
   retries: "1",
+  tools: {}, // tool name -> the picked `tool/` ref
+  mcp: {}, // server name -> {ref, tools: [granted tool names]}
 });
+
+// -- the pickers -------------------------------------------------------------------------------
+// `parts` is `GET /api/builder/parts`: `{tools: [entry], mcp: [entry + {tools, unusable}]}`, each
+// entry `{ref, name, version, root_kind, runs_code, description}`, newest version of a name first.
+
+/** The versions offered, grouped by name in the server's order: `[{name, versions: [entry]}]`. */
+export function pickGroups(entries) {
+  const groups = [];
+  for (const entry of entries || []) {
+    const last = groups[groups.length - 1];
+    if (last && last.name === entry.name) last.versions.push(entry);
+    else groups.push({ name: entry.name, versions: [entry] });
+  }
+  return groups;
+}
+
+/** The form with tool `name` set to `ref` ("" removes it). */
+export function pickTool(form, name, ref) {
+  const tools = { ...form.tools };
+  if (ref) tools[name] = ref;
+  else delete tools[name];
+  return { ...form, tools };
+}
+
+/**
+ * The form with MCP server `name` set to version `ref` ("" removes it). A newly picked server
+ * grants none of its tools; a version change keeps the grants the new version still declares.
+ */
+export function pickServer(form, name, ref, entries) {
+  const mcp = { ...form.mcp };
+  if (!ref) {
+    delete mcp[name];
+    return { ...form, mcp };
+  }
+  const entry = (entries || []).find((item) => item.ref === ref);
+  const declared = new Set(((entry && entry.tools) || []).map((tool) => tool.name));
+  const kept = ((mcp[name] && mcp[name].tools) || []).filter((tool) => declared.has(tool));
+  mcp[name] = { ref, tools: kept };
+  return { ...form, mcp };
+}
+
+/** The form with `tool` of MCP server `name` granted or not, in the version's declared order. */
+export function grantTool(form, name, tool, granted, entries) {
+  const current = form.mcp[name];
+  if (!current) return form;
+  const entry = (entries || []).find((item) => item.ref === current.ref);
+  const order = ((entry && entry.tools) || []).map((item) => item.name);
+  const wanted = new Set(current.tools);
+  if (granted) wanted.add(tool);
+  else wanted.delete(tool);
+  const tools = order.filter((item) => wanted.has(item));
+  return { ...form, mcp: { ...form.mcp, [name]: { ...current, tools } } };
+}
+
+/**
+ * The form without picks `parts` no longer offers (a version gone, or one that cannot be picked
+ * now) and without grants of tools the picked version no longer declares. The same form object
+ * when nothing changed.
+ */
+export function keepOffered(form, parts) {
+  const tools = new Set((parts.tools || []).map((entry) => entry.ref));
+  const servers = new Map((parts.mcp || []).filter((entry) => !entry.unusable).map((entry) => [entry.ref, entry]));
+  let changed = false;
+  const nextTools = {};
+  for (const [name, ref] of Object.entries(form.tools || {})) {
+    if (tools.has(ref)) nextTools[name] = ref;
+    else changed = true;
+  }
+  const nextServers = {};
+  for (const [name, server] of Object.entries(form.mcp || {})) {
+    const entry = servers.get(server.ref);
+    if (!entry) {
+      changed = true;
+      continue;
+    }
+    const declared = new Set(entry.tools.map((tool) => tool.name));
+    const granted = server.tools.filter((tool) => declared.has(tool));
+    if (granted.length !== server.tools.length) changed = true;
+    nextServers[name] = granted.length === server.tools.length ? server : { ...server, tools: granted };
+  }
+  return changed ? { ...form, tools: nextTools, mcp: nextServers } : form;
+}
+
+/** Why the picks cannot be previewed, as a sentence, or null. */
+export function picksProblem(form) {
+  const tools = Object.keys(form.tools || {});
+  const servers = Object.entries(form.mcp || {});
+  if (tools.length > MAX_TOOLS) return `Pick at most ${MAX_TOOLS} tools.`;
+  if (servers.length > MAX_SERVERS) return `Pick at most ${MAX_SERVERS} MCP servers.`;
+  const bare = servers.find(([, server]) => !server.tools.length);
+  if (bare) return `Grant ${bare[0]} at least one of its tools, or set it to Not used.`;
+  const many = servers.find(([, server]) => server.tools.length > MAX_SERVER_TOOLS);
+  if (many) return `Grant ${many[0]} at most ${MAX_SERVER_TOOLS} tools.`;
+  return null;
+}
 
 export const initialCases = () => `${pyJson(FIRST_CASE)}\n`;
 
@@ -93,6 +193,8 @@ export function formProblem(form, casesText) {
   if (whole(form.maxCalls, 1, 20) === null) return "Model calls per turn is a whole number from 1 to 20.";
   if (fraction(form.threshold) === null) return "The pass threshold is a number from 0 to 1.";
   if (whole(form.retries, 0, 3) === null) return "Retries is a whole number from 0 to 3.";
+  const picks = picksProblem(form);
+  if (picks) return picks;
   const { cases, problems, entries } = specCases(casesText);
   if (!cases.length) return "Add at least one eval case.";
   if (cases.length > MAX_CASES) return `A new agent starts with at most ${MAX_CASES} eval cases.`;
@@ -115,9 +217,9 @@ export function buildSpec(form, casesText) {
     max_model_calls: whole(form.maxCalls, 1, 20),
     prompt: { text: form.prompt.replace(/\r\n?/g, "\n") },
     evals: { cases: specCases(casesText).cases, threshold: fraction(form.threshold), retries: whole(form.retries, 0, 3) },
-    tools: [],
+    tools: Object.keys(form.tools || {}).sort().map((name) => form.tools[name]),
     knowledge: [],
-    mcp: [],
+    mcp: Object.keys(form.mcp || {}).sort().map((name) => ({ ref: form.mcp[name].ref, tools: [...form.mcp[name].tools] })),
   };
 }
 
@@ -137,7 +239,8 @@ export function unverifiedText(preview, verifiedProvider = "gemini") {
   const extra = preview.combination.parts.filter((part) => !BASE_PARTS.includes(part));
   const what = [];
   if (preview.model !== verifiedProvider) what.push(`the ${preview.model} provider`);
-  if (extra.length) what.push(`a new agent with ${extra.join(" and ")}`);
+  const words = { tools: "tools", mcp: "MCP servers" };
+  if (extra.length) what.push(`a new agent with ${extra.map((part) => words[part] || part).join(" and ")}`);
   const named = what.length ? what.join(", and ") : "this combination";
   return `Not run end to end yet: ${named}. The console creates only combinations that have been; \`agentbreeder new agent --from-spec\` writes it anyway.`;
 }

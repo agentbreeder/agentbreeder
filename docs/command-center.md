@@ -634,16 +634,33 @@ fake `invoke` (argv and stdin, refused requests, the answer's allow-list, no sta
 stored, the in-flight cap, shutdown). Not yet run against a real deployment; that is the M7
 verification.
 
-### Build an agent (#833, M17 first part): on `main`, not in a published preview
+### Build an agent (#833, M17): on `main`, not in a published preview
 
 Home's **Add a project** card links to **Build an agent** (`#/build`), a form beside a sticky
 preview. The form has the agent's name, the model provider (gemini; anthropic, openai and
 openrouter are marked "not run end to end") with an optional model id, the prompt, the eval
 cases (the eval-set case editor's rows, without the cited-sources check, at most 100 cases), and,
 under **Model calls and the eval gate**, model calls per turn (1 to 20), the pass threshold (0 to
-1) and retries (0 to 3). It starts with one example case to edit. Knowledge, tools and MCP servers
-are not on the form yet. The browser never builds YAML: it sends the form as
-`new agent --from-spec`'s JSON spec (`docs/commands/new.md`). It is a three-tier confirm:
+1) and retries (0 to 3). It starts with one example case to edit. Knowledge is not on the form
+yet. The browser never builds YAML: it sends the form as `new agent --from-spec`'s JSON spec
+(`docs/commands/new.md`).
+
+**Tools** and **MCP servers** are pickers over what a new project resolves: the
+`AGENTBREEDER_REGISTRY_PATH` roots and the built-ins (`GET /api/builder/parts`, read in the server
+process; CLI children inherit the same variable). Each tool name has a select, **Not used** or one
+of its versions (newest first, with where it comes from); no `tool/` versions ship with
+AgentBreeder, so tools appear only once one is published into a registry on that path. Each MCP
+server name has a select and, once a version is picked, a checkbox for every tool its `mcp.yaml`
+declares, with its read or write effect; at least one must be ticked, and a version change keeps
+only the ticks the new version still declares. A server named like a stack service (`postgres`,
+`litellm`, or a reserved name) is shown but cannot be picked, and so is one whose `mcp.yaml` is
+not a regular file or whose `tools:` cannot be read (no tools, more than 100, a name or effect the
+CLI refuses). The versions of a name whose directory is a link in any root, and a version with an
+unreadable manifest, are left out and counted. This list is an offer, not a check: only `tools:` is read here, and the CLI validates the
+whole `mcp.yaml` and resolves every pick again, refusing what it cannot (`MCP_INVALID`,
+`REF_NOT_FOUND`, `REF_CONFLICT`, `MCP_TOOL_UNDECLARED`).
+
+It is a three-tier confirm:
 
 1. **Preview** writes the spec to a file only you can read (0600, in a fresh 0700 temporary
    directory, removed afterwards; the prompt never goes in argv), runs `agentbreeder new agent
@@ -654,12 +671,13 @@ are not on the form yet. The browser never builds YAML: it sends the form as
    form edit marks the preview out of date (an answer still on its way for the old form is
    dropped); Create waits for a new one and sends the spec that was previewed.
 2. When a picked part brings code from outside the built-in registry (`runs_code`), a **This code
-   runs in agents** box names it and its checkbox must be ticked. Nothing on this form brings code
-   yet (the server refuses tools and MCP servers, `SPEC_UNSUPPORTED`, until their pickers exist),
-   so this box is not shown yet.
+   runs in agents** box names it and its checkbox must be ticked: a tool or MCP server from
+   `AGENTBREEDER_REGISTRY_PATH`. The built-in MCP servers ship with AgentBreeder and do not ask.
+   A form edit, a different pick included, clears the tick.
 3. **Create agent and add project** is on only for a combination run end to end
-   (`combination.verified`: today gemini with a prompt and evals). Otherwise the preview names
-   what has not been run (the provider, or the extra parts) and says `agentbreeder new agent
+   (`combination.verified`: today gemini with a prompt and evals; no combination with tools or
+   MCP servers has been run end to end yet). Otherwise the preview names what has not been run
+   (the provider, "a new agent with tools", "… with MCP servers") and says `agentbreeder new agent
    --from-spec` writes it anyway. Create sends the previewed `plan_sha256`; the server runs the dry
    run again with `--expect-digest`, refuses `COMBINATION_UNVERIFIED` or `CODE_CONFIRM_REQUIRED`
    on that fresh answer, then runs the write with `--expect-digest` (a spec, picked version or date
@@ -668,17 +686,23 @@ are not on the form yet. The browser never builds YAML: it sends the form as
 
 Refusals show `new agent`'s own coded message (for example `SPEC_INVALID` for a case id it
 refuses, or a destination that is not empty). The server checks the spec's shape first (known
-fields, `schema_version` 1, the name, provider and model id, no knowledge, tools or MCP servers:
-`SPEC_UNSUPPORTED`, at most 256 KiB) and runs nothing when they fail. The preview and create
+fields, `schema_version` 1, the name, provider and model id, no knowledge: `SPEC_UNSUPPORTED`;
+pinned `tool/` refs, one version per tool, at most 50; `mcp/` servers as `{ref, tools}`, one
+version per server, 1 to 100 distinct tool names each, at most 10; at most 256 KiB) and runs
+nothing when they fail. The preview and create
 routes (`POST /api/projects/builder`, `/api/projects/builder/create`) take bodies up to 1 MiB;
 the CLI checks the spec in full.
 
 Tested on the server against the real `new agent --from-spec` (the argv, the spec file's modes
 and removal, preview, create, a changed plan, an unverified provider, bad requests; the code
-confirm's refusal with a stubbed plan) and with Playwright and axe in light and dark, where the
-fake CLI hands `new agent --from-spec` to the real command. The code confirm box itself is not
-exercised in the browser until a picker can bring code. A built agent has not yet been taken through
-`services up` and `release` from the console: that is the M17 verification.
+confirm's refusal with a stubbed plan; the pickers' list over a path registry, a symlinked and a
+broken version, servers whose `mcp.yaml` is a link or cannot be read, a picked path tool
+previewed as code and refused as unverified, the same tool created only after the code confirm
+once the CLI's answer is marked verified (simulated), a granted MCP server, an undeclared tool) and with Playwright and axe in light and dark, where the fake CLI hands
+`new agent --from-spec` to the real command (the code confirm box with a path tool, the MCP grant
+checkboxes). A built agent, with or without tools, has not yet been taken through `services up`
+and `release` from the console: that is the M17 verification. When that run adds a combination to
+`agentspec.VERIFIED`, Create turns on for it with no console change.
 
 ### Agents (#823, second part): on `main`, not in a published preview
 

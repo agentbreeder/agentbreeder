@@ -362,6 +362,15 @@ class Center:
             raise BadRequest(str(problem), "BAD_OUTPUT") from problem
         return name, destination, shown
 
+    def builder_parts(self) -> dict:
+        """The builder's pickers (#833): the `tool/` and `mcp/` versions a new project resolves
+        (AGENTBREEDER_REGISTRY_PATH, which CLI children inherit, and the built-ins)."""
+        try:
+            return envelope(builder.parts(registry.roots(None)))
+        except (registry.RegistryError, OSError):
+            message = "The registries could not be read; run `agentbreeder registry verify`"
+            return envelope(None, {"code": "REGISTRY_UNREADABLE", "message": message})
+
     def preview_builder(self, body: object) -> dict:
         """Build a new agent, step 1 (#833): every file `new agent --from-spec` would write,
         with its text, and whether the combination was run end to end. Writes nothing."""
@@ -1030,6 +1039,10 @@ def _preview_stack_for(request: Request) -> dict:
     return envelope(request.center.preview_stack_for(request.body))
 
 
+def _builder_parts(request: Request) -> dict:
+    return request.center.builder_parts()
+
+
 def _preview_builder(request: Request) -> dict:
     return envelope(request.center.preview_builder(request.body))
 
@@ -1065,6 +1078,7 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", r"/api/activity", _activity, "/api/activity", poll=True),
     Route("GET", r"/api/projects", _projects, "/api/projects"),
     Route("GET", r"/api/agents", _agents, "/api/agents"),
+    Route("GET", r"/api/builder/parts", _builder_parts, "/api/builder/parts"),
     Route(
         "GET",
         rf"/api/projects/{PROJECT_ID}/(?P<view>[a-z]+)",
