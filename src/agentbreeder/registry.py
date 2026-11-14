@@ -975,9 +975,30 @@ def root_kind(root: Path, project_dir: Path | None = None) -> str:
     AgentBreeder) or `path` (an AGENTBREEDER_REGISTRY_PATH entry)."""
     if root.resolve() == BUILTIN_ROOT.resolve():
         return "builtin"
-    if project_dir is not None and root == project_dir / "registry":
+    if project_dir is not None and (
+        root == project_dir / "registry" or root.resolve() == (project_dir / "registry").resolve()
+    ):
         return "project"
     return "path"
+
+
+PROJECT_MARKERS = ("agent.yaml", "stack.yaml")
+
+
+def publish_project(root: Path) -> Path | None:
+    """The project a `registry publish --to ROOT` writes into (#898): the directory DIR when
+    ROOT resolves to `DIR/registry` and DIR holds `agent.yaml` or `stack.yaml`, else None.
+    It only decides `root_kind` in publish's output; the write itself is unchanged."""
+    try:
+        resolved = root.resolve()
+        if resolved.name != "registry":
+            return None
+        project = resolved.parent
+        if any((project / marker).is_file() for marker in PROJECT_MARKERS):
+            return project
+    except (OSError, RuntimeError):  # a symlink loop or an unreadable parent: not decidable
+        pass  # place() reports a broken root itself
+    return None
 
 
 @dataclass

@@ -142,7 +142,11 @@ def _run(args) -> int:
             return 0
         if args.registry_command == "publish":
             result = registry.place(
-                args.source, args.to, expect_digest=args.expect_digest, dry_run=args.dry_run
+                args.source,
+                args.to,
+                expect_digest=args.expect_digest,
+                dry_run=args.dry_run,
+                project_dir=registry.publish_project(args.to),  # root_kind only (#898)
             )
             return _placed(args, result, "publish", notice=False)
         if args.registry_command == "import":
