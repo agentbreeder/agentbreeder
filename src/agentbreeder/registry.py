@@ -1001,8 +1001,9 @@ def scaffold(kind: str, name: str, directory: Path, version: str = "0.1.0") -> P
 # Pure reads over registry roots and project files (no Docker, state, secrets or operator config):
 # the local console calls these in-process. Every version goes through `resolve` and `_entries`
 # (symlink, hardlink, size and shipped-content checks), files are opened with O_NOFOLLOW and
-# checked against the inode `_entries` saw, text is capped, and control and bidi characters are
-# stripped from file names, manifest values and content before anything is shown (S-27).
+# checked against the inode `_entries` saw, text is capped, and control, bidi and invisible
+# characters are stripped from file names, manifest values and content before anything is shown
+# (S-27).
 
 SHOW_FILE_LIMIT = 256 * 1024  # text kept per file
 SHOW_TOTAL_LIMIT = 2 * 1024 * 1024  # text kept per version; later files are listed, not shown
