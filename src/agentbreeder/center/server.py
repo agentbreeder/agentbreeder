@@ -849,7 +849,8 @@ class Center:
         check_project(stored)
 
     def registry_edit(self, project: dict, body: object) -> dict:
-        """The prompt editor's review and save (#826): `registry edit` with the text on stdin.
+        """The prompt editor's review and save (#826): `registry edit` with the text on stdin
+        (or `--remove PATH`, knowledge documents, #830, with nothing on stdin).
         Without `digest` a dry run (diff and digest, nothing written, uncached); with it the
         write, bound to the reviewed bytes, as a short write locked per name."""
         request = edits.edit_request(body)

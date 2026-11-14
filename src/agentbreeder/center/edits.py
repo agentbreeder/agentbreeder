@@ -20,6 +20,12 @@ their cases files (JSON lines, checked by the CLI as `release` loads them: EVAL_
 (TOOL_INVALID: allowed files, no shadowing module, every function a top-level `def` that parses)
 before it writes.
 
+Knowledge (M14, #830) edits only its documents, `docs/NAME.md` or `docs/NAME.txt` (the files the
+runtime indexes), and may add a new one (`--set` creates it) or remove one: the remove mode is
+`registry edit REF --remove PATH --version X.Y.Z --project DIR (--dry-run | --expect-digest D)
+--json`, with the same dry run, digest and per-kind path check, and nothing on stdin. Only kinds
+with `remove` take it. Documents land in a git-tracked registry; the screen says so before Save.
+
 "Fork to edit" (#828): a version outside the project registry (built in, or on
 AGENTBREEDER_REGISTRY_PATH) is not edited in place. `registry fork REF --version X.Y.Z --project
 DIR (--dry-run | --expect-digest D) --json` copies it into the project registry as a new version,
@@ -42,6 +48,7 @@ class EditKind:
     paths: re.Pattern
     what: str  # the files, as words for the refusal ("eval case files (*.jsonl)")
     code: bool = False
+    remove: bool = False  # whether a file of the kind may be removed (`registry edit --remove`)
 
 
 KINDS = {
@@ -50,6 +57,15 @@ KINDS = {
     "eval": EditKind(re.compile(r"[^/]+\.jsonl"), "eval case files (NAME.jsonl at the top)"),
     # A tool's code: only Python under src/ (tool.yaml, which the model sees, is not edited here).
     "tool": EditKind(re.compile(r"src/.+\.py"), "Python source files (src/**/*.py)", code=True),
+    # A knowledge version's documents: the runtime indexes docs/*.md and docs/*.txt (case as
+    # written, not nested). Adding one is a --set of a new path. Names are plain (letters,
+    # digits, `.`, `_`, `-`; no space, control character or leading dot), stricter than the
+    # CLI's, so another name is edited in a terminal.
+    "knowledge": EditKind(
+        re.compile(r"docs/[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.(md|txt)"),
+        "documents (docs/NAME.md or docs/NAME.txt)",
+        remove=True,
+    ),
 }
 MAX_TEXT = 512 * 1024  # characters; under the editor body cap (1 MiB of JSON)
 EDIT_KIND = "registry-edit"
@@ -72,7 +88,8 @@ def _digest(value: object, field: str) -> str | None:
 
 
 def edit_request(body: object) -> dict:
-    """{ref, path, text, version, digest|None} from the browser's JSON, or BadRequest."""
+    """{ref, path, text|None, remove, version, digest|None} from the browser's JSON, or
+    BadRequest. `remove: true` (kinds with `remove` only) removes `path` and takes no text."""
     if not isinstance(body, dict):
         raise BadRequest("Send a JSON object", "EDIT_INVALID")
     ref = _ref(body.get("ref"), "ref")
@@ -88,10 +105,18 @@ def edit_request(body: object) -> dict:
     kind = KINDS[ref.kind]
     if not kind.paths.fullmatch(path):
         raise BadRequest(f"The console edits only {kind.what} of a {ref.kind}", "EDIT_PATH")
+    remove = body.get("remove", False)
+    if not isinstance(remove, bool):
+        raise BadRequest("remove is true or left out", "EDIT_INVALID")
     text = body.get("text")
-    if not isinstance(text, str):
+    if remove:
+        if not kind.remove:
+            raise BadRequest(f"The console does not remove files of a {ref.kind}", "EDIT_REMOVE")
+        if text is not None:
+            raise BadRequest("A removal takes no text", "EDIT_INVALID")
+    elif not isinstance(text, str):
         raise BadRequest("Send the file's text", "EDIT_INVALID")
-    if len(text) > MAX_TEXT:
+    elif len(text) > MAX_TEXT:
         raise BadRequest(f"The text is over {MAX_TEXT} characters", "EDIT_TOO_LARGE")
     version = body.get("version")
     if not isinstance(version, str) or not registry.VERSION.fullmatch(version):
@@ -101,15 +126,26 @@ def edit_request(body: object) -> dict:
         raise BadRequest(
             "Confirm that you reviewed this code: it runs in agents", "CODE_NOT_CONFIRMED"
         )
-    return {"ref": ref, "path": path, "text": text, "version": version, "digest": digest}
+    return {
+        "ref": ref,
+        "path": path,
+        "text": None if remove else text,
+        "remove": remove,
+        "version": version,
+        "digest": digest,
+    }
 
 
 def edit_argv(project: dict, request: dict) -> list[str]:
-    """The `registry edit` argv: a dry run without a digest, else the write bound to it."""
+    """The `registry edit` argv: a dry run without a digest, else the write bound to it; the
+    text on stdin (`--set PATH -`), or `--remove PATH` with nothing on stdin."""
     mode = ["--expect-digest", request["digest"]] if request["digest"] else ["--dry-run"]
+    change = (
+        ["--remove", request["path"]] if request["remove"] else ["--set", request["path"], "-"]
+    )
     return [
         "registry", "edit", str(request["ref"]),
-        "--set", request["path"], "-",
+        *change,
         "--version", request["version"],
         "--project", project["path"],
         *mode, "--json",

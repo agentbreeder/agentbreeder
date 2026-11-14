@@ -7,6 +7,11 @@
 // sends the same text with the reviewed digest, so what is written is what was reviewed (S-04). A
 // version that appears meanwhile (another tab) is VERSION_EXISTS: pick another and review again.
 //
+// Knowledge documents (#830, M14): the same review and save for docs/NAME.md|txt, plus "New
+// document" (a new path, saved with `--set`) and "Remove this document" (`--remove PATH`, the
+// same dry run → diff → write bound to the digest). The review says the documents land in a
+// git-tracked registry before Save.
+//
 // Fork to edit (#828): a version outside the project registry (built in, or on a shared path) is
 // copied into it first: `registry fork REF --version X.Y.Z --dry-run` lists the copy's files and
 // digest, then "Fork as X.Y.Z" copies exactly that (--expect-digest), and the copy is edited.
@@ -16,7 +21,7 @@
 // --locked and refuse a lock without the new ref), then release from Build and release.
 
 import { caseAtLine, caseProblems, parseCases } from "../lib/cases.js";
-import { EDITABLE_KINDS, BUMPS, agentUses, editKind, editProblem, editableFiles, gutterLines, isSaveShortcut, movableFrom, needsNewReview, notEditableReason, saveVersion } from "../lib/edit.js";
+import { EDITABLE_KINDS, BUMPS, agentUses, editKind, editProblem, editableFiles, gutterLines, isSaveShortcut, movableFrom, needsNewReview, newFile, notEditableReason, saveVersion } from "../lib/edit.js";
 import { diffStats } from "../lib/registry.js";
 import { href } from "../lib/router.js";
 import { Action, Actions, Card, Notice, Text, useConfirm, useConsole } from "../ui/components.js";
@@ -146,11 +151,14 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
   const spec = editKind(kind);
   const files = editableFiles(show, kind);
   const others = (show.files || []).map((file) => [file, notEditableReason(file, kind, show)]).filter(([, why]) => why);
+  const [added, setAdded] = useState(null); // a new file's path (`add` kinds), not saved yet
   const [path, setPath] = useState(files.length ? files[0].path : null);
+  const paths = [...files.map((file) => file.path), ...(added && !files.some((file) => file.path === added) ? [added] : [])];
+  const isNew = Boolean(path) && path === added && !files.some((file) => file.path === added);
   const original = (files.find((file) => file.path === path) || {}).text ?? "";
   const [text, setText] = useState(original);
   const [part, setPart] = useState("patch");
-  const [review, setReview] = useState(null); // {data, text, version, path}
+  const [review, setReview] = useState(null); // {data, text, version, path, remove}
   const [busy, setBusy] = useState(null); // "review" | "save"
   const [notice, setNotice] = useState(null);
   const [invalid, setInvalid] = useState(null); // the CLI's EVAL_INVALID at its case: {index, message}
@@ -167,11 +175,12 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
   useLeaveGuard(dirty);
   const existing = entry.versions.map((v) => v.version);
   const target = saveVersion(version.version, part, existing);
-  const current = review && review.text === text && review.version === target && review.path === path;
+  const current = review && review.version === target && review.path === path && (review.remove ? !dirty : review.text === text);
 
   const pick = async (next) => {
     if (next === path) return;
     if (dirty && !(await confirm({ title: "Discard your changes?", text: `Your changes to ${path} are not saved.`, confirm: "Discard" }))) return;
+    if (isNew && next !== added) setAdded(null); // an empty new file is dropped when left
     setPath(next);
     setText((files.find((file) => file.path === next) || {}).text ?? "");
     setReview(null);
@@ -185,13 +194,27 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
     setInvalid(null);
     setReset((n) => n + 1);
   };
-  const ask = async () => {
-    if (busy || !dirty || !target || casesToFix) return; // Cmd/Ctrl+S does nothing while a request is in flight
+  const create = async (name) => {
+    const made = newFile(kind, name, show);
+    if (made.error) return made.error;
+    if (dirty && !(await confirm({ title: "Discard your changes?", text: `Your changes to ${path} are not saved.`, confirm: "Discard" }))) return "";
+    setAdded(made.path);
+    setPath(made.path);
+    setText("");
+    setReview(null);
+    setNotice(null);
+    setInvalid(null);
+    setReset((n) => n + 1);
+    return "";
+  };
+  const ask = async (remove = false) => {
+    if (busy || !target) return; // Cmd/Ctrl+S does nothing while a request is in flight
+    if (remove ? dirty || isNew : !dirty || casesToFix) return;
     setBusy("review");
     setNotice(null);
     setInvalid(null);
     setConfirmed(false);
-    const body = { ref: version.ref, path, text, version: target };
+    const body = remove ? { ref: version.ref, path, remove: true, version: target } : { ref: version.ref, path, text, version: target };
     const { data, problem } = await send(client, `/api/projects/${project.id}/registry/edit`, body);
     setBusy(null);
     if (problem) {
@@ -204,13 +227,14 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
       setNotice({ tone: "error", text: editProblem(problem).text });
       return;
     }
-    setReview({ data, text, version: target, path });
+    setReview({ data, text: remove ? null : text, version: target, path, remove });
   };
   const save = async () => {
     if (busy || !current) return;
     setBusy("save");
     setNotice(null);
-    const body = { ref: version.ref, path, text: review.text, version: review.version, digest: review.data.sha256 };
+    const change = review.remove ? { remove: true } : { text: review.text };
+    const body = { ref: version.ref, path, ...change, version: review.version, digest: review.data.sha256 };
     if (spec.confirm === "code") body.code_confirmed = confirmed;
     const { data, problem } = await send(client, `/api/projects/${project.id}/registry/edit`, body);
     setBusy(null);
@@ -221,28 +245,31 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
       return;
     }
     setReview(null);
-    onSaved(data.version, `Saved ${data.ref}. ${version.ref} is unchanged. An agent uses the new version only after you move it there and release.`);
+    if (review.path === added) setAdded(null);
+    const what = review.remove ? `Saved ${data.ref} without ${review.path}.` : `Saved ${data.ref}.`;
+    onSaved(data.version, `${what} ${version.ref} is unchanged. An agent uses the new version only after you move it there and release.`);
   };
   const onKey = (event) => {
     if (!isSaveShortcut(event)) return;
     event.preventDefault();
     if (current) document.getElementById("edit-save")?.focus();
-    else ask();
+    else ask(false);
   };
   const stats = current ? diffStats(review.data.diff) : null;
 
   return html`<${Card} title=${`Edit ${version.version}`}>
     ${dialog}
     <p class="muted small">Saving publishes a new version; <code>${version.version}</code> never changes. ${spec.note}</p>
-    ${files.length
+    ${spec.add ? html`<${NewFile} spec=${spec} busy=${Boolean(busy)} onCreate=${create} />` : null}
+    ${paths.length
       ? html`
         <div class="row edit-bar">
-          ${files.length > 1
+          ${paths.length > 1
             ? html`<label for="edit-file">File</label>
               <select id="edit-file" value=${path} onChange=${(event) => pick(event.currentTarget.value)}>
-                ${files.map((file) => html`<option key=${file.path} value=${file.path}>${file.path}</option>`)}
+                ${paths.map((each) => html`<option key=${each} value=${each}>${each === added && isNew ? `${each} (new)` : each}</option>`)}
               </select>`
-            : html`<span>File <code><${Text} value=${path} /></code></span>`}
+            : html`<span>File <code><${Text} value=${path} /></code>${isNew ? " (new)" : ""}</span>`}
           <label for="edit-bump">New version</label>
           <select id="edit-bump" value=${part} onChange=${(event) => setPart(event.currentTarget.value)}>
             ${BUMPS.map((bump) => html`<option key=${bump} value=${bump}>${bump}: ${saveVersion(version.version, bump, existing)}</option>`)}
@@ -256,14 +283,19 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
           : html`<${TextBody} path=${path} text=${text} onText=${setText} onKey=${onKey} />`}
         <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
         <${Actions}>
-          <${Action} onClick=${ask} disabled=${busy ? "Waiting for the console." : !dirty ? "Change the text first." : casesToFix ? "Fix the cases marked with ! first." : false}>${busy === "review" ? "Reviewing…" : "Review changes"}<//>
+          <${Action} onClick=${() => ask(false)} disabled=${busy ? "Waiting for the console." : !dirty ? (isNew ? "Write the document first." : "Change the text first.") : casesToFix ? "Fix the cases marked with ! first." : false}>${busy === "review" ? "Reviewing…" : "Review changes"}<//>
           <${Action} tone="secondary" onClick=${async () => { if (await confirm({ title: "Discard your changes?", text: `Your changes to ${path} are not saved.`, confirm: "Discard" })) discard(); }} disabled=${!dirty || busy ? "Nothing to discard." : false}>Discard<//>
+          ${spec.remove && !isNew
+            ? html`<${Action} tone="secondary" onClick=${() => ask(true)} disabled=${busy ? "Waiting for the console." : dirty ? "Discard your changes first." : false}>Remove this document<//>`
+            : null}
         <//>
         ${spec.body === "text" || (cases && cases.error) ? html`<p class="muted small">Cmd+S or Ctrl+S in the text opens the review.</p>` : null}
         ${current
           ? html`<section class="edit-review" aria-label="Review">
-              <h3>Review: ${version.version} → ${review.version}</h3>
+              <h3>Review: ${version.version} → ${review.version}${review.remove ? `, without ${review.path}` : ""}</h3>
               <p role="status"><${Text} value=${`${review.data.diff.files.length} ${review.data.diff.files.length === 1 ? "file" : "files"} changed, ${stats.added} lines added, ${stats.removed} removed (the manifest's version line too).`} /></p>
+              ${spec.warning ? html`<p class="notice warn" role="note"><${Text} value=${spec.warning} /></p>` : null}
+              ${review.remove && files.length === 1 ? html`<p class="notice warn">This removes the version's last document: the agent's knowledge search finds nothing in the new version.</p>` : null}
               ${review.data.diff.files.map((file, index) => html`<${FileDiff} key=${`${file.path} ${index}`} file=${file} />`)}
               ${spec.confirm === "code"
                 ? html`<fieldset class="code-confirm">
@@ -273,13 +305,34 @@ function EditorBody({ project, kind, entry, version, show, focusCase, FileDiff, 
                   </fieldset>`
                 : null}
               <${Actions}>
-                <button type="button" id="edit-save" class="action primary" disabled=${Boolean(busy) || (spec.confirm === "code" && !confirmed)} onClick=${save}>${busy === "save" ? "Saving…" : `Save as ${review.version}`}</button>
+                <button type="button" id="edit-save" class="action primary" disabled=${Boolean(busy) || (spec.confirm === "code" && !confirmed)} onClick=${save}>${busy === "save" ? "Saving…" : review.remove ? `Remove and save as ${review.version}` : `Save as ${review.version}`}</button>
               <//>
             </section>`
           : review ? html`<p class="muted small">The text or version changed since the review: review again.</p>` : null}`
       : html`<p class="muted">No file of this version can be edited here.</p>`}
     ${others.length ? html`<p class="muted small">Not editable here: ${others.map(([file, why], i) => html`${i ? ", " : ""}<code><${Text} value=${file.path} /></code> (${why})`)}. Use <code>agentbreeder registry edit</code> in a terminal.</p>` : null}
   <//>`;
+}
+
+/** "New document": a name for a new file of an `add` kind; `onCreate(name)` answers an error or "". */
+function NewFile({ spec, busy, onCreate }) {
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const submit = async (event) => {
+    event.preventDefault();
+    const problem = await onCreate(name);
+    setError(problem || "");
+    if (!problem) setName("");
+  };
+  return html`<form class="row new-file" onSubmit=${submit}>
+    <label for="new-file-name">${spec.add.label}</label>
+    <span class="muted"><code>${spec.add.folder}</code></span>
+    <input id="new-file-name" value=${name} placeholder=${spec.add.hint} autocomplete="off" spellcheck="false"
+      aria-describedby=${error ? "new-file-error" : undefined} aria-invalid=${error ? "true" : undefined}
+      onInput=${(event) => setName(event.currentTarget.value)} />
+    <${Action} type="submit" tone="secondary" disabled=${busy ? "Waiting for the console." : false}>Add<//>
+    ${error ? html`<p id="new-file-error" class="small notice error" role="alert"><${Text} value=${error} /></p>` : null}
+  </form>`;
 }
 
 /**

@@ -129,7 +129,7 @@ test("an EVAL_INVALID line maps to its case, counting blank lines as the CLI doe
 });
 
 test("each edit kind names its files; eval sets edit only top-level .jsonl files", () => {
-  assert.deepEqual(EDITABLE_KINDS, ["prompt", "eval", "tool"]);
+  assert.deepEqual(EDITABLE_KINDS, ["prompt", "eval", "tool", "knowledge"]);
   assert.equal(editKind("eval").body, "cases");
   assert.equal(editKind("prompt").body, "text");
   assert.equal(editKind("tool").body, "text");

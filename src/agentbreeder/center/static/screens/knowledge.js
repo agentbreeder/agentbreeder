@@ -23,7 +23,7 @@ function KnowledgeStatus({ path, project, versionRef }) {
   const refusal = view.error ? statusRefusal(view.error, versionRef) : null;
   return html`<section class="knowledge-status" aria-labelledby=${heading} aria-busy=${view.loading ? "true" : "false"}>
     <h3 id=${heading}>Index status</h3>
-    <p class="muted small">This version's documents compared with the table the runtime indexed in the stack's database, read with the agent's own credential. Chunk text is never read. Documents change through <code>agentbreeder registry edit</code> and are re-indexed after the next <code>release</code>.</p>
+    <p class="muted small">This version's documents compared with the table the runtime indexed in the stack's database, read with the agent's own credential. Chunk text is never read. Documents change in Edit below (or <code>agentbreeder registry edit</code>) and are re-indexed after the next <code>release</code>.</p>
     <div class="row">
       <${Action} tone="ghost" small onClick=${reload} disabled=${view.loading ? "Reading the index status." : false}>Refresh</${Action}>
     </div>
