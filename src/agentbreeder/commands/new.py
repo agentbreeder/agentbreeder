@@ -36,7 +36,17 @@ def register(commands) -> None:
         choices=sorted(newagent.PROVIDERS),
         help="Model provider (only providers run end to end are offered)",
     )
-    agent.add_argument("--dir", type=Path, help="Destination (default ./NAME)")
+    where = agent.add_mutually_exclusive_group()
+    where.add_argument("--dir", type=Path, help="Destination (default ./NAME)")
+    where.add_argument(
+        "--stack-for",
+        type=Path,
+        metavar="AGENT_YAML",
+        help=(
+            "Instead of a starter, write stack.yaml and stack/litellm/config.yaml beside an "
+            "existing agent.yaml named NAME (onboarding an agent.yaml alone)"
+        ),
+    )
     agent.add_argument("--dry-run", action="store_true", help="Show what would be written")
     agent.add_argument("--json", action="store_true", help="Print the result as JSON")
 
@@ -44,6 +54,8 @@ def register(commands) -> None:
 def run(args) -> int:
     from agentbreeder import newagent
 
+    if args.stack_for is not None:
+        return _stack_for(args)
     try:
         plan = newagent.plan(args.name, args.model, args.dir)
         if args.dry_run:
@@ -51,21 +63,63 @@ def run(args) -> int:
         else:
             plan = newagent.create(plan)
     except newagent.NewAgentError as error:
-        print(str(error), file=sys.stderr)
-        if args.json:  # a console read gets the code without parsing stderr
-            message = str(error).removeprefix(f"[{error.code}] ")
-            error_body = {"code": error.code, "message": message}
-            print(
-                json.dumps(
-                    {"schema_version": newagent.SUMMARY_VERSION, "error": error_body}, indent=2
-                )
-            )
-        return 2
+        return _refused(error, args)
     summary = plan.summary(dry_run=args.dry_run)
     if args.json:
         print(json.dumps(summary, indent=2))
         return 0
     print(_text(summary))
+    return 0
+
+
+def _refused(error, args) -> int:
+    from agentbreeder import newagent
+    from agentbreeder.safe_text import visible
+
+    # A message can quote text from a project's files (an agent.yaml key): escape controls.
+    # One line: a newline quoted from a file is shown as `\\n`, not as a second message.
+    print(visible(str(error).replace("\n", "\\n")), file=sys.stderr)
+    if args.json:  # a console read gets the code without parsing stderr
+        message = str(error).removeprefix(f"[{error.code}] ")
+        error_body = {"code": error.code, "message": message}
+        print(
+            json.dumps({"schema_version": newagent.SUMMARY_VERSION, "error": error_body}, indent=2)
+        )
+    return 2
+
+
+def _stack_for(args) -> int:
+    from agentbreeder import newagent, stackfor
+    from agentbreeder.safe_text import visible
+
+    try:
+        plan = stackfor.plan(args.name, args.model, args.stack_for)
+        if args.dry_run:
+            stackfor.check(plan)
+        else:
+            plan = stackfor.create(plan)
+    except newagent.NewAgentError as error:
+        return _refused(error, args)
+    summary = plan.summary(dry_run=args.dry_run)
+    if args.json:
+        print(json.dumps(summary, indent=2))
+        return 0
+    directory = summary["directory"]
+    verb = "Would write" if args.dry_run else "Wrote"
+    lines = [f"{verb} a stack for the {summary['name']} agent in {directory}:"]
+    lines += [f"  {entry['path']}" for entry in summary["files"]]
+    lines.append(f"Gateway aliases: {', '.join(summary['aliases'])} ({summary['model']}).")
+    lines.append(f"The gate refuses deploys after review_by {summary['review_by']} (stack.yaml).")
+    lines += [f"Warning: {warning}" for warning in summary["warnings"]]
+    if args.dry_run:
+        lines.append("Dry run: nothing was written.")
+    else:
+        lines.append(
+            f"Put {summary['key']}=<your key> in a file only you can read (chmod 600); the next "
+            "step asks for it."
+        )
+        lines.append(hints.next_line("next", directory))
+    print(visible("\n".join(lines)))
     return 0
 
 

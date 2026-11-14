@@ -1246,3 +1246,15 @@ def test_purge_deletes_the_host_database_secrets(env):
     }
     engine(env).down(purge=True)
     assert not stack_dir.exists()
+
+
+def test_up_records_the_project_path_in_stack_meta(env):
+    from agentbreeder.services.state import PROJECT_KEY, StackState
+
+    result, _ = up(env)
+    stack = Path(result["state_dir"]).parents[2]
+    state = StackState.open_directory(stack)
+    try:
+        assert state.get(PROJECT_KEY) == str(env.resolve())
+    finally:
+        state.close()
