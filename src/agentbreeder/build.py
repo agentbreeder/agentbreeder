@@ -26,8 +26,9 @@ from pydantic import ValidationError
 from agentbreeder import registry
 from agentbreeder.agentfile import AgentFile, load_agent_file
 from agentbreeder.lock import Lock, materialise
-from agentbreeder.manifest import Manifest
+from agentbreeder.manifest import IdentityReference, Manifest
 from agentbreeder.operator_config import OperatorConfig
+from agentbreeder.package import DeployTemplate
 from agentbreeder.strict_yaml import StrictYamlError, load_file
 
 IMAGE_KINDS = ("prompt", "knowledge", "tool")
@@ -259,32 +260,69 @@ def _runtime_capabilities(runtime_dir: Path, ref: str) -> frozenset[str]:
     return frozenset(values)
 
 
-def _manifest(agent, operator, environment, image, identity, aliases, name, serving) -> dict:
+def _where(error: ValidationError) -> str:
+    return ", ".join(".".join(map(str, e["loc"])) for e in error.errors()[:5])
+
+
+def template(agent: AgentFile, serving: dict, aliases: list[str]) -> DeployTemplate:
+    """The deploy fields derived from the agent and its runtime only (spec §5.4): port,
+    health_path, aliases, budget_usd, rpm and mcp_access. It is environment-neutral, so a
+    released package can carry it; identity, secrets, the gateway, target and image are
+    `bind`'s, and the template schema has no field for them."""
+    try:
+        return DeployTemplate.model_validate(
+            {
+                "port": serving["port"],
+                "health_path": serving["health_path"],
+                "aliases": list(aliases),
+                "budget_usd": agent.model.budget_usd,
+                "rpm": agent.model.rpm,
+                "mcp_access": [{"ref": m.ref, "tools": list(m.tools)} for m in agent.mcp],
+            }
+        )
+    except ValidationError as error:
+        raise BuildError(
+            "MANIFEST_INVALID", f"generated deploy template is invalid: {_where(error)}"
+        ) from None
+
+
+def bind(
+    deploy: DeployTemplate,
+    image: str,
+    operator: OperatorConfig,
+    environment: str,
+    identity: IdentityReference,
+    name: str,
+) -> dict:
+    """The deploy manifest for one environment. `identity` (chosen from that environment's
+    `agents` entry), `secrets` and `model_access.gateway` come from the operator config only;
+    `target` and `image` from the deploy path only; the rest from the template. Returns the
+    document `build` writes (this key order), validated against the deploy contract."""
     env = operator.model.environments[environment]
+    fields = deploy.model_dump(mode="json")
     data: dict = {
         "schema_version": 2,
         "name": name,
         "image": image,
         "target": "local",
-        **serving,
+        "port": fields["port"],
+        "health_path": fields["health_path"],
         "identity": identity.model_dump(exclude_none=True),
     }
     if env.bindings:
         data["secrets"] = dict(env.bindings)
-    access = {"gateway": env.gateway, "aliases": aliases}
-    if agent.model.budget_usd is not None:
-        access["budget_usd"] = agent.model.budget_usd
-    if agent.model.rpm is not None:
-        access["rpm"] = agent.model.rpm
+    access = {"gateway": env.gateway, "aliases": fields["aliases"]}
+    for key in ("budget_usd", "rpm"):  # None in the template means the field is omitted
+        if fields[key] is not None:
+            access[key] = fields[key]
     data["model_access"] = access
-    if agent.mcp:
-        data["mcp_access"] = [{"ref": m.ref, "tools": list(m.tools)} for m in agent.mcp]
+    if fields["mcp_access"]:  # the manifest's mcp_access needs at least one entry
+        data["mcp_access"] = fields["mcp_access"]
     try:
         Manifest.model_validate(data)  # generated manifests must satisfy the deploy contract
     except ValidationError as error:
-        where = ", ".join(".".join(map(str, e["loc"])) for e in error.errors()[:5])
         raise BuildError(
-            "MANIFEST_INVALID", f"generated deploy manifest is invalid: {where}"
+            "MANIFEST_INVALID", f"generated deploy manifest is invalid: {_where(error)}"
         ) from None
     return data
 
@@ -371,26 +409,18 @@ def build(
             alias = _knowledge_alias(placed[knowledge.ref])
             if alias not in aliases:
                 aliases.append(alias)
+        deploy = template(agent, serving, aliases)  # refuse a bad template before docker build
         image = builder(context, Path(temporary) / "image-id")
     if not image.startswith("sha256:"):
         raise BuildError("BUILD_FAILED", "docker build did not return an image ID")
     output.mkdir(parents=True, exist_ok=True)
-    manifest = _manifest(
-        agent, operator, name, image, identities.identity, aliases, agent.name, serving
-    )
+    manifest = bind(deploy, image, operator, name, identities.identity, agent.name)
     manifest_path = output / f"{agent.name}.deploy.yaml"
     manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
     candidate_path = None
     if identities.candidate_identity is not None:
-        candidate = _manifest(
-            agent,
-            operator,
-            name,
-            image,
-            identities.candidate_identity,
-            aliases,
-            f"{agent.name}-candidate",
-            serving,
+        candidate = bind(
+            deploy, image, operator, name, identities.candidate_identity, f"{agent.name}-candidate"
         )
         candidate_path = output / f"{agent.name}-candidate.deploy.yaml"
         candidate_path.write_text(yaml.safe_dump(candidate, sort_keys=False))
