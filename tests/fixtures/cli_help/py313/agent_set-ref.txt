@@ -1,0 +1,19 @@
+usage: agentbreeder agent set-ref [-h] [--project DIR] [--dry-run |
+                                  --expect-base SHA256] [--json]
+                                  OLD NEW
+
+Replace OLD with NEW in DIR/agent.yaml: OLD must be a ref field's value and
+occur once in the file; NEW must be the same kind and resolve. Then build and
+release.
+
+positional arguments:
+  OLD                   kind/name@X.Y.Z the agent uses now
+  NEW                   kind/name@X.Y.Z to use instead
+
+options:
+  -h, --help            show this help message and exit
+  --project DIR
+  --dry-run             Show the diff; write nothing
+  --expect-base SHA256  Refuse unless agent.yaml is still this digest (from
+                        --dry-run)
+  --json

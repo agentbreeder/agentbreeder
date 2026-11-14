@@ -1,0 +1,25 @@
+usage: agentbreeder registry edit [-h] [--set PATH FILE] [--remove PATH]
+                                  [--bump {patch,minor,major} | --version X.Y.Z]
+                                  [--context N] [--project PROJECT]
+                                  [--dry-run | --expect-digest SHA256]
+                                  [--json]
+                                  ref
+
+positional arguments:
+  ref                   kind/name@X.Y.Z in the project registry
+
+options:
+  -h, --help            show this help message and exit
+  --set PATH FILE       Replace or add PATH in the version with FILE's bytes
+                        (FILE - reads stdin once)
+  --remove PATH         Remove the file PATH from the version
+  --bump {patch,minor,major}
+                        Version part to raise (patch)
+  --version X.Y.Z       Publish as exactly this version
+  --context N           Diff context lines (default 3)
+  --project PROJECT
+  --dry-run             Check and hash a staged copy; write nothing
+  --expect-digest SHA256
+                        Refuse unless the staged copy has this digest (from
+                        --dry-run)
+  --json
