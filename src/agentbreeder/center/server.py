@@ -44,6 +44,7 @@ from agentbreeder.center import (
     knowledgestatus,
     mcpgrants,
     onboard,
+    registryimport,
     toollog,
     tryit,
 )
@@ -884,6 +885,53 @@ class Center:
         target = f"{project['id']}:{ref.kind}/{ref.name}"
         return self.runner.short_write(edits.EDIT_KIND, target, argv)
 
+    def registry_import(self, project: dict, body: object) -> dict:
+        """Import by path (#825, M9a): `registry import --json -- PATH`. Without `digest` a dry
+        run (the staged copy's files and digest, nothing written, uncached). With it, a fresh
+        dry run first: the kind comes only from the CLI, so a code-bearing version (tool,
+        service, eval, mcp, runtime) is refused here without `code_confirmed` (three-tier
+        confirm, `registryimport`); then the write, bound to the reviewed digest, as a short
+        write locked per name like an edit or a fork. Both answers are checked by
+        `registryimport.import_answer`."""
+        request = registryimport.import_request(body)
+        self.recheck(project)
+        review = self._import_child(project, request, dry_run=True)
+        if request["digest"] is None or review["data"] is None:
+            return review
+        data = review["data"]
+        if data["sha256"] != request["digest"]:
+            # The CLI would refuse the write the same way; say so before taking the lock.
+            message = "The version changed after your review; review it again"
+            return {"data": None, "error": error("DIGEST_MISMATCH", message), "stale": False}
+        if data["runs_code"] and not request["code_confirmed"]:
+            raise BadRequest(
+                "Confirm that you reviewed this code: it runs in agents", "CODE_NOT_CONFIRMED"
+            )
+        return self._import_child(project, request, dry_run=False, target=data["ref"])
+
+    def _import_child(
+        self, project: dict, request: dict, *, dry_run: bool, target: str | None = None
+    ) -> dict:
+        argv = registryimport.import_argv(project, request, dry_run=dry_run)
+        if dry_run:
+            result = self.runner.read(argv, timeout=registryimport.TIMEOUT, cache=False)
+        else:
+            name = str(target).split("@", 1)[0]
+            result = self.runner.short_write(edits.EDIT_KIND, f"{project['id']}:{name}", argv)
+        if result["data"] is None:
+            return result
+        try:
+            data = registryimport.import_answer(result["data"], dry_run=dry_run)
+        except registryimport.BadOutput as problem:
+            message = f"The import answer does not match its contract ({problem}); "
+            message += (
+                "run `agentbreeder registry import` in a terminal"
+                if dry_run
+                else "the version may have been written: check the registry before you retry"
+            )
+            return {"data": None, "error": error("BAD_OUTPUT", message), "stale": False}
+        return {**result, "data": data}
+
     def set_ref(self, project: dict, body: object) -> dict:
         """ "Move agent to this version" (#826): `agent set-ref`, a dry run (the diff and the
         digest of the agent.yaml it read), then the write bound to that digest. The write also
@@ -1227,6 +1275,10 @@ def _registry_fork(request: Request) -> dict:
     return request.center.registry_fork(request.project(), request.body)
 
 
+def _registry_import(request: Request) -> dict:
+    return request.center.registry_import(request.project(), request.body)
+
+
 def _mcp_grant(request: Request) -> dict:
     return request.center.mcp_grant(request.project(), request.body)
 
@@ -1453,6 +1505,12 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/registry/fork",
         _registry_fork,
         "/api/projects/0123456789ab/registry/fork",
+    ),
+    Route(
+        "POST",
+        rf"/api/projects/{PROJECT_ID}/registry/import",
+        _registry_import,
+        "/api/projects/0123456789ab/registry/import",
     ),
     Route(
         "POST",
