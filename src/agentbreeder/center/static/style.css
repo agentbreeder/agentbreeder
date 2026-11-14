@@ -396,3 +396,10 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 /* The Docker-down page blocker (M6 #822, ui/docker.js). */
 .docker-blocker { padding: 12px 16px 0; }
 .docker-blocker .notice.blocker p { margin: 0 0 8px; }
+
+/* Knowledge index status (#830) */
+.index-state { font-weight: 600; }
+.index-state.fresh { color: var(--success); }
+.index-state.stale { color: var(--warning); }
+.index-state.not_indexed { color: var(--text-muted); }
+.knowledge-status .facts > div { display: contents; }

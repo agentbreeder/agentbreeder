@@ -108,6 +108,10 @@ DEFAULT = {
     # `logs --failed NAME --json` (the gate-failed view's saved candidate tail, #826): a list of
     # lines answers with them; null exits 1 (no tail saved); {"error": {code, message}} fails it.
     "failed_tail": None,
+    # `knowledge status REF --json` (#830): {"state", "chunks", "notes", ...} change the one
+    # version's answer; {"error": {code, message}} refuses it (exit 2). Every call's argv is
+    # appended to `knowledge-calls.jsonl` in the fake directory.
+    "knowledge_status": {},
 }
 
 TOOL_CALLS = [
@@ -267,6 +271,43 @@ def tool_log(argv: list[str], data: dict) -> int:
         "phantom_rows": 0,
         "notes": settings.get("notes", []),
         "calls": calls[:limit],
+    }
+    print(json.dumps(answer, indent=2))
+    return 0
+
+
+def knowledge_status(argv: list[str], data: dict) -> int:
+    calls_file = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "knowledge-calls.jsonl"
+    with calls_file.open("a", encoding="utf-8") as calls:
+        calls.write(json.dumps(argv) + "\n")
+    settings = data["knowledge_status"]
+    if "error" in settings:
+        problem = settings["error"]
+        print(json.dumps({"schema_version": 1, "error": problem}))
+        print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+        return 2
+    ref = argv[2]
+    name, version = ref.split("/", 1)[1].split("@")
+    version_answer = {
+        "ref": ref,
+        "table": f"kb_{name}_{version}".replace("-", "_").replace(".", "_"),
+        "schema": "support_agent",
+        "state": "fresh",
+        "documents": {"expected": 5, "indexed": 5},
+        "chunks": {"expected": 21, "indexed": 21, "fresh": 21, "stale": 0, "missing": 0,
+                   "extra": 0},
+        "updated": {"oldest": "2026-11-13T09:12:03Z", "newest": "2026-11-13T09:12:04Z"},
+        "embedding": {"alias": "support-embedding", "dimensions": 768, "table_dimensions": 768},
+        "notes": [],
+    }  # fmt: skip
+    version_answer.update({k: v for k, v in settings.items() if k != "error"})
+    answer = {
+        "schema_version": 1,
+        "ref": ref,
+        "environment": "dev",
+        "database": "support",
+        "credential": "agent",
+        "versions": [version_answer],
     }
     print(json.dumps(answer, indent=2))
     return 0
@@ -484,6 +525,8 @@ def main(argv: list[str]) -> int:
         return traces(argv, data)
     elif head == ["tool", "log"]:
         return tool_log(argv, data)
+    elif head == ["knowledge", "status"]:
+        return knowledge_status(argv, data)
     elif argv and argv[0] == "doctor":
         checks = data["doctor"]
         if "--only" in argv:  # `--only docker`: the blocker's check

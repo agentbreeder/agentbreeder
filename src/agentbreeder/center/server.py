@@ -38,7 +38,15 @@ from pydantic import ValidationError
 
 from agentbreeder import __version__, guide, registry
 from agentbreeder.center import agents as agent_rows
-from agentbreeder.center import builder, edits, mcpgrants, onboard, toollog, tryit
+from agentbreeder.center import (
+    builder,
+    edits,
+    knowledgestatus,
+    mcpgrants,
+    onboard,
+    toollog,
+    tryit,
+)
 from agentbreeder.center import evals as eval_reads
 from agentbreeder.center.files import (
     BadRequest,
@@ -127,6 +135,7 @@ MAX_TRACES_IN_FLIGHT = 4  # Try it trace reads (#907), each a `traces` child of 
 MAX_TOOL_LOGS_IN_FLIGHT = 4  # tool execution log reads (#828), each a `tool log` child
 DOCKER_REUSE = 3.0  # seconds one Docker check answers every tab (M6 #822)
 DOCKER_TIMEOUT = 15  # `doctor --only docker`: one engine check with its own 10 s timeout
+MAX_KNOWLEDGE_IN_FLIGHT = 4  # knowledge status reads (#830), each a `knowledge status` child
 AUDIT_PAGE = 50  # rows per Audit page; one more is read to know whether an older page exists
 AUDIT_BEFORE = re.compile(r"[1-9][0-9]{0,17}")  # `audit list --before SEQ`
 AGENT = r"(?P<agent>[a-z0-9][a-z0-9-]{0,52})"
@@ -179,6 +188,7 @@ class Center:
         self.tool_logs = threading.BoundedSemaphore(MAX_TOOL_LOGS_IN_FLIGHT)
         self.docker_lock = threading.Lock()
         self.docker_seen: tuple[float, dict] | None = None
+        self.knowledge_reads = threading.BoundedSemaphore(MAX_KNOWLEDGE_IN_FLIGHT)
 
     @property
     def origin(self) -> str:
@@ -775,6 +785,33 @@ class Center:
         log, problem = toollog.log_answer(result["data"], request)
         return envelope(log, problem)
 
+    def knowledge_status(self, project: dict, query: dict[str, list[str]]) -> dict:
+        """A knowledge version's index status (#830): `knowledge status REF ... --json` as an
+        uncached, tracked read (an index status is always fresh, and a failed read shows its own
+        coded error, never an older "fresh"). The answer is checked by
+        `knowledgestatus.status_answer`."""
+        request = knowledgestatus.status_request(query)
+        if not self.knowledge_reads.acquire(blocking=False):
+            raise BadRequest(
+                f"{MAX_KNOWLEDGE_IN_FLIGHT} knowledge status reads are already running; try "
+                "again when one ends",
+                "KNOWLEDGE_STATUS_BUSY",
+            )
+        try:
+            result = self.runner.read(
+                knowledgestatus.status_argv(project, request),
+                timeout=knowledgestatus.TIMEOUT,
+                ok_codes=(0, 2),  # `knowledge status` prints its JSON error object and exits 2
+                cache=False,
+                track=True,
+            )
+        finally:
+            self.knowledge_reads.release()
+        if result["data"] is None:
+            return result
+        status, problem = knowledgestatus.status_answer(result["data"], request)
+        return envelope(status, problem)
+
     def plan(self, project: dict) -> dict:
         result = self.runner.read(
             [
@@ -1103,6 +1140,10 @@ def _tool_log(request: Request) -> dict:
     return request.center.tool_log(request.project(), request.query)
 
 
+def _knowledge_status(request: Request) -> dict:
+    return request.center.knowledge_status(request.project(), request.query)
+
+
 def _agents(request: Request) -> dict:
     return request.center.agents()
 
@@ -1251,6 +1292,12 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/tools/log",
         _tool_log,
         "/api/projects/0123456789ab/tools/log",
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/knowledge/status",
+        _knowledge_status,
+        "/api/projects/0123456789ab/knowledge/status",
     ),
     Route(
         "GET",
