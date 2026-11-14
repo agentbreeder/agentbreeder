@@ -44,6 +44,8 @@ ALLOWED = {
     "agentbreeder.center.tryit",
     # Agents (#823): pure shaping of `list --all` and `audit list` answers.
     "agentbreeder.center.agents",
+    # Onboard an agent.yaml alone (#823): pure request and answer checks; imports center.files.
+    "agentbreeder.center.onboard",
     # stack.yaml's agents for the identity strip (#823): pydantic models, no state or Docker.
     "agentbreeder.services",
     "agentbreeder.services.schema",

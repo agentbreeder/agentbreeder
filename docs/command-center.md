@@ -331,7 +331,44 @@ all, a timeout or a crash count as possibly sent.
 
 Try it is also the **Try it** tab of the agent's detail (below), at the same address.
 
-**Not yet**: onboarding an `agent.yaml` alone (the next part of #823).
+### Onboard an agent.yaml alone (#823, third part): on `main`, not in a published preview
+
+Home's **Add a project** card has a fourth form, **An agent.yaml alone**: the path of an
+`agent.yaml` (or its directory), the agent's `name:` and a model provider (gemini, or anthropic,
+openai and openrouter, which are config-only), with an optional model id. It is a three-tier
+confirm:
+
+1. **Preview** runs `agentbreeder new agent NAME --model PROVIDER [--model-id=ID]
+   --stack-for=PATH --dry-run --json` and shows what it would write (`stack.yaml` and
+   `stack/litellm/config.yaml`, with their digests), the gateway aliases, the key the stack needs,
+   `review_by`, any warning, and every registry ref the agent uses: where it resolved (this
+   project's registry, `AGENTBREEDER_REGISTRY_PATH` or built in) and whether its kind is code
+   (`tool`, `service`, `eval`, `mcp`, `runtime`). Nothing is written. Editing any field drops the
+   preview.
+2. When a code ref comes from outside the built-in registry (a starter's own eval set, for
+   example), a **This code runs in agents** box names it and says that building and releasing
+   runs it as you, with the stack's model key and database, and that the eval gate is a quality
+   gate, not a security review. Its checkbox must be ticked.
+3. **Write stack.yaml and add project** sends the previewed `agent_sha256`. The server runs the
+   dry run again with `--expect-digest`, refuses `CODE_CONFIRM_REQUIRED` if that run reports code
+   and the box was not ticked, then runs the write with `--expect-digest` (a changed `agent.yaml`
+   is `DIGEST_MISMATCH`: preview again) and registers the directory of the path it checked,
+   which applies the ownership check again (a `stack.yaml` others can write is refused). The
+   project then opens on Services. If the files were written but the project was not added, the
+   error says so: fix the cause, then add the directory under **An existing project** (previewing
+   again would meet `STACK_EXISTS`).
+
+The confirm is a prompt, not a security boundary: anyone with a session can already run project
+code. Refusals show `new agent`'s own coded message (for example `NAME_MISMATCH`,
+`STACK_EXISTS`, `STACK_FOR_UNSUPPORTED` for an agent with tools, knowledge or MCP servers).
+Request text reaches the command only as checked `--flag=value` words.
+
+Tested on the server against a fake CLI and once against the real `new agent --stack-for` (a
+starter's `agent.yaml`: preview, refused without the confirm, written and registered with it),
+and with Playwright and axe in light and dark, where the fake CLI hands `new agent --stack-for`
+to the real command (every other read is faked). An onboarded
+project has not yet been taken through `services up` and `release` from the console: that is the
+M7 verification.
 
 Tested with Playwright against a fake CLI with axe in light and dark, and on the server with a
 fake `invoke` (argv and stdin, refused requests, the answer's allow-list, no stale answer, nothing

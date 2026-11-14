@@ -296,3 +296,10 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
 .facts dt { color: var(--text-muted); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
+/* Onboard an agent.yaml alone (#823): the preview and the "this code runs in agents" confirm. */
+.onboard-preview { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; display: flex; flex-direction: column; gap: 8px; }
+.onboard-preview h4 { margin: 0; font-size: 14px; }
+.onboard-preview p { margin: 0; overflow-wrap: anywhere; }
+.code-confirm { border: 1px solid var(--warning); border-radius: 6px; padding: 8px 12px 12px; margin: 0; background: var(--warning-subtle); }
+.code-confirm legend { font-weight: 600; padding: 0 4px; }
+.code-confirm .check { align-self: auto; margin-top: 8px; }

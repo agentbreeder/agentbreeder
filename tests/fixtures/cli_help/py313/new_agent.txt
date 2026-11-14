@@ -1,7 +1,8 @@
 usage: agentbreeder new agent [-h]
                               --model {anthropic,gemini,openai,openrouter}
                               [--model-id ID] [--dir DIR |
-                              --stack-for AGENT_YAML] [--dry-run] [--json]
+                              --stack-for AGENT_YAML] [--dry-run]
+                              [--expect-digest SHA256] [--json]
                               name
 
 Write a starter agent project to DIR (default ./NAME): agent.yaml, stack.yaml
@@ -27,4 +28,7 @@ options:
                         stack/litellm/config.yaml beside an existing
                         agent.yaml named NAME (onboarding an agent.yaml alone)
   --dry-run             Show what would be written
+  --expect-digest SHA256
+                        With --stack-for: refuse unless agent.yaml still has
+                        this digest (agent_sha256 from --dry-run --json)
   --json                Print the result as JSON

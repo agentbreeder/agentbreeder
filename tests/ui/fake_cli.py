@@ -139,7 +139,8 @@ def job(name: str, data: dict) -> int:
 
 
 def real(argv: list[str]) -> int:
-    """`registry show` and `registry diff` read only registry files: the real commands."""
+    """`registry show` and `registry diff` read only registry files, and `new agent --stack-for`
+    writes only stack.yaml beside an agent.yaml: the real commands."""
     from agentbreeder import cli
 
     return cli.main(argv)
@@ -255,6 +256,8 @@ def main(argv: list[str]) -> int:
             return 2
         text = (FIXTURES / "guide" / f"{data['guide']}.json").read_text()
         print(text.replace("@PROJECT@", argv[1]))
+    elif head == ["new", "agent"] and any(arg.startswith("--stack-for=") for arg in argv):
+        return real(argv)  # onboarding an agent.yaml alone (#823) only writes beside it
     elif head == ["new", "agent"]:
         if data["new_error"]:
             print(json.dumps({"schema_version": 1, "error": data["new_error"]}))
