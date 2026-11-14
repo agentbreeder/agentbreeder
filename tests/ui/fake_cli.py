@@ -86,7 +86,24 @@ DEFAULT = {
     # {"missing": N} answers TRACES_NOT_FOUND to the first N calls. Every call's argv is appended
     # to `traces-calls.json` in the fake directory.
     "traces": {},
+    # `tool log REF ... --json` (a tool's execution log, #828): {"calls", "notes", "credential",
+    # "truncated", "phoenix_url"} change the answer and "seconds" slows a read without
+    # `--content`; {"error": {code, message}} refuses it (exit 2). `--content` adds each call's
+    # `args` and `error`. Every call's argv is appended to `tool-log-calls.jsonl` in the fake
+    # directory, one line per call (reads run concurrently, so no read-modify-write).
+    "tool_log": {},
 }
+
+TOOL_CALLS = [
+    {"at": "2026-11-13T16:02:11.123Z", "agent": "northwind-support", "tool": "tool/orders@1.0.0",
+     "function": "lookup_orders", "status": "ok", "latency_ms": 41, "turn_id": "9f1c" * 8,
+     "trace_id": "4bf9" * 8, "db_role": "support_agent",
+     "args": {"order_id": "NW-10021"}, "error": None},
+    {"at": "2026-11-13T16:01:02.004Z", "agent": None, "tool": None,
+     "function": "lookup_orders", "status": "error", "latency_ms": None, "turn_id": "77aa" * 8,
+     "trace_id": None, "db_role": "agentbreeder_console",
+     "args": {"order_id": "NW-0"}, "error": "order not found"},
+]  # fmt: skip
 
 TRACE_SPANS = [
     {"span_id": "a" * 16, "parent_id": None, "name": "agent_turn", "kind": "AGENT",
@@ -193,6 +210,49 @@ def traces(argv: list[str], data: dict) -> int:
     answer = {"schema_version": 1, "phoenix": "http://127.0.0.1:6006", "traces": [trace]}
     answer |= {"overlapping": [], "truncated": False, "notes": settings.get("notes", [])}
     print(json.dumps(answer))
+    return 0
+
+
+def tool_log(argv: list[str], data: dict) -> int:
+    calls_file = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "tool-log-calls.jsonl"
+    with calls_file.open("a", encoding="utf-8") as calls:  # one O_APPEND write per call
+        calls.write(json.dumps(argv) + "\n")
+    settings = data["tool_log"]
+    if "--content" not in argv:  # a slow plain read, for "Hide arguments" while one runs
+        time.sleep(float(settings.get("seconds", 0)))
+    if "error" in settings:
+        problem = settings["error"]
+        print(json.dumps({"schema_version": 1, "error": problem}))
+        print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+        return 2
+    content = "--content" in argv
+    limit = int(argv[argv.index("--limit") + 1])
+    agent = argv[argv.index("--agent") + 1] if "--agent" in argv else None
+    calls = [dict(call) for call in settings.get("calls", TOOL_CALLS)]
+    if agent:
+        calls = [call for call in calls if call["agent"] == agent]
+    for call in calls:
+        if not content:
+            call.pop("args", None)
+            call.pop("error", None)
+    answer = {
+        "schema_version": 1,
+        "ref": argv[2],
+        "environment": "dev",
+        "database": "support",
+        "credential": settings.get("credential", "console"),
+        "schema": "public",
+        "window": {"since": "2026-11-12T17:00:00Z", "until": "2026-11-13T17:00:00Z"},
+        "limit": limit,
+        "truncated": settings.get("truncated", len(calls) > limit),
+        "content": content,
+        "db_role_verified": True,
+        "phoenix_url": settings.get("phoenix_url", "http://127.0.0.1:6006"),
+        "phantom_rows": 0,
+        "notes": settings.get("notes", []),
+        "calls": calls[:limit],
+    }
+    print(json.dumps(answer, indent=2))
     return 0
 
 
@@ -310,7 +370,7 @@ def main(argv: list[str]) -> int:
     elif head == ["registry", "verify"]:
         print(json.dumps(data["registry_problems"]))
         return 2 if data["registry_problems"] else 0
-    elif head in (["registry", "edit"], ["agent", "set-ref"]):
+    elif head in (["registry", "edit"], ["registry", "fork"], ["agent", "set-ref"]):
         return real(argv)  # #826: the real edit and set-ref on the project's files
     elif argv and argv[0] == "registry":
         print("[]")
@@ -367,6 +427,8 @@ def main(argv: list[str]) -> int:
         return evals(argv, data)
     elif argv and argv[0] == "traces":
         return traces(argv, data)
+    elif head == ["tool", "log"]:
+        return tool_log(argv, data)
     elif argv and argv[0] == "doctor":
         print(json.dumps(data["doctor"]))
     elif argv and argv[0] in ("build", "release", "promote", "reconcile", "remove", "rollback"):

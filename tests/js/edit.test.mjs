@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  BUMPS, EDITABLE_KINDS, agentUses, bumped, editProblem, editableFile, editableFiles, gutterLines, isSaveShortcut, movableFrom, needsNewReview,
+  BUMPS, EDITABLE_KINDS, agentUses, bumped, editKind, editProblem, editableFile, editableFiles, gutterLines, isSaveShortcut, movableFrom, needsNewReview,
   notEditableReason, saveVersion,
 } from "../../src/agentbreeder/center/static/lib/edit.js";
 
@@ -14,7 +14,7 @@ test("bumped raises one part and resets the lower ones", () => {
   assert.equal(bumped("1.2", "patch"), null);
   assert.equal(bumped(undefined, "patch"), null);
   assert.deepEqual(BUMPS, ["patch", "minor", "major"]);
-  assert.deepEqual(EDITABLE_KINDS, ["prompt", "eval"]); // PR 2 adds eval sets (#826)
+  assert.deepEqual(EDITABLE_KINDS, ["prompt", "eval", "tool"]); // PR 2 adds eval sets (#826)
 });
 
 test("saveVersion skips versions the name already has", () => {
@@ -94,4 +94,29 @@ test("refusals a person can act on get fixed words; others keep the message", ()
   assert.equal(needsNewReview({ code: "BASE_MISMATCH" }), true);
   assert.equal(needsNewReview({ code: "EDIT_INVALID" }), false);
   assert.equal(needsNewReview(null), false);
+});
+
+test("a tool edits only Python under src/, with the code confirm", () => {
+  assert.ok(EDITABLE_KINDS.includes("tool"));
+  const tool = editKind("tool");
+  assert.equal(tool.confirm, "code");
+  assert.equal(tool.body, "text");
+  for (const path of ["src/orders.py", "src/pkg/mod.py"]) assert.equal(tool.file(path), true, path);
+  for (const path of ["tool.yaml", "orders.py", "src/notes.txt", "src/x.py/y", "requirements.txt"]) assert.equal(tool.file(path), false, path);
+  const show = {
+    kind: "tool",
+    files: [
+      { type: "file", path: "manifest.yaml", text: "kind: tool\n" },
+      { type: "file", path: "tool.yaml", text: "functions: []\n" },
+      { type: "file", path: "src/orders.py", text: "def f():\n    pass\n" },
+    ],
+  };
+  assert.deepEqual(editableFiles(show, "tool").map((file) => file.path), ["src/orders.py"]);
+  assert.equal(notEditableReason(show.files[1], "tool", show), "the console edits only Python source files (src/**/*.py)");
+  assert.match(tool.note, /quality gate, not a security review/);
+});
+
+test("a fork refusal has its own words", () => {
+  assert.equal(editProblem({ code: "FORK_UNCHANGED", message: "x" }).text, "Fork it as a new version.");
+  assert.equal(editProblem({ code: "TOOL_INVALID", message: "lookup_orders is not a top-level def" }).text, "lookup_orders is not a top-level def");
 });

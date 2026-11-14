@@ -132,8 +132,9 @@ the grant review, a full release and the cluster connect and deploy were not cli
 ### The registry browser (#824): on `main`, not in a published preview
 
 Registry ▸ one page per kind (prompt, eval set, tool, knowledge, MCP server, service definition,
-runtime) for the project in scope. Prompts are edited from the detail (#826, below); import and
-fork are later milestones.
+runtime) for the project in scope. Prompts, eval sets and tool code are edited from the detail
+(#826, #828, below), and a built-in or shared version is forked into the project first (#828);
+import is a later milestone.
 
 - **List**: one row per name with its latest version, how many versions there are, the root the
   latest resolves from (project, shared path from `AGENTBREEDER_REGISTRY_PATH`, or built-in), its
@@ -166,8 +167,8 @@ Not yet run against a real deployment: that is the M8 console verification.
 
 A prompt's detail page (`#/registry/prompts/NAME`) has an **Edit X.Y.Z** card for the version
 shown, when that version is in the project's `./registry`. A built-in or shared-path version
-(`AGENTBREEDER_REGISTRY_PATH`) is not edited in place; the card shows the `registry fork` command
-to make a project copy first.
+(`AGENTBREEDER_REGISTRY_PATH`) is not edited in place; the card forks it into the project first
+(**Fork to edit**, #828, below).
 
 - **Edit**: the version's text files (not `manifest.yaml`; not binary, truncated or
   control-character files, which are named with the reason) open in a mono textarea with a line
@@ -234,12 +235,43 @@ The checks are the eval gate's: a release of an agent that uses the new version 
 For later kinds the editor takes a spec per kind (`center/edits.py` `KINDS`, `lib/edit.js`
 `EDIT_KINDS`): the files it opens, the body (text or cases) and a confirm tier; a kind whose
 files run in agents needs the "this code runs in agents" checkbox before Save (`code_confirmed`,
-else `CODE_NOT_CONFIRMED`). No kind uses that tier yet.
+else `CODE_NOT_CONFIRMED`). Tools use that tier (#828, below).
 
 Tested with the real `registry edit` (server tests over a starter project: a saved case, and a
 case without a reference refused as `EVAL_INVALID` at line 3) and with Playwright over Northwind's
 61 cases: one case edited is the only changed line of the saved 1.0.2; a new case is checked
 before review; Discard. The M10 acceptance (a broken case blocks a release) is batched with the
+milestone checks.
+
+### Tool code editing and "Fork to edit" (#828, M12): on `main`, not in a published preview
+
+A tool's detail (`#/registry/tools/NAME`) has the same **Edit X.Y.Z** card for a project version,
+for its **Python source under `src/`** only. `tool.yaml` (what the model sees) and other files are
+listed as not editable here; use `agentbreeder registry edit` for those.
+
+- **Review** runs `registry edit ... --dry-run`, which includes the CLI's tool check (allowed files,
+  no module that shadows the standard library, the runtime or its locked packages, and every
+  function a top-level `def` that parses: `TOOL_INVALID` with the CLI's message). The code is read,
+  never imported.
+- **Save** needs the code confirm: "This code runs in agents", with the note that building and
+  releasing an agent that uses the new version runs it as you, with the stack's model key and
+  database, and that the eval gate is a quality gate, not a security review. Then "I reviewed this
+  code and trust it to run in agents" (`code_confirmed`, else `CODE_NOT_CONFIRMED`). The saved
+  version runs nowhere until an agent is moved to it and a release passes the eval gate.
+
+**Fork to edit.** A version that is built in or on `AGENTBREEDER_REGISTRY_PATH` (any kind the
+console edits) is not edited in place. **Fork to edit as X.Y.Z** runs `registry fork REF --version
+X.Y.Z --project DIR --dry-run --json` (the next free patch version): the review lists the files it
+copies and says when they hold code that runs in agents. **Fork as X.Y.Z** copies exactly what was
+reviewed (`--expect-digest`; a source changed since the review is `DIGEST_MISMATCH`). The copy is
+the project's and opens in the editor; the original is unchanged.
+
+Tested with the real `registry edit` and `registry fork` (server tests over a copy of Northwind: a
+reviewed tool edit saved only with the confirm, a renamed function refused as `TOOL_INVALID`, only
+`src/**/*.py` edited, a shared tool forked after a review and then edited, a fork refused when the
+source changed after its review) and with Playwright over Northwind (the same edit and fork, the
+tool check's refusal, axe in light and dark). Not yet run as the M12 acceptance (edit
+`tool/orders`, move Northwind to it, release with the eval gate, 61/61): that is batched with the
 milestone checks.
 
 ### Tool detail (#828, M12): on `main`, not in a published preview
@@ -257,11 +289,43 @@ A tool's version card in Registry ▸ Tools (`#/registry/tools/NAME`) adds, abov
 - **Grants**: available to the agents that reference it in `agent.yaml` (the Used by card). MCP
   grants are M15's.
 
-The source is the Files list. The code editor and the execution log come in later M12 PRs.
+The source is the Files list; the code is edited from the Edit card ("Tool code editing and Fork to
+edit", above).
 Tested with Playwright over a copy of Northwind with the real `registry show`: `tool/orders`
 shows both functions and their signatures, a module whose top level raises still shows its
 signatures (nothing is imported), a renamed function says why it has no signature, other kinds
 show no Functions, and axe passes in light and dark.
+
+### Tool execution log (#828, M12): on `main`, not in a published preview
+
+Below a tool version's Functions, **Execution log** lists the calls the agent runtime recorded,
+newest first: time, agent, version, function, status, latency, turn id, trace id and database
+role (console-inserted rows marked `(console)`). The console runs `agentbreeder tool log REF
+--project DIR --environment ENV --json` ([`docs/commands/tool.md`](commands/tool.md)) as an
+uncached child; the console server never reads a database credential. Choices: this version or
+every version of the name, the last hour, 24 hours, 7 days or 30 days, 50 to 1000 rows, and one
+agent (from the agents seen in the log).
+
+- **It is what the runtime claims it called.** The agent's database role can insert any row; the
+  CLI validates every value and the console checks the answer again before the browser sees it.
+- **Arguments are customer data.** They and the error text are read only after **Show
+  arguments** (marked "Customer data"), for that view only: never cached, stored, logged or put
+  in the page address, and taken off the screen at once on **Hide arguments** or any change of
+  choice, before the next read returns. They are
+  redacted of the stack's secrets by the CLI. Results are not stored; the trace holds them, and
+  the stack's Phoenix URL is linked.
+- **A refusal shows as "Unavailable: reason" with the next step**: for example, an owner-managed
+  database without the console role (`CONSOLE_ROLE_MISSING`) names
+  `service/postgres-pgvector@1.2.0` with `console_database`, then `services up --update`. "No
+  calls recorded yet" (`TOOL_LOG_NO_TABLES`) is not a refusal.
+
+Tested: server tests over a scripted `tool log` (fixed argv, never cached, bad queries refused
+before the CLI, arguments dropped unless asked for, hostile values nulled, at most four reads at
+once), the real CLI's `--json` answers and refusal passed through the same checks, and Playwright
+over a copy of Northwind with a scripted `tool log` (calls without arguments until asked,
+arguments gone on Hide while a slow read runs, scope, window and agent reach the CLI, a refusal
+and an empty log, axe in light and dark). Not yet run against a real stack's database: that is
+the M12 acceptance, batched with the milestone checks.
 
 ### The Audit view (#824, part 2): on `main`, not in a published preview
 

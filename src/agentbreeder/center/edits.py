@@ -15,8 +15,15 @@ is the CLI's `VERSION_EXISTS`. Imports only `registry` (already on the server's 
 Each kind the console edits is an `EditKind` in `KINDS`: which files of a version it may change,
 and whether a save needs the code confirm (the three-tier confirm of `onboard.py`: the preview,
 the "this code runs in agents" checkbox, the button). Prompts edit any text file; eval sets only
-their cases files (JSON lines, checked by the CLI as `release` loads them: EVAL_INVALID). M12
-adds `tool` (its source files, with the code confirm) as one more entry."""
+their cases files (JSON lines, checked by the CLI as `release` loads them: EVAL_INVALID); tools
+(M12, #828) only their Python source under `src/`, with the code confirm, and the CLI's tool check
+(TOOL_INVALID: allowed files, no shadowing module, every function a top-level `def` that parses)
+before it writes.
+
+"Fork to edit" (#828): a version outside the project registry (built in, or on
+AGENTBREEDER_REGISTRY_PATH) is not edited in place. `registry fork REF --version X.Y.Z --project
+DIR (--dry-run | --expect-digest D) --json` copies it into the project registry as a new version,
+reviewed first the same way (S-04); the copy is then edited like any project version."""
 
 from __future__ import annotations
 
@@ -41,6 +48,8 @@ KINDS = {
     "prompt": EditKind(re.compile(r".+"), "files"),
     # The console opens only the cases file the manifest names; the CLI checks that one.
     "eval": EditKind(re.compile(r"[^/]+\.jsonl"), "eval case files (NAME.jsonl at the top)"),
+    # A tool's code: only Python under src/ (tool.yaml, which the model sees, is not edited here).
+    "tool": EditKind(re.compile(r"src/.+\.py"), "Python source files (src/**/*.py)", code=True),
 }
 MAX_TEXT = 512 * 1024  # characters; under the editor body cap (1 MiB of JSON)
 EDIT_KIND = "registry-edit"
@@ -101,6 +110,33 @@ def edit_argv(project: dict, request: dict) -> list[str]:
     return [
         "registry", "edit", str(request["ref"]),
         "--set", request["path"], "-",
+        "--version", request["version"],
+        "--project", project["path"],
+        *mode, "--json",
+    ]  # fmt: skip
+
+
+def fork_request(body: object) -> dict:
+    """{ref, version, digest|None} from the browser's JSON, or BadRequest. Only the kinds the
+    console edits are forked here; the copy keeps its name and takes an exact new version."""
+    if not isinstance(body, dict):
+        raise BadRequest("Send a JSON object", "FORK_INVALID")
+    ref = _ref(body.get("ref"), "ref")
+    if ref.kind not in KINDS:
+        raise BadRequest(f"The console forks {', '.join(sorted(KINDS))} versions", "EDIT_KIND")
+    version = body.get("version")
+    if not isinstance(version, str) or not registry.VERSION.fullmatch(version):
+        raise BadRequest("version must be X.Y.Z", "VERSION_INVALID")
+    if version == ref.version:
+        raise BadRequest("Fork it as a new version", "FORK_UNCHANGED")
+    return {"ref": ref, "version": version, "digest": _digest(body.get("digest"), "digest")}
+
+
+def fork_argv(project: dict, request: dict) -> list[str]:
+    """The `registry fork` argv: a dry run without a digest, else the copy bound to it."""
+    mode = ["--expect-digest", request["digest"]] if request["digest"] else ["--dry-run"]
+    return [
+        "registry", "fork", str(request["ref"]),
         "--version", request["version"],
         "--project", project["path"],
         *mode, "--json",
