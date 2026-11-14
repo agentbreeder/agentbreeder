@@ -176,6 +176,7 @@ def test_release_promotes_exact_image_and_cleans_candidate(project, operator, st
     # same image again: no-op
     again, _ = do_release(project, operator, state, runtime, image)
     assert again.code == EXIT_OK and "already in production" in again.message
+    assert again.details["agent"] == "helper"  # so the CLI can print `Next: … invoke …`
 
 
 def test_eval_failure_leaves_production_untouched(project, operator, state):
@@ -234,6 +235,7 @@ def test_failed_promote_restores_previous_and_rollback_works(project, operator, 
 
     back = rollback(project / "agent.yaml", service, actor("dave"))
     assert back.code == EXIT_OK and old in back.message
+    assert back.details["agent"] == "helper"  # so `release --rollback` can print `invoke`
     assert state.manifest(state.active("helper")["id"])["image"] == old
 
 
