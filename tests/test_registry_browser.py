@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from agentbreeder import cli, registry
+from agentbreeder import cli, registry, safe_text
 from agentbreeder.registry import Ref, RegistryError
 
 PACKAGE = Path(registry.__file__).parent
@@ -358,6 +358,30 @@ def test_lone_surrogates_and_invisible_characters_are_stripped(project, capsys, 
     assert json.loads(capsys.readouterr().out)["description"] == "xy"
 
 
+def test_content_loses_the_invisible_format_characters_but_keeps_joiners():
+    """#901 follow-up: soft hyphen, Mongolian vowel separator, invisible operators, deprecated
+    format controls, BOM and tag characters are stripped from content too; ZWJ/ZWNJ stay."""
+    hidden = "".join(chr(c) for c in (0xAD, 0x180E, 0x2061, 0x2064, 0x206A, 0xFEFF, 0xE0041))
+    assert registry.clean("a" + hidden + "b") == ("ab", True)
+    assert registry.clean("a" + hidden + "b", name=True) == ("ab", True)
+    joined = "\U0001f468\u200d\U0001f469 \u200c"
+    assert registry.clean(joined) == (joined, False)
+    assert registry.clean(joined, name=True) == ("\U0001f468\U0001f469 ", True)
+
+
+def test_strip_sets_match_safe_text():
+    """Drift check: content is stripped of exactly the characters `safe_text.visible` escapes,
+    and a name also loses tab, newline and the zero-width joiners."""
+    name_extra = {"\t", "\n", "\u200c", "\u200d"}
+    for code in range(0x110000):
+        char = chr(code)
+        shown = safe_text._SHOWN.match(char) is not None
+        assert (registry._STRIP_TEXT.match(char) is not None) == shown, hex(code)
+        assert (registry._STRIP_NAME.match(char) is not None) == (shown or char in name_extra), (
+            hex(code)
+        )
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads mode-000 files")
 def test_unreadable_entries_are_errors_not_tracebacks(project, capsys, monkeypatch):
     """Review item 9: permission errors (and ENOENT/ELOOP mid-read) become ENTRY_UNSAFE."""
@@ -689,7 +713,7 @@ def test_diff_flags_changes_hidden_by_stripping_and_caps(project, monkeypatch):
     assert by_path["p.md"]["stripped"] and by_path["p.md"]["hunks"] == []
     assert by_path["big.md"]["truncated"] and by_path["big.md"]["hunks"] == []
     text = registry.unified(result)
-    assert "p.md differ only in removed control or bidi characters" in text
+    assert "p.md differ only in removed control, bidi or invisible characters" in text
     assert "big.md differ (too large to show)" in text
     assert BIDI not in json.dumps(result, ensure_ascii=False)
 

@@ -533,7 +533,7 @@ def _signature_of(tree, function: str, relative: str) -> tuple[str | None, str |
         return None, "syntax_error"
 
 
-# Zero-width, word-joiner, BOM and tag characters: invisible in a page, so a description a
+# Invisible format characters and the zero-width joiners: invisible in a page, so a description a
 # reviewer reads could carry text only the model sees. Removed on top of registry.clean.
 _INVISIBLE = re.compile(f"[{registry._INVISIBLE}]")
 
