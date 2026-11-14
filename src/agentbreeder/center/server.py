@@ -99,6 +99,16 @@ SECURITY_HEADERS = {
 }
 PROJECT_ID = r"(?P<project>[0-9a-f]{12})"
 JOB_ID = r"(?P<job>[0-9a-f]{32})"
+# Log reads (#821, M5). A service name is `services.schema.SERVICE_NAME` and `--since` is
+# `runtime.SINCE` (tests keep both equal; neither module is loaded by the server process).
+SERVICE = r"(?P<service>[a-z][a-z0-9-]{0,30})"
+DEPLOYMENT = r"(?P<deployment>[0-9a-f]{32})"
+LOG_SINCE = re.compile(
+    r"[1-9][0-9]{0,5}[smh]|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
+)
+LOG_TAIL = 200  # the CLI's default
+MAX_LOG_TAIL = 10000  # `runtime.MAX_TAIL`
+LOG_TIMEOUT = 60  # one `docker logs` or `kubectl logs`, after the CLI's own checks
 
 
 def center_directory() -> Path:
@@ -345,6 +355,45 @@ class Center:
             )
         raise BadRequest("Unknown view", "UNKNOWN_VIEW")
 
+    def logs(self, project: dict, source: str, name: str, query: dict[str, list[str]]) -> dict:
+        """One snapshot of a service's or a deployment's logs (#821): `services logs DIR NAME`
+        or `logs ID --stack DIR`, with `--json` and fixed flags; only the name, the line count,
+        `--since` and (for a deployment) `--previous` come from the request, each checked
+        first. Never cached: a log read is always fresh, and a failed read shows its own coded
+        error, not older lines. The CLI redacts every line (failing closed) and escapes
+        controls; the answer is checked against its shape and passed on, never stored."""
+        tail_text = query.get("tail", [str(LOG_TAIL)])[0]
+        if not re.fullmatch(r"[1-9][0-9]{0,4}", tail_text) or int(tail_text) > MAX_LOG_TAIL:
+            raise BadRequest(f"Lines must be 1 to {MAX_LOG_TAIL}", "TAIL_INVALID")
+        since = query.get("since", [""])[0]
+        if since and not LOG_SINCE.fullmatch(since):
+            raise BadRequest(
+                "Since must look like 10m, 2h or 2026-11-11T09:00:00Z", "SINCE_INVALID"
+            )
+        previous = query.get("previous", [""])[0] == "1"
+        path = project["path"]
+        if source == "service":
+            if previous:
+                raise BadRequest("Only a deployment has a previous container", "PREVIOUS_INVALID")
+            argv = ["services", "logs", path, name]
+        else:
+            argv = ["logs", name, "--stack", path, "--environment", project["environment"]]
+            argv += ["--previous"] if previous else []
+        argv += ["--tail", tail_text, *(["--since", since] if since else []), "--json"]
+        result = self.runner.read(argv, timeout=LOG_TIMEOUT, cache=False, track=True)
+        if result["data"] is None:
+            return result
+        checked = _log_answer(result["data"], source, name)
+        if checked is None:
+            return envelope(
+                None,
+                error(
+                    "LOGS_INVALID",
+                    "The log answer does not match its contract; run the command in a terminal",
+                ),
+            )
+        return envelope(checked)
+
     def plan(self, project: dict) -> dict:
         result = self.runner.read(
             [
@@ -403,6 +452,38 @@ class Center:
             text = data.get("text", "")
             on_success = lambda: self.state.accept_grant(project["id"], text)  # noqa: E731
         return self.runner.start(project, kind, options, keys, on_success)
+
+
+def _log_answer(data: Any, source: str, name: str) -> dict | None:
+    """`logs --json` / `services logs --json` checked (docs/logs.md): the source and name asked
+    for, lines as strings, one level (or null) per line. Only the known keys go on."""
+    if not isinstance(data, dict) or data.get("source") != (
+        "agent" if source == "deployment" else "service"
+    ):
+        return None
+    if data.get("deployment" if source == "deployment" else "name") != name:
+        return None
+    lines, levels = data.get("lines"), data.get("levels")
+    if not isinstance(lines, list) or not all(isinstance(line, str) for line in lines):
+        return None
+    if not isinstance(levels, list) or len(levels) != len(lines):
+        return None
+    if not all(level in (None, "debug", "info", "warning", "error") for level in levels):
+        return None
+    texts = ("target", "name", "format", "pod_reason")
+    if any(data.get(key) is not None and not isinstance(data[key], str) for key in texts):
+        return None
+    return {
+        "source": source,
+        "name": data.get("name"),
+        "target": data.get("target"),
+        "lines": lines,
+        "levels": levels,
+        "format": data.get("format"),
+        "truncated": data.get("truncated") is True,
+        "previous": data.get("previous") is True,
+        "pod_reason": data.get("pod_reason"),
+    }
 
 
 # -- the route table ------------------------------------------------------------------------------
@@ -481,6 +562,18 @@ def _used_by(request: Request) -> dict:
     return envelope({"files": files["data"], "deployments": deployed})
 
 
+def _service_logs(request: Request) -> dict:
+    return request.center.logs(
+        request.project(), "service", request.match["service"], request.query
+    )
+
+
+def _deployment_logs(request: Request) -> dict:
+    return request.center.logs(
+        request.project(), "deployment", request.match["deployment"], request.query
+    )
+
+
 def _job(request: Request) -> dict:
     after = request.query.get("after", ["0"])[0]
     job = request.center.state.job(
@@ -547,6 +640,18 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/used-by",
         _used_by,
         "/api/projects/0123456789ab/used-by",
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/logs/service/{SERVICE}",
+        _service_logs,
+        "/api/projects/0123456789ab/logs/service/litellm",
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/logs/deployment/{DEPLOYMENT}",
+        _deployment_logs,
+        "/api/projects/0123456789ab/logs/deployment/" + "0" * 32,
     ),
     Route("GET", rf"/api/jobs/{JOB_ID}", _job, "/api/jobs/" + "0" * 32, poll=True),
     Route("POST", r"/api/session", _session, "/api/session", session=False),
