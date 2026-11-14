@@ -55,6 +55,7 @@ COMMAND_MODULES = (
     "audit",
     "build",
     "eval",
+    "evals",
     "release",
     "registry",
     "agent",

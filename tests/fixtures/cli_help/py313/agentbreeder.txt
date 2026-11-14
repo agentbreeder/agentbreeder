@@ -1,5 +1,5 @@
 usage: agentbreeder [-h] [--version]
-                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events,cost} ...
+                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,evals,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events,cost} ...
 
 Local development: validate, gate and deploy trusted HTTP containers. The
 identity gate runs at deploy time; status and reconcile re-verify principals.
@@ -7,7 +7,7 @@ Opt-in runtime enforcement covers MCP Streamable HTTP tool calls through the
 egress sidecar only.
 
 positional arguments:
-  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events,cost}
+  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,evals,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events,cost}
     validate            Validate a deploy manifest or an agent file (kind:
                         agent)
     doctor              Check local Docker prerequisites without changes
@@ -32,6 +32,8 @@ positional arguments:
     build               Build an agent file into an image and a deploy
                         manifest (never deploys)
     eval                Run an agent's eval set against a running endpoint
+    evals               List or show the eval reports release saved (read-
+                        only)
     release             Build, deploy a candidate, run the eval gate, promote
                         the exact image if it passes
     registry            Author and inspect registry versions

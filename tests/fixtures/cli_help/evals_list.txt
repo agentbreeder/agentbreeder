@@ -1,0 +1,14 @@
+usage: agentbreeder evals list [-h] [--project DIR] [--output DIR]
+                               [--agent NAME] [--state-dir STATE_DIR]
+                               [--stack DIR] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --project DIR         The agent project: reports are read from DIR/deploy
+                        (default: .)
+  --output DIR          Read reports from DIR (as release --output)
+  --agent NAME          Only this agent's reports
+  --state-dir STATE_DIR
+  --stack DIR           Use the operator config and state that `services up`
+                        wrote for DIR
+  --json

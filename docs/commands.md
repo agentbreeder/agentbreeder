@@ -31,6 +31,7 @@ Run `agentbreeder COMMAND --help` for flags; see the root README for the demo.
 - [`doctor`](commands/doctor.md): Check local Docker prerequisites without changes.
 - [`enable`](commands/enable.md): Clear a principal blocker (starts nothing).
 - [`eval`](commands/eval.md): Run an agent's eval set against a running endpoint.
+- [`evals`](commands/evals.md): List or show the eval reports release saved (read-only).
 - [`events`](commands/events.md): List stored events (failed jobs, eval gate failures, containers that exited).
 - [`example`](commands/example.md): Copy a shipped example project (`example list` shows them).
 - [`forward`](commands/forward.md): Open a loopback port to a Kubernetes deployment.
