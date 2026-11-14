@@ -38,7 +38,7 @@ from pydantic import ValidationError
 
 from agentbreeder import __version__, guide, registry
 from agentbreeder.center import agents as agent_rows
-from agentbreeder.center import edits, onboard, tryit
+from agentbreeder.center import builder, edits, onboard, tryit
 from agentbreeder.center import evals as eval_reads
 from agentbreeder.center.files import (
     BadRequest,
@@ -339,6 +339,63 @@ class Center:
             raise BadRequest(
                 f"{problem} stack.yaml was written but the project was not added; fix that, "
                 f"then add {directory} under An existing project",
+                code,
+            ) from problem
+
+    def _from_spec(self, body: object, digest: str | None = None) -> tuple[str, Path, dict]:
+        """`new agent --from-spec` as a dry run (the preview, #833), into the fixed projects
+        folder; with `digest`, refused unless the plan is still the previewed one. Returns
+        (name, destination, checked summary)."""
+        name, spec = builder.request(body)
+        destination = self.projects_folder() / name
+        expect = [] if digest is None else [f"--expect-digest={digest}"]
+        with builder.spec_file(spec) as path:
+            data = self._new_agent(
+                ["new", "agent", name, f"--from-spec={path}", f"--dir={destination}", *expect]
+                + ["--dry-run", "--json"]
+            )
+        try:
+            shown = builder.summary(data, name, True, spec["model"], str(destination))
+        except builder.BadOutput as problem:
+            raise BadRequest(str(problem), "BAD_OUTPUT") from problem
+        return name, destination, shown
+
+    def preview_builder(self, body: object) -> dict:
+        """Build a new agent, step 1 (#833): every file `new agent --from-spec` would write,
+        with its text, and whether the combination was run end to end. Writes nothing."""
+        return self._from_spec(body)[2]
+
+    def create_builder(self, body: object) -> dict:
+        """Build a new agent, step 3: re-check the verified combination and the code confirm on
+        a fresh dry run pinned to the previewed plan, write the project, then register it."""
+        digest, code_confirmed = builder.write_request(body)
+        name, destination, shown = self._from_spec(body, digest)
+        if not shown["combination"]["verified"]:
+            raise BadRequest(
+                "This combination has not been run end to end, so the console does not create "
+                "it; `agentbreeder new agent --from-spec` can",
+                "COMBINATION_UNVERIFIED",
+            )
+        if shown["runs_code"] and not code_confirmed:
+            raise BadRequest(
+                "This agent uses code that runs in agents; confirm that before it is created",
+                "CODE_CONFIRM_REQUIRED",
+            )
+        _, spec = builder.request(body)
+        with builder.spec_file(spec) as path:
+            data = self._new_agent(
+                ["new", "agent", name, f"--from-spec={path}", f"--dir={destination}"]
+                + [f"--expect-digest={digest}", "--json"]
+            )
+        try:
+            builder.summary(data, name, False, spec["model"], str(destination))
+            return self.register(destination)
+        except (builder.BadOutput, BadRequest) as problem:
+            # The files are on disk now, so a retry would only meet the destination check.
+            code = problem.code if isinstance(problem, BadRequest) else "BAD_OUTPUT"
+            raise BadRequest(
+                f"{problem} The agent was written but not added; fix that, then add "
+                f"{destination} under An existing project",
                 code,
             ) from problem
 
@@ -921,6 +978,14 @@ def _preview_stack_for(request: Request) -> dict:
     return envelope(request.center.preview_stack_for(request.body))
 
 
+def _preview_builder(request: Request) -> dict:
+    return envelope(request.center.preview_builder(request.body))
+
+
+def _create_builder(request: Request) -> dict:
+    return envelope(request.center.create_builder(request.body))
+
+
 def _plan(request: Request) -> dict:
     result = request.center.plan(request.project())
     return envelope(
@@ -1006,6 +1071,20 @@ ROUTES: tuple[Route, ...] = (
     Route("POST", r"/api/session", _session, "/api/session", session=False),
     Route("POST", r"/api/projects", _add_project, "/api/projects"),
     Route("POST", r"/api/projects/stack-for", _preview_stack_for, "/api/projects/stack-for"),
+    Route(
+        "POST",
+        r"/api/projects/builder",
+        _preview_builder,
+        "/api/projects/builder",
+        limit=MAX_EDITOR_BODY,  # the spec: up to 256 KiB of prompt and cases
+    ),
+    Route(
+        "POST",
+        r"/api/projects/builder/create",
+        _create_builder,
+        "/api/projects/builder/create",
+        limit=MAX_EDITOR_BODY,
+    ),
     Route("POST", rf"/api/projects/{PROJECT_ID}/plan", _plan, "/api/projects/0123456789ab/plan"),
     Route(
         "POST", rf"/api/projects/{PROJECT_ID}/jobs", _start_job, "/api/projects/0123456789ab/jobs"

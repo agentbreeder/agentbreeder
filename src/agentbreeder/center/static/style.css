@@ -342,3 +342,35 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .cases .case-form fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .cases .case-form textarea, .cases .case-form input { width: 100%; box-sizing: border-box; font: inherit; }
 .cases .turn, .cases .check-field { display: flex; flex-direction: column; gap: 4px; }
+
+/* Agent builder (#833, M17): the form beside a sticky preview of the files as written. */
+.build-new { margin-bottom: 20px; max-width: 520px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.build-new h3, .build-new p { margin: 0; }
+.build-link {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 6px 14px; border: 1px solid var(--control-border);
+  border-radius: 6px; color: var(--foreground); font-weight: 500; text-decoration: none;
+}
+.build-link:hover { background: var(--secondary); }
+.builder { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.builder > .card { margin: 0; }
+.builder form textarea, .builder form input, .builder form select { width: 100%; box-sizing: border-box; font: inherit; }
+.builder-more { border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; }
+.builder-more[open] { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; }
+.builder-more summary { cursor: pointer; }
+.builder-preview {
+  position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; display: flex; flex-direction: column; gap: 8px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--card); color: var(--card-foreground);
+}
+.builder-preview h2 { margin: 0; font-size: 16px; }
+.builder-preview p { margin: 0; overflow-wrap: anywhere; }
+.file-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.file-tab {
+  font: 12.5px "Geist Mono", ui-monospace, monospace; padding: 3px 8px; min-height: 28px; border-radius: 6px;
+  border: 1px solid var(--control-border); background: transparent; color: var(--foreground); cursor: pointer;
+}
+.file-tab[aria-pressed="true"] { background: var(--secondary); border-color: var(--foreground); font-weight: 600; }
+.builder-file { max-height: 50vh; margin: 0; }
+@media (max-width: 900px) {
+  .builder { grid-template-columns: minmax(0, 1fr); }
+  .builder-preview { position: static; max-height: none; }
+}
