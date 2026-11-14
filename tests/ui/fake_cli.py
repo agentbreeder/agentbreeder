@@ -102,6 +102,9 @@ DEFAULT = {
     "mcp_grant": None,
     # ...and for the write only (`--expect-base`): the real write runs, then this is printed.
     "mcp_grant_write": None,
+    # `services plan --json`'s `grant.mcp` servers (#831 part 3): [{server, ref, origin, upstream,
+    # auth, credentials, egress, agents}].
+    "plan_mcp": [],
 }
 
 TOOL_CALLS = [
@@ -362,7 +365,18 @@ def main(argv: list[str]) -> int:
             message = "another services operation is running on this stack; retry when it finishes"
             print(f"[SERVICES_BUSY] {message}", file=sys.stderr)
             return 2
-        print(json.dumps({"digest": DIGEST, "text": GRANT, "keys": data["keys"], "mcp": []}))
+        servers = data["plan_mcp"]  # the grant's `mcp` servers (#831)
+        print(
+            json.dumps(
+                {
+                    "digest": DIGEST,
+                    "text": GRANT,
+                    "keys": data["keys"],
+                    "mcp": [item["server"] for item in servers],
+                    "grant": {"mcp": servers},
+                }
+            )
+        )
     elif head == ["services", "status"]:
         print(json.dumps({"services": data["services"], "mcp": data["mcp_status"]}))
     elif head == ["services", "env"]:
@@ -370,6 +384,7 @@ def main(argv: list[str]) -> int:
     elif head == ["services", "logs"] or (argv and argv[0] == "logs"):
         return logs(argv, data)
     elif head == ["services", "up"]:
+        print("argv " + json.dumps(argv[2:]), flush=True)  # the flags the console passed (#831)
         return job("services-up", data)
     elif head == ["services", "down"]:
         return job("services-down", data)

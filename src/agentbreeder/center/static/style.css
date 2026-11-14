@@ -387,3 +387,8 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .grants legend { padding: 0 4px; font-size: 13px; }
 .grants .check { align-self: flex-start; }
 .builder form .check input { width: auto; }
+
+/* MCP servers in the services review (#831) */
+.mcp-review { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.mcp-review li + li { margin-top: 8px; }
+.mcp-review .consent { display: flex; gap: 6px; align-items: flex-start; margin-top: 4px; }

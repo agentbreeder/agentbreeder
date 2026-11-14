@@ -253,3 +253,93 @@ def test_a_new_choice_clears_the_last_result(page, console):
     expect(card).to_contain_text("Granted search_repositories")
     card.get_by_role("radio", name="Revoke tools").check()
     expect(card).not_to_contain_text("Granted search_repositories")
+
+
+# -- services up for MCP stacks (#831 part 3): the services review with consent ------------------
+
+BUILT_IN = {
+    "server": "github",
+    "ref": "mcp/github@1.0.0",
+    "origin": "built-in",
+    "upstream": "https://api.githubcopilot.com:443",
+    "auth": "bearer",
+    "credentials": [
+        {"variable": "GITHUB_MCP_TOKEN", "destination": "https://api.githubcopilot.com:443"}
+    ],
+    "egress": "yes",
+    "agents": {},
+}
+PROJECT_MCP = BUILT_IN | {
+    "server": "tracker",
+    "ref": "mcp/tracker@0.1.0",
+    "origin": "project",
+    "upstream": "https://tracker.example:443",
+    "credentials": [{"variable": "TRACKER_TOKEN", "destination": "https://tracker.example:443"}],
+}
+KEYS = [{"name": "GITHUB_MCP_TOKEN", "optional": False, "stored": True}]
+
+
+def started_argv(page) -> list[str]:
+    dock = page.get_by_role("complementary", name="Jobs")
+    expect(dock).to_contain_text("Start services finished.", timeout=15000)
+    dock.get_by_role("button", name="Show log").click()
+    line = page.get_by_role("log").last.locator(".line").filter(has_text="argv ").first
+    return json.loads(line.inner_text()[5:])
+
+
+def test_a_built_in_mcp_stack_starts_from_the_review(page, console):
+    console.scenario(plan_mcp=[BUILT_IN], keys=KEYS)
+    sign_in(page, console)
+    page.get_by_role("button", name="Review and update").click()
+    review = page.get_by_role("group", name="MCP servers")
+    expect(review).to_contain_text(
+        "Credential GITHUB_MCP_TOKEN will be sent to https://api.githubcopilot.com:443"
+    )
+    expect(review).to_contain_text("trust on first use")
+    expect(review.get_by_role("checkbox")).to_have_count(0)
+    page.get_by_role("button", name="Confirm and start").click()
+    argv = started_argv(page)
+    assert "--allow-project-mcp" not in argv and "--repin" not in argv
+
+
+def test_a_project_mcp_server_starts_only_with_its_consent(page, console):
+    console.scenario(plan_mcp=[BUILT_IN, PROJECT_MCP], keys=KEYS)
+    sign_in(page, console)
+    page.get_by_role("button", name="Review and update").click()
+    start = page.get_by_role("button", name="Confirm and start")
+    expect(start).to_be_disabled()
+    consent = page.get_by_role("checkbox", name=re.compile(r"^Allow mcp\.tracker, a project"))
+    expect(consent).to_have_accessible_name(
+        re.compile(r"send TRACKER_TOKEN to https://tracker\.example:443")
+    )
+    consent.check()
+    expect(start).to_be_enabled()
+    start.click()
+    argv = started_argv(page)
+    assert argv[argv.index("--allow-project-mcp") + 1] == "tracker"
+    assert argv.count("--allow-project-mcp") == 1
+
+
+def test_drift_in_the_review_names_the_terminal_repin(page, console):
+    console.scenario(
+        plan_mcp=[BUILT_IN],
+        keys=KEYS,
+        mcp_status={"github": {"state": "drift", "changed": ["get_me"], "missing": []}},
+    )
+    sign_in(page, console)
+    page.get_by_role("button", name="Review and update").click()
+    review = page.get_by_role("group", name="MCP servers")
+    expect(review).to_contain_text("Pinned tools changed upstream on mcp.github")
+    expect(review).to_contain_text("--repin")
+
+
+def test_the_mcp_services_review_has_no_serious_axe_findings(scheme_page, console):  # noqa: F811
+    console.scenario(
+        plan_mcp=[BUILT_IN, PROJECT_MCP],
+        keys=KEYS,
+        mcp_status={"github": {"state": "drift", "changed": ["get_me"], "missing": []}},
+    )
+    sign_in(scheme_page, console)
+    scheme_page.get_by_role("button", name="Review and update").click()
+    scheme_page.get_by_role("group", name="MCP servers").wait_for()
+    assert blocking(scheme_page, "services review with MCP") == []

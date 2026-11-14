@@ -207,3 +207,46 @@ export function grantSteps(summary, path, environment) {
   steps.push({ text: "The relay gets the change at the next services up:", command: `agentbreeder services up ${dir} --environment ${env}` });
   return steps;
 }
+
+// -- starting services for a stack with MCP servers (#831 part 3) ---------------------------------
+
+/**
+ * The MCP servers of a `services plan` answer (`grant.mcp`), each {server, ref, origin, upstream,
+ * credentials: [{variable, destination}], builtIn, sendsCredential}: what the services review
+ * shows. `sendsCredential` mirrors the server's check (a remote upstream, auth other than none).
+ */
+export function planServers(plan) {
+  const inner = object(plan && plan.grant);
+  const servers = Array.isArray(inner && inner.mcp) ? inner.mcp : [];
+  return servers.filter(object).map((item) => ({
+    server: text(item.server),
+    ref: text(item.ref),
+    origin: text(item.origin),
+    upstream: text(item.upstream),
+    credentials: (Array.isArray(item.credentials) ? item.credentials : []).filter(object).map((c) => ({ variable: text(c.variable), destination: text(c.destination) })),
+    builtIn: item.origin === "built-in",
+    sendsCredential: item.egress === "yes" && item.auth !== "none",
+    // oauth_refresh: the refresh credential goes to the token host (`credentials`), and the access
+    // token it mints goes to the upstream; consent names both.
+    accessTokenTo: item.auth === "oauth_refresh" ? text(item.upstream) : "",
+  }));
+}
+
+/** The names a start sends as `allow_project_mcp`: the ticked servers that are not built in. */
+export function consentNames(servers, ticked) {
+  const chosen = ticked instanceof Set ? ticked : new Set();
+  return servers.filter((row) => !row.builtIn && chosen.has(row.server)).map((row) => row.server).sort();
+}
+
+/** Why a start is not ready yet: the first server that is not built in and not ticked, or "". */
+export function consentMissing(servers, ticked) {
+  const chosen = ticked instanceof Set ? ticked : new Set();
+  const row = servers.find((item) => !item.builtIn && !chosen.has(item.server));
+  return row ? `Allow mcp.${row.server} (${row.origin} code) first.` : "";
+}
+
+/** The servers `services status` reports with changed or missing pinned tools. */
+export function driftedServers(status) {
+  const drift = object(status && status.mcp) || {};
+  return Object.keys(drift).filter((name) => object(drift[name]) && drift[name].state === "drift").sort();
+}

@@ -384,8 +384,8 @@ itself.
   Asking for a grant that is already held, or a revoke of a tool not granted, writes nothing.
 - **When it takes effect.** The review says that a grant reaches the relay only at the next
   `services up`, and that an agent uses a tool only when its `agent.yaml` asks for it. After a
-  write the screen names the `services up` command. Starting services for a stack with MCP
-  servers is still done in a terminal; it comes to the console in the next M15 part.
+  write the screen names the `services up` command, which Services runs from its review (next
+  section).
 - **A revoke an active deployment still holds** is written and reported, with the CLI's next
   steps. `services up` refuses to narrow the grant (`MCP_GRANT_IN_USE`) until you run
   `agentbreeder remove ID --local --stack DIR`. An unreadable grant file names `reconcile`.
@@ -409,6 +409,57 @@ a scripted in-use revoke, and axe in light and dark. Not run: the grant reaching
 
 The relay's Logs link is hidden when its name is over the console log route's 31 characters (a
 server name of 28 or more); read those logs with `agentbreeder services logs DIR mcp-NAME`.
+
+### Starting services for a stack with MCP servers (#831, M15, third part): on `main`, not in a published preview
+
+Services' **Review and update** used to refuse a stack with `mcp:` servers. The review now
+lists them under **MCP servers**, from `services plan --json`. For each server it shows the
+version, its origin (built-in, project or registry-path), its upstream, and which credential
+goes where (`Credential GITHUB_MCP_TOKEN will be sent to https://api.githubcopilot.com:443`).
+The credential is a key like any other in the form. **Confirm and start** runs the same
+`services up DIR --environment ENV --yes --expect-grant DIGEST` job as before.
+
+- **Consent for code that is not built in.** A project or registry-path server needs its own
+  tick. The tick names the credential and its destination, or says the server gets none; it
+  says the server's tools are pinned on first use and that its `effect` labels are untrusted.
+  Each ticked server is passed as `--allow-project-mcp NAME`. Start stays off until every such
+  server is ticked. The server checks the ticks against a fresh plan, after the same digest
+  check as the grant: exactly the servers that are not built in (a repeated name counts once).
+  Otherwise it refuses before any container starts (`MCP_PROJECT_CONSENT`,
+  `MCP_CONSENT_INVALID`). The digest binds each server's version ref, origin, upstream, auth,
+  credentials and grants. It does not hash the version's files, so a project version edited in
+  place under the same ref is not caught by it; this is the same for `--allow-project-mcp` in a
+  terminal. The
+  console asks for every server that is not built in, not only those with a credential. `services
+  up` pins a server's first tools without a terminal only for built-in or allowed servers, and it
+  pins after the relays have started. A tick never carries over to a new review.
+- **OAuth refresh.** For a server with `oauth_refresh` auth, the review and the tick also say
+  that the access token it mints goes to the upstream; the refresh credential goes to the token
+  host.
+- **Pins.** After the relays start, `--yes` accepts first pins and new tools for built-in and
+  allowed servers, as it does in a terminal (trust on first use). The job log shows every tool
+  definition pinned. A **changed** definition is never accepted from the console: the relay
+  keeps that tool hidden, and the review names `agentbreeder services up DIR --environment ENV
+  --repin` to run in a terminal. Bringing repin to the console is #964 (a pin-diff read and an
+  `--expect-pins` digest, with its own security review).
+- **What the CLI still refuses** is shown as the job's failure: a narrowed grant still held by a
+  deployment (`MCP_GRANT_IN_USE`), and an undeclared tool in a grant (`MCP_TOOL_UNDECLARED`).
+- `agentbreeder up --yes` with a project directory now starts a stack whose MCP servers are all
+  built in, as `services up --yes` does. A stack with any other server is not started, with the
+  consent message, because `--yes` alone never allows one.
+
+Tested:
+- Server tests: a built-in-only stack starts with no consent flags; a project server is refused
+  without its tick, with a wrong, extra or malformed one, and with a tick from an older plan;
+  a tick is passed once; the flag is only a services-up option; the argv check is repeated.
+- A parity test on a real plan, with `mcp/github` copied into the project registry: the
+  console's consent list and "sends a credential" equal `mcp_stack.needs_project_consent`.
+- JS tests, and Playwright with a scripted plan: a built-in stack starts; a project server is
+  started only after its tick, which names the credential and destination and is passed to
+  `services up`; drift names the terminal repin; axe in light and dark.
+
+Not run: a real `services up` of an MCP stack from the console (Docker and a
+`GITHUB_MCP_TOKEN`), batched with the M15 acceptance.
 
 ### The Audit view (#824, part 2): on `main`, not in a published preview
 
@@ -832,7 +883,9 @@ they do for a CLI user.
   does not stop a person deploying a manifest by hand.
 - **Approvals are not in the UI.** A second person's verified identity is what a single-user session
   cannot provide. A job that needs one shows the command.
-- **Stacks with MCP servers** are refused from the UI, so their tools are reviewed with the CLI.
+- **Stacks with MCP servers** start from the services review only with consent for every server
+  that is not built in (`--allow-project-mcp`), and never accept a changed tool definition
+  (`--repin` stays in a terminal until #964).
 
 ## What protects the local server
 

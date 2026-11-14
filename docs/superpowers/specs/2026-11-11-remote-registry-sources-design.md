@@ -344,8 +344,28 @@ credential is sent where**, so:
   `deployment.py`, `release.py`, 2026-11-11); the MCP slice adds it.
 - Unchanged and relied on: upstreams are `https` on port 443 only (`mcp.py:69-79`,
   `mcp_stack.py:231`); the relay refuses private, loopback and link-local resolution
-  (`relay.py:266-277`); the console refuses `services up` for stacks with MCP servers
-  (`center/server.py:233-237`).
+  (`relay.py:266-277`).
+- **Console (changed by #831, M15 console half, part 3, 2026-11-14).** This section used to rely on
+  the console refusing `services up` for any stack with MCP servers. It no longer does. The
+  console starts such a stack from its services review only with a per-server consent tick for
+  every server that is not built in, the same rule as `--allow-project-mcp NAME` in a terminal.
+  Registry-path servers (today's `AGENTBREEDER_REGISTRY_PATH` roots) need that tick. The
+  tick names the credential and where it is sent, and is checked by the server against a fresh
+  plan under the grant digest before any container starts (`center/mcpgrants.py`
+  `consent_names`). The console sends a bare `NAME`. Its name check (`MCP_SERVER`) has no
+  room for `@`, and once this slice requires `--allow-project-mcp SERVER@<full pin>` for a
+  remote origin, the CLI refuses a bare name. So a remote MCP version is **refused from the
+  console until the console passes `SERVER@pin`**. The MCP slice must then:
+  - pass `SERVER@<full pin>` from the console, and show the source and full pin in the tick
+    (§8.5);
+  - change the console's `sends_credential` (`mcpgrants.consent_servers`), its parity test with
+    `needs_project_consent` and the tick text. For a remote origin consent fires even with
+    `auth: none`, because tool arguments leave the machine, so the tick must not read as if
+    nothing is sent;
+  - add a console test, to its acceptance, that a bare name is refused for a remote origin, so
+    the refusal is tested, not incidental.
+
+  The console never accepts a changed tool definition (`--repin` is terminal-only until #964).
 - The trusted-source list (§8.3) covers fetching the version; it does not cover the upstream the
   version names. Upstream egress stays governed as today (relay, grants, consent).
 
@@ -868,3 +888,11 @@ Open:
   strict parse, console build/release gated on the per-(URL, pin) confirm (security). Converged.
   Open for implementation: the slice 1b git spike (fetch-by-SHA fallback, `curloptResolve`,
   size polling) before code.
+- Amendment (2026-11-14, #831 M15 console half part 3, lane B2, at the coordinator's request
+  while M9b is paused): §6.6's "relied on" line about the console refusing MCP stacks is
+  replaced. The console now starts them with a per-server consent tick (same rule as
+  `--allow-project-mcp`, registry-path servers included); remote origins are refused from the console
+  until the MCP slice passes `SERVER@<full pin>` from the console. Reviewed with that PR's
+  Claude Sonnet security review (CHANGES REQUESTED, minor). Folded: "fail closed" reworded as
+  "refused until the console passes `SERVER@pin`"; the MCP slice's console tasks listed (consent
+  text for `auth: none` remote origins, parity test, a bare-name refusal test).

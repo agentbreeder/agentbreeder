@@ -30,11 +30,15 @@ FAKE_CLI = textwrap.dedent(
     argv = sys.argv[1:]
     marker = os.environ.get("AGENTBREEDER_FAKE_DIR", "")
     if argv[:2] == ["services", "plan"]:
-        mcp = ["relay"] if os.path.exists(marker + "/mcp") else []
-        print(json.dumps({{"digest": "{DIGEST}", "text": "grant text", "keys": [], "mcp": mcp}}))
+        # marker/mcp: the grant's `mcp` servers as JSON (#831)
+        servers = json.load(open(marker + "/mcp")) if os.path.exists(marker + "/mcp") else []
+        mcp = [item["server"] for item in servers]
+        print(json.dumps({{"digest": "{DIGEST}", "text": "grant text", "keys": [], "mcp": mcp,
+                          "grant": {{"mcp": servers}}}}))
     elif argv[:2] == ["services", "status"]:
         print(json.dumps({{"services": {{}}}}))
     elif argv[:2] == ["services", "up"]:
+        print("argv", json.dumps(argv[2:]), flush=True)
         path = argv[argv.index("--env-file") + 1] if "--env-file" in argv else None
         if path:
             print("mode", oct(stat.S_IMODE(os.stat(path).st_mode)), flush=True)
@@ -436,11 +440,73 @@ def test_keys_are_only_for_services_and_must_be_valid(center, project, cookie):
     assert start(center, project, cookie, "services-up", {"digest": DIGEST}, newline)[0] == 400
 
 
-def test_stack_with_mcp_is_refused_from_the_ui(center, project, cookie, tmp_path):
-    (tmp_path / "mcp").write_text("")
+BUILT_IN = {
+    "server": "github",
+    "ref": "mcp/github@1.0.0",
+    "origin": "built-in",
+    "upstream": "https://api.githubcopilot.com:443",
+    "auth": "bearer",
+    "credentials": [{"variable": "GITHUB_MCP_TOKEN", "destination": "https://x:443"}],
+    "egress": "yes",
+    "agents": {},
+}
+PROJECT_MCP = BUILT_IN | {"server": "notes_db", "ref": "mcp/notes@0.1.0", "origin": "project"}
+
+
+def _mcp_job_argv(center, cookie, job) -> list[str]:
+    lines = [line["text"] for line in wait(center, job, cookie)["lines"]]
+    return json.loads(next(line for line in lines if line.startswith("argv "))[5:])
+
+
+def test_a_stack_with_only_built_in_mcp_servers_starts(center, project, cookie, tmp_path):
+    (tmp_path / "mcp").write_text(json.dumps([BUILT_IN]))
     status, data, _ = start(center, project, cookie, "services-up", {"digest": DIGEST})
-    assert status == 400 and "MCP" in data["error"]["message"]
-    assert data["error"]["code"] == "MCP_NEEDS_CLI"
+    assert status == 200, data
+    argv = _mcp_job_argv(center, cookie, data["data"]["job"])
+    assert "--allow-project-mcp" not in argv and "--repin" not in argv
+    assert argv[argv.index("--expect-grant") + 1] == DIGEST
+
+
+def test_a_project_mcp_server_needs_its_consent_before_the_job(center, project, cookie, tmp_path):
+    (tmp_path / "mcp").write_text(json.dumps([BUILT_IN, PROJECT_MCP]))
+    status, data, _ = start(center, project, cookie, "services-up", {"digest": DIGEST})
+    assert status == 400 and data["error"]["code"] == "MCP_PROJECT_CONSENT"
+    assert "mcp.notes_db" in data["error"]["message"]
+    for bad in (["github"], ["notes_db", "other"], "notes_db", ["--yes"], [3]):
+        options = {"digest": DIGEST, "allow_project_mcp": bad}
+        status, data, _ = start(center, project, cookie, "services-up", options)
+        assert status == 400 and data["error"]["code"] == "MCP_CONSENT_INVALID", bad
+    options = {"digest": DIGEST, "allow_project_mcp": ["notes_db", "notes_db"]}
+    status, data, _ = start(center, project, cookie, "services-up", options)
+    assert status == 200, data
+    argv = _mcp_job_argv(center, cookie, data["data"]["job"])
+    assert argv.count("--allow-project-mcp") == 1
+    assert argv[argv.index("--allow-project-mcp") + 1] == "notes_db"
+
+
+def test_consent_is_checked_against_the_fresh_plan(center, project, cookie, tmp_path):
+    """A consent from an older review names a server the plan no longer has: refused."""
+    (tmp_path / "mcp").write_text(json.dumps([BUILT_IN]))
+    options = {"digest": DIGEST, "allow_project_mcp": ["notes_db"]}
+    status, data, _ = start(center, project, cookie, "services-up", options)
+    assert status == 400 and data["error"]["code"] == "MCP_CONSENT_INVALID"
+
+
+def test_consent_is_only_a_services_up_option(center, project, monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        center.runner, "start", lambda p, kind, options, *rest: seen.append(options)
+    )
+    center.start_job(project, {"kind": "build", "options": {"allow_project_mcp": ["notes_db"]}})
+    assert seen == [{}]
+
+
+def test_argv_checks_consent_names_again(project_dir):
+    project = {"path": str(project_dir), "environment": "dev"}
+    argv = argv_for("services-up", project, {"digest": DIGEST, "allow_project_mcp": ["a_b"]})
+    assert argv[-2:] == ["--allow-project-mcp", "a_b"]
+    with pytest.raises(BadRequest):
+        argv_for("services-up", project, {"digest": DIGEST, "allow_project_mcp": ["--yes"]})
 
 
 def test_one_job_at_a_time_and_cancel(center, project, cookie):

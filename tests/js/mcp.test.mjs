@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { RELAY_STATES, TOOL_STATES, grantChoices, grantProblem, grantRows, grantWriteProblem, grantSteps, grantedTools, repinCommand, serverRows, shellWord, shortHash } from "../../src/agentbreeder/center/static/lib/mcp.js";
+import { RELAY_STATES, TOOL_STATES, consentMissing, consentNames, driftedServers, planServers, grantChoices, grantProblem, grantRows, grantWriteProblem, grantSteps, grantedTools, repinCommand, serverRows, shellWord, shortHash } from "../../src/agentbreeder/center/static/lib/mcp.js";
 
 const PIN = `sha256:${"a".repeat(64)}`;
 const OTHER = `sha256:${"b".repeat(64)}`;
@@ -196,4 +196,39 @@ test("a write problem other than a refusal before writing may have changed the f
     assert.equal(grantWriteProblem({ code, message: "m" }).uncertain, false, code);
   }
   assert.equal(grantWriteProblem(null), null);
+});
+
+// -- services up for MCP stacks (#831 part 3) --
+
+const BUILT_IN = { server: "github", ref: "mcp/github@1.0.0", origin: "built-in", upstream: "https://api.githubcopilot.com:443", auth: "bearer", credentials: [{ variable: "GITHUB_MCP_TOKEN", destination: "https://api.githubcopilot.com:443" }], egress: "yes", agents: {} };
+const LOCAL = { ...BUILT_IN, server: "notes_db", origin: "project", egress: "no (private network with its upstream)", credentials: [] };
+const REMOTE = { ...BUILT_IN, server: "tracker", origin: "registry-path" };
+
+test("plan servers say which are built in and which send a credential upstream", () => {
+  const rows = planServers({ grant: { mcp: [BUILT_IN, LOCAL, REMOTE, null] } });
+  assert.deepEqual(rows.map((row) => [row.server, row.builtIn, row.sendsCredential]), [["github", true, true], ["notes_db", false, false], ["tracker", false, true]]);
+  assert.deepEqual(rows[0].credentials, [{ variable: "GITHUB_MCP_TOKEN", destination: "https://api.githubcopilot.com:443" }]);
+  assert.deepEqual(planServers(null), []);
+  assert.deepEqual(planServers({ grant: { mcp: "x" } }), []);
+});
+
+test("every server that is not built in needs a tick; only those are sent", () => {
+  const rows = planServers({ grant: { mcp: [BUILT_IN, LOCAL, REMOTE] } });
+  assert.equal(consentMissing(rows, new Set()), "Allow mcp.notes_db (project code) first.");
+  assert.equal(consentMissing(rows, new Set(["notes_db"])), "Allow mcp.tracker (registry-path code) first.");
+  assert.equal(consentMissing(rows, new Set(["notes_db", "tracker"])), "");
+  assert.deepEqual(consentNames(rows, new Set(["tracker", "github", "notes_db"])), ["notes_db", "tracker"]);
+  assert.deepEqual(consentNames(rows, null), []);
+});
+
+test("drifted servers come from services status", () => {
+  assert.deepEqual(driftedServers({ mcp: { b: { state: "drift" }, a: { state: "drift" }, c: { state: "ok" } } }), ["a", "b"]);
+  assert.deepEqual(driftedServers(null), []);
+});
+
+test("an oauth_refresh server names where its minted access token goes", () => {
+  const oauth = { ...BUILT_IN, server: "cal", origin: "project", auth: "oauth_refresh", credentials: [{ variable: "CAL_REFRESH", destination: "https://auth.example:443" }] };
+  const [row] = planServers({ grant: { mcp: [oauth] } });
+  assert.equal(row.accessTokenTo, "https://api.githubcopilot.com:443");
+  assert.equal(planServers({ grant: { mcp: [BUILT_IN] } })[0].accessTokenTo, "");
 });
