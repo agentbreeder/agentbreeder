@@ -7,6 +7,7 @@ scenario."""
 from __future__ import annotations
 
 import difflib
+import re
 import shutil
 from pathlib import Path
 
@@ -165,7 +166,7 @@ def test_another_name_opens_on_its_own_latest_version(page, console):
     open_northwind(page, console)
     page.goto(f"{console.origin}/#/registry/tools/cancel-order")
     expect(page.locator("main h1")).to_contain_text("Tool cancel-order")
-    assert page.title().startswith("Tool cancel-order")
+    expect(page).to_have_title(re.compile(r"^Tool cancel-order "))  # retried: set after render
     page.get_by_role("button", name="Show 1.0.0").click()
     expect(page.get_by_role("region", name="Version 1.0.0")).to_be_visible()
     page.goto(f"{console.origin}/#/registry/tools/orders")
