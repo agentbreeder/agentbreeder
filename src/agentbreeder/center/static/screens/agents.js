@@ -8,6 +8,7 @@
 // chain; the identity strip shows what the stack declares until #909 adds the principal's fields.
 
 import { reportHref } from "../lib/evals.js";
+import { gateFailedRun } from "../lib/gate.js";
 import { auditTime, isCandidate } from "../lib/format.js";
 import {
   STEP_WORDS, TABS, agentName, candidateOf, gateStrip, identityText, identityTone, lastReleaseCell, latestRun, listRows, releasedImage, localDate, projectStatus,
@@ -18,6 +19,7 @@ import { visible } from "../lib/text.js";
 import { productionRow } from "../lib/tryit.js";
 import { Card, Table, Text, ViewState, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
+import { GateFailed } from "./gate.js";
 import { html, useEffect, useState } from "../ui/preact.js";
 import { LogsLink } from "./logs.js";
 import { TryIt } from "./try.js";
@@ -150,9 +152,10 @@ function Tabs({ name, tab }) {
   </nav>`;
 }
 
-function Overview({ agent, production, candidate }) {
+function Overview({ project, name, agent, production, candidate, failedRun }) {
   const file = agent.data;
   return html`
+    ${failedRun ? html`<${GateFailed} key=${failedRun} project=${project} name=${name} run=${failedRun} agentFile=${file} />` : null}
     <${Card} title="Production">
       ${production
         ? html`<dl class="facts">
@@ -239,7 +242,7 @@ function AgentDetail({ project, name, tab }) {
       ${releases.data && !own ? html`<p class="muted small">Build, Candidate and Evals are not shown: this project's releases are another agent's.</p>` : null}
     </section>
     <${Tabs} name=${name} tab=${tab} />
-    ${tab === "overview" ? html`<${Overview} agent=${agent} production=${production} candidate=${candidate} />` : null}
+    ${tab === "overview" ? html`<${Overview} project=${project} name=${name} agent=${agent} production=${production} candidate=${candidate} failedRun=${own ? gateFailedRun(entries) : null} />` : null}
     ${tab === "try" ? html`<${TryIt} project=${project} params=${{ name }} />` : null}
     ${tab === "releases" ? html`<${Releases} name=${name} releases=${releases} />` : null}
     ${tab === "logs" ? html`<${Logs} name=${name} rows=${deployments.data} />` : null}

@@ -528,6 +528,47 @@ request, a failed read with Retry, a failed content read and the way back, a bad
 name reading nothing, and axe in light and dark. Not yet run against a real release; that
 is part of the M8 console verification.
 
+### The gate-failed view (#826, third part): on `main`, not in a published preview
+
+When an agent's latest release (the newest release run in the project's audit log, rollbacks
+aside) ended `eval_failed`, the agent's **Overview** and **Build and release** start with two
+cards. A later release that passes hides them.
+
+- **Eval gate failed**: the saved score and "Production is unchanged.", links to **Edit the
+  prompt** (the registry page of `agent.yaml`'s `prompt.ref`; a prompt given as a path says to
+  edit it in the agent's folder) and to the **Full eval report** (the viewer above), and a
+  **Failed checks** table with one row per failed check of each failed case: the case id, the
+  check, what was expected, what happened and the judge's reason. Expected and actual come from
+  the check's name as `release` records it (`matches:PATTERN`, `avoids:PATTERN`, `called:TOOL`,
+  `did_not_call:TOOL`, `agent_responded`, `retrieved_expected_article`, `patterns_finished`), the
+  tools the case called, the judge's correctness (a pass needs 0.70) and, for `judge_correct`,
+  the case's reference answer from the eval set the run used (`registry show` of the report's
+  `eval_set`; when that cannot be read, the table says so and shows the rule instead). "Show the
+  agent's replies" reads the report again with `--content` and adds a closed Reply disclosure to
+  each case's first row.
+- **Edit case** (once per case) opens `#/registry/evals/NAME/case/ID`: the eval set's page with
+  that case's row open in the editor, scrolled to and focused. A case id that is not one route
+  segment (letters, digits, `.`, `_`, `-`) links to the eval set's page. The page shows the
+  eval set's latest version; when that version has no case with the id (renamed or removed), it
+  says so and opens nothing. The case opens once: after a save or another version it stays
+  closed. Saving makes a new version as usual; move the agent to it, then release again.
+- **Candidate log (saved tail)**: the lines `release` kept from the candidate before removing it
+  (at most 500, redacted when saved; see `docs/agent-yaml.md`), shown as text with controls made
+  visible, or why there is none (or that it is empty). The server reads
+  `GET /api/projects/ID/logs/failed/NAME` with `logs --failed NAME --stack DIR --environment ENV
+  --json` (fixed argv, never cached; the name must be an agent name, else `AGENT_INVALID`). Exit
+  1 (no tail) answers `{saved: false}`, unless stderr holds a Python traceback (a crash also
+  exits 1). An answer for another agent, or lines that are not strings, is refused with
+  `LOGS_INVALID`. The file's path is not passed on, since it names the state directory.
+
+`static/lib/gate.js` holds the run choice, the rows and the links as pure functions. Tested with
+node (each check kind, rows and links), pytest (the argv against the real `logs` parser, exit 1,
+no caching, off-contract answers, names that never reach the CLI) and Playwright over Northwind
+with the fake CLI: the rows with the real eval set's reference answer, the tail, no tail,
+replies on request, Edit case opening the case, a later pass hiding the view, Build and release,
+and axe in light and dark. Not yet run after a real failed release; that is part of the M10
+acceptance, batched with the milestone checks.
+
 ### The guided path and Create starter (#820): on `main`, not in a published preview
 
 The console reads `agentbreeder next PROJECT --environment ENV --json` (the contract in
