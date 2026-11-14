@@ -48,6 +48,7 @@ from agentbreeder.center import (
     tryit,
 )
 from agentbreeder.center import evals as eval_reads
+from agentbreeder.center import usage as usage_feeds
 from agentbreeder.center.files import (
     BadRequest,
     check_ancestors,
@@ -61,6 +62,7 @@ from agentbreeder.center.jobs import (
     KEY_NAME,
     Busy,
     CenterState,
+    ChildRecords,
     Runner,
     SchemaTooNew,
     WriteBusy,
@@ -195,6 +197,7 @@ class Center:
         self.docker_lock = threading.Lock()
         self.docker_seen: tuple[float, dict] | None = None
         self.knowledge_reads = threading.BoundedSemaphore(MAX_KNOWLEDGE_IN_FLIGHT)
+        self.usage = usage_feeds.Usage(self.runner)  # one `services usage --follow` per project
 
     @property
     def origin(self) -> str:
@@ -1104,6 +1107,12 @@ def _activity(request: Request) -> dict:
     return envelope({"running": center.runner.running(), "recent": center.state.recent_jobs()})
 
 
+def _usage(request: Request) -> dict:
+    """The project's usage ring (M6 #822): starts its `services usage --follow --json` child on
+    the first poll; the child stops IDLE_AFTER seconds after the last one."""
+    return request.center.usage.read(request.project())
+
+
 def _docker(request: Request) -> dict:
     return request.center.docker(fresh=request.query.get("fresh") == ["1"])
 
@@ -1315,6 +1324,15 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", r"/api/projects", _projects, "/api/projects"),
     Route("GET", r"/api/agents", _agents, "/api/agents"),
     Route("GET", r"/api/builder/parts", _builder_parts, "/api/builder/parts"),
+    # Before the generic view route, which would match it too. A poll: it does not keep a
+    # session alive.
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/usage",
+        _usage,
+        "/api/projects/0123456789ab/usage",
+        poll=True,
+    ),
     Route(
         "GET",
         rf"/api/projects/{PROJECT_ID}/(?P<view>[a-z]+)",
@@ -1950,6 +1968,9 @@ def _serve(args, directory: Path, instance: SingleInstance) -> int:
     removed = remove_leftovers(directory)  # S-16: only once the lock is held
     if removed:
         print(f"Removed {len(removed)} file(s) left by a console that crashed.", file=sys.stderr)
+    stopped = ChildRecords(directory).sweep()  # S-10: follows a killed console left running
+    if stopped:
+        print(f"Stopped {stopped} process(es) left by a console that crashed.", file=sys.stderr)
     try:
         center = Center(directory, args.environment)
         center.state.interrupt_running()  # the lock is held: no other console owns these

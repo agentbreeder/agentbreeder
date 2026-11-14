@@ -1295,6 +1295,7 @@ def test_only_sign_in_skips_the_session_and_only_job_polls_keep_it_idle():
     ]
     assert [(r.method, r.sample) for r in server.ROUTES if r.poll] == [
         ("GET", "/api/activity"),
+        ("GET", "/api/projects/0123456789ab/usage"),
         ("GET", "/api/jobs/" + "0" * 32),
         ("GET", "/api/docker"),
     ]
