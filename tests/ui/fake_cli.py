@@ -369,7 +369,7 @@ def main(argv: list[str]) -> int:
     elif head == ["registry", "verify"]:
         print(json.dumps(data["registry_problems"]))
         return 2 if data["registry_problems"] else 0
-    elif head in (["registry", "edit"], ["agent", "set-ref"]):
+    elif head in (["registry", "edit"], ["registry", "fork"], ["agent", "set-ref"]):
         return real(argv)  # #826: the real edit and set-ref on the project's files
     elif argv and argv[0] == "registry":
         print("[]")

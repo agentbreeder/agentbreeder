@@ -129,10 +129,11 @@ test("an EVAL_INVALID line maps to its case, counting blank lines as the CLI doe
 });
 
 test("each edit kind names its files; eval sets edit only top-level .jsonl files", () => {
-  assert.deepEqual(EDITABLE_KINDS, ["prompt", "eval"]);
+  assert.deepEqual(EDITABLE_KINDS, ["prompt", "eval", "tool"]);
   assert.equal(editKind("eval").body, "cases");
   assert.equal(editKind("prompt").body, "text");
-  assert.equal(editKind("tool"), null);
+  assert.equal(editKind("tool").body, "text");
+  assert.equal(editKind("service"), null);
   assert.equal(editKind("__proto__"), null);
   const file = (path, more = {}) => ({ type: "file", path, text: "x", ...more });
   const show = { files: [file("manifest.yaml", { text: "cases: golden.jsonl\n" }), file("golden.jsonl"), file("other.jsonl"), file("fixtures.sql"), file("more/cases.jsonl"), file("big.jsonl", { truncated: true })] };

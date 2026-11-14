@@ -7,6 +7,10 @@
 // sends the same text with the reviewed digest, so what is written is what was reviewed (S-04). A
 // version that appears meanwhile (another tab) is VERSION_EXISTS: pick another and review again.
 //
+// Fork to edit (#828): a version outside the project registry (built in, or on a shared path) is
+// copied into it first: `registry fork REF --version X.Y.Z --dry-run` lists the copy's files and
+// digest, then "Fork as X.Y.Z" copies exactly that (--expect-digest), and the copy is edited.
+//
 // Move: `agent set-ref OLD NEW` the same way (dry run → diff → write with the reviewed agent.yaml
 // digest), then "Build and update agent.lock" (a plain build: `release` and Build only use
 // --locked and refuse a lock without the new ref), then release from Build and release.
@@ -61,12 +65,68 @@ function useLeaveGuard(dirty) {
 export function Editor({ project, kind, entry, version, show, FileDiff, onSaved, onRefresh }) {
   if (!EDITABLE_KINDS.includes(kind) || !show) return null;
   if (version.rootKind !== "project") {
-    return html`<${Card} title="Edit">
-      <p class="muted">This version is ${version.rootKind === "builtin" ? "built in" : "in a shared path"}, so it is not edited in place. Fork it into the project registry first, then edit the copy:</p>
-      <${Text} block copy value=${`agentbreeder registry fork ${version.ref}`} label="fork command" />
-    <//>`;
+    return html`<${Fork} key=${version.ref} project=${project} entry=${entry} version=${version} onSaved=${onSaved} onRefresh=${onRefresh} />`;
   }
   return html`<${EditorBody} key=${version.ref} project=${project} kind=${kind} entry=${entry} version=${version} show=${show} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onRefresh} />`;
+}
+
+/**
+ * Fork to edit: copy a built-in or shared version into the project registry as the next free
+ * patch version, reviewed first (the files and digest of the copy), then edit the copy.
+ */
+function Fork({ project, entry, version, onSaved, onRefresh }) {
+  const { client } = useConsole();
+  const [review, setReview] = useState(null); // the dry run's answer
+  const [busy, setBusy] = useState(null); // "review" | "fork"
+  const [notice, setNotice] = useState(null);
+  const existing = entry.versions.map((v) => v.version);
+  const target = saveVersion(version.version, "patch", existing);
+  const where = version.rootKind === "builtin" ? "built in" : "in a shared path";
+  const path = `/api/projects/${project.id}/registry/fork`;
+  const fail = (problem) => {
+    if (needsNewReview(problem)) setReview(null);
+    if (problem.code === "VERSION_EXISTS") onRefresh();
+    setNotice({ tone: "error", text: editProblem(problem).text });
+  };
+  const ask = async () => {
+    if (busy || !target) return;
+    setBusy("review");
+    setNotice(null);
+    const { data, problem } = await send(client, path, { ref: version.ref, version: target });
+    setBusy(null);
+    if (problem) return fail(problem);
+    setReview({ data, version: target });
+  };
+  const fork = async () => {
+    if (busy || !review || review.version !== target) return;
+    setBusy("fork");
+    setNotice(null);
+    const { data, problem } = await send(client, path, { ref: version.ref, version: review.version, digest: review.data.sha256 });
+    setBusy(null);
+    if (problem) return fail(problem);
+    setReview(null);
+    onSaved(data.version, `Forked ${version.ref} into this project as ${data.ref}; edit the copy. ${version.ref} is unchanged, and an agent uses the copy only after you move it there and release.`);
+  };
+  const files = review && Array.isArray(review.data.files) ? review.data.files.filter((file) => file && file.type === "file") : [];
+  return html`<${Card} title="Edit">
+    <p class="muted">This version is ${where}, so it is not edited in place. Fork it into this project's registry as a new version the project owns, then edit the copy.</p>
+    <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
+    ${review && review.version === target
+      ? html`<section class="edit-review" aria-label="Review">
+          <h3>Review: fork ${version.version} → ${review.version}</h3>
+          <p role="status"><${Text} value=${`Copies ${files.length} ${files.length === 1 ? "file" : "files"} into this project's registry as ${review.data.ref}; only the manifest's version line changes.`} /></p>
+          <ul class="plain">${files.map((file) => html`<li key=${file.path}><code><${Text} value=${file.path} /></code></li>`)}</ul>
+          ${review.data.runs_code ? html`<p class="notice warn">This version holds code that runs in agents. Forking copies it unchanged; review it before you move an agent to the copy.</p>` : null}
+          <${Actions}>
+            <button type="button" class="action primary" disabled=${Boolean(busy)} onClick=${fork}>${busy === "fork" ? "Forking…" : `Fork as ${review.version}`}</button>
+            <${Action} tone="secondary" onClick=${() => setReview(null)} disabled=${busy ? "Waiting for the console." : false}>Cancel<//>
+          <//>
+        </section>`
+      : html`<${Actions}>
+          <${Action} onClick=${ask} disabled=${busy ? "Waiting for the console." : !target ? "No free version to fork into." : false}>${busy === "review" ? "Reviewing…" : `Fork to edit as ${target}`}<//>
+        <//>`}
+    <p class="muted small">In a terminal: <code><${Text} value=${`agentbreeder registry fork ${version.ref} --version ${target || "X.Y.Z"}`} /></code></p>
+  <//>`;
 }
 
 /** The mono textarea with its line gutter (the "text" body). */
