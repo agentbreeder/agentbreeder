@@ -35,6 +35,8 @@ agentbreeder registry publish ./tool-orders [--to registry] [--dry-run | --expec
 #   prints ref, sha256, path
 agentbreeder registry import ../shared/prompt-x [--as NAME] [--version X.Y.Z] [--project DIR] [--json]
 agentbreeder registry fork service/litellm@1.0.0 [--as NAME] [--version X.Y.Z] [--project DIR] [--json]
+agentbreeder registry edit prompt/support@1.0.0 --set prompt.md FILE [--remove PATH] [--bump patch|minor|major | --version X.Y.Z] [--project DIR] [--dry-run | --expect-digest SHA256] [--json]
+agentbreeder agent set-ref prompt/support@1.0.0 prompt/support@1.0.1 [--project DIR] [--dry-run | --expect-base SHA256] [--json]
 agentbreeder registry list [tool/] [--json]
 agentbreeder registry verify [--json]                 # exit 2 if any version is unsafe or inconsistent
 agentbreeder registry show prompt/support@1.0.0 [--project DIR] [--json]
@@ -263,6 +265,13 @@ an `agent.yaml` references it and `release` passes. Text output is `REF SHA256 P
 `(from SOURCE_REF)` after a rename), as `publish` prints; a dry run prefixes `Would import` and
 prints the `--expect-digest` to pass. Errors are `[CODE] message` on stderr, exit 2.
 
+`root_kind` is as in `show`. For `publish` (which has no `--project`; on `main`, not in a published
+preview, #898) it is `project` when `--to` resolves to `DIR/registry` and DIR holds an `agent.yaml`
+or `stack.yaml` file, as for `import`, `fork` and `edit`; so `publish DIR` run from a project
+directory, with the default `--to registry`, reports `project`. Any other `--to` is `path`, and
+the built-in root is `builtin`. The field only describes the root: the write is the same either
+way.
+
 ## Forking a built-in or shared version (on `main`, not in a published preview)
 
 Versions are immutable, and the built-in registry and `AGENTBREEDER_REGISTRY_PATH` roots are not
@@ -286,6 +295,66 @@ refused), `--dry-run`/`--expect-digest`, stderr note and output. `--json` prints
 object (indented); `source_ref` is `REF` and `source` is the resolved directory. If the staged copy
 declares a ref other than `REF` (the source changed after it was resolved), nothing is written
 (`MANIFEST_INVALID`). A missing `REF` is `REF_NOT_FOUND`.
+
+## Editing a project version (on `main`, not in a published preview)
+
+**`registry edit REF --set PATH FILE ... --remove PATH ... [--bump patch|minor|major | --version
+X.Y.Z] [--project DIR]`** changes a version the project owns and publishes the result as a new
+version; `REF` itself never changes. `REF` must resolve to the project's `./registry`: a built-in
+or `AGENTBREEDER_REGISTRY_PATH` version is refused (`EDIT_NOT_PROJECT`) with the `registry fork`
+command to run first.
+
+```
+agentbreeder registry edit prompt/hello-prompt@0.1.0 --set prompt.md ./prompt.md   # -> 0.1.1
+agentbreeder registry edit eval/hello-evals@0.1.0 --set golden.jsonl - --bump minor < cases.jsonl
+agentbreeder agent set-ref prompt/hello-prompt@0.1.0 prompt/hello-prompt@0.1.1
+```
+
+- The version is copied into a private 0700 staging directory (in the registry root when
+  writing), the changes are applied there, `version:` is raised (`--bump`, default `patch`, or
+  exactly `--version`; lower than `REF`'s is `VERSION_INVALID`, equal is `VERSION_EXISTS`) and
+  the copy goes through `publish`'s checks and one atomic rename. If the new version already exists, or appears meanwhile (another tab or terminal), nothing is written
+  (`VERSION_EXISTS`); edit again with another version.
+- `--set PATH FILE` replaces or adds the file `PATH` (relative, `/`-separated, missing directories
+  are created) with `FILE`'s bytes; an existing file keeps its executable bit, a new one is not
+  executable. `FILE` must be a regular file; `-` reads stdin (once per command). `--remove PATH`
+  deletes a file, and the directories it leaves empty. `manifest.yaml` (in any letter case) is
+  not edited this way (the edit rewrites only its `version:` line, quoting it, as a fork does), and interpreter caches are refused (`EDIT_INVALID`). An edit
+  that changes no byte is `EDIT_UNCHANGED`.
+- Text you type (a prompt, an eval case) goes in a file or on stdin, never as an argument, which
+  other local users can read in `ps`. (The console's editors, not built yet, are to pass it the
+  same way.)
+- An `eval` edit must still load as `release` loads it (JSON lines with `id`, `turns` and
+  `reference`; 1 to the case limit), or nothing is written (`EVAL_INVALID`). Other kinds get the
+  checks every version gets.
+- The output is the diff from `REF` to the new version first (`registry diff`'s format), then
+  `publish`'s `REF SHA256 PATH (from REF)` line, a stderr note (code that runs inside agents, or
+  text that steers the agent) and a `Next:` line with the `agent set-ref` command. `--dry-run`
+  writes nothing and prints the `--expect-digest` to pass; a later call with it refuses unless the
+  staged copy has exactly that digest (`DIGEST_MISMATCH`), so what is written is what was
+  reviewed. `--json` prints `import`'s object (indented) plus `diff`, the `registry diff --json`
+  object from `REF` to the new version (`from` and `to` carry `ref` and `sha256` only).
+
+**`agent set-ref OLD NEW [--project DIR] [--dry-run | --expect-base SHA256] [--json]`** moves the
+project's agent to another version. It is an exact-string replacement in `DIR/agent.yaml`, so
+comments and formatting stay. It refuses unless `OLD` is the value of one ref field `build` reads
+(`REF_NOT_DECLARED`) and occurs exactly once in the file as a whole ref (a comment or description
+naming it too is `REF_AMBIGUOUS`; `…@1.0.10` does not contain `…@1.0.1`), `NEW` is the same kind
+(`REF_INVALID`), resolves in the project's search roots (`REF_NOT_FOUND`), is not another field's
+kind/name (`REF_DUPLICATE`), and the rewritten file still validates with every other ref unchanged.
+`NEW` may have another name (a fork made with `--as`). The diff is printed first; the file is
+replaced atomically, keeping its mode. `--dry-run` writes nothing and prints `--expect-base`, the
+digest of the file it read; with it, a file changed since the preview is refused (`BASE_MISMATCH`),
+as is a change found just before the rename (best effort: an editor or git writing at that
+instant is not locked out). A write that fails (a read-only directory, a full disk) is
+`WRITE_FAILED` and leaves no `.agent.yaml-*.tmp` file. Every refusal exits 2 with `[CODE] message`
+on stderr, also with `--json` (as the `registry` commands). `--json` prints `{file, old, new, at, base_sha256,
+sha256, diff, dry_run}`. Then build and release (`agentbreeder next` prints the commands);
+`build` adds the new version to `agent.lock` and drops the old one.
+
+**What records an edit.** `registry edit` and `agent set-ref` change only the project's files:
+the new version directory and `agent.yaml`. Neither writes an audit-chain row; the record is the
+files and your git history if you commit them.
 
 ## Publishing and integrity
 

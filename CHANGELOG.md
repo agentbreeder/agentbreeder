@@ -20,6 +20,33 @@ On main, not in a published preview.
   the environment (`registry used-by`: declared, locked and deployed). Read-only. See
   `docs/command-center.md`.
 
+- Console log viewer (#821, M5, first part), on `main`, not in a published preview: a Logs
+  screen, and a Logs link on every Services and Deployments row, reading one snapshot through
+  `services logs --json` or `logs ID --json` (`--previous` for Kubernetes). Filter, level filter,
+  search, wrap and copy work on the lines read; unwrapped rows are windowed (10,000 lines). Notes
+  say what was read, that secrets are redacted and when the read was cut. `LOG_UNAVAILABLE` and a
+  pending pod are empty states. The server checks every option and the answer's shape, and never
+  caches or stores log lines. Follow, `watch` and the S-10 limits are the next parts. See
+  `docs/command-center.md`.
+
+- `agentbreeder registry edit REF --set PATH FILE|--remove PATH [--bump patch|minor|major |
+  --version X.Y.Z] [--project DIR] [--dry-run | --expect-digest SHA256] [--json]` and
+  `agentbreeder agent set-ref OLD NEW [--project DIR] [--dry-run | --expect-base SHA256] [--json]`
+  (#826, M10 CLI), on `main`, not in a published preview. `edit` copies a project version to a
+  private staging directory, applies the files (from a file or stdin, never argv), raises the
+  version and publishes it atomically with `publish`'s checks; it prints the diff first, refuses
+  a version that exists or appears meanwhile (`VERSION_EXISTS`), an unchanged edit, a broken eval
+  set and a non-project version (fork it first). `set-ref` replaces one ref in `agent.yaml` by
+  exact string, refusing ambiguity, and shows the diff first; `--expect-base` refuses a file that
+  changed after the review. Neither writes an audit row: the record is the project's files and
+  git. The console editors are not built yet. See `docs/registry.md`.
+
+- `release` ends with `Next: … invoke NAME Hello` after a successful release, including
+  `--rollback` and an image already released (#820, M4 finding 1), on `main`, not in a published
+  preview: with the `--stack` and `--environment` or `--state-dir` it used; `--json` carries the
+  command as `advice.invoke`. `your-first-agent.md` no longer says to run `next` after
+  `release`.
+
 - Console guided path and Create starter (#820, M4), on `main`, not in a published preview: Home
   shows the project's `next --json` checklist (state as icon and word, reason, the current step's
   button, command and note), the top bar a "Next" pill, finished jobs a result row, and empty Home
@@ -413,6 +440,12 @@ On main, not in a published preview.
   holds no invisible control character.
 
 ### Fixed
+
+- `registry publish --json` reports `root_kind: "project"` when `--to` resolves to `DIR/registry`
+  and DIR holds an `agent.yaml` or `stack.yaml` file (#898), on `main`, not in a published
+  preview. It reported `path` for a project's own `./registry`, including `publish DIR` run from
+  the project with the default `--to registry`; `import`, `fork` and `show` already said
+  `project`. Any other `--to` stays `path`; the write is unchanged. See `docs/registry.md`.
 
 - `logs ID` for a Kubernetes (local `kind`) deployment, on `main`, not in a published preview:
   when `kubectl logs` exits 0 but its whole output is one kubelet message saying the container

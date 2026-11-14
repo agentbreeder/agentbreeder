@@ -441,9 +441,11 @@ def place(
     search: list[Path] | None = None,
     project_dir: Path | None = None,
     source_ref: Ref | None = None,
+    edit=None,
+    context: int = 3,
 ) -> dict:
-    """Copy a version directory into a registry root as an immutable version: `publish` and
-    `import`. `name`/`version` rename it (the staged manifest is rewritten).
+    """Copy a version directory into a registry root as an immutable version: `publish`,
+    `import`, `fork` and `edit`. `name`/`version` rename it (the staged manifest is rewritten).
 
     The source is copied once into a private staging directory and every check runs on that
     copy: the entry checks (`_entries`), the manifest, and the hash. With `dry_run`, nothing is
@@ -451,7 +453,11 @@ def place(
     call passes as `expect_digest`, which refuses unless the new staged copy hashes the same
     (S-04: the bytes written are the bytes reviewed). `search` adds a REF_CONFLICT check against
     the other roots, so the new version resolves. `source_ref` refuses a staged copy whose
-    manifest declares another ref (`fork`: the source changed after it was resolved)."""
+    manifest declares another ref (`fork`: the source changed after it was resolved).
+
+    `edit(staged)` (`registry edit`) changes the private staged copy before any check; the result
+    then carries `diff` (as `registry diff --json`) from the copy as staged to the edited one,
+    and an edit that changes nothing is refused (EDIT_UNCHANGED)."""
     if expect_digest is not None and not DIGEST.fullmatch(expect_digest):
         raise RegistryError("DIGEST_INVALID", "--expect-digest must be sha256:<64 hex digits>")
     if trusted_root(root):
@@ -480,6 +486,13 @@ def place(
     try:
         with _reads(), _as_source(staged, source):
             copy_and_hash(source, staged)
+            if edit is not None:
+                pristine, pristine_digest = _read_version(staged)
+                edit(staged)
+                if copy_and_hash(staged) == pristine_digest:
+                    raise RegistryError(
+                        "EDIT_UNCHANGED", f"the edit leaves {_shown(source)} unchanged"
+                    )
             data = _staged_manifest(source, staged)
             original = Ref.parse(f"{data['kind']}/{data['name']}@{data['version']}")
             if source_ref is not None and original != source_ref:
@@ -494,6 +507,17 @@ def place(
             if ref != original:
                 _renamed_manifest(source, staged, data, ref)
             items, digest = _read_version(staged)
+            if edit is not None:
+                _check_kind(ref.kind, staged)
+                changed = {
+                    "from": {"ref": str(original), "sha256": pristine_digest},
+                    "to": {"ref": str(ref), "sha256": digest},
+                    "context": context,
+                    "identical": False,
+                    "files": _changes(
+                        {i.relative: i for i in pristine}, {i.relative: i for i in items}, context
+                    ),
+                }
         if expect_digest is not None and digest != expect_digest:
             raise RegistryError(
                 "DIGEST_MISMATCH",
@@ -551,6 +575,8 @@ def place(
     }
     if dry_run:
         result["files"] = [_file_view(item) for item in items]
+    if edit is not None:
+        result["diff"] = changed
     return result
 
 
@@ -617,6 +643,161 @@ def fork_version(
         search=search,
         project_dir=project_dir,
         source_ref=ref,
+    )
+
+
+BUMPS = ("patch", "minor", "major")
+
+
+def bumped(version: str, part: str) -> str:
+    """`version` with its `part` (patch, minor or major) raised and the lower parts zeroed."""
+    if not VERSION.fullmatch(version) or part not in BUMPS:
+        raise RegistryError("VERSION_INVALID", f"cannot bump {_shown(version)} by {_shown(part)}")
+    major, minor, patch = (int(n) for n in version.split("."))
+    raised = {
+        "patch": (major, minor, patch + 1),
+        "minor": (major, minor + 1, 0),
+        "major": (major + 1, 0, 0),
+    }[part]
+    result = ".".join(str(n) for n in raised)
+    if not VERSION.fullmatch(result):
+        raise RegistryError("VERSION_INVALID", f"{_shown(version)} cannot be bumped further")
+    return result
+
+
+def edit_path(text: str) -> str:
+    """A file path inside a version for `registry edit`: relative, POSIX, every part a safe
+    name, never the manifest (the edit rewrites only its `version:`) or an interpreter cache
+    (which a version never contains)."""
+    parts = text.split("/") if isinstance(text, str) else [""]
+    for part in parts:
+        _safe_name(part)
+    if text.casefold() == "manifest.yaml":  # macOS volumes ignore case
+        raise RegistryError(
+            "EDIT_INVALID",
+            "manifest.yaml is not edited: the edit rewrites only its `version:` line; to change "
+            "other fields, copy the version, edit it and `registry publish` it",
+        )
+    if "__pycache__" in parts or text.endswith((".pyc", ".pyo")):
+        raise RegistryError("EDIT_INVALID", f"{_shown(text)} is an interpreter cache file")
+    return text
+
+
+def _apply_edits(staged: Path, sets: list[tuple[str, bytes]], removes: list[str]) -> None:
+    """Write `sets` (path, new bytes) and delete `removes` in the private staged copy. A set
+    path's parents are created; a set keeps an existing file's executable bit (a new file is
+    not executable); a removed path must be a file."""
+    paths = [path for path, _ in sets] + list(removes)
+    if not paths:
+        raise RegistryError("EDIT_INVALID", "nothing to change: pass --set PATH FILE or --remove")
+    if len(set(paths)) != len(paths):
+        raise RegistryError("EDIT_INVALID", "each path may be set or removed only once")
+    for path in paths:
+        edit_path(path)
+    manifest = staged / "manifest.yaml"
+    for path in paths:
+        # Another spelling of the manifest on a case-insensitive or normalising file system.
+        target = staged / path
+        if target.exists() and not target.is_symlink() and target.samefile(manifest):
+            raise RegistryError("EDIT_INVALID", f"{_shown(path)} is manifest.yaml; not edited")
+    for path in removes:
+        target = staged / path
+        if target.is_symlink() or not target.is_file():
+            raise RegistryError("EDIT_INVALID", f"cannot remove {_shown(path)}: no such file")
+        target.unlink()
+        for parent in Path(path).parents[:-1]:  # directories the removal left empty
+            directory = staged / parent
+            if any(directory.iterdir()):
+                break
+            directory.rmdir()
+    for path, content in sets:
+        if len(content) > MAX_BYTES:
+            raise RegistryError("ENTRY_UNSAFE", "registry version is too large")
+        target = staged / path
+        for parent in reversed(Path(path).parents[:-1]):
+            directory = staged / parent
+            if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+                raise RegistryError(
+                    "EDIT_INVALID", f"cannot set {_shown(path)}: {_shown(parent)} is a file"
+                )
+            directory.mkdir(exist_ok=True)
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise RegistryError("EDIT_INVALID", f"cannot set {_shown(path)}: it is a directory")
+        mode = 0o755 if target.exists() and target.stat().st_mode & 0o111 else 0o644
+        target.write_bytes(content)
+        os.chmod(target, mode)
+
+
+def _check_kind(kind: str, staged: Path) -> None:
+    """Kind-specific checks an edit must pass before it is written: an eval set must still
+    load as `release` loads it."""
+    if kind != "eval":
+        return
+    from agentbreeder.evals import EvalError, load_eval_set  # evals imports this module
+
+    try:
+        load_eval_set(staged)
+    except OSError as error:  # never str(error): it names the private staging directory
+        raise RegistryError(
+            "EVAL_INVALID", f"the edited eval set does not load: {error.strerror or 'read error'}"
+        ) from None
+    except (EvalError, UnicodeDecodeError) as error:
+        message = str(error).removeprefix("[EVAL_INVALID] ").replace(str(staged), "<version>")
+        raise RegistryError(
+            "EVAL_INVALID", f"the edited eval set does not load: {message}"
+        ) from None
+
+
+def edit_version(
+    ref: Ref,
+    project_dir: Path,
+    *,
+    sets: list[tuple[str, bytes]] = (),
+    removes: list[str] = (),
+    bump: str = "patch",
+    version: str | None = None,
+    expect_digest: str | None = None,
+    dry_run: bool = False,
+    context: int = 3,
+) -> dict:
+    """`registry edit` (console §8.4): copy a project version into a private staging directory,
+    apply `sets` and `removes`, raise its version (`bump`, or exactly `version`) and publish it
+    into the project's `./registry` with `place`'s checks, atomically. The bumped version
+    already existing, or appearing meanwhile (another tab), is VERSION_EXISTS.
+
+    Only project versions are edited: a built-in or AGENTBREEDER_REGISTRY_PATH version is forked
+    first (`registry fork`). `--dry-run` returns the digest a later call passes as
+    `expect_digest` (S-04), and both return `diff` from REF to the new version."""
+    search = roots(project_dir)
+    hit = resolve(ref, search)
+    root = project_dir / "registry"
+    if hit.root.resolve() != root.resolve():
+        raise RegistryError(
+            "EDIT_NOT_PROJECT",
+            f"{ref} is in {_shown(hit.root)} ({root_kind(hit.root, project_dir)}), not the "
+            "project registry; fork it first: registry fork "
+            f"{ref} --version {bumped(ref.version, 'patch')}",
+        )
+    new_version = version if version is not None else bumped(ref.version, bump)
+    if not VERSION.fullmatch(new_version):
+        raise RegistryError("VERSION_INVALID", f"{_shown(new_version)} is not X.Y.Z")
+    if new_version == ref.version:
+        raise RegistryError("VERSION_EXISTS", f"{ref} is published; edit it as a new version")
+    if tuple(map(int, new_version.split("."))) < tuple(map(int, ref.version.split("."))):
+        raise RegistryError(
+            "VERSION_INVALID", f"an edit raises the version: {new_version} is below {ref.version}"
+        )
+    return place(
+        hit.path,
+        root,
+        version=new_version,
+        expect_digest=expect_digest,
+        dry_run=dry_run,
+        search=search,
+        project_dir=project_dir,
+        source_ref=ref,
+        edit=lambda staged: _apply_edits(staged, list(sets), list(removes)),
+        context=context,
     )
 
 
@@ -794,9 +975,30 @@ def root_kind(root: Path, project_dir: Path | None = None) -> str:
     AgentBreeder) or `path` (an AGENTBREEDER_REGISTRY_PATH entry)."""
     if root.resolve() == BUILTIN_ROOT.resolve():
         return "builtin"
-    if project_dir is not None and root == project_dir / "registry":
+    if project_dir is not None and (
+        root == project_dir / "registry" or root.resolve() == (project_dir / "registry").resolve()
+    ):
         return "project"
     return "path"
+
+
+PROJECT_MARKERS = ("agent.yaml", "stack.yaml")
+
+
+def publish_project(root: Path) -> Path | None:
+    """The project a `registry publish --to ROOT` writes into (#898): the directory DIR when
+    ROOT resolves to `DIR/registry` and DIR holds `agent.yaml` or `stack.yaml`, else None.
+    It only decides `root_kind` in publish's output; the write itself is unchanged."""
+    try:
+        resolved = root.resolve()
+        if resolved.name != "registry":
+            return None
+        project = resolved.parent
+        if any((project / marker).is_file() for marker in PROJECT_MARKERS):
+            return project
+    except (OSError, RuntimeError):  # a symlink loop or an unreadable parent: not decidable
+        pass  # place() reports a broken root itself
+    return None
 
 
 @dataclass
@@ -1293,6 +1495,17 @@ def diff(first: Ref, second: Ref, search: list[Path], context: int = 3, project_
         }
         sides.append((summary, items))
     (before_summary, before), (after_summary, after) = sides
+    return {
+        "from": before_summary,
+        "to": after_summary,
+        "context": context,
+        "identical": before_summary["sha256"] == after_summary["sha256"],
+        "files": _changes(before, after, context),
+    }
+
+
+def _changes(before: dict[str, _File], after: dict[str, _File], context: int) -> list[dict]:
+    """The changed entries from `before` to `after` (relative path -> entry), in path order."""
     budget = _Budget()  # one budget for every file of this diff
     files = []
     removed_dirs = _only_dirs(before, {k for k in before if k not in after})
@@ -1318,13 +1531,7 @@ def diff(first: Ref, second: Ref, search: list[Path], context: int = 3, project_
         ):
             continue
         files.append(_file_change(path, old, new, context, budget))
-    return {
-        "from": before_summary,
-        "to": after_summary,
-        "context": context,
-        "identical": before_summary["sha256"] == after_summary["sha256"],
-        "files": files,
-    }
+    return files
 
 
 def _unified_range(start: int, count: int) -> str:

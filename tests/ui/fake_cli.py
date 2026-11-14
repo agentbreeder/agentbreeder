@@ -61,6 +61,11 @@ DEFAULT = {
     "used_by_deployed": [],
     # `registry verify`: the problem rows ({ref, path, error}); it exits 2 when there are any.
     "registry_problems": [],
+    # `services logs DIR NAME` / `logs ID`, by NAME or ID: {"lines", "levels", "format",
+    # "truncated", "pod_reason"} replaces the generated answer; {"error": {code, message}} fails
+    # it. Without an entry, `generated_lines` lines are made (every 100th an ERROR).
+    "logs": {},
+    "generated_lines": 5000,
 }
 
 
@@ -114,6 +119,41 @@ def used_by(argv: list[str], data: dict) -> int:
     return 0
 
 
+def logs(argv: list[str], data: dict) -> int:
+    service = argv[:2] == ["services", "logs"]
+    name = argv[3] if service else argv[1]
+    tail = int(argv[argv.index("--tail") + 1])
+    answer = data["logs"].get(name, {})
+    if "error" in answer:
+        problem = answer["error"]
+        print(json.dumps({"schema_version": 1, "error": problem}))
+        print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+        return 2
+    if "lines" not in answer:
+        count = min(tail, data["generated_lines"])
+        lines, levels = [], []
+        for n in range(1, count + 1):
+            word = "ERROR" if n % 100 == 0 else "WARNING" if n % 50 == 0 else "INFO"
+            lines.append(f"2026-11-13T10:00:00Z {word}: request {n} handled")
+            levels.append(word.lower())
+        answer = {"lines": lines, "levels": levels, "format": "python", **answer}
+    body = {"schema_version": 1, "target": "local", "format": None, "level": None}
+    body |= {"truncated": False}
+    if service:
+        body |= {"source": "service", "name": name}
+    else:
+        body |= {
+            "source": "agent",
+            "deployment": name,
+            "name": "demo",
+            "previous": "--previous" in argv,
+        }
+        body |= {"pod_reason": None}
+    body |= answer
+    print(json.dumps(body))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     data = scenario()
     head = argv[:2]
@@ -123,6 +163,8 @@ def main(argv: list[str]) -> int:
         print(json.dumps({"services": data["services"]}))
     elif head == ["services", "env"]:
         print("export AGENTBREEDER_STATE_DIR=/nonexistent/fake-state")
+    elif head == ["services", "logs"] or (argv and argv[0] == "logs"):
+        return logs(argv, data)
     elif head == ["services", "up"]:
         return job("services-up", data)
     elif head == ["services", "down"]:

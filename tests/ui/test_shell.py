@@ -469,6 +469,8 @@ ROUTES = [
     "/services",
     "/release",
     "/deployments",
+    "/logs",
+    "/logs/service/litellm",
     "/targets/kubernetes",
     "/audit",
     "/registry/services",
