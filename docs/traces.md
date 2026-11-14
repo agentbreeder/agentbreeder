@@ -75,7 +75,8 @@ for errors).
 
 ## `--json` (schema_version 1)
 
-The console's Try it uses `traces --trace TRACE_ID --stack DIR --environment ENV --json`.
+The console's Try it uses `traces --trace TRACE_ID --stack DIR --environment ENV --json` for a
+turn's **Trace spans** panel (see [command-center.md](command-center.md)).
 
 ```json
 {

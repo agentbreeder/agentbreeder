@@ -115,9 +115,11 @@ LOG_TIMEOUT = 60  # one `docker logs` or `kubectl logs`, after the CLI's own che
 # Try it (#823, M7): turns in flight across the console. Each holds a child for up to
 # `tryit.TIMEOUT`; the screen sends one at a time per tab.
 MAX_TURNS_IN_FLIGHT = 4
+MAX_TRACES_IN_FLIGHT = 4  # Try it trace reads (#907), each a `traces` child of up to 120 s
 AUDIT_PAGE = 50  # rows per Audit page; one more is read to know whether an older page exists
 AUDIT_BEFORE = re.compile(r"[1-9][0-9]{0,17}")  # `audit list --before SEQ`
 AGENT = r"(?P<agent>[a-z0-9][a-z0-9-]{0,52})"
+TRACE = r"(?P<trace>[0-9a-f]{32})"  # a Try it turn's trace (#907)
 
 
 def center_directory() -> Path:
@@ -161,6 +163,7 @@ class Center:
         self.sessions: dict[bytes, list[float]] = {}
         self.lock = threading.Lock()
         self.turns = threading.BoundedSemaphore(MAX_TURNS_IN_FLIGHT)
+        self.traces = threading.BoundedSemaphore(MAX_TRACES_IN_FLIGHT)
 
     @property
     def origin(self) -> str:
@@ -491,6 +494,31 @@ class Center:
         turn, problem = tryit.turn_answer(result["data"], latency)
         return envelope(turn, problem)
 
+    def turn_trace(self, project: dict, trace_id: str) -> dict:
+        """A Try it turn's trace (#907): `traces --trace ID ... --json` as an uncached, tracked
+        read (Phoenix may not have the trace yet, so an answer is never kept). Its answer is
+        checked by `tryit.trace_answer`; no message content is in it."""
+        argv = tryit.trace_argv(project, trace_id)
+        if not self.traces.acquire(blocking=False):
+            raise BadRequest(
+                f"{MAX_TRACES_IN_FLIGHT} trace reads are already running; try again when one ends",
+                "TRACE_BUSY",
+            )
+        try:
+            result = self.runner.read(
+                argv,
+                timeout=tryit.TRACE_TIMEOUT,
+                ok_codes=(0, 2),  # traces prints its JSON error object and exits 2
+                cache=False,
+                track=True,
+            )
+        finally:
+            self.traces.release()
+        if result["data"] is None:
+            return result
+        trace, problem = tryit.trace_answer(result["data"], trace_id)
+        return envelope(trace, problem)
+
     def plan(self, project: dict) -> dict:
         result = self.runner.read(
             [
@@ -716,6 +744,10 @@ def _try_turn(request: Request) -> dict:
     return request.center.try_turn(request.project(), request.match["agent"], request.body)
 
 
+def _turn_trace(request: Request) -> dict:
+    return request.center.turn_trace(request.project(), request.match["trace"])
+
+
 def _job(request: Request) -> dict:
     after = request.query.get("after", ["0"])[0]
     job = request.center.state.job(
@@ -813,6 +845,12 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/logs/deployment/{DEPLOYMENT}",
         _deployment_logs,
         "/api/projects/0123456789ab/logs/deployment/" + "0" * 32,
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/traces/{TRACE}",
+        _turn_trace,
+        "/api/projects/0123456789ab/traces/" + "0" * 32,
     ),
     Route("GET", rf"/api/jobs/{JOB_ID}", _job, "/api/jobs/" + "0" * 32, poll=True),
     Route("POST", r"/api/session", _session, "/api/session", session=False),

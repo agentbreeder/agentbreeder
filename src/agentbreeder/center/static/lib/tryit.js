@@ -146,3 +146,105 @@ export function costText(usd) {
 export function namesText(names) {
   return Array.isArray(names) && names.length ? names.join(", ") : "none";
 }
+
+// -- a turn's trace (#907) ------------------------------------------------------------------------
+
+const TRACE_ID = /^[0-9a-f]{32}$/;
+
+/** The read path of a turn's trace, or null when the turn has no usable trace id. */
+export function tracePath(projectId, traceId) {
+  return typeof traceId === "string" && TRACE_ID.test(traceId) ? `/api/projects/${projectId}/traces/${traceId}` : null;
+}
+
+/**
+ * The span tree from `traces`' flat list (in start order): `[{span, children}]`. A span whose
+ * parent is not in the list is a root; a parent link that would form a cycle is ignored, so every
+ * span appears exactly once.
+ */
+export function spanTree(spans) {
+  const list = Array.isArray(spans) ? spans.filter((span) => span && typeof span.span_id === "string") : [];
+  const nodes = new Map();
+  for (const span of list) if (!nodes.has(span.span_id)) nodes.set(span.span_id, { span, children: [] });
+  const roots = [];
+  for (const node of nodes.values()) {
+    const parent = node.span.parent_id;
+    // Walk up from the parent: reaching this node again means a cycle.
+    let cycle = false;
+    for (let at = parent, steps = 0; at && nodes.has(at) && steps <= nodes.size; steps += 1) {
+      if (at === node.span.span_id) {
+        cycle = true;
+        break;
+      }
+      at = nodes.get(at).span.parent_id;
+    }
+    if (parent && nodes.has(parent) && !cycle) nodes.get(parent).children.push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
+/** Nesting stops at this depth: deeper spans are listed, in order, under the span at it. */
+export const MAX_SPAN_DEPTH = 8;
+
+/** Every span under `node`, depth first, as nodes with no children (iterative: no deep recursion). */
+export function descendants(node) {
+  const out = [];
+  const stack = [...node.children].reverse();
+  while (stack.length) {
+    const next = stack.pop();
+    out.push({ span: next.span, children: [] });
+    for (let i = next.children.length - 1; i >= 0; i -= 1) stack.push(next.children[i]);
+  }
+  return out;
+}
+
+/** A span's tokens in words ("321 in, 70 out"), or null when it reported none. */
+export function spanTokensText(tokens) {
+  const prompt = count(tokens && tokens.prompt);
+  const completion = count(tokens && tokens.completion);
+  if (prompt === null && completion === null) return null;
+  return `${prompt ?? "?"} in, ${completion ?? "?"} out`;
+}
+
+/** One span's facts after its name: kind, status, latency, model, tool and tokens. */
+export function spanFacts(span) {
+  const parts = [typeof span.kind === "string" ? span.kind.toLowerCase() : "unknown"];
+  if (span.status === "error") parts.push("error");
+  if (Number.isFinite(span.latency_ms)) parts.push(latencyText(span.latency_ms));
+  if (typeof span.model === "string" && span.model) parts.push(`model ${span.model}`);
+  if (typeof span.tool === "string" && span.tool && span.tool !== span.name) parts.push(`tool ${span.tool}`);
+  const tokens = spanTokensText(span.tokens);
+  if (tokens) parts.push(`${tokens} tokens`);
+  return parts.join(" · ");
+}
+
+/** The trace in one line: status, latency, spans, models, tokens and tool calls. */
+export function traceSummary(trace) {
+  const spans = Array.isArray(trace.spans) ? trace.spans.length : 0;
+  const parts = [trace.status === "error" ? "Error" : trace.status === "ok" ? "OK" : "Status unknown"];
+  if (Number.isFinite(trace.latency_ms)) parts.push(latencyText(trace.latency_ms));
+  parts.push(`${spans} span${spans === 1 ? "" : "s"}${trace.truncated ? " (Phoenix had more; the rest are not shown)" : ""}`);
+  const models = Array.isArray(trace.models) ? trace.models.filter((m) => typeof m === "string") : [];
+  if (models.length) parts.push(`model${models.length === 1 ? "" : "s"} ${models.join(", ")}`);
+  const total = count(trace.tokens && trace.tokens.total);
+  if (total !== null) parts.push(`${total} tokens`);
+  const tools = Array.isArray(trace.tool_calls) ? trace.tool_calls.length : 0;
+  parts.push(`${tools} tool call${tools === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+/** Which deployment the trace was attributed to, in words. */
+export function attributionText(trace) {
+  if (trace.attribution === "exact") return "Recorded by the agent's runtime for this deployment.";
+  if (trace.attribution === "window") return "Matched by time: this runtime does not record its deployment on its traces.";
+  return "Not attributed to a deployment.";
+}
+
+/** A failed trace read, in words; a trace Phoenix does not have yet says to try again. */
+export function traceProblemText(problem) {
+  const code = (problem && problem.code) || "TRACE_FAILED";
+  const message = (problem && problem.message) || "The trace could not be read";
+  if (code === "TRACES_NOT_FOUND") return `Phoenix does not have this trace yet; it can take a few seconds to arrive. [${code}]`;
+  if (code === "TRACES_NO_PHOENIX") return `This stack does not run Phoenix (service/phoenix), so there are no traces. [${code}]`;
+  return `${message} [${code}]`;
+}
