@@ -339,6 +339,9 @@ reloads it without restarting. The first pin trusts what the upstream serves at 
 and asks before accepting it, and `--locked` refuses either change (`LOCK_STALE`). A changed
 version, origin, upstream or token endpoint also needs consent again, and its pins are redone.
 
+`agentbreeder mcp grant|revoke AGENT SERVER TOOL…` edits an agent's grant in `stack.yaml` for
+you; see [`mcp`](commands/mcp.md) (on `main`, not in a published preview).
+
 `up` refuses to drop an `mcp:` entry, or narrow a grant, while an active deployment uses it
 (`MCP_GRANT_IN_USE`). Grant files live in `~/.agentbreeder/stacks/<id>/grants/<env>/<server>/`.
 A changed imported credential recreates the relay; open sessions then get 404 and initialize
