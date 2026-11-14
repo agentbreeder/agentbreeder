@@ -5,6 +5,7 @@ fixtures in fixtures/guide, which pass `guide.Guide`)."""
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -83,15 +84,23 @@ def test_the_checklist_matches_next_json_at_every_step(page, console, name):
         expect(pill).to_have_text("All steps done")
 
 
-def test_a_stale_lock_shows_the_cli_instruction_instead_of_a_button(page, console):
-    console.scenario(guide="lock-stale")
+def test_a_stale_lock_builds_and_updates_the_lock_from_the_checklist(page, console):
+    """LOCK_STALE has no `fix.action` (the guide assumes a --locked build); the console offers
+    its build job with `lock: "update"` (a plain build that rewrites agent.lock), keeps the
+    command to copy and hides the guide's "run it in a terminal" note."""
+    console.scenario(guide="lock-stale", job_seconds=1)
     sign_in(page, console)
     page.goto(f"{console.origin}/#/")
     build = checklist(page).locator("[aria-current='step']")
-    expect(build).to_contain_text("Run this in a terminal:")
+    expect(build).to_contain_text("Or in a terminal:")
     expect(build.locator("pre")).to_contain_text("agentbreeder build")
-    expect(build.get_by_role("button", name="Build", exact=True)).to_have_count(0)
     expect(build.get_by_role("button", name="Copy Build command")).to_be_visible()
+    expect(build).not_to_contain_text("the console's build job builds --locked")
+    expect(build.get_by_role("button", name="Build", exact=True)).to_have_count(0)
+    with page.expect_request(lambda r: r.method == "POST" and r.url.endswith("/jobs")) as sent:
+        build.get_by_role("button", name="Build and update agent.lock").click()
+    assert sent.value.post_data_json == {"kind": "build", "options": {"lock": "update"}}
+    expect(page.get_by_role("complementary", name="Jobs")).to_be_visible()
 
 
 def test_a_step_button_opens_its_screen_never_runs_the_command(page, console):
@@ -197,3 +206,13 @@ def test_the_empty_home_has_no_serious_axe_findings(scheme_page, console):  # no
     sign_in(scheme_page, console, project=False)
     scheme_page.get_by_role("button", name="Create starter").wait_for()
     assert blocking(scheme_page, "home, empty") == []
+
+
+def test_a_busy_stack_says_so_in_the_grant_review_and_shows_no_grant(page, console):
+    """`services plan` fails with SERVICES_BUSY while another services write runs on the stack
+    (#822 S-11): the review says another operation is running, never shows a grant."""
+    console.scenario(plan_busy=True)
+    sign_in(page, console)
+    page.get_by_role("button", name=re.compile(r"^Review (what will run|and update)$")).click()
+    expect(page.get_by_text("Another operation is running on this stack")).to_be_visible()
+    expect(page.get_by_role("button", name="Confirm and start")).to_have_count(0)

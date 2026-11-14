@@ -52,10 +52,11 @@ test("a blocked step is named as blocked", () => {
   assert.equal(resultText(guide), "Blocked at: Services. Compose is missing.");
 });
 
-test("a stale lock has no button: the CLI instruction is shown instead", () => {
+test("a stale lock builds with the lock updated; the CLI command stays to copy", () => {
   const build = fixture("lock-stale").steps.find((step) => step.id === "build");
   assert.equal(build.reason.code, "LOCK_STALE");
-  assert.equal(actionFor(build), null);
+  assert.equal(build.fix.action, null);
+  assert.deepEqual(actionFor(build).options, { lock: "update" });
   assert.ok(build.fix.command.includes("build"));
 });
 
@@ -78,4 +79,16 @@ test("Try it opens the guide's own agent, checked against the agent name rule", 
   for (const agent of ["../x", "Hello", "x-candidate", "a/b", "", 7, null]) assert.equal(tryRoute(withAgent(agent)), null, String(agent));
   assert.equal(tryRoute(null), null);
   assert.equal(tryRoute({ steps: [{ id: "project", data: null }] }), null);
+});
+
+test("a LOCK_STALE build step builds and updates agent.lock (#826 follow-up)", () => {
+  const stale = { id: "build", state: "next", reason: { code: "LOCK_STALE", message: "x" }, fix: { action: null, command: "agentbreeder build hello", note: "Run it from the CLI" } };
+  assert.deepEqual(actionFor(stale), { label: "Build and update agent.lock", job: "build", options: { lock: "update" }, hideNote: true });
+  // Only the build step, only LOCK_STALE, only with a fix: anything else keeps no console action.
+  assert.equal(actionFor({ ...stale, id: "release" }), null);
+  assert.equal(actionFor({ ...stale, reason: { code: "REF_UNPINNED" } }), null);
+  assert.equal(actionFor({ ...stale, fix: null }), null);
+  // A fix action named by the guide wins (a future `next` may name its own).
+  assert.deepEqual(actionFor({ ...stale, fix: { action: "build" } }), { label: "Build", job: "build" });
+  assert.equal(actionFor({ ...stale, fix: { action: "rm" } }), null);
 });
