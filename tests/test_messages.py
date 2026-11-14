@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import unicodedata
@@ -331,7 +332,21 @@ def _spans(*spans: tuple[int, int]) -> set[int]:
 # pattern source (for example, writing `_BIDI` as escapes rather than literal characters) is
 # checked over every code point and cannot widen or narrow it.
 _BIDI_CPS = _spans((0x061C, 0x061C), (0x200E, 0x200F), (0x202A, 0x202E), (0x2066, 0x2069))
-_UNSAFE_CPS = _spans((0x00, 0x1F), (0x7F, 0x9F), (0x2028, 0x2029), (0xD800, 0xDFFF)) | _BIDI_CPS
+# Invisible format characters (#901). U+200C/U+200D (ZWNJ, ZWJ) are deliberately not here.
+_FORMAT_CPS = _spans(
+    (0x00AD, 0x00AD),
+    (0x180E, 0x180E),
+    (0x200B, 0x200B),
+    (0x2060, 0x2064),
+    (0x206A, 0x206F),
+    (0xFEFF, 0xFEFF),
+    (0xE0000, 0xE007F),
+)
+_UNSAFE_CPS = (
+    _spans((0x00, 0x1F), (0x7F, 0x9F), (0x2028, 0x2029), (0xD800, 0xDFFF))
+    | _BIDI_CPS
+    | _FORMAT_CPS
+)
 
 
 def test_safe_text_patterns_match_exactly_the_documented_union():
@@ -356,6 +371,62 @@ def test_safe_text_renders_each_unsafe_code_point():
         if cp in (0x09, 0x0A):
             assert visible(f"a{char}b") == f"a{char}b"
         else:
-            escape = f"\\x{cp:02x}" if cp < 0x100 else f"\\u{cp:04x}"
+            if cp < 0x100:
+                escape = f"\\x{cp:02x}"
+            elif cp < 0x10000:
+                escape = f"\\u{cp:04x}"
+            else:
+                escape = f"\\U{cp:08x}"
             assert visible(f"a{char}b") == f"a{escape}b", hex(cp)
         assert excerpt(f"a{char}b", 10) == "a b", hex(cp)
+
+
+@pytest.mark.parametrize(
+    ("text", "shown"),
+    [
+        ("a\u200bb", "a\\u200bb"),  # zero-width space
+        ("a\u2060\u2064b", "a\\u2060\\u2064b"),  # word joiner .. invisible plus
+        ("a\u206a\u206fb", "a\\u206a\\u206fb"),  # deprecated format controls
+        ("\ufeffa", "\\ufeffa"),  # BOM
+        ("co\u00adop", "co\\xadop"),  # soft hyphen
+        ("a\u180eb", "a\\u180eb"),  # Mongolian vowel separator
+        # Tag characters spelling "hi" after a visible word: the smuggled ASCII is now visible.
+        ("ok\U000e0068\U000e0069\U000e007f", "ok\\U000e0068\\U000e0069\\U000e007f"),
+    ],
+)
+def test_visible_escapes_invisible_format_characters(text, shown):
+    """#901: each listed range is escaped, in `visible` and replaced in `excerpt`."""
+    assert visible(text) == shown
+    assert "\\" not in excerpt(text, 40) and excerpt(text, 40).isprintable()
+
+
+def test_visible_keeps_zero_width_joiners_and_the_unlisted_grapheme_joiner():
+    # ZWJ and ZWNJ hold emoji sequences and Persian/Indic words together; U+034F and the
+    # unassigned U+2065 are not in the console's set either.
+    for text in (
+        "\U0001f469\u200d\U0001f4bb",
+        "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645",
+        "a\u034fb",
+        "a\u2065b",
+    ):
+        assert visible(text) == text and excerpt(text, 20) == text
+
+
+def _console_unsafe_format_set() -> set[int]:
+    """The bidi and format code points `center/static/lib/text.js` escapes."""
+    source = (
+        Path(__file__).resolve().parents[1] / "src/agentbreeder/center/static/lib/text.js"
+    ).read_text(encoding="utf-8")
+    single = re.search(r"const FORMAT = new Set\(\[([^\]]*)\]\)", source)
+    ranges = re.search(r"const FORMAT_RANGES = \[(.*?)\n\];", source, re.S)
+    assert single and ranges, "text.js no longer declares FORMAT / FORMAT_RANGES"
+    points = {int(h, 16) for h in re.findall(r"0x([0-9a-fA-F]+)", single.group(1))}
+    for low, high in re.findall(r"\[0x([0-9a-fA-F]+),\s*0x([0-9a-fA-F]+)\]", ranges.group(1)):
+        points |= set(range(int(low, 16), int(high, 16) + 1))
+    return points
+
+
+def test_safe_text_bidi_and_format_set_equals_the_consoles():
+    """The CLI and the console escape the same invisible characters, so they cannot drift."""
+    console = _console_unsafe_format_set()
+    assert console == _BIDI_CPS | _FORMAT_CPS | {0x2028, 0x2029}
