@@ -387,7 +387,7 @@ def _file_note(entry: dict) -> str:
     elif entry["truncated"]:
         notes.append(f"first {registry.SHOW_FILE_LIMIT // 1024} KiB shown")
     if entry["stripped"]:
-        notes.append("control or bidi characters removed")
+        notes.append("control, bidi or invisible characters removed")
     return f"  ({', '.join(notes)})" if notes else ""
 
 

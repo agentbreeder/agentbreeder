@@ -328,7 +328,7 @@ def test_cli_show_notes(project, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "run.sh  8 B  (executable)" in out
     assert "blob  1 B  (binary, not shown)" in out
-    assert "n.md  2 B  (control or bidi characters removed)" in out
+    assert "n.md  2 B  (control, bidi or invisible characters removed)" in out
 
 
 def test_show_paths_are_absolute(project, monkeypatch):

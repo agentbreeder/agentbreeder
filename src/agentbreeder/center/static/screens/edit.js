@@ -1,6 +1,8 @@
-// Prompt editing and "Move agent to this version" (#826, M10), mounted from the registry detail.
+// Prompt and eval-set editing and "Move agent to this version" (#826, M10), mounted from the
+// registry detail. Each kind's spec (lib/edit.js EDIT_KINDS) names its files, its body (the mono
+// textarea, or the eval case editor in screens/cases.js) and its confirm tier.
 //
-// Edit: change a file of a project version in a mono textarea → Review (Cmd/Ctrl+S) → the server
+// Edit: change a file of a project version → Review (Cmd/Ctrl+S) → the server
 // runs `registry edit … --dry-run` with the text on stdin and shows the diff → "Save as X.Y.Z"
 // sends the same text with the reviewed digest, so what is written is what was reviewed (S-04). A
 // version that appears meanwhile (another tab) is VERSION_EXISTS: pick another and review again.
@@ -9,11 +11,13 @@
 // digest), then "Build and update agent.lock" (a plain build: `release` and Build only use
 // --locked and refuse a lock without the new ref), then release from Build and release.
 
-import { EDITABLE_KINDS, BUMPS, agentUses, editProblem, editableFiles, gutterLines, isSaveShortcut, movableFrom, needsNewReview, notEditableReason, saveVersion } from "../lib/edit.js";
+import { caseAtLine, caseProblems, parseCases } from "../lib/cases.js";
+import { EDITABLE_KINDS, BUMPS, agentUses, editKind, editProblem, editableFiles, gutterLines, isSaveShortcut, movableFrom, needsNewReview, notEditableReason, saveVersion } from "../lib/edit.js";
 import { diffStats } from "../lib/registry.js";
 import { href } from "../lib/router.js";
 import { Action, Actions, Card, Notice, Text, useConfirm, useConsole } from "../ui/components.js";
 import { html, useEffect, useRef, useState } from "../ui/preact.js";
+import { CasesBody } from "./cases.js";
 
 /** POST that returns {data, problem}: a 4xx (the server's own check) and a CLI refusal alike. */
 async function send(client, path, body) {
@@ -62,13 +66,26 @@ export function Editor({ project, kind, entry, version, show, FileDiff, onSaved,
       <${Text} block copy value=${`agentbreeder registry fork ${version.ref}`} label="fork command" />
     <//>`;
   }
-  return html`<${EditorBody} key=${version.ref} project=${project} entry=${entry} version=${version} show=${show} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onRefresh} />`;
+  return html`<${EditorBody} key=${version.ref} project=${project} kind=${kind} entry=${entry} version=${version} show=${show} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onRefresh} />`;
 }
 
-function EditorBody({ project, entry, version, show, FileDiff, onSaved, onRefresh }) {
+/** The mono textarea with its line gutter (the "text" body). */
+function TextBody({ path, text, onText, onKey }) {
+  const gutter = useRef(null);
+  return html`<div class="editor">
+    <pre class="gutter" ref=${gutter} aria-hidden="true">${gutterLines(text)}</pre>
+    <textarea id="edit-text" aria-label=${`Text of ${path}`} spellcheck="false" wrap="off" value=${text}
+      onInput=${(event) => onText(event.currentTarget.value)}
+      onScroll=${(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; }}
+      onKeyDown=${onKey}></textarea>
+  </div>`;
+}
+
+function EditorBody({ project, kind, entry, version, show, FileDiff, onSaved, onRefresh }) {
   const { client } = useConsole();
-  const files = editableFiles(show);
-  const others = (show.files || []).map((file) => [file, notEditableReason(file)]).filter(([, why]) => why);
+  const spec = editKind(kind);
+  const files = editableFiles(show, kind);
+  const others = (show.files || []).map((file) => [file, notEditableReason(file, kind, show)]).filter(([, why]) => why);
   const [path, setPath] = useState(files.length ? files[0].path : null);
   const original = (files.find((file) => file.path === path) || {}).text ?? "";
   const [text, setText] = useState(original);
@@ -76,9 +93,17 @@ function EditorBody({ project, entry, version, show, FileDiff, onSaved, onRefres
   const [review, setReview] = useState(null); // {data, text, version, path}
   const [busy, setBusy] = useState(null); // "review" | "save"
   const [notice, setNotice] = useState(null);
+  const [invalid, setInvalid] = useState(null); // the CLI's EVAL_INVALID at its case: {index, message}
+  const [confirmed, setConfirmed] = useState(false); // the code confirm (spec.confirm === "code")
+  const [reset, setReset] = useState(0); // re-made case forms after Discard or another file
   const [dialog, confirm] = useConfirm();
-  const gutter = useRef(null);
   const dirty = text !== original;
+  const cases = spec.body === "cases" ? parseCases(text) : null; // parsed once per render
+  const change = (next) => {
+    setText(next);
+    setInvalid(null); // the CLI's finding was about the text it loaded
+  };
+  const casesToFix = cases && !cases.error ? caseProblems(cases.entries).count : 0;
   useLeaveGuard(dirty);
   const existing = entry.versions.map((v) => v.version);
   const target = saveVersion(version.version, part, existing);
@@ -91,17 +116,31 @@ function EditorBody({ project, entry, version, show, FileDiff, onSaved, onRefres
     setText((files.find((file) => file.path === next) || {}).text ?? "");
     setReview(null);
     setNotice(null);
+    setInvalid(null);
+    setReset((n) => n + 1);
+  };
+  const discard = () => {
+    setText(original);
+    setReview(null);
+    setInvalid(null);
+    setReset((n) => n + 1);
   };
   const ask = async () => {
-    if (busy || !dirty || !target) return; // Cmd/Ctrl+S does nothing while a request is in flight
+    if (busy || !dirty || !target || casesToFix) return; // Cmd/Ctrl+S does nothing while a request is in flight
     setBusy("review");
     setNotice(null);
+    setInvalid(null);
+    setConfirmed(false);
     const body = { ref: version.ref, path, text, version: target };
     const { data, problem } = await send(client, `/api/projects/${project.id}/registry/edit`, body);
     setBusy(null);
     if (problem) {
       setReview(null);
       if (problem.code === "VERSION_EXISTS") onRefresh();
+      if (problem.code === "EVAL_INVALID" && cases && !cases.error) {
+        const index = caseAtLine(cases.entries, problem.message, path);
+        if (index !== null) setInvalid({ index, message: editProblem(problem).text });
+      }
       setNotice({ tone: "error", text: editProblem(problem).text });
       return;
     }
@@ -112,6 +151,7 @@ function EditorBody({ project, entry, version, show, FileDiff, onSaved, onRefres
     setBusy("save");
     setNotice(null);
     const body = { ref: version.ref, path, text: review.text, version: review.version, digest: review.data.sha256 };
+    if (spec.confirm === "code") body.code_confirmed = confirmed;
     const { data, problem } = await send(client, `/api/projects/${project.id}/registry/edit`, body);
     setBusy(null);
     if (problem) {
@@ -133,7 +173,7 @@ function EditorBody({ project, entry, version, show, FileDiff, onSaved, onRefres
 
   return html`<${Card} title=${`Edit ${version.version}`}>
     ${dialog}
-    <p class="muted small">Saving publishes a new version; <code>${version.version}</code> never changes. A prompt steers the agent: review the change, and it takes effect only after the agent is moved to the new version and a release passes the eval gate.</p>
+    <p class="muted small">Saving publishes a new version; <code>${version.version}</code> never changes. ${spec.note}</p>
     ${files.length
       ? html`
         <div class="row edit-bar">
@@ -150,26 +190,30 @@ function EditorBody({ project, entry, version, show, FileDiff, onSaved, onRefres
           <span class="muted small" role="status">${dirty ? "Unsaved changes" : "No changes"}</span>
         </div>
         ${original.includes("\r") ? html`<p class="notice warn">This file has carriage returns (CRLF line endings). The browser edits it with LF endings, so a save changes every such line; use <code>agentbreeder registry edit</code> in a terminal to keep them.</p>` : null}
-        <div class="editor">
-          <pre class="gutter" ref=${gutter} aria-hidden="true">${gutterLines(text)}</pre>
-          <textarea id="edit-text" aria-label=${`Text of ${path}`} spellcheck="false" wrap="off" value=${text}
-            onInput=${(event) => setText(event.currentTarget.value)}
-            onScroll=${(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; }}
-            onKeyDown=${onKey}></textarea>
-        </div>
+        ${spec.body === "cases"
+          ? html`<${CasesBody} key=${`${path} ${reset}`} parsed=${cases} original=${original} onText=${change} invalid=${invalid}
+              fallback=${html`<${TextBody} path=${path} text=${text} onText=${setText} onKey=${onKey} />`} />`
+          : html`<${TextBody} path=${path} text=${text} onText=${setText} onKey=${onKey} />`}
         <${Notice} notice=${notice} onDismiss=${() => setNotice(null)} />
         <${Actions}>
-          <${Action} onClick=${ask} disabled=${busy ? "Waiting for the console." : !dirty ? "Change the text first." : false}>${busy === "review" ? "Reviewing…" : "Review changes"}<//>
-          <${Action} tone="secondary" onClick=${async () => { if (await confirm({ title: "Discard your changes?", text: `Your changes to ${path} are not saved.`, confirm: "Discard" })) { setText(original); setReview(null); } }} disabled=${!dirty || busy ? "Nothing to discard." : false}>Discard<//>
+          <${Action} onClick=${ask} disabled=${busy ? "Waiting for the console." : !dirty ? "Change the text first." : casesToFix ? "Fix the cases marked with ! first." : false}>${busy === "review" ? "Reviewing…" : "Review changes"}<//>
+          <${Action} tone="secondary" onClick=${async () => { if (await confirm({ title: "Discard your changes?", text: `Your changes to ${path} are not saved.`, confirm: "Discard" })) discard(); }} disabled=${!dirty || busy ? "Nothing to discard." : false}>Discard<//>
         <//>
-        <p class="muted small">Cmd+S or Ctrl+S in the text opens the review.</p>
+        ${spec.body === "text" || (cases && cases.error) ? html`<p class="muted small">Cmd+S or Ctrl+S in the text opens the review.</p>` : null}
         ${current
           ? html`<section class="edit-review" aria-label="Review">
               <h3>Review: ${version.version} → ${review.version}</h3>
               <p role="status"><${Text} value=${`${review.data.diff.files.length} ${review.data.diff.files.length === 1 ? "file" : "files"} changed, ${stats.added} lines added, ${stats.removed} removed (the manifest's version line too).`} /></p>
               ${review.data.diff.files.map((file, index) => html`<${FileDiff} key=${`${file.path} ${index}`} file=${file} />`)}
+              ${spec.confirm === "code"
+                ? html`<fieldset class="code-confirm">
+                    <legend>This code runs in agents</legend>
+                    <p>Building and releasing an agent that uses the new version runs this code as you, with the stack's model key and database. The eval gate is a quality gate, not a security review.</p>
+                    <label class="check"><input type="checkbox" checked=${confirmed} onChange=${(event) => setConfirmed(event.currentTarget.checked)} /> I reviewed this code and trust it to run in agents</label>
+                  </fieldset>`
+                : null}
               <${Actions}>
-                <button type="button" id="edit-save" class="action primary" disabled=${Boolean(busy)} onClick=${save}>${busy === "save" ? "Saving…" : `Save as ${review.version}`}</button>
+                <button type="button" id="edit-save" class="action primary" disabled=${Boolean(busy) || (spec.confirm === "code" && !confirmed)} onClick=${save}>${busy === "save" ? "Saving…" : `Save as ${review.version}`}</button>
               <//>
             </section>`
           : review ? html`<p class="muted small">The text or version changed since the review: review again.</p>` : null}`

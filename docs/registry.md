@@ -140,7 +140,7 @@ files … differ`; `… differ (too large to show)` past the 256 KiB cap, or onc
 is spent (one budget for the whole diff: line comparisons, about two seconds, and 50,000 hunk
 lines of output, so every later changed file is reported this way); `old mode`/`new mode` for the
 executable bit;
-and `… differ only in removed control or bidi characters` when the only difference is in
+and `… differ only in removed control, bidi or invisible characters` when the only difference is in
 characters that are stripped for display. Line endings are compared after `\r` is stripped. The
 exit status is 0 whether or not the versions differ, 2 on an error.
 

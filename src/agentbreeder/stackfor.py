@@ -245,7 +245,7 @@ def plan(
     given = Path(os.path.abspath(agent_path))
     if registry.clean(str(given), name=True)[0] != str(given):
         raise NewAgentError(
-            "DESTINATION_UNSAFE", "the agent file path has control or bidi characters"
+            "DESTINATION_UNSAFE", "the agent file path has control, bidi or invisible characters"
         )
     if given.name != AGENT_FILE:
         raise NewAgentError("AGENT_FILE_NAME", f"--stack-for takes a path to {AGENT_FILE}")

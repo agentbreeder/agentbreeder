@@ -143,10 +143,11 @@ fork are later milestones.
   search roots are listed in resolve order.
 - **Detail** (`#/registry/prompts/NAME`): the version timeline, newest first, with root, verify
   status and use per version; one version's description, version hash, path, manifest and files
-  (`registry show --json`: text files capped, binary files not shown, removed control or bidi
-  characters noted); the diff between any two versions (`registry diff --json`, the same hunks as
-  `diff -u` of the files, with the reason a changed file has no text hunks); and used-by among the
-  projects registered in the console for the same environment (`registry used-by --json`):
+  (`registry show --json`: text files capped, binary files not shown, removed control, bidi or
+  invisible characters noted); the diff between any two versions (`registry diff --json`, the
+  same hunks as `diff -u` of the files, with the reason a changed file has no text hunks); and
+  used-by among the projects registered in the console for the same environment
+  (`registry used-by --json`):
   declared, locked and deployed separately. Deployed is recorded local state, not a live check.
 - **How it reads**: the list, the roots and the declared and locked columns are in-process reads
   cached by what they read. `registry show` and `registry diff` open and hash every file of a
@@ -198,6 +199,48 @@ Tested with the real `registry edit` and `agent set-ref` (server tests over a st
 with Playwright over a copy of Northwind: edit, review, save 1.0.2, move the agent and start the
 build; a second save of an existing version; Discard. Not yet run as the M10 acceptance (edit the
 starter's prompt, move, release with the eval gate): that is batched with the milestone checks.
+
+### Eval-set case editor (#826, second part): on `main`, not in a published preview
+
+An eval set's detail page (`#/registry/evals/NAME`) has the same **Edit X.Y.Z** card, with the
+same review and save (`registry edit … --dry-run`, then `--expect-digest`), the same version
+picker and the same Move agent card. What differs:
+
+- **Files**: only the cases file the set's manifest names (`cases:`, default `golden.jsonl`,
+  the file the review's load checks) opens; the server refuses any path that is not a
+  `NAME.jsonl` at the top of the version (`EDIT_PATH`). `fixtures.sql` and other files are listed
+  as not editable here.
+- **Cases, not text**: each case is a collapsible row (its number, id, first turn and anything
+  to fix). Opened, it edits the id, the turns (a turn that starts a new session is labelled and
+  keeps its `new_session` key), the checks (reply matches, reply does not match, tools called, tools
+  not called, sources cited: one item per line, kept as typed; an emptied list is left out) and
+  the reference answer. A field you do not change keeps its original value exactly (a number id,
+  a pattern's spaces). Add a case and Remove case change the set.
+- **Byte for byte**: the editor rebuilds the file from the cases. A case that was not changed is
+  written back exactly as it was read (blank lines too), so an untouched file is "No changes" and
+  the review shows only the edited cases, and a case edited back to what it was is written as
+  its original line. A changed or new case is written the way Python's `json.dumps` writes it,
+  keeping its other keys (`category`, other `expect` keys) in their order; in that case a
+  number such as `1.0` is written as `1`, and keys that look like integers come first (the
+  browser's JSON).
+- **Checks before review**: a case with no id, the same id as another, no turn or no reference
+  answer is marked with "!" and the reason (the field is marked invalid), and Review changes
+  stays off until it is fixed; so does a set with no case or more than 1000. The review then loads the edited set as `release`
+  does: the CLI's `EVAL_INVALID` (for example `golden.jsonl:3 needs id, turns, reference`) is
+  shown at its case, which opens, as well as in the notice; the next edit clears it.
+- A file that is not one JSON case per line opens as text, with the line that does not parse.
+
+The checks are the eval gate's: a release of an agent that uses the new version must pass them.
+For later kinds the editor takes a spec per kind (`center/edits.py` `KINDS`, `lib/edit.js`
+`EDIT_KINDS`): the files it opens, the body (text or cases) and a confirm tier; a kind whose
+files run in agents needs the "this code runs in agents" checkbox before Save (`code_confirmed`,
+else `CODE_NOT_CONFIRMED`). No kind uses that tier yet.
+
+Tested with the real `registry edit` (server tests over a starter project: a saved case, and a
+case without a reference refused as `EVAL_INVALID` at line 3) and with Playwright over Northwind's
+61 cases: one case edited is the only changed line of the saved 1.0.2; a new case is checked
+before review; Discard. The M10 acceptance (a broken case blocks a release) is batched with the
+milestone checks.
 
 ### Tool detail (#828, M12): on `main`, not in a published preview
 
