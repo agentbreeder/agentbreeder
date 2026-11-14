@@ -46,6 +46,13 @@ conditions from `next`'s checks for `--environment` (default `dev`). `--mark-rea
 (repeatable) and `--mark-all-read` (with `--project`, that project's only) mark events read
 before they are listed. Listing opens the store read-only and creates nothing.
 
+An id given to `--mark-read` that matches no stored event (a mistyped id, one already dropped
+from the newest 500, or any id when there is no store yet) prints
+`ignored unknown event id N` on stderr, once per id, also with `--json`. The command still
+exits 0, the ids that do exist in the same call are still marked, and `--json` lists the
+unknown ids in `unknown_ids`. `--mark-read` does not check `--project`: an id from another
+project is marked, not reported unknown.
+
 `--json` prints:
 
 ```json
@@ -68,9 +75,13 @@ before they are listed. Listing opens the store read-only and creates nothing.
     }
   ],
   "unread": 1,
+  "unknown_ids": [],
   "conditions": [{"code": "SERVICES_UNHEALTHY", "message": "postgres is exited (none)"}]
 }
 ```
+
+`unknown_ids` is always present: the `--mark-read` ids that matched no stored event, each once,
+in the order given, and `[]` when there were none (or no `--mark-read`).
 
 `conditions` appears only with `--project`. It is `null`, with a `conditions_error` of
 `{"code", "message"}`, when the checklist could not be computed (for example `STATE_BUSY` while
