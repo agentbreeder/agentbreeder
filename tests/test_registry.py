@@ -439,3 +439,22 @@ def test_path_ref_through_symlinked_folder_is_refused(project, tmp_path):
     _os.symlink(outside, project / "prompts")
     with pytest.raises(RegistryError, match="symlinks"):
         run(project, tmp_path, Lock(), refs=[], paths=["prompts/id_rsa"], name="s")
+
+
+def test_copy_refuses_a_file_swapped_for_a_directory(tmp_path, monkeypatch):
+    """A file replaced by a directory after it was listed is ENTRY_UNSAFE, not a raw OSError
+    from fdopen (the fstat check runs on the raw descriptor first)."""
+    source = make_version(tmp_path / "root", "prompt", "p", "1.0.0", {"prompt.md": "x"})
+    listed = registry._entries
+
+    def swapped(path):
+        entries = listed(path)
+        (source / "prompt.md").unlink()
+        (source / "prompt.md").mkdir()
+        return entries
+
+    monkeypatch.setattr(registry, "_entries", swapped)
+    with pytest.raises(RegistryError) as raised:
+        registry.copy_and_hash(source, tmp_path / "copy")
+    assert raised.value.code == "ENTRY_UNSAFE"
+    assert "changed while copying: prompt.md" in str(raised.value)

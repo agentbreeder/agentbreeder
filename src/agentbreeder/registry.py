@@ -273,11 +273,12 @@ def copy_and_hash(source: Path, destination: Path | None = None) -> str:
                 target.mkdir()
                 continue
             descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            # Checked on the raw descriptor: fdopen refuses a directory with IsADirectoryError,
+            # so a file swapped for a directory would otherwise escape as a raw OSError.
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                os.close(descriptor)
+                raise RegistryError("ENTRY_UNSAFE", f"changed while copying: {_shown(relative)}")
             with os.fdopen(descriptor, "rb") as reader:
-                if not stat.S_ISREG(os.fstat(reader.fileno()).st_mode):
-                    raise RegistryError(
-                        "ENTRY_UNSAFE", f"changed while copying: {_shown(relative)}"
-                    )
                 with open(target, "xb") as writer:
                     shutil.copyfileobj(reader, writer)
             os.chmod(target, 0o755 if info.st_mode & 0o111 else 0o644)
