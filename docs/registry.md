@@ -391,3 +391,39 @@ lock file:
 
 A changed byte in a locked version fails with `HASH_MISMATCH`. Hashes detect tampering after a
 version is first locked; they don't vouch for that first lock.
+
+## Agent packages (in progress, on `main`, not in a published preview)
+
+M13 (#763) adds an `agent` registry kind: a released agent kept as an immutable version at
+`./registry/agent/<name>/<X.Y.Z>/`. Only the package format and a deterministic packer exist so
+far. **No command writes, lists or deploys a package yet**, and `agent/…` refs do not parse.
+The design is in `docs/superpowers/specs/2026-11-13-agent-package-design.md`.
+
+A package holds exactly four files:
+
+| File | Contents |
+|---|---|
+| `manifest.yaml` | `kind: agent`, name, version, description |
+| `package.json` | the release record: agent name, version and runtime; the image ID and platform; hashes of the built `agent.yaml` and `agent.lock`; the eval summary (set ref and hash, threshold, retries, run ID, pass count, environment); the deploy template; release time and AgentBreeder version |
+| `agent.yaml` | a byte copy of the released `agent.yaml` |
+| `agent.lock` | the released lock. Every `source` label other than `builtin`, `registry`, `remote:<name>` or a project-relative path without `..` is replaced with `external:`, so no home directory or user name is recorded. This copy is a record only and is never read as a lock |
+
+`package.json` is strict: at most 64 KiB, `package_version` 1, and unknown keys or a newer
+`package_version` are refused (`PACKAGE_INVALID`, "written by a newer AgentBreeder? upgrade").
+The deploy template holds only `port`, `health_path`, `aliases`, `budget_usd`, `rpm` and
+`mcp_access`. It has no field for an identity, secrets, policy, capabilities, requirements, a
+target, an image or a gateway, so a package cannot grant itself any of them. A package holds no eval
+case text, model output, logs, secrets or registry references.
+
+A package is a record, not a credential. It is not signed. Deploying one will depend on the
+release row in your state directory's audit log, not on anything in the package.
+
+### Deterministic archives
+
+The packer writes one registry version as a `tar+gzip` rooted at `<kind>/<name>/<X.Y.Z>/`.
+Entries are in sorted order with mtime 0, uid and gid 0, no owner names, and modes 0644 or 0755
+only; the gzip header has mtime 0 and no file name. It applies the same entry checks as hashing:
+regular files and directories only, no symlinks or hardlinks, and the `MAX_FILES` and size
+limits. Extracting the archive and hashing the version gives the same tree hash as the source.
+The tar bytes are the same on every machine, but the gzip bytes can differ between zlib builds, so
+compare tree hashes, not archive digests.
