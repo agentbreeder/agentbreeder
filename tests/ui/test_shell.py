@@ -62,6 +62,9 @@ RELEASED_THEN_REMOVED = {
 }
 
 
+TOKEN_IN_URL = re.compile(r"#t=")
+
+
 def go(page, console, route: str, heading: str) -> None:
     page.goto(f"{console.origin}/#{route}")
     expect(page.get_by_role("heading", level=1)).to_contain_text(heading)
@@ -69,7 +72,7 @@ def go(page, console, route: str, heading: str) -> None:
 
 def test_sign_in_drops_the_token_and_titles_the_route(page, console):
     sign_in(page, console, project=False)
-    assert "#t=" not in page.url
+    expect(page).not_to_have_url(TOKEN_IN_URL)  # retried: the app strips it after rendering
     expect(page).to_have_title("Home · AgentBreeder console")
     page.get_by_role("link", name="Audit").click()
     expect(page).to_have_title("Audit · AgentBreeder console")
@@ -429,7 +432,8 @@ def test_session_ended_then_sign_in_returns_to_the_route(page, console):
     page.unroute("**/api/projects")
     page.goto(console.mint())
     expect(page.get_by_role("heading", level=1)).to_contain_text("Audit")
-    assert "#t=" not in page.url and page.url.endswith("#/audit")
+    expect(page).not_to_have_url(TOKEN_IN_URL)
+    expect(page).to_have_url(re.compile(r"#/audit$"))
 
 
 def test_a_link_pasted_into_a_signed_out_tab_is_redeemed(page, console):
@@ -438,7 +442,7 @@ def test_a_link_pasted_into_a_signed_out_tab_is_redeemed(page, console):
     token = console.login.split("#", 1)[1]
     page.evaluate("(hash) => { location.hash = hash; }", "#" + token)
     expect(page.get_by_role("heading", level=1)).to_contain_text("Audit")
-    assert "#t=" not in page.url
+    expect(page).not_to_have_url(TOKEN_IN_URL)  # retried: the app strips it after rendering
 
 
 def test_a_used_link_says_so(page, console):
@@ -471,6 +475,7 @@ ROUTES = [
     "/deployments",
     "/logs",
     "/logs/service/litellm",
+    "/agents/demo/try",
     "/targets/kubernetes",
     "/audit",
 ]
@@ -554,7 +559,7 @@ def test_a_new_link_in_a_signed_in_tab_keeps_the_route(page, console):
     token = console.mint().split("#", 1)[1]
     page.evaluate("(hash) => { location.hash = hash; }", "#" + token)
     expect(page.get_by_role("heading", level=1)).to_contain_text("Deployments")
-    assert "#t=" not in page.url
+    expect(page).not_to_have_url(TOKEN_IN_URL)  # retried: the app strips it after rendering
 
 
 def test_row_remove_is_off_while_a_job_runs(page, console):

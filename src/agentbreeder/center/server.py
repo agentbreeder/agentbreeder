@@ -37,6 +37,7 @@ from urllib.parse import parse_qs, urlsplit
 from pydantic import ValidationError
 
 from agentbreeder import __version__, guide, registry
+from agentbreeder.center import tryit
 from agentbreeder.center.files import (
     BadRequest,
     check_ancestors,
@@ -109,6 +110,10 @@ LOG_SINCE = re.compile(
 LOG_TAIL = 200  # the CLI's default
 MAX_LOG_TAIL = 10000  # `runtime.MAX_TAIL`
 LOG_TIMEOUT = 60  # one `docker logs` or `kubectl logs`, after the CLI's own checks
+# Try it (#823, M7): turns in flight across the console. Each holds a child for up to
+# `tryit.TIMEOUT`; the screen sends one at a time per tab.
+MAX_TURNS_IN_FLIGHT = 4
+AGENT = r"(?P<agent>[a-z0-9][a-z0-9-]{0,52})"
 
 
 def center_directory() -> Path:
@@ -151,6 +156,7 @@ class Center:
         self.token: tuple[bytes, float, bool] | None = None
         self.sessions: dict[bytes, list[float]] = {}
         self.lock = threading.Lock()
+        self.turns = threading.BoundedSemaphore(MAX_TURNS_IN_FLIGHT)
 
     @property
     def origin(self) -> str:
@@ -394,6 +400,36 @@ class Center:
             )
         return envelope(checked)
 
+    def try_turn(self, project: dict, name: str, body: dict) -> dict:
+        """One Try it turn (#823): `invoke NAME - --json` with the message on stdin (S-12a), as
+        an uncached, tracked read with no stale answer and `invoke`'s own deadline. Nothing is
+        stored: no job and no job lines. The answer is checked by `tryit.turn_answer`."""
+        request = tryit.turn_request(name, body)
+        if not self.turns.acquire(blocking=False):
+            raise BadRequest(
+                f"{MAX_TURNS_IN_FLIGHT} Try it messages are already waiting for a reply; try "
+                "again when one ends",
+                "TRY_BUSY",
+            )
+        try:
+            started = time.monotonic()
+            result = self.runner.read(
+                tryit.turn_argv(project, name, request),
+                timeout=tryit.TIMEOUT,
+                ok_codes=(0, 1, 2),  # invoke prints its JSON error object and exits 1 or 2
+                cache=False,
+                track=True,
+                input=request["message"],
+            )
+            latency = round((time.monotonic() - started) * 1000)
+        finally:
+            self.turns.release()
+        if result["data"] is None:  # no JSON: a timeout, a crash, a usage error, no child
+            problem = result["error"]
+            return envelope({"sent": tryit.maybe_sent(problem), "latency_ms": latency}, problem)
+        turn, problem = tryit.turn_answer(result["data"], latency)
+        return envelope(turn, problem)
+
     def plan(self, project: dict) -> dict:
         result = self.runner.read(
             [
@@ -574,6 +610,10 @@ def _deployment_logs(request: Request) -> dict:
     )
 
 
+def _try_turn(request: Request) -> dict:
+    return request.center.try_turn(request.project(), request.match["agent"], request.body)
+
+
 def _job(request: Request) -> dict:
     after = request.query.get("after", ["0"])[0]
     job = request.center.state.job(
@@ -662,6 +702,12 @@ ROUTES: tuple[Route, ...] = (
     ),
     Route("POST", rf"/api/jobs/{JOB_ID}/cancel", _cancel, "/api/jobs/" + "0" * 32 + "/cancel"),
     Route("POST", rf"/api/jobs/{JOB_ID}/stop", _stop_job, "/api/jobs/" + "0" * 32 + "/stop"),
+    Route(
+        "POST",
+        rf"/api/projects/{PROJECT_ID}/agents/{AGENT}/try",
+        _try_turn,
+        "/api/projects/0123456789ab/agents/support/try",
+    ),
 )
 
 

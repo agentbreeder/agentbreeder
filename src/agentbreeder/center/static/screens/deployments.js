@@ -1,6 +1,8 @@
 // Deployments: what runs, on which target, with its identity check; remove and reconcile.
 
 import { isCandidate } from "../lib/format.js";
+import { href } from "../lib/router.js";
+import { canTry } from "../lib/tryit.js";
 import { visible } from "../lib/text.js";
 import { Action, Actions, Card, Notice, Table, Text, ViewState, useConfirm, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
@@ -41,7 +43,7 @@ export function Deployments({ project }) {
               <td><${Text} value=${row.state} />${row.error ? html`: <${Text} value=${row.error} />` : null}</td>
               <td><${Text} value=${row.compliance || "not checked"} /></td>
               <td>${row.endpoint ? html`<code><${Text} value=${row.endpoint} /></code>` : html`<span class="muted">none</span>`}</td>
-              <td class="row-actions"><${LogsLink} kind="deployment" name=${row.id} label=${`Logs of ${visible(row.name)}`} /><${Action} small tone="danger" onClick=${() => remove(row)}>Remove<//></td>
+              <td class="row-actions">${canTry(row) ? html`<a class="action secondary small" href=${href("/agents/:name/try", { name: row.name })} aria-label=${`Try ${visible(row.name)}`}>Try it</a>` : null}<${LogsLink} kind="deployment" name=${row.id} label=${`Logs of ${visible(row.name)}`} /><${Action} small tone="danger" onClick=${() => remove(row)}>Remove<//></td>
             </tr>`)}
           <//>`
         : null}

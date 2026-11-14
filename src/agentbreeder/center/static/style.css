@@ -218,3 +218,32 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .logline mark { background: var(--warning-subtle); color: inherit; outline: 1px solid var(--warning); border-radius: 2px; }
 .log-notes { margin: 8px 0 0; padding-left: 18px; }
 .log-empty { padding: 12px; background: var(--secondary); border-radius: 6px; }
+
+/* Try it (#823): a transcript of turns, each with its inspector. Replies are plain text
+ * (pre-wrap), never Markdown; the agent's bubble is neutral, never green. */
+.try-agent { margin: 0 0 12px; }
+.try-notes { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.transcript {
+  list-style: none; margin: 0 0 12px; padding: 4px; display: grid; gap: 12px;
+  max-height: min(60vh, 640px); overflow: auto; border-radius: 6px;
+}
+.turn { display: grid; gap: 6px; }
+.bubble { padding: 8px 12px; border-radius: 8px; max-width: min(100%, 760px); }
+.bubble.you { justify-self: end; background: var(--secondary); }
+.bubble.agent { justify-self: start; border: 1px solid var(--control-border); width: min(100%, 760px); }
+.bubble.agent.failed { border-color: var(--destructive); }
+.bubble .who { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-muted); margin-bottom: 2px; }
+.turn-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.inspector { margin-top: 8px; font-size: 13px; }
+.inspector summary { cursor: pointer; }
+.inspector .facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0 0; }
+.inspector .facts dt { color: var(--text-muted); }
+.inspector .facts dd { margin: 0; overflow-wrap: anywhere; }
+.try-form { display: grid; gap: 8px; }
+.try-form .field.wide { display: flex; width: 100%; }
+.try-form textarea {
+  width: 100%; min-height: 72px; resize: vertical; font: inherit; color: inherit; padding: 6px 10px;
+  background: var(--background); border: 1px solid var(--control-border); border-radius: 6px;
+}
+.try-controls { align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.try-form p { margin: 0; }

@@ -22,8 +22,8 @@ export const STEP_ROUTES = {
 // `fix.action` -> what its button does. `job`: start that console job kind (the server supplies
 // the arguments). `route`: open the screen where the step is done (services-up needs the grant
 // review there; a release costs model usage, which the Release screen states first). `starter`
-// and `example`: the Home actions. `invoke` (Try it) has no console action until M7 (#823): its
-// done step shows the command; to switch, map it here to the Try it route.
+// and `example`: the Home actions. `try`: the Try it screen of the project's agent (#823), named
+// by the guide's own project step.
 const ACTIONS = {
   "services-up": { label: "Review and start services", route: "/services" },
   "set-keys": { label: "Add the key", route: "/services" },
@@ -33,6 +33,7 @@ const ACTIONS = {
   promote: { label: "Go to Kubernetes", route: "/targets/kubernetes" },
   "new-agent": { label: "Create starter", starter: true },
   example: { label: "Onboard Northwind", example: true },
+  invoke: { label: "Try it", try: true },
 };
 
 /** The console move for a step's fix, or null (an unknown or null action: show the command). */
@@ -42,6 +43,14 @@ export function actionFor(step) {
 }
 
 const STATE_WORDS = { done: "Done", next: "Next", blocked: "Blocked", todo: "To do" };
+
+/** The Try it route for the guide's agent (its project step's `agent`), or null. */
+export function tryRoute(guide) {
+  const steps = (guide && Array.isArray(guide.steps) && guide.steps) || [];
+  const project = steps.find((step) => step.id === "project");
+  const agent = project && project.data && project.data.agent;
+  return typeof agent === "string" && /^[a-z0-9]([a-z0-9-]{0,51}[a-z0-9])?$/.test(agent) && !agent.endsWith("-candidate") ? `/agents/${agent}/try` : null;
+}
 
 /** A step's state as a word (never colour alone). */
 export function stateWord(state) {

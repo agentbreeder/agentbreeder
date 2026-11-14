@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
-  STEP_ROUTES, actionFor, currentStep, linkHost, pillText, resultText, starterNameProblem, stateWord,
+  STEP_ROUTES, actionFor, currentStep, linkHost, pillText, resultText, starterNameProblem, stateWord, tryRoute,
 } from "../../src/agentbreeder/center/static/lib/guide.js";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`../ui/fixtures/guide/${name}.json`, import.meta.url), "utf8").replaceAll("@PROJECT@", "/p"));
@@ -21,8 +21,9 @@ test("each fix action maps to a fixed console move, never to the command", () =>
   assert.equal(actionFor(step("example")).example, true);
   for (const action of ["cluster-up", "promote"]) assert.equal(actionFor(step(action)).route, "/targets/kubernetes");
   assert.equal(actionFor(step("set-keys")).route, "/services");
-  // Try it is M7 (#823); an unknown or null action is treated as null.
-  for (const action of ["invoke", "rm", "__proto__", "toString", null, undefined]) assert.equal(actionFor(step(action)), null, String(action));
+  assert.deepEqual(actionFor(step("invoke")), { label: "Try it", try: true }); // #823
+  // An unknown or null action is treated as null.
+  for (const action of ["rm", "__proto__", "toString", null, undefined]) assert.equal(actionFor(step(action)), null, String(action));
   assert.equal(actionFor(null), null);
   assert.equal(actionFor({ fix: null }), null);
 });
@@ -69,4 +70,12 @@ test("starter names follow new agent's rule", () => {
   for (const name of ["hello", "a", "my-agent-2", "a".repeat(31)]) assert.equal(starterNameProblem(name), null, name);
   for (const name of ["Hello", "1x", "x-", "-x", "a b", "a".repeat(32), "../x"]) assert.ok(starterNameProblem(name), name);
   assert.equal(starterNameProblem(""), "Type a name first.");
+});
+
+test("Try it opens the guide's own agent, checked against the agent name rule", () => {
+  assert.equal(tryRoute(fixture("done")), "/agents/hello/try");
+  const withAgent = (agent) => ({ steps: [{ id: "project", data: { agent } }] });
+  for (const agent of ["../x", "Hello", "x-candidate", "a/b", "", 7, null]) assert.equal(tryRoute(withAgent(agent)), null, String(agent));
+  assert.equal(tryRoute(null), null);
+  assert.equal(tryRoute({ steps: [{ id: "project", data: null }] }), null);
 });
