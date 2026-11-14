@@ -201,6 +201,6 @@ def test_schema_initialization_rolls_back_on_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(module.sqlite3, "connect", connect)
     recovered = Store(tmp_path / "state")
     try:
-        assert recovered.db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert recovered.db.execute("PRAGMA user_version").fetchone()[0] == 4
     finally:
         recovered.close()

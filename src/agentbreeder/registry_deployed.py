@@ -20,6 +20,8 @@ Buckets, for deployments of the project's agent:
 image, so an unrelated agent of that name is never reported. States are the last recorded
 observation, not a live check (`status` and `reconcile` re-check). Only agent images are
 checked: a `service` ref used by a stack is never "deployed" here.
+An `agent/` ref (a package, M13 #763) is matched through the store v4 `package` column that
+`deploy agent/…` and `release` write, not through a build record.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from agentbreeder.registry import (
     Ref,
     RegistryError,
     clean,
+    copy_and_hash,
     read_project_file,
 )
 from agentbreeder.services.state import stack_id, stacks_root
@@ -50,9 +53,10 @@ COLUMN_LIMIT = 512  # id, name, state, environment, endpoint: display values
 QUERY_SECONDS = 5.0
 PROGRESS_STEPS = 1000  # SQLite VM steps between deadline checks
 # store.py schema versions this reader understands: v2 added the `environment` column (with
-# the gate columns), v3 the held_calls table. A v1 state has no `environment`; any command that
-# opens it read-write (e.g. `status`) migrates it.
-_STATE_SCHEMAS = (2, 3)
+# the gate columns), v3 the held_calls table, v4 the `package` column (M13 #763). A v1 state has
+# no `environment`; any command that opens it read-write (e.g. `status`) migrates it.
+_STATE_SCHEMAS = (2, 3, 4)
+_PACKAGE_SCHEMA = 4
 _SQLITE_HEADER = b"SQLite format 3\x00"
 RUNNING = "ready"  # the state store.py records for a healthy, started deployment
 
@@ -117,7 +121,8 @@ def _query(path: Path, checked: os.stat_result) -> list[tuple]:
     try:
         db.set_progress_handler(lambda: time.monotonic() > deadline, PROGRESS_STEPS)
         db.execute("PRAGMA query_only=ON")
-        if db.execute("PRAGMA user_version").fetchone()[0] not in _STATE_SCHEMAS:
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        if version not in _STATE_SCHEMAS:
             raise RegistryError("STATE_UNREADABLE", f"{_shown(path)}: unsupported state schema")
         # The file SQLite opened by name must still be the one that was checked.
         after = os.lstat(path)
@@ -129,12 +134,15 @@ def _query(path: Path, checked: os.stat_result) -> list[tuple]:
         if kind[0] != "table":
             raise RegistryError("STATE_UNREADABLE", f"{_shown(path)}: deployments is not a table")
         cap = COLUMN_LIMIT
+        # Only v4 has the column; a capped value that is cut short fails to parse in `_row`.
+        package = "substr(package, 1, ?)" if version >= _PACKAGE_SCHEMA else "substr(NULL, 1, ?)"
         return db.execute(
             "SELECT substr(id, 1, ?), substr(name, 1, ?), "
             "CASE WHEN length(manifest) <= ? THEN manifest END, length(manifest) > ?, "
-            "substr(state, 1, ?), substr(environment, 1, ?), substr(endpoint, 1, ?) "
+            "substr(state, 1, ?), substr(environment, 1, ?), substr(endpoint, 1, ?), "
+            f"{package} "
             "FROM deployments WHERE state != 'removed' ORDER BY created DESC LIMIT ?",
-            (cap, cap, MANIFEST_COLUMN_LIMIT, MANIFEST_COLUMN_LIMIT, cap, cap, cap)
+            (cap, cap, MANIFEST_COLUMN_LIMIT, MANIFEST_COLUMN_LIMIT, cap, cap, cap, cap)
             + (STATE_ROW_LIMIT + 1,),
         ).fetchall()
     except sqlite3.Error as error:
@@ -143,8 +151,25 @@ def _query(path: Path, checked: os.stat_result) -> list[tuple]:
         db.close()
 
 
+def _package(value) -> dict | None:
+    """The `package` column as {ref, sha256}, or None when unset or not well formed."""
+    try:
+        data = json.loads(value) if isinstance(value, str) else None
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    ref, digest = data.get("ref"), data.get("sha256")
+    if not (isinstance(ref, str) and isinstance(digest, str) and SHA256.fullmatch(digest)):
+        return None
+    try:
+        return {"ref": str(Ref.parse(ref)), "sha256": digest}
+    except RegistryError:
+        return None
+
+
 def _row(state_dir: Path, values: tuple) -> dict:
-    identifier, name, manifest, oversized, state, environment, endpoint = values
+    identifier, name, manifest, oversized, state, environment, endpoint, package = values
     try:
         data = json.loads(manifest) if isinstance(manifest, str) else {}
     except (ValueError, RecursionError):
@@ -161,6 +186,7 @@ def _row(state_dir: Path, values: tuple) -> dict:
         "image": _shown(image) if isinstance(image, str) else None,
         "state_dir": _shown(state_dir.resolve()),
         "_manifest_over_cap": bool(oversized),
+        "_package": _package(package),
     }
 
 
@@ -196,6 +222,7 @@ def deployments(state_dir: Path) -> list[dict]:
     entries, _ = read_state(state_dir)
     for entry in entries:
         entry.pop("_manifest_over_cap")
+        entry.pop("_package")
     return entries
 
 
@@ -275,9 +302,7 @@ def deployed(ref: Ref, row: dict, project: Path, directories: list[Path]) -> dic
     if not agent or ref.kind == "service":
         return row  # a service ref is used by the stack, never by an agent image (#854)
     if ref.kind == "agent":
-        # A package is deployed by ref, never built into an image; the deployment-to-package
-        # link (store v4, M13 spec §7.3) comes with deploy by ref, so nothing links one yet.
-        return row
+        return _package_deployments(ref, row, project, directories)
     record, problem = _record(project, agent, row)
     candidate = f"{agent}-candidate"
     for directory in directories:
@@ -294,6 +319,7 @@ def deployed(ref: Ref, row: dict, project: Path, directories: list[Path]) -> dic
             row["errors"].append({"file": _shown(directory), "error": str(error)})
         for entry in found:
             over_cap = entry.pop("_manifest_over_cap")
+            entry.pop("_package")
             matches = record is not None and entry["image"] == record["image"]
             if entry["name"] not in (agent, candidate) or (
                 entry["name"] == candidate and not matches
@@ -311,4 +337,47 @@ def deployed(ref: Ref, row: dict, project: Path, directories: list[Path]) -> dic
             else:
                 bucket = "deployed" if entry["state"] == RUNNING else "recorded_not_running"
                 row[bucket].append({**entry, "build_record": record["path"]})
+    return row
+
+
+def _package_deployments(ref: Ref, row: dict, project: Path, directories: list[Path]) -> dict:
+    """A package is deployed by ref, never built into an image: its deployments are the ones
+    whose store v4 `package` column names it (written by `deploy agent/…` and `release`, M13
+    spec §7.3). Entries add `package_sha256`; one whose hash differs from the project's copy
+    of the package is undetermined."""
+    local = None
+    path = project / "registry" / ref.relative()
+    try:
+        if path.is_dir() and not path.is_symlink():
+            local = copy_and_hash(path)
+    except (OSError, RegistryError) as error:
+        row["errors"].append({"file": _shown(path), "error": clean(str(error))[0]})
+    for directory in directories:
+        try:
+            found, truncated = read_state(directory)
+        except RegistryError as error:
+            row["errors"].append({"file": _shown(directory), "error": clean(str(error))[0]})
+            continue
+        if truncated:
+            error = RegistryError(
+                "STATE_TRUNCATED",
+                f"more than {STATE_ROW_LIMIT} deployments; only the newest were read",
+            )
+            row["errors"].append({"file": _shown(directory), "error": str(error)})
+        for entry in found:
+            entry.pop("_manifest_over_cap")
+            linked = entry.pop("_package")
+            if linked is None or linked["ref"] != str(ref) or entry["name"] != ref.name:
+                continue
+            entry["package_sha256"] = linked["sha256"]
+            if local != linked["sha256"]:
+                reason = (
+                    "this project has no copy of the package"
+                    if local is None
+                    else "this project's copy of the package differs from the deployed one"
+                )
+                row["deployed_undetermined"].append({**entry, "reason": reason})
+            else:
+                bucket = "deployed" if entry["state"] == RUNNING else "recorded_not_running"
+                row[bucket].append(entry)
     return row

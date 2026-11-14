@@ -455,9 +455,10 @@ version is first locked; they don't vouch for that first lock.
 
 M13 (#763) adds an `agent` registry kind: a released agent kept as an immutable version at
 `./registry/agent/<name>/<X.Y.Z>/`. So far there are the package format, a deterministic packer,
-read-only views, and `release`, which writes a package for every image it releases (see
-[`agent-yaml.md`](agent-yaml.md#eval-and-release)). **No command deploys a package yet**; that
-comes in a later slice. The design is in `docs/superpowers/specs/2026-11-13-agent-package-design.md`.
+read-only views, `release`, which writes a package for every image it releases (see
+[`agent-yaml.md`](agent-yaml.md#eval-and-release)), and `deploy agent/<name>@X.Y.Z --local`,
+which deploys one on local Docker (see [`commands/deploy.md`](commands/deploy.md)). Cluster
+deploys of a package come in a later slice. The design is in `docs/superpowers/specs/2026-11-13-agent-package-design.md`.
 
 - `agent/<name>@X.Y.Z` refs parse, but no `agent.yaml` or `stack.yaml` field takes one, a lock
   cannot hold one, and `build` never copies one into an image.
@@ -473,8 +474,9 @@ comes in a later slice. The design is in `docs/superpowers/specs/2026-11-13-agen
   `package_error` (null, or why the version is not a valid package). An invalid package is
   shown, not refused, with the reason.
 - `registry diff` compares two versions of one package like any other version.
-- `registry used-by agent/…` lists no deployments yet: deployments are linked to packages when
-  deploy by ref arrives.
+- `registry used-by agent/…` lists the deployments linked to that package (by `deploy agent/…`
+  or by the `release` that wrote it), from the state's `package` column. One whose tree hash
+  differs from the project's copy, or whose project has no copy, is listed as undetermined.
 
 A package holds exactly four files:
 
@@ -492,8 +494,9 @@ The deploy template holds only `port`, `health_path`, `aliases`, `budget_usd`, `
 target, an image or a gateway, so a package cannot grant itself any of them. A package holds no eval
 case text, model output, logs, secrets or registry references.
 
-A package is a record, not a credential. It is not signed. Deploying one will depend on the
-release row in your state directory's audit log, not on anything in the package. That row names
+A package is a record, not a credential. It is not signed. Deploying one depends on the
+release row in your state directory's audit log, not on anything in the package: deploy refuses a
+package this state directory did not release, or one that changed after release. That row names
 the package, its tree hash and a hash of the project path (never the path itself).
 
 Commit `./registry/agent/` with the rest of the project registry, so the team sees what was

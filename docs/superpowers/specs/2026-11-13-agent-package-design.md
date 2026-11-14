@@ -746,6 +746,27 @@ Each slice gets:
    - From slice 2: `store.link_package` after the release row, and its repair on the
      `PACKAGE_EXISTS` path.
    - Each refusal in §15 tested on its own.
+   - *As built (2026-11-13):*
+     - Steps 1-5 live in `deploy_ref.py`; `commands/deploy.py` parses the ref in `before()`
+       and calls `deploy_ref.prepare` in `action`.
+     - The `package` column holds `{"ref", "sha256"}` as JSON; `Store.get` decodes it, so
+       `status --json` shows that object or `null`.
+     - A replaced link adds a `PREVIOUS_PACKAGE` reason to the `deploy/package_linked` event.
+     - New codes: `PACKAGE_NOT_FOUND` (not in `./registry` and in no other root; "restore it
+       from git") and `PACKAGE_TARGET_UNSUPPORTED` (`--cluster` until slice 4).
+     - The v3 → v4 step adds the column only if it is missing, so a partly downgraded state
+       still upgrades.
+     - `registry used-by agent/…` lists deployments whose column names the ref; one whose hash
+       differs from the project's copy, or with no copy, is undetermined.
+     - `verify_audit` on a 50,000-row log took 1.4 s (macOS, Python 3.13).
+     - Review round 1 (Sonnet): every refusal except `AUDIT_CORRUPT` is recorded with
+       `record_denial` (ref and code only, no paths); the gate's deny and abort events carry
+       `DEPLOY_PACKAGE`; a symlinked `./registry` root is refused; an unreadable `package`
+       column reads as NULL; `--project` with a manifest path is `PROJECT_UNUSED`.
+     - A link that cannot be written after the `promoted` row does not undo the release:
+       `release` exits 1 with `PACKAGE_LINK_FAILED` and names the repair (release again). The
+       `PACKAGE_EXISTS` path relinks whenever production's link differs from the package, not
+       only when it is NULL, so the column names the newest release.
 4. **kind.**
    - `deploy agent/… --cluster`: image push, artifact push, the three checks of §8.3, and a
      second deploy and a `cluster down`/`up` run.
