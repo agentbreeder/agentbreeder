@@ -105,6 +105,8 @@ def invoke(argv: list[str], data: dict) -> int:
         "prompt_tokens": 1812,
         "output_tokens": 64,
     }
+    if "cost_usd" in settings:  # runtime/adk@1.2.0 and later; older runtimes send no field
+        response["cost_usd"] = settings["cost_usd"]
     answer = {"schema_version": 1, "deployment": "d" * 32, "name": argv[1], "status": 200}
     answer |= {"endpoint": "http://127.0.0.1:9001", "response": response}
     print(json.dumps(answer, indent=2))
@@ -232,7 +234,13 @@ def main(argv: list[str]) -> int:
     elif argv and argv[0] == "list":
         print(json.dumps(data["deployments"]))
     elif head == ["audit", "list"]:
-        print(json.dumps(data["audit_rows"]))
+        # As the CLI: newest first, `--before SEQ` keeps older rows, then `--limit`.
+        rows = sorted(data["audit_rows"], key=lambda row: -row["seq"])
+        if "--before" in argv:
+            before = int(argv[argv.index("--before") + 1])
+            rows = [row for row in rows if row["seq"] < before]
+        limit = int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 20
+        print(json.dumps(rows[:limit]))
     elif head == ["audit", "verify"]:
         print(json.dumps(data["audit_verify"]))
     elif head == ["cluster", "status"]:

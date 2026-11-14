@@ -57,6 +57,7 @@ class AuditIncomplete(DeploymentError):
 
 GATEWAY_KEY_ENV = "LLM_GATEWAY_KEY"
 GATEWAY_KEY_FILE = "llm-gateway-key"
+DEPLOYMENT_ID_ENV = "AGENTBREEDER_DEPLOYMENT_ID"
 DEFAULT_BUDGET_USD = 10.0  # when neither the manifest nor the environment sets one
 DEFAULT_RPM = 60
 
@@ -426,6 +427,10 @@ class DeploymentService:
                 environment = self._service_environment(
                     manifest, (fields.get("context") or {}).get("environment")
                 )
+                if environment is not None:
+                    # Runtimes that trace put it on their spans, so `traces ID` can attribute
+                    # a trace to this deployment exactly (#907). Not a secret.
+                    environment[DEPLOYMENT_ID_ENV] = identifier
                 for access, server, relay, tools in servers:
                     mounts.append(
                         self._grant_mcp(

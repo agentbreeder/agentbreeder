@@ -6,6 +6,7 @@ as the deploy manifest (manifest.py).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -32,7 +33,23 @@ def _unique_mapping(loader: _UniqueLoader, node: yaml.MappingNode) -> dict:
 _UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping)
 
 
+MAX_FLOW_DEPTH = 64
+_BRACKETS = re.compile(r"[\[\]{}]")
+
+
+def _flow_depth(text: str) -> int:
+    """The deepest `[`/`{` nesting, counted over the whole text (quotes ignored, so it can only
+    over-count). PyYAML's scanner is quadratic in flow nesting: 64 KiB of `[` takes minutes."""
+    depth = deepest = 0
+    for match in _BRACKETS.finditer(text):
+        depth = depth + 1 if match.group() in "[{" else max(depth - 1, 0)
+        deepest = max(deepest, depth)
+    return deepest
+
+
 def load_text(text: str) -> dict:
+    if _flow_depth(text) > MAX_FLOW_DEPTH:
+        raise StrictYamlError(f"YAML nested more than {MAX_FLOW_DEPTH} levels of [ ] or {{ }}")
     try:
         if any(isinstance(t, (yaml.AliasToken, yaml.AnchorToken)) for t in yaml.scan(text)):
             raise StrictYamlError("YAML anchors and aliases are not supported")

@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from agentbreeder import registry
+from agentbreeder.safe_text import excerpt
 
 NAMES = ("registry",)
 
@@ -406,6 +407,8 @@ def _show_text(view: dict) -> str:
             lines.append(f"  {entry['path']}  {entry['size']} B{_file_note(entry)}")
     if "package" in view:
         lines += _package_text(view)
+    if "functions" in view:
+        lines += _functions_text(view)
     for entry in view["files"]:
         if entry["type"] == "file" and entry["text"] is not None:
             lines += ["", f"--- {entry['path']} ---", entry["text"].rstrip("\n")]
@@ -435,4 +438,21 @@ def _package_text(view: dict) -> list[str]:
     ]
     if deploy["mcp_access"]:
         lines.append(f"  MCP: {', '.join(one(entry['ref']) for entry in deploy['mcp_access'])}")
+    return lines
+
+
+def _functions_text(view: dict) -> list[str]:
+    """A tool's functions for a terminal. Descriptions come from tool.yaml (untrusted), so every
+    value is printed as one capped line."""
+    if view["functions_error"]:
+        return [f"Functions: not readable: {excerpt(view['functions_error'], 300)}"]
+    lines = ["Functions:"]
+    for entry in view["functions"]:
+        signature = entry["signature"] or f"(signature not shown: {entry['signature_error']})"
+        lines.append(
+            f"  {excerpt(entry['name'], 64)}  {excerpt(entry['module'], 64)}: "
+            f"{excerpt(signature, 1000)}"
+        )
+        if entry["description"]:
+            lines.append(f"    {excerpt(entry['description'], 300)}")
     return lines

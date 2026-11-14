@@ -6,4 +6,6 @@ Implemented: `registry new|publish|list|verify` and, on `main` (not in a publish
 
 On `main`, not in a published preview: `list`, `show`, `diff` and `verify` also read `agent/` package versions, and `publish`, `import`, `fork`, `edit` and `new agent` refuse them (`PACKAGE_RELEASE_ONLY`, only `release` writes packages). See [Agent packages](../registry.md#agent-packages-in-progress-on-main-not-in-a-published-preview).
 
+On `main`, not in a published preview: `publish`, `import`, `fork` and `edit` check a `tool/` version before writing it (allowed files only, no module that shadows the standard library, the runtime or its locked packages, every function resolving to a top-level `def` that parses; `TOOL_INVALID`), and `show` of a tool lists its functions with their `tool.yaml` parameters and Python signatures. See [Tool versions](../registry.md#editing-a-project-version-on-main-not-in-a-published-preview).
+
 Flags: `agentbreeder registry --help`.

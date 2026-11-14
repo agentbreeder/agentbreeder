@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+import sys
 from pathlib import Path
 
 from agentbreeder import cli
@@ -21,9 +23,22 @@ def register(commands) -> None:
         if name == "list":
             command.add_argument("--limit", type=int, default=20)
             command.add_argument("--attempt")
+            command.add_argument(
+                "--before",
+                metavar="SEQ",
+                help="Only rows older than this seq (the next page after a row's seq)",
+            )
+
+
+SEQ = re.compile(r"[1-9][0-9]{0,17}")
 
 
 def run(args) -> int:
+    if args.audit_command == "list" and args.before is not None:
+        if not SEQ.fullmatch(args.before):
+            return _refuse("BEFORE_INVALID", "--before must be a positive whole number (a seq)")
+        if args.attempt:
+            return _refuse("BEFORE_INVALID", "--before pages the whole log; drop --attempt")
     return cli.run_stateful(args, lambda store: _audit(store, args), existing=True, service=False)
 
 
@@ -46,8 +61,15 @@ def _audit(store: Store, args) -> int:
                 print(f"Incomplete attempts: {', '.join(report['incomplete_attempts'])}")
             print(f"Limitation: {report['limitations']}")
         return 0 if report["ok"] else 1
-    rows = store.audit_rows(limit=max(1, min(args.limit, 1000)), attempt_id=args.attempt)
+    before = int(args.before) if args.before is not None else None
+    rows = store.audit_rows(
+        limit=max(1, min(args.limit, 1000)), attempt_id=args.attempt, before=before
+    )
     if args.json:
+        # `agent`: the name of the row's deployment (removed ones included), else null.
+        names = {row["id"]: row["name"] for row in store.summaries()}
+        for row in rows:
+            row["agent"] = names.get(row["deployment_id"]) if row["deployment_id"] else None
         print(json.dumps(rows, indent=2))
     else:
         for row in rows:
@@ -58,3 +80,8 @@ def _audit(store: Store, args) -> int:
                 f"{'' if row['actor_verified'] else ' (unverified)'}"
             )
     return 0
+
+
+def _refuse(code: str, message: str) -> int:
+    print(f"[{code}] {message}", file=sys.stderr)
+    return 2

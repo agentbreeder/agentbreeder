@@ -213,6 +213,13 @@ def _mount(tmp_path) -> SecretMount:
     return SecretMount(("DATABASE_URL",), "database-url", source, "/run/secrets/database-url")
 
 
+def test_create_passes_the_deployment_id_variable(kube, cluster):
+    # Deploy gives every model-access container its own ID on both targets (#907).
+    kube.create(RECORD, manifest(), environment={"AGENTBREEDER_DEPLOYMENT_ID": "a" * 32})
+    env = _created(cluster)["Deployment"]["spec"]["template"]["spec"]["containers"][0]["env"]
+    assert {"name": "AGENTBREEDER_DEPLOYMENT_ID", "value": "a" * 32} in env
+
+
 def test_create_sends_hardened_objects_over_stdin(kube, cluster, tmp_path):
     kube.create(RECORD, manifest(), environment={"A": "1"}, mounts=[_mount(tmp_path)])
     assert all(SECRET_VALUE not in " ".join(argv) for argv in cluster.calls)

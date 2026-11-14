@@ -169,9 +169,31 @@ def test_a_reply_is_allow_listed_with_latency_and_seams(center, project, cookie)
         "tokens": {"prompt": 812, "output": 64},
         "latency_ms": turn["latency_ms"],
         "trace": {"id": "a" * 32, "url": None},
-        "cost": None,
+        "cost": None,  # REPLY is a runtime before adk 1.2.0: no `cost_usd`
     }
     assert isinstance(turn["latency_ms"], int) and turn["latency_ms"] >= 0
+
+
+@pytest.mark.parametrize(
+    ("value", "cost"),
+    [
+        (0.000444, 0.000444),
+        (0, 0.0),
+        (3, 3.0),
+        (None, None),
+        (-0.01, None),
+        (True, None),
+        ("0.01", None),
+        (float("nan"), None),
+        (float("inf"), None),
+        (10**6, None),
+        (10**400, None),
+        ({"usd": 1}, None),
+    ],
+)
+def test_cost_is_the_runtimes_figure_or_null(center, project, cookie, tmp_path, value, cost):  # noqa: F811
+    answer(tmp_path, dict(ANSWER, response=dict(REPLY, cost_usd=value)))
+    assert send(center, project, cookie, {"message": "hi"})[1]["data"]["cost"] == cost
 
 
 def test_odd_fields_are_dropped_not_passed_on(center, project, cookie, tmp_path):  # noqa: F811

@@ -43,8 +43,8 @@ value cannot be read, nothing is printed (`REDACTION_INCOMPLETE`).
   are redacted and capped at 4096 characters, newlines are kept, and in text output control
   characters are shown as `\xNN` escapes.
 - `trace_id` is the trace id when it is 32 lowercase hex characters, else `null`; read the
-  trace with `agentbreeder traces --trace ID` (once that command is on `main`). `category` is
-  `null` when the case has none. Both keys are always present.
+  trace with `agentbreeder traces --trace ID`. `category` is `null` when the case has none.
+  Both keys are always present.
 
 Redaction is best effort; see `redaction.py` for what it finds.
 

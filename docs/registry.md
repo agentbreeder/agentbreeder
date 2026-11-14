@@ -99,6 +99,33 @@ the bytes shown.
 `text` is `null` for binary files and for files past the version's cap (`omitted: true`);
 `truncated: true` means only the first 256 KiB are in `text`.
 
+A `tool/` version also has `functions` and `functions_error` (on `main`, not in a published
+preview):
+
+```json
+"functions": [
+  {"name": "lookup_orders", "module": "orders", "function": "lookup_orders",
+   "description": "Look up the current customer's Northwind orders: …",
+   "parameters": {"type": "object", "properties": {"order_id": {"type": "string", …}, …}},
+   "signature": "lookup_orders(order_id: str='', status: str='') -> str",
+   "signature_error": null}
+],
+"functions_error": null
+```
+
+`name`, `module`, `function`, `description` and `parameters` come from `tool.yaml`
+(`parameters` is what the model sees); they are untrusted text, cleaned like every other value,
+zero-width, word-joiner, BOM and tag characters are also removed (they would hide text from a
+reader that the model still gets), and the terminal output prints each as one capped line. `signature` is the Python signature
+read with `ast` from the shown bytes of the module (`src/<module>/__init__.py`, else
+`src/<module>.py`, as `import` finds them), without the first parameter (the runtime passes its `rt` there; the
+model never sets it), at most 1 000 characters; tool code is never imported. When it cannot be
+read, `signature` is `null` and `signature_error` is `too_large` (over 256 KiB, or past the
+version's text cap, or parameters of more than 2 000 syntax nodes), `syntax_error` (not UTF-8, does not parse, or too deeply nested) or
+`not_found` (no such module, or no top-level `def`/`async def` with that name). A `tool.yaml`
+that cannot be read gives `functions: []` and `functions_error` (`[TOOL_INVALID] …`). The view
+is cached in-process by the version hash.
+
 **`registry diff FROM TO`** shows what changes from the first version to the second (the order
 matters) of one `kind/name` (two different names are `REF_INVALID`), file by file in path order,
 as a unified diff with `--context N` lines around each change (default 3, at most 1000). Both
@@ -335,6 +362,38 @@ agentbreeder agent set-ref prompt/hello-prompt@0.1.0 prompt/hello-prompt@0.1.1
   reviewed. `--json` prints `import`'s object (indented) plus `diff`, the `registry diff --json`
   object from `REF` to the new version (`from` and `to` carry `ref` and `sha256` only).
 
+**Tool versions are checked before they are written** (on `main`, not in a published preview;
+#828, M12). `publish`, `import`, `fork` and `edit` refuse a `tool/` version with
+`TOOL_INVALID`, and nothing is written, unless:
+
+- It holds only `manifest.yaml`, `tool.yaml`, `README*` and `src/**/*.py`, each name under `src/`
+  (directories and module stems) made of lower-case letters, digits and `_`, and each a regular
+  file (symlinks and special files are refused as for every version). This is an allowlist, so
+  `*.pth`, `*.so`, wheels, `requirements*.txt`, `pyproject.toml` and `setup.py` are refused too:
+  tools have no dependencies of their own; they use the runtime's locked packages.
+- No top-level name in `src/` (a module or package) shadows a standard-library module, a runtime
+  module (`agent`, `config`, `memory`, `tools`, …), a package a built-in `runtime/adk` lock
+  installs (`psycopg`, `yaml`, `pydantic`, `google`, `httpx`, `opentelemetry`, …), `pip` and its
+  build tools, a dunder name, or a name Python or pytest imports by itself (`sitecustomize`,
+  `usercustomize`, `conftest`, `pytest`, `_pytest`); and no name is both `src/<name>.py` and
+  `src/<name>/`. A tool's `src/` goes first on `sys.path`, so such a file would
+  replace that module for the whole agent. `runtime/adk@1.2.0` makes the authoritative check at
+  load time against the image's real `sys.path`, which also catches two tools of one agent with
+  the same module.
+- `tool.yaml` loads as strict YAML (no duplicate keys, anchors, or more than 64 levels of `[ ]`
+  or `{ }`); it has at most 64 `functions[]`, each with a valid `name`, `module` and `function`
+  (empty means `name`) and an object `parameters` (empty means no parameters), with no name
+  twice, read as the runtime reads them; each `module` resolves to `src/<module>/__init__.py`
+  or `src/<module>.py`, at most 256 KiB of strict
+  UTF-8 that parses with `ast.parse` and has a top-level `def` or `async def` named `function`.
+  The code is parsed, never imported. `build` keeps its own checks. A tool with no functions
+  yet is accepted, so a placeholder can be edited; the runtime refuses it at load.
+
+These checks make a tool version well-formed, not safe: tool code runs inside the agent with its
+privileges. The boundaries are your review of the diff, the eval gate at `release` (a quality
+gate, not a security review) and, later, per-agent tool policy (#909). `registry new tool NAME`
+writes a tool that passes them: one function `echo_<name>` in `src/tool_<name>.py`.
+
 **`agent set-ref OLD NEW [--project DIR] [--dry-run | --expect-base SHA256] [--json]`** moves the
 project's agent to another version. It is an exact-string replacement in `DIR/agent.yaml`, so
 comments and formatting stay. It refuses unless `OLD` is the value of one ref field `build` reads
@@ -395,9 +454,10 @@ version is first locked; they don't vouch for that first lock.
 ## Agent packages (in progress, on `main`, not in a published preview)
 
 M13 (#763) adds an `agent` registry kind: a released agent kept as an immutable version at
-`./registry/agent/<name>/<X.Y.Z>/`. So far there are the package format, a deterministic packer
-and read-only views. **No command writes or deploys a package yet**: `release` will write them
-in a later slice. The design is in `docs/superpowers/specs/2026-11-13-agent-package-design.md`.
+`./registry/agent/<name>/<X.Y.Z>/`. So far there are the package format, a deterministic packer,
+read-only views, and `release`, which writes a package for every image it releases (see
+[`agent-yaml.md`](agent-yaml.md#eval-and-release)). **No command deploys a package yet**; that
+comes in a later slice. The design is in `docs/superpowers/specs/2026-11-13-agent-package-design.md`.
 
 - `agent/<name>@X.Y.Z` refs parse, but no `agent.yaml` or `stack.yaml` field takes one, a lock
   cannot hold one, and `build` never copies one into an image.
@@ -433,7 +493,13 @@ target, an image or a gateway, so a package cannot grant itself any of them. A p
 case text, model output, logs, secrets or registry references.
 
 A package is a record, not a credential. It is not signed. Deploying one will depend on the
-release row in your state directory's audit log, not on anything in the package.
+release row in your state directory's audit log, not on anything in the package. That row names
+the package, its tree hash and a hash of the project path (never the path itself).
+
+Commit `./registry/agent/` with the rest of the project registry, so the team sees what was
+released. AgentBreeder never overwrites a version. If git removes or changes a package while its
+image is still in production, the next `release` of that image does not reuse it: it evaluates the
+image again and writes a new version.
 
 ### Deterministic archives
 

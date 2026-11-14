@@ -13,13 +13,16 @@ Pure functions: the server checks the request with `turn_request`, builds the ar
   for type and size; the reply stays text (the browser shows it through <Text>, with no Markdown
   or auto-linking, S-12b). A trace id is passed only as 32 lowercase hex characters; there is no
   trace link yet (`trace.url` is null until #907 records a Phoenix origin the console can link
-  to), and `cost` is null until #906.
+  to). `cost` is the turn's cost in USD that `runtime/adk@1.2.0` reports (`cost_usd`, the sum of
+  LiteLLM's per-call estimates, #906), passed only as a finite number from 0 up to `MAX_USD`;
+  older runtimes don't report it and it is null.
 - `customer_id` and `session_id` are sent as typed; the runtime does not authenticate them
   (S-12c, #780), which the screen says.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -37,6 +40,7 @@ MAX_ITEMS = 50  # tools and sources per turn
 MAX_ITEM = 200  # characters per tool name or source title
 MAX_SHORT = 100  # model alias, framework, runtime ref
 MAX_ERROR = 300
+MAX_USD = 10**6  # a turn's cost at or above this is not believed
 
 
 def turn_request(name: str, body: dict) -> dict:
@@ -87,6 +91,14 @@ def _count(value: object) -> int | None:
     # bool is an int subclass; a count is never one.
     if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 10**12:
         return value
+    return None
+
+
+def _usd(value: object) -> float | None:
+    # bool is an int subclass; JSON can also carry NaN and Infinity.
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value < MAX_USD:
+        number = float(value)
+        return number if math.isfinite(number) else None
     return None
 
 
@@ -154,8 +166,8 @@ def turn_answer(data: object, latency_ms: int) -> tuple[dict | None, dict | None
             "output": _count(response.get("output_tokens")),
         },
         "latency_ms": latency_ms,
-        # Seams: #907 fills `url` from a recorded Phoenix origin, #906 fills `cost`.
+        # Seam: #907 fills `url` from a recorded Phoenix origin.
         "trace": {"id": _id(response.get("trace_id"), HEX32), "url": None},
-        "cost": None,
+        "cost": _usd(response.get("cost_usd")),
     }
     return turn, None

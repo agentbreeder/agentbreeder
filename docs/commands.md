@@ -53,6 +53,7 @@ Run `agentbreeder COMMAND --help` for flags; see the root README for the demo.
 - [`secret`](commands/secret.md): Manage local secret files (secret:// refs).
 - [`services`](commands/services.md): Local backing services from stack.yaml (local-only preview).
 - [`status`](commands/status.md): Show a deployment and re-verify its principal.
+- [`traces`](commands/traces.md): Show recent agent traces per deployment from the stack's Phoenix (read-only).
 - [`up`](commands/up.md): Start the local console on 127.0.0.1 (single user, preview).
 - [`validate`](commands/validate.md): Validate a deploy manifest or an agent file (kind: agent).
 - [`watch`](commands/watch.md): Report one stack's container events (died, unhealthy, restarted) until stopped.

@@ -160,6 +160,36 @@ Python's `difflib.unified_diff` of the files, `tool/orders@1.0.0` shows Northwin
 deployed, a failed verification shows on the list and the version, and axe passes in light and dark.
 Not yet run against a real deployment: that is the M8 console verification.
 
+### The Audit view (#824, part 2): on `main`, not in a published preview
+
+Governance ▸ Audit shows the verify result in words and the project's audit rows, 50 to a page,
+newest first. Older and Newer step through pages with `audit list --before SEQ`: the server asks
+for 51 rows to know whether an older page exists.
+
+- **Agent**: `audit list --json` names the agent of every row that has a deployment, including
+  removed ones such as release candidates (shown as the agent, marked "candidate"). A row with no
+  deployment takes the agent of its attempt's other rows on the same page (an `attempt_started`
+  row comes before its deployment exists). A `release` row has no deployment either. It belongs
+  to the active deployment running the image in its `RELEASE_IMAGE` reason (the check `promote`
+  makes), or to the candidate that ran that image on the same page. Otherwise it says "not
+  recorded".
+- **Mode and reasons**: each row's enforcement mode and reason codes. A release row also shows
+  its eval run (`Evals 12/12, run ID`) and, when its agent is known, the report file `release`
+  wrote, as a path relative to the project (`deploy/NAME.eval-RUN.json`, the default output).
+  The console does not open the report yet; that is the next slice.
+- **Production**: an agent with a ready local production deployment links to Try it and shows
+  its endpoint as text, once, on that agent's newest row on the page. The link is today's
+  deployment, not the one running at the row's time. Candidates are never linked.
+- **Paging**: focus moves to the page's status line, which says which page is shown, that it is
+  loading, or that it could not be read (with Retry). Newest and Newer stay available after a
+  failure.
+
+Tested with Playwright: the agent, mode, reasons and release evidence of a release story; paging
+over 120 rows and back; focus after paging; a failed page and Retry; one Production link per agent;
+exactly 50 rows has no older page; untrusted reason and agent text shows as text; axe passes in
+light and dark on the first and second page. Not yet run against a real deployment: that
+is the M8 console verification.
+
 ### The guided path and Create starter (#820): on `main`, not in a published preview
 
 The console reads `agentbreeder next PROJECT --environment ENV --json` (the contract in
@@ -273,9 +303,14 @@ The server passes on only these checked fields of `invoke --json`'s answer:
 
 It adds the latency it measured. Each reply has a **Turn details** inspector with the tools,
 sources, latency, tokens (prompt and output, over N model calls) and the trace ID as text. A
-trace link waits for #907, which records a Phoenix origin the console can link to. Cost shows as
-"Not measured yet" until #906. The answer keeps a `cost` field and a `trace.url` field, both null,
-for those two.
+trace link waits for #907, which records a Phoenix origin the console can link to; the answer
+keeps a `trace.url` field, null, for it. **Cost** is the turn's cost in USD that
+`runtime/adk@1.2.0` and later report (`cost_usd`, the sum of LiteLLM's per-call estimates; see
+[`cost.md`](cost.md#per-turn-cost-runtimeadk120)), shown in the inspector and its summary, such as
+"$0.000444". The server passes it on only as a finite number from 0 to under 1,000,000, otherwise
+null. Older runtimes don't report it, and neither does 1.2.0 when a call in the turn had no cost
+header: the inspector then says "Not measured" and why. Tested with a fake CLI and with the runtime's
+scripted gateway responses; no live gateway cost has been shown yet.
 
 A later message continues the conversation's session (`--session`); **New conversation** starts a
 new one. **Customer ID** is optional and sent as `--customer`.

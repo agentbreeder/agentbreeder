@@ -27,6 +27,10 @@ def register(commands) -> None:
     rel.add_argument("--environment")
     rel.add_argument("--threshold", type=float, default=None)
     rel.add_argument("--retries", type=int, default=None)
+    rel.add_argument(
+        "--version",
+        help="Package version X.Y.Z to release as (default: the next free patch, 0.1.0 first)",
+    )
     rel.add_argument("--rollback", action="store_true", help="Redeploy the previous production")
     rel.add_argument("--state-dir", type=Path, default=cli.DEFAULT_STATE)
     rel.add_argument("--output", type=Path)
@@ -41,6 +45,9 @@ def run(args) -> int:
 
     store = None
     where = _where(args)
+    if args.rollback and args.version is not None:
+        print("[VERSION_INVALID] --version is for a release, not --rollback", file=sys.stderr)
+        return 2
     try:
         operator = load_operator_config()
         store = Store(args.state_dir)
@@ -70,6 +77,7 @@ def run(args) -> int:
                 retries=args.retries,
                 output=args.output,
                 where=where,
+                version=args.version,
                 log=(lambda message: None)
                 if args.json
                 else (lambda message: print(message, file=sys.stderr)),
@@ -87,6 +95,8 @@ def run(args) -> int:
         secret_files.SecretError,
     ) as error:
         print(cli._message(error, args=args, near=Path(args.agent)), file=sys.stderr)
+        if getattr(error, "package_kept", False):
+            return 1  # PACKAGE_KEPT_UNVERIFIED (spec §15)
         return 3 if getattr(error, "code", "") == "APPROVAL_REQUIRED" else 2
     finally:
         if store:
@@ -110,6 +120,9 @@ def run(args) -> int:
             checks = ", ".join(case["failed_checks"]) or "none"
             reason = f"; judge: {case['reason']}" if case["reason"] else ""
             print(f"FAIL {case['id']}: failed {checks}{reason}")
+        released = outcome.details.get("package")
+        if released:
+            print(f"Package: {released['ref']} ({released['path']}, {released['sha256']})")
         if outcome.details.get("eval_report"):
             print(f"Eval report: {outcome.details['eval_report']}")
         if outcome.details.get("candidate_log"):

@@ -133,6 +133,15 @@ export function tokensText(tokens) {
   return `${prompt ?? "?"} in, ${output ?? "?"} out`;
 }
 
+/** A turn's cost (USD, LiteLLM's estimate) in words: "$0.000444", "$0.0444"; null when the
+ * runtime did not report it (runtimes before adk 1.2.0, or a call with no cost header). */
+export function costText(usd) {
+  if (typeof usd !== "number" || !Number.isFinite(usd) || usd < 0) return null;
+  if (usd === 0) return "$0";
+  if (usd < 0.000001) return "under $0.000001";
+  return `$${usd.toFixed(usd < 0.01 ? 6 : 4)}`;
+}
+
 /** A list of tool names or source titles in words; empty says "none". */
 export function namesText(names) {
   return Array.isArray(names) && names.length ? names.join(", ") : "none";
