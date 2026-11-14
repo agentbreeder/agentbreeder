@@ -208,7 +208,7 @@ prompt.
 
 ```
 agentbreeder eval agent.yaml --endpoint URL [--environment ENV] [--only id,...] [--retries N] [--json]
-agentbreeder release agent.yaml --environment ENV [--stack DIR] [--threshold 1.0] [--retries N] [--json]
+agentbreeder release agent.yaml --environment ENV [--stack DIR] [--threshold 1.0] [--retries N] [--version X.Y.Z] [--json]
 agentbreeder release agent.yaml --rollback [--environment ENV]   # gate-checked before anything is removed
 ```
 
@@ -222,9 +222,10 @@ database's credentials, before the run and before each retry round. That needs
 only use eval sets you would let write to that database.
 
 `release` is orchestration around two ordinary governed deploys. The exit codes are 0 released or
-already released into production, 1 runtime failure, 2 denied or a release precondition failed (for example `LOCK_STALE`,
-`PRODUCTION_CHANGED`, `REMOVE_FAILED`, `RELEASE_BUSY`), 3 needs approval, 5 eval gate failed. The
-steps:
+already released into production, 1 runtime failure (including `PACKAGE_INPUTS_CHANGED` and
+`PACKAGE_PUBLISH_MISMATCH`), 2 denied or a release precondition failed (for example `LOCK_STALE`,
+`PRODUCTION_CHANGED`, `REMOVE_FAILED`, `RELEASE_BUSY`, `VERSION_EXISTS`, `VERSION_INVALID`), 3
+needs approval, 5 eval gate failed. The steps:
 
 1. Build with `--locked`.
 2. Check the production manifest through the gate without deploying. A deny exits 2. A required
@@ -237,10 +238,40 @@ steps:
    judge's reason (up to 200 characters), with control characters removed. These excerpts come
    from the model and the eval set, and they also appear in console job logs (on `main`, not in a
    published preview).
-5. Otherwise write a release journal (the previous production and its manifest) to
+5. Otherwise write the agent package `agent/<name>@X.Y.Z` into `./registry/agent/` (see
+   below), write a release journal (the previous production and its manifest) to
    `<state-dir>/releases/<name>.json`,
    remove the old production, and deploy the **exact evaluated image**.
 6. If the new production fails to start, restore the previous one.
+
+**The agent package** (on `main`, not in a published preview; format in
+[`registry.md`](registry.md#agent-packages-in-progress-on-main-not-in-a-published-preview)).
+Each release writes one immutable registry version, `./registry/agent/<name>/<X.Y.Z>/`, holding
+the released `agent.yaml`, a redacted copy of `agent.lock`, and `package.json` (image ID and
+platform, input hashes, eval summary, deploy template).
+- **Version.** `--version X.Y.Z`, or by default the next patch above every taken version (`0.1.0`
+  first). A version is taken when its directory exists or when an earlier release in this state
+  directory reserved it, even if that release failed or its directory was deleted. A taken version
+  exits 2 with `VERSION_EXISTS` before any eval runs, and the `Next:` line names the next free
+  version. The version is chosen after the build and before the preflight.
+- **When it is written.** Only after the eval gate passes and production is checked unchanged,
+  and before the journal. If `agent.yaml` or `agent.lock` changed while the evals ran, nothing is
+  published and release exits 1 (`PACKAGE_INPUTS_CHANGED`); production is unchanged.
+- **The release row.** `release/promoted` names the package (`RELEASE_PACKAGE`), its tree hash
+  (`RELEASE_PACKAGE_SHA256`) and a hash of the project path (`RELEASE_PROJECT`).
+- **Cleanup.** If no `promoted` row is recorded after the package is published (a failed or
+  denied production deploy, an interrupt, any error), the package is deleted again, but only if
+  it is unchanged. The version stays reserved. If the audit log could not be confirmed
+  (`AUDIT_WRITE_FAILED`), the package is kept and release says so (`PACKAGE_KEPT_UNVERIFIED`);
+  run `agentbreeder audit verify`. A directory left by a release that was killed outright is never
+  reused; `--version` naming it says it was never released and can be deleted.
+- **Releasing the same image again** while it is the ready production gives its existing package
+  (`[PACKAGE_EXISTS]`, exit 0); a different `--version` is not used. That needs the package
+  directory to still hold exactly what was released, from this project; otherwise the image is
+  evaluated again and released as a new version without replacing production.
+- `--json` adds `package: {ref, sha256, path}` (the path relative to the project), and text output
+  prints a `Package:` line.
+- `package.json` records the image's `os/architecture` from `docker image inspect`.
 
 Before it removes the candidate, every release reads the candidate's last 500 log lines (stdout
 and stderr, timestamped, newest kept) and the values needed to redact them; after the removal it
@@ -272,7 +303,9 @@ With `--json`, release adds these keys when they apply:
 
 Production that already runs the built image counts as released only when the audit log has a
 `release/promoted` row for that image and manifest, at no lower a threshold and with the same
-eval set as now. Otherwise (for example after a plain `deploy` of the production manifest),
+eval set as now, and (on `main`) that row names a package still present in the project. Rows
+written before packages existed do not count for `release`, which evaluates the image again and
+records a packaged release; `promote` still accepts them. Otherwise (for example after a plain `deploy` of the production manifest),
 release warns, evaluates the same image as a candidate, and on a pass records the release
 without replacing production; on a fail it exits 5 and says to `remove ID --local` (and
 `--rollback` only when a release journal with a previous production exists). It never removes

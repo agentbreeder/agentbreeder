@@ -733,9 +733,18 @@ Each slice gets:
      the three release-row reasons; `link_package`.
    - Cleanup on failure; G-F3 and pre-M13 rows; the crash path; `--json`.
    - A Northwind release writes `agent/northwind@0.1.0`.
+   - *As built (2026-11-13):*
+     - `store.link_package`, the v4 `package` column and the `PACKAGE_EXISTS` repair of a
+       NULL link move to slice 3, with the store schema change for deploy by ref (coordinator
+       OK).
+     - A released package that is missing, changed or from another project is reported as a
+       `PACKAGE_MISSING` warning on the G-F3 path.
+     - The Northwind run is left for the batched milestone verification.
 3. **`deploy agent/…` local.**
    - Ref parsing, `--project`, resolve, hash, evidence, bind, image check, gate.
    - Store v4 `package` column, `DEPLOY_PACKAGE`, `status --json`, `registry used-by`.
+   - From slice 2: `store.link_package` after the release row, and its repair on the
+     `PACKAGE_EXISTS` path.
    - Each refusal in §15 tested on its own.
 4. **kind.**
    - `deploy agent/… --cluster`: image push, artifact push, the three checks of §8.3, and a

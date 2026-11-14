@@ -24,6 +24,15 @@ def _bare_launcher(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fake_image_platform(monkeypatch):
+    """`release` reads the built image's platform for the package (M13); tests fake the image
+    builder, so there is no image to inspect. tests/test_release_package.py covers the real one."""
+    from agentbreeder import release
+
+    monkeypatch.setattr(release, "docker_platform", lambda image: "linux/arm64")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_legacy_home(monkeypatch):
     """`doctor` must not see the developer's real ~/.agentbreeder (2.x state adds an INFO line)."""
     from agentbreeder.commands import doctor
