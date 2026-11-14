@@ -38,6 +38,7 @@ from pydantic import ValidationError
 
 from agentbreeder import __version__, guide, registry
 from agentbreeder.center import agents as agent_rows
+from agentbreeder.center import evals as eval_reads
 from agentbreeder.center import onboard, tryit
 from agentbreeder.center.files import (
     BadRequest,
@@ -118,6 +119,7 @@ MAX_TURNS_IN_FLIGHT = 4
 AUDIT_PAGE = 50  # rows per Audit page; one more is read to know whether an older page exists
 AUDIT_BEFORE = re.compile(r"[1-9][0-9]{0,17}")  # `audit list --before SEQ`
 AGENT = r"(?P<agent>[a-z0-9][a-z0-9-]{0,52})"
+EVAL_RUN = r"(?P<run>[0-9]{8}-[0-9]{6}-[0-9a-f]{6})"  # eval_reports.RUN
 
 
 def center_directory() -> Path:
@@ -376,8 +378,8 @@ class Center:
         self, project: dict, view: str, query: dict[str, list[str]] | None = None
     ) -> dict:
         """The envelope for one view: a single CLI read is its own envelope; a view made of
-        several reads carries each read's envelope in `data`. Only `audit` reads the query
-        (`before`, a seq: the page of rows older than it)."""
+        several reads carries each read's envelope in `data`. Only `audit` (`before`, a seq: the
+        page of rows older than it) and `evals` (`agent`, an agent name) read the query."""
         path, environment = project["path"], project["environment"]
         read = self.runner.read
         if view == "services":
@@ -431,6 +433,8 @@ class Center:
             )
         if view == "identity":
             return self.reads.stack_agents(path)
+        if view == "evals":  # the eval reports `release` saved in the project's deploy/ (#932)
+            return self.eval_reports(project, None, query or {})
         if view == "releases":  # the project's release history, from its audit chain (#823)
             state = self.state_dir(project)
             if not state:
@@ -505,6 +509,40 @@ class Center:
                 ),
             )
         return envelope(checked)
+
+    def eval_reports(self, project: dict, run: str | None, query: dict[str, list[str]]) -> dict:
+        """The saved eval reports (`evals list`), or one run's report (`evals show RUN`), from the
+        project's default `deploy/` folder (#932): fixed argv from `center/evals.py`, redacted
+        with the stack's state, never cached, the answer checked against its shape."""
+        try:
+            state = self.state_dir(project)
+            if not state:
+                return envelope(None, error("STACK_NOT_UP", "Start the services first"))
+            argv = (
+                eval_reads.list_argv(project, state, query)
+                if run is None
+                else eval_reads.show_argv(project, state, run, query)
+            )
+        except eval_reads.Invalid as problem:
+            raise BadRequest(str(problem), problem.code) from None
+        result = self.runner.read(argv, timeout=eval_reads.TIMEOUT, cache=False, track=True)
+        if result["data"] is None:
+            return result
+        ok = (
+            eval_reads.list_answer(result["data"])
+            if run is None
+            else eval_reads.show_answer(result["data"], run)
+        )
+        if not ok:
+            return envelope(
+                None,
+                error(
+                    "EVALS_INVALID",
+                    "The eval report answer does not match its contract; run the command in a "
+                    "terminal",
+                ),
+            )
+        return envelope(result["data"])
 
     def try_turn(self, project: dict, name: str, body: dict) -> dict:
         """One Try it turn (#823): `invoke NAME - --json` with the message on stdin (S-12a), as
@@ -753,6 +791,10 @@ def _deployment_logs(request: Request) -> dict:
     )
 
 
+def _eval_report(request: Request) -> dict:
+    return request.center.eval_reports(request.project(), request.match["run"], request.query)
+
+
 def _agents(request: Request) -> dict:
     return request.center.agents()
 
@@ -864,6 +906,12 @@ ROUTES: tuple[Route, ...] = (
         rf"/api/projects/{PROJECT_ID}/logs/deployment/{DEPLOYMENT}",
         _deployment_logs,
         "/api/projects/0123456789ab/logs/deployment/" + "0" * 32,
+    ),
+    Route(
+        "GET",
+        rf"/api/projects/{PROJECT_ID}/evals/{EVAL_RUN}",
+        _eval_report,
+        "/api/projects/0123456789ab/evals/20261113-213200-1a2b3c",
     ),
     Route("GET", rf"/api/jobs/{JOB_ID}", _job, "/api/jobs/" + "0" * 32, poll=True),
     Route("POST", r"/api/session", _session, "/api/session", session=False),

@@ -177,7 +177,7 @@ for 51 rows to know whether an older page exists.
 - **Mode and reasons**: each row's enforcement mode and reason codes. A release row also shows
   its eval run (`Evals 12/12, run ID`) and, when its agent is known, the report file `release`
   wrote, as a path relative to the project (`deploy/NAME.eval-RUN.json`, the default output).
-  The console does not open the report yet; that is the next slice.
+  The run id links to the eval report viewer (below).
 - **Production**: an agent with a ready local production deployment links to Try it and shows
   its endpoint as text, once, on that agent's newest row on the page. The link is today's
   deployment, not the one running at the row's time. Candidates never link to Try it.
@@ -190,6 +190,42 @@ over 120 rows and back; focus after paging; a failed page and Retry; one Product
 exactly 50 rows has no older page; untrusted reason and agent text shows as text; axe passes in
 light and dark on the first and second page. Not yet run against a real deployment: that
 is the M8 console verification.
+
+### The eval report viewer (#932): on `main`, not in a published preview
+
+An Audit release row's run id, and each scored release on an agent's Releases tab ("Eval
+report"), open `#/audit/evals/RUN/AGENT` (or `#/audit/evals/RUN` when the agent is not known).
+The server reads `evals show RUN --project DIR --state-dir STATE [--agent NAME] [--content]
+--json` with the registered project's path and its stack's state directory (for redaction); only
+the run id (`YYYYMMDD-HHMMSS-<6 hex>`), the agent (the agent name rule) and `content=1` come from
+the request. Reads are never cached, and an answer that does not match the contract
+(`docs/evals.md`, schema version 1, the requested run, an agent name) is refused with
+`EVALS_INVALID`. The redaction needs the stack's state directory, so without a running stack the
+server reads nothing (`STACK_NOT_UP`); `agentbreeder evals show` in a terminal still works. A
+route whose agent is not an agent name reads nothing either, rather than dropping the agent.
+
+- **Eval run**: the score in words ("2 of 3 cases passed (66.7%)"), shown as passed only when
+  the saved header says every case passed (it counts cases skipped as malformed); the eval set,
+  judge, mean correctness, median latency, the endpoint evaluated (the candidate, which
+  `release` removes afterwards), the report file, and the report's notes.
+- **Cases**: failed first, then passed after a retry, then passed, each group in the report's
+  order: case id and category, result, failed checks, correctness, the judge's reason, latency
+  and the trace id (with Copy; read it with `agentbreeder traces --trace ID`).
+- **Replies and explanations** are read only after "Show replies and explanations"
+  (`--content`): each case then has a closed "Reply and explanation" disclosure. They are model
+  output, redacted and capped by the CLI, and shown as text with controls made visible. If that
+  read fails, Retry and "Show the report without replies" are offered.
+
+`GET /api/projects/ID/evals` (`evals list`, the project's saved reports, newest first) is there
+for later screens; no screen lists reports yet. `static/lib/evals.js` holds the paths, the route
+and the case ordering as pure functions, with its exports listed at the top.
+
+Tested with pytest (the argv against the real `evals` parser, bad run ids and agents never reach
+the CLI, no caching, off-contract answers refused) and Playwright with the fake CLI: the Audit
+and Releases links, the summary and case order, the tone following the saved header, content on
+request, a failed read with Retry, a failed content read and the way back, a bad run id or agent
+name reading nothing, and axe in light and dark. Not yet run against a real release; that
+is part of the M8 console verification.
 
 ### The guided path and Create starter (#820): on `main`, not in a published preview
 
