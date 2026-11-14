@@ -1,0 +1,9 @@
+kind: agent
+schema_version: 1
+name: demo
+runtime: runtime/adk@1.1.0
+description: A fixture agent for the console UI tests.
+model:
+  alias: chat
+prompt:
+  path: prompts/demo.md
