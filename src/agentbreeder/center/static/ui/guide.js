@@ -17,7 +17,7 @@ function useStepAction(project) {
     if (!action) return;
     setNotice(null);
     try {
-      if (action.job) await jobs.start(project.id, action.job);
+      if (action.job) await jobs.start(project.id, action.job, action.options);
       else if (action.route) navigate(action.route);
       else if (action.try) navigate(tryRoute(guide.data) || "/deployments");
       else if (action.starter) {
@@ -48,7 +48,7 @@ function StepFix({ step, project, run }) {
       ? html`<p class="muted small">${action ? "Or in a terminal:" : "Run this in a terminal:"}</p>
           <${Text} value=${fix.command} block copy label=${`${step.title} command`} />`
       : null}
-    ${fix.note ? html`<p class="muted small"><${Text} value=${fix.note} /></p>` : null}
+    ${fix.note && !(action && action.hideNote) ? html`<p class="muted small"><${Text} value=${fix.note} /></p>` : null}
     ${host ? html`<p class="small"><a href=${fix.url} target="_blank" rel="noopener noreferrer">Open the provider's key page</a> <span class="muted">(${host})</span></p>` : null}
   </div>`;
 }

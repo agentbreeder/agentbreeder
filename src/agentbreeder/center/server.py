@@ -121,6 +121,8 @@ LOG_TIMEOUT = 60  # one `docker logs` or `kubectl logs`, after the CLI's own che
 # Try it (#823, M7): turns in flight across the console. Each holds a child for up to
 # `tryit.TIMEOUT`; the screen sends one at a time per tab.
 MAX_TURNS_IN_FLIGHT = 4
+# SERVICES_BUSY (#822 S-11): another services write holds the stack; the console says so plainly.
+SERVICES_BUSY_TEXT = "Another operation is running on this stack; retry when it finishes"
 MAX_TRACES_IN_FLIGHT = 4  # Try it trace reads (#907), each a `traces` child of up to 120 s
 AUDIT_PAGE = 50  # rows per Audit page; one more is read to know whether an older page exists
 AUDIT_BEFORE = re.compile(r"[1-9][0-9]{0,17}")  # `audit list --before SEQ`
@@ -619,6 +621,13 @@ class Center:
             ],
             timeout=120,
         )
+        problem = result.get("error") or {}
+        if problem.get("code") == "SERVICES_BUSY":
+            # `plan` is a services write (it records ports and copies): it fails fast while
+            # another services write runs on the stack (S-11). No cached grant is shown then:
+            # it could not be started until that write ends.
+            busy = error("SERVICES_BUSY", SERVICES_BUSY_TEXT)
+            result = {"data": None, "error": busy, "stale": False}
         return {**result, "accepted_text": project.get("accepted_grant")}
 
     def recheck(self, project: dict) -> None:
@@ -678,6 +687,8 @@ class Center:
         on_success = None
         if kind == "services-up":
             preview = self.plan(project)
+            if (preview.get("error") or {}).get("code") == "SERVICES_BUSY":
+                raise BadRequest(SERVICES_BUSY_TEXT, "SERVICES_BUSY")
             if preview.get("error"):  # never start from a cached (stale) grant
                 raise BadRequest("Could not read the grant; review it again", "GRANT_UNAVAILABLE")
             data = preview.get("data") or {}
@@ -1495,8 +1506,11 @@ def _run(args, center: Center, server: ThreadingHTTPServer, instance: SingleInst
     if not args.no_browser:
         webbrowser.open(page.as_uri())
     if args.yes and project is not None:
-        preview = center.plan(project).get("data")
-        if preview is None:
+        answer = center.plan(project)
+        preview = answer.get("data")
+        if (answer.get("error") or {}).get("code") == "SERVICES_BUSY":
+            print(f"Services not started: {SERVICES_BUSY_TEXT}", file=sys.stderr)
+        elif preview is None:
             print("Could not read the stack's grant", file=sys.stderr)
         else:
             print(preview["text"], file=sys.stderr)

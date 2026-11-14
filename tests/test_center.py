@@ -678,6 +678,18 @@ def test_main_with_yes_survives_a_refused_stack(quiet_main, monkeypatch, project
     assert "Services not started" in capsys.readouterr().err
 
 
+def test_main_with_yes_on_a_busy_stack_says_another_operation_runs(
+    quiet_main, monkeypatch, project_dir, capsys
+):
+    started = []
+    monkeypatch.setattr(Center, "start_job", lambda self, project, body: started.append(body))
+    busy = {"data": None, "error": {"code": "SERVICES_BUSY", "message": "x"}, "stale": False}
+    monkeypatch.setattr(Center, "plan", lambda self, project: busy)
+    assert server.main(arguments(dir=project_dir, yes=True)) == 0
+    assert "Another operation is running on this stack" in capsys.readouterr().err
+    assert started == []
+
+
 def test_main_rejects_a_bad_environment_and_project(quiet_main, tmp_path, capsys):
     assert server.main(arguments(environment="NOT VALID")) == 2
     assert server.main(arguments(dir=tmp_path)) == 2
@@ -1197,6 +1209,55 @@ def test_services_never_start_from_a_stale_grant(center, project, cookie, monkey
     )
     status, data, _ = start(center, project, cookie, "services-up", {"digest": DIGEST})
     assert status == 400 and data["error"]["code"] == "GRANT_UNAVAILABLE"
+
+
+def test_a_busy_stack_is_said_plainly_in_the_preview_and_never_shows_a_cached_grant(
+    center, project, cookie, monkeypatch
+):
+    """`services plan` is a services write (S-11, #822): while another one holds the stack it
+    fails with SERVICES_BUSY. The preview says so, without the last good grant."""
+    answers = iter(
+        [
+            {
+                "data": {"digest": DIGEST, "text": "grant", "mcp": []},
+                "error": None,
+                "stale": False,
+            },
+            {
+                "data": {"digest": DIGEST, "text": "grant", "mcp": []},
+                "error": {"code": "SERVICES_BUSY", "message": "another services operation ..."},
+                "stale": True,
+            },
+        ]
+    )
+    monkeypatch.setattr(center.runner, "read", lambda argv, **options: next(answers))
+    path = f"/api/projects/{project['id']}/plan"
+    status, data, _ = api(center, "POST", path, {}, cookie)
+    assert status == 200 and data["data"]["grant"]["text"] == "grant"
+    status, data, _ = api(center, "POST", path, {}, cookie)
+    assert status == 200
+    assert data["data"]["grant"] is None and data["stale"] is False
+    assert data["error"] == {
+        "code": "SERVICES_BUSY",
+        "message": "Another operation is running on this stack; retry when it finishes",
+    }
+
+
+def test_services_up_on_a_busy_stack_is_refused_as_busy_not_as_a_bad_grant(
+    center, project, cookie, monkeypatch
+):
+    monkeypatch.setattr(
+        center.runner,
+        "read",
+        lambda argv, **options: {
+            "data": None,
+            "error": {"code": "SERVICES_BUSY", "message": "x"},
+            "stale": False,
+        },
+    )
+    status, data, _ = start(center, project, cookie, "services-up", {"digest": DIGEST})
+    assert status == 400 and data["error"]["code"] == "SERVICES_BUSY"
+    assert data["error"]["message"].startswith("Another operation is running on this stack")
 
 
 def test_a_stalled_body_times_out_with_a_coded_408(center, cookie, monkeypatch):

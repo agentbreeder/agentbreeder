@@ -36,10 +36,18 @@ const ACTIONS = {
   invoke: { label: "Try it", try: true },
 };
 
+// LOCK_STALE (docs/next.md) has no `fix.action`: the guide assumes the console's build is
+// `--locked`, which refuses a stale lock. The build job's `lock: "update"` option (#826) runs a
+// plain `build`, which rewrites agent.lock to agent.yaml's refs, so the console offers that. The
+// guide's note ("run it from the CLI") is then not shown.
+const LOCK_UPDATE = { label: "Build and update agent.lock", job: "build", options: { lock: "update" }, hideNote: true };
+
 /** The console move for a step's fix, or null (an unknown or null action: show the command). */
 export function actionFor(step) {
   const action = step && step.fix && step.fix.action;
-  return (action && Object.prototype.hasOwnProperty.call(ACTIONS, action) && ACTIONS[action]) || null;
+  if (action) return (Object.prototype.hasOwnProperty.call(ACTIONS, action) && ACTIONS[action]) || null;
+  const stale = step && step.id === "build" && step.reason && step.reason.code === "LOCK_STALE";
+  return stale && step.fix ? LOCK_UPDATE : null;
 }
 
 const STATE_WORDS = { done: "Done", next: "Next", blocked: "Blocked", todo: "To do" };

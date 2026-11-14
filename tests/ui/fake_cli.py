@@ -55,6 +55,8 @@ DEFAULT = {
     # `next --json`: a file under fixtures/guide (the project path is filled in), or null for a
     # failed run (exit 2, a coded line).
     "guide": "services",
+    # `services plan`: true fails it with SERVICES_BUSY (another services write holds the stack).
+    "plan_busy": False,
     # `new agent`: null writes the demo project into --dir; a {code, message} refuses.
     "new_error": None,
     # `registry used-by`: the deployments shown for a project that uses the ref.
@@ -285,6 +287,10 @@ def main(argv: list[str]) -> int:
     data = scenario()
     head = argv[:2]
     if head == ["services", "plan"]:
+        if data.get("plan_busy"):  # another services write holds the stack (#822 S-11)
+            message = "another services operation is running on this stack; retry when it finishes"
+            print(f"[SERVICES_BUSY] {message}", file=sys.stderr)
+            return 2
         print(json.dumps({"digest": DIGEST, "text": GRANT, "keys": data["keys"], "mcp": []}))
     elif head == ["services", "status"]:
         print(json.dumps({"services": data["services"]}))

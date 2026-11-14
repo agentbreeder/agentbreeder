@@ -280,9 +280,15 @@ Gemini key page) opens only on a click, with its host shown.
 
 - **Home checklist**: every step with its state as an icon and a word (Done, Next, Blocked, To
   do), its reason, and for the current step its button, command and note. A stale `agent.lock`
-  (`LOCK_STALE`) has no button: the console's build is `build --locked`, so it shows the CLI
-  instruction instead. While a job runs in the project, the list says it is checked again when the
-  job ends.
+  (`LOCK_STALE`, which `next` gives no action) gets **Build and update agent.lock**: the build job
+  without `--locked`, the plain `build` that rewrites the lock to `agent.yaml`'s refs. The CLI
+  command stays to copy; the guide's note that the console's build is `--locked` is not shown.
+  While a job runs in the project, the list says it is checked again when the job ends.
+- **A busy stack**: `services plan` is a services write, so while another one (`up`, `down`,
+  `start`, `stop`, `restart`, `cluster up|down`) runs on the stack the grant review fails with
+  `SERVICES_BUSY`. The Services screen then says "Another operation is running on this stack;
+  retry when it finishes" and shows no grant (not the last one read), and starting services is
+  refused with the same code and words.
 - **Next pill** in the top bar ("Next: Services", "Blocked: …" or "All steps done"), for the
   project in scope; it opens the Home checklist.
 - **Result row**: a finished job of that project shows where the path stands now ("Next step:
