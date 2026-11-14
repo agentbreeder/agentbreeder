@@ -1,5 +1,5 @@
 usage: agentbreeder [-h] [--version]
-                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events} ...
+                    {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events} ...
 
 Local development: validate, gate and deploy trusted HTTP containers. The
 identity gate runs at deploy time; status and reconcile re-verify principals.
@@ -7,7 +7,7 @@ Opt-in runtime enforcement covers MCP Streamable HTTP tool calls through the
 egress sidecar only.
 
 positional arguments:
-  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events}
+  {validate,doctor,example,quickstart,deploy,status,remove,forward,list,approve,reject,approve-call,reject-call,disable,enable,reconcile,audit,build,eval,release,registry,agent,secret,services,promote,cluster,up,login,migrate,logs,next,new,invoke,watch,events}
     validate            Validate a deploy manifest or an agent file (kind:
                         agent)
     doctor              Check local Docker prerequisites without changes
@@ -35,6 +35,7 @@ positional arguments:
     release             Build, deploy a candidate, run the eval gate, promote
                         the exact image if it passes
     registry            Author and inspect registry versions
+    agent               Change the project's agent.yaml
     secret              Manage local secret files (secret:// refs)
     services            Local backing services from stack.yaml (local-only
                         preview)

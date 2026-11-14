@@ -19,6 +19,7 @@ Run `agentbreeder COMMAND --help` for flags; see the root README for the demo.
 ## Commands
 
 <!-- commands-index:start -->
+- [`agent`](commands/agent.md): Change the project's agent.yaml.
 - [`approve`](commands/approve.md): Approve a pending approval as a second person.
 - [`approve-call`](commands/approve-call.md): Approve one held MCP tool call as a second person.
 - [`audit`](commands/audit.md): Inspect and verify the local audit chain.
