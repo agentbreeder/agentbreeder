@@ -1,5 +1,7 @@
 // Services: the project's stack, the grant review that starts it, and its registries.
 
+import { consentMissing, consentNames, driftedServers, planServers, repinCommand } from "../lib/mcp.js";
+import { href } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import { portsText, serviceState, serviceUp } from "../lib/format.js";
 import { Action, Actions, Card, Notice, Table, Text, ViewState, useConfirm, useConsole } from "../ui/components.js";
@@ -66,7 +68,7 @@ export function Services({ project }) {
         ${rows.length ? html`<${Action} tone="secondary" disabled=${!busy && stopped && "The services are stopped."} onClick=${stop}>Stop services<//>` : null}
       <//>
     <//>
-    ${plan && plan.grant ? html`<${Grant} key=${plan.review} plan=${plan} busy=${busy} onStart=${start} onError=${setNotice} />` : null}
+    ${plan && plan.grant ? html`<${Grant} key=${plan.review} plan=${plan} project=${project} status=${services.data} busy=${busy} onStart=${start} onError=${setNotice} />` : null}
     <${Registries} view=${registry} />
   `;
 }
@@ -77,12 +79,21 @@ function Ports({ info }) {
   return serviceUp(info) ? html`<${Text} value=${text} />` : html`<span class="muted"><${Text} value=${text} /></span>`;
 }
 
-function Grant({ plan, busy, onStart, onError }) {
+function Grant({ plan, project, status, busy, onStart, onError }) {
   const grant = plan.grant;
   const needed = grant.keys.filter((key) => !key.stored);
   const stored = grant.keys.filter((key) => key.stored);
   const values = useRef(Object.create(null)); // key names come from the CLI: no prototype
-  const mcp = grant.mcp.length > 0;
+  const servers = planServers(grant);
+  // MCP consent (#831): a new review is a new form (the key), so nothing ticked carries over.
+  const [ticked, setTicked] = useState(() => new Set());
+  const missing = consentMissing(servers, ticked);
+  const tick = (name, on) => {
+    const next = new Set(ticked);
+    if (on) next.add(name);
+    else next.delete(name);
+    setTicked(next);
+  };
   const submit = (event) => {
     event.preventDefault();
     const keys = {};
@@ -94,10 +105,14 @@ function Grant({ plan, busy, onStart, onError }) {
       }
       if (value) keys[key.name] = value;
     }
-    onStart("services-up", { digest: grant.digest }, Object.keys(keys).length ? keys : undefined);
+    if (missing) {
+      onError({ tone: "error", text: missing });
+      return;
+    }
+    const allow = consentNames(servers, ticked);
+    onStart("services-up", { digest: grant.digest, ...(allow.length ? { allow_project_mcp: allow } : {}) }, Object.keys(keys).length ? keys : undefined);
   };
   return html`<${Card} title="What will run">
-    ${mcp ? html`<p class="notice warn">This stack has MCP servers (<${Text} value=${grant.mcp.join(", ")} />). Review their tools with the CLI: <code>agentbreeder services up</code>.</p>` : null}
     <${Changes} before=${plan.accepted_text} after=${grant.text} />
     <${Text} block value=${grant.text} label="Grant" />
     <p class="muted small">Grant digest ${grant.digest.slice(0, 16)}…</p>
@@ -107,9 +122,40 @@ function Grant({ plan, busy, onStart, onError }) {
         <input type="password" autocomplete="new-password" id=${`key-${key.name}`} onInput=${(event) => { values.current[key.name] = event.currentTarget.value; }} />`)}
       ${stored.length ? html`<p class="muted">Already stored: <${Text} value=${stored.map((key) => key.name).join(", ")} />. Enter a value through the CLI to replace one.</p>` : null}
       <p class="muted small">Keys go to the stack's private state and are never shown again.</p>
-      <${Action} type="submit" disabled=${busy || (mcp && "Stacks with MCP servers start from the CLI, so their tools are reviewed there.")}>Confirm and start<//>
+      ${servers.length ? html`<${McpReview} servers=${servers} ticked=${ticked} onTick=${tick} drifted=${driftedServers(status)} project=${project} />` : null}
+      <${Action} type="submit" disabled=${busy || missing}>Confirm and start<//>
     </form>
   <//>`;
+}
+
+/**
+ * MCP servers in the services review (#831): each server, its origin and upstream, and which
+ * credential it sends where. One that is not built in (project or registry-path code) needs a
+ * tick: `--allow-project-mcp NAME`. After the relays start, first pins and new tools are
+ * accepted for built-in servers and the allowed ones (trust on first use); a changed definition
+ * is never accepted here (#964).
+ */
+function McpReview({ servers, ticked, onTick, drifted, project }) {
+  return html`<fieldset class="mcp-review">
+    <legend>MCP servers</legend>
+    <p class="muted small">Each runs behind its own relay, which holds the credential; agents never do. After the relays start, the tools each server serves for the first time are pinned as they are now (trust on first use) for built-in servers and the ones allowed below; the job log shows every definition pinned. See <a href=${href("/mcp")}>MCP grants</a> for the pins and grants.</p>
+    <ul class="plain">
+      ${servers.map((row) => html`<li key=${row.server}>
+        <strong><code><${Text} value=${`mcp.${row.server}`} /></code></strong> <code><${Text} value=${row.ref} /></code> <span class="muted small">(<${Text} value=${row.origin} />)</span>
+        <div class="small">Upstream <code><${Text} value=${row.upstream || "none"} /></code></div>
+        ${row.credentials.length
+          ? row.credentials.map((c) => html`<div class="small" key=${c.variable}>Credential <code><${Text} value=${c.variable} /></code> will be sent to <code><${Text} value=${c.destination || "its upstream"} /></code></div>`)
+          : html`<div class="small muted">No credential.</div>`}
+        ${row.accessTokenTo ? html`<div class="small">The access token it mints will be sent to <code><${Text} value=${row.accessTokenTo} /></code></div>` : null}
+        ${row.builtIn
+          ? null
+          : html`<label class="consent"><input type="checkbox" checked=${ticked.has(row.server)} onChange=${(event) => onTick(row.server, event.currentTarget.checked)} /> <${Text} value=${row.sendsCredential
+              ? `Allow mcp.${row.server}, a ${row.origin} version: send ${row.credentials.map((c) => `${c.variable} to ${c.destination || "its upstream"}`).join(", ") || "its credential to its upstream"}${row.accessTokenTo ? ` (and the access token it mints to ${row.accessTokenTo})` : ""}, and pin its tools on first use. Its effect labels are untrusted.`
+              : `Allow mcp.${row.server}, a ${row.origin} version: pin its tools on first use. Its effect labels are untrusted.`} /></label>`}
+      </li>`)}
+    </ul>
+    ${drifted.length ? html`<p class="notice warn" role="status">Pinned tools changed upstream on <${Text} value=${drifted.map((name) => `mcp.${name}`).join(", ")} />. Starting keeps them hidden; review the change in a terminal: <code><${Text} value=${repinCommand(project.path, project.environment)} /></code></p>` : null}
+  </fieldset>`;
 }
 
 /** Lines added and removed since the grant was last accepted (set comparison, like a2). */

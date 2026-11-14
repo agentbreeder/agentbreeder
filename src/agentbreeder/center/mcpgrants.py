@@ -12,6 +12,13 @@ The tools a server's version declares come from its `mcp.yaml`, as `registry sho
 (a CLI child): the text is parsed here, in memory, with the strict YAML loader. The list only
 fills the form; the CLI makes the real check (`MCP_TOOL_UNDECLARED`).
 
+Starting services for a stack with MCP servers (#831 part 3) goes through the existing grant
+review. A server that is not built in (project or registry-path code) needs the person's consent,
+passed as `--allow-project-mcp NAME` (`consent_servers`, `consent_names`): without it `services
+up` refuses one whose remote upstream gets a credential (`MCP_PROJECT_CONSENT`), and refuses to pin
+any other's first tools without a terminal (`MCP_PINS_NOT_CONFIRMED`), after its relay started. So
+the console asks before the job for every such server.
+
 Imports only `registry` and `strict_yaml` (both on the server's allowlist)."""
 
 from __future__ import annotations
@@ -207,3 +214,60 @@ def declared_tools(show: object) -> tuple[list[dict] | None, dict | None]:
             return None, unreadable
         rows.append({"name": name, "effect": effect})
     return sorted(rows, key=lambda row: row["name"]), None
+
+
+def consent_servers(preview: object) -> list[dict]:
+    """The `mcp` servers of a `services plan --json` answer that are not built in, each
+    `{server, ref, origin, upstream, credentials: [{variable, destination}], sends_credential}`.
+    `sends_credential` is `mcp_stack.needs_project_consent`, from the grant's own fields (a test
+    keeps them equal): a remote upstream (`egress: yes`) with auth other than none."""
+    grant = preview.get("grant") if isinstance(preview, dict) else None
+    servers = grant.get("mcp") if isinstance(grant, dict) else None
+    rows = []
+    for item in servers if isinstance(servers, list) else []:
+        if not isinstance(item, dict) or item.get("origin") == "built-in":
+            continue
+        name = item.get("server")
+        if not isinstance(name, str) or not SERVER.fullmatch(name):
+            continue
+        credentials = [
+            {"variable": str(c.get("variable", "")), "destination": str(c.get("destination", ""))}
+            for c in (item.get("credentials") if isinstance(item.get("credentials"), list) else [])
+            if isinstance(c, dict)
+        ]
+        rows.append(
+            {
+                "server": name,
+                "ref": str(item.get("ref", "")),
+                "origin": str(item.get("origin", "")),
+                "upstream": str(item.get("upstream", "")),
+                "credentials": credentials,
+                "sends_credential": item.get("egress") == "yes" and item.get("auth") != "none",
+            }
+        )
+    return rows
+
+
+def consent_names(value: object, preview: object) -> list[str]:
+    """The `allow_project_mcp` job option checked against the fresh plan: exactly the servers
+    that are not built in, each named once (sorted), or BadRequest. Refused before the job, so
+    no relay starts on a consent that `services up` would then refuse."""
+    if value is None:
+        value = []
+    if not isinstance(value, list) or not all(
+        isinstance(name, str) and SERVER.fullmatch(name) for name in value
+    ):
+        raise BadRequest("Invalid MCP server consent", "MCP_CONSENT_INVALID")
+    needed = {row["server"] for row in consent_servers(preview)}
+    given = set(value)
+    if given - needed:
+        raise BadRequest(
+            "Consent names a server that needs none; review it again", "MCP_CONSENT_INVALID"
+        )
+    missing = sorted(needed - given)
+    if missing:
+        raise BadRequest(
+            f"Allow mcp.{missing[0]} (project code) before starting, or start from a terminal",
+            "MCP_PROJECT_CONSENT",
+        )
+    return sorted(given)

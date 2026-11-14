@@ -44,6 +44,7 @@ MAX_CACHED = 256  # last good read answers kept
 ENVIRONMENT = re.compile(r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$")
 DEPLOYMENT = re.compile(r"^[0-9a-f]{32}$")
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
+MCP_SERVER = re.compile(r"^[a-z][a-z0-9_]{0,31}$")  # services.schema.MCP_SERVER
 KEY_NAME = re.compile(r"^[A-Z_][A-Z0-9_]{0,127}$")
 CODED = re.compile(r"^\[([A-Z][A-Z0-9_]{2,39})\] (.+)$")
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
@@ -332,6 +333,12 @@ def argv_for(kind: str, project: dict, options: dict) -> list[str]:
             "--expect-grant",
             digest,
         ]
+        # Consent for MCP servers that are not built in (#831), checked against the plan before
+        # the job (`mcpgrants.consent_names`); the names are checked again here, at the argv.
+        for name in options.get("allow_project_mcp") or []:
+            if not isinstance(name, str) or not MCP_SERVER.fullmatch(name):
+                raise BadRequest("Invalid MCP server consent")
+            argv += ["--allow-project-mcp", name]
         return [*argv, "--env-file", options["env_file"]] if options.get("env_file") else argv
     if kind == "services-down":
         return ["services", "down", path]

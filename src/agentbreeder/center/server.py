@@ -87,7 +87,7 @@ STARTER_NAME = re.compile(r"^[a-z]([a-z0-9-]{0,29}[a-z0-9])?$")
 GUIDE_TIMEOUT = 60  # `next` runs doctor's checks and one `compose ps`
 # `build`'s `lock: "update"` drops --locked after "Move agent to this version" (#826).
 OPTIONS = {
-    "services-up": ("digest",),
+    "services-up": ("digest", "allow_project_mcp"),
     "remove": ("deployment", "target"),
     "build": ("lock",),
 }
@@ -867,12 +867,11 @@ class Center:
             data = preview.get("data") or {}
             if data.get("digest") != options.get("digest"):
                 raise BadRequest("The grant changed; review it again", "GRANT_CHANGED")
-            if data.get("mcp"):
-                raise BadRequest(
-                    "This stack has MCP servers; review their tools with "
-                    f"`agentbreeder services up {project['path']}`",
-                    "MCP_NEEDS_CLI",
-                )
+            # MCP servers that are not built in need the person's consent (#831): checked
+            # against this fresh plan, then passed as `--allow-project-mcp NAME`.
+            options["allow_project_mcp"] = mcpgrants.consent_names(
+                options.get("allow_project_mcp"), data
+            )
             text = data.get("text", "")
             on_success = lambda: self.state.accept_grant(project["id"], text)  # noqa: E731
         return self.runner.start(project, kind, options, keys, on_success)

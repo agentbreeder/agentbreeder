@@ -15,6 +15,7 @@ from test_center import api, center, cookie, project  # noqa: F401 (fixtures)
 
 from agentbreeder import registry
 from agentbreeder.center import jobs, mcpgrants
+from agentbreeder.center.files import BadRequest
 from agentbreeder.services import schema
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mcp_github_project"
@@ -300,3 +301,52 @@ def test_the_lock_timeout_kind_is_a_short_write():
 def test_unreadable_declared_tools(show):
     rows, problem = mcpgrants.declared_tools(show)
     assert rows is None and problem["code"] == "MCP_TOOLS_UNREADABLE"
+
+
+# -- consent for services up (#831 part 3) --------------------------------------------------------
+
+
+def test_consent_servers_match_the_clis_project_consent(project_dir):
+    """On a real plan, with `mcp/github` copied into the project registry (origin "project"):
+    the console asks for every server that is not built in, and `sends_credential` is
+    `mcp_stack.needs_project_consent`."""
+    from agentbreeder.services import mcp_stack
+    from agentbreeder.services.engine import Engine
+
+    source = Path(registry.__file__).parent / "builtin_registry" / "mcp" / "github" / "1.0.0"
+    target = project_dir / "registry" / "mcp" / "github" / "1.0.1"
+    shutil.copytree(source, target)
+    manifest = target / "manifest.yaml"
+    manifest.write_text(manifest.read_text().replace("version: 1.0.0", "version: 1.0.1"))
+    stack = project_dir / "stack.yaml"
+    stack.write_text(stack.read_text().replace("mcp/github@1.0.0", "mcp/github@1.0.1"))
+    engine = Engine(project_dir)
+    entries = engine.plan("plain").locked.mcp
+    preview = engine.preview("dev")
+    rows = {row["server"]: row for row in mcpgrants.consent_servers(preview)}
+    assert set(rows) == {name for name, entry in entries.items() if entry.origin != "built-in"}
+    assert rows["github"]["origin"] == "project"
+    for name, row in rows.items():
+        assert row["sends_credential"] is mcp_stack.needs_project_consent(entries[name])
+    assert rows["github"]["credentials"] == [
+        {"variable": "GITHUB_MCP_TOKEN", "destination": "https://api.githubcopilot.com:443"}
+    ]
+    assert mcpgrants.consent_names(["github"], preview) == ["github"]
+
+
+def test_built_in_servers_need_no_consent(project_dir):
+    from agentbreeder.services.engine import Engine
+
+    preview = Engine(project_dir).preview("dev")
+    assert mcpgrants.consent_servers(preview) == []
+    assert mcpgrants.consent_names(None, preview) == []
+    with pytest.raises(BadRequest) as refused:
+        mcpgrants.consent_names(["github"], preview)
+    assert refused.value.code == "MCP_CONSENT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "preview", [None, {}, {"grant": None}, {"grant": {"mcp": "x"}}, {"grant": {"mcp": [3]}}]
+)
+def test_consent_servers_of_a_bad_plan_are_none(preview):
+    assert mcpgrants.consent_servers(preview) == []
