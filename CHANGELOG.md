@@ -12,6 +12,14 @@ On main, not in a published preview.
 
 ### Added
 
+- Console Try it (#823, M7 console half, first part), on `main`, not in a published preview: chat
+  with a project's production deployment from a Deployments row or the guided path's Try it step.
+  Each message runs `invoke NAME - --json` with the text on stdin, never argv, as an uncached
+  read that is not a job and is never stored. Candidates are refused. Replies are plain text with
+  a Turn details inspector (tools, sources, latency, tokens, the trace ID; cost and a trace link
+  wait for #906 and #907). The screen states the cost and that the endpoint is unauthenticated.
+  See `docs/command-center.md`.
+
 - `agentbreeder list --all [--json]` and `new agent NAME --model gemini --stack-for agent.yaml`
   (#823, M7, CLI half), on `main`, not in a published preview: `services up` records the project
   path in the stack's meta; `list --all` lists the default state and every stack's deployments

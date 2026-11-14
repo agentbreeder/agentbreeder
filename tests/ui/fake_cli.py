@@ -62,7 +62,46 @@ DEFAULT = {
     # it. Without an entry, `generated_lines` lines are made (every 100th an ERROR).
     "logs": {},
     "generated_lines": 5000,
+    # `invoke NAME - --json` (Try it): the message is read from stdin. {"reply", "tools",
+    # "sources", "trace_id", "seconds"} change the answer; {"error": {code, message, sent}} fails
+    # it (exit 2, or 1 when sent). The reply defaults to an echo of the message. Every call's
+    # argv and stdin are appended to `invoke-calls.json` in the fake directory.
+    "invoke": {},
 }
+
+
+def invoke(argv: list[str], data: dict) -> int:
+    message = sys.stdin.buffer.read().decode("utf-8")
+    calls = Path(os.environ.get("AGENTBREEDER_FAKE_DIR", "")) / "invoke-calls.json"
+    recorded = json.loads(calls.read_text()) if calls.is_file() else []
+    calls.write_text(json.dumps([*recorded, {"argv": argv, "stdin": message}]))
+    settings = data["invoke"]
+    time.sleep(float(settings.get("seconds", 0)))
+    if "error" in settings:
+        problem = settings["error"]
+        print(json.dumps({"schema_version": 1, "error": problem}))
+        print(f"[{problem['code']}] {problem['message']}", file=sys.stderr)
+        return 1 if problem.get("sent") else 2
+    session = argv[argv.index("--session") + 1] if "--session" in argv else "session-1"
+    response = {
+        "reply": settings.get("reply", f"You said: {message}"),
+        "session_id": session,
+        "customer_id": "anonymous",
+        "model": "chat",
+        "framework": "google-adk",
+        "runtime": "runtime/adk@1.0.6",
+        "turn_id": f"{len(recorded) + 1:032x}",
+        "trace_id": settings.get("trace_id", "ab" * 16),
+        "tools": settings.get("tools", ["orders"]),
+        "sources": settings.get("sources", ["Returns policy"]),
+        "model_calls": 2,
+        "prompt_tokens": 1812,
+        "output_tokens": 64,
+    }
+    answer = {"schema_version": 1, "deployment": "d" * 32, "name": argv[1], "status": 200}
+    answer |= {"endpoint": "http://127.0.0.1:9001", "response": response}
+    print(json.dumps(answer, indent=2))
+    return 0
 
 
 def scenario() -> dict:
@@ -170,6 +209,8 @@ def main(argv: list[str]) -> int:
         summary = {"schema_version": 1, "dry_run": False, "name": argv[2]}
         summary["directory"] = str(target)
         print(json.dumps(summary))
+    elif argv and argv[0] == "invoke":
+        return invoke(argv, data)
     elif argv and argv[0] == "doctor":
         print(json.dumps(data["doctor"]))
     elif argv and argv[0] in ("build", "release", "promote", "reconcile", "remove", "rollback"):

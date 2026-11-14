@@ -125,11 +125,11 @@ def test_build_from_the_checklist_then_the_job_result_row_reads_the_guide_again(
     console.scenario(guide="done")  # what `next` answers once the build has ended
     expect(dock.locator(".result-row")).to_contain_text("Every step of the guided path is done.")
     expect(page.locator("#next-pill")).to_have_text("All steps done")
-    # The done Try it step shows its command to copy and a link to Deployments (M7 adds Try it).
+    # The done Try it step opens Try it (#823), with its command to copy as well.
     try_it = checklist(page).get_by_role("listitem").last
-    expect(try_it).to_contain_text("Send it a message from a terminal:")
+    expect(try_it.get_by_role("button", name="Try it", exact=True)).to_be_visible()
+    expect(try_it).to_contain_text("Or in a terminal:")
     expect(try_it.locator("pre")).to_contain_text("invoke hello Hello")
-    expect(try_it.get_by_role("link", name="See it in Deployments")).to_be_visible()
 
 
 def test_an_empty_deployments_screen_offers_the_next_step(page, console):

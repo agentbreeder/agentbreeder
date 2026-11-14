@@ -40,6 +40,8 @@ ALLOWED = {
     "agentbreeder.center.launch",
     "agentbreeder.center.reads",
     "agentbreeder.center.server",
+    # Try it (#823): pure request and answer checks; it imports only center.files.
+    "agentbreeder.center.tryit",
 }
 
 
