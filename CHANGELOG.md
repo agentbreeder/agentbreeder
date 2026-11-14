@@ -12,14 +12,6 @@ On main, not in a published preview.
 
 ### Added
 
-- `new agent NAME --model anthropic|openai|openrouter [--model-id ID]` (#905), on `main`, not in
-  a published preview: model providers beside `gemini`, all through LiteLLM with the key read from
-  the stack's local secret file. Defaults `anthropic/claude-opus-5-5` and `openai/gpt-5.6`;
-  openrouter needs `--model-id openrouter/<vendor>/<model>`. Only gemini has been run end to end;
-  the others are config-only, not run end to end. `--stack-for` takes the same providers and
-  `--model-id`. `--json` adds `model_id` and `verified`; `next` links each provider's key page
-  for `KEYS_MISSING`. `--model gemini` alone is unchanged. See `docs/commands.md`.
-
 - `agentbreeder list --all [--json]` and `new agent NAME --model gemini --stack-for agent.yaml`
   (#823, M7, CLI half), on `main`, not in a published preview: `services up` records the project
   path in the stack's meta; `list --all` lists the default state and every stack's deployments
@@ -348,6 +340,16 @@ On main, not in a published preview.
   `--state-dir` it ran with.
 
 ### Changed
+
+- `agentbreeder services up` also writes `agent-database` (the `DATABASE_URL` binding in host
+  form) and, when the database service's `console_database` param is set, `console-database`
+  (its `operator_only` `console` output in host form) beside `eval-database` in the
+  environment's deploy state, for CLI commands on the host (#828, M12 prerequisite), on `main`,
+  not in a published preview. A removed binding or console role deletes the stale file. The three
+  names are reserved: a deploy manifest that references `secret://eval-database`,
+  `secret://agent-database` or `secret://console-database` is now denied with
+  `SECRET_RESERVED` (before, `eval-database` could be mounted into an agent). See
+  `docs/services.md`.
 
 - "Command center" is now "console" (#816, M0b, slice 3), on `main`, not in a published
   preview: `agentbreeder up`'s help, its startup line ("AgentBreeder console: URL") and stop
