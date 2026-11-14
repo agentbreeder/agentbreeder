@@ -1,14 +1,15 @@
 // Registry ▸ one page per kind (#824): every name with its latest version, version count, root,
 // verify status and where this project uses it; a name's detail has the version timeline, one
 // version's manifest and files (`registry show`), the diff between any two versions (`registry
-// diff`) and used-by across the registered projects (`registry used-by`). Read-only: editing and
-// forking are later milestones (M9a, M10).
+// diff`) and used-by across the registered projects (`registry used-by`). Prompts are edited
+// into a new version, and the agent moved to it, from `edit.js` (#826, M10); forking is M9a.
 
 import { href } from "../lib/router.js";
 import {
   KINDS, ROOT_LABELS, deployedLines, diffStats, groupByName, hunkHeader, noHunkReason, usedByText, useText, verifyLabel, verifyState,
 } from "../lib/registry.js";
-import { Action, Card, Table, Text, ViewState } from "../ui/components.js";
+import { Action, Card, Notice, Table, Text, ViewState, useConfirm } from "../ui/components.js";
+import { Editor, MoveAgent, editing } from "./edit.js";
 import { useView } from "../ui/data.js";
 import { html, useEffect, useRef, useState } from "../ui/preact.js";
 
@@ -19,18 +20,23 @@ const query = (params) => Object.entries(params).map(([k, v]) => `${k}=${encodeU
 
 /** The `registry` view, re-read while verification is still running (it is a background child). */
 function useRegistry(project) {
-  const [view, reload] = useView(`/api/projects/${project.id}/registry`, project.id);
   const started = useRef(Date.now());
   const delay = useRef(2000);
+  const [view, read] = useView(`/api/projects/${project.id}/registry`, project.id);
+  const reload = () => {
+    started.current = Date.now(); // a save starts a fresh verify run: follow it again
+    delay.current = 2000;
+    read();
+  };
   useEffect(() => {
     const problems = view.data && view.data.problems;
     const pending = problems && (problems.stale || (problems.error && problems.error.code === "VERIFYING"));
     if (!pending || Date.now() - started.current > 330000) return undefined;
-    const timer = setTimeout(reload, delay.current);
+    const timer = setTimeout(read, delay.current);
     delay.current = Math.min(delay.current * 1.5, 10000);
     return () => clearTimeout(timer);
   }, [view]);
-  return view;
+  return { ...view, reload };
 }
 
 function VerifyNote({ view }) {
@@ -109,6 +115,18 @@ function detailBody(meta) {
     const view = useRegistry(project);
     const entry = view.data ? groupByName(view.data, meta.kind).find((row) => row.name === name) : null;
     const [selected, setSelected] = useState(null);
+    const [saved, setSaved] = useState(null);
+    const [dialog, confirm] = useConfirm();
+    const choose = async (next) => {
+      if (editing.dirty && !(await confirm({ title: "Discard your changes?", text: "The prompt you are editing has unsaved changes.", confirm: "Discard" }))) return;
+      setSelected(next);
+    };
+    // Pin the version shown first: a re-read after a version appears (a save here, another tab,
+    // a terminal) must not swap it, and an open editor with it (#826).
+    const latest = entry ? entry.latest.version : null;
+    useEffect(() => {
+      if (selected === null && latest) setSelected(latest);
+    }, [latest]);
     const back = html`<p><a href=${href(`/registry/${meta.path}`)}>← All ${meta.nav.toLowerCase()}</a></p>`;
     if (!view.data) return html`${back}<${Card} title=${name} busy=${view.loading}><${ViewState} view=${view} /><//>`;
     if (!entry) return html`${back}<${Card} title=${name}><p class="muted">No ${meta.one.toLowerCase()} named <code><${Text} value=${name} /></code> in this project's search roots.</p><//>`;
@@ -116,9 +134,12 @@ function detailBody(meta) {
     return html`${back}
       <${Card} title=${`${meta.kind}/${name}`}>
         <${VerifyNote} view=${view} />
-        <${Timeline} entry=${entry} current=${version.version} onSelect=${setSelected} />
+        <${Timeline} entry=${entry} current=${version.version} onSelect=${choose} />
+        ${dialog}
       <//>
-      <${Version} key=${version.ref} project=${project} version=${version} />
+      <${Notice} notice=${saved} onDismiss=${() => setSaved(null)} />
+      <${Version} key=${version.ref} project=${project} version=${version} entry=${entry} kind=${meta.kind}
+        onSaved=${(next, text) => { setSaved({ tone: "ok", text }); setSelected(next); view.reload(); }} onMoved=${view.reload} />
       ${entry.versions.length > 1 ? html`<${Diff} key=${entry.name} project=${project} entry=${entry} />` : null}
       <${UsedBy} key=${`used-${version.ref}`} project=${project} version=${version} />`;
   };
@@ -138,7 +159,7 @@ function Timeline({ entry, current, onSelect }) {
   <//>`;
 }
 
-function Version({ project, version }) {
+function Version({ project, version, entry, kind, onSaved, onMoved }) {
   const [view] = useView(`/api/projects/${project.id}/registry/show?${query({ ref: version.ref })}`, project.id);
   const data = view.data;
   return html`<${Card} title=${`Version ${version.version}`} busy=${view.loading}>
@@ -155,7 +176,9 @@ function Version({ project, version }) {
         <h3>Files</h3>
         <ul class="files">${(data.files || []).map((file) => html`<li key=${file.path}><${FileView} file=${file} /></li>`)}</ul>`
       : null}
-  <//>`;
+  <//>
+  <${MoveAgent} key=${`move-${version.ref}`} project=${project} kind=${kind} entry=${entry} version=${version} onMoved=${onMoved} />
+  ${data && !view.error ? html`<${Editor} project=${project} kind=${kind} entry=${entry} version=${version} show=${data} FileDiff=${FileDiff} onSaved=${onSaved} onRefresh=${onMoved} />` : null}`;
 }
 
 function FileView({ file }) {

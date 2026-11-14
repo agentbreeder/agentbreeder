@@ -348,6 +348,8 @@ agentbreeder agent set-ref prompt/hello-prompt@0.1.0 prompt/hello-prompt@0.1.1
   deletes a file, and the directories it leaves empty. `manifest.yaml` (in any letter case) is
   not edited this way (the edit rewrites only its `version:` line, quoting it, as a fork does), and interpreter caches are refused (`EDIT_INVALID`). An edit
   that changes no byte is `EDIT_UNCHANGED`.
+- A `knowledge` edit adds, replaces or removes documents under `docs/`; the runtime indexes the
+  new version after the next `release`, and `knowledge status` shows it (see [knowledge.md](knowledge.md)).
 - Text you type (a prompt, an eval case) goes in a file or on stdin, never as an argument, which
   other local users can read in `ps`. (The console's editors, not built yet, are to pass it the
   same way.)

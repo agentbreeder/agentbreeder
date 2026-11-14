@@ -1,6 +1,8 @@
 """`agentbreeder events [--project DIR] [--limit N] [--unread] [--json]`: stored events, newest
 first (#827, M11; guided §14.4). `--mark-read ID` (repeatable) and `--mark-all-read` mark them
-read. With `--project`, the JSON also carries that project's live conditions, computed by the
+read; an id that matches no stored event prints `ignored unknown event id N` on stderr, is
+listed in the JSON's `unknown_ids`, and does not change the exit code (#897). With `--project`,
+the JSON also carries that project's live conditions, computed by the
 function behind `agentbreeder next` and never stored (`conditions`; null with
 `conditions_error` when the checklist could not be computed).
 
@@ -80,6 +82,9 @@ def run(args) -> int:
             args, "ENVIRONMENT_INVALID", "--environment must be [a-z0-9-], at most 32 characters"
         )
     project = str(args.project.resolve()) if args.project is not None else None
+    ids = None if args.mark_all_read else args.mark_read
+    # With no store yet, every id given is unknown (#897).
+    unknown = list(dict.fromkeys(ids or ()))
     try:
         if args.mark_read or args.mark_all_read:
             store = events.EventStore.open_readonly()
@@ -87,7 +92,7 @@ def run(args) -> int:
                 store.close()
                 store = events.EventStore.open()
                 try:
-                    store.mark_read(None if args.mark_all_read else args.mark_read, project)
+                    unknown = store.mark_read(ids, project)
                 finally:
                     store.close()
         shown = events.read_recent(None, project, args.limit, args.unread)
@@ -96,7 +101,14 @@ def run(args) -> int:
         return _fail(args, error.code, str(error).removeprefix(f"[{error.code}] "))
     except (sqlite3.Error, OSError):
         return _fail(args, "EVENTS_UNREADABLE", "cannot read the events store")
-    body: dict = {"schema_version": SCHEMA_VERSION, "events": shown, "unread": unread}
+    for identifier in unknown:
+        print(f"ignored unknown event id {identifier}", file=sys.stderr)
+    body: dict = {
+        "schema_version": SCHEMA_VERSION,
+        "events": shown,
+        "unread": unread,
+        "unknown_ids": unknown,
+    }
     if project is not None:
         body["conditions"], error = _conditions(args.project, args.environment)
         if error:

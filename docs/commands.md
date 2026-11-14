@@ -36,6 +36,7 @@ Run `agentbreeder COMMAND --help` for flags; see the root README for the demo.
 - [`example`](commands/example.md): Copy a shipped example project (`example list` shows them).
 - [`forward`](commands/forward.md): Open a loopback port to a Kubernetes deployment.
 - [`invoke`](commands/invoke.md): Send one message to a local deployment and print the reply.
+- [`knowledge`](commands/knowledge.md): Show the index status of knowledge versions (read-only).
 - [`list`](commands/list.md): List deployments that are not removed (read-only, no IdP calls).
 - [`login`](commands/login.md): Sign in with the operator's OIDC device flow.
 - [`logs`](commands/logs.md): Show a local deployment's logs (redacted), or the saved tail of a failed candidate.
@@ -54,6 +55,7 @@ Run `agentbreeder COMMAND --help` for flags; see the root README for the demo.
 - [`secret`](commands/secret.md): Manage local secret files (secret:// refs).
 - [`services`](commands/services.md): Local backing services from stack.yaml (local-only preview).
 - [`status`](commands/status.md): Show a deployment and re-verify its principal.
+- [`tool`](commands/tool.md): List a registry tool's recorded calls from the stack's database (read-only).
 - [`traces`](commands/traces.md): Show recent agent traces per deployment from the stack's Phoenix (read-only).
 - [`up`](commands/up.md): Start the local console on 127.0.0.1 (single user, preview).
 - [`validate`](commands/validate.md): Validate a deploy manifest or an agent file (kind: agent).

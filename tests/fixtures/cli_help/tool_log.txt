@@ -1,0 +1,22 @@
+usage: agentbreeder tool log [-h] [--project DIR] [--environment ENV]
+                             [--since D] [--agent NAME] [--limit LIMIT]
+                             [--content] [--json]
+                             REF
+
+List the calls the agent runtime recorded for a registry tool, newest first.
+The log is what the runtime claims it called; results are not stored (see the
+trace).
+
+positional arguments:
+  REF                tool/NAME (every version) or tool/NAME@X.Y.Z
+
+options:
+  -h, --help         show this help message and exit
+  --project DIR      The stack's directory
+  --environment ENV  Whose stack state to use (default: the only one)
+  --since D          90s, 10m, 2h or 2026-11-11T09:00:00Z (default 24h, at
+                     most 720 hours back)
+  --agent NAME       Only this agent's calls (runtime >= 1.2.0)
+  --limit LIMIT      1 to 1000 (default 100)
+  --content          Also show arguments and error text
+  --json

@@ -340,6 +340,7 @@ def test_cli_with_no_store_prints_nothing_and_writes_nothing(center, capsys):
         "schema_version": events_command.SCHEMA_VERSION,
         "events": [],
         "unread": 0,
+        "unknown_ids": [],
     }
     assert not center.exists()
 
@@ -538,3 +539,71 @@ def test_read_only_open_refuses_a_symlinked_store(tmp_path, store):
     with pytest.raises(events.EventError) as error:
         events.read_recent(tmp_path / "link")
     assert error.value.code == "EVENTS_UNSAFE"
+
+
+def _two_events(center):
+    store = events.EventStore.open(center)
+    try:
+        return [
+            store.append(events.job_failed("build", PROJECT, 2, "[BUILD_FAILED] x")),
+            store.append(events.job_failed("build", PROJECT, 1, "[BUILD_FAILED] y")),
+        ]
+    finally:
+        store.close()
+
+
+def test_store_mark_read_returns_unknown_ids_once_in_order(store):
+    known = store.append(events.job_failed("build", PROJECT, 2, "[BUILD_FAILED] x"))
+    assert store.mark_read([999, known, 7, 999]) == [999, 7]
+    assert store.unread_count() == 0
+    assert store.mark_read([known]) == []  # already read still counts as known
+    assert store.mark_read(None) == [] and store.mark_read(None, PROJECT) == []
+
+
+def test_cli_unknown_mark_read_id_warns_and_exits_0(center, capsys):
+    """#897: an unknown id warns on stderr, exit 0, and the events are listed as usual."""
+    _two_events(center)
+    assert cli.main(["events", "--mark-read", "999"]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == "ignored unknown event id 999\n"
+    assert "Recent events (2 unread):" in captured.out
+
+
+def test_cli_unknown_mark_read_id_in_json(center, capsys):
+    _two_events(center)
+    assert cli.main(["events", "--mark-read", "999", "--json"]) == 0
+    captured = capsys.readouterr()
+    body = json.loads(captured.out)
+    assert body["unknown_ids"] == [999] and body["unread"] == 2
+    assert captured.err == "ignored unknown event id 999\n"
+
+
+def test_cli_mixed_known_and_unknown_ids_marks_the_known_ones(center, capsys):
+    first, second = _two_events(center)
+    argv = ["events", "--mark-read", "999", "--mark-read", str(first), "--mark-read", "999"]
+    assert cli.main([*argv, "--json"]) == 0
+    captured = capsys.readouterr()
+    body = json.loads(captured.out)
+    assert body["unknown_ids"] == [999]
+    assert captured.err == "ignored unknown event id 999\n"
+    assert {e["id"]: e["read"] for e in body["events"]} == {first: True, second: False}
+    assert body["unread"] == 1
+
+
+def test_cli_known_ids_and_mark_all_read_report_no_unknown_ids(center, capsys):
+    first, _ = _two_events(center)
+    assert cli.main(["events", "--mark-read", str(first), "--json"]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["unknown_ids"] == [] and captured.err == ""
+    assert cli.main(["events", "--mark-read", "999", "--mark-all-read", "--json"]) == 0
+    captured = capsys.readouterr()
+    body = json.loads(captured.out)
+    assert body["unknown_ids"] == [] and body["unread"] == 0 and captured.err == ""
+
+
+def test_cli_mark_read_with_no_store_reports_every_id_and_creates_nothing(center, capsys):
+    assert cli.main(["events", "--mark-read", "3", "--mark-read", "1", "--json"]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["unknown_ids"] == [3, 1]
+    assert captured.err == "ignored unknown event id 3\nignored unknown event id 1\n"
+    assert not center.exists()

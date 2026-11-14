@@ -1,0 +1,9 @@
+usage: agentbreeder tool [-h] {log} ...
+
+positional arguments:
+  {log}
+    log       List a tool's recorded calls from the stack's database (read-
+              only)
+
+options:
+  -h, --help  show this help message and exit
