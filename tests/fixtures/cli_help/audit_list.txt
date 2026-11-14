@@ -1,5 +1,6 @@
 usage: agentbreeder audit list [-h] [--state-dir STATE_DIR] [--json]
                                [--limit LIMIT] [--attempt ATTEMPT]
+                               [--before SEQ]
 
 options:
   -h, --help            show this help message and exit
@@ -7,3 +8,5 @@ options:
   --json
   --limit LIMIT
   --attempt ATTEMPT
+  --before SEQ          Only rows older than this seq (the next page after a
+                        row's seq)

@@ -54,6 +54,10 @@ FAKE_CLI = textwrap.dedent(
         print("[]")
     elif argv[0] == "list":
         print(json.dumps([{{"id": "1"}}]))
+    elif argv[:2] == ["audit", "list"] and os.path.exists(marker + "/audit-rows"):
+        open(marker + "/audit-argv", "w").write(json.dumps(argv))
+        count = int(open(marker + "/audit-rows").read())
+        print(json.dumps([{{"seq": count - i}} for i in range(count)]))
     elif argv[:2] == ["audit", "list"] or argv[:2] == ["audit", "verify"]:
         print(json.dumps({{"args": argv}}))
     elif argv[0] == "doctor":
@@ -331,6 +335,36 @@ def test_views(center, project, cookie, view):
 def test_audit_reads_the_stack_state_dir(center, project, cookie):
     _, data, _ = api(center, "GET", f"/api/projects/{project['id']}/audit", cookie=cookie)
     assert "/tmp/fake-state" in data["data"]["rows"]["data"]["args"]
+
+
+def test_audit_pages_by_seq(center, project, cookie, tmp_path):
+    """51 rows read, 50 shown, and `older` names the seq the next page starts before."""
+    (tmp_path / "audit-rows").write_text("51")
+    url = f"/api/projects/{project['id']}/audit"
+    _, data, _ = api(center, "GET", url, cookie=cookie)
+    assert len(data["data"]["rows"]["data"]) == 50 and data["data"]["older"] == 2
+    argv = json.loads((tmp_path / "audit-argv").read_text())
+    assert argv[argv.index("--limit") + 1] == "51" and "--before" not in argv
+    assert data["data"]["deployments"]["data"] == [{"id": "1"}]
+    (tmp_path / "audit-rows").write_text("50")
+    _, data, _ = api(center, "GET", url + "?before=51", cookie=cookie)
+    assert len(data["data"]["rows"]["data"]) == 50 and data["data"]["older"] is None
+    argv = json.loads((tmp_path / "audit-argv").read_text())
+    assert argv[argv.index("--before") + 1] == "51" and data["data"]["before"] == 51
+
+
+def test_audit_before_takes_eighteen_digits(center, project, cookie, tmp_path):
+    (tmp_path / "audit-rows").write_text("1")
+    url = f"/api/projects/{project['id']}/audit?before={'9' * 18}"
+    status, data, _ = api(center, "GET", url, cookie=cookie)
+    assert status == 200 and data["data"]["before"] == int("9" * 18)
+
+
+@pytest.mark.parametrize("before", ["0", "01", "-1", "x", "1e3", "9" * 19, "1%0A2", "%D9%A1"])
+def test_audit_before_must_be_a_seq(center, project, cookie, before):
+    url = f"/api/projects/{project['id']}/audit?before={before}"
+    status, data, _ = api(center, "GET", url, cookie=cookie)
+    assert status == 400 and data["error"]["code"] == "BEFORE_INVALID"
 
 
 def test_failed_view_reports_the_error_then_last_known_data(center, project, cookie, tmp_path):

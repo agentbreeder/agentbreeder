@@ -160,6 +160,36 @@ Python's `difflib.unified_diff` of the files, `tool/orders@1.0.0` shows Northwin
 deployed, a failed verification shows on the list and the version, and axe passes in light and dark.
 Not yet run against a real deployment: that is the M8 console verification.
 
+### The Audit view (#824, part 2): on `main`, not in a published preview
+
+Governance ▸ Audit shows the verify result in words and the project's audit rows, 50 to a page,
+newest first. Older and Newer step through pages with `audit list --before SEQ`: the server asks
+for 51 rows to know whether an older page exists.
+
+- **Agent**: `audit list --json` names the agent of every row that has a deployment, including
+  removed ones such as release candidates (shown as the agent, marked "candidate"). A row with no
+  deployment takes the agent of its attempt's other rows on the same page (an `attempt_started`
+  row comes before its deployment exists). A `release` row has no deployment either. It belongs
+  to the active deployment running the image in its `RELEASE_IMAGE` reason (the check `promote`
+  makes), or to the candidate that ran that image on the same page. Otherwise it says "not
+  recorded".
+- **Mode and reasons**: each row's enforcement mode and reason codes. A release row also shows
+  its eval run (`Evals 12/12, run ID`) and, when its agent is known, the report file `release`
+  wrote, as a path relative to the project (`deploy/NAME.eval-RUN.json`, the default output).
+  The console does not open the report yet; that is the next slice.
+- **Production**: an agent with a ready local production deployment links to Try it and shows
+  its endpoint as text, once, on that agent's newest row on the page. The link is today's
+  deployment, not the one running at the row's time. Candidates are never linked.
+- **Paging**: focus moves to the page's status line, which says which page is shown, that it is
+  loading, or that it could not be read (with Retry). Newest and Newer stay available after a
+  failure.
+
+Tested with Playwright: the agent, mode, reasons and release evidence of a release story; paging
+over 120 rows and back; focus after paging; a failed page and Retry; one Production link per agent;
+exactly 50 rows has no older page; untrusted reason and agent text shows as text; axe passes in
+light and dark on the first and second page. Not yet run against a real deployment: that
+is the M8 console verification.
+
 ### The guided path and Create starter (#820): on `main`, not in a published preview
 
 The console reads `agentbreeder next PROJECT --environment ENV --json` (the contract in

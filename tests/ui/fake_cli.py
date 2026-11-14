@@ -234,7 +234,13 @@ def main(argv: list[str]) -> int:
     elif argv and argv[0] == "list":
         print(json.dumps(data["deployments"]))
     elif head == ["audit", "list"]:
-        print(json.dumps(data["audit_rows"]))
+        # As the CLI: newest first, `--before SEQ` keeps older rows, then `--limit`.
+        rows = sorted(data["audit_rows"], key=lambda row: -row["seq"])
+        if "--before" in argv:
+            before = int(argv[argv.index("--before") + 1])
+            rows = [row for row in rows if row["seq"] < before]
+        limit = int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 20
+        print(json.dumps(rows[:limit]))
     elif head == ["audit", "verify"]:
         print(json.dumps(data["audit_verify"]))
     elif head == ["cluster", "status"]:

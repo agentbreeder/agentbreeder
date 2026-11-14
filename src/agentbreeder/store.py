@@ -292,10 +292,18 @@ class Store:
         except sqlite3.Error as error:
             raise AuditError("Audit log write failed") from error
 
-    def audit_rows(self, limit: int = 50, attempt_id: str | None = None) -> list[dict]:
+    def audit_rows(
+        self, limit: int = 50, attempt_id: str | None = None, before: int | None = None
+    ) -> list[dict]:
+        """Newest first, at most `limit`; `before` keeps only rows with seq < before (a keyset
+        page). `attempt_id` returns that attempt's rows, oldest first, and ignores both."""
         if attempt_id:
             rows = self.db.execute(
                 "SELECT * FROM audit WHERE attempt_id=? ORDER BY seq", (attempt_id,)
+            )
+        elif before is not None:
+            rows = self.db.execute(
+                "SELECT * FROM audit WHERE seq<? ORDER BY seq DESC LIMIT ?", (before, limit)
             )
         else:
             rows = self.db.execute("SELECT * FROM audit ORDER BY seq DESC LIMIT ?", (limit,))
