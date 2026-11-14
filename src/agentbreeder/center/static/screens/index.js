@@ -11,6 +11,7 @@ import { EVAL_ROUTES } from "./evals.js";
 import { Home } from "./home.js";
 import { Kubernetes } from "./kubernetes.js";
 import { Logs } from "./logs.js";
+import { Mcp } from "./mcp.js";
 import { REGISTRY_ROUTES } from "./registry.js";
 import { Release } from "./release.js";
 import { Services } from "./services.js";
@@ -19,6 +20,7 @@ export const ROUTES = [
   { pattern: "/", title: "Home", nav: "Home", screen: Home },
   ...AGENT_ROUTES,
   { pattern: "/services", title: "Services", nav: "Services", scoped: true, screen: Services },
+  { pattern: "/mcp", title: "MCP grants", nav: "MCP grants", scoped: true, screen: Mcp },
   { pattern: "/release", title: "Build and release", nav: "Build and release", scoped: true, screen: Release },
   { pattern: "/deployments", title: "Deployments", nav: "Deployments", scoped: true, screen: Deployments },
   { pattern: "/logs", title: "Logs", nav: "Logs", scoped: true, screen: Logs },

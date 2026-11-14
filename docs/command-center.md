@@ -327,6 +327,43 @@ arguments gone on Hide while a slow read runs, scope, window and agent reach the
 and an empty log, axe in light and dark). Not yet run against a real stack's database: that is
 the M12 acceptance, batched with the milestone checks.
 
+### MCP grants (#831, M15, first part): on `main`, not in a published preview
+
+**MCP grants** (`#/mcp`, next to Services) shows the project's MCP servers and who may use their
+tools. It is read-only for now: grants change with `agentbreeder mcp grant|revoke`
+([`docs/commands/mcp.md`](commands/mcp.md)), and the console's own grant and revoke come in the
+next M15 part.
+
+- **Per server** (`stack.yaml` `mcp:`): its version, and from `stack.lock` its origin
+  (built-in, project or registry-path) and upstream origin; its relay `mcp-NAME` with its
+  container state and a Logs link; and the tools `stack.lock` pinned, each with the first 16 hex
+  digits of its hash, as the CLI's grant text shows them. Before the first `services up`, or after
+  the version changed, there are no pins for it yet, and the screen says the next `services up`
+  asks to confirm the server and pins its tools. Only a changed version is seen here: a changed
+  origin or upstream (which also drops the pins) shows at `services up`, in its review.
+- **Upstream drift**, from `services status --json` (`mcp`): a pinned tool that changed upstream
+  is shown as hidden until repinned, one missing upstream as refused by the relay, and tools
+  served upstream but never pinned are listed. Repinning is reviewed in a terminal
+  (`agentbreeder services up DIR --environment ENV --repin`, which the screen names with the
+  project's path and environment); the console can't accept a
+  changed definition yet (#964). A relay that is not running, or could not be checked, says so
+  and claims nothing about its pins.
+- **Grants per agent** (`environment.agents.AGENT.mcp`): each agent's tools per server, a tool
+  not pinned yet marked. A grant takes effect at the next `services up`, and an agent uses a tool
+  only when its `agent.yaml` asks for it; the screen says both.
+
+`stack.yaml` and `stack.lock` are read in the console process, through `read_project_file` (a
+regular file, not a link, size-capped) and the same model and lock checks as `services`; a bad
+file is an error (`STACK_INVALID`, `LOCK_INVALID`, `ENTRY_UNSAFE`), never a partial answer.
+Nothing is probed upstream by this screen: `services status` asks the running relay.
+
+Tested: server tests over copies of `tests/fixtures/mcp_github_project` (servers, pins and grants;
+no lock yet; pins of another version not shown; bad and linked lock files; the lock checks equal
+`StackLock.load`'s), JS tests of the merge with relay status, and Playwright over the fixture with
+a scripted `services status` (pins and grants, drift naming the terminal repin, no pins before the
+first `services up`, axe in light and dark). Not run against live relays: that is the M15
+acceptance (Docker and a `GITHUB_MCP_TOKEN`), batched with the milestone checks.
+
 ### The Audit view (#824, part 2): on `main`, not in a published preview
 
 Governance ▸ Audit shows the verify result in words and the project's audit rows, 50 to a page,

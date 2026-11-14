@@ -500,6 +500,8 @@ class Center:
                     ),
                 }
             )
+        if view == "mcp":  # MCP servers, pins and grants from stack.yaml and stack.lock (#831)
+            return self.reads.stack_mcp(path)
         if view == "identity":
             return self.reads.stack_agents(path)
         if view == "evals":  # the eval reports `release` saved in the project's deploy/ (#932)

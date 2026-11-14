@@ -115,6 +115,66 @@ def _lock_entries(raw: bytes | None, name: str) -> dict:
     return entries
 
 
+MCP_IDENTITY = ("ref", "origin", "upstream", "token_url")  # `mcp_stack.McpEntry.identity`
+
+
+def _load_stack(path: Path) -> tuple:
+    """`(stack, None)` or `(None, problem)`: stack.yaml through `read_project_file` and the same
+    model as `services` (`services.schema.Stack`). Values are never echoed in a problem."""
+    from agentbreeder import strict_yaml
+    from agentbreeder.services import schema
+
+    try:
+        raw = registry.read_project_file(path, schema.MAX_BYTES)
+        if raw is None:
+            return None, {"code": "NO_STACK_FILE", "message": "No stack.yaml"}
+        return schema.Stack.model_validate(strict_yaml.load_text(raw.decode("utf-8"))), None
+    except (registry.RegistryError, OSError) as error:
+        return None, _problem(error)
+    except (strict_yaml.StrictYamlError, UnicodeDecodeError) as error:
+        return None, {"code": "STACK_INVALID", "message": f"stack.yaml: {error}"[:300]}
+    except ValueError as error:  # pydantic's ValidationError; values are never echoed
+        problems = schema._problems(error) if hasattr(error, "errors") else ""
+        return None, {"code": "STACK_INVALID", "message": f"stack.yaml: {problems}"[:300]}
+
+
+def _stack_lock_mcp(raw: bytes | None, name: str) -> dict:
+    """stack.lock's `mcp` records, with the checks of `services.lock.StackLock.load` (and
+    `lock.Lock.load` before it), on bytes already read safely. An absent lock (no `services up`
+    yet) has none."""
+    if raw is None:
+        return {}
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError) as error:
+        raise registry.RegistryError(
+            "LOCK_INVALID", f"{name} is not a valid stack.lock"
+        ) from error
+    if not isinstance(data, dict) or data.get("lock_version") != lock.LOCK_VERSION:
+        raise registry.RegistryError("LOCK_INVALID", f"{name}: unsupported lock_version")
+    if not isinstance(data.get("entries"), dict):
+        raise registry.RegistryError("LOCK_INVALID", f"{name}: missing entries")
+    imports = data.get("imports", {})
+    if not isinstance(imports, dict) or not all(
+        isinstance(names, list) and all(isinstance(item, str) for item in names)
+        for names in imports.values()
+    ):
+        raise registry.RegistryError("LOCK_INVALID", f"{name}: imports must map services to names")
+    mcp = data.get("mcp", {})
+    if not isinstance(mcp, dict) or not all(
+        isinstance(entry, dict)
+        and isinstance(entry.get("tools", {}), dict)
+        and all(
+            isinstance(tool, str) and isinstance(digest, str) and digest.startswith("sha256:")
+            for tool, digest in entry.get("tools", {}).items()
+        )
+        and all(entry.get(key) is None or isinstance(entry.get(key), str) for key in MCP_IDENTITY)
+        for entry in mcp.values()
+    ):
+        raise registry.RegistryError("LOCK_INVALID", f"{name}: mcp must map servers to pins")
+    return mcp
+
+
 class Reads:
     def __init__(self, run_cli: Callable[..., dict] | None = None):
         """`run_cli(argv, timeout=...)` returns a CLI read's envelope (`jobs.Runner.read`)."""
@@ -179,28 +239,12 @@ class Reads:
         sponsor, review date, whether release tests a candidate), parsed with the same model as
         `services` (`services.schema.Stack`) from bytes read through `read_project_file`. The
         identity strip shows this until #909 adds the principal to `list --json`."""
-        from agentbreeder import strict_yaml
-        from agentbreeder.services import schema
-
         path = Path(project) / "stack.yaml"
 
         def compute() -> dict:
-            try:
-                raw = registry.read_project_file(path, schema.MAX_BYTES)
-                if raw is None:
-                    return envelope(None, {"code": "NO_STACK_FILE", "message": "No stack.yaml"})
-                stack = schema.Stack.model_validate(strict_yaml.load_text(raw.decode("utf-8")))
-            except (registry.RegistryError, OSError) as error:
-                return envelope(None, _problem(error))
-            except (strict_yaml.StrictYamlError, UnicodeDecodeError) as error:
-                return envelope(
-                    None, {"code": "STACK_INVALID", "message": f"stack.yaml: {error}"[:300]}
-                )
-            except ValueError as error:  # pydantic's ValidationError; values are never echoed
-                problems = schema._problems(error) if hasattr(error, "errors") else ""
-                return envelope(
-                    None, {"code": "STACK_INVALID", "message": f"stack.yaml: {problems}"[:300]}
-                )
+            stack, problem = _load_stack(path)
+            if problem is not None:
+                return envelope(None, problem)
             agents = {
                 name: {
                     "sponsor": entry.sponsor,
@@ -212,6 +256,56 @@ class Reads:
             return envelope({"stack": stack.name, "agents": agents})
 
         return self._cached(("stack_agents", project), _file_signature([path]), compute)
+
+    def stack_mcp(self, project: str) -> dict:
+        """The MCP screen's files part (#831, M15): each `mcp:` server of `stack.yaml` with what
+        `stack.lock` recorded for it (ref, origin, upstream origin, token host and the pinned tool
+        hashes), and each agent's grants (`environment.agents.AGENT.mcp`). Parsed with the same
+        model as `services`; the lock with `services.lock.StackLock.load`'s checks. Relay state
+        and upstream drift come from `services status --json` (a CLI child), not from here."""
+        directory = Path(project)
+        paths = [directory / "stack.yaml", directory / "stack.lock"]
+
+        def compute() -> dict:
+            stack, problem = _load_stack(paths[0])
+            if problem is not None:
+                return envelope(None, problem)
+            try:
+                raw = registry.read_project_file(paths[1], registry.LOCK_FILE_LIMIT)
+                recorded = _stack_lock_mcp(raw, paths[1].name)
+            except (registry.RegistryError, OSError) as error:
+                return envelope(None, _problem(error))
+            servers = []
+            for name, entry in sorted(stack.mcp.items()):
+                locked = recorded.get(name)
+                identity = (
+                    {key: locked.get(key) for key in MCP_IDENTITY} if locked is not None else None
+                )
+                servers.append(
+                    {
+                        "name": name,
+                        "ref": entry.ref,
+                        # `mcp_stack.relay_name`: `_` becomes `-`.
+                        "relay": "mcp-" + name.replace("_", "-"),
+                        "locked": identity,
+                        # A changed ref is pinned again (with consent) at the next `services up`.
+                        # A changed origin or upstream is too, but needs the registry to see.
+                        "lock_current": identity is not None and identity["ref"] == entry.ref,
+                        "pins": dict(sorted((locked or {}).get("tools", {}).items()))
+                        if identity is not None and identity["ref"] == entry.ref
+                        else {},
+                    }
+                )
+            agents = [
+                {
+                    "name": name,
+                    "grants": {server: list(tools) for server, tools in sorted(entry.mcp.items())},
+                }
+                for name, entry in sorted(stack.environment.agents.items())
+            ]
+            return envelope({"stack": stack.name, "servers": servers, "agents": agents})
+
+        return self._cached(("stack_mcp", project), _file_signature(paths), compute)
 
     def lock(self, project: str) -> dict:
         """`agent.lock`'s entries, parsed as `lock.Lock.load` does, from bytes read with

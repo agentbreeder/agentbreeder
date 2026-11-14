@@ -484,6 +484,7 @@ ROUTES = [
     "/audit",
     "/registry/services",
     "/registry/runtimes/adk",
+    "/mcp",
 ]
 
 
