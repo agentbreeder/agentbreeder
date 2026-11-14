@@ -121,6 +121,7 @@ agentbreeder services logs   [DIR] NAME [--tail N]       # known secret values a
 agentbreeder services usage  [DIR] [--follow] [--json]   # CPU, memory, IO and disk (on main)
 agentbreeder services env    [DIR] [--environment ENV]   # prints the two export lines
 agentbreeder services down   [DIR] [--volumes | --purge] [--yes] [--json]
+agentbreeder services start|stop|restart [DIR] NAME [--yes] [--json]   # one container (on main)
 ```
 
 - **`up`** locks the refs, checks params, references and the gateway's model aliases, prints the
@@ -136,6 +137,11 @@ agentbreeder services down   [DIR] [--volumes | --purge] [--yes] [--json]
   the state directory (generated secrets, operator config, deploy history), so the next `up`
   starts from scratch. Both refuse while a deployment in the stack is still active
   (`agentbreeder remove ID --local --stack .` first).
+- **`start`, `stop` and `restart`** (on `main`) act on one existing container through
+  `docker compose`, without re-rendering or recreating anything. `stop` and `restart` refuse
+  (`SERVICE_IN_USE`) while deployments use the stack, unless `--yes`. Every write (`up`, `down`,
+  `plan`, these three, `cluster up|down`) holds a per-stack lock; a second one fails at once with
+  `SERVICES_BUSY`. See [`commands/services.md`](commands/services.md).
 - Imported variables come from the environment or from `--env-file` (a strict `KEY=value`
   parser; the file is never sourced). Well-known cloud, VCS and CI credentials can't be imported.
 
@@ -338,6 +344,9 @@ reloads it without restarting. The first pin trusts what the upstream serves at 
 (`TOOL_MISSING_UPSTREAM`). `services status` lists both. `services up --repin` shows the diff
 and asks before accepting it, and `--locked` refuses either change (`LOCK_STALE`). A changed
 version, origin, upstream or token endpoint also needs consent again, and its pins are redone.
+
+`agentbreeder mcp grant|revoke AGENT SERVER TOOL…` edits an agent's grant in `stack.yaml` for
+you; see [`mcp`](commands/mcp.md) (on `main`, not in a published preview).
 
 `up` refuses to drop an `mcp:` entry, or narrow a grant, while an active deployment uses it
 (`MCP_GRANT_IN_USE`). Grant files live in `~/.agentbreeder/stacks/<id>/grants/<env>/<server>/`.

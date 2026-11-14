@@ -339,15 +339,28 @@ The server passes on only these checked fields of `invoke --json`'s answer:
 - the model-call and token counts.
 
 It adds the latency it measured. Each reply has a **Turn details** inspector with the tools,
-sources, latency, tokens (prompt and output, over N model calls) and the trace ID as text. A
-trace link waits for #907, which records a Phoenix origin the console can link to; the answer
-keeps a `trace.url` field, null, for it. **Cost** is the turn's cost in USD that
+sources, latency, tokens (prompt and output, over N model calls) and the trace ID as text. There
+is no trace link (the answer's `trace.url` stays null). **Cost** is the turn's cost in USD that
 `runtime/adk@1.2.0` and later report (`cost_usd`, the sum of LiteLLM's per-call estimates; see
 [`cost.md`](cost.md#per-turn-cost-runtimeadk120)), shown in the inspector and its summary, such as
 "$0.000444". The server passes it on only as a finite number from 0 to under 1,000,000, otherwise
 null. Older runtimes don't report it, and neither does 1.2.0 when a call in the turn had no cost
 header: the inspector then says "Not measured" and why. Tested with a fake CLI and with the runtime's
 scripted gateway responses; no live gateway cost has been shown yet.
+
+**Trace spans** (#907, on `main`, not in a published preview): a turn with a trace ID has a
+second disclosure beside Turn details. The first time it is opened, the server runs
+`traces --trace ID --stack DIR --environment ENV --json` (a fixed argv, never cached; see
+[`traces.md`](traces.md)) through `GET /api/projects/ID/traces/TRACE_ID`. It shows the trace in
+one line (status, latency, span count, models, total tokens, tool calls), how the trace was
+attributed to a deployment (`exact` or by time window), and the span tree as nested lists: each
+span's name, kind, status, latency, model, tool and tokens, and its error text. The server passes on
+only those fields, and the Phoenix address, session and turn IDs stay on the server. `traces` never
+reads prompts, replies or tool arguments and results. Error text is redacted and cut, but it is the
+runtime's own text and can quote what the agent was given. At most 4 trace reads run at once
+(`TRACE_BUSY` otherwise). Phoenix can receive a trace a few seconds after the reply, so
+`TRACES_NOT_FOUND` says so and offers **Read again**; a stack without `service/phoenix` says it has
+no traces. Tested with a fake CLI; the panel has not been run against a live Phoenix yet.
 
 A later message continues the conversation's session (`--session`); **New conversation** starts a
 new one. **Customer ID** is optional and sent as `--customer`.

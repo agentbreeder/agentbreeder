@@ -1,0 +1,10 @@
+usage: agentbreeder services stop [-h] [--yes] [--json]
+                                  [DIR] NAME [[DIR] NAME ...]
+
+positional arguments:
+  [DIR] NAME
+
+options:
+  -h, --help  show this help message and exit
+  --yes       Stop it even while deployments use the stack
+  --json      Print the result as JSON

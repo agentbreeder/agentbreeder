@@ -4,15 +4,21 @@
 // S-12: the message goes to the server as JSON and to `invoke` on stdin; the conversation lives
 // only in this module's memory (gone on reload, never in localStorage). Agent output is text
 // through <Text>: no Markdown, no auto-linking, no link built from a reply. A trace id is shown as
-// text; a trace link waits for #907. Cost is the runtime's figure (#906), shown as text.
+// text, and its span tree opens under it on request (#907): `traces --trace ID --json` through the
+// server: names, kinds, models, tokens, tools, latency, status and error text, never prompts,
+// replies or tool arguments.
+// Cost is the runtime's figure (#906), shown as text.
 
 import { href } from "../lib/router.js";
 import { visible } from "../lib/text.js";
 import {
   MAX_MESSAGE,
   addPending,
+  attributionText,
   costText,
   customerProblem,
+  descendants,
+  MAX_SPAN_DEPTH,
   emptyConversation,
   failureText,
   latencyText,
@@ -21,11 +27,16 @@ import {
   pending,
   productionRow,
   settle,
+  spanFacts,
+  spanTree,
   thrownEnvelope,
   tokensText,
+  traceProblemText,
+  tracePath,
+  traceSummary,
   unavailable,
 } from "../lib/tryit.js";
-import { Card, CopyButton, Notice, Text, ViewState, nextId, useConsole } from "../ui/components.js";
+import { Action, Card, CopyButton, Notice, Text, ViewState, nextId, useConsole } from "../ui/components.js";
 import { useView } from "../ui/data.js";
 import { html, useEffect, useRef, useState } from "../ui/preact.js";
 
@@ -158,7 +169,7 @@ function Chat({ project, name }) {
     <${Card} title="Conversation" busy=${waiting}>
       ${count
         ? html`<ol class="transcript" ref=${transcript} aria-label="Conversation turns" tabindex="0" onScroll=${onScroll}>
-            ${conversation.turns.map((turn) => html`<${Turn} key=${turn.id} turn=${turn} name=${name} />`)}
+            ${conversation.turns.map((turn) => html`<${Turn} key=${turn.id} turn=${turn} name=${name} project=${project} />`)}
           </ol>`
         : html`<p class="muted">No messages yet. Ask ${html`<${Text} value=${name} />`} something its evals cover.</p>`}
       <p class="visually-hidden" role="status">${status}</p>
@@ -183,7 +194,7 @@ function Chat({ project, name }) {
   `;
 }
 
-function Turn({ turn, name }) {
+function Turn({ turn, name, project }) {
   return html`<li class=${`turn ${turn.state}`}>
     <div class="bubble you"><span class="who">You</span><p class="turn-text"><${Text} value=${turn.message} /></p></div>
     ${turn.state === "pending" ? html`<div class="bubble agent pending" aria-busy="true"><span class="who"><${Text} value=${name} /></span><p class="muted">Waiting for the reply (up to 3 minutes)…</p></div>` : null}
@@ -193,14 +204,14 @@ function Turn({ turn, name }) {
           <span class="who"><${Text} value=${name} /></span>
           <p class="turn-text"><${Text} value=${turn.turn.reply} /></p>
           ${turn.turn.truncated ? html`<p class="muted small">The reply was longer than the console shows; the rest is cut.</p>` : null}
-          <${Inspector} turn=${turn.turn} />
+          <${Inspector} turn=${turn.turn} project=${project} />
         </div>`
       : null}
   </li>`;
 }
 
 /** The turn's inspector: what the agent used and what the turn took. */
-function Inspector({ turn }) {
+function Inspector({ turn, project }) {
   const trace = turn.trace || {};
   const cost = costText(turn.cost);
   return html`<details class="inspector">
@@ -211,8 +222,73 @@ function Inspector({ turn }) {
       <dt>Latency</dt><dd>${latencyText(turn.latency_ms)} <span class="muted small">(console to reply, through invoke)</span></dd>
       <dt>Tokens</dt><dd>${tokensText(turn.tokens)}${Number.isInteger(turn.model_calls) ? html` <span class="muted small">over ${turn.model_calls} model call${turn.model_calls === 1 ? "" : "s"}</span>` : null}</dd>
       <dt>Cost</dt><dd>${cost ? html`<${Text} value=${cost} /> <span class="muted small">(LiteLLM's estimate, reported by the runtime)</span>` : html`<span class="muted">Not measured: this runtime did not report it (runtime/adk 1.2.0 and later do when every model call had a cost)</span>`}</dd>
-      <dt>Trace</dt><dd>${trace.id ? html`<code><${Text} value=${trace.id} /></code> <${CopyButton} value=${trace.id} label="trace ID" /> <span class="muted small">Find it in Phoenix if this stack runs it; links come later.</span>` : html`<span class="muted">No trace for this turn</span>`}</dd>
+      <dt>Trace</dt><dd>${trace.id ? html`<code><${Text} value=${trace.id} /></code> <${CopyButton} value=${trace.id} label="trace ID" />` : html`<span class="muted">No trace for this turn</span>`}</dd>
       ${turn.model ? html`<dt>Model alias</dt><dd><${Text} value=${turn.model} /></dd>` : null}
     </dl>
+  </details>
+  ${tracePath(project.id, trace.id) ? html`<${TracePanel} path=${tracePath(project.id, trace.id)} />` : null}`;
+}
+
+/** One span and the spans under it, as a nested list. */
+function SpanNode({ node, depth = 0 }) {
+  const { span } = node;
+  // Past MAX_SPAN_DEPTH the rest of the branch is listed flat, so the tree stays readable and
+  // rendering never recurses deeply.
+  const children = depth >= MAX_SPAN_DEPTH ? descendants(node) : node.children;
+  return html`<li>
+    <span class="span-name"><${Text} value=${span.name} /></span> <span class="muted small"><${Text} value=${spanFacts(span)} /></span>
+    ${span.error ? html`<div class="small span-error-text">Error: <${Text} value=${span.error} /></div>` : null}
+    ${children.length ? html`<ul class="span-tree">${children.map((child) => html`<${SpanNode} key=${child.span.span_id} node=${child} depth=${depth + 1} />`)}</ul>` : null}
+  </li>`;
+}
+
+/**
+ * A turn's span tree (#907), read from the server the first time it is opened: `traces --trace
+ * ID --json` through the stack's Phoenix. Phoenix may receive a trace a few seconds after the
+ * reply, so a trace it does not have yet can be read again.
+ */
+function TracePanel({ path }) {
+  const { client } = useConsole();
+  const [state, setState] = useState({ phase: "idle" });
+  const alive = useRef(true);
+  const status = useRef(null);
+  useEffect(() => () => {
+    alive.current = false;
+  }, []);
+  const load = async (retry) => {
+    // "Read again" disappears while reading: focus moves to the status line, which stays.
+    if (retry === true && status.current) status.current.focus();
+    setState({ phase: "loading" });
+    let next;
+    try {
+      const envelope = await client.request(path);
+      next = envelope.error || !envelope.data ? { phase: "failed", problem: envelope.error } : { phase: "loaded", trace: envelope.data };
+    } catch (error) {
+      next = { phase: "failed", problem: thrownEnvelope(error).error };
+    }
+    if (alive.current) setState(next);
+  };
+  const onToggle = (event) => {
+    if (event.currentTarget.open && state.phase === "idle") load(false);
+  };
+  const trace = state.trace;
+  const tree = state.phase === "loaded" ? spanTree(trace.spans) : [];
+  const said = state.phase === "loading" ? "Reading the trace from Phoenix…" : state.phase === "loaded" ? `Trace read: ${trace.spans.length} span${trace.spans.length === 1 ? "" : "s"}.` : "";
+  return html`<details class="trace" onToggle=${onToggle}>
+    <summary>Trace spans <span class="muted small">(from this stack's Phoenix)</span></summary>
+    <div class="trace-body">
+      <p class="muted small trace-status" role="status" tabindex="-1" ref=${status}>${said}</p>
+      ${state.phase === "failed"
+        ? html`<${Notice} notice=${{ tone: "error", text: traceProblemText(state.problem) }} /><${Action} tone="secondary" small=${true} onClick=${() => load(true)}>Read again<//>`
+        : null}
+      ${state.phase === "loaded"
+        ? html`<p><${Text} value=${traceSummary(trace)} /></p>
+            <p class="muted small"><${Text} value=${attributionText(trace)} /> Prompts, replies and tool arguments are never read; error text is the runtime's own and can quote what the agent was given.</p>
+            ${(Array.isArray(trace.notes) ? trace.notes : []).map((note, index) => html`<p class="muted small" key=${index}><${Text} value=${note} /></p>`)}
+            ${tree.length
+              ? html`<ul class="span-tree" aria-label="Spans of this trace">${tree.map((node) => html`<${SpanNode} key=${node.span.span_id} node=${node} />`)}</ul>`
+              : html`<p class="muted">Phoenix returned no spans for this trace.</p>`}`
+        : null}
+    </div>
   </details>`;
 }

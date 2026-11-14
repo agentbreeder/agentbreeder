@@ -1,0 +1,6 @@
+kind: eval
+name: gh-reader-evals
+version: 0.1.0
+description: Starter cases for the gh-reader agent.
+judge: {alias: judge}
+cases: golden.jsonl

@@ -12,11 +12,12 @@ import json
 import shlex
 import socket
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from agentbreeder import env_import, hints, registry, secret_files
+from agentbreeder import env_import, hints, registry, safe_text, secret_files
 from agentbreeder import mcp as mcp_kind
 from agentbreeder.lock import BUILTIN_LABEL
 from agentbreeder.registry import RegistryError
@@ -30,6 +31,7 @@ from agentbreeder.services.schema import ServiceError, Stack, load_stack
 from agentbreeder.services.state import (
     PROJECT_KEY,
     StackState,
+    services_lock,
     stack_id,
     stacks_root,
     write_private,
@@ -51,6 +53,25 @@ def load(project: Path) -> Stack:
     if not path.is_file():
         raise ServiceError("STACK_MISSING", f"no {STACK_FILE} in {project}")
     return load_stack(path)
+
+
+@contextmanager
+def write_lock(project: Path, root: Path | None = None) -> Iterator[str]:
+    """The per-stack S-11 lock (`state.services_lock`) every `services` write runs under; yields
+    the locked stack id. Taken before `Engine()`, which creates the state dir and opens
+    `stack.db`, so a writer that finds the stack busy never recreates a dir a concurrent
+    `down --purge` is deleting. Pair it with `check_locked` once the Engine is open."""
+    project = project.resolve()
+    identifier = stack_id(load(project).name, project)
+    with services_lock(root or stacks_root(), identifier):
+        yield identifier
+
+
+def check_locked(engine: Engine, identifier: str) -> None:
+    """stack.yaml is read twice (for the lock, then by Engine); refuse if its `name:` changed in
+    between, so the lock always covers the state being written."""
+    if engine.state.id != identifier:
+        raise ServiceError("STACK_CHANGED", "stack.yaml changed while starting; run it again")
 
 
 def open_state(project: Path, root: Path | None = None) -> tuple[Stack, StackState]:
@@ -775,6 +796,38 @@ class Engine:
             finally:
                 store.close()
         return active
+
+    def control(self, verb: str, service: str, *, force: bool = False) -> dict:
+        """`services start|stop|restart NAME` (console §4.2): one existing container, through
+        `docker compose`, never a re-render. `stop` and `restart` refuse while the stack has
+        active deployments (SERVICE_IN_USE) unless `force` (the CLI's `--yes`). Returns
+        `{"stack", "service", "action", "state", "health", "in_use"}` read after the action."""
+        relays = {mcp_stack.relay_name(server) for server in self.stack.mcp}
+        if service not in self.stack.services and service not in relays:
+            raise ServiceError("SERVICE_UNKNOWN", "no such service in stack.yaml")
+        self.docker.authorize()
+        if service not in self.docker.containers(self.state):
+            raise ServiceError(
+                "SERVICE_NOT_CREATED",
+                f"{service} has no container; run `agentbreeder services up` first",
+            )
+        in_use = self.active_deployments() if verb in ("stop", "restart") else []
+        if in_use and not force:
+            raise ServiceError(
+                "SERVICE_IN_USE",
+                f"these deployments use the stack: {safe_text.visible(', '.join(in_use))}; add "
+                f"--yes to {verb} {service} anyway",
+            )
+        self.docker.control(self.state, verb, service)
+        info = self.docker.containers(self.state).get(service) or {}
+        return {
+            "stack": self.state.id,
+            "service": service,
+            "action": verb,
+            "state": info.get("state") or "absent",
+            "health": info.get("health") or "",
+            "in_use": in_use,
+        }
 
     def down(self, *, volumes: bool = False, purge: bool = False) -> dict:
         """Stop the stack. `volumes` also deletes its data volumes; `purge` deletes everything

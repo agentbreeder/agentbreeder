@@ -1,0 +1,2 @@
+{"id": "hours", "turns": ["When is support open?"], "expect": {"must_match": ["9"]}, "reference": "Support is open 9am to 5pm Pacific, Monday to Friday."}
+{"id": "unknown", "turns": ["What is Acme's stock price today?"], "expect": {}, "reference": "The agent says it does not know rather than inventing a number."}

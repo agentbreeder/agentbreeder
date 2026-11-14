@@ -61,6 +61,7 @@ COMMAND_MODULES = (
     "agent",
     "secret",
     "services",
+    "mcp",
     "promote",
     "cluster",
     "up",

@@ -98,6 +98,8 @@ def test_the_rules_match_the_cli():
     assert server.EVAL_RUN.endswith(eval_reports.RUN.pattern + ")")
     assert evals.RUN.pattern == eval_reports.RUN.pattern
     assert evals.AGENT.pattern == eval_reports.AGENT.pattern
+    assert evals.RUN.flags == eval_reports.RUN.flags
+    assert evals.AGENT.flags == eval_reports.AGENT.flags
     for name in ("support", "a", "a-b"):
         assert evals.list_argv({"path": "/p"}, "/s", {"agent": [name]})[-2] == name
 
