@@ -393,6 +393,10 @@ a.action { text-decoration: none; display: inline-flex; align-items: center; }
 .mcp-review li + li { margin-top: 8px; }
 .mcp-review .consent { display: flex; gap: 6px; align-items: flex-start; margin-top: 4px; }
 
+/* The Docker-down page blocker (M6 #822, ui/docker.js). */
+.docker-blocker { padding: 12px 16px 0; }
+.docker-blocker .notice.blocker p { margin: 0 0 8px; }
+
 /* Knowledge index status (#830) */
 .index-state { font-weight: 600; }
 .index-state.fresh { color: var(--success); }

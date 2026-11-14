@@ -48,6 +48,23 @@ def test_doctor_json_failure(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)[0]["passed"] is False
 
 
+def test_doctor_only_docker_runs_just_the_engine_check(monkeypatch, capsys):
+    """#822: the console's blocker polls `doctor --json --only docker`, so a hung engine is
+    reported after check_docker's 10 s, not after the compose and PATH checks as well."""
+    for name in ("check_compose", "check_path", "check_legacy"):
+        monkeypatch.setattr(doctor_command, name, lambda: pytest.fail("not only Docker"))
+    monkeypatch.setattr(
+        doctor_command, "check_docker", lambda: [doctor.Check("Docker", False, "Unavailable")]
+    )
+    assert cli.main(["doctor", "--json", "--only", "docker"]) == 1
+    assert [check["name"] for check in json.loads(capsys.readouterr().out)] == ["Docker"]
+    monkeypatch.setattr(
+        doctor_command, "check_docker", lambda: [doctor.Check("Docker", True, "ok")]
+    )
+    assert cli.main(["doctor", "--only", "docker"]) == 0
+    assert capsys.readouterr().out == "PASS Docker: ok\n"
+
+
 def test_validate_missing_file(capsys):
     assert cli.main(["validate", "/does-not-exist/agent.yaml"]) == 2
     assert "Validation failed" in capsys.readouterr().err

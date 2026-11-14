@@ -8,6 +8,7 @@ import { createRouter, pathFrom, titleFor, tokenFrom } from "./lib/router.js";
 import { visible } from "./lib/text.js";
 import { ROUTES } from "./screens/index.js";
 import { Console, Text } from "./ui/components.js";
+import { DockerBlocker, useDocker } from "./ui/docker.js";
 import { html, render, useEffect, useReducer, useRef, useState } from "./ui/preact.js";
 import { Shell, SignedOut, Unreachable } from "./ui/shell.js";
 
@@ -145,6 +146,10 @@ function App({ initial }) {
   const seen = useRef(new Map());
   const finished = useRef(0);
   const scoped = projects.find((p) => p.id === scope) || null;
+  // Docker going down or coming back re-reads the overview, so Home's doctor card follows it.
+  const [docker, retryDocker] = useDocker(client, phase.name === "ready", () => {
+    client.get("/api/overview").then(setOverview, () => {});
+  });
   const [guide, reloadGuide] = useGuide(scoped ? scoped.id : null, scoped ? jobs.version(scoped.id) : 0, phase.name === "ready");
 
   bus.phase = (next) => {
@@ -261,6 +266,8 @@ function App({ initial }) {
       },
     },
     overview,
+    docker,
+    retryDocker,
     projects,
     project,
     guide,
@@ -299,6 +306,7 @@ function App({ initial }) {
   };
   return html`<${Console.Provider} value=${value}>
     ${phase.error ? html`<div class="notice error" role="alert"><${Text} value=${phase.error} /></div>` : null}
+    <${DockerBlocker} docker=${docker} onRetry=${retryDocker} />
     <${Shell} match=${match} />
   <//>`;
 }

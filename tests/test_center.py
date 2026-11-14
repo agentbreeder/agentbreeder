@@ -65,7 +65,22 @@ FAKE_CLI = textwrap.dedent(
     elif argv[:2] == ["audit", "list"] or argv[:2] == ["audit", "verify"]:
         print(json.dumps({{"args": argv}}))
     elif argv[0] == "doctor":
-        print("[]")
+        open(marker + "/doctor-calls", "a").write("x")
+        open(marker + "/doctor-argv", "w").write(json.dumps(argv))
+        if os.path.exists(marker + "/doctor-slow"):
+            time.sleep(30)
+        answer = marker + "/doctor.json"
+        text = open(answer).read() if os.path.exists(answer) else None
+        if os.path.exists(marker + "/doctor-pause"):
+            time.sleep(1)  # after reading: the answer is what Docker was when the check began
+        if text is None:
+            print("[]")
+        else:
+            print(text)
+            if text.startswith("[") and not all(
+                c["passed"] or not c["required"] for c in json.loads(text)
+            ):
+                sys.exit(1)
     elif argv[:2] == ["cluster", "status"]:
         sys.stderr.write("[STACK_NOT_UP] nope\\n")
         sys.exit(2)
@@ -399,6 +414,141 @@ def test_unknown_routes_and_projects(center, cookie):
 def test_overview(center, cookie):
     status, data, _ = api(center, "GET", "/api/overview", cookie=cookie)
     assert status == 200 and data["data"]["jobs"] == [] and "version" in data["data"]
+
+
+def _doctor(tmp_path, passed: bool, message: str = "Cannot reach the engine") -> None:
+    check = {"name": "Docker", "passed": passed, "message": message, "required": True}
+    (tmp_path / "doctor.json").write_text(json.dumps([check, {**check, "name": "PATH"}]))
+
+
+def _fresh(center) -> None:
+    center.docker_seen = None  # past DOCKER_REUSE
+
+
+def test_docker_is_read_live_and_clears_when_it_comes_back(center, cookie, tmp_path):
+    """M6 #822: doctor exits 1 when Docker is down; that answer is the one shown, never the
+    last passing one, and a started engine clears it on the next check."""
+    _doctor(tmp_path, True, "Client and engine are reachable.")
+    data = api(center, "GET", "/api/docker", cookie=cookie)[1]
+    assert data == {
+        "data": {"reachable": True, "message": "Client and engine are reachable."},
+        "error": None,
+        "stale": False,
+    }
+    _doctor(tmp_path, False)
+    _fresh(center)
+    data = api(center, "GET", "/api/docker", cookie=cookie)[1]
+    assert data["data"] == {"reachable": False, "message": "Cannot reach the engine"}
+    assert data["error"] is None and data["stale"] is False
+    # Only the engine check: a hung engine shows after its 10 s, not after every check.
+    assert json.loads((tmp_path / "doctor-argv").read_text()) == [
+        "doctor",
+        "--json",
+        "--only",
+        "docker",
+    ]
+    _doctor(tmp_path, True)
+    _fresh(center)
+    assert api(center, "GET", "/api/docker", cookie=cookie)[1]["data"]["reachable"] is True
+
+
+def test_one_docker_check_serves_every_tab_for_a_few_seconds(center, cookie, tmp_path):
+    _doctor(tmp_path, False)
+    for _ in range(3):
+        assert api(center, "GET", "/api/docker", cookie=cookie)[1]["data"]["reachable"] is False
+    assert (tmp_path / "doctor-calls").read_text() == "x"
+    center.docker_seen = (time.monotonic() - server.DOCKER_REUSE - 1, center.docker_seen[1])
+    api(center, "GET", "/api/docker", cookie=cookie)
+    assert (tmp_path / "doctor-calls").read_text() == "xx"
+    # Retry (`fresh=1`) never takes the shared answer: Docker that just started shows at once.
+    _doctor(tmp_path, True)
+    data = api(center, "GET", "/api/docker?fresh=1", cookie=cookie)[1]
+    assert data["data"]["reachable"] is True
+    assert (tmp_path / "doctor-calls").read_text() == "xxx"
+
+
+def test_no_docker_check_is_unknown_and_a_failed_read_is_an_error(center, cookie, tmp_path):
+    assert api(center, "GET", "/api/docker", cookie=cookie)[1]["data"] == {
+        "reachable": None,
+        "message": "",
+    }
+    (tmp_path / "doctor.json").write_text("not json")
+    _fresh(center)
+    data = api(center, "GET", "/api/docker", cookie=cookie)[1]
+    assert data["data"] is None and data["error"]["code"] == "BAD_OUTPUT"
+
+
+def test_a_burst_of_retries_waits_for_one_check(center, cookie, tmp_path):
+    """Retries that arrive while a check runs never take that check's answer (it started
+    before they asked, so it may have seen Docker before it came back): the first of them runs
+    one new check and the rest take its answer, so N tabs pressing Retry cost two doctor
+    children, not N in a row."""
+    _doctor(tmp_path, False)
+    (tmp_path / "doctor-pause").write_text("")
+    answers = []
+    threads = [
+        threading.Thread(
+            target=lambda: answers.append(
+                api(center, "GET", "/api/docker?fresh=1", cookie=cookie)[1]["data"]
+            )
+        )
+        for _ in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+        time.sleep(0.05)
+    for thread in threads:
+        thread.join()
+    assert answers == [{"reachable": False, "message": "Cannot reach the engine"}] * 4
+    assert (tmp_path / "doctor-calls").read_text() == "xx"
+
+
+def test_a_retry_never_takes_a_check_that_started_before_it(center, cookie, tmp_path):
+    """Docker comes back while a check that saw it down is still running: a Retry clicked
+    then gets a new check, so it clears the blocker instead of repeating the old answer."""
+    _doctor(tmp_path, False)
+    (tmp_path / "doctor-pause").write_text("")
+    first = []
+    running = threading.Thread(
+        target=lambda: first.append(api(center, "GET", "/api/docker", cookie=cookie)[1]["data"])
+    )
+    running.start()
+    time.sleep(0.4)  # the first check has read the scenario (down) and is pausing
+    _doctor(tmp_path, True, "back")
+    retry = api(center, "GET", "/api/docker?fresh=1", cookie=cookie)[1]["data"]
+    running.join()
+    assert first == [{"reachable": False, "message": "Cannot reach the engine"}]
+    assert retry == {"reachable": True, "message": "back"}
+
+
+def test_a_hung_doctor_is_a_timeout_not_a_hang(center, cookie, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DOCKER_TIMEOUT", 1)
+    (tmp_path / "doctor-slow").write_text("")
+    started = time.monotonic()
+    data = api(center, "GET", "/api/docker", cookie=cookie)[1]
+    assert data["data"] is None and data["error"]["code"] == "TIMEOUT"
+    assert time.monotonic() - started < 5
+    assert all(child.poll() is not None for child in center.runner.children)  # tracked, stopped
+
+
+def test_docker_state_reads_only_a_docker_check():
+    assert server.docker_state({"data": "x", "error": None})["error"]["code"] == "BAD_OUTPUT"
+    problem = {"code": "TIMEOUT", "message": "The command timed out"}
+    assert server.docker_state({"data": None, "error": problem})["error"] == problem
+    checks = ["junk", {"name": "Docker", "passed": "yes", "message": 3}]
+    assert server.docker_state({"data": checks, "error": None})["data"] == {
+        "reachable": False,  # only a real true passes
+        "message": "3",
+    }
+
+
+def test_overview_shows_a_failed_docker_check_not_the_last_passing_one(center, cookie, tmp_path):
+    _doctor(tmp_path, True, "fine")
+    first = api(center, "GET", "/api/overview", cookie=cookie)[1]["data"]["doctor"]
+    assert first["data"][0]["passed"] is True
+    _doctor(tmp_path, False)
+    later = api(center, "GET", "/api/overview", cookie=cookie)[1]["data"]["doctor"]
+    assert later["stale"] is False and later["data"][0]["passed"] is False
 
 
 # -- jobs -----------------------------------------------------------------------------------------
@@ -1146,6 +1296,7 @@ def test_only_sign_in_skips_the_session_and_only_job_polls_keep_it_idle():
     assert [(r.method, r.sample) for r in server.ROUTES if r.poll] == [
         ("GET", "/api/activity"),
         ("GET", "/api/jobs/" + "0" * 32),
+        ("GET", "/api/docker"),
     ]
 
 
@@ -1349,7 +1500,7 @@ def test_a_client_that_goes_away_mid_request_leaves_no_traceback(center, cookie,
 
     started, release = threading.Event(), threading.Event()
 
-    def slow(argv, timeout=30, key=None):
+    def slow(argv, timeout=30, key=None, **_):
         started.set()
         release.wait(10)
         return {"data": [], "error": None, "stale": False}

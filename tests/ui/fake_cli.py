@@ -528,7 +528,12 @@ def main(argv: list[str]) -> int:
     elif head == ["knowledge", "status"]:
         return knowledge_status(argv, data)
     elif argv and argv[0] == "doctor":
-        print(json.dumps(data["doctor"]))
+        checks = data["doctor"]
+        if "--only" in argv:  # `--only docker`: the blocker's check
+            checks = [check for check in checks if check["name"] == "Docker"]
+        print(json.dumps(checks))
+        if not all(check["passed"] or not check["required"] for check in checks):
+            return 1  # as the real doctor: a required check failed
     elif argv and argv[0] in ("build", "release", "promote", "reconcile", "remove", "rollback"):
         return job(argv[0], data)
     else:
