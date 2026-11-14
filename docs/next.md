@@ -146,9 +146,12 @@ When several codes apply, the step reports the first in the table's order. Notes
   published version, then `build`. The step is not done while a `path:` ref remains, even if a
   plain `build` succeeded.
 - `LOCK_STALE` (the lock no longer matches `agent.yaml`'s refs, the normal edit loop) is `next`,
-  not blocked: a plain `build` from the CLI fixes it. It has no console action because the
-  console's build job is `build --locked`, which refuses it; the console shows `command` instead. It is
-  reported before `NOT_BUILT` and `BUILD_STALE`, whose Build action would fail on a stale lock.
+  not blocked: a plain `build` fixes it. `fix.action` is `null` because the guide's `build`
+  action is the console's `build --locked` job, which refuses a stale lock. The console instead
+  offers **Build and update agent.lock** for this step and code (the build job with
+  `lock: "update"`, a plain `build`; see `docs/command-center.md`) and hides `note`, which tells
+  a CLI reader to run a plain `build`. It is reported before `NOT_BUILT` and `BUILD_STALE`, whose
+  Build action would fail on a stale lock.
 - `RELEASE_GATE_FAILED`: the latest `release` audit row for the current build's image, eval set
   hash and threshold (the row's `RELEASE_IMAGE`, `RELEASE_EVALSET` and `RELEASE_THRESHOLD`) is
   `eval_failed`. Publishing new evals or changing the threshold makes a new combination, so the
@@ -224,7 +227,7 @@ A stack without a LiteLLM config has `keys` done with empty lists.
 
 | Field | Meaning |
 |---|---|
-| `action` | What a console button does. `services-up`, `build`, `release`, `cluster-up` and `promote` are the console job kinds of the same name (the console supplies the job's arguments itself, including the grant review for `services-up`). `new-agent` (Create starter), `example` (Onboard Northwind), `set-keys` (the key fields of the services form) and `invoke` (Try it) are console actions, not jobs. `null`: no button; show `command` and `note`. Each step allows only the actions in the table above. |
+| `action` | What a console button does. `services-up`, `build`, `release`, `cluster-up` and `promote` are the console job kinds of the same name (the console supplies the job's arguments itself, including the grant review for `services-up`). `new-agent` (Create starter), `example` (Onboard Northwind), `set-keys` (the key fields of the services form) and `invoke` (Try it) are console actions, not jobs. `null`: no button; show `command` and `note` (the one exception is `LOCK_STALE`, above). Each step allows only the actions in the table above. |
 | `command` | The CLI command in the form of the process that ran `next` (`agentbreeder`, `npx agentbreeder@<ver>`, `uvx --from … agentbreeder` or `python -m agentbreeder`), one line, every interpolated value shell-quoted, values only as placeholders (`<your key>`). **Display only**: neither the CLI nor the console runs it. |
 | `note` | One extra line, e.g. `export GEMINI_API_KEY=<your key>` or a `doctor` remedy. |
 | `url` | A link from a fixed table built into the CLI (the provider key pages `https://aistudio.google.com/apikey`, `https://platform.claude.com/settings/keys`, `https://platform.openai.com/api-keys` and `https://openrouter.ai/keys`), never from project, registry or state content. |

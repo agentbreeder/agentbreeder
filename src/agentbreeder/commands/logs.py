@@ -138,15 +138,12 @@ def add_level(command, prefix: str = "Only") -> None:
     )
 
 
-def _fail(args, error: LogsError) -> int:
-    print(str(error), file=sys.stderr)
-    if args.json:
-        message = str(error).removeprefix(f"[{error.code}] ")
-        body = {"code": error.code, "message": message}
-        # One line under --follow, so an NDJSON reader can parse every line.
-        indent = None if getattr(args, "follow", False) else 2
-        print(json.dumps({"schema_version": SCHEMA_VERSION, "error": body}, indent=indent))
-    return 2
+def _fail(args, error) -> int:
+    """A LogsError or ServiceError through `cli.fail`: one `[CODE] message` line on stderr
+    (control characters and `\\n` escaped, so a multi-line Docker or kubectl message cannot
+    forge a later `[CODE]` line) and, with `--json`, the error object (one line under
+    `--follow`)."""
+    return cli.fail(args, error.code, str(error))
 
 
 def run(args) -> int:
