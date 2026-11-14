@@ -92,6 +92,9 @@ DEFAULT = {
     # `args` and `error`. Every call's argv is appended to `tool-log-calls.jsonl` in the fake
     # directory, one line per call (reads run concurrently, so no read-modify-write).
     "tool_log": {},
+    # `services status --json`'s `mcp` part (the MCP screen, #831): {server: {state, pinned,
+    # changed, missing, unpinned, error}}, as `Engine._mcp_status` answers it.
+    "mcp_status": {},
 }
 
 TOOL_CALLS = [
@@ -353,7 +356,7 @@ def main(argv: list[str]) -> int:
             return 2
         print(json.dumps({"digest": DIGEST, "text": GRANT, "keys": data["keys"], "mcp": []}))
     elif head == ["services", "status"]:
-        print(json.dumps({"services": data["services"]}))
+        print(json.dumps({"services": data["services"], "mcp": data["mcp_status"]}))
     elif head == ["services", "env"]:
         print("export AGENTBREEDER_STATE_DIR=/nonexistent/fake-state")
     elif head == ["services", "logs"] or (argv and argv[0] == "logs"):
